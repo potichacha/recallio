@@ -1,14 +1,12 @@
 import { screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
-import { fakeSession, renderAt, stubApi } from '../test/render'
+import { fakeSession, renderAt, SIGNED_IN_API, stubApi } from '../test/render'
 
 describe('AuthCallbackPage', () => {
   it('goes back to the page requested before signing in', async () => {
     stubApi({
       '/api/v1/themes': { body: [] },
-      '/api/v1/me': {
-        body: { id: 'u1', displayName: 'Alice', timezone: 'Europe/Paris', roles: [] },
-      },
+      ...SIGNED_IN_API,
     })
 
     const router = renderAt(

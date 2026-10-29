@@ -1,7 +1,7 @@
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
-import { fakeSession, renderAt, sentRequests, stubApi } from '../test/render'
+import { fakeSession, renderAt, sentRequests, SIGNED_IN_API, stubApi } from '../test/render'
 
 const PROFILE = {
   id: 'u1',
@@ -34,6 +34,7 @@ describe('ProfilePage', () => {
 
   it('saves the new preferences', async () => {
     const fetchMock = stubApi({
+      ...SIGNED_IN_API,
       '/api/v1/me': { body: PROFILE },
       'PUT /api/v1/me': { body: { ...PROFILE, displayName: 'Alice M.' } },
     })
@@ -51,6 +52,7 @@ describe('ProfilePage', () => {
 
   it('shows the error returned by the API', async () => {
     stubApi({
+      ...SIGNED_IN_API,
       '/api/v1/me': { body: PROFILE },
       'PUT /api/v1/me': {
         status: 422,

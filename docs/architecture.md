@@ -133,6 +133,33 @@ flowchart LR
 Le module `review` ne lit aucune table des autres modules : il passe par `content.CardDirectory` et
 `user.CurrentUser`, et ses tables n'ont pas de clé étrangère vers celles des autres modules.
 
+Il publie l'événement `review.CardReviewed` (package racine, API publique) quand une réponse est enregistrée pour la
+première fois.
+
+### Module `gamification` (en place)
+
+```mermaid
+flowchart LR
+    rec["review.ReviewRecordingService"] -- "CardReviewed<br/>(événement CDI synchrone)" --> obs["ActivityRecorder"]
+    obs --> rules["ScoringRules<br/>(domaine pur)"]
+    obs --> act[("daily_activity")]
+    obs --> ledger[("points_ledger<br/>append-only")]
+    pwa["PWA (en-tête, /review)"] -- "GET /api/v1/me/progress" --> prog["ProgressService"]
+    prog --> streaks["Streaks<br/>(domaine pur)"]
+    prog --> act
+    prog --> ledger
+```
+
+| Élément | Rôle |
+|---|---|
+| `domain.ScoringRules` | Barème : mêmes points pour chaque révision, bonus une fois par jour à l'objectif atteint. |
+| `domain.Streaks` | Jours consécutifs avec l'objectif atteint ; un jour manqué remet à zéro. |
+| `application.ActivityRecorder` | Observe `CardReviewed` dans la transaction de la révision (ADR 0012). |
+| `application.ProgressService` | Points, streak et objectif du jour, dans le fuseau de l'utilisateur. |
+| `api.ProgressResource` | `GET /api/v1/me/progress`. |
+
+Les dépendances entre modules vont dans un seul sens : `gamification` → `review` (événement) → `content`, `user`.
+
 Le module transverse `platform` fournit les identifiants (`IdGenerator`, UUID v7), l'horloge (`Clock`),
 la pagination (`Page`) et la traduction des erreurs en Problem Details (RFC 9457).
 
