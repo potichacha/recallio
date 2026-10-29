@@ -47,3 +47,11 @@ On choisit l'option 3.
   annotations ou des exclusions ciblées.
 - 🔁 Si la configuration devient un frein récurrent, on pourra passer NullAway en
   avertissement plutôt qu'en erreur, via un nouvel ADR.
+
+## Note d'implémentation (2026-10-29)
+
+Plutôt qu'un `package-info.java` annoté `@NullMarked` dans chaque package, NullAway est
+configuré avec `AnnotatedPackages=com.recallio` : tout le code sous `com.recallio` est
+vérifié, sous-packages compris, sans fichier à ajouter (on ne risque pas d'oublier un
+package). Le mode JSpecify est activé et `@Nullable` vient de `org.jspecify.annotations`.
+Les flags `--add-exports` nécessaires à Error Prone sont dans `backend/.mvn/jvm.config`.
