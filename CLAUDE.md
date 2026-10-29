@@ -70,7 +70,7 @@ Il est impossible d'empêcher totalement l'usage d'une IA ou d'internet dans un 
 | Frontend | **React + TypeScript + Vite**, PWA | TanStack Query (appels API), React Router, Tailwind CSS, client API **généré** depuis l'OpenAPI |
 | Tests backend | JUnit 6, AssertJ, Mockito, `@QuarkusTest`, REST Assured, **Testcontainers** (via Dev Services), **ArchUnit** | |
 | Tests frontend | Vitest, Testing Library ; Playwright pour quelques parcours de bout en bout | |
-| Qualité | Spotless (formatage), Error Prone + NullAway avec JSpecify (optionnel, à décider en phase 0), ESLint + Prettier côté front | |
+| Qualité | Spotless (formatage), Error Prone + NullAway avec JSpecify (dès la phase 0, voir ADR 0004), ESLint + Prettier côté front | |
 | CI | **GitHub Actions** | build, tests, analyse, image Docker |
 | Conteneurs | Docker, `docker compose` pour le local | une image backend, une image frontend (fichiers statiques servis par un serveur web) |
 | Hébergement | PaaS ou VPS européen (Clever Cloud, Scaleway ou OVHcloud), PostgreSQL managé | décision à prendre en phase 1, consignée en ADR |
@@ -131,7 +131,7 @@ Si une règle devient gênante, on en discute et on consigne l'exception dans un
 
 ### 4.4 API
 - REST, ressources au pluriel, codes HTTP corrects, pagination bornée côté serveur.
-- **Contract-first** : la spécification OpenAPI vit dans le dépôt (`backend/src/main/openapi/` ou équivalent) et sert à générer le client TypeScript du frontend. Toute évolution de l'API passe par une modification du contrat. (Alternative à discuter en phase 0 : code-first avec génération de la spec ; dans les deux cas, le client front est généré, jamais écrit à la main.)
+- **Code-first** (voir ADR 0003) : la spécification OpenAPI est générée depuis les ressources annotées par smallrye-openapi, exportée et versionnée dans le dépôt (`backend/src/main/openapi/` ou équivalent), puis sert à générer le client TypeScript du frontend. Toute évolution de l'API apparaît dans le diff de la spec, que la CI vérifie à jour. Le client front est généré, jamais écrit à la main.
 - Versioning par URI (`/api/v1/...`) dès le départ.
 - Les endpoints qui modifient la progression (enregistrer une réponse) sont **idempotents** (identifiant de requête côté client) pour supporter les retries sur mobile.
 
@@ -284,13 +284,13 @@ Exécution de code dans un bac à sable isolé (Judge0 ou Piston), correction de
 ## 10. Décisions encore ouvertes
 
 À trancher au moment indiqué, avec un ADR :
-1. Contract-first OpenAPI ou génération de la spec depuis le code (phase 0).
-2. NullAway/Error Prone activés dès le départ ou plus tard (phase 0).
+1. ~~Contract-first OpenAPI ou génération de la spec depuis le code (phase 0).~~ **Tranché** : code-first (ADR 0003).
+2. ~~NullAway/Error Prone activés dès le départ ou plus tard (phase 0).~~ **Tranché** : dès la phase 0 (ADR 0004).
 3. Type des identifiants : UUID v7 ou séquences (phase 1, avant la première migration métier).
 4. FSRS implémenté soi-même ou bibliothèque existante (phase 1).
 5. Fournisseur OIDC de production : managé (Zitadel Cloud, Clerk, Auth0...) ou Keycloak hébergé (phase 1, avant le déploiement).
 6. Hébergeur (phase 1).
-7. Nom du projet.
+7. Nom du projet. **Provisoire** : Recallio (ADR 0005), à confirmer avant le premier déploiement public.
 
 ---
 
