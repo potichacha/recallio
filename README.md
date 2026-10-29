@@ -4,7 +4,7 @@ Application web (PWA) de révision des entretiens techniques par répétition es
 
 ## Prérequis
 
-- JDK 21 (Temurin)
+- JDK 25 (Temurin)
 - Node.js 22+ et npm
 - Docker (les Dev Services de Quarkus lancent PostgreSQL et Keycloak)
 

@@ -62,7 +62,7 @@ Il est impossible d'empêcher totalement l'usage d'une IA ou d'internet dans un 
 
 | Domaine | Choix | Remarque |
 |---|---|---|
-| Langage backend | **Java 21** (LTS, voir ADR 0006) | records pour les DTO et value objects, pas de Lombok |
+| Langage backend | **Java 25** (LTS, voir ADR 0007) | records pour les DTO et value objects, pas de Lombok |
 | Framework backend | **Quarkus** (dernière version stable 3.x) | Quarkus REST, Hibernate ORM (sans Panache active record, voir 4.3), Hibernate Validator, SmallRye Health, OpenAPI, Micrometer |
 | Build | **Maven** avec le wrapper `mvnw`, multi-modules si nécessaire | versions centralisées dans le pom parent |
 | Base de données | **PostgreSQL** | migrations **Flyway**, jamais `generation` automatique du schéma hors tests |
@@ -117,7 +117,7 @@ Règles (vérifiées par des tests **ArchUnit**) :
 Si une règle devient gênante, on en discute et on consigne l'exception dans un ADR, on ne la contourne pas en silence.
 
 ### 4.3 Conventions de code
-- Java 21 moderne : `record`, `sealed` + `switch` exhaustif pour les types de cartes et les résultats, `var` quand le type est évident, `Optional` uniquement en type de retour.
+- Java 25 moderne : `record`, `sealed` + `switch` exhaustif pour les types de cartes et les résultats, `var` quand le type est évident, `Optional` uniquement en type de retour.
 - Injection par **constructeur**, champs `final`.
 - Entités JPA séparées du modèle de domaine **si** le domaine est riche (module `review`) ; acceptable de mapper directement pour les modules simples. Décision par module, documentée.
 - Pas de Panache active record (logique de persistance dans les entités) ; si Panache est utilisé, en mode **repository**.

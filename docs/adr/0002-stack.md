@@ -1,6 +1,6 @@
 # 0002. Stack technique
 
-- Statut : accepté (ligne « Langage » remplacée par l'ADR 0006 : Java 21)
+- Statut : accepté (ligne « Langage » : voir ADR 0007, Java 25)
 - Date : 2026-10-20
 
 ## Contexte
