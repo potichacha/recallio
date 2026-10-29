@@ -15,6 +15,8 @@ import jakarta.inject.Inject;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
@@ -83,6 +85,30 @@ class ProgressResourceTest {
         review(requestId, card).statusCode(200);
 
         progress().body("totalPoints", is(10)).body("cardsToday", is(1));
+    }
+
+    @Test
+    @TestSecurity(user = "alice")
+    @OidcSecurity(claims = @Claim(key = "sub", value = "progress-activity"))
+    void shouldListTheRecentDaysIncludingThoseWithoutReviews() {
+        review(UUID.randomUUID(), cardIds().getFirst());
+
+        given().queryParam("days", 3)
+                .get(PROGRESS + "/activity")
+                .then()
+                .statusCode(200)
+                .body("size()", is(3))
+                .body("[0].cardsReviewed", is(0))
+                .body("[2].day", equalTo(LocalDate.now(ZoneOffset.UTC).toString()))
+                .body("[2].cardsReviewed", is(1))
+                .body("[2].goalReached", is(false));
+    }
+
+    @Test
+    @TestSecurity(user = "alice")
+    @OidcSecurity(claims = @Claim(key = "sub", value = "progress-activity-bounds"))
+    void shouldBoundTheNumberOfDays() {
+        given().queryParam("days", 365).get(PROGRESS + "/activity").then().statusCode(400);
     }
 
     private static ValidatableResponse progress() {

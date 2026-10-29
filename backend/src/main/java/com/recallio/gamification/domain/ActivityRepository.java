@@ -18,6 +18,11 @@ public interface ActivityRepository {
     /** Nombre de cartes révisées ce jour-là (0 si aucune). */
     int cardsReviewed(UUID userId, LocalDate day);
 
+    /** Les jours actifs entre {@code from} et {@code to} inclus ; les jours sans révision sont absents. */
+    List<DailyActivity> between(UUID userId, LocalDate from, LocalDate to);
+
     /** Jours où l'objectif a été atteint (au plus un par jour : quelques centaines de lignes par an). */
     List<LocalDate> goalDays(UUID userId);
+
+    record DailyActivity(LocalDate day, int cardsReviewed, boolean goalReached) {}
 }

@@ -53,6 +53,24 @@ public class JpaActivityRepository implements ActivityRepository {
     }
 
     @Override
+    public List<DailyActivity> between(UUID userId, LocalDate from, LocalDate to) {
+        List<?> rows = entityManager
+                .createNativeQuery("""
+                        select local_date, cards_reviewed, goal_reached from daily_activity
+                        where user_id = :userId and local_date between :from and :to
+                        order by local_date
+                        """)
+                .setParameter("userId", userId)
+                .setParameter("from", from)
+                .setParameter("to", to)
+                .getResultList();
+        return rows.stream()
+                .map(Object[].class::cast)
+                .map(row -> new DailyActivity(toLocalDate(row[0]), ((Number) row[1]).intValue(), (Boolean) row[2]))
+                .toList();
+    }
+
+    @Override
     public List<LocalDate> goalDays(UUID userId) {
         List<?> rows = entityManager
                 .createNativeQuery("""
@@ -63,5 +81,10 @@ public class JpaActivityRepository implements ActivityRepository {
                 .setParameter("userId", userId)
                 .getResultList();
         return rows.stream().map(LocalDate.class::cast).toList();
+    }
+
+    /** Selon le pilote, une colonne {@code date} arrive en {@link LocalDate} ou en {@link java.sql.Date}. */
+    private static LocalDate toLocalDate(Object value) {
+        return value instanceof java.sql.Date date ? date.toLocalDate() : (LocalDate) value;
     }
 }

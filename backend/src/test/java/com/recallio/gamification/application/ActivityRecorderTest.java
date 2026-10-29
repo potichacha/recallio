@@ -102,6 +102,11 @@ class ActivityRecorderTest {
         }
 
         @Override
+        public List<DailyActivity> between(UUID userId, LocalDate from, LocalDate to) {
+            return List.of();
+        }
+
+        @Override
         public List<LocalDate> goalDays(UUID userId) {
             return cards.entrySet().stream()
                     .filter(entry -> entry.getValue() >= DAILY_GOAL)

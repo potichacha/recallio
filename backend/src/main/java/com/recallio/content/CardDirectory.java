@@ -22,6 +22,9 @@ public interface CardDirectory {
     /** La version courante des cartes actives demandées, dans l'ordre de {@code cardIds}. */
     List<CardSnapshot> currentVersions(Collection<UUID> cardIds);
 
+    /** Tous les thèmes, dans l'ordre du programme, avec les identifiants de leurs cartes actives. */
+    List<ThemeCards> activeCardsByTheme();
+
     default Optional<CardSnapshot> activeCard(UUID cardId) {
         return currentVersions(List.of(cardId)).stream().findFirst();
     }
@@ -34,6 +37,13 @@ public interface CardDirectory {
 
         public static CardFilter all() {
             return new CardFilter(null, null);
+        }
+    }
+
+    record ThemeCards(String slug, String title, List<UUID> cardIds) {
+
+        public ThemeCards {
+            cardIds = List.copyOf(cardIds);
         }
     }
 
