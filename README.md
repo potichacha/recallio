@@ -10,7 +10,17 @@ Application web (PWA) de révision des entretiens techniques par répétition es
 
 ## Lancer en local
 
-_À compléter au fil de la phase 0._
+Backend (http://localhost:8080) :
+
+```shell
+cd backend
+./mvnw quarkus:dev
+```
+
+Le premier démarrage télécharge les images PostgreSQL et Keycloak (Dev Services) : compter
+une à deux minutes. Docker Desktop doit être lancé.
+
+Vérification : `curl http://localhost:8080/api/v1/health`
 
 ## Documentation
 
