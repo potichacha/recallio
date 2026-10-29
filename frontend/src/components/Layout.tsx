@@ -1,7 +1,42 @@
-import { NavLink, Outlet } from 'react-router'
+import { NavLink, Outlet, useLocation } from 'react-router'
+import { useSession } from '../auth/session'
 
 function navClass({ isActive }: { isActive: boolean }) {
   return isActive ? 'font-semibold text-indigo-600' : 'text-slate-600 hover:text-indigo-600'
+}
+
+function SessionControls() {
+  const session = useSession()
+  const location = useLocation()
+
+  if (session.status === 'loading') {
+    return null
+  }
+  if (session.status === 'anonymous') {
+    return (
+      <button
+        type="button"
+        onClick={() => session.login(location.pathname + location.search)}
+        className="rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700"
+      >
+        Se connecter
+      </button>
+    )
+  }
+  return (
+    <div className="flex items-center gap-4">
+      <NavLink to="/profile" className={navClass}>
+        {session.userName ?? 'Mon profil'}
+      </NavLink>
+      <button
+        type="button"
+        onClick={session.logout}
+        className="text-sm text-slate-500 hover:text-slate-800"
+      >
+        Se déconnecter
+      </button>
+    </div>
+  )
 }
 
 export function Layout() {
@@ -15,6 +50,9 @@ export function Layout() {
           <NavLink to="/themes" className={navClass}>
             Thèmes
           </NavLink>
+          <div className="ml-auto">
+            <SessionControls />
+          </div>
         </nav>
       </header>
       <main className="mx-auto max-w-3xl px-4 py-6">

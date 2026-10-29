@@ -44,6 +44,9 @@ npm run dev
 
 La page d'accueil affiche « API : UP » quand le backend répond.
 
+Comptes de test (royaume Keycloak `recallio`, en dev comme dans le compose) : `alice` / `alice` (rôle `admin`)
+et `bob` / `bob`. En dev, Keycloak tourne sur http://localhost:8180 (console d'administration : `admin` / `admin`).
+
 ## Lancer avec Docker (comme en production)
 
 Construit les images et lance PostgreSQL, Keycloak, le backend et le front :
@@ -75,6 +78,8 @@ mises à jour de dépendances.
 |---|---|
 | `Port 8080 seems to be in use` | Une autre application occupe le port : l'arrêter, ou lancer `./mvnw quarkus:dev -Dquarkus.http.port=8090` puis le front avec la variable `BACKEND_URL=http://localhost:8090`. |
 | Dev Services ne démarre pas | Docker Desktop n'est pas lancé. |
+| `Port 8180` déjà utilisé au démarrage du backend | Le Keycloak du compose tourne encore : `docker compose -f infra/compose.yaml down`. |
+| Connexion refusée par l'API (401) avec un jeton valide | Le jeton doit avoir l'audience `recallio-api` : vérifier le mapper du client dans le royaume. |
 | `npm test` plante (`undici`, `zlib`) ou avertissements `EBADENGINE` | Version de Node non LTS : installer Node 24 (`frontend/.nvmrc`). |
 | La CI échoue sur `openapi.yaml` | L'API a changé : lancer `./mvnw package` dans `backend/` et committer la spec. |
 

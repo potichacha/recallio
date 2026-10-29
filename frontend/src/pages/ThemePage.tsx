@@ -1,5 +1,6 @@
 import { Link, useParams, useSearchParams } from 'react-router'
-import { ApiError, useTheme, useThemeCards } from '../api/content'
+import { useTheme, useThemeCards } from '../api/content'
+import { ApiError } from '../api/errors'
 import { CardItem } from './CardItem'
 
 export function ThemePage() {
