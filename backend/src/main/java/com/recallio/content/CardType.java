@@ -1,4 +1,4 @@
-package com.recallio.content.domain;
+package com.recallio.content;
 
 /** Format d'une carte (CLAUDE.md, section 5.3). Stocké tel quel en base : ne pas renommer une valeur existante. */
 public enum CardType {

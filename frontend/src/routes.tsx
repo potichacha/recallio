@@ -6,6 +6,7 @@ import { HomePage } from './pages/HomePage'
 import { ProfilePage } from './pages/ProfilePage'
 import { ThemePage } from './pages/ThemePage'
 import { ThemesPage } from './pages/ThemesPage'
+import { ReviewPage } from './review/ReviewPage'
 
 /** Routes de l'application, partagées par le routeur du navigateur et celui des tests. */
 export const routes: RouteObject[] = [
@@ -15,6 +16,14 @@ export const routes: RouteObject[] = [
       { index: true, element: <HomePage /> },
       { path: 'themes', element: <ThemesPage /> },
       { path: 'themes/:slug', element: <ThemePage /> },
+      {
+        path: 'review',
+        element: (
+          <RequireAuth>
+            <ReviewPage />
+          </RequireAuth>
+        ),
+      },
       {
         path: 'profile',
         element: (

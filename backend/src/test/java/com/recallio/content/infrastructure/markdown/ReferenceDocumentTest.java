@@ -2,7 +2,7 @@ package com.recallio.content.infrastructure.markdown;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.recallio.content.domain.CardType;
+import com.recallio.content.CardType;
 import com.recallio.content.domain.importing.CatalogSnapshot;
 import com.recallio.content.domain.importing.ImportPlanner;
 import com.recallio.content.domain.source.ParsedContent;

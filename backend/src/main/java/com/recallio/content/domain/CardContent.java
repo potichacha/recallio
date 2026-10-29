@@ -1,5 +1,7 @@
 package com.recallio.content.domain;
 
+import com.recallio.content.CardType;
+
 /**
  * Contenu d'une carte, selon son format. Les textes sont en Markdown.
  *

@@ -1,5 +1,6 @@
 package com.recallio.platform.api;
 
+import com.recallio.platform.domain.ConflictException;
 import com.recallio.platform.domain.DomainException;
 import com.recallio.platform.domain.ResourceNotFoundException;
 import jakarta.validation.ConstraintViolationException;
@@ -14,11 +15,14 @@ public class ProblemExceptionMappers {
 
     @ServerExceptionMapper
     public Response mapDomainException(DomainException exception) {
-        int status = exception instanceof ResourceNotFoundException
-                ? Response.Status.NOT_FOUND.getStatusCode()
-                : UNPROCESSABLE_CONTENT;
-        String title = exception instanceof ResourceNotFoundException ? "Ressource introuvable" : "Requête refusée";
-        return problem(ProblemDetail.of(status, title, exception.code(), exception.detail()));
+        record Outcome(int status, String title) {}
+        var outcome = switch (exception) {
+            case ResourceNotFoundException _ ->
+                new Outcome(Response.Status.NOT_FOUND.getStatusCode(), "Ressource introuvable");
+            case ConflictException _ -> new Outcome(Response.Status.CONFLICT.getStatusCode(), "Conflit");
+            default -> new Outcome(UNPROCESSABLE_CONTENT, "Requête refusée");
+        };
+        return problem(ProblemDetail.of(outcome.status(), outcome.title(), exception.code(), exception.detail()));
     }
 
     @ServerExceptionMapper

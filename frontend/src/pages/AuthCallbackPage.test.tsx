@@ -4,7 +4,12 @@ import { fakeSession, renderAt, stubApi } from '../test/render'
 
 describe('AuthCallbackPage', () => {
   it('goes back to the page requested before signing in', async () => {
-    stubApi({ '/api/v1/themes': { body: [] } })
+    stubApi({
+      '/api/v1/themes': { body: [] },
+      '/api/v1/me': {
+        body: { id: 'u1', displayName: 'Alice', timezone: 'Europe/Paris', roles: [] },
+      },
+    })
 
     const router = renderAt(
       '/auth/callback?code=abc&state=xyz',

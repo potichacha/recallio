@@ -126,6 +126,11 @@ components:
       - cardsReactivated
       - duplicates
       - issues
+    Instant:
+      type: string
+      format: date-time
+      examples:
+      - 2022-03-10T16:15:50Z
     InvalidParam:
       type: object
       properties:
@@ -136,6 +141,13 @@ components:
       required:
       - name
       - reason
+    LearningState:
+      type: string
+      enum:
+      - NEW
+      - LEARNING
+      - REVIEW
+      - RELEARNING
     ProblemDetail:
       required:
       - type
@@ -180,6 +192,123 @@ components:
       - displayName
       - timezone
       - roles
+    QueuedCard:
+      type: object
+      properties:
+        cardId:
+          $ref: "#/components/schemas/UUID"
+        type:
+          $ref: "#/components/schemas/CardType"
+        themeSlug:
+          type: string
+        themeTitle:
+          type: string
+        prompt:
+          type: string
+          description: "Recto, en Markdown"
+        answer:
+          type: string
+          description: "Verso, en Markdown"
+        state:
+          $ref: "#/components/schemas/LearningState"
+        previews:
+          type: array
+          items:
+            $ref: "#/components/schemas/RatingPreview"
+          description: Échéance obtenue pour chacune des quatre notes
+      required:
+      - cardId
+      - type
+      - themeSlug
+      - themeTitle
+      - prompt
+      - answer
+      - state
+      - previews
+    Rating:
+      type: string
+      enum:
+      - AGAIN
+      - HARD
+      - GOOD
+      - EASY
+    RatingPreview:
+      type: object
+      properties:
+        rating:
+          $ref: "#/components/schemas/Rating"
+        dueAt:
+          $ref: "#/components/schemas/Instant"
+      required:
+      - rating
+      - dueAt
+    RecordReviewRequest:
+      type: object
+      required:
+      - requestId
+      - cardId
+      - rating
+      properties:
+        requestId:
+          description: "Identifiant généré par le client, réutilisé tel quel si la\
+            \ requête est renvoyée"
+          type: string
+          $ref: "#/components/schemas/UUID"
+        cardId:
+          $ref: "#/components/schemas/UUID"
+        rating:
+          $ref: "#/components/schemas/Rating"
+        elapsedMs:
+          type:
+          - integer
+          - "null"
+          format: int32
+          description: Temps de réflexion en millisecondes
+          maximum: 3600000
+          minimum: 0
+    ReviewQueue:
+      type: object
+      properties:
+        cards:
+          type: array
+          items:
+            $ref: "#/components/schemas/QueuedCard"
+        dueCount:
+          type: integer
+          format: int32
+          description: "Cartes dues au total, la file peut en contenir moins"
+        newCount:
+          type: integer
+          format: int32
+          description: Cartes nouvelles encore disponibles aujourd'hui
+        nextDueAt:
+          description: Prochaine échéance quand plus rien n'est dû
+          type:
+          - string
+          - "null"
+          anyOf:
+          - $ref: "#/components/schemas/Instant"
+          - type: "null"
+      required:
+      - cards
+      - dueCount
+      - newCount
+    ReviewResult:
+      type: object
+      properties:
+        cardId:
+          $ref: "#/components/schemas/UUID"
+        rating:
+          $ref: "#/components/schemas/Rating"
+        state:
+          $ref: "#/components/schemas/LearningState"
+        dueAt:
+          $ref: "#/components/schemas/Instant"
+      required:
+      - cardId
+      - rating
+      - state
+      - dueAt
     Theme:
       type: object
       properties:
@@ -261,6 +390,8 @@ tags:
 - name: Contenu
   description: Thèmes et cartes publiés
 - name: Profil
+- name: Révision
+  description: "File de révision et réponses, planifiées par FSRS"
 - name: MicroProfile Health
   description: Check the health of the application
 paths:
@@ -347,6 +478,98 @@ paths:
                 $ref: "#/components/schemas/Profile"
         "401":
           description: Non authentifié
+      security:
+      - SecurityScheme: []
+  /api/v1/review-queue:
+    get:
+      summary: "Cartes à réviser maintenant : les cartes dues, puis des nouvelles\
+        \ dans la limite du jour"
+      operationId: getReviewQueue
+      tags:
+      - Révision
+      parameters:
+      - name: size
+        in: query
+        schema:
+          type: integer
+          format: int32
+          maximum: 50
+          minimum: 1
+          default: 20
+      - description: "Slug du thème, pour ne réviser que ce thème"
+        name: theme
+        in: query
+        schema:
+          type: string
+      - description: "Format de carte, pour ne réviser que ce format"
+        name: type
+        in: query
+        schema:
+          $ref: "#/components/schemas/CardType"
+      responses:
+        "200":
+          description: La file de révision
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReviewQueue"
+        "400":
+          description: Paramètre invalide
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+        "404":
+          description: Thème inconnu
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+      security:
+      - SecurityScheme: []
+  /api/v1/reviews:
+    post:
+      summary: Enregistre la note donnée à une carte (idempotent grâce à requestId)
+      operationId: recordReview
+      tags:
+      - Révision
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RecordReviewRequest"
+        required: true
+      responses:
+        "201":
+          description: Révision enregistrée
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReviewResult"
+        "200":
+          description: "Requête déjà reçue : le résultat enregistré la première fois"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReviewResult"
+        "400":
+          description: Requête invalide
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+        "404":
+          description: Carte inconnue ou retirée
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+        "409":
+          description: requestId déjà utilisé pour une autre révision
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
       security:
       - SecurityScheme: []
   /api/v1/themes:

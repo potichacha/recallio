@@ -1,6 +1,6 @@
 package com.recallio.content.api;
 
-import com.recallio.content.domain.CardType;
+import com.recallio.content.CardType;
 import com.recallio.content.domain.catalog.ContentCatalog.CardView;
 import com.recallio.content.domain.catalog.ContentCatalog.ThemeSummary;
 import com.recallio.content.domain.importing.ImportReport;

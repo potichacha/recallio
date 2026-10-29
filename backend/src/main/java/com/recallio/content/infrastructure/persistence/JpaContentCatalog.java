@@ -1,6 +1,6 @@
 package com.recallio.content.infrastructure.persistence;
 
-import com.recallio.content.domain.CardType;
+import com.recallio.content.CardType;
 import com.recallio.content.domain.catalog.ContentCatalog;
 import com.recallio.platform.domain.Page;
 import jakarta.enterprise.context.ApplicationScoped;

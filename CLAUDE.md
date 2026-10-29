@@ -287,7 +287,7 @@ Exécution de code dans un bac à sable isolé (Judge0 ou Piston), correction de
 1. ~~Contract-first OpenAPI ou génération de la spec depuis le code (phase 0).~~ **Tranché** : code-first (ADR 0003).
 2. ~~NullAway/Error Prone activés dès le départ ou plus tard (phase 0).~~ **Tranché** : dès la phase 0 (ADR 0004).
 3. ~~Type des identifiants : UUID v7 ou séquences (phase 1, avant la première migration métier).~~ **Tranché** : UUID v7 (ADR 0008).
-4. FSRS implémenté soi-même ou bibliothèque existante (phase 1).
+4. ~~FSRS implémenté soi-même ou bibliothèque existante (phase 1).~~ **Tranché** : FSRS-6 implémenté dans le domaine (ADR 0011).
 5. Fournisseur OIDC de production : managé (Zitadel Cloud, Clerk, Auth0...) ou Keycloak hébergé (phase 1, avant le déploiement).
 6. Hébergeur (phase 1).
 7. Nom du projet. **Provisoire** : Recallio (ADR 0005), à confirmer avant le premier déploiement public.

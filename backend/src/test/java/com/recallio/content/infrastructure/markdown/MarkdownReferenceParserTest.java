@@ -2,8 +2,8 @@ package com.recallio.content.infrastructure.markdown;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.recallio.content.CardType;
 import com.recallio.content.domain.CardContent;
-import com.recallio.content.domain.CardType;
 import com.recallio.content.domain.source.ParsedContent;
 import com.recallio.content.domain.source.ParsedContent.ParsedCard;
 import com.recallio.content.domain.source.ParsedContent.ParsedTheme;

@@ -90,6 +90,8 @@ flowchart LR
 | `application.ContentImportService` | Transaction d'import et journalisation du rapport. |
 | `api.ThemesResource` | Catalogue public, pagination bornée (100 cartes maximum par page). |
 | `api.ContentImportResource` | Import à la demande, rôle `admin`. |
+| `CardDirectory` (package racine) | **API publique** pour les autres modules : cartes actives filtrées, version courante. |
+| `CardType` (package racine) | Formats de carte, partagés avec les autres modules. |
 
 ### Module `user` (en place)
 
@@ -100,9 +102,36 @@ flowchart LR
 | `infrastructure.JpaUserProfileRepository` | Création atomique (`ON CONFLICT DO NOTHING`). |
 | `api.TokenIdentity` | Seul endroit qui lit les claims du jeton (`sub`, `name`, `preferred_username`). |
 | `api.MeResource` | `GET` et `PUT /api/v1/me`, réservés à l'utilisateur connecté. |
+| `CurrentUser` (package racine) | **API publique** : l'utilisateur de la requête (`UserRef` : identifiant, fuseau). |
 
 Le flux complet est décrit dans l'ADR 0010 : la PWA obtient un jeton par Authorization Code + PKCE, et le backend
 vérifie sa signature, son émetteur, son expiration et son audience (`recallio-api`).
+
+### Module `review` (en place)
+
+```mermaid
+flowchart LR
+    pwa["PWA /review"] -- "GET /api/v1/review-queue" --> queue["ReviewQueueService"]
+    queue --> dir["content.CardDirectory<br/>(cartes actives, filtre)"]
+    queue --> planner["ReviewQueuePlanner<br/>(domaine pur)"]
+    pwa -- "POST /api/v1/reviews (requestId)" --> rec["ReviewRecordingService"]
+    rec --> fsrs["FsrsScheduler<br/>(FSRS-6, domaine pur)"]
+    rec --> state[("review_state")]
+    rec --> log[("review_log<br/>append-only")]
+    queue --> state
+```
+
+| Élément | Rôle |
+|---|---|
+| `domain.fsrs.FsrsScheduler` | FSRS-6 sans aléa : étapes d'apprentissage, intervalles en jours, oublis (ADR 0011). |
+| `domain.queue.ReviewQueuePlanner` | Cartes dues (les plus en retard d'abord), puis nouvelles dans le quota du jour. |
+| `application.ReviewQueueService` | File de révision, quota de nouvelles cartes remis à zéro à minuit dans le fuseau de l'utilisateur. |
+| `application.ReviewRecordingService` | Réponse idempotente : verrou sur l'état, puis `requestId` unique dans le journal. |
+| `infrastructure.*Entity` | Entités JPA séparées du domaine (domaine riche, CLAUDE.md section 4.3). |
+| `api.ReviewsResource` | `GET /api/v1/review-queue` et `POST /api/v1/reviews` (201, ou 200 si rejouée). |
+
+Le module `review` ne lit aucune table des autres modules : il passe par `content.CardDirectory` et
+`user.CurrentUser`, et ses tables n'ont pas de clé étrangère vers celles des autres modules.
 
 Le module transverse `platform` fournit les identifiants (`IdGenerator`, UUID v7), l'horloge (`Clock`),
 la pagination (`Page`) et la traduction des erreurs en Problem Details (RFC 9457).

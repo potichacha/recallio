@@ -1,6 +1,6 @@
 package com.recallio.content.domain.catalog;
 
-import com.recallio.content.domain.CardType;
+import com.recallio.content.CardType;
 import com.recallio.platform.domain.Page;
 import java.util.List;
 import java.util.Optional;
