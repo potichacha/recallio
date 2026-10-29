@@ -10,7 +10,14 @@ Application web (PWA) de révision des entretiens techniques par répétition es
 
 ## Lancer en local
 
-_À compléter au fil de la phase 0._
+Backend (http://localhost:8080) :
+
+```shell
+cd backend
+./mvnw quarkus:dev
+```
+
+Vérification : `curl http://localhost:8080/api/v1/health`
 
 ## Documentation
 
