@@ -5,7 +5,7 @@ Application web (PWA) de révision des entretiens techniques par répétition es
 ## Prérequis
 
 - JDK 25 (Temurin)
-- Node.js 22+ et npm
+- Node.js 24 LTS et npm (voir `frontend/.nvmrc`)
 - Docker (les Dev Services de Quarkus lancent PostgreSQL et Keycloak)
 
 ## Lancer en local
@@ -21,6 +21,16 @@ Le premier démarrage télécharge les images PostgreSQL et Keycloak (Dev Servic
 une à deux minutes. Docker Desktop doit être lancé.
 
 Vérification : `curl http://localhost:8080/api/v1/health`
+
+Frontend (http://localhost:5173), dans un second terminal :
+
+```shell
+cd frontend
+npm install
+npm run dev
+```
+
+La page d'accueil affiche « API : UP » quand le backend répond.
 
 ## Documentation
 
