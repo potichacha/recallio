@@ -15,7 +15,6 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.transaction.Transactional;
 import java.time.Clock;
 import java.time.Instant;
-import java.time.LocalDate;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -30,19 +29,19 @@ public class ReviewQueueService {
     private final CardDirectory cards;
     private final ReviewStateRepository states;
     private final FsrsScheduler scheduler;
-    private final ReviewConfig config;
+    private final NewCardQuota quota;
     private final Clock clock;
 
     public ReviewQueueService(
             CardDirectory cards,
             ReviewStateRepository states,
             FsrsScheduler scheduler,
-            ReviewConfig config,
+            NewCardQuota quota,
             Clock clock) {
         this.cards = cards;
         this.states = states;
         this.scheduler = scheduler;
-        this.config = config;
+        this.quota = quota;
         this.clock = clock;
     }
 
@@ -50,20 +49,11 @@ public class ReviewQueueService {
         Instant now = clock.instant();
         Map<UUID, ReviewState> memory = states.findAllByUser(user.id());
         QueuePlan plan = ReviewQueuePlanner.plan(
-                cards.activeCardIds(filter), memory, now, newCardsAllowedToday(user, now), size);
+                cards.activeCardIds(filter), memory, now, quota.remainingToday(user, now), size);
         List<QueuedCard> queued = cards.currentVersions(plan.cardIds()).stream()
                 .map(card -> queuedCard(card, memory.getOrDefault(card.cardId(), ReviewState.newCard(now)), now))
                 .toList();
         return new ReviewQueue(queued, plan.dueCount(), plan.newCount(), plan.nextDueAt());
-    }
-
-    /** Le quota de nouvelles cartes repart à zéro à minuit, dans le fuseau de l'utilisateur. */
-    private int newCardsAllowedToday(UserRef user, Instant now) {
-        Instant startOfDay = LocalDate.ofInstant(now, user.timezone())
-                .atStartOfDay(user.timezone())
-                .toInstant();
-        long introducedToday = states.countIntroducedSince(user.id(), startOfDay);
-        return (int) Math.max(0, config.newCardsPerDay() - introducedToday);
     }
 
     private QueuedCard queuedCard(CardSnapshot card, ReviewState state, Instant now) {

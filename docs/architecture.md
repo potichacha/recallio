@@ -90,7 +90,7 @@ flowchart LR
 | `application.ContentImportService` | Transaction d'import et journalisation du rapport. |
 | `api.ThemesResource` | Catalogue public, pagination bornée (100 cartes maximum par page). |
 | `api.ContentImportResource` | Import à la demande, rôle `admin`. |
-| `CardDirectory` (package racine) | **API publique** pour les autres modules : cartes actives filtrées, version courante. |
+| `CardDirectory` (package racine) | **API publique** pour les autres modules : cartes actives filtrées ou par thème, version courante. |
 | `CardType` (package racine) | Formats de carte, partagés avec les autres modules. |
 
 ### Module `user` (en place)
@@ -129,6 +129,9 @@ flowchart LR
 | `application.ReviewRecordingService` | Réponse idempotente : verrou sur l'état, puis `requestId` unique dans le journal. |
 | `infrastructure.*Entity` | Entités JPA séparées du domaine (domaine riche, CLAUDE.md section 4.3). |
 | `api.ReviewsResource` | `GET /api/v1/review-queue` et `POST /api/v1/reviews` (201, ou 200 si rejouée). |
+| `application.NewCardQuota` | Quota quotidien de nouvelles cartes, partagé par la file et les statistiques. |
+| `domain.stats.CardCounts` | Cartes vues, maîtrisées (stabilité ≥ 21 jours, seuil « mature » d'Anki), dues maintenant et aujourd'hui. |
+| `api.ReviewStatsResource` | `GET /api/v1/me/review-stats` : totaux et progression par thème (tableau de bord). |
 
 Le module `review` ne lit aucune table des autres modules : il passe par `content.CardDirectory` et
 `user.CurrentUser`, et ses tables n'ont pas de clé étrangère vers celles des autres modules.
@@ -156,7 +159,11 @@ flowchart LR
 | `domain.Streaks` | Jours consécutifs avec l'objectif atteint ; un jour manqué remet à zéro. |
 | `application.ActivityRecorder` | Observe `CardReviewed` dans la transaction de la révision (ADR 0012). |
 | `application.ProgressService` | Points, streak et objectif du jour, dans le fuseau de l'utilisateur. |
-| `api.ProgressResource` | `GET /api/v1/me/progress`. |
+| `api.ProgressResource` | `GET /api/v1/me/progress`, et `/activity` : cartes révisées chacun des derniers jours. |
+
+Le tableau de bord de la PWA (accueil, une fois connecté) assemble trois lectures indépendantes :
+`/api/v1/me/review-stats` (review), `/api/v1/me/progress` et `/api/v1/me/progress/activity` (gamification). Aucun
+module « tableau de bord » côté serveur : chaque module expose ce qu'il sait.
 
 Les dépendances entre modules vont dans un seul sens : `gamification` → `review` (événement) → `content`, `user`.
 

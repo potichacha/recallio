@@ -8,6 +8,7 @@ import jakarta.persistence.EntityManager;
 import jakarta.transaction.Transactional;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -79,6 +80,24 @@ public class JpaCardDirectory implements CardDirectory {
         return cardIds.stream()
                 .distinct()
                 .flatMap(id -> Stream.ofNullable(found.get(id)))
+                .toList();
+    }
+
+    @Override
+    public List<ThemeCards> activeCardsByTheme() {
+        Map<UUID, List<UUID>> cardsByTheme = new HashMap<>();
+        entityManager
+                .createQuery(
+                        "select c.themeId, c.id from CardEntity c where c.retiredAt is null order by c.position",
+                        Object[].class)
+                .getResultStream()
+                .forEach(row -> cardsByTheme
+                        .computeIfAbsent((UUID) row[0], _ -> new ArrayList<>())
+                        .add((UUID) row[1]));
+        return entityManager
+                .createQuery("select t from ThemeEntity t order by t.position", ThemeEntity.class)
+                .getResultStream()
+                .map(theme -> new ThemeCards(theme.slug, theme.title, cardsByTheme.getOrDefault(theme.id, List.of())))
                 .toList();
     }
 

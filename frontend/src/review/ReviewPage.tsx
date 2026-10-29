@@ -3,7 +3,7 @@ import { Link, useSearchParams } from 'react-router'
 import { ApiError } from '../api/errors'
 import { useProgress } from '../api/progress'
 import { useReviewQueue, type ReviewQueue } from '../api/review'
-import { DailyGoal } from './DailyGoal'
+import { DailyGoal } from '../components/DailyGoal'
 import { formatDelay } from './formatDelay'
 import { ReviewCard } from './ReviewCard'
 

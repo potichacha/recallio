@@ -80,7 +80,7 @@ class ReviewQueueServiceTest {
                 new FixedCatalog(catalog),
                 states,
                 new FsrsScheduler(FsrsParameters.DEFAULT),
-                new TestConfig(),
+                new NewCardQuota(states, new TestConfig()),
                 Clock.fixed(now, ZoneOffset.UTC));
     }
 
@@ -100,6 +100,11 @@ class ReviewQueueServiceTest {
         @Override
         public List<UUID> activeCardIds(CardFilter filter) {
             return ids;
+        }
+
+        @Override
+        public List<ThemeCards> activeCardsByTheme() {
+            return List.of(new ThemeCards("theme", "Thème", ids));
         }
 
         @Override
