@@ -1,6 +1,6 @@
 # Architecture de Recallio
 
-> Document vivant, mis à jour à la fin de chaque phase. État : **fin de la phase 0** (fondations).
+> Document vivant, mis à jour à chaque étape. État : **phase 1, étape 1** (import et consultation du contenu).
 > Les décisions qui expliquent ces choix sont dans [docs/adr/](adr/).
 
 ## 1. Vue conteneurs (C4, niveau 2)
@@ -67,7 +67,32 @@ flowchart TB
 | `platform` est utilisable par tous | Évite de dupliquer le transverse dans chaque module. |
 
 **Modules prévus** : `content`, `review`, `user` et `gamification` (phase 1), `group` (phase 2),
-`live` (phase 3), `organization` (phase 4). Aucun n'existe encore à la fin de la phase 0.
+`live` (phase 3), `organization` (phase 4).
+
+### Module `content` (en place)
+
+```mermaid
+flowchart LR
+    md["content/source/*.md"] --> parser["MarkdownReferenceParser<br/>(infrastructure, port ContentParser)"]
+    parser --> planner["ImportPlanner<br/>(domaine pur)"]
+    snapshot["CatalogStore.snapshot()"] --> planner
+    planner -- "ImportPlan + rapport" --> store["JpaCatalogStore.apply()"]
+    store --> db[("theme · card · card_version")]
+    db --> catalog["JpaContentCatalog<br/>(port ContentCatalog)"]
+    catalog --> api["GET /api/v1/themes…"]
+```
+
+| Élément | Rôle |
+|---|---|
+| `domain.CardContent` | Interface `sealed` : `Flashcard`, `CodeOutput`, `OpenScenario`, `Definition`. |
+| `domain.CardIdentity` | Identifiants stables (UUID v8) et empreinte de contenu (ADR 0009). |
+| `domain.importing.ImportPlanner` | Compare la source au catalogue : ajouts, nouvelles versions, retraits, réactivations. |
+| `application.ContentImportService` | Transaction d'import et journalisation du rapport. |
+| `api.ThemesResource` | Catalogue public, pagination bornée (100 cartes maximum par page). |
+| `api.ContentImportResource` | Import à la demande, rôle `admin`. |
+
+Le module transverse `platform` fournit les identifiants (`IdGenerator`, UUID v7), l'horloge (`Clock`),
+la pagination (`Page`) et la traduction des erreurs en Problem Details (RFC 9457).
 
 ## 3. Flux de développement et de livraison
 
