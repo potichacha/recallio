@@ -1,0 +1,101 @@
+# Architecture de Recallio
+
+> Document vivant, mis à jour à la fin de chaque phase. État : **fin de la phase 0** (fondations).
+> Les décisions qui expliquent ces choix sont dans [docs/adr/](adr/).
+
+## 1. Vue conteneurs (C4, niveau 2)
+
+```mermaid
+flowchart LR
+    user([Candidat<br/>navigateur ou PWA mobile])
+
+    subgraph recallio [Recallio]
+        front["Frontend<br/>React + TypeScript (PWA)<br/>servi par nginx"]
+        back["Backend<br/>Quarkus 3 · Java 25<br/>API REST /api/v1"]
+        db[("PostgreSQL 18<br/>schéma géré par Flyway")]
+    end
+
+    idp["Fournisseur OIDC<br/>Keycloak en local<br/>(production : à choisir)"]
+
+    user -- HTTPS --> front
+    user -- "connexion OIDC (phase 1)" --> idp
+    front -- "/api : JSON, JWT bearer" --> back
+    back -- JDBC --> db
+    back -- "clés de signature (JWKS)" --> idp
+```
+
+| Conteneur | Rôle | Technologies |
+|---|---|---|
+| Frontend | Interface de révision, installable sur mobile. Appelle l'API via un client **généré** depuis la spec OpenAPI. | React 19, Vite, TanStack Query, React Router, Tailwind, vite-plugin-pwa |
+| Backend | Règles métier, API REST versionnée, validation des JWT. | Quarkus REST, Hibernate ORM, Hibernate Validator, SmallRye Health et OpenAPI |
+| PostgreSQL | Données métier et progression. Le schéma est versionné par des migrations Flyway, jamais généré. | PostgreSQL 18 |
+| Fournisseur OIDC | Authentification. Le backend ne connaît que le standard OIDC, pas le fournisseur. | Keycloak (local et Dev Services) |
+
+En local avec Docker (`infra/compose.yaml`), nginx relaie `/api` vers le backend : le front et
+l'API partagent la même origine, donc pas de CORS.
+
+## 2. Vue composants du backend (C4, niveau 3)
+
+Le backend est un **monolithe modulaire** (ADR 0001) : un module métier par package, découpé en
+couches. Les règles ci-dessous sont **vérifiées à chaque build** par
+[`ArchitectureTest`](../backend/src/test/java/com/recallio/ArchitectureTest.java).
+
+```mermaid
+flowchart TB
+    subgraph module ["com.recallio.&lt;module&gt; (content, review, user, gamification…)"]
+        api["api/<br/>ressources REST, DTO"]
+        app["application/<br/>cas d'usage, transactions"]
+        domain["domain/<br/>Java pur : entités, règles, ports"]
+        infra["infrastructure/<br/>JPA, adapters"]
+        facade["package racine<br/>API publique du module"]
+    end
+    platform["com.recallio.platform<br/>transverse : erreurs, temps, identifiants"]
+
+    api --> app --> domain
+    infra --> domain
+    api --> domain
+    facade -.-> app
+    module -.-> platform
+```
+
+| Règle | Pourquoi |
+|---|---|
+| `domain` ne dépend d'aucun framework (Quarkus, JPA, Jackson…) | Le cœur métier se teste unitairement, sans démarrer l'application. |
+| Les dépendances vont vers l'intérieur | Un changement technique (base, framework) ne touche pas les règles métier. |
+| Un module n'utilise que le **package racine** des autres modules | Les frontières restent explicites, et un module reste extractible. |
+| Pas de cycle entre modules | Évite le « plat de spaghettis » en grandissant. |
+| `platform` est utilisable par tous | Évite de dupliquer le transverse dans chaque module. |
+
+**Modules prévus** : `content`, `review`, `user` et `gamification` (phase 1), `group` (phase 2),
+`live` (phase 3), `organization` (phase 4). Aucun n'existe encore à la fin de la phase 0.
+
+## 3. Flux de développement et de livraison
+
+```mermaid
+flowchart LR
+    code["Code Java"] -- "./mvnw package" --> spec["openapi.yaml<br/>(committé)"]
+    spec -- "npm run generate:api" --> client["Client TypeScript<br/>(généré, non versionné)"]
+    pr["Pull request"] --> ci{"CI GitHub Actions"}
+    ci --> b["backend : verify<br/>+ spec à jour"]
+    ci --> f["frontend : lint, types,<br/>tests, build"]
+    b & f --> d["docker : images<br/>+ scan Trivy"]
+    d -- "3 contrôles verts" --> main["merge sur main"]
+```
+
+- **Contrat d'API** : code-first (ADR 0003). Toute évolution de l'API apparaît dans le diff de
+  `openapi.yaml`, et la CI échoue si le fichier committé n'est plus à jour.
+- **Qualité** : Error Prone et NullAway (ADR 0004), Spotless, ArchUnit côté backend ; ESLint,
+  Prettier et le typage strict côté front.
+- **Sécurité de la chaîne** : `main` est protégée (PR obligatoire, 3 contrôles requis), Dependabot
+  suit les dépendances, les actions tierces sont fixées par SHA, et les images sont scannées.
+
+## 4. Configuration par environnement
+
+| Élément | Dev et tests | Production |
+|---|---|---|
+| PostgreSQL | Dev Services (conteneur automatique) | `DB_URL`, `DB_USERNAME`, `DB_PASSWORD` |
+| OIDC | Dev Services Keycloak | `OIDC_AUTH_SERVER_URL`, `OIDC_CLIENT_ID` |
+| `/q/*` (Dev UI, Swagger) | public | non exposé |
+| Santé | `/api/v1/health` (public) | `/api/v1/health` (public) |
+
+Les secrets passent uniquement par des variables d'environnement, jamais par le dépôt.
