@@ -2,7 +2,7 @@
 # Contexte de build : la racine du dépôt (le client API est généré depuis la spec du backend).
 
 # --- Build : fichiers statiques ------------------------------------------
-FROM node:24-alpine AS build
+FROM node:25-alpine AS build
 WORKDIR /repo/frontend
 
 COPY frontend/package.json frontend/package-lock.json ./
