@@ -14,6 +14,8 @@ RUN npm run build
 
 # --- Exécution : nginx sert la PWA et relaie /api vers le backend --------
 FROM nginx:1.29-alpine
+# Applique les correctifs de sécurité Alpine publiés après la construction de l'image de base.
+RUN apk upgrade --no-cache
 ENV BACKEND_URL=http://backend:8080
 COPY frontend/nginx/security-headers.conf /etc/nginx/snippets/security-headers.conf
 COPY frontend/nginx/default.conf.template /etc/nginx/templates/default.conf.template
