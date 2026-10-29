@@ -1,7 +1,9 @@
 import { useState } from 'react'
 import { Link, useSearchParams } from 'react-router'
 import { ApiError } from '../api/errors'
+import { useProgress } from '../api/progress'
 import { useReviewQueue, type ReviewQueue } from '../api/review'
+import { DailyGoal } from './DailyGoal'
 import { formatDelay } from './formatDelay'
 import { ReviewCard } from './ReviewCard'
 
@@ -13,6 +15,7 @@ export function ReviewPage() {
   const [searchParams] = useSearchParams()
   const theme = searchParams.get('theme') ?? undefined
   const queue = useReviewQueue({ theme })
+  const progress = useProgress()
   const [position, setPosition] = useState(0)
   const [reviewed, setReviewed] = useState(0)
 
@@ -42,6 +45,7 @@ export function ReviewPage() {
           {reviewed} carte{reviewed > 1 ? 's' : ''} révisée{reviewed > 1 ? 's' : ''}
         </p>
       </header>
+      {progress.data && <DailyGoal progress={progress.data} />}
       {card ? (
         <ReviewCard
           key={card.cardId}

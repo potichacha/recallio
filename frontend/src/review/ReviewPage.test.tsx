@@ -2,13 +2,18 @@ import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 import type { QueuedCard, ReviewQueue } from '../api/review'
-import { fakeSession, renderAt, sentRequests, stubApi } from '../test/render'
+import {
+  fakeSession,
+  renderAt,
+  sentRequests,
+  SIGNED_IN_API,
+  stubApi,
+  TEST_PROGRESS,
+} from '../test/render'
 
 const QUEUE = '/api/v1/review-queue'
 const REVIEWS = 'POST /api/v1/reviews'
-const PROFILE = {
-  '/api/v1/me': { body: { id: 'u1', displayName: 'Alice', timezone: 'Europe/Paris', roles: [] } },
-}
+const PROFILE = SIGNED_IN_API
 const signedIn = () => fakeSession({ status: 'authenticated', userName: 'Alice' })
 
 const MINUTE = 60_000
@@ -161,5 +166,33 @@ describe('ReviewPage', () => {
 
     expect(draft).toHaveValue('Je profile avec JFR.')
     expect(screen.getByText('La machine virtuelle qui exécute le bytecode.')).toBeInTheDocument()
+  })
+
+  it('shows the progress towards the daily goal, refreshed after each review', async () => {
+    const responses = {
+      ...PROFILE,
+      [QUEUE]: { body: queue([queuedCard(), queuedCard({ cardId: 'card-2' })]) },
+      [REVIEWS]: { status: 201, ...recorded },
+    }
+    const fetchMock = stubApi(responses)
+    renderAt('/review', signedIn())
+
+    const goal = await screen.findByRole('progressbar', { name: 'Objectif du jour' })
+    expect(goal).toHaveAttribute('value', '4')
+    expect(screen.getByText('4 / 10')).toBeInTheDocument()
+
+    responses['/api/v1/me/progress'] = {
+      body: { ...TEST_PROGRESS, cardsToday: 10, goalReachedToday: true, streak: 4 },
+    }
+    await userEvent.click(screen.getByRole('button', { name: 'Voir la réponse' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Bien' }))
+
+    expect(
+      await screen.findByText('Objectif atteint ! Votre série passe à 4 jours.'),
+    ).toBeInTheDocument()
+    expect(
+      sentRequests(fetchMock).filter((request) => request.url.endsWith('/api/v1/me/progress'))
+        .length,
+    ).toBeGreaterThanOrEqual(2)
   })
 })

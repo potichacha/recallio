@@ -3,6 +3,7 @@ package com.recallio.review.application;
 import com.recallio.content.CardDirectory;
 import com.recallio.content.CardDirectory.CardSnapshot;
 import com.recallio.platform.domain.IdGenerator;
+import com.recallio.review.CardReviewed;
 import com.recallio.review.domain.CardNotReviewableException;
 import com.recallio.review.domain.LearningState;
 import com.recallio.review.domain.Rating;
@@ -14,6 +15,7 @@ import com.recallio.review.domain.ReviewStateRepository;
 import com.recallio.review.domain.fsrs.FsrsScheduler;
 import com.recallio.user.UserRef;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.event.Event;
 import jakarta.transaction.Transactional;
 import java.time.Clock;
 import java.time.Instant;
@@ -34,6 +36,7 @@ public class ReviewRecordingService {
     private final FsrsScheduler scheduler;
     private final IdGenerator idGenerator;
     private final Clock clock;
+    private final Event<CardReviewed> cardReviewed;
 
     public ReviewRecordingService(
             CardDirectory cards,
@@ -41,13 +44,15 @@ public class ReviewRecordingService {
             ReviewLogRepository log,
             FsrsScheduler scheduler,
             IdGenerator idGenerator,
-            Clock clock) {
+            Clock clock,
+            Event<CardReviewed> cardReviewed) {
         this.cards = cards;
         this.states = states;
         this.log = log;
         this.scheduler = scheduler;
         this.idGenerator = idGenerator;
         this.clock = clock;
+        this.cardReviewed = cardReviewed;
     }
 
     /**
@@ -86,6 +91,8 @@ public class ReviewRecordingService {
                     user, command, log.findByRequestId(command.requestId()).orElseThrow());
         }
         states.save(user.id(), card.cardId(), next);
+        // Seulement pour une réponse nouvelle : une requête rejouée ne rapporte rien une seconde fois.
+        cardReviewed.fire(new CardReviewed(user, entry.id(), card.cardId(), now));
         return ReviewOutcome.of(entry, false);
     }
 

@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from './client'
 import type { CardType } from './content'
 import { ApiError } from './errors'
+import { PROGRESS_KEY } from './progress'
 import type { components } from './schema'
 
 export type ReviewQueue = components['schemas']['ReviewQueue']
@@ -46,6 +47,10 @@ export function useRecordReview() {
     },
     retry: (failureCount, error) =>
       failureCount < 3 && !(error instanceof ApiError && error.status < 500),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: QUEUE_KEY, refetchType: 'none' }),
+    onSuccess: async () => {
+      // La file en cours n'est pas rechargée (on la parcourt) ; la progression, elle, est mise à jour tout de suite.
+      await queryClient.invalidateQueries({ queryKey: QUEUE_KEY, refetchType: 'none' })
+      await queryClient.invalidateQueries({ queryKey: PROGRESS_KEY })
+    },
   })
 }

@@ -26,6 +26,21 @@ export function renderAt(path: string, session: Session = fakeSession()) {
 
 type StubResponse = { status?: number; body: unknown }
 
+export const TEST_PROFILE = { id: 'u1', displayName: 'Alice', timezone: 'Europe/Paris', roles: [] }
+export const TEST_PROGRESS = {
+  totalPoints: 120,
+  streak: 3,
+  cardsToday: 4,
+  dailyGoal: 10,
+  goalReachedToday: false,
+}
+
+/** Ce que l'en-tête charge dès qu'un utilisateur est connecté : son profil et sa progression. */
+export const SIGNED_IN_API: Record<string, StubResponse> = {
+  '/api/v1/me': { body: TEST_PROFILE },
+  '/api/v1/me/progress': { body: TEST_PROGRESS },
+}
+
 /**
  * Remplace fetch. Chaque requête est résolue par sa clé : `"PUT /api/v1/me"`, ou seulement le chemin
  * (`"/api/v1/themes"`) pour un GET. Une requête non prévue échoue, pour qu'un appel oublié se voie dans le test.

@@ -1,6 +1,8 @@
 import { NavLink, Outlet, useLocation } from 'react-router'
 import { useProfile } from '../api/profile'
+import { useProgress } from '../api/progress'
 import { useSession } from '../auth/session'
+import { ProgressBadge } from './ProgressBadge'
 
 function navClass({ isActive }: { isActive: boolean }) {
   return isActive ? 'font-semibold text-indigo-600' : 'text-slate-600 hover:text-indigo-600'
@@ -11,6 +13,7 @@ function SessionControls() {
   const location = useLocation()
   // Appelé dès la connexion : le premier appel crée le profil avec le fuseau du navigateur.
   const profile = useProfile(session.status === 'authenticated')
+  const progress = useProgress(session.status === 'authenticated')
 
   if (session.status === 'loading') {
     return null
@@ -28,6 +31,7 @@ function SessionControls() {
   }
   return (
     <div className="flex items-center gap-4">
+      {progress.data && <ProgressBadge progress={progress.data} />}
       <NavLink to="/profile" className={navClass}>
         {profile.data?.displayName ?? session.userName ?? 'Mon profil'}
       </NavLink>
