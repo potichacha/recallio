@@ -12,6 +12,7 @@ Application web (PWA) de révision des entretiens techniques par répétition es
 | [`frontend/`](frontend/) | PWA React + TypeScript + Vite |
 | [`content/source/`](content/source/) | Contenu source des cartes (Markdown) |
 | [`infra/`](infra/) | `compose.yaml` et royaume Keycloak pour lancer l'ensemble avec Docker |
+| [`e2e/`](e2e/) | Parcours de bout en bout (Playwright) contre la pile Docker |
 | [`docs/`](docs/) | Architecture, ADR, rétrospectives |
 
 ## Prérequis
@@ -42,7 +43,8 @@ npm install
 npm run dev
 ```
 
-La page d'accueil affiche « API : UP » quand le backend répond.
+La page d'accueil affiche « API : UP » quand le backend répond ; une fois connecté, elle devient le tableau de
+bord (cartes dues, série, progression par thème) et le menu « Réviser » lance une session.
 
 Comptes de test (royaume Keycloak `recallio`, en dev comme dans le compose) : `alice` / `alice` (rôle `admin`)
 et `bob` / `bob`. En dev, Keycloak tourne sur http://localhost:8180 (console d'administration : `admin` / `admin`).
@@ -62,14 +64,15 @@ Front : http://localhost:3000 · Keycloak : http://localhost:8180 (admin / admin
 
 Chaque pull request lance [`.github/workflows/ci.yml`](.github/workflows/ci.yml) : build et tests
 du backend (avec vérification que la spec OpenAPI est à jour), lint, tests et build du front,
-puis construction et scan (Trivy) des deux images Docker. Dependabot propose chaque semaine les
+puis construction et scan (Trivy) des deux images Docker, et enfin les parcours de bout en bout Playwright
+contre la pile complète (voir [`e2e/README.md`](e2e/README.md)). Dependabot propose chaque semaine les
 mises à jour de dépendances.
 
 ## Contribuer
 
 - Une branche courte par étape, créée depuis `main` à jour ; pull request obligatoire.
 - Messages en [Conventional Commits](https://www.conventionalcommits.org/fr/) (`feat:`, `fix:`, `docs:`...).
-- Merge en *squash* une fois les trois contrôles de la CI verts (`backend`, `frontend`, `docker`).
+- Merge en *squash* une fois les contrôles de la CI verts (`backend`, `frontend`, `docker`, `e2e`).
 - Avant de pousser : `./mvnw spotless:apply` (backend) et `npm run format` (frontend).
 
 ## Dépannage
@@ -81,6 +84,7 @@ mises à jour de dépendances.
 | `Port 8180` déjà utilisé au démarrage du backend | Le Keycloak du compose tourne encore : `docker compose -f infra/compose.yaml down`. |
 | Connexion refusée par l'API (401) avec un jeton valide | Le jeton doit avoir l'audience `recallio-api` : vérifier le mapper du client dans le royaume. |
 | `npm test` plante (`undici`, `zlib`) ou avertissements `EBADENGINE` | Version de Node non LTS : installer Node 24 (`frontend/.nvmrc`). |
+| `docker compose up --wait` : conteneur `unhealthy` | Voir `docker compose -p recallio-e2e logs <service>` ; les ports 3000 et 8180 doivent être libres. |
 | La CI échoue sur `openapi.yaml` | L'API a changé : lancer `./mvnw package` dans `backend/` et committer la spec. |
 
 ## Documentation

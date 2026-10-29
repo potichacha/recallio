@@ -180,13 +180,16 @@ flowchart LR
     ci --> b["backend : verify<br/>+ spec à jour"]
     ci --> f["frontend : lint, types,<br/>tests, build"]
     b & f --> d["docker : images<br/>+ scan Trivy"]
-    d -- "3 contrôles verts" --> main["merge sur main"]
+    b & f --> e["e2e : pile compose<br/>+ parcours Playwright"]
+    d & e -- "contrôles verts" --> main["merge sur main"]
 ```
 
 - **Contrat d'API** : code-first (ADR 0003). Toute évolution de l'API apparaît dans le diff de
   `openapi.yaml`, et la CI échoue si le fichier committé n'est plus à jour.
 - **Qualité** : Error Prone et NullAway (ADR 0004), Spotless, ArchUnit côté backend ; ESLint,
   Prettier et le typage strict côté front.
+- **Parcours de bout en bout** : Playwright joue la connexion, une session de révision (aussi sur mobile) et le
+  streak contre la pile compose complète, avec une base neuve (`e2e/`, `infra/compose.e2e.yaml`).
 - **Sécurité de la chaîne** : `main` est protégée (PR obligatoire, 3 contrôles requis), Dependabot
   suit les dépendances, les actions tierces sont fixées par SHA, et les images sont scannées.
 
