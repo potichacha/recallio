@@ -1,34 +1,19 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen } from '@testing-library/react'
+import { screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
-import { HomePage } from './HomePage'
+import { renderAt, stubApi } from '../test/render'
 
-function renderWithQueryClient() {
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  render(
-    <QueryClientProvider client={queryClient}>
-      <HomePage />
-    </QueryClientProvider>,
-  )
-}
-
-function stubHealthResponse(status: number, body: unknown) {
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(async () => Response.json(body, { status })),
-  )
-}
+const HEALTH = '/api/v1/health'
 
 describe('HomePage', () => {
   it('shows the API status when the backend is up', async () => {
-    stubHealthResponse(200, { status: 'UP', checks: [] })
-    renderWithQueryClient()
+    stubApi({ [HEALTH]: { body: { status: 'UP', checks: [] } } })
+    renderAt('/')
     expect(await screen.findByText('API : UP')).toBeInTheDocument()
   })
 
   it('shows DOWN when the backend reports an unhealthy state', async () => {
-    stubHealthResponse(503, { status: 'DOWN', checks: [] })
-    renderWithQueryClient()
+    stubApi({ [HEALTH]: { status: 503, body: { status: 'DOWN', checks: [] } } })
+    renderAt('/')
     expect(await screen.findByText('API : DOWN')).toBeInTheDocument()
   })
 
@@ -37,7 +22,16 @@ describe('HomePage', () => {
       'fetch',
       vi.fn(async () => Promise.reject(new TypeError('network'))),
     )
-    renderWithQueryClient()
+    renderAt('/')
     expect(await screen.findByText('API : injoignable')).toBeInTheDocument()
+  })
+
+  it('links to the themes', async () => {
+    stubApi({ [HEALTH]: { body: { status: 'UP', checks: [] } } })
+    renderAt('/')
+    expect(screen.getByRole('link', { name: 'Parcourir les thèmes' })).toHaveAttribute(
+      'href',
+      '/themes',
+    )
   })
 })
