@@ -17,6 +17,9 @@ cd backend
 ./mvnw quarkus:dev
 ```
 
+Le premier démarrage télécharge les images PostgreSQL et Keycloak (Dev Services) : compter
+une à deux minutes. Docker Desktop doit être lancé.
+
 Vérification : `curl http://localhost:8080/api/v1/health`
 
 ## Documentation
