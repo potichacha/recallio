@@ -1,4 +1,5 @@
 import { NavLink, Outlet, useLocation } from 'react-router'
+import { useProfile } from '../api/profile'
 import { useSession } from '../auth/session'
 
 function navClass({ isActive }: { isActive: boolean }) {
@@ -8,6 +9,8 @@ function navClass({ isActive }: { isActive: boolean }) {
 function SessionControls() {
   const session = useSession()
   const location = useLocation()
+  // Appelé dès la connexion : le premier appel crée le profil avec le fuseau du navigateur.
+  const profile = useProfile(session.status === 'authenticated')
 
   if (session.status === 'loading') {
     return null
@@ -26,7 +29,7 @@ function SessionControls() {
   return (
     <div className="flex items-center gap-4">
       <NavLink to="/profile" className={navClass}>
-        {session.userName ?? 'Mon profil'}
+        {profile.data?.displayName ?? session.userName ?? 'Mon profil'}
       </NavLink>
       <button
         type="button"
@@ -46,6 +49,9 @@ export function Layout() {
         <nav className="mx-auto flex max-w-3xl items-center gap-6 px-4 py-3">
           <NavLink to="/" className="text-lg font-bold text-indigo-600">
             Recallio
+          </NavLink>
+          <NavLink to="/review" className={navClass}>
+            Réviser
           </NavLink>
           <NavLink to="/themes" className={navClass}>
             Thèmes

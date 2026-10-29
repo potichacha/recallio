@@ -28,7 +28,15 @@ export function ThemePage() {
       <Link to="/themes" className="text-sm text-indigo-600 hover:underline">
         ← Tous les thèmes
       </Link>
-      <h1 className="text-2xl font-bold">{theme.data?.title ?? 'Chargement…'}</h1>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-2xl font-bold">{theme.data?.title ?? 'Chargement…'}</h1>
+        <Link
+          to={`/review?theme=${encodeURIComponent(slug)}`}
+          className="rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700"
+        >
+          Réviser ce thème
+        </Link>
+      </div>
       {cards.isError && <p role="alert">Impossible de charger les cartes.</p>}
       {cards.isSuccess && (
         <>

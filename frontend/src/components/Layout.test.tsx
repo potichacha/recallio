@@ -16,12 +16,20 @@ describe('Layout', () => {
     expect(session.login).toHaveBeenCalledWith('/themes')
   })
 
-  it('shows the user name with a link to the profile, and signs out', async () => {
-    stubApi(THEMES)
+  it('shows the display name of the profile with a link to it, and signs out', async () => {
+    stubApi({
+      ...THEMES,
+      '/api/v1/me': {
+        body: { id: 'u1', displayName: 'Alice M.', timezone: 'Europe/Paris', roles: [] },
+      },
+    })
     const session = fakeSession({ status: 'authenticated', userName: 'Alice Martin' })
     renderAt('/themes', session)
 
-    expect(screen.getByRole('link', { name: 'Alice Martin' })).toHaveAttribute('href', '/profile')
+    expect(await screen.findByRole('link', { name: 'Alice M.' })).toHaveAttribute(
+      'href',
+      '/profile',
+    )
     await userEvent.click(screen.getByRole('button', { name: 'Se déconnecter' }))
 
     expect(session.logout).toHaveBeenCalled()

@@ -1,7 +1,7 @@
 package com.recallio.content.domain.importing;
 
+import com.recallio.content.CardType;
 import com.recallio.content.domain.CardContent;
-import com.recallio.content.domain.CardType;
 import java.util.List;
 import java.util.UUID;
 

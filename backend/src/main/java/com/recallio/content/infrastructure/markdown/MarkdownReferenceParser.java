@@ -1,8 +1,8 @@
 package com.recallio.content.infrastructure.markdown;
 
+import com.recallio.content.CardType;
 import com.recallio.content.domain.CardContent;
 import com.recallio.content.domain.CardIdentity;
-import com.recallio.content.domain.CardType;
 import com.recallio.content.domain.source.ContentParser;
 import com.recallio.content.domain.source.ParsedContent;
 import com.recallio.content.domain.source.ParsedContent.ParsedCard;

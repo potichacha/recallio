@@ -1,7 +1,7 @@
 package com.recallio.content.infrastructure.persistence;
 
+import com.recallio.content.CardType;
 import com.recallio.content.domain.CardContent;
-import com.recallio.content.domain.CardType;
 import com.recallio.content.domain.importing.CatalogSnapshot;
 import com.recallio.content.domain.importing.CatalogSnapshot.ExistingCard;
 import com.recallio.content.domain.importing.CatalogSnapshot.ExistingTheme;

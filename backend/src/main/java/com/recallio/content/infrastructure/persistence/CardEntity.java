@@ -1,6 +1,6 @@
 package com.recallio.content.infrastructure.persistence;
 
-import com.recallio.content.domain.CardType;
+import com.recallio.content.CardType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;

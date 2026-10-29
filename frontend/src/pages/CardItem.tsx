@@ -1,13 +1,7 @@
 import { useState } from 'react'
-import type { Card, CardType } from '../api/content'
+import type { Card } from '../api/content'
+import { CARD_TYPE_LABELS } from '../components/cardTypeLabels'
 import { Markdown } from '../components/Markdown'
-
-const TYPE_LABELS: Record<CardType, string> = {
-  FLASHCARD: 'Question',
-  CODE_OUTPUT: "Qu'affiche ce code ?",
-  OPEN_SCENARIO: 'Mise en situation',
-  DEFINITION: 'Définition',
-}
 
 /** Une carte en consultation : la réponse reste masquée jusqu'à ce qu'on choisisse de la révéler. */
 export function CardItem({ card }: { card: Card }) {
@@ -16,7 +10,7 @@ export function CardItem({ card }: { card: Card }) {
   return (
     <article className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
       <span className="text-xs font-medium tracking-wide text-indigo-600 uppercase">
-        {TYPE_LABELS[card.type]}
+        {CARD_TYPE_LABELS[card.type]}
       </span>
       <Markdown>{card.prompt}</Markdown>
       {revealed ? (
