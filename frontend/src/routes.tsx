@@ -1,6 +1,9 @@
 import type { RouteObject } from 'react-router'
+import { RequireAuth } from './auth/RequireAuth'
 import { Layout } from './components/Layout'
+import { AuthCallbackPage } from './pages/AuthCallbackPage'
 import { HomePage } from './pages/HomePage'
+import { ProfilePage } from './pages/ProfilePage'
 import { ThemePage } from './pages/ThemePage'
 import { ThemesPage } from './pages/ThemesPage'
 
@@ -12,6 +15,15 @@ export const routes: RouteObject[] = [
       { index: true, element: <HomePage /> },
       { path: 'themes', element: <ThemesPage /> },
       { path: 'themes/:slug', element: <ThemePage /> },
+      {
+        path: 'profile',
+        element: (
+          <RequireAuth>
+            <ProfilePage />
+          </RequireAuth>
+        ),
+      },
+      { path: 'auth/callback', element: <AuthCallbackPage /> },
     ],
   },
 ]

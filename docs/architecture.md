@@ -1,6 +1,6 @@
 # Architecture de Recallio
 
-> Document vivant, mis à jour à chaque étape. État : **phase 1, étape 1** (import et consultation du contenu).
+> Document vivant, mis à jour à chaque étape. État : **phase 1, étape 2** (authentification OIDC et profil).
 > Les décisions qui expliquent ces choix sont dans [docs/adr/](adr/).
 
 ## 1. Vue conteneurs (C4, niveau 2)
@@ -18,7 +18,7 @@ flowchart LR
     idp["Fournisseur OIDC<br/>Keycloak en local<br/>(production : à choisir)"]
 
     user -- HTTPS --> front
-    user -- "connexion OIDC (phase 1)" --> idp
+    user -- "connexion OIDC (code + PKCE)" --> idp
     front -- "/api : JSON, JWT bearer" --> back
     back -- JDBC --> db
     back -- "clés de signature (JWKS)" --> idp
@@ -90,6 +90,19 @@ flowchart LR
 | `application.ContentImportService` | Transaction d'import et journalisation du rapport. |
 | `api.ThemesResource` | Catalogue public, pagination bornée (100 cartes maximum par page). |
 | `api.ContentImportResource` | Import à la demande, rôle `admin`. |
+
+### Module `user` (en place)
+
+| Élément | Rôle |
+|---|---|
+| `domain.UserProfile` | Profil applicatif : `sub` OIDC, nom affiché, fuseau horaire. |
+| `application.UserProfileService` | Création à la première connexion, préférences. |
+| `infrastructure.JpaUserProfileRepository` | Création atomique (`ON CONFLICT DO NOTHING`). |
+| `api.TokenIdentity` | Seul endroit qui lit les claims du jeton (`sub`, `name`, `preferred_username`). |
+| `api.MeResource` | `GET` et `PUT /api/v1/me`, réservés à l'utilisateur connecté. |
+
+Le flux complet est décrit dans l'ADR 0010 : la PWA obtient un jeton par Authorization Code + PKCE, et le backend
+vérifie sa signature, son émetteur, son expiration et son audience (`recallio-api`).
 
 Le module transverse `platform` fournit les identifiants (`IdGenerator`, UUID v7), l'horloge (`Clock`),
 la pagination (`Page`) et la traduction des erreurs en Problem Details (RFC 9457).
