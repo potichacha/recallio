@@ -1,0 +1,72 @@
+# Lance Recallio « comme en production », à partir des images Docker construites localement.
+# Pour développer, préférer `./mvnw quarkus:dev` et `npm run dev` (voir README).
+#
+#   docker compose -f infra/compose.yaml up --build
+#
+# Front : http://localhost:3000 · Keycloak : http://localhost:8180 (admin / admin)
+# Les mots de passe ci-dessous sont des valeurs de développement local, jamais de production.
+
+name: recallio
+
+services:
+  postgres:
+    image: postgres:18
+    environment:
+      POSTGRES_DB: recallio
+      POSTGRES_USER: recallio
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-recallio}
+    volumes:
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U recallio -d recallio"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.7
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+      # Le navigateur voit Keycloak sur localhost:8180 (émetteur des jetons) ;
+      # le backend l'appelle en interne sur keycloak:8080 (clés de signature).
+      KC_HOSTNAME: http://localhost:8180
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
+      KC_HEALTH_ENABLED: "true"
+    volumes:
+      - ./keycloak/recallio-realm.json:/opt/keycloak/data/import/recallio-realm.json:ro
+    ports:
+      - "8180:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/localhost/9000 && printf 'GET /health/ready HTTP/1.0\\r\\n\\r\\n' >&3 && grep -q UP <&3"]
+      interval: 5s
+      timeout: 3s
+      retries: 40
+
+  backend:
+    build: ../backend
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/recallio
+      DB_USERNAME: recallio
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-recallio}
+      OIDC_AUTH_SERVER_URL: http://keycloak:8080/realms/recallio
+    depends_on:
+      postgres:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ..
+      dockerfile: frontend/Dockerfile
+    environment:
+      BACKEND_URL: http://backend:8080
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+
+volumes:
+  pgdata:
