@@ -28,8 +28,11 @@ function ThemeRow({ theme }: { theme: ThemeStats }) {
   return (
     <li className="flex flex-col gap-2 rounded-xl bg-white p-4 shadow-sm">
       <div className="flex items-center justify-between gap-3">
-        <Link to={`/themes/${theme.slug}`} className="font-medium hover:text-indigo-600">
-          {theme.title}
+        <Link to={`/themes/${theme.slug}`} className="flex flex-col hover:text-indigo-600">
+          <span className="text-xs font-medium tracking-wide text-slate-400 uppercase">
+            {theme.subjectTitle}
+          </span>
+          <span className="font-medium">{theme.title}</span>
         </Link>
         {dueNow > 0 && (
           <Link

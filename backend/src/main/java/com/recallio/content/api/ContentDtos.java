@@ -15,9 +15,26 @@ final class ContentDtos {
     private ContentDtos() {}
 
     @Schema(name = "Theme")
-    record ThemeDto(UUID id, String slug, String title, int position, long cardCount) {
+    record ThemeDto(
+            UUID id,
+
+            @Schema(description = "Slug du sujet (java, go...)")
+            String subjectSlug,
+
+            String subjectTitle,
+            String slug,
+            String title,
+            int position,
+            long cardCount) {
         static ThemeDto from(ThemeSummary theme) {
-            return new ThemeDto(theme.id(), theme.slug(), theme.title(), theme.position(), theme.cardCount());
+            return new ThemeDto(
+                    theme.id(),
+                    theme.subjectSlug(),
+                    theme.subjectTitle(),
+                    theme.slug(),
+                    theme.title(),
+                    theme.position(),
+                    theme.cardCount());
         }
     }
 
@@ -47,6 +64,7 @@ final class ContentDtos {
 
     @Schema(name = "ImportReport")
     record ImportReportDto(
+            @Schema(description = "Slug du sujet importé") String subject,
             int themesCreated,
             int themesUpdated,
             int cardsAdded,
@@ -58,6 +76,7 @@ final class ContentDtos {
             List<IssueDto> issues) {
         static ImportReportDto from(ImportReport report) {
             return new ImportReportDto(
+                    report.subject(),
                     report.themesCreated(),
                     report.themesUpdated(),
                     report.cardsAdded(),

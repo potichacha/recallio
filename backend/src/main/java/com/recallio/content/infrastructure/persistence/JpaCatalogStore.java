@@ -9,6 +9,7 @@ import com.recallio.content.domain.importing.CatalogStore;
 import com.recallio.content.domain.importing.ImportPlan;
 import com.recallio.content.domain.importing.ImportPlan.CardPlacement;
 import com.recallio.content.domain.importing.ImportPlan.NewVersion;
+import com.recallio.content.domain.importing.ImportPlan.SubjectUpsert;
 import com.recallio.content.domain.importing.ImportPlan.ThemeUpsert;
 import com.recallio.platform.domain.IdGenerator;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -35,9 +36,11 @@ public class JpaCatalogStore implements CatalogStore {
     }
 
     @Override
-    public CatalogSnapshot snapshot() {
+    public CatalogSnapshot snapshot(UUID subjectId) {
+        SubjectEntity subject = entityManager.find(SubjectEntity.class, subjectId);
         Map<UUID, ExistingTheme> themes = entityManager
-                .createQuery("select t from ThemeEntity t", ThemeEntity.class)
+                .createQuery("select t from ThemeEntity t where t.subjectId = :subjectId", ThemeEntity.class)
+                .setParameter("subjectId", subjectId)
                 .getResultStream()
                 .map(theme -> new ExistingTheme(theme.id, theme.slug, theme.title, theme.position))
                 .collect(Collectors.toMap(ExistingTheme::id, Function.identity()));
@@ -46,18 +49,26 @@ public class JpaCatalogStore implements CatalogStore {
                         select c.id, c.themeId, c.type, c.position, c.currentVersion, v.contentHash, c.retiredAt
                         from CardEntity c
                         join CardVersionEntity v on v.cardId = c.id and v.version = c.currentVersion
+                        join ThemeEntity t on t.id = c.themeId
+                        where t.subjectId = :subjectId
                         """, Object[].class)
+                .setParameter("subjectId", subjectId)
                 .getResultStream()
                 .map(JpaCatalogStore::toExistingCard)
                 .collect(Collectors.toMap(ExistingCard::id, Function.identity()));
-        return new CatalogSnapshot(themes, cards);
+        return new CatalogSnapshot(subject == null ? null : subject.toDomain(), themes, cards);
     }
 
     @Override
     public void apply(ImportPlan plan) {
         Instant now = clock.instant();
-        // Thèmes, puis cartes, puis versions : les insertions restent groupées par table (batch JDBC) et les clés
+        // Sujet, thèmes, puis cartes, puis versions : les insertions restent groupées par table (batch JDBC) et les
+        // clés
         // étrangères sont satisfaites.
+        SubjectUpsert subject = plan.subjectUpsert();
+        if (subject != null) {
+            upsertSubject(subject, now);
+        }
         plan.themes().forEach(theme -> upsertTheme(theme, now));
         plan.newCards()
                 .forEach(card -> entityManager.persist(
@@ -69,10 +80,22 @@ public class JpaCatalogStore implements CatalogStore {
         plan.reactivatedCardIds().forEach(id -> card(id).retiredAt = null);
     }
 
+    private void upsertSubject(SubjectUpsert upsert, Instant now) {
+        SubjectEntity existing = entityManager.find(SubjectEntity.class, upsert.id());
+        if (existing == null) {
+            entityManager.persist(new SubjectEntity(upsert.id(), upsert.subject(), now));
+            // Le sujet doit exister en base avant les thèmes qui le référencent (insertions en batch).
+            entityManager.flush();
+        } else {
+            existing.update(upsert.subject(), now);
+        }
+    }
+
     private void upsertTheme(ThemeUpsert theme, Instant now) {
         ThemeEntity existing = entityManager.find(ThemeEntity.class, theme.id());
         if (existing == null) {
-            entityManager.persist(new ThemeEntity(theme.id(), theme.slug(), theme.title(), theme.position(), now));
+            entityManager.persist(
+                    new ThemeEntity(theme.id(), theme.subjectId(), theme.slug(), theme.title(), theme.position(), now));
         } else {
             existing.update(theme.slug(), theme.title(), theme.position(), now);
         }

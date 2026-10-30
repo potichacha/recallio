@@ -2,14 +2,19 @@ package com.recallio.content.domain.importing;
 
 import com.recallio.content.CardType;
 import com.recallio.content.domain.CardContent;
+import com.recallio.content.domain.Subject;
 import java.util.List;
 import java.util.UUID;
+import org.jspecify.annotations.Nullable;
 
 /**
- * Les changements à appliquer en base pour aligner le catalogue sur la source. Un plan vide signifie que la source n'a
+ * Les changements à appliquer en base pour aligner un sujet sur son document. Un plan vide signifie que le document n'a
  * pas changé : c'est ce qui rend l'import idempotent.
+ *
+ * @param subjectUpsert le sujet à créer ou à mettre à jour, {@code null} s'il n'a pas changé
  */
 public record ImportPlan(
+        @Nullable SubjectUpsert subjectUpsert,
         List<ThemeUpsert> themes,
         List<NewCard> newCards,
         List<NewVersion> newVersions,
@@ -28,7 +33,8 @@ public record ImportPlan(
     }
 
     public boolean isEmpty() {
-        return themes.isEmpty()
+        return subjectUpsert == null
+                && themes.isEmpty()
                 && newCards.isEmpty()
                 && newVersions.isEmpty()
                 && placements.isEmpty()
@@ -36,7 +42,9 @@ public record ImportPlan(
                 && reactivatedCardIds.isEmpty();
     }
 
-    public record ThemeUpsert(UUID id, String slug, String title, int position) {}
+    public record SubjectUpsert(UUID id, Subject subject) {}
+
+    public record ThemeUpsert(UUID id, UUID subjectId, String slug, String title, int position) {}
 
     public record NewCard(UUID id, UUID themeId, int position, CardContent content, String contentHash) {}
 

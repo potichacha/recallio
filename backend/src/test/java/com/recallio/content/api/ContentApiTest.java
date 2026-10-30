@@ -27,6 +27,22 @@ class ContentApiTest {
 
     private static String sample;
 
+    /** Un mini document Go : même numéro de chapitre et même question que l'exemple Java. */
+    private static String goDocument(String status) {
+        return """
+                ---
+                subject: go
+                title: Go
+                category: languages
+                position: 20
+                status: %s
+                ---
+                # 1. GO : FONDAMENTAUX
+                ### Questions techniques
+                %s
+                """.formatted(status, JVM_QUESTION);
+    }
+
     @BeforeAll
     static void loadSample() throws IOException {
         try (InputStream input =
@@ -83,6 +99,44 @@ class ContentApiTest {
             given().get("/api/v1/themes/java-fondamentaux").then().body("cardCount", is(4));
         }
 
+        @Test
+        void shouldImportEachSubjectWithoutTouchingTheOthers() {
+            importContent(sample);
+
+            importContent(goDocument("published"))
+                    .body("subject", equalTo("go"))
+                    .body("cardsRetired", is(0));
+
+            given().get("/api/v1/themes/java-fondamentaux").then().body("cardCount", is(4));
+            given().get("/api/v1/themes/go-fondamentaux")
+                    .then()
+                    .statusCode(200)
+                    .body("subjectSlug", equalTo("go"))
+                    .body("cardCount", is(1));
+            // Même numéro de chapitre que Java, et même question : deux thèmes, deux cartes distincts.
+            importContent(sample).body("cardsUnchanged", is(8)).body("cardsRetired", is(0));
+        }
+
+        @Test
+        void shouldHideTheThemesOfADraftSubject() {
+            importContent(goDocument("draft"));
+
+            given().get("/api/v1/themes/go-fondamentaux").then().statusCode(404);
+
+            importContent(goDocument("published"));
+            given().get("/api/v1/themes/go-fondamentaux").then().statusCode(200);
+        }
+
+        @Test
+        void shouldRejectADocumentWithoutSubjectHeader() {
+            given().contentType("text/markdown; charset=UTF-8")
+                    .body("# 1. JAVA : FONDAMENTAUX\n")
+                    .post(IMPORTS)
+                    .then()
+                    .statusCode(422)
+                    .body("code", equalTo("content.invalid-source"));
+        }
+
         private ValidatableResponse importContent(String markdown) {
             return given().contentType("text/markdown; charset=UTF-8")
                     .body(markdown)
@@ -112,7 +166,9 @@ class ContentApiTest {
                     .then()
                     .statusCode(200)
                     .body("slug", hasItem("java-fondamentaux"))
-                    .body("find { it.slug == 'glossaire-des-sigles-et-termes' }.cardCount", is(2));
+                    .body("find { it.slug == 'java-glossaire-des-sigles-et-termes' }.cardCount", is(2))
+                    .body("find { it.slug == 'java-fondamentaux' }.subjectSlug", equalTo("java"))
+                    .body("find { it.slug == 'java-fondamentaux' }.subjectTitle", equalTo("Java"));
         }
 
         @Test

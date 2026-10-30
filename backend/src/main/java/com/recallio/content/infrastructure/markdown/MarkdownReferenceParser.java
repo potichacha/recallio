@@ -11,16 +11,16 @@ import com.recallio.content.domain.source.ParsedContent.SourceIssue;
 import jakarta.enterprise.context.ApplicationScoped;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.jspecify.annotations.Nullable;
 
 /**
- * Lit le document de référence ({@code content/source/java-entretien-reference.md}, format décrit en CLAUDE.md, section
- * 5.1) :
+ * Lit le document de référence d'un sujet ({@code content/source/<sujet>-entretien-reference.md}, format décrit en
+ * CLAUDE.md, section 5.1) :
  *
  * <ul>
+ *   <li>un en-tête qui décrit le sujet ({@link SubjectHeader}) ;
  *   <li>un chapitre par titre {@code # N. TITRE} ;
  *   <li>{@code ### Questions techniques} : {@code **Q : question ?** R : réponse.}, ou une question suivie d'un bloc de
  *       code puis d'une ligne {@code R : ...} ;
@@ -34,8 +34,11 @@ import org.jspecify.annotations.Nullable;
 @ApplicationScoped
 public class MarkdownReferenceParser implements ContentParser {
 
-    /** Le chapitre des questions pièges « qu'affiche ce code ? » produit des cartes {@code CODE_OUTPUT}. */
-    static final int CODE_OUTPUT_CHAPTER = 14;
+    /**
+     * Le chapitre des questions pièges produit des cartes {@code CODE_OUTPUT}. Il est reconnu à son titre (« QUESTIONS
+     * PIÈGES : QU'AFFICHE CE CODE ? »), quel que soit son numéro dans le document.
+     */
+    static final String CODE_OUTPUT_TITLE = "qu affiche ce code";
 
     static final String GLOSSARY_KEY = "glossary";
     private static final int GLOSSARY_POSITION = 1000;
@@ -86,11 +89,12 @@ public class MarkdownReferenceParser implements ContentParser {
 
         ParsedContent run(String source) {
             String[] lines = source.split("\\R", -1);
-            for (int index = 0; index < lines.length; index++) {
+            SubjectHeader.Read header = SubjectHeader.read(lines);
+            for (int index = header.lineCount(); index < lines.length; index++) {
                 accept(lines[index], index + 1);
             }
             closeTheme();
-            return new ParsedContent(themes, issues);
+            return new ParsedContent(header.subject(), themes, issues);
         }
 
         private void accept(String line, int lineNumber) {
@@ -228,7 +232,7 @@ public class MarkdownReferenceParser implements ContentParser {
             }
             CardType type = section == Section.SITUATION
                     ? CardType.OPEN_SCENARIO
-                    : theme.position == CODE_OUTPUT_CHAPTER ? CardType.CODE_OUTPUT : CardType.FLASHCARD;
+                    : theme.isCodeOutput() ? CardType.CODE_OUTPUT : CardType.FLASHCARD;
             boolean quoted = type == CardType.OPEN_SCENARIO;
             String prompt = quoted ? unquote(question.prompt()) : question.prompt();
             String answer = quoted ? unquote(question.answer()) : question.answer();
@@ -286,13 +290,13 @@ public class MarkdownReferenceParser implements ContentParser {
             this.position = position;
         }
 
-        ParsedTheme build() {
-            return new ParsedTheme(key, slugOf(title), title, position, cards);
+        boolean isCodeOutput() {
+            return CardIdentity.normalize(title).contains(CODE_OUTPUT_TITLE);
         }
-    }
 
-    static String slugOf(String title) {
-        return CardIdentity.normalize(title).replace(' ', '-').toLowerCase(Locale.ROOT);
+        ParsedTheme build() {
+            return new ParsedTheme(key, title, position, cards);
+        }
     }
 
     /** Retire les guillemets qui encadrent les énoncés et réponses des questions de situation. */

@@ -39,7 +39,11 @@ public class ReviewStatsService {
 
         List<ThemeStats> perTheme = themes.stream()
                 .map(theme -> new ThemeStats(
-                        theme.slug(), theme.title(), CardCounts.of(theme.cardIds(), memory, now, endOfDay)))
+                        theme.subjectSlug(),
+                        theme.subjectTitle(),
+                        theme.slug(),
+                        theme.title(),
+                        CardCounts.of(theme.cardIds(), memory, now, endOfDay)))
                 .toList();
         List<UUID> allCards =
                 themes.stream().flatMap(theme -> theme.cardIds().stream()).toList();
@@ -51,5 +55,5 @@ public class ReviewStatsService {
     /** @param newToday nouvelles cartes encore proposées aujourd'hui (quota restant, dans la limite du catalogue) */
     public record ReviewStats(CardCounts overall, int newToday, List<ThemeStats> themes) {}
 
-    public record ThemeStats(String slug, String title, CardCounts counts) {}
+    public record ThemeStats(String subjectSlug, String subjectTitle, String slug, String title, CardCounts counts) {}
 }

@@ -29,7 +29,12 @@ export function ThemePage() {
         ← Tous les thèmes
       </Link>
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-bold">{theme.data?.title ?? 'Chargement…'}</h1>
+        <div className="flex flex-col">
+          {theme.data && (
+            <span className="text-sm font-medium text-indigo-600">{theme.data.subjectTitle}</span>
+          )}
+          <h1 className="text-2xl font-bold">{theme.data?.title ?? 'Chargement…'}</h1>
+        </div>
         <Link
           to={`/review?theme=${encodeURIComponent(slug)}`}
           className="rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700"

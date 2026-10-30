@@ -73,11 +73,11 @@ flowchart TB
 
 ```mermaid
 flowchart LR
-    md["content/source/*.md"] --> parser["MarkdownReferenceParser<br/>(infrastructure, port ContentParser)"]
+    md["content/source/&lt;sujet&gt;-entretien-reference.md<br/>(un document par sujet, avec en-tête)"] --> parser["MarkdownReferenceParser<br/>(infrastructure, port ContentParser)"]
     parser --> planner["ImportPlanner<br/>(domaine pur)"]
-    snapshot["CatalogStore.snapshot()"] --> planner
+    snapshot["CatalogStore.snapshot(sujet)"] --> planner
     planner -- "ImportPlan + rapport" --> store["JpaCatalogStore.apply()"]
-    store --> db[("theme · card · card_version")]
+    store --> db[("subject · theme · card · card_version")]
     db --> catalog["JpaContentCatalog<br/>(port ContentCatalog)"]
     catalog --> api["GET /api/v1/themes…"]
 ```
@@ -85,11 +85,14 @@ flowchart LR
 | Élément | Rôle |
 |---|---|
 | `domain.CardContent` | Interface `sealed` : `Flashcard`, `CodeOutput`, `OpenScenario`, `Definition`. |
-| `domain.CardIdentity` | Identifiants stables (UUID v8) et empreinte de contenu (ADR 0009). |
-| `domain.importing.ImportPlanner` | Compare la source au catalogue : ajouts, nouvelles versions, retraits, réactivations. |
+| `domain.Subject` | Un sujet du catalogue : slug définitif, catégorie, ordre, brouillon ou publié (ADR 0013). |
+| `domain.CardIdentity` | Identifiants stables (UUID v8) dérivés du sujet, du chapitre et de la question (ADR 0009 et 0013). |
+| `infrastructure.markdown.SubjectHeader` | Lit l'en-tête `---` d'un document : le sujet qu'il décrit. |
+| `domain.importing.ImportPlanner` | Compare un document à son sujet en base : ajouts, nouvelles versions, retraits (dans ce sujet seulement), réactivations. |
 | `application.ContentImportService` | Transaction d'import et journalisation du rapport. |
-| `api.ThemesResource` | Catalogue public, pagination bornée (100 cartes maximum par page). |
-| `api.ContentImportResource` | Import à la demande, rôle `admin`. |
+| `api.ThemesResource` | Catalogue public (sujets publiés seulement), pagination bornée (100 cartes maximum par page). |
+| `api.ContentImportResource` | Import d'un document à la demande, rôle `admin`. |
+| `infrastructure.ContentStartupImport` | En dev et dans le compose : importe tous les documents du dossier, un sujet par transaction. |
 | `CardDirectory` (package racine) | **API publique** pour les autres modules : cartes actives filtrées ou par thème, version courante. |
 | `CardType` (package racine) | Formats de carte, partagés avec les autres modules. |
 

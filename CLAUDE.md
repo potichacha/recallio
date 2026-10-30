@@ -78,7 +78,7 @@ Recallio n'est pas une application « Java » : c'est un **catalogue de sujets d
   - il peut aussi réviser un sujet ou un thème en particulier.
 - **Progression** : par sujet et par thème (tableau de bord), et streak global (un seul objectif quotidien, tous sujets confondus).
 - **Publication** : un sujet peut exister en **brouillon** (importé, visible seulement par les admins) avant d'être **publié**. On peut ainsi relire un nouveau document en conditions réelles.
-- **Ajouter un sujet ne demande aucun code** : un nouveau fichier dans `content/source/` et une entrée dans le manifeste (5.4), relus par pull request. Si un sujet a besoin d'un comportement particulier, c'est un signe que le format doit évoluer (ADR), pas qu'il faut un cas spécial dans le parseur.
+- **Ajouter un sujet ne demande aucun code** : un nouveau fichier dans `content/source/`, décrit par son en-tête (5.4), relu par pull request. Si un sujet a besoin d'un comportement particulier, c'est un signe que le format doit évoluer (ADR), pas qu'il faut un cas spécial dans le parseur.
 - **Groupes et mode live** (phases 2 et 3) : un groupe choisit ses sujets (puis ses thèmes) ; une partie live porte sur un sujet.
 
 ---
@@ -201,7 +201,7 @@ Chaque sujet a son document de référence, `content/source/<sujet>-entretien-re
 - Chaque carte reçoit un **identifiant stable** (dérivé du **sujet**, du chapitre et d'un hash normalisé de la question), pour que la progression des utilisateurs survive aux réimports et aux corrections de texte. Deux sujets peuvent avoir un chapitre 1 ou une question identique sans collision. Une modification de texte crée une **nouvelle version** de la carte, pas une nouvelle carte.
 - L'import est **idempotent** : relancer l'import ne crée aucun doublon.
 - Un rapport d'import, par sujet, liste les cartes ajoutées, modifiées, retirées, les doublons et les lignes non reconnues.
-- **Contrôle du contenu en CI** : chaque pull request parse tous les documents de `content/source/` et échoue sur une anomalie (question sans réponse, doublon, sujet absent du manifeste). Une erreur de contenu se voit avant le merge, pas en production.
+- **Contrôle du contenu en CI** : chaque pull request parse tous les documents de `content/source/` et échoue sur une anomalie (question sans réponse, doublon, en-tête invalide, fichier mal nommé). Une erreur de contenu se voit avant le merge, pas en production.
 - À terme, le contenu pourra être migré vers un format plus structuré (un fichier YAML ou Markdown par carte dans `content/`), relu par pull request. Ne pas le faire en V1, mais garder le parseur isolé derrière une interface pour pouvoir changer de source.
 
 ### 5.3 Types de cartes
@@ -217,26 +217,27 @@ Modéliser le type avec une interface `sealed` côté domaine.
 
 Plus tard, un type `CODING_EXERCISE` pourra porter les exercices de live coding corrigés (le document Go en contient un chapitre), d'abord en auto-évaluation, puis avec exécution en bac à sable (phase 5).
 
-### 5.4 Manifeste des sujets
-Le fichier `content/subjects.yaml` (format à confirmer par ADR, voir section 10) déclare les sujets, leur ordre d'affichage et leur statut :
+### 5.4 En-tête des documents (le sujet)
+Chaque document commence par un **en-tête** qui décrit son sujet (ADR 0013). Il n'y a pas de fichier de manifeste séparé : un document se suffit à lui-même, et l'import par un admin n'a besoin que de lui.
 
-```yaml
-- slug: java            # identifiant stable : il entre dans l'identité des cartes, ne jamais le changer
-  title: Java
-  category: languages
-  source: source/java-entretien-reference.md
-  status: published     # draft (admins seulement) ou published
-- slug: go
-  title: Go
-  category: languages
-  source: source/go-entretien-reference.md
-  status: draft
+```
+---
+subject: go           # slug, identifiant stable : il entre dans l'identité des cartes, ne jamais le changer
+title: Go
+category: languages   # languages, frameworks, cloud-devops, data, fundamentals, ai
+position: 20          # ordre d'affichage dans le catalogue (de 10 en 10, pour pouvoir intercaler)
+status: published     # draft (importé mais invisible) ou published
+---
 ```
 
+Les commentaires ci-dessus sont là pour l'explication : un vrai en-tête n'a qu'une ligne `clé: valeur` par clé.
+
+- Toutes les clés sont obligatoires ; une clé ou une valeur inconnue fait échouer l'import (et la CI).
+- Le fichier s'appelle `<slug>-entretien-reference.md` : la CI vérifie la correspondance.
 - Le slug d'un sujet est **définitif** : le changer change l'identité de toutes ses cartes et fait perdre la progression.
 - **Ajouter un sujet** = une pull request de contenu :
-  1. écrire le document en suivant `content/README.md` ;
-  2. ajouter l'entrée au manifeste en `draft` ;
+  1. écrire le document en suivant `content/README.md` (à venir, étape 5 de la phase 1 bis) ;
+  2. le mettre en `status: draft` ;
   3. CI verte ;
   4. merge et import ;
   5. relecture dans l'application ;
@@ -248,7 +249,7 @@ Les sujets s'ajoutent un par un, au rythme de la rédaction, indépendamment des
 | Sujet | Catégorie | État |
 |---|---|---|
 | Java | Langages | ✅ rédigé, importé |
-| Go | Langages | ✅ rédigé, à importer à l'étape 1 de la phase 1 bis |
+| Go | Langages | ✅ rédigé, importé |
 | Spring Boot, Quarkus | Frameworks | à rédiger |
 | Python | Langages | à rédiger |
 | Kubernetes, Docker | Cloud & DevOps | à rédiger |
@@ -350,11 +351,11 @@ Faire de Recallio un catalogue de sujets (2.5), avec Java et Go comme premiers s
 
 **L'étape 1 doit précéder le premier déploiement** : elle change l'identité des cartes (le sujet y entre). Aujourd'hui, sans utilisateur réel, ce n'est qu'un réimport ; après le déploiement, cela ferait perdre leur progression aux testeurs.
 
-1. **Sujets dans le modèle et import par sujet**.
-   - Contenu : table `subject`, manifeste `content/subjects.yaml`, thèmes rattachés à un sujet (slug unique par sujet).
+1. ✅ **Sujets dans le modèle et import par sujet**.
+   - Contenu : table `subject`, en-tête de document (5.4), thèmes rattachés à un sujet (slug préfixé par le sujet).
    - Identité : identifiants des thèmes et des cartes préfixés par le sujet.
    - Import : retraits limités au sujet importé, chapitre des questions pièges reconnu à son titre ; import de Java et de Go.
-   - ADR : modèle multi-sujets et format du manifeste.
+   - ADR 0013 : modèle multi-sujets et en-tête des documents.
 2. **Catalogue par sujet (API et PWA)**.
    - API : `GET /api/v1/subjects`, puis les thèmes et les cartes d'un sujet ; brouillons visibles des seuls admins.
    - PWA : pages *Sujets* → *Thèmes* → *Cartes*, regroupées par catégorie ; coloration syntaxique selon le langage du bloc de code.
@@ -365,7 +366,7 @@ Faire de Recallio un catalogue de sujets (2.5), avec Java et Go comme premiers s
 5. **Outillage du contenu**.
    - `content/README.md` (guide de rédaction et liste de contrôle).
    - Contrôle du contenu en CI (tous les documents parsés, échec sur anomalie).
-   - Statut `draft` / `published`, et documentation de la procédure « ajouter un sujet ».
+   - Écran admin des brouillons, et documentation de la procédure « ajouter un sujet ». (Le contrôle de chaque document en CI et le statut `draft` / `published` existent depuis l'étape 1.)
 - **Terminé quand** : un utilisateur suit Java et Go, révise les deux dans la même session et voit sa progression par sujet ; ajouter un troisième sujet ne demande qu'une pull request de contenu.
 
 Ensuite, chaque nouveau sujet (5.5) est une pull request de contenu, qui peut avancer en parallèle des phases suivantes.
@@ -394,7 +395,7 @@ Exécution de code dans un bac à sable isolé (Judge0 ou Piston) pour les exerc
 5. Fournisseur OIDC de production : managé (Zitadel Cloud, Clerk, Auth0...) ou Keycloak hébergé (phase 1, avant le déploiement).
 6. Hébergeur (phase 1).
 7. Nom du projet. **Provisoire** : Recallio (ADR 0005), à confirmer avant le premier déploiement public. Il ne doit pas évoquer Java seul.
-8. Format du manifeste des sujets : YAML (lisible, une dépendance de parsing) ou JSON (aucune dépendance) (phase 1 bis, étape 1).
+8. ~~Format du manifeste des sujets (phase 1 bis, étape 1).~~ **Tranché** : pas de manifeste, un en-tête dans chaque document (ADR 0013).
 9. Répartition du quota de nouvelles cartes entre sujets suivis : parts égales, ou pondération choisie par l'utilisateur (phase 1 bis, étape 3).
 
 ---

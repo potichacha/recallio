@@ -1,11 +1,19 @@
 package com.recallio.content.domain.importing;
 
 import com.recallio.content.CardType;
+import com.recallio.content.domain.Subject;
 import java.util.Map;
 import java.util.UUID;
+import org.jspecify.annotations.Nullable;
 
-/** État du catalogue en base avant un import : ce à quoi on compare la source. */
-public record CatalogSnapshot(Map<UUID, ExistingTheme> themes, Map<UUID, ExistingCard> cards) {
+/**
+ * État d'un sujet en base avant son import : ce à quoi on compare son document. Seuls les thèmes et les cartes de ce
+ * sujet en font partie : importer un sujet ne touche jamais aux autres.
+ *
+ * @param subject le sujet tel qu'il est en base, {@code null} s'il n'a jamais été importé
+ */
+public record CatalogSnapshot(
+        @Nullable Subject subject, Map<UUID, ExistingTheme> themes, Map<UUID, ExistingCard> cards) {
 
     public CatalogSnapshot {
         themes = Map.copyOf(themes);
@@ -13,7 +21,7 @@ public record CatalogSnapshot(Map<UUID, ExistingTheme> themes, Map<UUID, Existin
     }
 
     public static CatalogSnapshot empty() {
-        return new CatalogSnapshot(Map.of(), Map.of());
+        return new CatalogSnapshot(null, Map.of(), Map.of());
     }
 
     public record ExistingTheme(UUID id, String slug, String title, int position) {}

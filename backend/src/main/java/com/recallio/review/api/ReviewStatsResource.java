@@ -61,9 +61,15 @@ public class ReviewStatsResource {
     }
 
     @Schema(name = "ThemeStats")
-    public record ThemeStatsDto(String slug, String title, CardCountsDto counts) {
+    public record ThemeStatsDto(
+            String subjectSlug, String subjectTitle, String slug, String title, CardCountsDto counts) {
         static ThemeStatsDto from(ThemeStats theme) {
-            return new ThemeStatsDto(theme.slug(), theme.title(), CardCountsDto.from(theme.counts()));
+            return new ThemeStatsDto(
+                    theme.subjectSlug(),
+                    theme.subjectTitle(),
+                    theme.slug(),
+                    theme.title(),
+                    CardCountsDto.from(theme.counts()));
         }
     }
 

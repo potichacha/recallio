@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.recallio.content.CardType;
 import com.recallio.content.domain.CardContent;
+import com.recallio.content.domain.Subject;
 import com.recallio.content.domain.source.ParsedContent;
 import com.recallio.content.domain.source.ParsedContent.ParsedCard;
 import com.recallio.content.domain.source.ParsedContent.ParsedTheme;
@@ -32,11 +33,38 @@ class MarkdownReferenceParserTest {
     @Test
     void shouldCreateOneThemePerChapterPlusTheGlossary() {
         assertThat(parsed.themes())
-                .extracting(ParsedTheme::key, ParsedTheme::slug, ParsedTheme::position)
+                .extracting(ParsedTheme::key, ParsedTheme::title, ParsedTheme::position)
                 .containsExactly(
-                        org.assertj.core.groups.Tuple.tuple("01", "java-fondamentaux", 1),
-                        org.assertj.core.groups.Tuple.tuple("14", "questions-pieges-qu-affiche-ce-code", 14),
-                        org.assertj.core.groups.Tuple.tuple("glossary", "glossaire-des-sigles-et-termes", 1000));
+                        org.assertj.core.groups.Tuple.tuple("01", "JAVA : FONDAMENTAUX", 1),
+                        org.assertj.core.groups.Tuple.tuple("14", "QUESTIONS PIÈGES : QU'AFFICHE CE CODE ?", 14),
+                        org.assertj.core.groups.Tuple.tuple("glossary", "GLOSSAIRE DES SIGLES ET TERMES", 1000));
+    }
+
+    @Test
+    void shouldReadTheSubjectFromTheHeader() {
+        assertThat(parsed.subject())
+                .isEqualTo(new Subject("java", "Java", Subject.Category.LANGUAGES, 10, Subject.Status.PUBLISHED));
+    }
+
+    @Test
+    void shouldRecognizeTheTrickQuestionsChapterByItsTitleWhateverItsNumber() {
+        ParsedContent other = new MarkdownReferenceParser().parse("""
+                ---
+                subject: go
+                title: Go
+                category: languages
+                position: 20
+                status: draft
+                ---
+                # 3. QUESTIONS PIÈGES : QU'AFFICHE CE CODE ?
+                ### Questions techniques
+                **Q : `fmt.Println(len("é"))`** R : `2` : len compte les octets.
+                """);
+
+        assertThat(other.themes().getFirst().cards())
+                .extracting(card -> card.content().type())
+                .containsExactly(CardType.CODE_OUTPUT);
+        assertThat(other.subject().status()).isEqualTo(Subject.Status.DRAFT);
     }
 
     @Test
@@ -118,7 +146,7 @@ class MarkdownReferenceParserTest {
 
     @Test
     void shouldRecordTheSourceLineOfEachQuestion() {
-        assertThat(cards("01").getFirst().sourceLine()).isEqualTo(22);
+        assertThat(cards("01").getFirst().sourceLine()).isEqualTo(30);
     }
 
     private static List<ParsedCard> cards(String themeKey) {
