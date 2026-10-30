@@ -1,7 +1,7 @@
 # CLAUDE.md : application de flashcards pour réviser les entretiens techniques
 
 > Ce fichier est le cahier des charges et le contrat de collaboration du projet. Lis-le en entier au début de chaque session.
-> Le contenu source des questions est dans `content/source/java-entretien-reference.md`.
+> Le contenu source des questions est dans `content/source/` : un document de référence par **sujet** (Java, Go...), voir la section 5.
 
 ---
 
@@ -33,7 +33,7 @@ Si je te dis "écris-le", "montre-moi la solution" ou "génère ce fichier", tu 
 
 ### 2.1 Vision
 Une application web (PWA, utilisable sur mobile) pour **réviser les entretiens techniques** de façon quotidienne et ludique :
-- des cartes déjà rédigées, orientées questions d'entretien (Java pour commencer, d'autres sujets plus tard : C++, IA, prompting...) ;
+- des cartes déjà rédigées, orientées questions d'entretien, réparties en **sujets** : langages, frameworks, cloud, fondamentaux, IA... (Java et Go pour commencer, d'autres ajoutés petit à petit, voir 2.5) ;
 - plusieurs formats de questions (flashcard, QCM, "qu'affiche ce code ?", question de situation ouverte) ;
 - une **répétition espacée** pour mémoriser durablement ;
 - de la **gamification** (points, streak quotidien) ;
@@ -55,6 +55,31 @@ Il est impossible d'empêcher totalement l'usage d'une IA ou d'internet dans un 
 - dans les **groupes**, les classements valorisent la **régularité** (streak, révisions faites) plus que le score brut ;
 - le **mode live** (phase 3), synchronisé et chronométré, est le seul contexte compétitif ;
 - pas de surveillance intrusive (webcam, détection invasive).
+
+### 2.5 Un catalogue multi-sujets
+Recallio n'est pas une application « Java » : c'est un **catalogue de sujets d'entretien** qui s'enrichit au fil du temps. Chaque sujet est un document de référence rédigé dans le même format (section 5), importé indépendamment des autres.
+
+- **Hiérarchie** : **catégorie** → **sujet** → **thème** (un chapitre du document) → **carte**.
+  - Exemple : *Langages* → *Go* → *7. Concurrence : goroutines, channels & select* → « Que se passe-t-il si on écrit dans un channel fermé ? ».
+- **Catégories** (liste fermée, extensible par ADR) :
+
+| Catégorie | Exemples de sujets |
+|---|---|
+| Langages | Java, Go, C, C#, C++, Python, Kotlin, TypeScript, Rust |
+| Frameworks | Spring Boot, Quarkus, Angular, React |
+| Cloud & DevOps | Docker, Kubernetes, CI/CD |
+| Données | SQL & PostgreSQL, NoSQL, Kafka |
+| Fondamentaux | Algorithmes & structures de données, architecture & design, sécurité |
+| IA | Machine learning, LLM & prompting |
+
+- **Ce que voit l'utilisateur** :
+  - il **choisit les sujets qu'il suit** (au premier login, puis dans son profil) ;
+  - ses révisions puisent dans ces sujets uniquement ;
+  - il peut aussi réviser un sujet ou un thème en particulier.
+- **Progression** : par sujet et par thème (tableau de bord), et streak global (un seul objectif quotidien, tous sujets confondus).
+- **Publication** : un sujet peut exister en **brouillon** (importé, visible seulement par les admins) avant d'être **publié**. On peut ainsi relire un nouveau document en conditions réelles.
+- **Ajouter un sujet ne demande aucun code** : un nouveau fichier dans `content/source/` et une entrée dans le manifeste (5.4), relus par pull request. Si un sujet a besoin d'un comportement particulier, c'est un signe que le format doit évoluer (ADR), pas qu'il faut un cas spécial dans le parseur.
+- **Groupes et mode live** (phases 2 et 3) : un groupe choisit ses sujets (puis ses thèmes) ; une partie live porte sur un sujet.
 
 ---
 
@@ -91,7 +116,7 @@ Une seule application backend, découpée en **modules métier** aux frontières
 Modules prévus (créés au fur et à mesure des phases, pas tous dès le départ) :
 | Module | Responsabilité | Phase |
 |---|---|---|
-| `content` | thèmes, cartes, versions de cartes, import du contenu | 1 |
+| `content` | catégories, sujets, thèmes, cartes, versions de cartes, import du contenu | 1 |
 | `review` | sessions de révision, planification par répétition espacée (FSRS), historique | 1 |
 | `user` | profil utilisateur lié à l'identité OIDC, préférences (fuseau horaire) | 1 |
 | `gamification` | points, streaks, succès | 1 |
@@ -155,34 +180,82 @@ Si une règle devient gênante, on en discute et on consigne l'exception dans un
 
 ---
 
-## 5. Contenu : de la source Markdown aux cartes
+## 5. Contenu : des documents de référence aux cartes
 
 ### 5.1 Format de la source
-Le fichier `content/source/java-entretien-reference.md` est structuré ainsi :
+Chaque sujet a son document de référence, `content/source/<sujet>-entretien-reference.md` (par exemple `java-entretien-reference.md`, `go-entretien-reference.md`). Tous suivent le même format :
+- Titre du document : `# <Sujet> : le document de référence pour les entretiens techniques`, suivi d'une introduction (ignorée par l'import).
 - Chapitres : un titre `# N. TITRE` encadré de lignes de séparation `═══...`.
 - Dans chaque chapitre, des sections `### Vue d'ensemble`, `### Cours`, `### En situation`, `### Questions techniques`, `### Questions de situation`.
-- **Questions techniques** : une ligne `**Q : question ?** R : réponse.` Parfois la question contient un bloc de code juste après `**Q :**` et la réponse suit sur la ligne `R : ...` (chapitre 14, questions pièges).
+- **Questions techniques** : une ligne `**Q : question ?** R : réponse.` Parfois la question contient un bloc de code juste après `**Q :**` et la réponse suit sur la ligne `R : ...` (chapitre des questions pièges, reconnu à son titre « QU'AFFICHE CE CODE ? » et non à son numéro).
 - **Questions de situation** : `**Q : "énoncé"**` puis `R : "réponse rédigée"` sur plusieurs lignes, parfois avec des blocs de code, jusqu'à la question suivante ou la fin du chapitre.
 - Le glossaire (tableau Markdown) peut devenir un deck de cartes "définition".
+- Les blocs de code indiquent leur langage (` ```go `, ` ```java `...) pour la coloration syntaxique.
+- Les sections hors chapitre numéroté (méthode générale, récapitulatif final) sont ignorées par l'import.
+- Le guide de rédaction d'un nouveau document est `content/README.md` : format, règles d'écriture d'une bonne question, liste de contrôle avant la pull request.
 
 ### 5.2 Pipeline d'import
 - Un **outil d'import** (module `content`, exécutable en ligne de commande ou en tâche d'admin) parse la source et produit des cartes.
+- **L'import se fait sujet par sujet** : importer Go ne touche ni aux cartes ni aux thèmes de Java. Les cartes retirées sont celles du sujet importé qui ont disparu de son document, jamais celles d'un autre sujet.
 - Le parseur est du code **pur et entièrement testé unitairement** (fixtures Markdown dans les tests), car c'est la partie la plus fragile.
-- Chaque carte reçoit un **identifiant stable** (dérivé du chapitre et d'un hash normalisé de la question), pour que la progression des utilisateurs survive aux réimports et aux corrections de texte. Une modification de texte crée une **nouvelle version** de la carte, pas une nouvelle carte.
+- Chaque carte reçoit un **identifiant stable** (dérivé du **sujet**, du chapitre et d'un hash normalisé de la question), pour que la progression des utilisateurs survive aux réimports et aux corrections de texte. Deux sujets peuvent avoir un chapitre 1 ou une question identique sans collision. Une modification de texte crée une **nouvelle version** de la carte, pas une nouvelle carte.
 - L'import est **idempotent** : relancer l'import ne crée aucun doublon.
-- Un rapport d'import liste les cartes ajoutées, modifiées, retirées et les lignes non reconnues.
+- Un rapport d'import, par sujet, liste les cartes ajoutées, modifiées, retirées, les doublons et les lignes non reconnues.
+- **Contrôle du contenu en CI** : chaque pull request parse tous les documents de `content/source/` et échoue sur une anomalie (question sans réponse, doublon, sujet absent du manifeste). Une erreur de contenu se voit avant le merge, pas en production.
 - À terme, le contenu pourra être migré vers un format plus structuré (un fichier YAML ou Markdown par carte dans `content/`), relu par pull request. Ne pas le faire en V1, mais garder le parseur isolé derrière une interface pour pouvoir changer de source.
 
 ### 5.3 Types de cartes
 | Type | Origine | Évaluation |
 |---|---|---|
 | `FLASHCARD` | questions techniques | auto-évaluation (voir 6.1) |
-| `CODE_OUTPUT` | questions pièges avec code (chapitre 14) | auto-évaluation en V1 ; QCM généré ou saisie libre plus tard |
+| `CODE_OUTPUT` | questions pièges avec code (chapitre « qu'affiche ce code ? ») | auto-évaluation en V1 ; QCM généré ou saisie libre plus tard |
 | `MULTIPLE_CHOICE` | à créer (manuellement ou dérivé) | correction automatique |
 | `OPEN_SCENARIO` | questions de situation | rédaction libre puis comparaison avec la réponse modèle et auto-évaluation |
 | `DEFINITION` | glossaire | auto-évaluation |
 
 Modéliser le type avec une interface `sealed` côté domaine.
+
+Plus tard, un type `CODING_EXERCISE` pourra porter les exercices de live coding corrigés (le document Go en contient un chapitre), d'abord en auto-évaluation, puis avec exécution en bac à sable (phase 5).
+
+### 5.4 Manifeste des sujets
+Le fichier `content/subjects.yaml` (format à confirmer par ADR, voir section 10) déclare les sujets, leur ordre d'affichage et leur statut :
+
+```yaml
+- slug: java            # identifiant stable : il entre dans l'identité des cartes, ne jamais le changer
+  title: Java
+  category: languages
+  source: source/java-entretien-reference.md
+  status: published     # draft (admins seulement) ou published
+- slug: go
+  title: Go
+  category: languages
+  source: source/go-entretien-reference.md
+  status: draft
+```
+
+- Le slug d'un sujet est **définitif** : le changer change l'identité de toutes ses cartes et fait perdre la progression.
+- **Ajouter un sujet** = une pull request de contenu :
+  1. écrire le document en suivant `content/README.md` ;
+  2. ajouter l'entrée au manifeste en `draft` ;
+  3. CI verte ;
+  4. merge et import ;
+  5. relecture dans l'application ;
+  6. une seconde PR le passe en `published`.
+
+### 5.5 Feuille de route du contenu
+Les sujets s'ajoutent un par un, au rythme de la rédaction, indépendamment des phases de développement (section 9). Ordre indicatif :
+
+| Sujet | Catégorie | État |
+|---|---|---|
+| Java | Langages | ✅ rédigé, importé |
+| Go | Langages | ✅ rédigé, à importer à l'étape 1 de la phase 1 bis |
+| Spring Boot, Quarkus | Frameworks | à rédiger |
+| Python | Langages | à rédiger |
+| Kubernetes, Docker | Cloud & DevOps | à rédiger |
+| Algorithmes & structures de données | Fondamentaux | à rédiger |
+| SQL & PostgreSQL | Données | à rédiger |
+| C, C++, C# | Langages | à rédiger |
+| IA : machine learning, LLM & prompting | IA | à rédiger |
 
 ---
 
@@ -191,7 +264,9 @@ Modéliser le type avec une interface `sealed` côté domaine.
 ### 6.1 Révision
 - Une **session** propose les cartes **dues** (selon la planification) puis de nouvelles cartes, dans la limite d'un nombre quotidien de nouvelles cartes réglable.
 - Pour une carte en auto-évaluation : l'utilisateur voit la question, réfléchit (ou écrit sa réponse), révèle la réponse, puis note : **À revoir / Difficile / Bien / Facile** (les quatre notes de FSRS).
-- Filtrage par thème (chapitre) et par type de carte.
+- Les cartes proposées viennent des **sujets suivis** par l'utilisateur ; filtrage possible par sujet, par thème (chapitre) et par type de carte.
+- Le quota quotidien de nouvelles cartes est **global**, réparti entre les sujets suivis (un nouveau sujet ne noie pas les autres). Les cartes dues passent toujours en premier, quel que soit leur sujet.
+- Arrêter de suivre un sujet ne supprime pas la progression : ses cartes ne sont plus proposées, et elles reviennent si on le suit de nouveau.
 
 ### 6.2 Répétition espacée : FSRS
 - Utiliser l'algorithme **FSRS** (celui des versions récentes d'Anki). État par couple (utilisateur, carte) : stabilité, difficulté, date d'échéance, nombre de révisions, nombre d'oublis, état (nouvelle, en apprentissage, en révision, réapprentissage).
@@ -204,12 +279,12 @@ Modéliser le type avec une interface `sealed` côté domaine.
 - La gamification ne doit jamais pousser à bâcler : pas de points pour aller plus vite en révision personnelle.
 
 ### 6.4 Groupes (phase 2)
-- Un créateur crée un groupe, génère un lien d'invitation (expirant), définit : thèmes inclus, types de cartes, objectif quotidien, visibilité du classement (nominatif, anonymisé, désactivé).
+- Un créateur crée un groupe, génère un lien d'invitation (expirant), définit : sujets et thèmes inclus, types de cartes, objectif quotidien, visibilité du classement (nominatif, anonymisé, désactivé).
 - Classement hebdomadaire basé sur la régularité et les points.
 - Défis de groupe : une série de cartes commune, avec un délai de réponse par carte.
 
 ### 6.5 Mode live (phase 3)
-- Partie synchronisée façon quiz : un hôte lance, les membres rejoignent, chaque question a un chrono court, points selon la justesse et la rapidité, classement en direct.
+- Partie synchronisée façon quiz, sur un sujet choisi par l'hôte : un hôte lance, les membres rejoignent, chaque question a un chrono court, points selon la justesse et la rapidité, classement en direct.
 - Uniquement des cartes à correction automatique (`MULTIPLE_CHOICE`, `CODE_OUTPUT` en QCM).
 
 ---
@@ -217,10 +292,12 @@ Modéliser le type avec une interface `sealed` côté domaine.
 ## 7. Modèle de données (première ébauche, à affiner)
 
 Tables principales de la V1 (noms en anglais, `snake_case`, identifiants UUID v7 ou séquences, à décider en ADR) :
-- `theme` (id, slug, title, position)
+- `subject` (id stable, slug unique, title, category, position, status, created_at) : un sujet du catalogue (2.5)
+- `theme` (id, subject_id, slug, title, position) : slug unique **au sein du sujet**
 - `card` (id stable, theme_id, type, created_at, retired_at)
 - `card_version` (id, card_id, version, question, answer, payload JSON pour les choix ou le code, created_at)
 - `app_user` (id, oidc_subject unique, display_name, timezone, created_at)
+- `followed_subject` (user_id, subject_id, followed_at) : les sujets suivis, qui alimentent les révisions
 - `review_state` (user_id, card_id, stability, difficulty, due_at, reps, lapses, state, last_review_at) : clé primaire (user_id, card_id)
 - `review_log` (id, user_id, card_id, card_version_id, rating, reviewed_at, elapsed_ms, request_id unique)
 - `points_ledger` (id, user_id, amount, reason, source_id, occurred_at)
@@ -236,7 +313,7 @@ Toute évolution du schéma passe par une migration Flyway versionnée, rétroco
 
 | Niveau | Ce qu'on teste | Outils |
 |---|---|---|
-| Unitaire (le plus nombreux) | domaine : FSRS, calcul des streaks, points, parseur Markdown | JUnit, AssertJ |
+| Unitaire (le plus nombreux) | domaine : FSRS, calcul des streaks, points, parseur Markdown (sur des extraits de chaque document de référence) | JUnit, AssertJ |
 | Intégration | repositories, migrations, endpoints REST, sécurité (accès refusé aux ressources d'autrui) | `@QuarkusTest`, REST Assured, PostgreSQL réel via Dev Services/Testcontainers |
 | Architecture | règles de dépendances entre couches et modules | ArchUnit |
 | Frontend | composants et hooks | Vitest, Testing Library |
@@ -250,7 +327,7 @@ Règles : chaque bug corrigé reçoit un test qui le reproduit ; pas de `Thread.
 
 Chaque phase se termine par une démo fonctionnelle, une CI verte, la documentation à jour et une rétrospective courte (ce qui a marché, ce qu'on change).
 
-### Phase 0 : fondations
+### Phase 0 : fondations ✅
 - Dépôt monorepo : `backend/`, `frontend/`, `content/`, `docs/`, `infra/` (compose local).
 - Projet Quarkus, structure de modules, premier test ArchUnit, Spotless, profil de dev avec PostgreSQL et Keycloak en Dev Services.
 - Projet React + TypeScript + Vite, lint, tests, PWA minimale.
@@ -259,16 +336,42 @@ Chaque phase se termine par une démo fonctionnelle, une CI verte, la documentat
 - **Terminé quand** : `./mvnw quarkus:dev` et `npm run dev` lancent tout en local, un endpoint `/api/v1/health` est appelé par le front, la CI est verte.
 
 ### Phase 1 : MVP révision solo
-1. Parseur et import du contenu (avec rapport), consultation des thèmes et cartes.
-2. Authentification OIDC de bout en bout, création du profil au premier login.
-3. Session de révision avec auto-évaluation et planification FSRS.
-4. Points, objectif quotidien et streak.
-5. Tableau de bord personnel (cartes dues, streak, progression par thème).
-6. Déploiement sur l'hébergeur choisi, observabilité de base.
+1. ✅ Parseur et import du contenu (avec rapport), consultation des thèmes et cartes.
+2. ✅ Authentification OIDC de bout en bout, création du profil au premier login.
+3. ✅ Session de révision avec auto-évaluation et planification FSRS.
+4. ✅ Points, objectif quotidien et streak.
+5. ✅ Tableau de bord personnel (cartes dues, streak, progression par thème).
+6. ✅ Parcours de bout en bout (Playwright) et rétrospective.
+7. Déploiement sur l'hébergeur choisi, observabilité de base : **après l'étape 1 de la phase 1 bis** (voir ci-dessous).
 - **Terminé quand** : quelques testeurs peuvent réviser chaque jour sur mobile ; on mesure combien reviennent après 7 jours.
 
+### Phase 1 bis : catalogue multi-sujets
+Faire de Recallio un catalogue de sujets (2.5), avec Java et Go comme premiers sujets.
+
+**L'étape 1 doit précéder le premier déploiement** : elle change l'identité des cartes (le sujet y entre). Aujourd'hui, sans utilisateur réel, ce n'est qu'un réimport ; après le déploiement, cela ferait perdre leur progression aux testeurs.
+
+1. **Sujets dans le modèle et import par sujet**.
+   - Contenu : table `subject`, manifeste `content/subjects.yaml`, thèmes rattachés à un sujet (slug unique par sujet).
+   - Identité : identifiants des thèmes et des cartes préfixés par le sujet.
+   - Import : retraits limités au sujet importé, chapitre des questions pièges reconnu à son titre ; import de Java et de Go.
+   - ADR : modèle multi-sujets et format du manifeste.
+2. **Catalogue par sujet (API et PWA)**.
+   - API : `GET /api/v1/subjects`, puis les thèmes et les cartes d'un sujet ; brouillons visibles des seuls admins.
+   - PWA : pages *Sujets* → *Thèmes* → *Cartes*, regroupées par catégorie ; coloration syntaxique selon le langage du bloc de code.
+3. **Sujets suivis**.
+   - Choix des sujets au premier login (écran d'accueil) et dans le profil.
+   - File de révision limitée aux sujets suivis, filtre par sujet, quota de nouvelles cartes réparti entre eux.
+4. **Tableau de bord par sujet** : progression par sujet, puis par thème dans chaque sujet.
+5. **Outillage du contenu**.
+   - `content/README.md` (guide de rédaction et liste de contrôle).
+   - Contrôle du contenu en CI (tous les documents parsés, échec sur anomalie).
+   - Statut `draft` / `published`, et documentation de la procédure « ajouter un sujet ».
+- **Terminé quand** : un utilisateur suit Java et Go, révise les deux dans la même session et voit sa progression par sujet ; ajouter un troisième sujet ne demande qu'une pull request de contenu.
+
+Ensuite, chaque nouveau sujet (5.5) est une pull request de contenu, qui peut avancer en parallèle des phases suivantes.
+
 ### Phase 2 : groupes
-Groupes, invitations, réglages, classements (Valkey/Redis introduit ici si nécessaire), défis de groupe, cartes QCM.
+Groupes, invitations, réglages (dont les sujets du groupe), classements (Valkey/Redis introduit ici si nécessaire), défis de groupe, cartes QCM.
 
 ### Phase 3 : mode live
 WebSockets, parties synchronisées, chrono, classement en direct, tests de charge simples.
@@ -277,7 +380,7 @@ WebSockets, parties synchronisées, chrono, classement en direct, tests de charg
 Multi-organisation (colonne `organization_id` + Row-Level Security PostgreSQL), SSO entreprise via le fournisseur OIDC, tableau de bord admin avec statistiques **agrégées**, questions privées par organisation, export, conformité RGPD (registre, suppression de compte, DPA).
 
 ### Phase 5 : options
-Exécution de code dans un bac à sable isolé (Judge0 ou Piston), correction des réponses ouvertes par IA, nouveaux sujets (C++, IA, prompting), paiement.
+Exécution de code dans un bac à sable isolé (Judge0 ou Piston) pour les exercices de live coding (`CODING_EXERCISE`), correction des réponses ouvertes par IA, aide à la rédaction de nouveaux sujets par IA (toujours relue par un humain avant publication), paiement.
 
 ---
 
@@ -290,14 +393,16 @@ Exécution de code dans un bac à sable isolé (Judge0 ou Piston), correction de
 4. ~~FSRS implémenté soi-même ou bibliothèque existante (phase 1).~~ **Tranché** : FSRS-6 implémenté dans le domaine (ADR 0011).
 5. Fournisseur OIDC de production : managé (Zitadel Cloud, Clerk, Auth0...) ou Keycloak hébergé (phase 1, avant le déploiement).
 6. Hébergeur (phase 1).
-7. Nom du projet. **Provisoire** : Recallio (ADR 0005), à confirmer avant le premier déploiement public.
+7. Nom du projet. **Provisoire** : Recallio (ADR 0005), à confirmer avant le premier déploiement public. Il ne doit pas évoquer Java seul.
+8. Format du manifeste des sujets : YAML (lisible, une dépendance de parsing) ou JSON (aucune dépendance) (phase 1 bis, étape 1).
+9. Répartition du quota de nouvelles cartes entre sujets suivis : parts égales, ou pondération choisie par l'utilisateur (phase 1 bis, étape 3).
 
 ---
 
 ## 11. Première session
 
 Pour notre première session en mode plan :
-1. Lis ce fichier et parcours rapidement la structure du fichier de contenu (titres de chapitres, format des questions).
+1. Lis ce fichier et parcours rapidement la structure des documents de contenu (titres de chapitres, format des questions).
 2. Pose-moi les questions nécessaires sur les points flous.
 3. Propose le plan détaillé de la **phase 0**, découpé en étapes, avec pour chaque étape : objectif, fichiers concernés, notions à comprendre, critères de fin.
 4. Attends ma validation avant de détailler la première étape.
