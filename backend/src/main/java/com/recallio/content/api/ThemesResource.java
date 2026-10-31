@@ -13,31 +13,29 @@ import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.core.MediaType;
-import java.util.List;
 import org.eclipse.microprofile.openapi.annotations.Operation;
 import org.eclipse.microprofile.openapi.annotations.media.Content;
 import org.eclipse.microprofile.openapi.annotations.media.Schema;
 import org.eclipse.microprofile.openapi.annotations.responses.APIResponse;
 import org.eclipse.microprofile.openapi.annotations.tags.Tag;
 
-/** Catalogue public : consultable sans être connecté (CLAUDE.md, section 4.5). */
+/**
+ * Un thème et ses cartes, par son slug (unique entre sujets, car préfixé par le sujet). La liste des thèmes se lit par
+ * sujet : {@link SubjectsResource}.
+ */
 @Path("/api/v1/themes")
 @Produces(MediaType.APPLICATION_JSON)
-@Tag(name = "Contenu", description = "Thèmes et cartes publiés")
+@Tag(name = "Contenu", description = "Sujets, thèmes et cartes publiés")
 public class ThemesResource {
 
     static final int MAX_PAGE_SIZE = 100;
 
     private final ContentBrowsingService browsing;
+    private final CatalogVisibility visibility;
 
-    public ThemesResource(ContentBrowsingService browsing) {
+    public ThemesResource(ContentBrowsingService browsing, CatalogVisibility visibility) {
         this.browsing = browsing;
-    }
-
-    @GET
-    @Operation(operationId = "listThemes", summary = "Liste les thèmes, dans l'ordre du programme")
-    public List<ThemeDto> listThemes() {
-        return browsing.themes().stream().map(ThemeDto::from).toList();
+        this.visibility = visibility;
     }
 
     @GET
@@ -52,7 +50,7 @@ public class ThemesResource {
                             mediaType = ProblemDetail.MEDIA_TYPE,
                             schema = @Schema(implementation = ProblemDetail.class)))
     public ThemeDto getTheme(@PathParam("slug") String slug) {
-        return ThemeDto.from(browsing.theme(slug));
+        return ThemeDto.from(browsing.theme(slug, visibility.current()));
     }
 
     @GET
@@ -77,6 +75,6 @@ public class ThemesResource {
             @PathParam("slug") String slug,
             @QueryParam("page") @DefaultValue("0") @Min(0) int page,
             @QueryParam("size") @DefaultValue("20") @Min(1) @Max(MAX_PAGE_SIZE) int size) {
-        return CardPageDto.from(browsing.cards(slug, page, size));
+        return CardPageDto.from(browsing.cards(slug, visibility.current(), page, size));
     }
 }

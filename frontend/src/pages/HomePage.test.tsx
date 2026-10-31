@@ -26,12 +26,12 @@ describe('HomePage', () => {
     expect(await screen.findByText('API : injoignable')).toBeInTheDocument()
   })
 
-  it('links to the themes', async () => {
+  it('links to the subjects', async () => {
     stubApi({ [HEALTH]: { body: { status: 'UP', checks: [] } } })
     renderAt('/')
-    expect(screen.getByRole('link', { name: 'Parcourir les thèmes' })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: 'Parcourir les sujets' })).toHaveAttribute(
       'href',
-      '/themes',
+      '/subjects',
     )
   })
 })

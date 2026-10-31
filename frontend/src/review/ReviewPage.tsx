@@ -103,8 +103,8 @@ function SessionPause({
           Prochaine carte à revoir dans {formatDelay(Date.parse(queue.nextDueAt) - now)}.
         </p>
       )}
-      <Link to="/themes" className="text-indigo-600 hover:underline">
-        Parcourir les thèmes
+      <Link to="/subjects" className="text-indigo-600 hover:underline">
+        Parcourir les sujets
       </Link>
     </div>
   )

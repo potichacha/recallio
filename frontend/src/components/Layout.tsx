@@ -57,8 +57,8 @@ export function Layout() {
           <NavLink to="/review" className={navClass}>
             Réviser
           </NavLink>
-          <NavLink to="/themes" className={navClass}>
-            Thèmes
+          <NavLink to="/subjects" className={navClass}>
+            Sujets
           </NavLink>
           <div className="ml-auto">
             <SessionControls />

@@ -4,8 +4,9 @@ import { Layout } from './components/Layout'
 import { AuthCallbackPage } from './pages/AuthCallbackPage'
 import { HomePage } from './pages/HomePage'
 import { ProfilePage } from './pages/ProfilePage'
+import { SubjectPage } from './pages/SubjectPage'
+import { SubjectsPage } from './pages/SubjectsPage'
 import { ThemePage } from './pages/ThemePage'
-import { ThemesPage } from './pages/ThemesPage'
 import { ReviewPage } from './review/ReviewPage'
 
 /** Routes de l'application, partagées par le routeur du navigateur et celui des tests. */
@@ -14,7 +15,8 @@ export const routes: RouteObject[] = [
     element: <Layout />,
     children: [
       { index: true, element: <HomePage /> },
-      { path: 'themes', element: <ThemesPage /> },
+      { path: 'subjects', element: <SubjectsPage /> },
+      { path: 'subjects/:slug', element: <SubjectPage /> },
       { path: 'themes/:slug', element: <ThemePage /> },
       {
         path: 'review',

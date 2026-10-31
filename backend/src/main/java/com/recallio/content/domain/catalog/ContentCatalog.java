@@ -1,24 +1,46 @@
 package com.recallio.content.domain.catalog;
 
 import com.recallio.content.CardType;
+import com.recallio.content.domain.Subject;
 import com.recallio.platform.domain.Page;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
 /**
- * Port de lecture du catalogue publié : thèmes et cartes actives des sujets publiés (les cartes retirées et les sujets en
- * brouillon n'apparaissent jamais).
+ * Port de lecture du catalogue : sujets, thèmes et cartes actives (les cartes retirées n'apparaissent jamais). Les sujets
+ * en brouillon n'apparaissent que si la visibilité demandée les inclut.
  */
 public interface ContentCatalog {
 
-    List<ThemeSummary> themes();
+    /** Ordonnés par position. */
+    List<SubjectSummary> subjects(Visibility visibility);
 
-    Optional<ThemeSummary> themeBySlug(String slug);
+    Optional<SubjectSummary> subjectBySlug(String slug, Visibility visibility);
+
+    /** Les thèmes d'un sujet, dans l'ordre du document. */
+    List<ThemeSummary> themes(UUID subjectId);
+
+    Optional<ThemeSummary> themeBySlug(String slug, Visibility visibility);
 
     Page<CardView> activeCards(UUID themeId, int page, int size);
 
-    /** Ordonnés par sujet, puis dans l'ordre du document. */
+    /** Les brouillons ne sont visibles que des admins, qui relisent un sujet avant de le publier (CLAUDE.md, 2.5). */
+    enum Visibility {
+        PUBLISHED_ONLY,
+        INCLUDING_DRAFTS
+    }
+
+    record SubjectSummary(
+            UUID id,
+            String slug,
+            String title,
+            Subject.Category category,
+            int position,
+            Subject.Status status,
+            long themeCount,
+            long cardCount) {}
+
     record ThemeSummary(
             UUID id,
             String subjectSlug,
