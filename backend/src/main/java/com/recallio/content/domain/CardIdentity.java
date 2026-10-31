@@ -13,12 +13,16 @@ import java.util.regex.Pattern;
 /**
  * Identifiants stables du contenu (ADR 0009).
  *
- * <p>L'identifiant d'une carte dérive de son thème et de sa question <em>normalisée</em> : casse, accents, ponctuation et
- * mise en forme Markdown sont ignorés. Corriger une faute de frappe ou ajouter du gras garde donc la même carte (et la
- * progression des utilisateurs) ; seule une réécriture du sens de la question crée une nouvelle carte.
+ * <p>L'identifiant d'une carte dérive de son sujet, de son thème et de sa question <em>normalisée</em> : casse, accents,
+ * ponctuation et mise en forme Markdown sont ignorés. Le sujet en fait partie (ADR 0013) : le chapitre 1 de Java et celui
+ * de Go sont deux thèmes distincts, même avec des questions identiques.
+ *
+ * <p>Corriger une faute de frappe ou ajouter du gras garde donc la même carte (et la progression des utilisateurs) ;
+ * seule une réécriture du sens de la question crée une nouvelle carte.
  */
 public final class CardIdentity {
 
+    private static final String SUBJECT_NAMESPACE = "recallio:subject";
     private static final String THEME_NAMESPACE = "recallio:theme";
     private static final String CARD_NAMESPACE = "recallio:card";
     private static final Pattern DIACRITICS = Pattern.compile("\\p{M}+");
@@ -32,12 +36,30 @@ public final class CardIdentity {
 
     private CardIdentity() {}
 
-    public static UUID themeId(String themeKey) {
-        return StableUuid.of(THEME_NAMESPACE, themeKey);
+    public static UUID subjectId(String subjectSlug) {
+        return StableUuid.of(SUBJECT_NAMESPACE, subjectSlug);
     }
 
-    public static UUID cardId(String themeKey, String prompt) {
-        return StableUuid.of(CARD_NAMESPACE, themeKey + '|' + normalize(prompt));
+    /** @param themeKey clé du thème dans son document : numéro de chapitre ({@code 07}) ou {@code glossary} */
+    public static UUID themeId(String subjectSlug, String themeKey) {
+        return StableUuid.of(THEME_NAMESPACE, qualified(subjectSlug, themeKey));
+    }
+
+    public static UUID cardId(String subjectSlug, String themeKey, String prompt) {
+        return StableUuid.of(CARD_NAMESPACE, qualified(subjectSlug, themeKey) + '|' + normalize(prompt));
+    }
+
+    /**
+     * Slug d'un thème, unique dans tout le catalogue : préfixé par le sujet, sauf si le titre commence déjà par lui
+     * ({@code JAVA : FONDAMENTAUX} donne {@code java-fondamentaux}, {@code COLLECTIONS} donne {@code java-collections}).
+     */
+    public static String themeSlug(String subjectSlug, String title) {
+        String local = normalize(title).replace(' ', '-');
+        return local.startsWith(subjectSlug + "-") ? local : subjectSlug + "-" + local;
+    }
+
+    private static String qualified(String subjectSlug, String themeKey) {
+        return subjectSlug + '/' + themeKey;
     }
 
     /**

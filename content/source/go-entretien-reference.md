@@ -1,3 +1,11 @@
+---
+subject: go
+title: Go
+category: languages
+position: 20
+status: published
+---
+
 # Go & son écosystème : le document de référence pour les entretiens techniques
 
 > Un document unique pour préparer un entretien Go de tous niveaux (junior à senior) : langage, concurrence, runtime, conception, HTTP et gRPC, bases de données, tests, observabilité, sécurité, outillage, conteneurs et Kubernetes, algorithmes et questions comportementales.

@@ -1,5 +1,6 @@
 package com.recallio.content.application;
 
+import com.recallio.content.domain.CardIdentity;
 import com.recallio.content.domain.importing.CatalogStore;
 import com.recallio.content.domain.importing.ImportPlan;
 import com.recallio.content.domain.importing.ImportPlanner;
@@ -10,7 +11,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.transaction.Transactional;
 import org.jboss.logging.Logger;
 
-/** Cas d'usage : importer le contenu source dans le catalogue, de façon idempotente, et produire un rapport. */
+/** Cas d'usage : importer le document d'un sujet dans le catalogue, de façon idempotente, et produire un rapport. */
 @ApplicationScoped
 public class ContentImportService {
 
@@ -29,11 +30,13 @@ public class ContentImportService {
     @Transactional
     public ImportReport importContent(String source) {
         ParsedContent parsed = parser.parse(source);
-        ImportPlan plan = planner.plan(parsed, store.snapshot());
+        ImportPlan plan = planner.plan(
+                parsed, store.snapshot(CardIdentity.subjectId(parsed.subject().slug())));
         store.apply(plan);
         ImportReport report = plan.report();
         LOG.infof(
-                "Import du contenu : %d ajoutées, %d modifiées, %d inchangées, %d retirées, %d réactivées, %d anomalies",
+                "Import du sujet %s : %d ajoutées, %d modifiées, %d inchangées, %d retirées, %d réactivées, %d anomalies",
+                report.subject(),
                 report.cardsAdded(),
                 report.cardsUpdated(),
                 report.cardsUnchanged(),

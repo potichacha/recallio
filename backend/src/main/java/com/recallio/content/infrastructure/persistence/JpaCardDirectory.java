@@ -2,6 +2,7 @@ package com.recallio.content.infrastructure.persistence;
 
 import com.recallio.content.CardDirectory;
 import com.recallio.content.CardType;
+import com.recallio.content.domain.Subject;
 import com.recallio.content.domain.catalog.ThemeNotFoundException;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.persistence.EntityManager;
@@ -16,9 +17,13 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
+/** Toutes les requêtes ne voient que les sujets publiés : un brouillon n'est jamais proposé en révision. */
 @ApplicationScoped
 @Transactional(Transactional.TxType.SUPPORTS)
 public class JpaCardDirectory implements CardDirectory {
+
+    /** Condition JPQL ; chaque requête qui l'utilise lie le paramètre {@code published}. */
+    private static final String PUBLISHED = "s.status = :published";
 
     private final EntityManager entityManager;
 
@@ -28,7 +33,7 @@ public class JpaCardDirectory implements CardDirectory {
 
     @Override
     public List<UUID> activeCardIds(CardFilter filter) {
-        List<String> conditions = new ArrayList<>(List.of("c.retiredAt is null"));
+        List<String> conditions = new ArrayList<>(List.of("c.retiredAt is null", PUBLISHED));
         String themeSlug = filter.themeSlug();
         CardType type = filter.type();
         if (themeSlug != null) {
@@ -41,9 +46,11 @@ public class JpaCardDirectory implements CardDirectory {
         var query = entityManager.createQuery("""
                 select c.id from CardEntity c
                 join ThemeEntity t on t.id = c.themeId
+                join SubjectEntity s on s.id = t.subjectId
                 where %s
-                order by t.position, c.position
+                order by s.position, t.position, c.position
                 """.formatted(String.join(" and ", conditions)), UUID.class);
+        query.setParameter("published", Subject.Status.PUBLISHED);
         if (themeSlug != null) {
             query.setParameter("slug", themeSlug);
         }
@@ -60,12 +67,14 @@ public class JpaCardDirectory implements CardDirectory {
         }
         Map<UUID, CardSnapshot> found = entityManager
                 .createQuery("""
-                        select c.id, v.id, c.type, t.slug, t.title, v.prompt, v.answer
+                        select c.id, v.id, c.type, s.slug, s.title, t.slug, t.title, v.prompt, v.answer
                         from CardEntity c
                         join CardVersionEntity v on v.cardId = c.id and v.version = c.currentVersion
                         join ThemeEntity t on t.id = c.themeId
-                        where c.id in :ids and c.retiredAt is null
-                        """, Object[].class)
+                        join SubjectEntity s on s.id = t.subjectId
+                        where c.id in :ids and c.retiredAt is null and %s
+                        """.formatted(PUBLISHED), Object[].class)
+                .setParameter("published", Subject.Status.PUBLISHED)
                 .setParameter("ids", cardIds)
                 .getResultStream()
                 .map(row -> new CardSnapshot(
@@ -75,7 +84,9 @@ public class JpaCardDirectory implements CardDirectory {
                         (String) row[3],
                         (String) row[4],
                         (String) row[5],
-                        (String) row[6]))
+                        (String) row[6],
+                        (String) row[7],
+                        (String) row[8]))
                 .collect(Collectors.toMap(CardSnapshot::cardId, Function.identity()));
         return cardIds.stream()
                 .distinct()
@@ -95,15 +106,32 @@ public class JpaCardDirectory implements CardDirectory {
                         .computeIfAbsent((UUID) row[0], _ -> new ArrayList<>())
                         .add((UUID) row[1]));
         return entityManager
-                .createQuery("select t from ThemeEntity t order by t.position", ThemeEntity.class)
+                .createQuery("""
+                        select t.id, s.slug, s.title, t.slug, t.title
+                        from ThemeEntity t
+                        join SubjectEntity s on s.id = t.subjectId
+                        where %s
+                        order by s.position, t.position
+                        """.formatted(PUBLISHED), Object[].class)
+                .setParameter("published", Subject.Status.PUBLISHED)
                 .getResultStream()
-                .map(theme -> new ThemeCards(theme.slug, theme.title, cardsByTheme.getOrDefault(theme.id, List.of())))
+                .map(row -> new ThemeCards(
+                        (String) row[1],
+                        (String) row[2],
+                        (String) row[3],
+                        (String) row[4],
+                        cardsByTheme.getOrDefault((UUID) row[0], List.of())))
                 .toList();
     }
 
     private void requireTheme(String slug) {
         boolean exists = !entityManager
-                .createQuery("select t.id from ThemeEntity t where t.slug = :slug", UUID.class)
+                .createQuery("""
+                        select t.id from ThemeEntity t
+                        join SubjectEntity s on s.id = t.subjectId
+                        where t.slug = :slug and %s
+                        """.formatted(PUBLISHED), UUID.class)
+                .setParameter("published", Subject.Status.PUBLISHED)
                 .setParameter("slug", slug)
                 .getResultList()
                 .isEmpty();

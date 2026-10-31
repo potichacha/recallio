@@ -1,3 +1,11 @@
+---
+subject: java
+title: Java
+category: languages
+position: 10
+status: published
+---
+
 # Java & son écosystème : le document de référence pour les entretiens techniques
 
 > Un document unique pour préparer un entretien Java de tous niveaux (junior à senior) : langage, JVM, conception, frameworks, données, DevOps, sécurité, cloud, algorithmes et questions comportementales.

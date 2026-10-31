@@ -1,3 +1,11 @@
+---
+subject: java
+title: Java
+category: languages
+position: 10
+status: published
+---
+
 # Document de test
 
 Introduction ignorée.

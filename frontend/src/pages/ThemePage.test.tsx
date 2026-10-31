@@ -5,6 +5,8 @@ import { renderAt, stubApi } from '../test/render'
 
 const THEME = {
   id: '1',
+  subjectSlug: 'java',
+  subjectTitle: 'Java',
   slug: 'java-fondamentaux',
   title: 'JAVA : FONDAMENTAUX',
   position: 1,

@@ -49,6 +49,8 @@ final class ReviewDtos {
     record QueuedCardDto(
             UUID cardId,
             CardType type,
+            String subjectSlug,
+            String subjectTitle,
             String themeSlug,
             String themeTitle,
             @Schema(description = "Recto, en Markdown") String prompt,
@@ -62,6 +64,8 @@ final class ReviewDtos {
             return new QueuedCardDto(
                     card.cardId(),
                     card.type(),
+                    card.subjectSlug(),
+                    card.subjectTitle(),
                     card.themeSlug(),
                     card.themeTitle(),
                     card.prompt(),

@@ -2,11 +2,13 @@ package com.recallio.content.domain.importing;
 
 import com.recallio.content.domain.CardContent;
 import com.recallio.content.domain.CardIdentity;
+import com.recallio.content.domain.Subject;
 import com.recallio.content.domain.importing.CatalogSnapshot.ExistingCard;
 import com.recallio.content.domain.importing.CatalogSnapshot.ExistingTheme;
 import com.recallio.content.domain.importing.ImportPlan.CardPlacement;
 import com.recallio.content.domain.importing.ImportPlan.NewCard;
 import com.recallio.content.domain.importing.ImportPlan.NewVersion;
+import com.recallio.content.domain.importing.ImportPlan.SubjectUpsert;
 import com.recallio.content.domain.importing.ImportPlan.ThemeUpsert;
 import com.recallio.content.domain.importing.ImportReport.Duplicate;
 import com.recallio.content.domain.source.ParsedContent;
@@ -17,16 +19,17 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import org.jspecify.annotations.Nullable;
 
 /**
- * Compare la source au catalogue existant et décide des changements. Code pur, sans base de données : toute la logique
+ * Compare le document d'un sujet à ce que le catalogue contient pour ce sujet, et décide des changements. Code pur, sans base de données : toute la logique
  * d'idempotence et de versionnement se teste unitairement.
  *
  * <ul>
  *   <li>carte absente du catalogue : ajoutée (version 1) ;
  *   <li>carte présente dont le texte a changé : nouvelle version, même identifiant ;
- *   <li>carte du catalogue absente de la source : retirée (jamais supprimée, la progression des utilisateurs y est
- *       rattachée) ;
+ *   <li>carte du sujet absente du document : retirée (jamais supprimée, la progression des utilisateurs y est
+ *       rattachée). Les cartes des autres sujets ne font pas partie de la comparaison, donc ne sont jamais retirées ;
  *   <li>carte retirée qui réapparaît : réactivée.
  * </ul>
  */
@@ -34,15 +37,23 @@ public final class ImportPlanner {
 
     private static final int EXCERPT_LENGTH = 80;
 
+    /**
+     * @param catalog l'état en base du sujet décrit par {@code source} ({@link CatalogStore#snapshot}) : seules ses
+     *     cartes peuvent être retirées
+     */
     public ImportPlan plan(ParsedContent source, CatalogSnapshot catalog) {
         var plan = new PlanBuilder();
+        Subject subject = source.subject();
+        UUID subjectId = CardIdentity.subjectId(subject.slug());
+        plan.subjectUpsert = subject.equals(catalog.subject()) ? null : new SubjectUpsert(subjectId, subject);
         Set<UUID> seenCardIds = new HashSet<>();
         for (ParsedTheme theme : source.themes()) {
-            UUID themeId = CardIdentity.themeId(theme.key());
-            planTheme(theme, themeId, catalog, plan);
+            UUID themeId = CardIdentity.themeId(subject.slug(), theme.key());
+            planTheme(theme, themeId, subjectId, CardIdentity.themeSlug(subject.slug(), theme.title()), catalog, plan);
             int position = 0;
             for (ParsedCard card : theme.cards()) {
-                UUID cardId = CardIdentity.cardId(theme.key(), card.content().prompt());
+                UUID cardId = CardIdentity.cardId(
+                        subject.slug(), theme.key(), card.content().prompt());
                 if (!seenCardIds.add(cardId)) {
                     plan.duplicates.add(new Duplicate(theme.key(), card.sourceLine(), excerpt(card)));
                     continue;
@@ -56,13 +67,14 @@ public final class ImportPlanner {
         return plan.build(source);
     }
 
-    private static void planTheme(ParsedTheme theme, UUID themeId, CatalogSnapshot catalog, PlanBuilder plan) {
-        var upsert = new ThemeUpsert(themeId, theme.slug(), theme.title(), theme.position());
+    private static void planTheme(
+            ParsedTheme theme, UUID themeId, UUID subjectId, String slug, CatalogSnapshot catalog, PlanBuilder plan) {
+        var upsert = new ThemeUpsert(themeId, subjectId, slug, theme.title(), theme.position());
         ExistingTheme existing = catalog.themes().get(themeId);
         if (existing == null) {
             plan.themes.add(upsert);
             plan.themesCreated++;
-        } else if (!existing.equals(new ExistingTheme(themeId, theme.slug(), theme.title(), theme.position()))) {
+        } else if (!existing.equals(new ExistingTheme(themeId, slug, theme.title(), theme.position()))) {
             plan.themes.add(upsert);
             plan.themesUpdated++;
         }
@@ -106,12 +118,14 @@ public final class ImportPlanner {
         private final List<UUID> retired = new ArrayList<>();
         private final List<UUID> reactivated = new ArrayList<>();
         private final List<Duplicate> duplicates = new ArrayList<>();
+        private @Nullable SubjectUpsert subjectUpsert;
         private int themesCreated;
         private int themesUpdated;
         private int unchanged;
 
         private ImportPlan build(ParsedContent source) {
             var report = new ImportReport(
+                    source.subject().slug(),
                     themesCreated,
                     themesUpdated,
                     newCards.size(),
@@ -121,7 +135,8 @@ public final class ImportPlanner {
                     reactivated.size(),
                     duplicates,
                     source.issues());
-            return new ImportPlan(themes, newCards, newVersions, placements, retired, reactivated, report);
+            return new ImportPlan(
+                    subjectUpsert, themes, newCards, newVersions, placements, retired, reactivated, report);
         }
     }
 }

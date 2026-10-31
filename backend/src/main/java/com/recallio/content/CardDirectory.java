@@ -8,12 +8,13 @@ import org.jspecify.annotations.Nullable;
 
 /**
  * API publique du module content pour les autres modules (ADR 0001) : ils référencent des cartes par leur identifiant
- * stable, sans connaître les tables ni les classes internes du module. Seules les cartes actives sont visibles.
+ * stable, sans connaître les tables ni les classes internes du module. Seules les cartes actives des sujets publiés
+ * sont visibles.
  */
 public interface CardDirectory {
 
     /**
-     * Identifiants des cartes actives qui correspondent au filtre, dans l'ordre du programme (thème, puis position).
+     * Identifiants des cartes actives qui correspondent au filtre, dans l'ordre du programme (sujet, thème, position).
      *
      * @throws com.recallio.platform.domain.ResourceNotFoundException si le thème demandé n'existe pas
      */
@@ -22,7 +23,7 @@ public interface CardDirectory {
     /** La version courante des cartes actives demandées, dans l'ordre de {@code cardIds}. */
     List<CardSnapshot> currentVersions(Collection<UUID> cardIds);
 
-    /** Tous les thèmes, dans l'ordre du programme, avec les identifiants de leurs cartes actives. */
+    /** Tous les thèmes publiés, dans l'ordre du programme, avec les identifiants de leurs cartes actives. */
     List<ThemeCards> activeCardsByTheme();
 
     default Optional<CardSnapshot> activeCard(UUID cardId) {
@@ -40,7 +41,7 @@ public interface CardDirectory {
         }
     }
 
-    record ThemeCards(String slug, String title, List<UUID> cardIds) {
+    record ThemeCards(String subjectSlug, String subjectTitle, String slug, String title, List<UUID> cardIds) {
 
         public ThemeCards {
             cardIds = List.copyOf(cardIds);
@@ -52,6 +53,8 @@ public interface CardDirectory {
             UUID cardId,
             UUID versionId,
             CardType type,
+            String subjectSlug,
+            String subjectTitle,
             String themeSlug,
             String themeTitle,
             String prompt,

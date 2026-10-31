@@ -1,6 +1,7 @@
 package com.recallio.content.infrastructure.persistence;
 
 import com.recallio.content.CardType;
+import com.recallio.content.domain.Subject;
 import com.recallio.content.domain.catalog.ContentCatalog;
 import com.recallio.platform.domain.Page;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -13,12 +14,13 @@ import java.util.UUID;
 public class JpaContentCatalog implements ContentCatalog {
 
     private static final String THEME_SUMMARIES = """
-            select t.id, t.slug, t.title, t.position, count(c.id)
+            select t.id, s.slug, s.title, t.slug, t.title, t.position, count(c.id)
             from ThemeEntity t
+            join SubjectEntity s on s.id = t.subjectId
             left join CardEntity c on c.themeId = t.id and c.retiredAt is null
-            %s
-            group by t.id, t.slug, t.title, t.position
-            order by t.position
+            where s.status = :published %s
+            group by t.id, s.slug, s.title, s.position, t.slug, t.title, t.position
+            order by s.position, t.position
             """;
 
     private final EntityManager entityManager;
@@ -31,6 +33,7 @@ public class JpaContentCatalog implements ContentCatalog {
     public List<ThemeSummary> themes() {
         return entityManager
                 .createQuery(THEME_SUMMARIES.formatted(""), Object[].class)
+                .setParameter("published", Subject.Status.PUBLISHED)
                 .getResultStream()
                 .map(JpaContentCatalog::toThemeSummary)
                 .toList();
@@ -39,7 +42,8 @@ public class JpaContentCatalog implements ContentCatalog {
     @Override
     public Optional<ThemeSummary> themeBySlug(String slug) {
         return entityManager
-                .createQuery(THEME_SUMMARIES.formatted("where t.slug = :slug"), Object[].class)
+                .createQuery(THEME_SUMMARIES.formatted("and t.slug = :slug"), Object[].class)
+                .setParameter("published", Subject.Status.PUBLISHED)
                 .setParameter("slug", slug)
                 .getResultStream()
                 .map(JpaContentCatalog::toThemeSummary)
@@ -73,6 +77,13 @@ public class JpaContentCatalog implements ContentCatalog {
     }
 
     private static ThemeSummary toThemeSummary(Object[] row) {
-        return new ThemeSummary((UUID) row[0], (String) row[1], (String) row[2], (Integer) row[3], (Long) row[4]);
+        return new ThemeSummary(
+                (UUID) row[0],
+                (String) row[1],
+                (String) row[2],
+                (String) row[3],
+                (String) row[4],
+                (Integer) row[5],
+                (Long) row[6]);
     }
 }

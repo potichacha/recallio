@@ -104,14 +104,22 @@ class ReviewQueueServiceTest {
 
         @Override
         public List<ThemeCards> activeCardsByTheme() {
-            return List.of(new ThemeCards("theme", "Thème", ids));
+            return List.of(new ThemeCards("java", "Java", "java-theme", "Thème", ids));
         }
 
         @Override
         public List<CardSnapshot> currentVersions(Collection<UUID> cardIds) {
             return cardIds.stream()
                     .map(id -> new CardSnapshot(
-                            id, UUID.randomUUID(), CardType.FLASHCARD, "theme", "Thème", "Question ?", "Réponse."))
+                            id,
+                            UUID.randomUUID(),
+                            CardType.FLASHCARD,
+                            "java",
+                            "Java",
+                            "java-theme",
+                            "Thème",
+                            "Question ?",
+                            "Réponse."))
                     .toList();
         }
     }

@@ -44,7 +44,9 @@ export function ReviewCard({ card, onReviewed }: { card: QueuedCard; onReviewed:
     <article className="flex flex-col gap-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
       <header className="flex items-center justify-between gap-2 text-xs font-medium tracking-wide uppercase">
         <span className="text-indigo-600">{CARD_TYPE_LABELS[card.type]}</span>
-        <span className="text-slate-400">{card.themeTitle}</span>
+        <span className="text-right text-slate-400">
+          {card.subjectTitle} · {card.themeTitle}
+        </span>
       </header>
       <Markdown>{card.prompt}</Markdown>
 

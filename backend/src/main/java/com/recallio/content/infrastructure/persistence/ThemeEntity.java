@@ -14,6 +14,9 @@ public class ThemeEntity {
     @Id
     UUID id;
 
+    @Column(name = "subject_id", nullable = false)
+    UUID subjectId;
+
     @Column(nullable = false, unique = true)
     String slug;
 
@@ -31,8 +34,9 @@ public class ThemeEntity {
 
     protected ThemeEntity() {}
 
-    ThemeEntity(UUID id, String slug, String title, int position, Instant now) {
+    ThemeEntity(UUID id, UUID subjectId, String slug, String title, int position, Instant now) {
         this.id = id;
+        this.subjectId = subjectId;
         this.slug = slug;
         this.title = title;
         this.position = position;

@@ -20,11 +20,15 @@ function stats(overrides: Partial<ReviewStats> = {}): ReviewStats {
     newToday: 8,
     themes: [
       {
+        subjectSlug: 'java',
+        subjectTitle: 'Java',
         slug: 'collections',
         title: 'Collections',
         counts: counts({ total: 10, seen: 0 }),
       },
       {
+        subjectSlug: 'java',
+        subjectTitle: 'Java',
         slug: 'java-fondamentaux',
         title: 'Java : fondamentaux',
         counts: counts({ total: 20, seen: 12, mastered: 4, dueNow: 5 }),

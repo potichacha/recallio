@@ -24,6 +24,8 @@ function queuedCard(overrides: Partial<QueuedCard> = {}): QueuedCard {
   return {
     cardId: 'card-1',
     type: 'FLASHCARD',
+    subjectSlug: 'java',
+    subjectTitle: 'Java',
     themeSlug: 'java-fondamentaux',
     themeTitle: 'Java : fondamentaux',
     prompt: "Qu'est-ce que la JVM ?",
