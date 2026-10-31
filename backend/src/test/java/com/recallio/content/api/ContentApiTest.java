@@ -3,18 +3,23 @@ package com.recallio.content.api;
 import static io.restassured.RestAssured.given;
 import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.everyItem;
 import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.not;
 
+import com.recallio.content.application.ContentImportService;
 import io.quarkus.test.junit.QuarkusTest;
 import io.quarkus.test.security.TestSecurity;
 import io.restassured.http.ContentType;
 import io.restassured.response.ValidatableResponse;
+import jakarta.inject.Inject;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Objects;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
@@ -26,6 +31,10 @@ class ContentApiTest {
             "**Q : Qu'est-ce que la **JVM** ?** R : La machine virtuelle qui exécute le bytecode.";
 
     private static String sample;
+
+    /** Injecté dans la classe englobante : Quarkus n'injecte pas dans les classes {@code @Nested}. */
+    @Inject
+    ContentImportService importService;
 
     /** Un mini document Go : même numéro de chapitre et même question que l'exemple Java. */
     private static String goDocument(String status) {
@@ -118,16 +127,6 @@ class ContentApiTest {
         }
 
         @Test
-        void shouldHideTheThemesOfADraftSubject() {
-            importContent(goDocument("draft"));
-
-            given().get("/api/v1/themes/go-fondamentaux").then().statusCode(404);
-
-            importContent(goDocument("published"));
-            given().get("/api/v1/themes/go-fondamentaux").then().statusCode(200);
-        }
-
-        @Test
         void shouldRejectADocumentWithoutSubjectHeader() {
             given().contentType("text/markdown; charset=UTF-8")
                     .body("# 1. JAVA : FONDAMENTAUX\n")
@@ -151,7 +150,7 @@ class ContentApiTest {
     @TestSecurity(user = "admin", roles = "admin")
     class Browse {
 
-        @org.junit.jupiter.api.BeforeEach
+        @BeforeEach
         void importSample() {
             given().contentType("text/markdown; charset=UTF-8")
                     .body(sample)
@@ -161,14 +160,38 @@ class ContentApiTest {
         }
 
         @Test
-        void shouldListThemesInProgramOrderWithTheirCardCount() {
-            given().get("/api/v1/themes")
+        void shouldListSubjectsWithTheirCategoryAndThemeCount() {
+            given().get("/api/v1/subjects")
                     .then()
                     .statusCode(200)
-                    .body("slug", hasItem("java-fondamentaux"))
+                    .body("find { it.slug == 'java' }.title", equalTo("Java"))
+                    .body("find { it.slug == 'java' }.category", equalTo("LANGUAGES"))
+                    .body("find { it.slug == 'java' }.status", equalTo("PUBLISHED"))
+                    .body("find { it.slug == 'java' }.themeCount", is(3));
+        }
+
+        @Test
+        void shouldListTheThemesOfASubjectInDocumentOrderWithTheirCardCount() {
+            given().get("/api/v1/subjects/java/themes")
+                    .then()
+                    .statusCode(200)
+                    .body(
+                            "slug",
+                            contains(
+                                    "java-fondamentaux",
+                                    "java-questions-pieges-qu-affiche-ce-code",
+                                    "java-glossaire-des-sigles-et-termes"))
                     .body("find { it.slug == 'java-glossaire-des-sigles-et-termes' }.cardCount", is(2))
-                    .body("find { it.slug == 'java-fondamentaux' }.subjectSlug", equalTo("java"))
-                    .body("find { it.slug == 'java-fondamentaux' }.subjectTitle", equalTo("Java"));
+                    .body("subjectTitle", everyItem(equalTo("Java")));
+        }
+
+        @Test
+        void shouldAnswer404WithAProblemDetailForAnUnknownSubject() {
+            given().get("/api/v1/subjects/inconnu/themes")
+                    .then()
+                    .statusCode(404)
+                    .contentType("application/problem+json")
+                    .body("code", equalTo("content.subject-not-found"));
         }
 
         @Test
@@ -201,6 +224,54 @@ class ContentApiTest {
                     .contentType("application/problem+json")
                     .body("code", equalTo("validation.failed"))
                     .body("invalidParams.name", hasItem("size"));
+        }
+    }
+
+    /**
+     * Un sujet en brouillon n'est visible que des admins. Le document est importé par le service, sans passer par l'API :
+     * chaque test choisit librement l'identité de l'appelant.
+     */
+    @Nested
+    class Drafts {
+
+        @BeforeEach
+        void importGoAsDraft() {
+            importService.importContent(goDocument("draft"));
+        }
+
+        @Test
+        void shouldHideADraftSubjectFromAnonymousVisitors() {
+            given().get("/api/v1/subjects").then().statusCode(200).body("slug", not(hasItem("go")));
+            given().get("/api/v1/subjects/go")
+                    .then()
+                    .statusCode(404)
+                    .body("code", equalTo("content.subject-not-found"));
+            given().get("/api/v1/themes/go-fondamentaux/cards").then().statusCode(404);
+        }
+
+        @Test
+        @TestSecurity(user = "alice", roles = "user")
+        void shouldHideADraftSubjectFromUsers() {
+            given().get("/api/v1/subjects").then().statusCode(200).body("slug", not(hasItem("go")));
+            given().get("/api/v1/themes/go-fondamentaux").then().statusCode(404);
+        }
+
+        @Test
+        @TestSecurity(user = "admin", roles = "admin")
+        void shouldShowADraftSubjectToAdminsForProofreading() {
+            given().get("/api/v1/subjects").then().body("find { it.slug == 'go' }.status", equalTo("DRAFT"));
+            given().get("/api/v1/subjects/go/themes").then().statusCode(200).body("slug", contains("go-fondamentaux"));
+            given().get("/api/v1/themes/go-fondamentaux/cards")
+                    .then()
+                    .statusCode(200)
+                    .body("totalItems", is(1));
+        }
+
+        @Test
+        void shouldShowASubjectOnceItIsPublished() {
+            importService.importContent(goDocument("published"));
+
+            given().get("/api/v1/subjects/go").then().statusCode(200).body("status", equalTo("PUBLISHED"));
         }
     }
 

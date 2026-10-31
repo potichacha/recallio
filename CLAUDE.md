@@ -356,7 +356,7 @@ Faire de Recallio un catalogue de sujets (2.5), avec Java et Go comme premiers s
    - Identité : identifiants des thèmes et des cartes préfixés par le sujet.
    - Import : retraits limités au sujet importé, chapitre des questions pièges reconnu à son titre ; import de Java et de Go.
    - ADR 0013 : modèle multi-sujets et en-tête des documents.
-2. **Catalogue par sujet (API et PWA)**.
+2. ✅ **Catalogue par sujet (API et PWA)**.
    - API : `GET /api/v1/subjects`, puis les thèmes et les cartes d'un sujet ; brouillons visibles des seuls admins.
    - PWA : pages *Sujets* → *Thèmes* → *Cartes*, regroupées par catégorie ; coloration syntaxique selon le langage du bloc de code.
 3. **Sujets suivis**.

@@ -24,10 +24,10 @@ function Landing() {
           Réviser maintenant
         </Link>
         <Link
-          to="/themes"
+          to="/subjects"
           className="rounded-lg border border-indigo-200 px-4 py-2 font-medium text-indigo-700 hover:bg-indigo-50"
         >
-          Parcourir les thèmes
+          Parcourir les sujets
         </Link>
       </div>
       <p role="status" className="rounded-lg bg-slate-100 px-4 py-3 text-sm text-slate-700">

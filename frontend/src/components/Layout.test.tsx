@@ -3,27 +3,27 @@ import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 import { fakeSession, renderAt, SIGNED_IN_API, stubApi, TEST_PROFILE } from '../test/render'
 
-const THEMES = { '/api/v1/themes': { body: [] } }
+const SUBJECTS = { '/api/v1/subjects': { body: [] } }
 
 describe('Layout', () => {
   it('offers to sign in, coming back to the current page', async () => {
-    stubApi(THEMES)
+    stubApi(SUBJECTS)
     const session = fakeSession()
-    renderAt('/themes', session)
+    renderAt('/subjects', session)
 
     await userEvent.click(screen.getByRole('button', { name: 'Se connecter' }))
 
-    expect(session.login).toHaveBeenCalledWith('/themes')
+    expect(session.login).toHaveBeenCalledWith('/subjects')
   })
 
   it('shows the display name of the profile with a link to it, and signs out', async () => {
     stubApi({
-      ...THEMES,
+      ...SUBJECTS,
       ...SIGNED_IN_API,
       '/api/v1/me': { body: { ...TEST_PROFILE, displayName: 'Alice M.' } },
     })
     const session = fakeSession({ status: 'authenticated', userName: 'Alice Martin' })
-    renderAt('/themes', session)
+    renderAt('/subjects', session)
 
     expect(await screen.findByRole('link', { name: 'Alice M.' })).toHaveAttribute(
       'href',
@@ -35,8 +35,8 @@ describe('Layout', () => {
   })
 
   it('shows the streak and the points of the signed-in user', async () => {
-    stubApi({ ...THEMES, ...SIGNED_IN_API })
-    renderAt('/themes', fakeSession({ status: 'authenticated', userName: 'Alice' }))
+    stubApi({ ...SUBJECTS, ...SIGNED_IN_API })
+    renderAt('/subjects', fakeSession({ status: 'authenticated', userName: 'Alice' }))
 
     expect(await screen.findByLabelText('Série : 3 jours')).toBeInTheDocument()
     expect(screen.getByText('120 pts')).toBeInTheDocument()

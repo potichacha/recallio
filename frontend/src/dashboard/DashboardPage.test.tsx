@@ -62,7 +62,7 @@ describe('DashboardPage', () => {
     renderAt('/', signedIn())
 
     expect(await screen.findByRole('heading', { name: 'Bonjour Alice' })).toBeInTheDocument()
-    expect(screen.queryByText('Parcourir les thèmes')).not.toBeInTheDocument()
+    expect(screen.queryByText('Parcourir les sujets')).not.toBeInTheDocument()
   })
 
   it('tells what to review today and links to the session', async () => {

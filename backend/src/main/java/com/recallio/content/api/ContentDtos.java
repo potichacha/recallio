@@ -1,7 +1,9 @@
 package com.recallio.content.api;
 
 import com.recallio.content.CardType;
+import com.recallio.content.domain.Subject;
 import com.recallio.content.domain.catalog.ContentCatalog.CardView;
+import com.recallio.content.domain.catalog.ContentCatalog.SubjectSummary;
 import com.recallio.content.domain.catalog.ContentCatalog.ThemeSummary;
 import com.recallio.content.domain.importing.ImportReport;
 import com.recallio.platform.domain.Page;
@@ -13,6 +15,51 @@ import org.eclipse.microprofile.openapi.annotations.media.Schema;
 final class ContentDtos {
 
     private ContentDtos() {}
+
+    @Schema(name = "Subject")
+    record SubjectDto(
+            UUID id,
+
+            @Schema(description = "Identifiant stable du sujet (java, go, spring-boot...)")
+            String slug,
+
+            String title,
+            SubjectCategory category,
+            int position,
+
+            @Schema(description = "DRAFT n'est visible que des admins")
+            SubjectStatus status,
+
+            long themeCount,
+            long cardCount) {
+        static SubjectDto from(SubjectSummary subject) {
+            return new SubjectDto(
+                    subject.id(),
+                    subject.slug(),
+                    subject.title(),
+                    SubjectCategory.valueOf(subject.category().name()),
+                    subject.position(),
+                    SubjectStatus.valueOf(subject.status().name()),
+                    subject.themeCount(),
+                    subject.cardCount());
+        }
+    }
+
+    /** Miroir de {@link Subject.Category} dans le contrat : le nom du schéma OpenAPI reste explicite. */
+    enum SubjectCategory {
+        LANGUAGES,
+        FRAMEWORKS,
+        CLOUD_DEVOPS,
+        DATA,
+        FUNDAMENTALS,
+        AI
+    }
+
+    /** Miroir de {@link Subject.Status} dans le contrat. */
+    enum SubjectStatus {
+        DRAFT,
+        PUBLISHED
+    }
 
     @Schema(name = "Theme")
     record ThemeDto(

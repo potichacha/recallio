@@ -13,14 +13,24 @@ import java.util.UUID;
 @ApplicationScoped
 public class JpaContentCatalog implements ContentCatalog {
 
+    private static final String SUBJECT_SUMMARIES = """
+            select s.id, s.slug, s.title, s.category, s.position, s.status, count(distinct t.id), count(c.id)
+            from SubjectEntity s
+            left join ThemeEntity t on t.subjectId = s.id
+            left join CardEntity c on c.themeId = t.id and c.retiredAt is null
+            where s.status in :statuses %s
+            group by s.id, s.slug, s.title, s.category, s.position, s.status
+            order by s.position, s.slug
+            """;
+
     private static final String THEME_SUMMARIES = """
             select t.id, s.slug, s.title, t.slug, t.title, t.position, count(c.id)
             from ThemeEntity t
             join SubjectEntity s on s.id = t.subjectId
             left join CardEntity c on c.themeId = t.id and c.retiredAt is null
-            where s.status = :published %s
-            group by t.id, s.slug, s.title, s.position, t.slug, t.title, t.position
-            order by s.position, t.position
+            where %s
+            group by t.id, s.slug, s.title, t.slug, t.title, t.position
+            order by t.position
             """;
 
     private final EntityManager entityManager;
@@ -30,20 +40,41 @@ public class JpaContentCatalog implements ContentCatalog {
     }
 
     @Override
-    public List<ThemeSummary> themes() {
+    public List<SubjectSummary> subjects(Visibility visibility) {
         return entityManager
-                .createQuery(THEME_SUMMARIES.formatted(""), Object[].class)
-                .setParameter("published", Subject.Status.PUBLISHED)
+                .createQuery(SUBJECT_SUMMARIES.formatted(""), Object[].class)
+                .setParameter("statuses", statuses(visibility))
+                .getResultStream()
+                .map(JpaContentCatalog::toSubjectSummary)
+                .toList();
+    }
+
+    @Override
+    public Optional<SubjectSummary> subjectBySlug(String slug, Visibility visibility) {
+        return entityManager
+                .createQuery(SUBJECT_SUMMARIES.formatted("and s.slug = :slug"), Object[].class)
+                .setParameter("statuses", statuses(visibility))
+                .setParameter("slug", slug)
+                .getResultStream()
+                .map(JpaContentCatalog::toSubjectSummary)
+                .findFirst();
+    }
+
+    @Override
+    public List<ThemeSummary> themes(UUID subjectId) {
+        return entityManager
+                .createQuery(THEME_SUMMARIES.formatted("s.id = :subjectId"), Object[].class)
+                .setParameter("subjectId", subjectId)
                 .getResultStream()
                 .map(JpaContentCatalog::toThemeSummary)
                 .toList();
     }
 
     @Override
-    public Optional<ThemeSummary> themeBySlug(String slug) {
+    public Optional<ThemeSummary> themeBySlug(String slug, Visibility visibility) {
         return entityManager
-                .createQuery(THEME_SUMMARIES.formatted("and t.slug = :slug"), Object[].class)
-                .setParameter("published", Subject.Status.PUBLISHED)
+                .createQuery(THEME_SUMMARIES.formatted("t.slug = :slug and s.status in :statuses"), Object[].class)
+                .setParameter("statuses", statuses(visibility))
                 .setParameter("slug", slug)
                 .getResultStream()
                 .map(JpaContentCatalog::toThemeSummary)
@@ -74,6 +105,25 @@ public class JpaContentCatalog implements ContentCatalog {
                         (UUID) row[0], (CardType) row[1], (String) row[2], (String) row[3], (Integer) row[4]))
                 .toList();
         return new Page<>(cards, page, size, total);
+    }
+
+    private static List<Subject.Status> statuses(Visibility visibility) {
+        return switch (visibility) {
+            case PUBLISHED_ONLY -> List.of(Subject.Status.PUBLISHED);
+            case INCLUDING_DRAFTS -> List.of(Subject.Status.values());
+        };
+    }
+
+    private static SubjectSummary toSubjectSummary(Object[] row) {
+        return new SubjectSummary(
+                (UUID) row[0],
+                (String) row[1],
+                (String) row[2],
+                (Subject.Category) row[3],
+                (Integer) row[4],
+                (Subject.Status) row[5],
+                (Long) row[6],
+                (Long) row[7]);
     }
 
     private static ThemeSummary toThemeSummary(Object[] row) {

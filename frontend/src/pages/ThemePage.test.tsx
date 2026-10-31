@@ -51,6 +51,27 @@ describe('ThemePage', () => {
     expect(screen.getByText(/imprécision des flottants/)).toBeInTheDocument()
   })
 
+  it('links back to the themes of its subject', async () => {
+    stubTheme([CARD])
+
+    renderAt('/themes/java-fondamentaux')
+
+    expect(await screen.findByRole('link', { name: '← Thèmes Java' })).toHaveAttribute(
+      'href',
+      '/subjects/java',
+    )
+  })
+
+  it('highlights code blocks in the language announced by the document', async () => {
+    stubTheme([{ ...CARD, prompt: '```go\nfunc main() {}\n```' }])
+
+    renderAt('/themes/java-fondamentaux')
+
+    const keyword = await screen.findByText('func')
+    expect(keyword).toHaveClass('hljs-keyword')
+    expect(keyword.closest('code')).toHaveClass('language-go')
+  })
+
   it('shows the pagination only when there are several pages', async () => {
     stubTheme([CARD], 3)
 

@@ -79,7 +79,7 @@ flowchart LR
     planner -- "ImportPlan + rapport" --> store["JpaCatalogStore.apply()"]
     store --> db[("subject · theme · card · card_version")]
     db --> catalog["JpaContentCatalog<br/>(port ContentCatalog)"]
-    catalog --> api["GET /api/v1/themes…"]
+    catalog --> api["GET /api/v1/subjects…, /api/v1/themes/…"]
 ```
 
 | Élément | Rôle |

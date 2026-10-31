@@ -3,6 +3,8 @@ import { api } from './client'
 import { ApiError } from './errors'
 import type { components } from './schema'
 
+export type Subject = components['schemas']['Subject']
+export type SubjectCategory = components['schemas']['SubjectCategory']
 export type Theme = components['schemas']['Theme']
 export type Card = components['schemas']['Card']
 export type CardType = components['schemas']['CardType']
@@ -10,11 +12,37 @@ export type CardPage = components['schemas']['CardPage']
 
 export const CARD_PAGE_SIZE = 20
 
-export function useThemes() {
+export function useSubjects() {
   return useQuery({
-    queryKey: ['themes'],
+    queryKey: ['subjects'],
     queryFn: async () => {
-      const { data, error, response } = await api.GET('/api/v1/themes')
+      const { data, error, response } = await api.GET('/api/v1/subjects')
+      if (data === undefined) throw ApiError.from(response, error)
+      return data
+    },
+  })
+}
+
+export function useSubject(slug: string) {
+  return useQuery({
+    queryKey: ['subjects', slug],
+    queryFn: async () => {
+      const { data, error, response } = await api.GET('/api/v1/subjects/{slug}', {
+        params: { path: { slug } },
+      })
+      if (data === undefined) throw ApiError.from(response, error)
+      return data
+    },
+  })
+}
+
+export function useSubjectThemes(slug: string) {
+  return useQuery({
+    queryKey: ['subjects', slug, 'themes'],
+    queryFn: async () => {
+      const { data, error, response } = await api.GET('/api/v1/subjects/{slug}/themes', {
+        params: { path: { slug } },
+      })
       if (data === undefined) throw ApiError.from(response, error)
       return data
     },

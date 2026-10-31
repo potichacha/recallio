@@ -26,7 +26,11 @@ test.describe('Session de révision', () => {
   })
 
   test('reviews a single theme from its page', async ({ page }) => {
-    await signIn(page, USERS.bob, '/themes')
+    await signIn(page, USERS.bob, '/subjects')
+    await page
+      .getByRole('region', { name: 'Langages' })
+      .getByRole('link', { name: /^Java/ })
+      .click()
     await page.getByRole('link', { name: /JAVA : FONDAMENTAUX/ }).click()
 
     await page.getByRole('link', { name: 'Réviser ce thème' }).click()

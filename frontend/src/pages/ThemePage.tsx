@@ -14,8 +14,8 @@ export function ThemePage() {
     return (
       <section className="flex flex-col gap-3">
         <h1 className="text-2xl font-bold">Thème introuvable</h1>
-        <Link to="/themes" className="text-indigo-600 hover:underline">
-          Retour aux thèmes
+        <Link to="/subjects" className="text-indigo-600 hover:underline">
+          Retour aux sujets
         </Link>
       </section>
     )
@@ -25,8 +25,11 @@ export function ThemePage() {
 
   return (
     <section className="flex flex-col gap-4">
-      <Link to="/themes" className="text-sm text-indigo-600 hover:underline">
-        ← Tous les thèmes
+      <Link
+        to={theme.data ? `/subjects/${theme.data.subjectSlug}` : '/subjects'}
+        className="text-sm text-indigo-600 hover:underline"
+      >
+        ← {theme.data ? `Thèmes ${theme.data.subjectTitle}` : 'Tous les sujets'}
       </Link>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-col">
