@@ -26,7 +26,13 @@ export function renderAt(path: string, session: Session = fakeSession()) {
 
 type StubResponse = { status?: number; body: unknown }
 
-export const TEST_PROFILE = { id: 'u1', displayName: 'Alice', timezone: 'Europe/Paris', roles: [] }
+export const TEST_PROFILE = {
+  id: 'u1',
+  displayName: 'Alice',
+  timezone: 'Europe/Paris',
+  roles: [],
+  followedSubjects: ['java'],
+}
 export const TEST_PROGRESS = {
   totalPoints: 120,
   streak: 3,
@@ -34,6 +40,27 @@ export const TEST_PROGRESS = {
   dailyGoal: 10,
   goalReachedToday: false,
 }
+
+function testSubject(slug: string, title: string, overrides: Record<string, unknown> = {}) {
+  return {
+    id: slug,
+    slug,
+    title,
+    category: 'LANGUAGES',
+    position: 10,
+    status: 'PUBLISHED',
+    themeCount: 2,
+    cardCount: 20,
+    ...overrides,
+  }
+}
+
+/** Le catalogue des tests : Java et Go publiés, Rust en brouillon (visible des seuls admins). */
+export const TEST_SUBJECTS = [
+  testSubject('java', 'Java'),
+  testSubject('go', 'Go', { position: 20 }),
+  testSubject('rust', 'Rust', { position: 30, status: 'DRAFT' }),
+]
 
 /** Ce que l'en-tête charge dès qu'un utilisateur est connecté : son profil et sa progression. */
 export const SIGNED_IN_API: Record<string, StubResponse> = {

@@ -36,4 +36,5 @@ En cas d'échec, `test-results/` contient une capture d'écran et une trace (`np
 - Sélecteurs accessibles (`getByRole`, `getByLabel`), comme un utilisateur ou un lecteur d'écran ; pas de classes CSS.
 - Pas d'attente fixe (`waitForTimeout`) : les assertions `expect` attendent d'elles-mêmes.
 - Un utilisateur par parcours (alice, bob) et des assertions qui tolèrent une base déjà utilisée : relancer les tests
-  sans nettoyer reste possible.
+  sans nettoyer reste possible. Exception : `carol` ne sert qu'au premier login (choix des sujets), qui suppose une
+  pile neuve (`down -v`, comme en CI).

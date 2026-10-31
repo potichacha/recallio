@@ -46,8 +46,8 @@ npm run dev
 La page d'accueil affiche « API : UP » quand le backend répond ; une fois connecté, elle devient le tableau de
 bord (cartes dues, série, progression par thème) et le menu « Réviser » lance une session.
 
-Comptes de test (royaume Keycloak `recallio`, en dev comme dans le compose) : `alice` / `alice` (rôle `admin`)
-et `bob` / `bob`. En dev, Keycloak tourne sur http://localhost:8180 (console d'administration : `admin` / `admin`).
+Comptes de test (royaume Keycloak `recallio`, en dev comme dans le compose) : `alice` / `alice` (rôle `admin`),
+`bob` / `bob` et `carol` / `carol`. En dev, Keycloak tourne sur http://localhost:8180 (console d'administration : `admin` / `admin`).
 
 ## Lancer avec Docker (comme en production)
 
@@ -58,7 +58,7 @@ docker compose -f infra/compose.yaml up --build
 ```
 
 Front : http://localhost:3000 · Keycloak : http://localhost:8180 (admin / admin, utilisateurs
-`alice` / `alice` et `bob` / `bob`).
+`alice` / `alice`, `bob` / `bob` et `carol` / `carol`).
 
 ## Intégration continue
 

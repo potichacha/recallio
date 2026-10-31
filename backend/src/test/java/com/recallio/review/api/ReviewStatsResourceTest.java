@@ -1,6 +1,7 @@
 package com.recallio.review.api;
 
 import static io.restassured.RestAssured.given;
+import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
 
@@ -38,6 +39,18 @@ class ReviewStatsResourceTest {
     }
 
     @Test
+    @TestSecurity(user = "alice")
+    @OidcSecurity(claims = @Claim(key = "sub", value = "stats-no-subject"))
+    void shouldCountNothingUntilTheUserFollowsASubject() {
+        given().get(STATS)
+                .then()
+                .statusCode(200)
+                .body("overall.total", is(0))
+                .body("newToday", is(0))
+                .body("themes", empty());
+    }
+
+    @Test
     void shouldRequireAuthentication() {
         given().get(STATS).then().statusCode(401);
     }
@@ -46,6 +59,8 @@ class ReviewStatsResourceTest {
     @TestSecurity(user = "alice")
     @OidcSecurity(claims = @Claim(key = "sub", value = "stats-new-user"))
     void shouldShowAllCardsAsNewForANewUser() {
+        followJava();
+
         given().get(STATS)
                 .then()
                 .statusCode(200)
@@ -60,6 +75,7 @@ class ReviewStatsResourceTest {
     @TestSecurity(user = "alice")
     @OidcSecurity(claims = @Claim(key = "sub", value = "stats-after-review"))
     void shouldCountReviewedCardsPerThemeAndAsDueToday() {
+        followJava();
         String cardId = given().queryParam("theme", THEME)
                 .get("/api/v1/review-queue")
                 .then()
@@ -80,5 +96,13 @@ class ReviewStatsResourceTest {
                 .body("overall.mastered", is(0))
                 .body("newToday", is(2))
                 .body("themes.find { it.slug == '%s' }.counts.seen".formatted(THEME), is(1));
+    }
+
+    private static void followJava() {
+        given().contentType(ContentType.JSON)
+                .body("{\"subjects\": [\"java\"]}")
+                .put("/api/v1/me/followed-subjects")
+                .then()
+                .statusCode(200);
     }
 }
