@@ -298,7 +298,7 @@ Tables principales de la V1 (noms en anglais, `snake_case`, identifiants UUID v7
 - `card` (id stable, theme_id, type, created_at, retired_at)
 - `card_version` (id, card_id, version, question, answer, payload JSON pour les choix ou le code, created_at)
 - `app_user` (id, oidc_subject unique, display_name, timezone, created_at)
-- `followed_subject` (user_id, subject_id, followed_at) : les sujets suivis, qui alimentent les révisions
+- `followed_subject` (user_id, subject_slug, followed_at) : les sujets suivis, qui alimentent les révisions (ADR 0014)
 - `review_state` (user_id, card_id, stability, difficulty, due_at, reps, lapses, state, last_review_at) : clé primaire (user_id, card_id)
 - `review_log` (id, user_id, card_id, card_version_id, rating, reviewed_at, elapsed_ms, request_id unique)
 - `points_ledger` (id, user_id, amount, reason, source_id, occurred_at)
@@ -359,7 +359,7 @@ Faire de Recallio un catalogue de sujets (2.5), avec Java et Go comme premiers s
 2. ✅ **Catalogue par sujet (API et PWA)**.
    - API : `GET /api/v1/subjects`, puis les thèmes et les cartes d'un sujet ; brouillons visibles des seuls admins.
    - PWA : pages *Sujets* → *Thèmes* → *Cartes*, regroupées par catégorie ; coloration syntaxique selon le langage du bloc de code.
-3. **Sujets suivis**.
+3. ✅ **Sujets suivis**.
    - Choix des sujets au premier login (écran d'accueil) et dans le profil.
    - File de révision limitée aux sujets suivis, filtre par sujet, quota de nouvelles cartes réparti entre eux.
 4. **Tableau de bord par sujet** : progression par sujet, puis par thème dans chaque sujet.
@@ -396,7 +396,7 @@ Exécution de code dans un bac à sable isolé (Judge0 ou Piston) pour les exerc
 6. Hébergeur (phase 1).
 7. Nom du projet. **Provisoire** : Recallio (ADR 0005), à confirmer avant le premier déploiement public. Il ne doit pas évoquer Java seul.
 8. ~~Format du manifeste des sujets (phase 1 bis, étape 1).~~ **Tranché** : pas de manifeste, un en-tête dans chaque document (ADR 0013).
-9. Répartition du quota de nouvelles cartes entre sujets suivis : parts égales, ou pondération choisie par l'utilisateur (phase 1 bis, étape 3).
+9. ~~Répartition du quota de nouvelles cartes entre sujets suivis : parts égales, ou pondération choisie par l'utilisateur (phase 1 bis, étape 3).~~ **Tranché** : parts égales, en alternant les sujets (ADR 0014).
 
 ---
 

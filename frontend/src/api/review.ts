@@ -11,7 +11,8 @@ export type Rating = components['schemas']['Rating']
 export type ReviewResult = components['schemas']['ReviewResult']
 export type RecordReviewRequest = components['schemas']['RecordReviewRequest']
 
-export type ReviewFilter = { theme?: string; type?: CardType }
+/** Sans sujet ni thème, la file puise dans les sujets suivis. */
+export type ReviewFilter = { subject?: string; theme?: string; type?: CardType }
 
 const QUEUE_KEY = ['review-queue']
 export const QUEUE_SIZE = 20

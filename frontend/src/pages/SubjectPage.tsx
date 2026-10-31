@@ -26,16 +26,24 @@ export function SubjectPage() {
       <Link to="/subjects" className="text-sm text-indigo-600 hover:underline">
         ← Tous les sujets
       </Link>
-      <div className="flex flex-col">
-        {subject.data && (
-          <span className="text-sm font-medium text-indigo-600">
-            {categoryLabel(subject.data.category)}
-          </span>
-        )}
-        <h1 className="flex items-center gap-2 text-2xl font-bold">
-          {subject.data?.title ?? 'Chargement…'}
-          {subject.data?.status === 'DRAFT' && <DraftBadge />}
-        </h1>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-col">
+          {subject.data && (
+            <span className="text-sm font-medium text-indigo-600">
+              {categoryLabel(subject.data.category)}
+            </span>
+          )}
+          <h1 className="flex items-center gap-2 text-2xl font-bold">
+            {subject.data?.title ?? 'Chargement…'}
+            {subject.data?.status === 'DRAFT' && <DraftBadge />}
+          </h1>
+        </div>
+        <Link
+          to={`/review?subject=${encodeURIComponent(slug)}`}
+          className="rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700"
+        >
+          Réviser ce sujet
+        </Link>
       </div>
       {themes.isError && <p role="alert">Impossible de charger les thèmes.</p>}
       {themes.isSuccess && (

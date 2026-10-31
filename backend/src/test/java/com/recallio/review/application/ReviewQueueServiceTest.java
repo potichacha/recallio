@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.recallio.content.CardDirectory;
 import com.recallio.content.CardType;
+import com.recallio.content.SubjectDirectory;
 import com.recallio.review.domain.LearningState;
 import com.recallio.review.domain.ReviewState;
 import com.recallio.review.domain.ReviewStateRepository;
@@ -28,6 +29,7 @@ import org.junit.jupiter.api.Test;
 class ReviewQueueServiceTest {
 
     private static final int NEW_CARDS_PER_DAY = 2;
+    private static final String SUBJECT = "java";
     private static final ZoneId PARIS = ZoneId.of("Europe/Paris");
 
     private final List<UUID> catalog =
@@ -41,7 +43,7 @@ class ReviewQueueServiceTest {
         Instant now = Instant.parse("2026-10-29T22:30:00Z");
         states.introduce(catalog.get(0), Instant.parse("2026-10-28T23:10:00Z"));
 
-        var queue = serviceAt(now).queue(user, CardDirectory.CardFilter.all(), 10);
+        var queue = serviceAt(now).queue(user, ReviewQueueService.QueueFilter.followedSubjects(), 10);
 
         assertThat(queue.newCount()).isEqualTo(1);
     }
@@ -53,7 +55,8 @@ class ReviewQueueServiceTest {
         states.introduce(catalog.get(1), Instant.parse("2026-10-29T11:00:00Z"));
         Instant justAfterMidnightInParis = Instant.parse("2026-10-29T23:30:00Z");
 
-        var queue = serviceAt(justAfterMidnightInParis).queue(user, CardDirectory.CardFilter.all(), 10);
+        var queue =
+                serviceAt(justAfterMidnightInParis).queue(user, ReviewQueueService.QueueFilter.followedSubjects(), 10);
 
         assertThat(queue.newCount()).isEqualTo(NEW_CARDS_PER_DAY);
     }
@@ -62,7 +65,7 @@ class ReviewQueueServiceTest {
     void shouldPreviewTheDueDateOfEachRating() {
         Instant now = Instant.parse("2026-10-29T08:00:00Z");
 
-        var queue = serviceAt(now).queue(user, CardDirectory.CardFilter.all(), 1);
+        var queue = serviceAt(now).queue(user, ReviewQueueService.QueueFilter.followedSubjects(), 1);
 
         var card = queue.cards().getFirst();
         assertThat(card.state()).isEqualTo(LearningState.NEW);
@@ -78,6 +81,16 @@ class ReviewQueueServiceTest {
     private ReviewQueueService serviceAt(Instant now) {
         return new ReviewQueueService(
                 new FixedCatalog(catalog),
+                new SubjectDirectory() {
+                    @Override
+                    public List<String> publishedSubjectSlugs() {
+                        return List.of(SUBJECT);
+                    }
+
+                    @Override
+                    public void requirePublished(String slug) {}
+                },
+                _ -> List.of(SUBJECT),
                 states,
                 new FsrsScheduler(FsrsParameters.DEFAULT),
                 new NewCardQuota(states, new TestConfig()),
@@ -98,8 +111,8 @@ class ReviewQueueServiceTest {
 
     private record FixedCatalog(List<UUID> ids) implements CardDirectory {
         @Override
-        public List<UUID> activeCardIds(CardFilter filter) {
-            return ids;
+        public List<ActiveCard> activeCards(CardFilter filter) {
+            return ids.stream().map(id -> new ActiveCard(id, SUBJECT)).toList();
         }
 
         @Override

@@ -3,6 +3,7 @@ package com.recallio.content;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import org.jspecify.annotations.Nullable;
 
@@ -14,11 +15,11 @@ import org.jspecify.annotations.Nullable;
 public interface CardDirectory {
 
     /**
-     * Identifiants des cartes actives qui correspondent au filtre, dans l'ordre du programme (sujet, thème, position).
+     * Les cartes actives qui correspondent au filtre, dans l'ordre du programme (sujet, thème, position).
      *
      * @throws com.recallio.platform.domain.ResourceNotFoundException si le thème demandé n'existe pas
      */
-    List<UUID> activeCardIds(CardFilter filter);
+    List<ActiveCard> activeCards(CardFilter filter);
 
     /** La version courante des cartes actives demandées, dans l'ordre de {@code cardIds}. */
     List<CardSnapshot> currentVersions(Collection<UUID> cardIds);
@@ -31,15 +32,27 @@ public interface CardDirectory {
     }
 
     /**
+     * @param subjectSlugs restreint à ces sujets (un ensemble vide ne laisse passer aucune carte), ou tous les sujets si
+     *     {@code null}
      * @param themeSlug restreint à un thème, ou tous les thèmes si {@code null}
      * @param type restreint à un format, ou tous les formats si {@code null}
      */
-    record CardFilter(@Nullable String themeSlug, @Nullable CardType type) {
+    record CardFilter(
+            @Nullable Set<String> subjectSlugs,
+            @Nullable String themeSlug,
+            @Nullable CardType type) {
+
+        public CardFilter {
+            subjectSlugs = subjectSlugs == null ? null : Set.copyOf(subjectSlugs);
+        }
 
         public static CardFilter all() {
-            return new CardFilter(null, null);
+            return new CardFilter(null, null, null);
         }
     }
+
+    /** Une carte active et son sujet, pour répartir les nouvelles cartes entre les sujets. */
+    record ActiveCard(UUID cardId, String subjectSlug) {}
 
     record ThemeCards(String subjectSlug, String subjectTitle, String slug, String title, List<UUID> cardIds) {
 

@@ -1,12 +1,19 @@
 import { Link } from 'react-router'
 import { useApiStatus } from '../api/health'
+import { RequireFollowedSubjects } from '../auth/RequireFollowedSubjects'
 import { useSession } from '../auth/session'
 import { DashboardPage } from '../dashboard/DashboardPage'
 
-/** Accueil : le tableau de bord pour un utilisateur connecté, la présentation sinon. */
+/** Accueil : le tableau de bord pour un utilisateur connecté (après le choix de ses sujets), la présentation sinon. */
 export function HomePage() {
   const session = useSession()
-  return session.status === 'authenticated' ? <DashboardPage /> : <Landing />
+  return session.status === 'authenticated' ? (
+    <RequireFollowedSubjects>
+      <DashboardPage />
+    </RequireFollowedSubjects>
+  ) : (
+    <Landing />
+  )
 }
 
 function Landing() {

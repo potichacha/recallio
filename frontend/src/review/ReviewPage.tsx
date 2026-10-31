@@ -1,20 +1,90 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { Link, useSearchParams } from 'react-router'
+import { useSubjects } from '../api/content'
 import { ApiError } from '../api/errors'
+import { useProfile } from '../api/profile'
 import { useProgress } from '../api/progress'
-import { useReviewQueue, type ReviewQueue } from '../api/review'
+import { useReviewQueue, type ReviewFilter, type ReviewQueue } from '../api/review'
+import { RequireFollowedSubjects } from '../auth/RequireFollowedSubjects'
 import { DailyGoal } from '../components/DailyGoal'
 import { formatDelay } from './formatDelay'
 import { ReviewCard } from './ReviewCard'
 
 /**
- * Session de révision : on parcourt la file reçue carte par carte, puis on en demande une nouvelle. Les cartes notées
- * « À revoir » reviennent quelques minutes plus tard, dans une file suivante.
+ * Page de révision. Sans filtre, elle puise dans les sujets suivis (il faut donc en suivre au moins un) ; un sujet
+ * (`?subject=go`) ou un thème (`?theme=...`) se révise même s'il n'est pas suivi.
  */
 export function ReviewPage() {
   const [searchParams] = useSearchParams()
-  const theme = searchParams.get('theme') ?? undefined
-  const queue = useReviewQueue({ theme })
+  const filter: ReviewFilter = {
+    subject: searchParams.get('subject') ?? undefined,
+    theme: searchParams.get('theme') ?? undefined,
+  }
+  // Changer de filtre démarre une nouvelle session : la position et le compteur repartent de zéro.
+  const session = <ReviewSession key={`${filter.subject}|${filter.theme}`} filter={filter} />
+
+  if (filter.theme) return session
+  // Les onglets restent en place d'un sujet à l'autre : seule la session change.
+  return (
+    <SubjectTabs current={filter.subject}>
+      {filter.subject ? session : <RequireFollowedSubjects>{session}</RequireFollowedSubjects>}
+    </SubjectTabs>
+  )
+}
+
+/** Le choix du sujet révisé (tous les sujets suivis, ou l'un d'eux), dès qu'il y a plus d'un sujet. */
+function SubjectTabs({ current, children }: { current?: string; children: ReactNode }) {
+  const profile = useProfile()
+  const followed = profile.data?.followedSubjects ?? []
+  // Un sujet non suivi, ouvert depuis le catalogue, apparaît aussi : on voit ce qu'on révise.
+  const tabs = current && !followed.includes(current) ? [...followed, current] : followed
+
+  return (
+    <div className="flex flex-col gap-4">
+      {tabs.length > 1 && <SubjectTabsNav tabs={tabs} current={current} />}
+      {children}
+    </div>
+  )
+}
+
+function SubjectTabsNav({ tabs, current }: { tabs: string[]; current?: string }) {
+  const subjects = useSubjects()
+  const titleOf = (slug: string) =>
+    subjects.data?.find((subject) => subject.slug === slug)?.title ?? slug
+  const tabClass = (active: boolean) =>
+    active
+      ? 'rounded-full bg-indigo-600 px-3 py-1 text-sm font-medium text-white'
+      : 'rounded-full border border-slate-200 bg-white px-3 py-1 text-sm text-slate-700 hover:border-indigo-300'
+
+  return (
+    <nav aria-label="Sujet révisé" className="flex flex-wrap gap-2">
+      <Link
+        to="/review"
+        aria-current={!current ? 'page' : undefined}
+        className={tabClass(!current)}
+      >
+        Tous mes sujets
+      </Link>
+      {tabs.map((slug) => (
+        <Link
+          key={slug}
+          to={`/review?subject=${encodeURIComponent(slug)}`}
+          aria-current={current === slug ? 'page' : undefined}
+          className={tabClass(current === slug)}
+        >
+          {titleOf(slug)}
+        </Link>
+      ))}
+    </nav>
+  )
+}
+
+/**
+ * Session de révision : on parcourt la file reçue carte par carte, puis on en demande une nouvelle. Les cartes notées
+ * « À revoir » reviennent quelques minutes plus tard, dans une file suivante.
+ */
+function ReviewSession({ filter }: { filter: ReviewFilter }) {
+  const queue = useReviewQueue(filter)
   const progress = useProgress()
   const [position, setPosition] = useState(0)
   const [reviewed, setReviewed] = useState(0)
@@ -23,10 +93,12 @@ export function ReviewPage() {
     return <p>Préparation de la session…</p>
   }
   if (queue.isError) {
-    const unknownTheme = queue.error instanceof ApiError && queue.error.status === 404
+    const notFound = queue.error instanceof ApiError && queue.error.status === 404
     return (
       <p role="alert">
-        {unknownTheme ? 'Ce thème n’existe pas.' : 'Impossible de charger les cartes à réviser.'}
+        {notFound
+          ? `Ce ${filter.theme ? 'thème' : 'sujet'} n’existe pas.`
+          : 'Impossible de charger les cartes à réviser.'}
       </p>
     )
   }
