@@ -24,6 +24,14 @@ public enum Rating {
         return value;
     }
 
+    /**
+     * La note d'une réponse corrigée automatiquement (QCM) : juste, la carte est « retrouvée » ; fausse, elle est à
+     * revoir. Ni « Difficile » ni « Facile » : le serveur ne sait pas avec quel effort la réponse a été trouvée.
+     */
+    public static Rating ofGradedAnswer(boolean correct) {
+        return correct ? GOOD : AGAIN;
+    }
+
     public static Rating fromValue(int value) {
         for (Rating rating : values()) {
             if (rating.value == value) {

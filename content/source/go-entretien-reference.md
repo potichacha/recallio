@@ -238,6 +238,28 @@ Le linker assemble ensuite tout, runtime compris (scheduler, GC), dans **un bina
 R : "C'est un réflexe compréhensible, mais ce n'est pas idiomatique en Go. En Go, les interfaces sont **implicites** et se déclarent du côté de **celui qui les utilise**, quand on en a besoin (pour un test ou plusieurs implémentations réelles), et elles sont petites. Une interface créée par avance pour chaque struct ajoute une indirection sans valeur.
 Pour les getters, si un champ n'a pas d'invariant à protéger, on l'exporte simplement ; si on a besoin d'un accesseur, il s'appelle `Nom()` et non `GetNom()`. Je lui recommanderais *Effective Go* et les *Go Code Review Comments*, et j'en discuterais en revue de code sur des cas concrets plutôt que par principe."
 
+### QCM
+
+**Q : Quelle est la valeur zéro d'une variable de type `string` ?**
+- [ ] `nil`
+- [x] `""` (la chaîne vide)
+- [ ] `" "` (un espace)
+- [ ] Il n'y en a pas : la variable doit être initialisée
+R : En Go, toute variable déclarée sans valeur reçoit la valeur zéro de son type : `""` pour une chaîne, `0` pour un nombre, `false` pour un booléen. `nil` n'est pas une valeur possible pour un `string`.
+
+**Q : Quelles déclarations sont valides hors d'une fonction, au niveau du package ?**
+- [x] `var x = 1`
+- [ ] `x := 1`
+- [x] `const y = 2`
+- [ ] `x = 1`
+R : La déclaration courte `:=` n'existe qu'à l'intérieur d'une fonction. Au niveau du package, toute déclaration commence par un mot-clé (`var`, `const`, `type`, `func`), et une simple affectation n'y est pas permise.
+
+**Q : Dans quel ordre s'exécutent plusieurs `defer` d'une même fonction ?**
+- [ ] Dans l'ordre où ils sont écrits
+- [x] Dans l'ordre inverse (dernier entré, premier sorti)
+- [ ] Dans un ordre non garanti
+R : Les appels différés sont empilés : au retour de la fonction, le dernier `defer` déclaré s'exécute en premier. C'est ce qui permet de libérer les ressources dans l'ordre inverse de leur acquisition.
+
 ═══════════════════════════════════════════
 # 2. TYPES COMPOSÉS : TABLEAUX, SLICES, MAPS, CHAÎNES, STRUCTS
 ═══════════════════════════════════════════

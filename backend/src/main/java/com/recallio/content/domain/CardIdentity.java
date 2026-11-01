@@ -1,5 +1,6 @@
 package com.recallio.content.domain;
 
+import com.recallio.content.CardChoice;
 import com.recallio.platform.domain.StableUuid;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -76,11 +77,26 @@ public final class CardIdentity {
                 .strip();
     }
 
-    /** Empreinte exacte du contenu : toute modification du texte (même de forme) crée une nouvelle version. */
+    /**
+     * Empreinte exacte du contenu : toute modification du texte (même de forme) crée une nouvelle version. Les choix
+     * d'un QCM en font partie ; les autres formats n'en ont pas, et leur empreinte ne change pas.
+     */
     public static String contentHash(CardContent content) {
-        String canonical = content.type() + "\u0000" + content.prompt() + "\u0000" + content.answer();
+        StringBuilder canonical = new StringBuilder()
+                .append(content.type())
+                .append('\u0000')
+                .append(content.prompt())
+                .append('\u0000')
+                .append(content.answer());
+        for (CardChoice choice : content.choices()) {
+            canonical
+                    .append('\u0000')
+                    .append(choice.correct() ? "[x] " : "[ ] ")
+                    .append(choice.text());
+        }
         try {
-            byte[] digest = MessageDigest.getInstance("SHA-256").digest(canonical.getBytes(StandardCharsets.UTF_8));
+            byte[] digest = MessageDigest.getInstance("SHA-256")
+                    .digest(canonical.toString().getBytes(StandardCharsets.UTF_8));
             return HexFormat.of().formatHex(digest);
         } catch (NoSuchAlgorithmException e) {
             throw new IllegalStateException("SHA-256 est garanti par la plateforme Java", e);

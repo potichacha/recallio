@@ -1,7 +1,9 @@
 package com.recallio.content.infrastructure.markdown;
 
+import com.recallio.content.CardChoice;
 import com.recallio.content.CardType;
 import com.recallio.content.domain.CardContent;
+import com.recallio.content.domain.CardContent.MultipleChoice;
 import com.recallio.content.domain.CardIdentity;
 import com.recallio.content.domain.source.ContentParser;
 import com.recallio.content.domain.source.ParsedContent;
@@ -25,6 +27,8 @@ import org.jspecify.annotations.Nullable;
  *   <li>{@code ### Questions techniques} : {@code **Q : question ?** R : réponse.}, ou une question suivie d'un bloc de
  *       code puis d'une ligne {@code R : ...} ;
  *   <li>{@code ### Questions de situation} : {@code **Q : "énoncé"**} puis {@code R : "réponse"} sur plusieurs lignes ;
+ *   <li>{@code ### QCM} : {@code **Q : question ?**}, ses choix {@code - [ ] faux} et {@code - [x] juste}, puis
+ *       {@code R : explication} sur une ou plusieurs lignes ;
  *   <li>le glossaire : un tableau Markdown {@code | **Terme** | définition |}.
  * </ul>
  *
@@ -58,17 +62,22 @@ public class MarkdownReferenceParser implements ContentParser {
             Pattern.compile("^\\*\\*Q :(?: (.*))?\\*\\*(?:\\s+\\*\\(.*\\)\\*)?\\s*$");
 
     private static final Pattern ANSWER_START = Pattern.compile("^R : ?(.*)$");
+    /** Un choix de QCM, en case à cocher Markdown : {@code - [x]} pour une bonne réponse. */
+    private static final Pattern CHOICE = Pattern.compile("^- \\[([ xX])\\] (.+)$");
+
     private static final Pattern GLOSSARY_ROW = Pattern.compile("^\\|\\s*(.+?)\\s*\\|\\s*(.+?)\\s*\\|\\s*$");
     private static final Pattern TABLE_DELIMITER = Pattern.compile("^\\|[\\s:|-]+\\|\\s*$");
 
     private static final String TECHNICAL_SECTION = "### Questions techniques";
     private static final String SITUATION_SECTION = "### Questions de situation";
+    private static final String MULTIPLE_CHOICE_SECTION = "### QCM";
     private static final String GLOSSARY_HEADER_TERM = "Terme";
 
     private enum Section {
         IGNORED,
         TECHNICAL,
         SITUATION,
+        MULTIPLE_CHOICE,
         GLOSSARY
     }
 
@@ -115,7 +124,7 @@ public class MarkdownReferenceParser implements ContentParser {
                 return;
             }
             switch (section) {
-                case TECHNICAL, SITUATION -> onQuestionLine(line, lineNumber);
+                case TECHNICAL, SITUATION, MULTIPLE_CHOICE -> onQuestionLine(line, lineNumber);
                 case GLOSSARY -> onGlossaryLine(line, lineNumber);
                 case IGNORED -> {
                     // Vue d'ensemble, cours, récapitulatif : pas de carte.
@@ -140,6 +149,8 @@ public class MarkdownReferenceParser implements ContentParser {
                 section = Section.TECHNICAL;
             } else if (theme != null && line.equals(SITUATION_SECTION)) {
                 section = Section.SITUATION;
+            } else if (theme != null && line.equals(MULTIPLE_CHOICE_SECTION)) {
+                section = Section.MULTIPLE_CHOICE;
             } else if (section != Section.GLOSSARY) {
                 section = Section.IGNORED;
             }
@@ -160,6 +171,12 @@ public class MarkdownReferenceParser implements ContentParser {
                 pending = new PendingQuestion(lineNumber, prompt == null ? "" : prompt);
                 return;
             }
+            Matcher choice = CHOICE.matcher(line);
+            if (section == Section.MULTIPLE_CHOICE && choice.matches() && pending != null && !pending.hasAnswer()) {
+                pending.addChoice(
+                        new CardChoice(choice.group(2).strip(), !choice.group(1).isBlank()));
+                return;
+            }
             Matcher answer = ANSWER_START.matcher(line);
             if (answer.matches() && pending != null && !pending.hasAnswer()) {
                 answerStarted(answer.group(1));
@@ -169,8 +186,8 @@ public class MarkdownReferenceParser implements ContentParser {
         }
 
         /**
-         * Une réponse technique tient sur une ligne : la carte est complète. Une réponse de situation peut s'étendre sur
-         * plusieurs lignes (et contenir du code), jusqu'à la question suivante.
+         * Une réponse technique tient sur une ligne : la carte est complète. Une réponse de situation, ou l'explication
+         * d'un QCM, peut s'étendre sur plusieurs lignes (et contenir du code), jusqu'à la question suivante.
          */
         private void answerStarted(String firstAnswerLine) {
             if (pending == null) {
@@ -185,7 +202,7 @@ public class MarkdownReferenceParser implements ContentParser {
         private void appendToBody(String line, int lineNumber) {
             if (pending != null) {
                 pending.append(line);
-            } else if ((section == Section.TECHNICAL || section == Section.SITUATION) && !line.isBlank()) {
+            } else if (section != Section.IGNORED && section != Section.GLOSSARY && !line.isBlank()) {
                 issues.add(new SourceIssue(lineNumber, "Ligne non reconnue hors d'une question", excerpt(line)));
             }
         }
@@ -230,6 +247,10 @@ public class MarkdownReferenceParser implements ContentParser {
                         question.line, "Question sans réponse (ligne « R : » attendue)", excerpt(question.prompt())));
                 return;
             }
+            if (section == Section.MULTIPLE_CHOICE) {
+                addMultipleChoice(question, theme);
+                return;
+            }
             CardType type = section == Section.SITUATION
                     ? CardType.OPEN_SCENARIO
                     : theme.isCodeOutput() ? CardType.CODE_OUTPUT : CardType.FLASHCARD;
@@ -242,12 +263,34 @@ public class MarkdownReferenceParser implements ContentParser {
             }
             theme.cards.add(new ParsedCard(CardContent.of(type, prompt, answer), question.line));
         }
+
+        private void addMultipleChoice(PendingQuestion question, ThemeBuilder theme) {
+            List<CardChoice> choices = question.choices;
+            boolean validChoices = choices.size() >= CardChoice.MIN_PER_CARD
+                    && choices.size() <= CardChoice.MAX_PER_CARD
+                    && choices.stream().anyMatch(CardChoice::correct);
+            if (!validChoices) {
+                issues.add(new SourceIssue(
+                        question.line,
+                        "QCM : de %d à %d choix « - [ ] » ou « - [x] », dont au moins un correct"
+                                .formatted(CardChoice.MIN_PER_CARD, CardChoice.MAX_PER_CARD),
+                        excerpt(question.prompt())));
+                return;
+            }
+            if (question.prompt().isBlank() || question.answer().isBlank()) {
+                issues.add(new SourceIssue(question.line, "Question ou explication vide", excerpt(question.prompt())));
+                return;
+            }
+            theme.cards.add(
+                    new ParsedCard(new MultipleChoice(question.prompt(), question.answer(), choices), question.line));
+        }
     }
 
     /** Une question en cours de lecture : son énoncé (avec un éventuel bloc de code), puis sa réponse. */
     private static final class PendingQuestion {
         private final int line;
         private final List<String> promptLines = new ArrayList<>();
+        private final List<CardChoice> choices = new ArrayList<>();
         private @Nullable List<String> answerLines;
 
         PendingQuestion(int line, String firstPromptLine) {
@@ -263,6 +306,10 @@ public class MarkdownReferenceParser implements ContentParser {
             List<String> lines = new ArrayList<>();
             lines.add(firstAnswerLine);
             answerLines = lines;
+        }
+
+        void addChoice(CardChoice choice) {
+            choices.add(choice);
         }
 
         void append(String line) {

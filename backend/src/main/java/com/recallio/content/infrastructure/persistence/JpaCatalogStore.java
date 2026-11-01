@@ -107,8 +107,7 @@ public class JpaCatalogStore implements CatalogStore {
     }
 
     private void persistVersion(UUID cardId, int version, CardContent content, String hash, Instant now) {
-        entityManager.persist(new CardVersionEntity(
-                idGenerator.newId(), cardId, version, content.prompt(), content.answer(), hash, now));
+        entityManager.persist(new CardVersionEntity(idGenerator.newId(), cardId, version, content, hash, now));
     }
 
     private void place(CardPlacement placement) {

@@ -14,6 +14,7 @@ const FORMAT_LABELS: Record<CardType, string> = {
   CODE_OUTPUT: "Qu'affiche ce code ?",
   OPEN_SCENARIO: 'Mises en situation',
   DEFINITION: 'Définitions',
+  MULTIPLE_CHOICE: 'QCM',
 }
 
 const VISIBILITY_LABELS: Record<LeaderboardVisibility, string> = {

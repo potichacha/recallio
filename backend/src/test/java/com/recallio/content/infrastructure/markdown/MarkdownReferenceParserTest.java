@@ -2,6 +2,7 @@ package com.recallio.content.infrastructure.markdown;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.recallio.content.CardChoice;
 import com.recallio.content.CardType;
 import com.recallio.content.domain.CardContent;
 import com.recallio.content.domain.Subject;
@@ -147,6 +148,76 @@ class MarkdownReferenceParserTest {
     @Test
     void shouldRecordTheSourceLineOfEachQuestion() {
         assertThat(cards("01").getFirst().sourceLine()).isEqualTo(30);
+    }
+
+    @Nested
+    class MultipleChoiceSection {
+
+        private static final String DOCUMENT = """
+                ---
+                subject: go
+                title: Go
+                category: languages
+                position: 20
+                status: published
+                ---
+                # 1. GO : CONCURRENCE
+
+                ### QCM
+
+                **Q : Que produit la lecture d'un channel fermé ?**
+                - [ ] Un blocage
+                - [x] La valeur zéro du type
+                - [ ] Une panique
+                R : Elle ne bloque jamais.
+                Avec `v, ok := <-ch`, `ok` vaut `false`.
+
+                **Q : Quels mots-clés lancent ou synchronisent du code concurrent ?**
+                - [X] `go`
+                - [x] `select`
+                - [ ] `defer`
+                R : `go` lance une goroutine, `select` attend plusieurs channels.
+
+                **Q : Un QCM sans bonne réponse ?**
+                - [ ] Non
+                - [ ] Toujours non
+                R : Refusé.
+
+                **Q : Un seul choix ?**
+                - [x] Oui
+                R : Refusé aussi.
+                """;
+
+        private final ParsedContent content = new MarkdownReferenceParser().parse(DOCUMENT);
+
+        @Test
+        void shouldReadTheChoicesAndAMultilineExplanation() {
+            var card = (CardContent.MultipleChoice)
+                    content.themes().getFirst().cards().getFirst().content();
+
+            assertThat(card.type()).isEqualTo(CardType.MULTIPLE_CHOICE);
+            assertThat(card.prompt()).isEqualTo("Que produit la lecture d'un channel fermé ?");
+            assertThat(card.choices())
+                    .containsExactly(
+                            new CardChoice("Un blocage", false),
+                            new CardChoice("La valeur zéro du type", true),
+                            new CardChoice("Une panique", false));
+            assertThat(card.answer()).isEqualTo("Elle ne bloque jamais.\nAvec `v, ok := <-ch`, `ok` vaut `false`.");
+        }
+
+        @Test
+        void shouldAcceptSeveralCorrectChoices() {
+            var card = content.themes().getFirst().cards().get(1).content();
+
+            assertThat(card.choices()).extracting(CardChoice::correct).containsExactly(true, true, false);
+        }
+
+        @Test
+        void shouldReportAQuestionWithoutACorrectChoiceOrWithASingleChoice() {
+            assertThat(content.themes().getFirst().cards()).hasSize(2);
+            assertThat(content.issues()).extracting(SourceIssue::line).containsExactly(25, 30);
+            assertThat(content.issues().getFirst().reason()).startsWith("QCM : de 2 à 8 choix");
+        }
     }
 
     private static List<ParsedCard> cards(String themeKey) {

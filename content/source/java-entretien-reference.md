@@ -234,6 +234,28 @@ R : "Le lanceur démarre la JVM, lit le manifest du jar pour trouver la classe p
 Le code commence ensuite à s'exécuter en mode **interprété**. La JVM compte les appels et les boucles, et les méthodes chaudes sont compilées en code natif par le **JIT** (d'abord C1, rapide à compiler, puis C2, plus optimisé). C'est pour ça qu'une application Java a une phase de *warm-up* : ses performances s'améliorent pendant les premières minutes.
 Parallèlement, le GC gère le heap et les threads système (GC, JIT, finalisation) tournent à côté du thread main."
 
+### QCM
+
+**Q : Où vivent les objets créés avec `new` ?**
+- [ ] Dans la pile (stack) du thread
+- [x] Dans le tas (heap)
+- [ ] Dans le Metaspace
+- [ ] Dans les registres du processeur
+R : Les objets sont alloués dans le tas, partagé par les threads et géré par le ramasse-miettes. La pile ne contient que les variables locales et les références vers ces objets ; le Metaspace contient les métadonnées des classes.
+
+**Q : Quelles affirmations sur `==` et `equals()` sont vraies ?**
+- [x] Pour des objets, `==` compare les références
+- [x] `equals()` peut être redéfinie pour comparer le contenu
+- [ ] `==` appelle `equals()` en interne
+- [ ] `Object.equals()` compare le contenu des champs
+R : `==` teste l'identité (même objet en mémoire). `Object.equals()` fait la même chose par défaut ; `String`, `Integer` ou un `record` la redéfinissent pour comparer le contenu, et `hashCode()` doit alors être redéfinie avec elle.
+
+**Q : Que vaut `Integer.valueOf(127) == Integer.valueOf(127)` ?**
+- [x] `true`
+- [ ] `false`
+- [ ] Le code ne compile pas
+R : `Integer.valueOf` réutilise des instances en cache pour les valeurs de -128 à 127 : les deux appels renvoient le même objet. Avec 128, le résultat serait `false` : il faut comparer des `Integer` avec `equals()`.
+
 ═══════════════════════════════════════════
 # 2. JAVA : CLASSES, OBJETS & LANGAGE AVANCÉ
 ═══════════════════════════════════════════

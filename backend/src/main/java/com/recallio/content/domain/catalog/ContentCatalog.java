@@ -1,5 +1,6 @@
 package com.recallio.content.domain.catalog;
 
+import com.recallio.content.CardChoice;
 import com.recallio.content.CardType;
 import com.recallio.content.domain.Subject;
 import com.recallio.platform.domain.Page;
@@ -51,5 +52,11 @@ public interface ContentCatalog {
             long cardCount) {}
 
     /** La version courante d'une carte. */
-    record CardView(UUID id, CardType type, String prompt, String answer, int version) {}
+    /** @param choices les choix d'un QCM, bonnes réponses comprises (le catalogue montre aussi les réponses) */
+    record CardView(UUID id, CardType type, String prompt, String answer, List<CardChoice> choices, int version) {
+
+        public CardView {
+            choices = List.copyOf(choices);
+        }
+    }
 }

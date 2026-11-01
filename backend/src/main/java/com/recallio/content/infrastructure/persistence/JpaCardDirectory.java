@@ -1,5 +1,6 @@
 package com.recallio.content.infrastructure.persistence;
 
+import com.recallio.content.CardChoice;
 import com.recallio.content.CardDirectory;
 import com.recallio.content.CardType;
 import com.recallio.content.domain.Subject;
@@ -17,6 +18,7 @@ import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import org.jspecify.annotations.Nullable;
 
 /** Toutes les requêtes ne voient que les sujets publiés : un brouillon n'est jamais proposé en révision. */
 @ApplicationScoped
@@ -87,7 +89,7 @@ public class JpaCardDirectory implements CardDirectory {
         }
         Map<UUID, CardSnapshot> found = entityManager
                 .createQuery("""
-                        select c.id, v.id, c.type, s.slug, s.title, t.slug, t.title, v.prompt, v.answer
+                        select c.id, v.id, c.type, s.slug, s.title, t.slug, t.title, v.prompt, v.answer, v.choices
                         from CardEntity c
                         join CardVersionEntity v on v.cardId = c.id and v.version = c.currentVersion
                         join ThemeEntity t on t.id = c.themeId
@@ -106,7 +108,8 @@ public class JpaCardDirectory implements CardDirectory {
                         (String) row[5],
                         (String) row[6],
                         (String) row[7],
-                        (String) row[8]))
+                        (String) row[8],
+                        choices(row[9])))
                 .collect(Collectors.toMap(CardSnapshot::cardId, Function.identity()));
         return cardIds.stream()
                 .distinct()
@@ -158,5 +161,11 @@ public class JpaCardDirectory implements CardDirectory {
         if (!exists) {
             throw new ThemeNotFoundException(slug);
         }
+    }
+
+    /** La colonne JSON {@code choices}, lue par Hibernate dans le type de l'attribut ; absente hors QCM. */
+    @SuppressWarnings("unchecked")
+    static List<CardChoice> choices(@Nullable Object column) {
+        return column == null ? List.of() : (List<CardChoice>) column;
     }
 }

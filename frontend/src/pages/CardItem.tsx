@@ -13,6 +13,21 @@ export function CardItem({ card }: { card: Card }) {
         {CARD_TYPE_LABELS[card.type]}
       </span>
       <Markdown>{card.prompt}</Markdown>
+      {card.choices.length > 0 && (
+        <ul className="flex flex-col gap-1">
+          {card.choices.map((choice, index) => (
+            <li
+              key={index}
+              className={`rounded-lg border px-3 py-1.5 text-sm ${
+                revealed && choice.correct ? 'border-emerald-300 bg-emerald-50' : 'border-slate-200'
+              }`}
+            >
+              <Markdown>{choice.text}</Markdown>
+              {revealed && choice.correct && <span className="sr-only">Bonne réponse</span>}
+            </li>
+          ))}
+        </ul>
+      )}
       {revealed ? (
         <div className="border-t border-slate-100 pt-3">
           <Markdown>{card.answer}</Markdown>

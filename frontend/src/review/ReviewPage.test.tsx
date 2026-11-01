@@ -33,6 +33,8 @@ function queuedCard(overrides: Partial<QueuedCard> = {}): QueuedCard {
     themeTitle: 'Java : fondamentaux',
     prompt: "Qu'est-ce que la JVM ?",
     answer: 'La machine virtuelle qui exécute le bytecode.',
+    choices: [],
+    multipleAnswers: false,
     state: 'NEW',
     previews: [
       { rating: 'AGAIN', dueAt: inMs(MINUTE) },
@@ -184,6 +186,56 @@ describe('ReviewPage', () => {
     expect(screen.queryByRole('navigation', { name: 'Sujet révisé' })).not.toBeInTheDocument()
     const request = sentRequests(fetchMock).find((sent) => sent.url.includes(QUEUE))
     expect(new URL(request?.url ?? '').searchParams.get('group')).toBe('g1')
+  })
+
+  it('grades a multiple-choice card on the server, shows the correction, then moves on', async () => {
+    const fetchMock = stubApi({
+      ...PROFILE,
+      [QUEUE]: {
+        body: queue([
+          queuedCard({
+            type: 'MULTIPLE_CHOICE',
+            prompt: 'Où vivent les objets créés avec `new` ?',
+            answer: null,
+            choices: ['Dans la pile', 'Dans le tas', 'Dans le Metaspace'],
+          }),
+          queuedCard({ cardId: 'card-2', prompt: 'Taille d’un int ?' }),
+        ]),
+      },
+      [REVIEWS]: {
+        status: 201,
+        body: {
+          cardId: 'card-1',
+          rating: 'AGAIN',
+          state: 'LEARNING',
+          dueAt: '2026-10-29T10:01:00Z',
+          correction: {
+            correctChoices: [1],
+            explanation: 'Les objets sont alloués dans le **tas**.',
+          },
+        },
+      },
+    })
+    renderAt('/review', signedIn())
+
+    const validate = await screen.findByRole('button', { name: 'Valider' })
+    expect(validate).toBeDisabled()
+    expect(screen.queryByRole('button', { name: 'Voir la réponse' })).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('radio', { name: /Dans la pile/ }))
+    await userEvent.click(validate)
+
+    expect(await screen.findByRole('status')).toHaveTextContent('Pas tout à fait')
+    expect(screen.getByText('tas')).toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: /Dans le tas/ }).closest('label')).toHaveTextContent(
+      'Bonne réponse, non cochée',
+    )
+    const post = sentRequests(fetchMock).find((request) => request.method === 'POST')
+    const body = await post?.json()
+    expect(body.selectedChoices).toEqual([0])
+    expect(body.rating).toBeUndefined()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Carte suivante' }))
+    expect(await screen.findByText('Taille d’un int ?')).toBeInTheDocument()
   })
 
   it('lets the candidate write an answer to a scenario before revealing the model answer', async () => {

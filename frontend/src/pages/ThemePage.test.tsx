@@ -17,6 +17,7 @@ const CARD = {
   type: 'CODE_OUTPUT',
   prompt: 'Que vaut `0.1 + 0.2 == 0.3` ?',
   answer: '**false** : imprécision des flottants.',
+  choices: [],
   version: 1,
 }
 
@@ -70,6 +71,27 @@ describe('ThemePage', () => {
     const keyword = await screen.findByText('func')
     expect(keyword).toHaveClass('hljs-keyword')
     expect(keyword.closest('code')).toHaveClass('language-go')
+  })
+
+  it('shows the choices of a multiple-choice card, and marks the right one once revealed', async () => {
+    stubTheme([
+      {
+        ...CARD,
+        type: 'MULTIPLE_CHOICE',
+        choices: [
+          { text: 'Dans la pile', correct: false },
+          { text: 'Dans le tas', correct: true },
+        ],
+      },
+    ])
+    renderAt('/themes/java-fondamentaux')
+
+    expect(await screen.findByText('Dans la pile')).toBeInTheDocument()
+    expect(screen.queryByText('Bonne réponse')).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Voir la réponse' }))
+
+    expect(screen.getByText('Dans le tas').closest('li')).toHaveTextContent('Bonne réponse')
+    expect(screen.getByText('Dans la pile').closest('li')).not.toHaveTextContent('Bonne réponse')
   })
 
   it('shows the pagination only when there are several pages', async () => {

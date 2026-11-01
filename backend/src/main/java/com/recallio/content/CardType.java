@@ -9,5 +9,7 @@ public enum CardType {
     /** Mise en situation : rédaction libre puis comparaison avec la réponse modèle. */
     OPEN_SCENARIO,
     /** Terme du glossaire et sa définition. */
-    DEFINITION
+    DEFINITION,
+    /** Question à choix multiples, corrigée par le serveur (ADR 0019). */
+    MULTIPLE_CHOICE
 }

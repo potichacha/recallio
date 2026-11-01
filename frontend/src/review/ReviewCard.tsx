@@ -1,9 +1,10 @@
 import { useState } from 'react'
 import { ApiError } from '../api/errors'
 import { useRecordReview, type QueuedCard, type Rating } from '../api/review'
-import { CARD_TYPE_LABELS } from '../components/cardTypeLabels'
 import { Markdown } from '../components/Markdown'
+import { CardHeader } from './CardHeader'
 import { formatDelay } from './formatDelay'
+import { MultipleChoiceCard } from './MultipleChoiceCard'
 
 const RATING_LABELS: Record<Rating, string> = {
   AGAIN: 'À revoir',
@@ -19,11 +20,20 @@ const RATING_STYLES: Record<Rating, string> = {
   EASY: 'border-sky-200 text-sky-700 hover:bg-sky-50',
 }
 
+/** Une carte à réviser : un QCM est corrigé par le serveur, les autres formats s'auto-évaluent. */
+export function ReviewCard({ card, onReviewed }: { card: QueuedCard; onReviewed: () => void }) {
+  return card.type === 'MULTIPLE_CHOICE' ? (
+    <MultipleChoiceCard card={card} onReviewed={onReviewed} />
+  ) : (
+    <SelfAssessedCard card={card} onReviewed={onReviewed} />
+  )
+}
+
 /**
  * Une carte en auto-évaluation (CLAUDE.md, section 6.1) : la question, puis la réponse, puis l'une des quatre notes.
  * Une mise en situation propose d'abord d'écrire sa réponse, pour la comparer à la réponse modèle.
  */
-export function ReviewCard({ card, onReviewed }: { card: QueuedCard; onReviewed: () => void }) {
+function SelfAssessedCard({ card, onReviewed }: { card: QueuedCard; onReviewed: () => void }) {
   const [shownAt] = useState(() => Date.now())
   // Un identifiant par carte présentée : une nouvelle tentative après une erreur réseau renvoie le même.
   const [requestId] = useState(() => crypto.randomUUID())
@@ -42,12 +52,7 @@ export function ReviewCard({ card, onReviewed }: { card: QueuedCard; onReviewed:
 
   return (
     <article className="flex flex-col gap-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-      <header className="flex items-center justify-between gap-2 text-xs font-medium tracking-wide uppercase">
-        <span className="text-indigo-600">{CARD_TYPE_LABELS[card.type]}</span>
-        <span className="text-right text-slate-400">
-          {card.subjectTitle} · {card.themeTitle}
-        </span>
-      </header>
+      <CardHeader card={card} />
       <Markdown>{card.prompt}</Markdown>
 
       {card.type === 'OPEN_SCENARIO' && (
@@ -66,7 +71,7 @@ export function ReviewCard({ card, onReviewed }: { card: QueuedCard; onReviewed:
       {revealed ? (
         <>
           <div className="border-t border-slate-100 pt-4">
-            <Markdown>{card.answer}</Markdown>
+            <Markdown>{card.answer ?? ''}</Markdown>
           </div>
           <RatingButtons
             card={card}

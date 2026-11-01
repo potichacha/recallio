@@ -116,7 +116,7 @@ class ReferenceDocumentTest {
         ParsedContent java = parse(SOURCES.resolve("java" + SUFFIX));
 
         assertThat(java.themes()).hasSize(42 + 1);
-        assertThat(java.cardCount()).isEqualTo(1311);
+        assertThat(java.cardCount()).isEqualTo(1314);
     }
 
     private static ParsedContent parse(Path document) {

@@ -18,3 +18,11 @@ Utilisé par les tests de révision multi-sujets.
 **Q : Qu'est-ce qu'une goroutine ?** R : Une fonction exécutée de façon concurrente, ordonnancée par le runtime Go.
 
 **Q : Que fait `defer` ?** R : Il diffère l'appel d'une fonction jusqu'au retour de la fonction englobante.
+
+### QCM
+
+**Q : Que produit la lecture d'un channel fermé et vide ?**
+- [ ] Un blocage définitif
+- [x] La valeur zéro du type, immédiatement
+- [ ] Une panique
+R : Une réception sur un channel fermé ne bloque jamais : elle renvoie la valeur zéro, et `ok` vaut `false` dans la forme `v, ok := <-ch`.

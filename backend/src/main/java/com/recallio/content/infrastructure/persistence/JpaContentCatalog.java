@@ -91,7 +91,7 @@ public class JpaContentCatalog implements ContentCatalog {
                 .getSingleResult();
         List<CardView> cards = entityManager
                 .createQuery("""
-                        select c.id, c.type, v.prompt, v.answer, v.version
+                        select c.id, c.type, v.prompt, v.answer, v.choices, v.version
                         from CardEntity c
                         join CardVersionEntity v on v.cardId = c.id and v.version = c.currentVersion
                         where c.themeId = :themeId and c.retiredAt is null
@@ -102,7 +102,12 @@ public class JpaContentCatalog implements ContentCatalog {
                 .setMaxResults(size)
                 .getResultStream()
                 .map(row -> new CardView(
-                        (UUID) row[0], (CardType) row[1], (String) row[2], (String) row[3], (Integer) row[4]))
+                        (UUID) row[0],
+                        (CardType) row[1],
+                        (String) row[2],
+                        (String) row[3],
+                        JpaCardDirectory.choices(row[4]),
+                        (Integer) row[5]))
                 .toList();
         return new Page<>(cards, page, size, total);
     }

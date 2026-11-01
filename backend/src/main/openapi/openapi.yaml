@@ -14,7 +14,13 @@ components:
           description: "Recto, en Markdown"
         answer:
           type: string
-          description: "Verso, en Markdown"
+          description: "Verso, en Markdown ; pour un QCM, l'explication"
+        choices:
+          type: array
+          items:
+            $ref: "#/components/schemas/CardChoice"
+          description: "Les choix d'un QCM, bonnes réponses marquées ; vide pour les\
+            \ autres formats"
         version:
           type: integer
           format: int32
@@ -23,7 +29,19 @@ components:
       - type
       - prompt
       - answer
+      - choices
       - version
+    CardChoice:
+      type: object
+      properties:
+        text:
+          type: string
+          description: En Markdown
+        correct:
+          type: boolean
+      required:
+      - text
+      - correct
     CardCounts:
       type: object
       properties:
@@ -84,6 +102,22 @@ components:
       - CODE_OUTPUT
       - OPEN_SCENARIO
       - DEFINITION
+      - MULTIPLE_CHOICE
+    Correction:
+      type: object
+      properties:
+        correctChoices:
+          type: array
+          items:
+            type: integer
+            format: int32
+          description: "Positions des bonnes réponses, à partir de 0, dans l'ordre"
+        explanation:
+          type: string
+          description: "L'explication, en Markdown"
+      required:
+      - correctChoices
+      - explanation
     CreateGroupRequest:
       type: object
       required:
@@ -526,8 +560,21 @@ components:
           type: string
           description: "Recto, en Markdown"
         answer:
-          type: string
-          description: "Verso, en Markdown"
+          type:
+          - string
+          - "null"
+          description: "Verso, en Markdown ; absent pour un QCM, dont l'explication\
+            \ arrive avec la correction"
+        choices:
+          type: array
+          items:
+            type: string
+          description: "Les choix d'un QCM, en Markdown, sans dire lesquels sont justes\
+            \ ; vide sinon"
+        multipleAnswers:
+          type: boolean
+          description: Vrai si le QCM a plusieurs bonnes réponses (cases à cocher
+            plutôt que boutons radio)
         state:
           $ref: "#/components/schemas/LearningState"
         previews:
@@ -543,7 +590,8 @@ components:
       - themeSlug
       - themeTitle
       - prompt
-      - answer
+      - choices
+      - multipleAnswers
       - state
       - previews
     Rating:
@@ -568,7 +616,6 @@ components:
       required:
       - requestId
       - cardId
-      - rating
       properties:
         requestId:
           description: "Identifiant généré par le client, réutilisé tel quel si la\
@@ -578,7 +625,25 @@ components:
         cardId:
           $ref: "#/components/schemas/UUID"
         rating:
-          $ref: "#/components/schemas/Rating"
+          description: "La note d'auto-évaluation ; absente pour un QCM, que le serveur\
+            \ corrige"
+          type:
+          - string
+          - "null"
+          anyOf:
+          - $ref: "#/components/schemas/Rating"
+          - type: "null"
+        selectedChoices:
+          type:
+          - array
+          - "null"
+          items:
+            type: integer
+            format: int32
+            minimum: 0
+          description: "Pour un QCM seulement : les positions des choix cochés, à\
+            \ partir de 0"
+          maxItems: 8
         elapsedMs:
           type:
           - integer
@@ -620,11 +685,21 @@ components:
         cardId:
           $ref: "#/components/schemas/UUID"
         rating:
+          description: "La note enregistrée ; pour un QCM, celle que donne la correction"
+          type: string
           $ref: "#/components/schemas/Rating"
         state:
           $ref: "#/components/schemas/LearningState"
         dueAt:
           $ref: "#/components/schemas/Instant"
+        correction:
+          description: La correction d'un QCM ; absente pour les autres formats
+          type:
+          - object
+          - "null"
+          anyOf:
+          - $ref: "#/components/schemas/Correction"
+          - type: "null"
       required:
       - cardId
       - rating
@@ -1486,7 +1561,8 @@ paths:
       - SecurityScheme: []
   /api/v1/reviews:
     post:
-      summary: Enregistre la note donnée à une carte (idempotent grâce à requestId)
+      summary: "Enregistre la note donnée à une carte, ou corrige les choix d'un QCM\
+        \ (idempotent grâce à requestId)"
       operationId: recordReview
       tags:
       - Révision
@@ -1523,6 +1599,13 @@ paths:
                 $ref: "#/components/schemas/ProblemDetail"
         "409":
           description: requestId déjà utilisé pour une autre révision
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+        "422":
+          description: "Une note pour un QCM, ou des choix pour une carte en auto-é\
+            valuation"
           content:
             application/problem+json:
               schema:
