@@ -1,0 +1,194 @@
+# Rédiger un sujet pour Recallio
+
+Ce dossier contient le contenu de Recallio : un **document de référence par sujet** (Java, Go, puis Spring Boot,
+Kubernetes, Python...), dans `source/`. Chaque document est importé et découpé en cartes de révision.
+
+**Ajouter un sujet ne demande aucun code** : un fichier Markdown, relu par pull request. Ce guide décrit le format
+attendu, les règles d'une bonne question, et la procédure de publication.
+
+- [1. Le fichier](#1-le-fichier)
+- [2. L'en-tête](#2-len-tête)
+- [3. Les chapitres](#3-les-chapitres)
+- [4. Les questions](#4-les-questions)
+- [5. Écrire une bonne question](#5-écrire-une-bonne-question)
+- [6. Modifier un document existant sans perdre la progression](#6-modifier-un-document-existant-sans-perdre-la-progression)
+- [7. Ajouter un sujet, étape par étape](#7-ajouter-un-sujet-étape-par-étape)
+- [8. Liste de contrôle avant la pull request](#8-liste-de-contrôle-avant-la-pull-request)
+
+## 1. Le fichier
+
+`source/<slug>-entretien-reference.md`, par exemple `source/spring-boot-entretien-reference.md`.
+
+Le nom du fichier doit correspondre au `subject` de l'en-tête : la CI le vérifie.
+
+## 2. L'en-tête
+
+Le document commence **obligatoirement** par un en-tête qui décrit le sujet (ADR 0013) :
+
+```markdown
+---
+subject: spring-boot
+title: Spring Boot
+category: frameworks
+position: 30
+status: draft
+---
+```
+
+| Clé | Valeur |
+|---|---|
+| `subject` | Le **slug** : minuscules, chiffres et tirets (`spring-boot`, `ia-llm`). **Définitif** : il entre dans l'identité de toutes les cartes du sujet, le changer ferait perdre leur progression à tous les utilisateurs. |
+| `title` | Le nom affiché (`Spring Boot`). Modifiable librement. |
+| `category` | `languages`, `frameworks`, `cloud-devops`, `data`, `fundamentals` ou `ai`. Une nouvelle catégorie passe par un ADR. |
+| `position` | L'ordre d'affichage dans le catalogue. Java vaut 10 et Go 20 : laisser des trous permet d'en intercaler. |
+| `status` | `draft` (importé, visible des seuls admins) ou `published` (visible de tous). |
+
+Après l'en-tête viennent le titre du document (`# Spring Boot : le document de référence pour les entretiens
+techniques`) et une introduction libre : l'import les ignore.
+
+## 3. Les chapitres
+
+Un chapitre devient un **thème** dans l'application. Son titre est numéroté et encadré de lignes `═` :
+
+```markdown
+═══════════════════════════════════════════
+# 1. SPRING BOOT : FONDAMENTAUX
+═══════════════════════════════════════════
+```
+
+Dans chaque chapitre, dans cet ordre :
+
+| Section | Rôle | Importée ? |
+|---|---|---|
+| `### Vue d'ensemble` | Le pourquoi, en quelques lignes | non (lecture) |
+| `### Cours` | Le détail des notions | non (lecture) |
+| `### En situation` | Des symptômes vers les notions | non (lecture) |
+| `### Questions techniques` | Réponses courtes | **oui** : cartes « Question » |
+| `### Questions de situation` | Réponses rédigées | **oui** : cartes « Mise en situation » |
+
+Deux chapitres particuliers :
+
+- **Questions pièges** : un chapitre dont le titre contient « QU'AFFICHE CE CODE ? » (par exemple `# 14. QUESTIONS
+  PIÈGES : QU'AFFICHE CE CODE ?`) produit des cartes « Qu'affiche ce code ? ». Il est reconnu à son titre, quel que soit
+  son numéro.
+- **Glossaire** : un titre `# GLOSSAIRE`, suivi d'un tableau `| Terme | Signification |`. Chaque ligne devient une carte
+  « Définition ».
+
+Tout ce qui n'est pas dans un chapitre numéroté ou dans le glossaire est ignoré : sommaire, méthode générale,
+récapitulatif final.
+
+Un sujet n'a pas besoin de tous les types de cartes : un chapitre de questions pièges n'a de sens que pour un langage,
+et le glossaire est facultatif. Chaque chapitre doit en revanche contenir au moins une question.
+
+## 4. Les questions
+
+### Question technique : sur une ligne
+
+```markdown
+**Q : Que fait `defer` ?** R : Il diffère l'appel d'une fonction jusqu'au retour de la fonction englobante.
+```
+
+### Question avec du code : la réponse sur sa propre ligne
+
+````markdown
+**Q :**
+```go
+err := trouver()
+fmt.Println(err == nil)
+```
+R : `false` : l'interface contient le type `*MonErr` avec une valeur nil, elle n'est donc pas nil.
+````
+
+### Question de situation : réponse rédigée sur plusieurs lignes
+
+```markdown
+**Q : "Pourquoi choisirais-tu Go plutôt que Java pour un nouveau service ?"**
+R : "Go a des atouts nets pour certains services : un **binaire statique**...
+Java garde l'avantage sur un écosystème d'entreprise plus riche...
+Je choisirais Go pour un service réseau..."
+```
+
+La réponse s'étend jusqu'à la question suivante ou au prochain titre ; elle peut contenir des blocs de code.
+
+### Règles communes
+
+- Le Markdown est rendu dans l'application : gras, `code`, listes, blocs de code.
+- **Toujours indiquer le langage d'un bloc de code** (` ```go `, ` ```java `, ` ```yaml `, ` ```sql `...) : il sert à la
+  coloration syntaxique. Un bloc sans langage s'affiche sans couleurs.
+- Une annotation après la question est permise : `**Q : Que fait `defer` ?** *(très fréquent)*`.
+
+## 5. Écrire une bonne question
+
+Une carte est revue des dizaines de fois, sur un téléphone, en quelques secondes. Elle doit être :
+
+- **Une seule idée.** « Différence entre `ArrayList` et `LinkedList` ? » plutôt que « Parlez-moi des collections ».
+- **Autonome.** Lisible sans le cours autour : pas de « comme vu plus haut », pas de « cet exemple ».
+- **Posée comme en entretien.** C'est la question que pose un recruteur technique, pas une question de quiz.
+- **Une réponse courte pour les questions techniques** : une à trois phrases. Le détail appartient au cours ; une
+  réponse longue est une question de situation.
+- **Une réponse vérifiable.** Le code des questions pièges est compilé et exécuté avant d'être publié ; les versions
+  citées sont datées (« Go 1.27, août 2026 »).
+- **Sans doublon.** Deux questions qui ne diffèrent que par la ponctuation ou la casse sont un doublon : la CI le
+  signale.
+- **Une question de situation donne une démarche**, pas seulement un résultat : cadrer, diagnostiquer, proposer,
+  arbitrer (voir la méthode universelle des documents existants).
+
+## 6. Modifier un document existant sans perdre la progression
+
+La progression d'un utilisateur est attachée à l'**identité** d'une carte : le sujet, le **numéro de chapitre** et la
+**question normalisée** (sans casse, accents, ponctuation ni mise en forme). D'où ces règles :
+
+| Modification | Effet |
+|---|---|
+| Corriger la réponse | Nouvelle version de la même carte : la progression est conservée. |
+| Corriger une faute, la ponctuation ou le gras d'une question | Même carte : la progression est conservée. |
+| Réécrire le sens d'une question | Nouvelle carte ; l'ancienne est retirée (sa progression n'est plus utilisée). |
+| Supprimer une question | La carte est retirée ; elle revient avec sa progression si la question est rétablie. |
+| Renommer un chapitre | Même thème (seule son adresse change) : la progression est conservée. |
+| **Renuméroter un chapitre** | **Nouveau thème : toutes ses cartes perdent leur progression.** |
+| **Changer le `subject`** | **Tout le sujet perd sa progression.** |
+
+En pratique : **ajouter un nouveau chapitre à la fin**, avec le numéro suivant, plutôt que de l'intercaler.
+
+Le rapport d'import (section 7) liste les cartes ajoutées, modifiées et retirées : un nombre de retraits inattendu
+signale une renumérotation.
+
+## 7. Ajouter un sujet, étape par étape
+
+1. **Écrire le document** `source/<slug>-entretien-reference.md` en suivant ce guide, avec `status: draft`.
+2. **Vérifier en local** : `cd backend && ./mvnw test -Dtest=ReferenceDocumentTest` contrôle tous les documents en
+   quelques secondes. Puis `./mvnw quarkus:dev` importe le dossier au démarrage : le rapport d'import apparaît dans les
+   logs.
+3. **Ouvrir une pull request de contenu.** Le job CI `content` parse tous les documents et échoue sur une anomalie :
+   question sans réponse, ligne non reconnue, doublon, en-tête invalide, nom de fichier qui ne correspond pas au sujet,
+   chapitre vide, slug déjà utilisé.
+4. **Merger, puis importer.** En local et dans le compose, l'import est automatique au démarrage. En production, un
+   admin envoie le document :
+
+   ```shell
+   curl -X POST "$API/api/v1/admin/content-imports" \
+     -H "Authorization: Bearer $ADMIN_TOKEN" \
+     -H "Content-Type: text/markdown; charset=UTF-8" \
+     --data-binary @content/source/spring-boot-entretien-reference.md
+   ```
+
+   La réponse est le rapport d'import (cartes ajoutées, modifiées, retirées, anomalies).
+5. **Relire dans l'application.** Connecté avec un compte admin, le sujet apparaît dans le catalogue avec le badge
+   **Brouillon** : on parcourt ses thèmes et ses cartes en conditions réelles (rendu du Markdown, coloration du code). Il
+   reste invisible des autres utilisateurs et n'entre dans aucune révision.
+6. **Publier** : une seconde pull request passe l'en-tête en `status: published`, puis on réimporte. Les
+   utilisateurs le voient dans le catalogue et peuvent le suivre depuis leur profil.
+
+Pour **retirer temporairement** un sujet publié, repasser en `status: draft` et réimporter : il disparaît du catalogue
+et des révisions, sans perte de progression, et revient tel quel s'il est republié.
+
+## 8. Liste de contrôle avant la pull request
+
+- [ ] Le fichier s'appelle `source/<subject>-entretien-reference.md`.
+- [ ] L'en-tête est complet ; le `subject` est définitif ; `status: draft` pour un nouveau sujet.
+- [ ] Les chapitres sont numérotés `# N. TITRE` ; aucun chapitre existant n'a été renuméroté.
+- [ ] Chaque chapitre a ses sections, et au moins une question.
+- [ ] Les questions techniques ont une réponse courte, les questions de situation une réponse rédigée.
+- [ ] Chaque bloc de code indique son langage ; le code des questions pièges a été exécuté.
+- [ ] `./mvnw test -Dtest=ReferenceDocumentTest` est vert.
+- [ ] Le rapport d'import ne liste ni anomalie ni retrait inattendu.
