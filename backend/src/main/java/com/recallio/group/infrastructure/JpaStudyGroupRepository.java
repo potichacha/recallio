@@ -81,6 +81,21 @@ public class JpaStudyGroupRepository implements StudyGroupRepository {
     }
 
     @Override
+    public void addMember(UUID groupId, Member member) {
+        entityManager
+                .createNativeQuery("""
+                        insert into group_member (group_id, user_id, role, joined_at)
+                        values (:groupId, :userId, :role, :joinedAt)
+                        on conflict (group_id, user_id) do nothing
+                        """)
+                .setParameter("groupId", groupId)
+                .setParameter("userId", member.userId())
+                .setParameter("role", member.role().name())
+                .setParameter("joinedAt", member.joinedAt())
+                .executeUpdate();
+    }
+
+    @Override
     public void removeMember(UUID groupId, UUID userId) {
         entityManager
                 .createQuery("delete from GroupMemberEntity m where m.groupId = :groupId and m.userId = :userId")

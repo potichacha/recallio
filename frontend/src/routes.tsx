@@ -3,6 +3,7 @@ import { RequireAuth } from './auth/RequireAuth'
 import { Layout } from './components/Layout'
 import { GroupPage } from './groups/GroupPage'
 import { GroupsPage } from './groups/GroupsPage'
+import { JoinPage } from './groups/JoinPage'
 import { AuthCallbackPage } from './pages/AuthCallbackPage'
 import { HomePage } from './pages/HomePage'
 import { ProfilePage } from './pages/ProfilePage'
@@ -42,6 +43,14 @@ export const routes: RouteObject[] = [
         element: (
           <RequireAuth>
             <GroupPage />
+          </RequireAuth>
+        ),
+      },
+      {
+        path: 'join/:token',
+        element: (
+          <RequireAuth>
+            <JoinPage />
           </RequireAuth>
         ),
       },

@@ -4,10 +4,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatNoException;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.recallio.group.domain.GroupExceptions.GroupFullException;
 import com.recallio.group.domain.GroupExceptions.OwnerCannotLeaveException;
 import com.recallio.group.domain.GroupExceptions.OwnerOnlyException;
 import com.recallio.group.domain.StudyGroup.Member;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -51,6 +53,21 @@ class StudyGroupTest {
     void shouldLetMembersLeaveButNotTheOwner() {
         assertThatNoException().isThrownBy(() -> group.requireRemovable(member));
         assertThatThrownBy(() -> group.requireRemovable(owner)).isInstanceOf(OwnerCannotLeaveException.class);
+    }
+
+    @Test
+    void shouldWelcomeANewMemberUntilTheGroupIsFull() {
+        UUID newcomer = UUID.randomUUID();
+
+        assertThat(group.newMember(newcomer, NOW)).isEqualTo(new Member(newcomer, GroupRole.MEMBER, NOW));
+        assertThatThrownBy(() -> group.newMember(member, NOW)).isInstanceOf(IllegalArgumentException.class);
+
+        var members = new ArrayList<Member>(List.of(new Member(owner, GroupRole.OWNER, NOW)));
+        while (members.size() < StudyGroup.MAX_MEMBERS) {
+            members.add(new Member(UUID.randomUUID(), GroupRole.MEMBER, NOW));
+        }
+        StudyGroup full = new StudyGroup(UUID.randomUUID(), new GroupName("Complet"), NOW, members);
+        assertThatThrownBy(() -> full.newMember(newcomer, NOW)).isInstanceOf(GroupFullException.class);
     }
 
     @Test

@@ -1,6 +1,5 @@
 package com.recallio.group.application;
 
-import com.recallio.group.domain.GroupExceptions.GroupNotFoundException;
 import com.recallio.group.domain.GroupExceptions.MemberNotFoundException;
 import com.recallio.group.domain.GroupExceptions.TooManyGroupsException;
 import com.recallio.group.domain.GroupName;
@@ -33,12 +32,19 @@ public class StudyGroupService {
     private static final String UNKNOWN_MEMBER = "Membre";
 
     private final StudyGroupRepository groups;
+    private final GroupAccess access;
     private final UserDirectory users;
     private final IdGenerator idGenerator;
     private final Clock clock;
 
-    public StudyGroupService(StudyGroupRepository groups, UserDirectory users, IdGenerator idGenerator, Clock clock) {
+    public StudyGroupService(
+            StudyGroupRepository groups,
+            GroupAccess access,
+            UserDirectory users,
+            IdGenerator idGenerator,
+            Clock clock) {
         this.groups = groups;
+        this.access = access;
         this.users = users;
         this.idGenerator = idGenerator;
         this.clock = clock;
@@ -61,16 +67,16 @@ public class StudyGroupService {
         return groups.findByMember(user.id());
     }
 
-    /** @throws GroupNotFoundException si le groupe n'existe pas ou si l'utilisateur n'en est pas membre */
+    /** Le groupe vu par l'un de ses membres ; 404 pour les autres ({@link GroupAccess#visibleGroup}). */
     @Transactional(Transactional.TxType.SUPPORTS)
     public GroupDetail group(UserRef user, UUID groupId) {
-        return detail(visibleGroup(user, groupId), user);
+        return detail(access.visibleGroup(user, groupId), user);
     }
 
     /** Quitter un groupe. Le créateur ne le peut pas : il supprime le groupe. */
     @Transactional
     public void leave(UserRef user, UUID groupId) {
-        StudyGroup group = visibleGroup(user, groupId);
+        StudyGroup group = access.visibleGroup(user, groupId);
         group.requireRemovable(user.id());
         groups.removeMember(groupId, user.id());
     }
@@ -78,8 +84,7 @@ public class StudyGroupService {
     /** Le créateur retire un membre. */
     @Transactional
     public void removeMember(UserRef user, UUID groupId, UUID memberId) {
-        StudyGroup group = visibleGroup(user, groupId);
-        group.requireOwner(user.id());
+        StudyGroup group = access.ownedGroup(user, groupId);
         if (group.member(memberId).isEmpty()) {
             throw new MemberNotFoundException(memberId);
         }
@@ -90,14 +95,8 @@ public class StudyGroupService {
     /** Le créateur supprime le groupe et toutes ses adhésions. */
     @Transactional
     public void delete(UserRef user, UUID groupId) {
-        visibleGroup(user, groupId).requireOwner(user.id());
+        access.ownedGroup(user, groupId);
         groups.delete(groupId);
-    }
-
-    private StudyGroup visibleGroup(UserRef user, UUID groupId) {
-        return groups.findById(groupId)
-                .filter(group -> group.member(user.id()).isPresent())
-                .orElseThrow(() -> new GroupNotFoundException(groupId));
     }
 
     private GroupDetail detail(StudyGroup group, UserRef viewer) {

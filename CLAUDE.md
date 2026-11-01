@@ -375,7 +375,7 @@ Ensuite, chaque nouveau sujet (5.5) est une pull request de contenu, qui peut av
 Groupes, invitations, réglages (dont les sujets du groupe), classements (Valkey/Redis introduit ici si nécessaire), défis de groupe, cartes QCM.
 
 1. ✅ **Groupes et membres** : créer un groupe, voir ses groupes et leurs membres, quitter, retirer un membre, supprimer (ADR 0015).
-2. **Invitations** : lien d'invitation expirant, rejoindre un groupe par ce lien.
+2. ✅ **Invitations** : lien d'invitation expirant, rejoindre un groupe par ce lien (ADR 0016).
 3. **Réglages du groupe** : sujets et thèmes inclus, types de cartes, objectif quotidien, visibilité du classement (nominatif, anonymisé, désactivé) ; réviser avec le groupe.
 4. **Classement hebdomadaire** : régularité et points (en SQL ; Valkey seulement si un besoin réel apparaît).
 5. **Cartes QCM** (`MULTIPLE_CHOICE`) : format dans les documents, correction automatique.

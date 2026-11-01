@@ -9,6 +9,7 @@ import {
   type Group,
   type GroupMember,
 } from '../api/groups'
+import { InvitationPanel } from './InvitationPanel'
 
 /** Un groupe : ses membres ; le créateur les gère et peut supprimer le groupe, un membre peut le quitter. */
 export function GroupPage() {
@@ -37,7 +38,10 @@ export function GroupPage() {
         <>
           <MemberList group={group.data} />
           {group.data.myRole === 'OWNER' ? (
-            <DeleteGroup groupId={group.data.id} />
+            <>
+              <InvitationPanel groupId={group.data.id} />
+              <DeleteGroup groupId={group.data.id} />
+            </>
           ) : (
             <LeaveGroup groupId={group.data.id} />
           )}

@@ -17,6 +17,9 @@ public interface StudyGroupRepository {
 
     long countOwnedBy(UUID userId);
 
+    /** Ajoute un membre ; sans effet s'il l'est déjà (deux clics simultanés sur le lien). */
+    void addMember(UUID groupId, StudyGroup.Member member);
+
     void removeMember(UUID groupId, UUID userId);
 
     /** Supprime le groupe et toutes ses adhésions. */
