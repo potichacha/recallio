@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.recallio.user.domain.AuthenticatedUser;
+import com.recallio.user.domain.DisplayName;
 import com.recallio.user.domain.InvalidProfileException;
 import com.recallio.user.domain.UserProfile;
 import com.recallio.user.domain.UserProfileRepository;
@@ -11,10 +12,12 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 
 class UserProfileServiceTest {
@@ -86,6 +89,13 @@ class UserProfileServiceTest {
         @Override
         public void update(UserProfile profile) {
             bySubject.put(profile.oidcSubject(), profile);
+        }
+
+        @Override
+        public Map<UUID, DisplayName> findDisplayNames(Collection<UUID> ids) {
+            return bySubject.values().stream()
+                    .filter(profile -> ids.contains(profile.id()))
+                    .collect(Collectors.toMap(UserProfile::id, UserProfile::displayName));
         }
     }
 }

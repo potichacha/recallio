@@ -7,7 +7,11 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.persistence.EntityManager;
 import java.time.Clock;
 import java.time.ZoneId;
+import java.util.Collection;
+import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
+import java.util.stream.Collectors;
 
 @ApplicationScoped
 public class JpaUserProfileRepository implements UserProfileRepository {
@@ -61,6 +65,18 @@ public class JpaUserProfileRepository implements UserProfileRepository {
         entity.displayName = profile.displayName().value();
         entity.timezone = profile.timezone().getId();
         entity.updatedAt = clock.instant();
+    }
+
+    @Override
+    public Map<UUID, DisplayName> findDisplayNames(Collection<UUID> ids) {
+        if (ids.isEmpty()) {
+            return Map.of();
+        }
+        return entityManager
+                .createQuery("select u.id, u.displayName from AppUserEntity u where u.id in :ids", Object[].class)
+                .setParameter("ids", ids)
+                .getResultStream()
+                .collect(Collectors.toMap(row -> (UUID) row[0], row -> new DisplayName((String) row[1])));
     }
 
     private static UserProfile toDomain(AppUserEntity entity) {

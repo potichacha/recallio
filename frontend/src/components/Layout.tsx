@@ -50,7 +50,7 @@ export function Layout() {
   return (
     <div className="min-h-dvh bg-slate-50 text-slate-900">
       <header className="border-b border-slate-200 bg-white">
-        <nav className="mx-auto flex max-w-3xl items-center gap-6 px-4 py-3">
+        <nav className="mx-auto flex max-w-3xl flex-wrap items-center gap-x-6 gap-y-2 px-4 py-3">
           <NavLink to="/" className="text-lg font-bold text-indigo-600">
             Recallio
           </NavLink>
@@ -59,6 +59,9 @@ export function Layout() {
           </NavLink>
           <NavLink to="/subjects" className={navClass}>
             Sujets
+          </NavLink>
+          <NavLink to="/groups" className={navClass}>
+            Groupes
           </NavLink>
           <div className="ml-auto">
             <SessionControls />

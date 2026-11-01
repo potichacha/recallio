@@ -84,6 +84,15 @@ components:
       - CODE_OUTPUT
       - OPEN_SCENARIO
       - DEFINITION
+    CreateGroupRequest:
+      type: object
+      required:
+      - name
+      properties:
+        name:
+          type: string
+          pattern: \S
+          maxLength: 60
     DayActivity:
       type: object
       properties:
@@ -111,6 +120,74 @@ components:
           description: "Slugs des sujets à suivre, par exemple [\"java\", \"go\"]"
           minItems: 1
           maxItems: 100
+    Group:
+      type: object
+      properties:
+        id:
+          $ref: "#/components/schemas/UUID"
+        name:
+          type: string
+        createdAt:
+          $ref: "#/components/schemas/Instant"
+        myRole:
+          description: Rôle de l'utilisateur connecté dans ce groupe
+          type: string
+          $ref: "#/components/schemas/GroupRole"
+        members:
+          type: array
+          items:
+            $ref: "#/components/schemas/GroupMember"
+          description: "Le créateur d'abord, puis par ordre d'arrivée"
+      required:
+      - id
+      - name
+      - createdAt
+      - myRole
+      - members
+    GroupMember:
+      type: object
+      properties:
+        userId:
+          $ref: "#/components/schemas/UUID"
+        displayName:
+          type: string
+        role:
+          $ref: "#/components/schemas/GroupRole"
+        joinedAt:
+          $ref: "#/components/schemas/Instant"
+        me:
+          type: boolean
+          description: Vrai pour l'utilisateur connecté
+      required:
+      - userId
+      - displayName
+      - role
+      - joinedAt
+      - me
+    GroupRole:
+      type: string
+      enum:
+      - OWNER
+      - MEMBER
+    GroupSummary:
+      type: object
+      properties:
+        id:
+          $ref: "#/components/schemas/UUID"
+        name:
+          type: string
+        myRole:
+          description: Rôle de l'utilisateur connecté dans ce groupe
+          type: string
+          $ref: "#/components/schemas/GroupRole"
+        memberCount:
+          type: integer
+          format: int32
+      required:
+      - id
+      - name
+      - myRole
+      - memberCount
     ImportDuplicate:
       type: object
       properties:
@@ -598,6 +675,8 @@ tags:
 - name: Administration
 - name: Contenu
   description: "Sujets, thèmes et cartes publiés"
+- name: Groupes
+  description: Groupes de révision et leurs membres
 - name: Profil
 - name: Progression
 - name: Révision
@@ -639,6 +718,179 @@ paths:
           description: Non authentifié
         "403":
           description: Rôle admin requis
+      security:
+      - SecurityScheme: []
+  /api/v1/groups:
+    get:
+      summary: Les groupes dont l'utilisateur est membre
+      operationId: listMyGroups
+      tags:
+      - Groupes
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/GroupSummary"
+      security:
+      - SecurityScheme: []
+    post:
+      summary: Crée un groupe dont l'utilisateur est le créateur
+      operationId: createGroup
+      tags:
+      - Groupes
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateGroupRequest"
+        required: true
+      responses:
+        "201":
+          description: Le groupe créé
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Group"
+        "400":
+          description: Requête invalide
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+        "409":
+          description: Trop de groupes créés
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+      security:
+      - SecurityScheme: []
+  /api/v1/groups/{groupId}:
+    get:
+      summary: Un groupe et ses membres
+      operationId: getGroup
+      tags:
+      - Groupes
+      parameters:
+      - name: groupId
+        in: path
+        required: true
+        schema:
+          $ref: "#/components/schemas/UUID"
+      responses:
+        "200":
+          description: Le groupe
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Group"
+        "404":
+          description: "Groupe inconnu, ou dont l'utilisateur n'est pas membre"
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+      security:
+      - SecurityScheme: []
+    delete:
+      summary: Supprime le groupe (créateur seulement)
+      operationId: deleteGroup
+      tags:
+      - Groupes
+      parameters:
+      - name: groupId
+        in: path
+        required: true
+        schema:
+          $ref: "#/components/schemas/UUID"
+      responses:
+        "204":
+          description: Groupe supprimé
+        "403":
+          description: L'utilisateur n'est pas le créateur
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+        "404":
+          description: "Groupe inconnu, ou dont l'utilisateur n'est pas membre"
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+      security:
+      - SecurityScheme: []
+  /api/v1/groups/{groupId}/members/me:
+    delete:
+      summary: "Quitte le groupe (sauf le créateur, qui peut le supprimer)"
+      operationId: leaveGroup
+      tags:
+      - Groupes
+      parameters:
+      - name: groupId
+        in: path
+        required: true
+        schema:
+          $ref: "#/components/schemas/UUID"
+      responses:
+        "204":
+          description: Groupe quitté
+        "404":
+          description: "Groupe inconnu, ou dont l'utilisateur n'est pas membre"
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+        "409":
+          description: Le créateur ne peut pas quitter son groupe
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+      security:
+      - SecurityScheme: []
+  /api/v1/groups/{groupId}/members/{userId}:
+    delete:
+      summary: Retire un membre du groupe (créateur seulement)
+      operationId: removeGroupMember
+      tags:
+      - Groupes
+      parameters:
+      - name: groupId
+        in: path
+        required: true
+        schema:
+          $ref: "#/components/schemas/UUID"
+      - name: userId
+        in: path
+        required: true
+        schema:
+          $ref: "#/components/schemas/UUID"
+      responses:
+        "204":
+          description: Membre retiré
+        "403":
+          description: L'utilisateur n'est pas le créateur
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+        "404":
+          description: Groupe ou membre inconnu
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+        "409":
+          description: Le créateur ne peut pas être retiré
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
       security:
       - SecurityScheme: []
   /api/v1/me:

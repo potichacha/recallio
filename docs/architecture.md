@@ -171,7 +171,19 @@ Le tableau de bord de la PWA (accueil, une fois connecté) assemble trois lectur
 `/api/v1/me/review-stats` (review), `/api/v1/me/progress` et `/api/v1/me/progress/activity` (gamification). Aucun
 module « tableau de bord » côté serveur : chaque module expose ce qu'il sait.
 
-Les dépendances entre modules vont dans un seul sens : `gamification` → `review` (événement) → `content`, `user`.
+### Module `group` (en place)
+
+| Élément | Rôle |
+|---|---|
+| `domain.StudyGroup` | Un groupe et ses membres : un créateur unique, qui seul gère les membres et supprime le groupe (ADR 0015). |
+| `application.StudyGroupService` | Cas d'usage ; vérifie pour chaque groupe que l'appelant en est membre (sinon 404). |
+| `infrastructure.JpaStudyGroupRepository` | Tables `study_group` et `group_member`, sans clé étrangère vers `app_user`. |
+| `api.GroupsResource` | `/api/v1/groups` : mes groupes, création, détail, quitter, retirer un membre, supprimer. |
+
+Il obtient les noms des membres par `user.UserDirectory` (API publique du module `user`).
+
+Les dépendances entre modules vont dans un seul sens : `gamification` → `review` (événement) → `content`, `user` ;
+`group` → `user`.
 
 Le module transverse `platform` fournit les identifiants (`IdGenerator`, UUID v7), l'horloge (`Clock`),
 la pagination (`Page`) et la traduction des erreurs en Problem Details (RFC 9457).
