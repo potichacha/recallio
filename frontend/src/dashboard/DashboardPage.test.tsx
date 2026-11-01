@@ -18,20 +18,19 @@ function stats(overrides: Partial<ReviewStats> = {}): ReviewStats {
   return {
     overall: counts({ total: 30, seen: 12, mastered: 4, dueNow: 5, dueToday: 7 }),
     newToday: 8,
-    themes: [
+    subjects: [
       {
-        subjectSlug: 'java',
-        subjectTitle: 'Java',
-        slug: 'collections',
-        title: 'Collections',
-        counts: counts({ total: 10, seen: 0 }),
-      },
-      {
-        subjectSlug: 'java',
-        subjectTitle: 'Java',
-        slug: 'java-fondamentaux',
-        title: 'Java : fondamentaux',
-        counts: counts({ total: 20, seen: 12, mastered: 4, dueNow: 5 }),
+        slug: 'java',
+        title: 'Java',
+        counts: counts({ total: 30, seen: 12, mastered: 4, dueNow: 5 }),
+        themes: [
+          { slug: 'collections', title: 'Collections', counts: counts({ total: 10, seen: 0 }) },
+          {
+            slug: 'java-fondamentaux',
+            title: 'Java : fondamentaux',
+            counts: counts({ total: 20, seen: 12, mastered: 4, dueNow: 5 }),
+          },
+        ],
       },
     ],
     ...overrides,
@@ -106,12 +105,42 @@ describe('DashboardPage', () => {
     expect(screen.getByLabelText('jeudi 29 octobre 2026 : 4 carte(s)')).toBeInTheDocument()
   })
 
-  it('lists started themes first, with a shortcut to review their due cards', async () => {
+  it('shows the progress of each followed subject, with a shortcut to review its due cards', async () => {
+    const go = {
+      slug: 'go',
+      title: 'Go',
+      counts: counts({ total: 40, seen: 2 }),
+      themes: [
+        {
+          slug: 'go-fondamentaux',
+          title: 'GO : FONDAMENTAUX',
+          counts: counts({ total: 40, seen: 2 }),
+        },
+      ],
+    }
+    stubDashboard(stats({ subjects: [...stats().subjects, go] }))
+    renderAt('/', signedIn())
+
+    const section = await screen.findByRole('region', { name: 'Progression par sujet' })
+    const java = within(section).getByRole('link', { name: 'Java' }).closest('li') as HTMLElement
+    expect(java).toHaveTextContent('12 / 30 vues · 4 maîtrisées')
+    expect(within(java).getAllByRole('link', { name: '5 à revoir' })[0]).toHaveAttribute(
+      'href',
+      '/review?subject=java',
+    )
+    const goRow = within(section).getByRole('link', { name: 'Go' }).closest('li') as HTMLElement
+    expect(goRow).toHaveTextContent('2 / 40 vues · 0 maîtrisée')
+    expect(within(goRow).queryByRole('link', { name: /à revoir/ })).not.toBeInTheDocument()
+    // Plusieurs sujets : les thèmes sont repliés.
+    expect(within(goRow).getByRole('list', { name: 'Thèmes Go', hidden: true })).not.toBeVisible()
+  })
+
+  it('lists the started themes of a subject first, with a shortcut to review their due cards', async () => {
     stubDashboard()
     renderAt('/', signedIn())
 
-    const section = await screen.findByRole('region', { name: 'Progression par thème' })
-    const themes = within(section).getAllByRole('listitem')
+    const list = await screen.findByRole('list', { name: 'Thèmes Java' })
+    const themes = within(list).getAllByRole('listitem')
     expect(themes[0]).toHaveTextContent('Java : fondamentaux')
     expect(themes[0]).toHaveTextContent('12 / 20 vues · 4 maîtrisées')
     expect(within(themes[0]).getByRole('link', { name: '5 à revoir' })).toHaveAttribute(

@@ -23,8 +23,8 @@ test.describe('Session de révision', () => {
     }
 
     await page.getByRole('link', { name: 'Recallio' }).click()
-    const themes = page.getByRole('region', { name: 'Progression par thème' })
-    await expect(themes.getByRole('listitem').first()).toContainText(/\d+ \/ \d+ vues/)
+    const subjects = page.getByRole('region', { name: 'Progression par sujet' })
+    await expect(subjects.getByRole('listitem').first()).toContainText(/\d+ \/ \d+ vues/)
     await expect(page.getByLabel(/Série : \d+ jours?/)).toBeVisible()
   })
 

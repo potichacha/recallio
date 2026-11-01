@@ -11,13 +11,15 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.transaction.Transactional;
 import java.time.Clock;
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 /**
- * Cas d'usage : le tableau de bord de révision (cartes dues, progression par thème), sur les sujets suivis : les mêmes
- * cartes que la file de révision sans filtre.
+ * Cas d'usage : le tableau de bord de révision (cartes dues, progression par sujet puis par thème), sur les sujets
+ * suivis : les mêmes cartes que la file de révision sans filtre.
  */
 @ApplicationScoped
 @Transactional(Transactional.TxType.SUPPORTS)
@@ -51,23 +53,43 @@ public class ReviewStatsService {
                 .filter(theme -> followed.contains(theme.subjectSlug()))
                 .toList();
 
-        List<ThemeStats> perTheme = themes.stream()
-                .map(theme -> new ThemeStats(
-                        theme.subjectSlug(),
-                        theme.subjectTitle(),
-                        theme.slug(),
-                        theme.title(),
-                        CardCounts.of(theme.cardIds(), memory, now, endOfDay)))
+        // Les thèmes arrivent groupés par sujet, dans l'ordre du catalogue : le regroupement garde cet ordre.
+        Map<String, List<ThemeCards>> bySubject = themes.stream()
+                .collect(Collectors.groupingBy(ThemeCards::subjectSlug, LinkedHashMap::new, Collectors.toList()));
+        List<SubjectStats> perSubject = bySubject.values().stream()
+                .map(subjectThemes -> subjectStats(subjectThemes, memory, now, endOfDay))
                 .toList();
-        List<UUID> allCards =
-                themes.stream().flatMap(theme -> theme.cardIds().stream()).toList();
-        CardCounts overall = CardCounts.of(allCards, memory, now, endOfDay);
+        CardCounts overall = CardCounts.of(cardIds(themes), memory, now, endOfDay);
         int newToday = Math.min(quota.remainingToday(user, now), overall.total() - overall.seen());
-        return new ReviewStats(overall, newToday, perTheme);
+        return new ReviewStats(overall, newToday, perSubject);
     }
 
-    /** @param newToday nouvelles cartes encore proposées aujourd'hui (quota restant, dans la limite du catalogue) */
-    public record ReviewStats(CardCounts overall, int newToday, List<ThemeStats> themes) {}
+    private static SubjectStats subjectStats(
+            List<ThemeCards> themes, Map<UUID, ReviewState> memory, Instant now, Instant endOfDay) {
+        List<ThemeStats> perTheme = themes.stream()
+                .map(theme -> new ThemeStats(
+                        theme.slug(), theme.title(), CardCounts.of(theme.cardIds(), memory, now, endOfDay)))
+                .toList();
+        ThemeCards first = themes.getFirst();
+        return new SubjectStats(
+                first.subjectSlug(),
+                first.subjectTitle(),
+                CardCounts.of(cardIds(themes), memory, now, endOfDay),
+                perTheme);
+    }
 
-    public record ThemeStats(String subjectSlug, String subjectTitle, String slug, String title, CardCounts counts) {}
+    private static List<UUID> cardIds(List<ThemeCards> themes) {
+        return themes.stream().flatMap(theme -> theme.cardIds().stream()).toList();
+    }
+
+    /**
+     * @param newToday nouvelles cartes encore proposées aujourd'hui (quota restant, dans la limite du catalogue)
+     * @param subjects les sujets suivis, dans l'ordre du catalogue
+     */
+    public record ReviewStats(CardCounts overall, int newToday, List<SubjectStats> subjects) {}
+
+    /** @param themes les thèmes du sujet, dans l'ordre du document */
+    public record SubjectStats(String slug, String title, CardCounts counts, List<ThemeStats> themes) {}
+
+    public record ThemeStats(String slug, String title, CardCounts counts) {}
 }

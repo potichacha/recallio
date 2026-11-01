@@ -137,7 +137,7 @@ flowchart LR
 | `api.ReviewsResource` | `GET /api/v1/review-queue` et `POST /api/v1/reviews` (201, ou 200 si rejouée). |
 | `application.NewCardQuota` | Quota quotidien de nouvelles cartes, partagé par la file et les statistiques. |
 | `domain.stats.CardCounts` | Cartes vues, maîtrisées (stabilité ≥ 21 jours, seuil « mature » d'Anki), dues maintenant et aujourd'hui. |
-| `api.ReviewStatsResource` | `GET /api/v1/me/review-stats` : totaux et progression par thème (tableau de bord). |
+| `api.ReviewStatsResource` | `GET /api/v1/me/review-stats` : totaux, puis progression par sujet suivi et par thème (tableau de bord). |
 
 Le module `review` ne lit aucune table des autres modules : il passe par `content.CardDirectory`,
 `content.SubjectDirectory`, `user.CurrentUser` et `user.FollowedSubjects`, et ses tables n'ont pas de clé étrangère vers celles des autres modules.

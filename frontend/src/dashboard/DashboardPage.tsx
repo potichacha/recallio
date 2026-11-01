@@ -3,12 +3,12 @@ import { useProfile } from '../api/profile'
 import { useProgress } from '../api/progress'
 import { useRecentActivity, useReviewStats, type ReviewStats } from '../api/stats'
 import { DailyGoal } from '../components/DailyGoal'
-import { ThemeProgressList } from './ThemeProgressList'
+import { SubjectProgressList } from './SubjectProgressList'
 import { WeekActivity } from './WeekActivity'
 
 const plural = (count: number, word: string) => `${count} ${word}${count > 1 ? 's' : ''}`
 
-/** Tableau de bord personnel (CLAUDE.md, phase 1) : quoi réviser aujourd'hui, série, progression par thème. */
+/** Tableau de bord personnel (CLAUDE.md, phase 1) : quoi réviser aujourd'hui, série, progression par sujet et par thème. */
 export function DashboardPage() {
   const profile = useProfile()
   const progress = useProgress()
@@ -41,7 +41,7 @@ export function DashboardPage() {
       )}
 
       {activity.data && <WeekActivity days={activity.data} />}
-      {stats.data && <ThemeProgressList themes={stats.data.themes} />}
+      {stats.data && <SubjectProgressList subjects={stats.data.subjects} />}
     </section>
   )
 }
