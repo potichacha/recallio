@@ -11,6 +11,7 @@ import {
 } from '../api/groups'
 import { GroupSettingsPanel } from './GroupSettingsPanel'
 import { InvitationPanel } from './InvitationPanel'
+import { LeaderboardPanel } from './LeaderboardPanel'
 
 /**
  * Un groupe : ses réglages et ses membres. Le créateur les gère, invite et peut supprimer le groupe ; un membre peut le
@@ -41,6 +42,7 @@ export function GroupPage() {
       {group.data && (
         <>
           <GroupSettingsPanel group={group.data} />
+          <LeaderboardPanel groupId={group.data.id} />
           <MemberList group={group.data} />
           {group.data.myRole === 'OWNER' ? (
             <>

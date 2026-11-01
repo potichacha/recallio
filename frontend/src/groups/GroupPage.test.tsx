@@ -8,6 +8,7 @@ import {
   SIGNED_IN_API,
   stubApi,
   TEST_GROUP_SETTINGS,
+  TEST_LEADERBOARD,
 } from '../test/render'
 
 /** Le groupe n'a pas encore de lien d'invitation. */
@@ -42,6 +43,7 @@ describe('GroupPage', () => {
   it('lets the owner remove a member', async () => {
     const fetchMock = stubApi({
       ...SIGNED_IN_API,
+      '/api/v1/groups/g1/leaderboard': { body: TEST_LEADERBOARD },
       '/api/v1/groups/g1': { body: group('OWNER') },
       '/api/v1/groups/g1/invitation': NO_INVITATION,
       'DELETE /api/v1/groups/g1/members/u2': { status: 204, body: null },
@@ -66,6 +68,7 @@ describe('GroupPage', () => {
   it('asks the owner to confirm before deleting the group, then goes back to the list', async () => {
     const api = {
       ...SIGNED_IN_API,
+      '/api/v1/groups/g1/leaderboard': { body: TEST_LEADERBOARD },
       '/api/v1/groups/g1': { body: group('OWNER') } as { status?: number; body: unknown },
       '/api/v1/groups/g1/invitation': NO_INVITATION,
       'DELETE /api/v1/groups/g1': { status: 204, body: null },
@@ -86,6 +89,7 @@ describe('GroupPage', () => {
   it('lets a member leave the group, without managing it', async () => {
     stubApi({
       ...SIGNED_IN_API,
+      '/api/v1/groups/g1/leaderboard': { body: TEST_LEADERBOARD },
       '/api/v1/groups/g1': { body: group('MEMBER') },
       'DELETE /api/v1/groups/g1/members/me': { status: 204, body: null },
       '/api/v1/groups': { body: [] },

@@ -8,6 +8,7 @@ import {
   SIGNED_IN_API,
   stubApi,
   TEST_GROUP_SETTINGS,
+  TEST_LEADERBOARD,
 } from '../test/render'
 
 const signedIn = () => fakeSession({ status: 'authenticated', userName: 'Alice' })
@@ -41,6 +42,7 @@ describe('InvitationPanel', () => {
   it('creates a link the owner can share', async () => {
     const fetchMock = stubApi({
       ...SIGNED_IN_API,
+      '/api/v1/groups/g1/leaderboard': { body: TEST_LEADERBOARD },
       '/api/v1/groups/g1': { body: group('OWNER') },
       '/api/v1/groups/g1/invitation': { status: 404, body: { code: 'group.no-active-invitation' } },
       'POST /api/v1/groups/g1/invitation': {
@@ -63,6 +65,7 @@ describe('InvitationPanel', () => {
   it('replaces the link, then revokes it', async () => {
     stubApi({
       ...SIGNED_IN_API,
+      '/api/v1/groups/g1/leaderboard': { body: TEST_LEADERBOARD },
       '/api/v1/groups/g1': { body: group('OWNER') },
       '/api/v1/groups/g1/invitation': { body: { token: FIRST, expiresAt: EXPIRES_AT } },
       'POST /api/v1/groups/g1/invitation': {
@@ -90,6 +93,7 @@ describe('InvitationPanel', () => {
   it('is hidden from members, who cannot invite', async () => {
     const fetchMock = stubApi({
       ...SIGNED_IN_API,
+      '/api/v1/groups/g1/leaderboard': { body: TEST_LEADERBOARD },
       '/api/v1/groups/g1': { body: group('MEMBER') },
     })
     renderAt('/groups/g1', signedIn())

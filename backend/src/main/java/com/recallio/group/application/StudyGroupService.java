@@ -1,5 +1,6 @@
 package com.recallio.group.application;
 
+import com.recallio.group.GroupLeaderboards;
 import com.recallio.group.domain.GroupExceptions.MemberNotFoundException;
 import com.recallio.group.domain.GroupExceptions.TooManyGroupsException;
 import com.recallio.group.domain.GroupName;
@@ -25,7 +26,7 @@ import java.util.UUID;
  * voit un groupe, seul le créateur en gère les membres (CLAUDE.md, section 4.5).
  */
 @ApplicationScoped
-public class StudyGroupService {
+public class StudyGroupService implements GroupLeaderboards {
 
     /** Évite qu'un compte crée des groupes à l'infini. */
     static final int MAX_OWNED_GROUPS = 20;
@@ -76,6 +77,19 @@ public class StudyGroupService {
     @Transactional(Transactional.TxType.SUPPORTS)
     public GroupDetail group(UserRef user, UUID groupId) {
         return detail(access.visibleGroup(user, groupId), user);
+    }
+
+    @Override
+    @Transactional(Transactional.TxType.SUPPORTS)
+    public LeaderboardSetup setup(UserRef viewer, UUID groupId) {
+        GroupDetail group = group(viewer, groupId);
+        return new LeaderboardSetup(
+                group.name(),
+                group.members().stream()
+                        .map(member -> new Member(member.userId(), member.displayName()))
+                        .toList(),
+                group.settings().dailyGoal(),
+                group.settings().leaderboardVisibility());
     }
 
     /** Quitter un groupe. Le créateur ne le peut pas : il supprime le groupe. */

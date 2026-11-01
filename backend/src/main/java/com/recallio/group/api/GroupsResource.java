@@ -1,6 +1,7 @@
 package com.recallio.group.api;
 
 import com.recallio.content.CardType;
+import com.recallio.group.LeaderboardVisibility;
 import com.recallio.group.application.GroupInvitationService;
 import com.recallio.group.application.GroupSettingsService;
 import com.recallio.group.application.StudyGroupService;
@@ -10,7 +11,6 @@ import com.recallio.group.domain.GroupInvitation;
 import com.recallio.group.domain.GroupName;
 import com.recallio.group.domain.GroupRole;
 import com.recallio.group.domain.GroupSettings;
-import com.recallio.group.domain.LeaderboardVisibility;
 import com.recallio.group.domain.StudyGroupRepository.GroupSummary;
 import com.recallio.platform.api.ProblemDetail;
 import com.recallio.user.CurrentUser;

@@ -1,7 +1,14 @@
 import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
-import { fakeSession, renderAt, SIGNED_IN_API, stubApi, TEST_GROUP_SETTINGS } from '../test/render'
+import {
+  fakeSession,
+  renderAt,
+  SIGNED_IN_API,
+  stubApi,
+  TEST_GROUP_SETTINGS,
+  TEST_LEADERBOARD,
+} from '../test/render'
 
 const signedIn = () => fakeSession({ status: 'authenticated', userName: 'Bob' })
 
@@ -56,6 +63,7 @@ describe('JoinPage', () => {
       ...SIGNED_IN_API,
       [INVITATION]: { body: invitation(false) },
       [`POST ${INVITATION}/accept`]: { body: JOINED_GROUP },
+      '/api/v1/groups/g1/leaderboard': { body: TEST_LEADERBOARD },
     })
     const router = renderAt(`/join/${TOKEN}`, signedIn())
 

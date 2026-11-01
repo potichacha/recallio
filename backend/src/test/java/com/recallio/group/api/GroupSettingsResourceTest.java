@@ -9,10 +9,10 @@ import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
 
 import com.recallio.content.application.ContentImportService;
+import com.recallio.group.LeaderboardVisibility;
 import com.recallio.group.application.GroupSettingsService;
 import com.recallio.group.application.StudyGroupService;
 import com.recallio.group.domain.GroupSettings;
-import com.recallio.group.domain.LeaderboardVisibility;
 import com.recallio.user.UserRef;
 import io.quarkus.narayana.jta.QuarkusTransaction;
 import io.quarkus.test.junit.QuarkusTest;

@@ -1,6 +1,6 @@
 package com.recallio.group.infrastructure;
 
-import com.recallio.group.domain.LeaderboardVisibility;
+import com.recallio.group.LeaderboardVisibility;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
