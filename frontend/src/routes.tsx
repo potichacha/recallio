@@ -4,6 +4,7 @@ import { Layout } from './components/Layout'
 import { GroupPage } from './groups/GroupPage'
 import { GroupsPage } from './groups/GroupsPage'
 import { JoinPage } from './groups/JoinPage'
+import { ChallengePage } from './challenges/ChallengePage'
 import { AuthCallbackPage } from './pages/AuthCallbackPage'
 import { HomePage } from './pages/HomePage'
 import { ProfilePage } from './pages/ProfilePage'
@@ -43,6 +44,14 @@ export const routes: RouteObject[] = [
         element: (
           <RequireAuth>
             <GroupPage />
+          </RequireAuth>
+        ),
+      },
+      {
+        path: 'challenges/:challengeId',
+        element: (
+          <RequireAuth>
+            <ChallengePage />
           </RequireAuth>
         ),
       },

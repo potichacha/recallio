@@ -372,7 +372,7 @@ Faire de Recallio un catalogue de sujets (2.5), avec Java et Go comme premiers s
 
 Ensuite, chaque nouveau sujet (5.5) est une pull request de contenu, qui peut avancer en parallèle des phases suivantes.
 
-### Phase 2 : groupes
+### Phase 2 : groupes ✅
 Groupes, invitations, réglages (dont les sujets du groupe), classements (Valkey/Redis introduit ici si nécessaire), défis de groupe, cartes QCM.
 
 1. ✅ **Groupes et membres** : créer un groupe, voir ses groupes et leurs membres, quitter, retirer un membre, supprimer (ADR 0015).
@@ -380,7 +380,7 @@ Groupes, invitations, réglages (dont les sujets du groupe), classements (Valkey
 3. ✅ **Réglages du groupe** : sujets et thèmes inclus, types de cartes, objectif quotidien, visibilité du classement (nominatif, anonymisé, désactivé) ; réviser avec le groupe.
 4. ✅ **Classement hebdomadaire** : régularité et points (en SQL ; Valkey seulement si un besoin réel apparaît). Calculé par le module `gamification` (ADR 0018).
 5. ✅ **Cartes QCM** (`MULTIPLE_CHOICE`) : format dans les documents, correction automatique (ADR 0019).
-6. **Défis de groupe** : une série de cartes commune, avec un délai de réponse par carte.
+6. ✅ **Défis de groupe** : une série de QCM commune, avec un délai de réponse par carte mesuré par le serveur (ADR 0020).
 - **Terminé quand** : une équipe crée son groupe, invite ses membres, révise les mêmes sujets et suit son classement de la semaine.
 
 ### Phase 3 : mode live

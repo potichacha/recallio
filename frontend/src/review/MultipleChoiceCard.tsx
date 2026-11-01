@@ -1,6 +1,8 @@
 import { useState, type FormEvent } from 'react'
 import { ApiError } from '../api/errors'
-import { useRecordReview, type QueuedCard, type ReviewResult } from '../api/review'
+import { useRecordReview, type QueuedCard } from '../api/review'
+import { ChoiceOption } from '../components/ChoiceOption'
+import { choiceOutcome, toggleChoice } from '../components/choices'
 import { Markdown } from '../components/Markdown'
 import { CardHeader } from './CardHeader'
 
@@ -22,12 +24,7 @@ export function MultipleChoiceCard({
   const result = record.data
 
   const toggle = (index: number) =>
-    setSelected((current) => {
-      if (!card.multipleAnswers) return [index]
-      return current.includes(index)
-        ? current.filter((other) => other !== index)
-        : [...current, index]
-    })
+    setSelected((current) => toggleChoice(current, index, card.multipleAnswers))
 
   const submit = (event?: FormEvent) => {
     event?.preventDefault()
@@ -55,7 +52,11 @@ export function MultipleChoiceCard({
               type={card.multipleAnswers ? 'checkbox' : 'radio'}
               checked={selected.includes(index)}
               onChange={() => toggle(index)}
-              outcome={result ? outcome(result, index, selected.includes(index)) : undefined}
+              outcome={
+                result?.correction
+                  ? choiceOutcome(result.correction.correctChoices, index, selected.includes(index))
+                  : undefined
+              }
             />
           ))}
         </fieldset>
@@ -104,63 +105,5 @@ export function MultipleChoiceCard({
         </div>
       )}
     </article>
-  )
-}
-
-type Outcome = 'correct' | 'missed' | 'wrong' | 'neutral'
-
-/** Ce qu'il faut montrer pour un choix, une fois la réponse corrigée. */
-function outcome(result: ReviewResult, index: number, chosen: boolean): Outcome {
-  const correct = result.correction?.correctChoices.includes(index) ?? false
-  if (correct) return chosen ? 'correct' : 'missed'
-  return chosen ? 'wrong' : 'neutral'
-}
-
-const OUTCOME_STYLES: Record<Outcome, string> = {
-  correct: 'border-emerald-300 bg-emerald-50',
-  missed: 'border-emerald-300 bg-white',
-  wrong: 'border-rose-300 bg-rose-50',
-  neutral: 'border-slate-200 bg-white',
-}
-
-const OUTCOME_LABELS: Record<Outcome, string | undefined> = {
-  correct: 'Bonne réponse',
-  missed: 'Bonne réponse, non cochée',
-  wrong: 'Faux',
-  neutral: undefined,
-}
-
-function ChoiceOption({
-  text,
-  type,
-  checked,
-  onChange,
-  outcome,
-}: {
-  text: string
-  type: 'radio' | 'checkbox'
-  checked: boolean
-  onChange: () => void
-  outcome?: Outcome
-}) {
-  const style = outcome
-    ? OUTCOME_STYLES[outcome]
-    : 'border-slate-200 bg-white hover:border-indigo-300'
-  const label = outcome && OUTCOME_LABELS[outcome]
-  return (
-    <label className={`flex items-start gap-3 rounded-lg border px-3 py-2 ${style}`}>
-      <input
-        type={type}
-        name="choice"
-        checked={checked}
-        onChange={onChange}
-        disabled={outcome !== undefined}
-        className="mt-1"
-      />
-      <span className="flex flex-1 flex-col">
-        <Markdown>{text}</Markdown>
-        {label && <span className="text-xs font-medium text-slate-600">{label}</span>}
-      </span>
-    </label>
   )
 }

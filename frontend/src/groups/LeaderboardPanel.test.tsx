@@ -35,6 +35,7 @@ function renderLeaderboard(leaderboard: object) {
     ...SIGNED_IN_API,
     '/api/v1/groups/g1': { body: GROUP },
     '/api/v1/groups/g1/leaderboard': { body: { ...TEST_LEADERBOARD, ...leaderboard } },
+    '/api/v1/groups/g1/challenges': { body: [] },
   })
   renderAt('/groups/g1', signedIn())
   return screen.findByRole('region', { name: 'Classement de la semaine' })

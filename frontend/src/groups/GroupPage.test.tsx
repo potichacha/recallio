@@ -44,6 +44,7 @@ describe('GroupPage', () => {
     const fetchMock = stubApi({
       ...SIGNED_IN_API,
       '/api/v1/groups/g1/leaderboard': { body: TEST_LEADERBOARD },
+      '/api/v1/groups/g1/challenges': { body: [] },
       '/api/v1/groups/g1': { body: group('OWNER') },
       '/api/v1/groups/g1/invitation': NO_INVITATION,
       'DELETE /api/v1/groups/g1/members/u2': { status: 204, body: null },
@@ -69,6 +70,7 @@ describe('GroupPage', () => {
     const api = {
       ...SIGNED_IN_API,
       '/api/v1/groups/g1/leaderboard': { body: TEST_LEADERBOARD },
+      '/api/v1/groups/g1/challenges': { body: [] },
       '/api/v1/groups/g1': { body: group('OWNER') } as { status?: number; body: unknown },
       '/api/v1/groups/g1/invitation': NO_INVITATION,
       'DELETE /api/v1/groups/g1': { status: 204, body: null },
@@ -90,6 +92,7 @@ describe('GroupPage', () => {
     stubApi({
       ...SIGNED_IN_API,
       '/api/v1/groups/g1/leaderboard': { body: TEST_LEADERBOARD },
+      '/api/v1/groups/g1/challenges': { body: [] },
       '/api/v1/groups/g1': { body: group('MEMBER') },
       'DELETE /api/v1/groups/g1/members/me': { status: 204, body: null },
       '/api/v1/groups': { body: [] },

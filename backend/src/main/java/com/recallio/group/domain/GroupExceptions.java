@@ -83,6 +83,45 @@ public final class GroupExceptions {
         }
     }
 
+    /** Le défi n'existe pas, ou appartient à un groupe dont l'appelant n'est pas membre. */
+    public static final class ChallengeNotFoundException extends ResourceNotFoundException {
+
+        public static final String CODE = "group.challenge-not-found";
+
+        public ChallengeNotFoundException(UUID challengeId) {
+            super(CODE, "Aucun défi " + challengeId + " dans vos groupes.");
+        }
+    }
+
+    public static final class ChallengeClosedException extends ConflictException {
+
+        public static final String CODE = "group.challenge-closed";
+
+        public ChallengeClosedException() {
+            super(CODE, "Ce défi est terminé : on ne peut plus y jouer.");
+        }
+    }
+
+    /** Une réponse pour une carte qui n'a pas été présentée, ou pas à ce membre. */
+    public static final class NoPendingCardException extends ConflictException {
+
+        public static final String CODE = "group.challenge-no-pending-card";
+
+        public NoPendingCardException(int position) {
+            super(CODE, "La carte " + (position + 1) + " du défi ne vous a pas été présentée.");
+        }
+    }
+
+    public static final class NotEnoughCardsException extends InvalidGroupException {
+
+        public NotEnoughCardsException(int available) {
+            super(
+                    "group.not-enough-cards",
+                    "Les sujets du groupe ne comptent que " + available + " QCM : choisissez une série plus courte"
+                            + " ou d'autres sujets.");
+        }
+    }
+
     public static final class TooManyGroupsException extends ConflictException {
 
         public static final String CODE = "group.too-many-groups";

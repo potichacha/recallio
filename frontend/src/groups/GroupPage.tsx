@@ -9,6 +9,7 @@ import {
   type Group,
   type GroupMember,
 } from '../api/groups'
+import { ChallengesPanel } from './ChallengesPanel'
 import { GroupSettingsPanel } from './GroupSettingsPanel'
 import { InvitationPanel } from './InvitationPanel'
 import { LeaderboardPanel } from './LeaderboardPanel'
@@ -43,6 +44,7 @@ export function GroupPage() {
         <>
           <GroupSettingsPanel group={group.data} />
           <LeaderboardPanel groupId={group.data.id} />
+          <ChallengesPanel group={group.data} />
           <MemberList group={group.data} />
           {group.data.myRole === 'OWNER' ? (
             <>

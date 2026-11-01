@@ -81,4 +81,56 @@ test.describe('Groupes', () => {
     await alice.getByRole('button', { name: 'Confirmer la suppression' }).click()
     await expect(alice.getByRole('heading', { name: 'Mes groupes' })).toBeVisible()
   })
+
+  test('alice launches a challenge on Go, bob joins the group and plays it to the end', async ({
+    browser,
+  }) => {
+    const name = `Défi ${Date.now()}`
+    const alice = await (await browser.newContext()).newPage()
+    const bob = await (await browser.newContext()).newPage()
+
+    await signIn(alice, USERS.alice, '/groups')
+    await alice.getByLabel('Nom du groupe').fill(name)
+    await alice.getByRole('button', { name: 'Créer' }).click()
+    const settings = alice.getByRole('region', { name: 'Réglages' })
+    await settings.getByRole('button', { name: 'Modifier les réglages' }).click()
+    await settings.getByRole('checkbox', { name: 'Go' }).check()
+    await settings.getByRole('button', { name: 'Enregistrer les réglages' }).click()
+    await expect(settings.getByRole('button', { name: 'Modifier les réglages' })).toBeVisible()
+
+    // Le chapitre 1 de Go compte trois QCM : la série les reprend tous.
+    const launch = alice.getByRole('form', { name: 'Lancer un défi' })
+    await launch.getByLabel('Titre du défi').fill('Défi du lundi')
+    await launch.getByLabel('Nombre de QCM').fill('3')
+    await launch.getByRole('button', { name: 'Lancer le défi' }).click()
+    await expect(alice.getByRole('region', { name: 'Défis' })).toContainText('Défi du lundi')
+
+    await alice.getByRole('button', { name: "Créer un lien d'invitation" }).click()
+    const link = await alice.getByLabel("Lien d'invitation").inputValue()
+    await signIn(bob, USERS.bob, new URL(link).pathname)
+    await bob.getByRole('button', { name: 'Rejoindre le groupe' }).click()
+    await bob
+      .getByRole('region', { name: 'Défis' })
+      .getByRole('link', { name: /Défi du lundi/ })
+      .click()
+
+    await bob.getByRole('button', { name: 'Commencer' }).click()
+    for (const position of [1, 2, 3]) {
+      await expect(bob.getByText(`Carte ${position} / 3`)).toBeVisible()
+      await expect(bob.getByRole('timer', { name: 'Temps restant' })).toHaveText(/\d+ s/)
+      // Radio ou case à cocher selon le QCM (l'un d'eux a plusieurs bonnes réponses).
+      await bob.locator('input[name="choice"]').first().check()
+      await bob.getByRole('button', { name: 'Valider' }).click()
+      await bob
+        .getByRole('button', { name: position === 3 ? 'Voir les résultats' : 'Carte suivante' })
+        .click()
+    }
+
+    await expect(bob.getByText(/Votre score : \d \/ 3/)).toBeVisible()
+    const results = bob.getByRole('region', { name: 'Résultats' })
+    await expect(results.getByRole('listitem')).toContainText(`${USERS.bob.displayName} (vous)`)
+
+    await alice.getByRole('button', { name: 'Supprimer le groupe' }).click()
+    await alice.getByRole('button', { name: 'Confirmer la suppression' }).click()
+  })
 })
