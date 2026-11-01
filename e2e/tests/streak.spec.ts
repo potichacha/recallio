@@ -1,12 +1,14 @@
 import { expect, test } from '@playwright/test'
-import { signIn, USERS } from './support/auth'
+import { followSubjects, signIn, USERS } from './support/auth'
 
 /** L'objectif quotidien vaut 3 cartes dans la pile de test (infra/compose.e2e.yaml). */
 const DAILY_GOAL = 3
 
 test.describe('Streak', () => {
   test('starts a streak once the daily goal is reached', async ({ page }) => {
-    await signIn(page, USERS.alice, '/review')
+    await signIn(page, USERS.alice, '/profile')
+    await followSubjects(page, ['Java'])
+    await page.goto('/review')
 
     const reached = page.getByRole('status').filter({ hasText: 'Objectif atteint' })
     for (let review = 0; review < DAILY_GOAL && !(await reached.isVisible()); review++) {

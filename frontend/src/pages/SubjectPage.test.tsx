@@ -37,6 +37,10 @@ describe('SubjectPage', () => {
     expect(link).toHaveAttribute('href', '/themes/go-fondamentaux')
     expect(link).toHaveTextContent('2 cartes')
     expect(screen.getByRole('link', { name: /CONCURRENCE/ })).toHaveTextContent('1 carte')
+    expect(screen.getByRole('link', { name: 'Réviser ce sujet' })).toHaveAttribute(
+      'href',
+      '/review?subject=go',
+    )
   })
 
   it('shows a not-found message for an unknown or unpublished subject', async () => {

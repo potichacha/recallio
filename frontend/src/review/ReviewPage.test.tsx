@@ -1,4 +1,4 @@
-import { screen, waitFor } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 import type { QueuedCard, ReviewQueue } from '../api/review'
@@ -8,7 +8,9 @@ import {
   sentRequests,
   SIGNED_IN_API,
   stubApi,
+  TEST_PROFILE,
   TEST_PROGRESS,
+  TEST_SUBJECTS,
 } from '../test/render'
 
 const QUEUE = '/api/v1/review-queue'
@@ -196,5 +198,39 @@ describe('ReviewPage', () => {
       sentRequests(fetchMock).filter((request) => request.url.endsWith('/api/v1/me/progress'))
         .length,
     ).toBeGreaterThanOrEqual(2)
+  })
+
+  it('reviews all followed subjects, or one of them chosen in the tabs', async () => {
+    const fetchMock = stubApi({
+      ...PROFILE,
+      '/api/v1/me': { body: { ...TEST_PROFILE, followedSubjects: ['java', 'go'] } },
+      '/api/v1/subjects': { body: TEST_SUBJECTS },
+      [QUEUE]: { body: queue([queuedCard()]) },
+    })
+    renderAt('/review', signedIn())
+
+    const tabs = await screen.findByRole('navigation', { name: 'Sujet révisé' })
+    expect(within(tabs).getByRole('link', { name: 'Tous mes sujets' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    )
+    await userEvent.click(await within(tabs).findByRole('link', { name: 'Go' }))
+
+    await waitFor(() =>
+      expect(
+        sentRequests(fetchMock).some(
+          (request) => new URL(request.url).searchParams.get('subject') === 'go',
+        ),
+      ).toBe(true),
+    )
+    expect(within(tabs).getByRole('link', { name: 'Go' })).toHaveAttribute('aria-current', 'page')
+  })
+
+  it('does not show the tabs to a user who follows a single subject', async () => {
+    stubApi({ ...PROFILE, [QUEUE]: { body: queue([queuedCard()]) } })
+    renderAt('/review', signedIn())
+
+    expect(await screen.findByText("Qu'est-ce que la JVM ?")).toBeInTheDocument()
+    expect(screen.queryByRole('navigation', { name: 'Sujet révisé' })).not.toBeInTheDocument()
   })
 })

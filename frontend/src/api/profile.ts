@@ -38,3 +38,22 @@ export function useUpdateProfile() {
     onSuccess: (profile) => queryClient.setQueryData(PROFILE_KEY, profile),
   })
 }
+
+/** Remplace les sujets suivis : la file de révision et le tableau de bord sont recalculés sur ces sujets. */
+export function useFollowSubjects() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (subjects: string[]) => {
+      const { data, error, response } = await api.PUT('/api/v1/me/followed-subjects', {
+        body: { subjects },
+      })
+      if (data === undefined) throw ApiError.from(response, error)
+      return data
+    },
+    onSuccess: async (profile) => {
+      queryClient.setQueryData(PROFILE_KEY, profile)
+      await queryClient.invalidateQueries({ queryKey: ['review-queue'] })
+      await queryClient.invalidateQueries({ queryKey: ['review-stats'] })
+    },
+  })
+}

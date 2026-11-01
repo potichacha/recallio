@@ -41,10 +41,15 @@ class ReviewsResourceTest {
     @Inject
     ContentImportService contentImport;
 
+    /** Deux sujets publiés : Java (l'exemple de référence) et un petit document Go. */
     @BeforeEach
-    void importSample() throws IOException {
-        try (InputStream input =
-                Objects.requireNonNull(getClass().getResourceAsStream("/content/reference-sample.md"))) {
+    void importSubjects() throws IOException {
+        importDocument("/content/reference-sample.md");
+        importDocument("/content/go-sample.md");
+    }
+
+    private void importDocument(String resource) throws IOException {
+        try (InputStream input = Objects.requireNonNull(getClass().getResourceAsStream(resource))) {
             contentImport.importContent(new String(input.readAllBytes(), StandardCharsets.UTF_8));
         }
     }
@@ -149,6 +154,66 @@ class ReviewsResourceTest {
                 .statusCode(200)
                 .body("cards", hasSize(2))
                 .body("cards.type", everyItem(equalTo("OPEN_SCENARIO")));
+    }
+
+    @Test
+    @TestSecurity(user = "alice")
+    @OidcSecurity(claims = @Claim(key = "sub", value = "review-no-subject"))
+    void shouldOfferNothingWithoutFilterUntilTheUserFollowsASubject() {
+        given().get(QUEUE).then().statusCode(200).body("cards", hasSize(0)).body("newCount", is(0));
+    }
+
+    @Test
+    @TestSecurity(user = "alice")
+    @OidcSecurity(claims = @Claim(key = "sub", value = "review-followed"))
+    void shouldOfferOnlyTheFollowedSubjectsWithoutFilter() {
+        follow("go");
+
+        given().get(QUEUE)
+                .then()
+                .statusCode(200)
+                .body("cards", hasSize(2))
+                .body("cards.subjectSlug", everyItem(equalTo("go")));
+    }
+
+    @Test
+    @TestSecurity(user = "alice")
+    @OidcSecurity(claims = @Claim(key = "sub", value = "review-two-subjects"))
+    void shouldShareTheNewCardQuotaBetweenFollowedSubjects() {
+        follow("java", "go");
+
+        given().get(QUEUE)
+                .then()
+                .statusCode(200)
+                .body("newCount", is(3))
+                .body("cards.subjectSlug", contains("java", "go", "java"));
+    }
+
+    @Test
+    @TestSecurity(user = "alice")
+    @OidcSecurity(claims = @Claim(key = "sub", value = "review-one-subject"))
+    void shouldReviewARequestedSubjectEvenIfNotFollowed() {
+        follow("java");
+
+        given().queryParam("subject", "go")
+                .get(QUEUE)
+                .then()
+                .statusCode(200)
+                .body("cards.subjectSlug", contains("go", "go"));
+        given().queryParam("subject", "inconnu")
+                .get(QUEUE)
+                .then()
+                .statusCode(404)
+                .body("code", equalTo("content.subject-not-found"));
+    }
+
+    private static void follow(String... subjects) {
+        String list = String.join("\", \"", subjects);
+        given().contentType(ContentType.JSON)
+                .body("{\"subjects\": [\"%s\"]}".formatted(list))
+                .put("/api/v1/me/followed-subjects")
+                .then()
+                .statusCode(200);
     }
 
     private static ValidatableResponse queue(String theme) {

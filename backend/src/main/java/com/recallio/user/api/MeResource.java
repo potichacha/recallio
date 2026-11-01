@@ -1,6 +1,7 @@
 package com.recallio.user.api;
 
 import com.recallio.platform.api.ProblemDetail;
+import com.recallio.user.application.FollowedSubjectsService;
 import com.recallio.user.application.UserProfileService;
 import com.recallio.user.domain.DisplayName;
 import com.recallio.user.domain.UserProfile;
@@ -39,12 +40,20 @@ public class MeResource {
 
     static final String TIMEZONE_HEADER = "X-Timezone";
 
+    static final int MAX_FOLLOWED_SUBJECTS = 100;
+
     private final UserProfileService profiles;
+    private final FollowedSubjectsService followedSubjects;
     private final TokenIdentity identity;
     private final SecurityIdentity securityIdentity;
 
-    public MeResource(UserProfileService profiles, TokenIdentity identity, SecurityIdentity securityIdentity) {
+    public MeResource(
+            UserProfileService profiles,
+            FollowedSubjectsService followedSubjects,
+            TokenIdentity identity,
+            SecurityIdentity securityIdentity) {
         this.profiles = profiles;
+        this.followedSubjects = followedSubjects;
         this.identity = identity;
         this.securityIdentity = securityIdentity;
     }
@@ -83,10 +92,40 @@ public class MeResource {
         return toDto(profiles.updatePreferences(identity.current(), request.displayName(), request.timezone()));
     }
 
+    @PUT
+    @Path("/followed-subjects")
+    @Consumes(MediaType.APPLICATION_JSON)
+    @Operation(
+            operationId = "followSubjects",
+            summary = "Choisit les sujets suivis, qui alimentent la file de révision (remplace la liste précédente)")
+    @APIResponse(responseCode = "200", description = "Le profil, avec ses sujets suivis")
+    @APIResponse(
+            responseCode = "400",
+            description = "Requête invalide (au moins un sujet)",
+            content =
+                    @Content(
+                            mediaType = ProblemDetail.MEDIA_TYPE,
+                            schema = @Schema(implementation = ProblemDetail.class)))
+    @APIResponse(
+            responseCode = "422",
+            description = "Sujet inconnu ou non publié",
+            content =
+                    @Content(
+                            mediaType = ProblemDetail.MEDIA_TYPE,
+                            schema = @Schema(implementation = ProblemDetail.class)))
+    public ProfileDto followSubjects(@Valid @NotNull FollowSubjectsRequest request) {
+        followedSubjects.follow(identity.current(), request.subjects());
+        return toDto(profiles.currentProfile(identity.current(), Optional.empty()));
+    }
+
     private ProfileDto toDto(UserProfile profile) {
         List<String> roles = securityIdentity.getRoles().stream().sorted().toList();
         return new ProfileDto(
-                profile.id(), profile.displayName().value(), profile.timezone().getId(), roles);
+                profile.id(),
+                profile.displayName().value(),
+                profile.timezone().getId(),
+                roles,
+                followedSubjects.followed(profile.id()));
     }
 
     @Schema(name = "Profile")
@@ -98,10 +137,22 @@ public class MeResource {
             String timezone,
 
             @Schema(description = "Rôles applicatifs, par exemple admin")
-            List<String> roles) {}
+            List<String> roles,
+
+            @Schema(
+                    description =
+                            "Slugs des sujets suivis, dans l'ordre du catalogue ; vide tant qu'aucun n'est choisi")
+            List<String> followedSubjects) {}
 
     @Schema(name = "UpdateProfileRequest")
     public record UpdateProfileRequest(
             @NotBlank @Size(max = DisplayName.MAX_LENGTH) String displayName,
             @NotBlank String timezone) {}
+
+    @Schema(name = "FollowSubjectsRequest")
+    public record FollowSubjectsRequest(
+            @Schema(description = "Slugs des sujets à suivre, par exemple [\"java\", \"go\"]")
+            @NotNull
+            @Size(min = 1, max = MAX_FOLLOWED_SUBJECTS)
+            List<@NotBlank String> subjects) {}
 }

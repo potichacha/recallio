@@ -5,6 +5,7 @@ import com.recallio.content.CardDirectory.ThemeCards;
 import com.recallio.review.domain.ReviewState;
 import com.recallio.review.domain.ReviewStateRepository;
 import com.recallio.review.domain.stats.CardCounts;
+import com.recallio.user.FollowedSubjects;
 import com.recallio.user.UserRef;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.transaction.Transactional;
@@ -14,18 +15,28 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-/** Cas d'usage : le tableau de bord de révision (cartes dues, progression par thème). */
+/**
+ * Cas d'usage : le tableau de bord de révision (cartes dues, progression par thème), sur les sujets suivis : les mêmes
+ * cartes que la file de révision sans filtre.
+ */
 @ApplicationScoped
 @Transactional(Transactional.TxType.SUPPORTS)
 public class ReviewStatsService {
 
     private final CardDirectory cards;
+    private final FollowedSubjects followedSubjects;
     private final ReviewStateRepository states;
     private final NewCardQuota quota;
     private final Clock clock;
 
-    public ReviewStatsService(CardDirectory cards, ReviewStateRepository states, NewCardQuota quota, Clock clock) {
+    public ReviewStatsService(
+            CardDirectory cards,
+            FollowedSubjects followedSubjects,
+            ReviewStateRepository states,
+            NewCardQuota quota,
+            Clock clock) {
         this.cards = cards;
+        this.followedSubjects = followedSubjects;
         this.states = states;
         this.quota = quota;
         this.clock = clock;
@@ -35,7 +46,10 @@ public class ReviewStatsService {
         Instant now = clock.instant();
         Instant endOfDay = NewCardQuota.startOfNextDay(now, user.timezone());
         Map<UUID, ReviewState> memory = states.findAllByUser(user.id());
-        List<ThemeCards> themes = cards.activeCardsByTheme();
+        List<String> followed = followedSubjects.of(user);
+        List<ThemeCards> themes = cards.activeCardsByTheme().stream()
+                .filter(theme -> followed.contains(theme.subjectSlug()))
+                .toList();
 
         List<ThemeStats> perTheme = themes.stream()
                 .map(theme -> new ThemeStats(

@@ -1,11 +1,14 @@
 import { expect, test } from '@playwright/test'
-import { signIn, USERS } from './support/auth'
+import { followSubjects, signIn, USERS } from './support/auth'
 
 test.describe('Session de révision', () => {
   test('reviews cards with self-assessment and sees the progress on the dashboard @mobile', async ({
     page,
   }) => {
-    await signIn(page, USERS.bob, '/review')
+    await signIn(page, USERS.bob, '/profile')
+    await followSubjects(page, ['Java', 'Go'])
+    await page.goto('/review')
+    await expect(page.getByRole('navigation', { name: 'Sujet révisé' })).toBeVisible()
 
     const ratings = page.getByRole('group', { name: 'Noter la carte' })
     for (const [index, rating] of ['Bien', 'À revoir'].entries()) {

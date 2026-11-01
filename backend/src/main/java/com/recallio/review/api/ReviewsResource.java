@@ -1,12 +1,12 @@
 package com.recallio.review.api;
 
-import com.recallio.content.CardDirectory.CardFilter;
 import com.recallio.content.CardType;
 import com.recallio.platform.api.ProblemDetail;
 import com.recallio.review.api.ReviewDtos.RecordReviewRequest;
 import com.recallio.review.api.ReviewDtos.ReviewQueueDto;
 import com.recallio.review.api.ReviewDtos.ReviewResultDto;
 import com.recallio.review.application.ReviewQueueService;
+import com.recallio.review.application.ReviewQueueService.QueueFilter;
 import com.recallio.review.application.ReviewRecordingService;
 import com.recallio.review.application.ReviewRecordingService.RecordReview;
 import com.recallio.review.application.ReviewRecordingService.ReviewOutcome;
@@ -58,7 +58,8 @@ public class ReviewsResource {
     @Path("/review-queue")
     @Operation(
             operationId = "getReviewQueue",
-            summary = "Cartes à réviser maintenant : les cartes dues, puis des nouvelles dans la limite du jour")
+            summary = "Cartes à réviser maintenant : les cartes dues, puis des nouvelles dans la limite du jour."
+                    + " Sans filtre, elles viennent des sujets suivis.")
     @APIResponse(responseCode = "200", description = "La file de révision")
     @APIResponse(
             responseCode = "400",
@@ -69,18 +70,22 @@ public class ReviewsResource {
                             schema = @Schema(implementation = ProblemDetail.class)))
     @APIResponse(
             responseCode = "404",
-            description = "Thème inconnu",
+            description = "Sujet ou thème inconnu",
             content =
                     @Content(
                             mediaType = ProblemDetail.MEDIA_TYPE,
                             schema = @Schema(implementation = ProblemDetail.class)))
     public ReviewQueueDto getReviewQueue(
+            @Parameter(description = "Slug du sujet, pour ne réviser que ce sujet (suivi ou non)")
+                    @QueryParam("subject")
+                    @Nullable
+                    String subject,
             @Parameter(description = "Slug du thème, pour ne réviser que ce thème") @QueryParam("theme") @Nullable
                     String theme,
             @Parameter(description = "Format de carte, pour ne réviser que ce format") @QueryParam("type") @Nullable
                     CardType type,
             @QueryParam("size") @DefaultValue("20") @Min(1) @Max(MAX_QUEUE_SIZE) int size) {
-        return ReviewQueueDto.from(queues.queue(currentUser.get(), new CardFilter(theme, type), size));
+        return ReviewQueueDto.from(queues.queue(currentUser.get(), new QueueFilter(subject, theme, type), size));
     }
 
     @POST

@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { ApiError } from '../api/errors'
-import { useProfile, useUpdateProfile, type Profile } from '../api/profile'
+import { useFollowSubjects, useProfile, useUpdateProfile, type Profile } from '../api/profile'
+import { SubjectPicker } from '../components/SubjectPicker'
 
 function timezones(current: string): string[] {
   const all = Intl.supportedValuesOf('timeZone')
@@ -68,6 +69,42 @@ function ProfileForm({ profile }: { profile: Profile }) {
   )
 }
 
+function FollowedSubjectsForm({ profile }: { profile: Profile }) {
+  const [selected, setSelected] = useState(profile.followedSubjects)
+  const follow = useFollowSubjects()
+
+  const submit = (event: FormEvent) => {
+    event.preventDefault()
+    follow.mutate(selected)
+  }
+
+  return (
+    <form
+      onSubmit={submit}
+      aria-labelledby="followed-subjects-title"
+      className="flex max-w-md flex-col gap-4"
+    >
+      <h2 id="followed-subjects-title" className="text-lg font-semibold">
+        Mes sujets
+      </h2>
+      <p className="text-sm text-slate-600">
+        Vos révisions puisent dans ces sujets. Arrêter d'en suivre un ne supprime pas votre
+        progression.
+      </p>
+      <SubjectPicker selected={selected} onChange={setSelected} />
+      <button
+        type="submit"
+        disabled={selected.length === 0 || follow.isPending}
+        className="self-start rounded-lg bg-indigo-600 px-4 py-2 font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+      >
+        Enregistrer mes sujets
+      </button>
+      {follow.isSuccess && <p role="status">Sujets enregistrés.</p>}
+      {follow.isError && <p role="alert">Vos sujets n'ont pas pu être enregistrés.</p>}
+    </form>
+  )
+}
+
 export function ProfilePage() {
   const profile = useProfile()
 
@@ -82,6 +119,7 @@ export function ProfilePage() {
             <p className="text-sm text-slate-500">Vous êtes administrateur.</p>
           )}
           <ProfileForm profile={profile.data} />
+          <FollowedSubjectsForm profile={profile.data} />
         </>
       )}
     </section>

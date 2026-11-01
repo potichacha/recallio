@@ -12,6 +12,7 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -32,10 +33,17 @@ public class JpaCardDirectory implements CardDirectory {
     }
 
     @Override
-    public List<UUID> activeCardIds(CardFilter filter) {
+    public List<ActiveCard> activeCards(CardFilter filter) {
+        Set<String> subjectSlugs = filter.subjectSlugs();
+        if (subjectSlugs != null && subjectSlugs.isEmpty()) {
+            return List.of();
+        }
         List<String> conditions = new ArrayList<>(List.of("c.retiredAt is null", PUBLISHED));
         String themeSlug = filter.themeSlug();
         CardType type = filter.type();
+        if (subjectSlugs != null) {
+            conditions.add("s.slug in :subjects");
+        }
         if (themeSlug != null) {
             requireTheme(themeSlug);
             conditions.add("t.slug = :slug");
@@ -44,20 +52,25 @@ public class JpaCardDirectory implements CardDirectory {
             conditions.add("c.type = :type");
         }
         var query = entityManager.createQuery("""
-                select c.id from CardEntity c
+                select c.id, s.slug from CardEntity c
                 join ThemeEntity t on t.id = c.themeId
                 join SubjectEntity s on s.id = t.subjectId
                 where %s
                 order by s.position, t.position, c.position
-                """.formatted(String.join(" and ", conditions)), UUID.class);
+                """.formatted(String.join(" and ", conditions)), Object[].class);
         query.setParameter("published", Subject.Status.PUBLISHED);
+        if (subjectSlugs != null) {
+            query.setParameter("subjects", subjectSlugs);
+        }
         if (themeSlug != null) {
             query.setParameter("slug", themeSlug);
         }
         if (type != null) {
             query.setParameter("type", type);
         }
-        return query.getResultList();
+        return query.getResultStream()
+                .map(row -> new ActiveCard((UUID) row[0], (String) row[1]))
+                .toList();
     }
 
     @Override

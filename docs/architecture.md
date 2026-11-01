@@ -90,10 +90,11 @@ flowchart LR
 | `infrastructure.markdown.SubjectHeader` | Lit l'en-tête `---` d'un document : le sujet qu'il décrit. |
 | `domain.importing.ImportPlanner` | Compare un document à son sujet en base : ajouts, nouvelles versions, retraits (dans ce sujet seulement), réactivations. |
 | `application.ContentImportService` | Transaction d'import et journalisation du rapport. |
-| `api.ThemesResource` | Catalogue public (sujets publiés seulement), pagination bornée (100 cartes maximum par page). |
+| `api.SubjectsResource`, `api.ThemesResource` | Catalogue public (brouillons visibles des seuls admins), pagination bornée (100 cartes maximum par page). |
 | `api.ContentImportResource` | Import d'un document à la demande, rôle `admin`. |
 | `infrastructure.ContentStartupImport` | En dev et dans le compose : importe tous les documents du dossier, un sujet par transaction. |
-| `CardDirectory` (package racine) | **API publique** pour les autres modules : cartes actives filtrées ou par thème, version courante. |
+| `CardDirectory` (package racine) | **API publique** pour les autres modules : cartes actives filtrées (sujets, thème, format) ou par thème, version courante. |
+| `SubjectDirectory` (package racine) | **API publique** : les sujets publiés, dans l'ordre du catalogue. |
 | `CardType` (package racine) | Formats de carte, partagés avec les autres modules. |
 
 ### Module `user` (en place)
@@ -104,8 +105,10 @@ flowchart LR
 | `application.UserProfileService` | Création à la première connexion, préférences. |
 | `infrastructure.JpaUserProfileRepository` | Création atomique (`ON CONFLICT DO NOTHING`). |
 | `api.TokenIdentity` | Seul endroit qui lit les claims du jeton (`sub`, `name`, `preferred_username`). |
-| `api.MeResource` | `GET` et `PUT /api/v1/me`, réservés à l'utilisateur connecté. |
+| `application.FollowedSubjectsService` | Sujets suivis (ADR 0014) : choix validé auprès de `content.SubjectDirectory`. |
+| `api.MeResource` | `GET` et `PUT /api/v1/me`, `PUT /api/v1/me/followed-subjects`, réservés à l'utilisateur connecté. |
 | `CurrentUser` (package racine) | **API publique** : l'utilisateur de la requête (`UserRef` : identifiant, fuseau). |
+| `FollowedSubjects` (package racine) | **API publique** : les sujets suivis par un utilisateur, qui alimentent ses révisions. |
 
 Le flux complet est décrit dans l'ADR 0010 : la PWA obtient un jeton par Authorization Code + PKCE, et le backend
 vérifie sa signature, son émetteur, son expiration et son audience (`recallio-api`).
@@ -127,7 +130,7 @@ flowchart LR
 | Élément | Rôle |
 |---|---|
 | `domain.fsrs.FsrsScheduler` | FSRS-6 sans aléa : étapes d'apprentissage, intervalles en jours, oublis (ADR 0011). |
-| `domain.queue.ReviewQueuePlanner` | Cartes dues (les plus en retard d'abord), puis nouvelles dans le quota du jour. |
+| `domain.queue.ReviewQueuePlanner` | Cartes dues (les plus en retard d'abord), puis nouvelles dans le quota du jour, en alternant les sujets (ADR 0014). |
 | `application.ReviewQueueService` | File de révision, quota de nouvelles cartes remis à zéro à minuit dans le fuseau de l'utilisateur. |
 | `application.ReviewRecordingService` | Réponse idempotente : verrou sur l'état, puis `requestId` unique dans le journal. |
 | `infrastructure.*Entity` | Entités JPA séparées du domaine (domaine riche, CLAUDE.md section 4.3). |
@@ -136,8 +139,8 @@ flowchart LR
 | `domain.stats.CardCounts` | Cartes vues, maîtrisées (stabilité ≥ 21 jours, seuil « mature » d'Anki), dues maintenant et aujourd'hui. |
 | `api.ReviewStatsResource` | `GET /api/v1/me/review-stats` : totaux et progression par thème (tableau de bord). |
 
-Le module `review` ne lit aucune table des autres modules : il passe par `content.CardDirectory` et
-`user.CurrentUser`, et ses tables n'ont pas de clé étrangère vers celles des autres modules.
+Le module `review` ne lit aucune table des autres modules : il passe par `content.CardDirectory`,
+`content.SubjectDirectory`, `user.CurrentUser` et `user.FollowedSubjects`, et ses tables n'ont pas de clé étrangère vers celles des autres modules.
 
 Il publie l'événement `review.CardReviewed` (package racine, API publique) quand une réponse est enregistrée pour la
 première fois.

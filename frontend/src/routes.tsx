@@ -7,6 +7,7 @@ import { ProfilePage } from './pages/ProfilePage'
 import { SubjectPage } from './pages/SubjectPage'
 import { SubjectsPage } from './pages/SubjectsPage'
 import { ThemePage } from './pages/ThemePage'
+import { WelcomePage } from './pages/WelcomePage'
 import { ReviewPage } from './review/ReviewPage'
 
 /** Routes de l'application, partagées par le routeur du navigateur et celui des tests. */
@@ -23,6 +24,14 @@ export const routes: RouteObject[] = [
         element: (
           <RequireAuth>
             <ReviewPage />
+          </RequireAuth>
+        ),
+      },
+      {
+        path: 'welcome',
+        element: (
+          <RequireAuth>
+            <WelcomePage />
           </RequireAuth>
         ),
       },
