@@ -91,12 +91,12 @@ class ReviewStatsResourceTest {
                 .then()
                 .statusCode(200)
                 .body("subjects.slug", contains("java", "go"))
-                .body("subjects.find { it.slug == 'go' }.counts.total", is(2))
+                .body("subjects.find { it.slug == 'go' }.counts.total", is(3))
                 .body("subjects.find { it.slug == 'go' }.themes.slug", contains("go-fondamentaux"))
                 .extract()
                 .jsonPath();
 
-        assertThat(stats.getInt("overall.total")).isEqualTo(stats.getInt(JAVA + ".counts.total") + 2);
+        assertThat(stats.getInt("overall.total")).isEqualTo(stats.getInt(JAVA + ".counts.total") + 3);
     }
 
     @Test

@@ -65,6 +65,7 @@ Dans chaque chapitre, dans cet ordre :
 | `### En situation` | Des symptômes vers les notions | non (lecture) |
 | `### Questions techniques` | Réponses courtes | **oui** : cartes « Question » |
 | `### Questions de situation` | Réponses rédigées | **oui** : cartes « Mise en situation » |
+| `### QCM` (facultative) | Questions à choix multiples | **oui** : cartes « QCM », corrigées par l'application |
 
 Deux chapitres particuliers :
 
@@ -109,6 +110,25 @@ Je choisirais Go pour un service réseau..."
 ```
 
 La réponse s'étend jusqu'à la question suivante ou au prochain titre ; elle peut contenir des blocs de code.
+
+### QCM : des choix en cases à cocher, puis l'explication
+
+```markdown
+**Q : Dans quel ordre s'exécutent plusieurs `defer` d'une même fonction ?**
+- [ ] Dans l'ordre où ils sont écrits
+- [x] Dans l'ordre inverse (dernier entré, premier sorti)
+- [ ] Dans un ordre non garanti
+R : Les appels différés sont empilés : au retour de la fonction, le dernier `defer` déclaré s'exécute en premier.
+```
+
+- De **2 à 8 choix**, dans une section `### QCM` du chapitre ; `- [x]` marque une bonne réponse, `- [ ]` une mauvaise.
+- **Plusieurs bonnes réponses** sont permises : l'application affiche alors des cases à cocher et annonce « Plusieurs
+  réponses possibles ». La réponse n'est juste que si toutes les bonnes sont cochées, et elles seules.
+- La ligne `R :` est l'**explication**, montrée après la correction (sur plusieurs lignes si besoin). Elle dit pourquoi
+  la bonne réponse l'est, et pourquoi le piège le plus tentant ne l'est pas.
+- De bons distracteurs sont des erreurs que font vraiment les candidats, pas des réponses absurdes.
+- Les choix sont affichés dans l'ordre du document : changer leur ordre, leur texte ou la bonne réponse crée une
+  nouvelle version de la carte (la progression est conservée).
 
 ### Règles communes
 
@@ -189,6 +209,7 @@ et des révisions, sans perte de progression, et revient tel quel s'il est repub
 - [ ] Les chapitres sont numérotés `# N. TITRE` ; aucun chapitre existant n'a été renuméroté.
 - [ ] Chaque chapitre a ses sections, et au moins une question.
 - [ ] Les questions techniques ont une réponse courte, les questions de situation une réponse rédigée.
+- [ ] Chaque QCM a de 2 à 8 choix, au moins une bonne réponse et une explication.
 - [ ] Chaque bloc de code indique son langage ; le code des questions pièges a été exécuté.
 - [ ] `./mvnw test -Dtest=ReferenceDocumentTest` est vert.
 - [ ] Le rapport d'import ne liste ni anomalie ni retrait inattendu.

@@ -84,7 +84,7 @@ flowchart LR
 
 | Élément | Rôle |
 |---|---|
-| `domain.CardContent` | Interface `sealed` : `Flashcard`, `CodeOutput`, `OpenScenario`, `Definition`. |
+| `domain.CardContent` | Interface `sealed` : `Flashcard`, `CodeOutput`, `OpenScenario`, `Definition`, `MultipleChoice` (ses choix, ADR 0019). |
 | `domain.Subject` | Un sujet du catalogue : slug définitif, catégorie, ordre, brouillon ou publié (ADR 0013). |
 | `domain.CardIdentity` | Identifiants stables (UUID v8) dérivés du sujet, du chapitre et de la question (ADR 0009 et 0013). |
 | `infrastructure.markdown.SubjectHeader` | Lit l'en-tête `---` d'un document : le sujet qu'il décrit. |
@@ -95,7 +95,7 @@ flowchart LR
 | `infrastructure.ContentStartupImport` | En dev et dans le compose : importe tous les documents du dossier, un sujet par transaction. |
 | `CardDirectory` (package racine) | **API publique** pour les autres modules : cartes actives filtrées (sujets, thème, format) ou par thème, version courante. |
 | `SubjectDirectory` (package racine) | **API publique** : les sujets publiés, dans l'ordre du catalogue. |
-| `CardType` (package racine) | Formats de carte, partagés avec les autres modules. |
+| `CardType`, `CardChoice` (package racine) | Formats de carte et choix d'un QCM, partagés avec les autres modules. |
 
 ### Module `user` (en place)
 
@@ -132,7 +132,7 @@ flowchart LR
 | `domain.fsrs.FsrsScheduler` | FSRS-6 sans aléa : étapes d'apprentissage, intervalles en jours, oublis (ADR 0011). |
 | `domain.queue.ReviewQueuePlanner` | Cartes dues (les plus en retard d'abord), puis nouvelles dans le quota du jour, en alternant les sujets (ADR 0014). |
 | `application.ReviewQueueService` | File de révision, quota de nouvelles cartes remis à zéro à minuit dans le fuseau de l'utilisateur. |
-| `application.ReviewRecordingService` | Réponse idempotente : verrou sur l'état, puis `requestId` unique dans le journal. |
+| `application.ReviewRecordingService` | Réponse idempotente : verrou sur l'état, puis `requestId` unique dans le journal. Corrige un QCM et en déduit la note (ADR 0019). |
 | `infrastructure.*Entity` | Entités JPA séparées du domaine (domaine riche, CLAUDE.md section 4.3). |
 | `api.ReviewsResource` | `GET /api/v1/review-queue` et `POST /api/v1/reviews` (201, ou 200 si rejouée). |
 | `application.NewCardQuota` | Quota quotidien de nouvelles cartes, partagé par la file et les statistiques. |

@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test'
 import { signIn, USERS } from './support/auth'
 
 test.describe('Groupes', () => {
-  test('creates a group, chooses its subjects and reviews with it, then deletes it', async ({
+  test('creates a group, chooses its subjects and answers a multiple-choice card with it, then deletes it', async ({
     page,
   }) => {
     // Un nom propre à ce passage : les tests restent rejouables sur une base déjà utilisée.
@@ -20,12 +20,18 @@ test.describe('Groupes', () => {
     await expect(settings).toContainText('Aucun sujet choisi pour le moment')
     await settings.getByRole('button', { name: 'Modifier les réglages' }).click()
     await settings.getByRole('checkbox', { name: 'Go' }).check()
+    await settings.getByRole('checkbox', { name: 'QCM' }).check()
     await settings.getByRole('radio', { name: 'Anonymisé' }).check()
     await settings.getByRole('button', { name: 'Enregistrer les réglages' }).click()
     await expect(settings).toContainText('Anonymisé')
     await settings.getByRole('link', { name: 'Réviser avec le groupe' }).click()
     await expect(page.getByRole('heading', { name: `Réviser avec « ${name} »` })).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Voir la réponse' })).toBeVisible()
+    // Le groupe ne révise que des QCM : on coche, le serveur corrige.
+    await page.getByRole('radio').first().check()
+    await page.getByRole('button', { name: 'Valider' }).click()
+    await expect(page.getByRole('status')).toContainText(/Bonne réponse|Pas tout à fait/)
+    await page.getByRole('button', { name: 'Carte suivante' }).click()
+    await expect(page.getByText('1 carte révisée')).toBeVisible()
 
     await page.goto('/groups')
     await page.getByRole('link', { name: new RegExp(name) }).click()

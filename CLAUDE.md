@@ -186,9 +186,10 @@ Si une règle devient gênante, on en discute et on consigne l'exception dans un
 Chaque sujet a son document de référence, `content/source/<sujet>-entretien-reference.md` (par exemple `java-entretien-reference.md`, `go-entretien-reference.md`). Tous suivent le même format :
 - Titre du document : `# <Sujet> : le document de référence pour les entretiens techniques`, suivi d'une introduction (ignorée par l'import).
 - Chapitres : un titre `# N. TITRE` encadré de lignes de séparation `═══...`.
-- Dans chaque chapitre, des sections `### Vue d'ensemble`, `### Cours`, `### En situation`, `### Questions techniques`, `### Questions de situation`.
+- Dans chaque chapitre, des sections `### Vue d'ensemble`, `### Cours`, `### En situation`, `### Questions techniques`, `### Questions de situation`, et facultativement `### QCM`.
 - **Questions techniques** : une ligne `**Q : question ?** R : réponse.` Parfois la question contient un bloc de code juste après `**Q :**` et la réponse suit sur la ligne `R : ...` (chapitre des questions pièges, reconnu à son titre « QU'AFFICHE CE CODE ? » et non à son numéro).
 - **Questions de situation** : `**Q : "énoncé"**` puis `R : "réponse rédigée"` sur plusieurs lignes, parfois avec des blocs de code, jusqu'à la question suivante ou la fin du chapitre.
+- **QCM** (section facultative `### QCM`) : `**Q : question ?**`, puis de 2 à 8 choix `- [ ] faux` / `- [x] juste` (plusieurs bonnes réponses permises), puis `R : explication` (ADR 0019).
 - Le glossaire (tableau Markdown) peut devenir un deck de cartes "définition".
 - Les blocs de code indiquent leur langage (` ```go `, ` ```java `...) pour la coloration syntaxique.
 - Les sections hors chapitre numéroté (méthode générale, récapitulatif final) sont ignorées par l'import.
@@ -209,7 +210,7 @@ Chaque sujet a son document de référence, `content/source/<sujet>-entretien-re
 |---|---|---|
 | `FLASHCARD` | questions techniques | auto-évaluation (voir 6.1) |
 | `CODE_OUTPUT` | questions pièges avec code (chapitre « qu'affiche ce code ? ») | auto-évaluation en V1 ; QCM généré ou saisie libre plus tard |
-| `MULTIPLE_CHOICE` | à créer (manuellement ou dérivé) | correction automatique |
+| `MULTIPLE_CHOICE` | section `### QCM` des chapitres | correction automatique par le serveur (ADR 0019) |
 | `OPEN_SCENARIO` | questions de situation | rédaction libre puis comparaison avec la réponse modèle et auto-évaluation |
 | `DEFINITION` | glossaire | auto-évaluation |
 
@@ -378,7 +379,7 @@ Groupes, invitations, réglages (dont les sujets du groupe), classements (Valkey
 2. ✅ **Invitations** : lien d'invitation expirant, rejoindre un groupe par ce lien (ADR 0016).
 3. ✅ **Réglages du groupe** : sujets et thèmes inclus, types de cartes, objectif quotidien, visibilité du classement (nominatif, anonymisé, désactivé) ; réviser avec le groupe.
 4. ✅ **Classement hebdomadaire** : régularité et points (en SQL ; Valkey seulement si un besoin réel apparaît). Calculé par le module `gamification` (ADR 0018).
-5. **Cartes QCM** (`MULTIPLE_CHOICE`) : format dans les documents, correction automatique.
+5. ✅ **Cartes QCM** (`MULTIPLE_CHOICE`) : format dans les documents, correction automatique (ADR 0019).
 6. **Défis de groupe** : une série de cartes commune, avec un délai de réponse par carte.
 - **Terminé quand** : une équipe crée son groupe, invite ses membres, révise les mêmes sujets et suit son classement de la semaine.
 

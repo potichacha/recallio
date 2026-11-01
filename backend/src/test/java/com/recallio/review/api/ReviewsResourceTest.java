@@ -132,13 +132,45 @@ class ReviewsResourceTest {
     @Test
     @TestSecurity(user = "alice")
     @OidcSecurity(claims = @Claim(key = "sub", value = "review-invalid"))
-    void shouldRejectAMissingRating() {
+    void shouldRejectAMissingRatingOrChoicesSentForASelfAssessedCard() {
+        String cardId = firstCardId();
         given().contentType(ContentType.JSON)
-                .body("{\"requestId\": \"%s\", \"cardId\": \"%s\"}".formatted(UUID.randomUUID(), firstCardId()))
+                .body("{\"requestId\": \"%s\", \"cardId\": \"%s\"}".formatted(UUID.randomUUID(), cardId))
                 .post(REVIEWS)
                 .then()
-                .statusCode(400)
-                .body("code", equalTo("validation.failed"));
+                .statusCode(422)
+                .body("code", equalTo("review.answer-mismatch"));
+        answer(UUID.randomUUID(), cardId, "[0]").statusCode(422).body("code", equalTo("review.answer-mismatch"));
+    }
+
+    @Test
+    @TestSecurity(user = "alice")
+    @OidcSecurity(claims = @Claim(key = "sub", value = "review-multiple-choice-wrong"))
+    void shouldGradeAWrongMultipleChoiceAnswerOnTheServer() {
+        String cardId = multipleChoiceCard()
+                .body("cards[0].answer", nullValue())
+                .body("cards[0].choices", hasSize(3))
+                .body("cards[0].multipleAnswers", is(false))
+                .extract()
+                .path("cards[0].cardId");
+
+        record(UUID.randomUUID(), cardId, "EASY").statusCode(422).body("code", equalTo("review.answer-mismatch"));
+        UUID requestId = UUID.randomUUID();
+        answer(requestId, cardId, "[0]")
+                .statusCode(201)
+                .body("rating", equalTo("AGAIN"))
+                .body("correction.correctChoices", contains(1))
+                .body("correction.explanation", containsString("valeur zéro"));
+        answer(requestId, cardId, "[0]").statusCode(200).body("correction.correctChoices", contains(1));
+    }
+
+    @Test
+    @TestSecurity(user = "alice")
+    @OidcSecurity(claims = @Claim(key = "sub", value = "review-multiple-choice-right"))
+    void shouldGradeAnExactSelectionAsGood() {
+        String cardId = multipleChoiceCard().extract().path("cards[0].cardId");
+
+        answer(UUID.randomUUID(), cardId, "[1]").statusCode(201).body("rating", equalTo("GOOD"));
     }
 
     @Test
@@ -172,7 +204,7 @@ class ReviewsResourceTest {
         given().get(QUEUE)
                 .then()
                 .statusCode(200)
-                .body("cards", hasSize(2))
+                .body("cards", hasSize(3))
                 .body("cards.subjectSlug", everyItem(equalTo("go")));
     }
 
@@ -199,7 +231,7 @@ class ReviewsResourceTest {
                 .get(QUEUE)
                 .then()
                 .statusCode(200)
-                .body("cards.subjectSlug", contains("go", "go"));
+                .body("cards.subjectSlug", contains("go", "go", "go"));
         given().queryParam("subject", "inconnu")
                 .get(QUEUE)
                 .then()
@@ -222,6 +254,24 @@ class ReviewsResourceTest {
 
     private static String firstCardId() {
         return queue(THEME).extract().path("cards[0].cardId");
+    }
+
+    /** Le QCM du document Go de test, seul de son format. */
+    private static ValidatableResponse multipleChoiceCard() {
+        return given().queryParam("subject", "go")
+                .queryParam("type", "MULTIPLE_CHOICE")
+                .get(QUEUE)
+                .then()
+                .statusCode(200)
+                .body("cards", hasSize(1));
+    }
+
+    private static ValidatableResponse answer(UUID requestId, String cardId, String selectedChoices) {
+        return given().contentType(ContentType.JSON)
+                .body("{\"requestId\": \"%s\", \"cardId\": \"%s\", \"selectedChoices\": %s}"
+                        .formatted(requestId, cardId, selectedChoices))
+                .post(REVIEWS)
+                .then();
     }
 
     private static ValidatableResponse record(UUID requestId, String cardId, String rating) {

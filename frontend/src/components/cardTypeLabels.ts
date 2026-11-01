@@ -6,4 +6,5 @@ export const CARD_TYPE_LABELS: Record<CardType, string> = {
   CODE_OUTPUT: "Qu'affiche ce code ?",
   OPEN_SCENARIO: 'Mise en situation',
   DEFINITION: 'Définition',
+  MULTIPLE_CHOICE: 'QCM',
 }

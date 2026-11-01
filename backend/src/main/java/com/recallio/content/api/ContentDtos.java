@@ -1,5 +1,6 @@
 package com.recallio.content.api;
 
+import com.recallio.content.CardChoice;
 import com.recallio.content.CardType;
 import com.recallio.content.domain.Subject;
 import com.recallio.content.domain.catalog.ContentCatalog.CardView;
@@ -90,10 +91,29 @@ final class ContentDtos {
             UUID id,
             CardType type,
             @Schema(description = "Recto, en Markdown") String prompt,
-            @Schema(description = "Verso, en Markdown") String answer,
+
+            @Schema(description = "Verso, en Markdown ; pour un QCM, l'explication")
+            String answer,
+
+            @Schema(description = "Les choix d'un QCM, bonnes réponses marquées ; vide pour les autres formats")
+            List<ChoiceDto> choices,
+
             int version) {
         static CardDto from(CardView card) {
-            return new CardDto(card.id(), card.type(), card.prompt(), card.answer(), card.version());
+            return new CardDto(
+                    card.id(),
+                    card.type(),
+                    card.prompt(),
+                    card.answer(),
+                    card.choices().stream().map(ChoiceDto::from).toList(),
+                    card.version());
+        }
+    }
+
+    @Schema(name = "CardChoice")
+    record ChoiceDto(@Schema(description = "En Markdown") String text, boolean correct) {
+        static ChoiceDto from(CardChoice choice) {
+            return new ChoiceDto(choice.text(), choice.correct());
         }
     }
 

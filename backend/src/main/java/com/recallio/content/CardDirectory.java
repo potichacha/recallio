@@ -5,6 +5,8 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 import org.jspecify.annotations.Nullable;
 
 /**
@@ -68,7 +70,11 @@ public interface CardDirectory {
         }
     }
 
-    /** Une carte dans sa version courante : {@code versionId} est l'identifiant de la version révisée. */
+    /**
+     * Une carte dans sa version courante : {@code versionId} est l'identifiant de la version révisée.
+     *
+     * @param choices les choix d'un QCM, dans l'ordre de la source ; aucun pour les autres formats
+     */
     record CardSnapshot(
             UUID cardId,
             UUID versionId,
@@ -78,5 +84,24 @@ public interface CardDirectory {
             String themeSlug,
             String themeTitle,
             String prompt,
-            String answer) {}
+            String answer,
+            List<CardChoice> choices) {
+
+        public CardSnapshot {
+            choices = List.copyOf(choices);
+        }
+
+        /** Les positions (à partir de 0) des bonnes réponses d'un QCM. */
+        public Set<Integer> correctChoices() {
+            return IntStream.range(0, choices.size())
+                    .filter(index -> choices.get(index).correct())
+                    .boxed()
+                    .collect(Collectors.toUnmodifiableSet());
+        }
+
+        /** Une réponse à un QCM est juste si elle coche toutes les bonnes réponses, et elles seules. */
+        public boolean isCorrectSelection(Set<Integer> selected) {
+            return selected.equals(correctChoices());
+        }
+    }
 }

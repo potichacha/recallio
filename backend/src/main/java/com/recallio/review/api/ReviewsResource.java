@@ -25,6 +25,8 @@ import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
+import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import org.eclipse.microprofile.openapi.annotations.Operation;
 import org.eclipse.microprofile.openapi.annotations.media.Content;
@@ -98,7 +100,8 @@ public class ReviewsResource {
     @Consumes(MediaType.APPLICATION_JSON)
     @Operation(
             operationId = "recordReview",
-            summary = "Enregistre la note donnée à une carte (idempotent grâce à requestId)")
+            summary =
+                    "Enregistre la note donnée à une carte, ou corrige les choix d'un QCM (idempotent grâce à requestId)")
     @APIResponse(
             responseCode = "201",
             description = "Révision enregistrée",
@@ -128,10 +131,23 @@ public class ReviewsResource {
                     @Content(
                             mediaType = ProblemDetail.MEDIA_TYPE,
                             schema = @Schema(implementation = ProblemDetail.class)))
+    @APIResponse(
+            responseCode = "422",
+            description = "Une note pour un QCM, ou des choix pour une carte en auto-évaluation",
+            content =
+                    @Content(
+                            mediaType = ProblemDetail.MEDIA_TYPE,
+                            schema = @Schema(implementation = ProblemDetail.class)))
     public Response recordReview(@Valid @NotNull RecordReviewRequest request) {
+        List<Integer> selected = request.selectedChoices();
         ReviewOutcome outcome = recordings.record(
                 currentUser.get(),
-                new RecordReview(request.requestId(), request.cardId(), request.rating(), request.elapsedMs()));
+                new RecordReview(
+                        request.requestId(),
+                        request.cardId(),
+                        request.rating(),
+                        selected == null ? null : Set.copyOf(selected),
+                        request.elapsedMs()));
         Response.Status status = outcome.replayed() ? Response.Status.OK : Response.Status.CREATED;
         return Response.status(status).entity(ReviewResultDto.from(outcome)).build();
     }

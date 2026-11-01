@@ -175,7 +175,8 @@ class ReviewQueueServiceTest {
                             "java-theme",
                             "Thème",
                             "Question ?",
-                            "Réponse."))
+                            "Réponse.",
+                            List.of()))
                     .toList();
         }
     }
