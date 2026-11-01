@@ -1,0 +1,71 @@
+import { Link, useNavigate, useParams } from 'react-router'
+import { ApiError } from '../api/errors'
+import { useAcceptInvitation, useInvitation } from '../api/groups'
+
+/** La page ouverte par un lien d'invitation : voir le groupe, puis le rejoindre. */
+export function JoinPage() {
+  const { token = '' } = useParams()
+  const invitation = useInvitation(token)
+  const accept = useAcceptInvitation()
+  const navigate = useNavigate()
+
+  if (invitation.error instanceof ApiError && invitation.error.status === 404) {
+    return (
+      <section className="flex flex-col items-start gap-3">
+        <h1 className="text-2xl font-bold">Invitation invalide</h1>
+        <p className="text-slate-600">
+          Ce lien n'est plus valide : il a expiré ou a été remplacé. Demandez-en un nouveau au
+          créateur du groupe.
+        </p>
+        <Link to="/groups" className="text-indigo-600 hover:underline">
+          Mes groupes
+        </Link>
+      </section>
+    )
+  }
+  if (invitation.isError) {
+    return <p role="alert">Impossible de charger l'invitation.</p>
+  }
+  if (invitation.isPending) {
+    return <p>Chargement de l'invitation…</p>
+  }
+
+  const { groupId, groupName, memberCount, alreadyMember } = invitation.data
+  return (
+    <section className="flex max-w-md flex-col items-start gap-4">
+      <h1 className="text-2xl font-bold">Rejoindre « {groupName} »</h1>
+      <p className="text-slate-600">
+        Ce groupe compte {memberCount} membre{memberCount > 1 ? 's' : ''}. En le rejoignant, ses
+        membres verront votre nom.
+      </p>
+      {alreadyMember ? (
+        <>
+          <p>Vous faites déjà partie de ce groupe.</p>
+          <Link to={`/groups/${groupId}`} className="text-indigo-600 hover:underline">
+            Ouvrir le groupe
+          </Link>
+        </>
+      ) : (
+        <button
+          type="button"
+          onClick={() =>
+            accept.mutate(token, {
+              onSuccess: (group) => navigate(`/groups/${group.id}`, { replace: true }),
+            })
+          }
+          disabled={accept.isPending}
+          className="rounded-lg bg-indigo-600 px-4 py-2 font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+        >
+          Rejoindre le groupe
+        </button>
+      )}
+      {accept.isError && (
+        <p role="alert">
+          {accept.error instanceof ApiError
+            ? accept.error.message
+            : "Vous n'avez pas pu rejoindre le groupe."}
+        </p>
+      )}
+    </section>
+  )
+}

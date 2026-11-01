@@ -1,8 +1,10 @@
 package com.recallio.group.api;
 
+import com.recallio.group.application.GroupInvitationService;
 import com.recallio.group.application.StudyGroupService;
 import com.recallio.group.application.StudyGroupService.GroupDetail;
 import com.recallio.group.application.StudyGroupService.MemberView;
+import com.recallio.group.domain.GroupInvitation;
 import com.recallio.group.domain.GroupName;
 import com.recallio.group.domain.GroupRole;
 import com.recallio.group.domain.StudyGroupRepository.GroupSummary;
@@ -37,18 +39,22 @@ import org.eclipse.microprofile.openapi.annotations.tags.Tag;
  * Les groupes de l'utilisateur connecté. Un groupe dont il n'est pas membre répond 404, comme un groupe inexistant :
  * son existence ne fuite pas (CLAUDE.md, section 4.5).
  */
-@Path("/api/v1/groups")
+@Path(GroupsResource.GROUPS)
 @Authenticated
 @Produces(MediaType.APPLICATION_JSON)
 @Tag(name = "Groupes", description = "Groupes de révision et leurs membres")
 @SecurityRequirement(name = "SecurityScheme")
 public class GroupsResource {
 
+    static final String GROUPS = "/api/v1/groups";
+
     private final StudyGroupService groups;
+    private final GroupInvitationService invitations;
     private final CurrentUser currentUser;
 
-    public GroupsResource(StudyGroupService groups, CurrentUser currentUser) {
+    public GroupsResource(StudyGroupService groups, GroupInvitationService invitations, CurrentUser currentUser) {
         this.groups = groups;
+        this.invitations = invitations;
         this.currentUser = currentUser;
     }
 
@@ -83,7 +89,7 @@ public class GroupsResource {
                             schema = @Schema(implementation = ProblemDetail.class)))
     public Response createGroup(@Valid @NotNull CreateGroupRequest request) {
         GroupDto created = GroupDto.from(groups.create(currentUser.get(), request.name()));
-        return Response.created(URI.create("/api/v1/groups/" + created.id()))
+        return Response.created(URI.create(GROUPS + "/" + created.id()))
                 .entity(created)
                 .build();
     }
@@ -176,6 +182,82 @@ public class GroupsResource {
         groups.removeMember(currentUser.get(), groupId, userId);
     }
 
+    @POST
+    @Path("/{groupId}/invitation")
+    @Operation(
+            operationId = "renewGroupInvitation",
+            summary = "Génère le lien d'invitation du groupe (créateur seulement) ; le précédent cesse de fonctionner")
+    @APIResponse(
+            responseCode = "201",
+            description = "Le nouveau lien",
+            content = @Content(schema = @Schema(implementation = GroupInvitationDto.class)))
+    @APIResponse(
+            responseCode = "403",
+            description = "L'utilisateur n'est pas le créateur",
+            content =
+                    @Content(
+                            mediaType = ProblemDetail.MEDIA_TYPE,
+                            schema = @Schema(implementation = ProblemDetail.class)))
+    @APIResponse(
+            responseCode = "404",
+            description = "Groupe inconnu, ou dont l'utilisateur n'est pas membre",
+            content =
+                    @Content(
+                            mediaType = ProblemDetail.MEDIA_TYPE,
+                            schema = @Schema(implementation = ProblemDetail.class)))
+    public Response renewGroupInvitation(@PathParam("groupId") UUID groupId) {
+        GroupInvitationDto invitation = GroupInvitationDto.from(invitations.renew(currentUser.get(), groupId));
+        return Response.created(URI.create(GROUPS + "/" + groupId + "/invitation"))
+                .entity(invitation)
+                .build();
+    }
+
+    @GET
+    @Path("/{groupId}/invitation")
+    @Operation(
+            operationId = "getGroupInvitation",
+            summary = "Le lien d'invitation actif du groupe (créateur seulement)")
+    @APIResponse(responseCode = "200", description = "Le lien actif")
+    @APIResponse(
+            responseCode = "403",
+            description = "L'utilisateur n'est pas le créateur",
+            content =
+                    @Content(
+                            mediaType = ProblemDetail.MEDIA_TYPE,
+                            schema = @Schema(implementation = ProblemDetail.class)))
+    @APIResponse(
+            responseCode = "404",
+            description = "Groupe inconnu, ou sans lien actif",
+            content =
+                    @Content(
+                            mediaType = ProblemDetail.MEDIA_TYPE,
+                            schema = @Schema(implementation = ProblemDetail.class)))
+    public GroupInvitationDto getGroupInvitation(@PathParam("groupId") UUID groupId) {
+        return GroupInvitationDto.from(invitations.activeInvitation(currentUser.get(), groupId));
+    }
+
+    @DELETE
+    @Path("/{groupId}/invitation")
+    @Operation(operationId = "revokeGroupInvitation", summary = "Désactive le lien d'invitation (créateur seulement)")
+    @APIResponse(responseCode = "204", description = "Lien désactivé")
+    @APIResponse(
+            responseCode = "403",
+            description = "L'utilisateur n'est pas le créateur",
+            content =
+                    @Content(
+                            mediaType = ProblemDetail.MEDIA_TYPE,
+                            schema = @Schema(implementation = ProblemDetail.class)))
+    @APIResponse(
+            responseCode = "404",
+            description = "Groupe inconnu, ou dont l'utilisateur n'est pas membre",
+            content =
+                    @Content(
+                            mediaType = ProblemDetail.MEDIA_TYPE,
+                            schema = @Schema(implementation = ProblemDetail.class)))
+    public void revokeGroupInvitation(@PathParam("groupId") UUID groupId) {
+        invitations.revoke(currentUser.get(), groupId);
+    }
+
     @Schema(name = "CreateGroupRequest")
     public record CreateGroupRequest(
             @NotBlank @Size(max = GroupName.MAX_LENGTH) String name) {}
@@ -212,6 +294,17 @@ public class GroupsResource {
                     group.createdAt(),
                     group.myRole(),
                     group.members().stream().map(GroupMemberDto::from).toList());
+        }
+    }
+
+    @Schema(name = "GroupInvitation")
+    public record GroupInvitationDto(
+            @Schema(description = "Le secret du lien, à placer dans l'URL de la page « rejoindre »")
+            String token,
+
+            Instant expiresAt) {
+        static GroupInvitationDto from(GroupInvitation invitation) {
+            return new GroupInvitationDto(invitation.token().value(), invitation.expiresAt());
         }
     }
 

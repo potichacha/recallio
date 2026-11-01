@@ -3,6 +3,9 @@ import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 import { fakeSession, renderAt, sentRequests, SIGNED_IN_API, stubApi } from '../test/render'
 
+/** Le groupe n'a pas encore de lien d'invitation. */
+const NO_INVITATION = { status: 404, body: { code: 'group.no-active-invitation' } }
+
 const signedIn = () => fakeSession({ status: 'authenticated', userName: 'Alice' })
 
 const member = (userId: string, displayName: string, overrides: Record<string, unknown> = {}) => ({
@@ -32,6 +35,7 @@ describe('GroupPage', () => {
     const fetchMock = stubApi({
       ...SIGNED_IN_API,
       '/api/v1/groups/g1': { body: group('OWNER') },
+      '/api/v1/groups/g1/invitation': NO_INVITATION,
       'DELETE /api/v1/groups/g1/members/u2': { status: 204, body: null },
     })
     renderAt('/groups/g1', signedIn())
@@ -55,6 +59,7 @@ describe('GroupPage', () => {
     const api = {
       ...SIGNED_IN_API,
       '/api/v1/groups/g1': { body: group('OWNER') } as { status?: number; body: unknown },
+      '/api/v1/groups/g1/invitation': NO_INVITATION,
       'DELETE /api/v1/groups/g1': { status: 204, body: null },
       '/api/v1/groups': { body: [] },
     }

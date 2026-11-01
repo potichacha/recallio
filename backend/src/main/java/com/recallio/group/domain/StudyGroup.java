@@ -1,5 +1,6 @@
 package com.recallio.group.domain;
 
+import com.recallio.group.domain.GroupExceptions.GroupFullException;
 import com.recallio.group.domain.GroupExceptions.OwnerCannotLeaveException;
 import com.recallio.group.domain.GroupExceptions.OwnerOnlyException;
 import java.time.Instant;
@@ -27,6 +28,22 @@ public record StudyGroup(UUID id, GroupName name, Instant createdAt, List<Member
 
     public static StudyGroup create(UUID id, GroupName name, UUID ownerId, Instant now) {
         return new StudyGroup(id, name, now, List.of(new Member(ownerId, GroupRole.OWNER, now)));
+    }
+
+    /**
+     * L'adhésion d'un nouveau membre, qui a reçu le lien d'invitation.
+     *
+     * @throws GroupFullException si le groupe compte déjà {@link #MAX_MEMBERS} membres
+     * @throws IllegalArgumentException s'il en est déjà membre
+     */
+    public Member newMember(UUID userId, Instant now) {
+        if (member(userId).isPresent()) {
+            throw new IllegalArgumentException("Déjà membre du groupe " + id);
+        }
+        if (members.size() >= MAX_MEMBERS) {
+            throw new GroupFullException(MAX_MEMBERS);
+        }
+        return new Member(userId, GroupRole.MEMBER, now);
     }
 
     public Optional<Member> member(UUID userId) {

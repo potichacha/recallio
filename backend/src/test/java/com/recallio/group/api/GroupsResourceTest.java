@@ -26,7 +26,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
 /**
- * Chaque test se connecte avec un {@code sub} différent. Les invitations n'existant pas encore, un autre membre est
+ * Chaque test se connecte avec un {@code sub} différent. Pour ne dépendre que des groupes, un autre membre est
  * ajouté directement en base ({@link #addMember}).
  */
 @QuarkusTest

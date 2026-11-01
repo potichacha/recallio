@@ -51,6 +51,38 @@ public final class GroupExceptions {
         }
     }
 
+    /**
+     * Le lien d'invitation est inconnu, expiré ou remplacé : les trois cas répondent de la même façon, et la réponse ne
+     * dit rien du groupe.
+     */
+    public static final class InvitationNotFoundException extends ResourceNotFoundException {
+
+        public static final String CODE = "group.invitation-not-found";
+
+        public InvitationNotFoundException() {
+            super(CODE, "Ce lien d'invitation n'est plus valide : il a expiré ou a été remplacé.");
+        }
+    }
+
+    /** Le groupe n'a pas de lien d'invitation actif (jamais créé, désactivé ou expiré). */
+    public static final class NoActiveInvitationException extends ResourceNotFoundException {
+
+        public static final String CODE = "group.no-active-invitation";
+
+        public NoActiveInvitationException() {
+            super(CODE, "Ce groupe n'a pas de lien d'invitation actif.");
+        }
+    }
+
+    public static final class GroupFullException extends ConflictException {
+
+        public static final String CODE = "group.full";
+
+        public GroupFullException(int limit) {
+            super(CODE, "Ce groupe compte déjà " + limit + " membres, le maximum.");
+        }
+    }
+
     public static final class TooManyGroupsException extends ConflictException {
 
         public static final String CODE = "group.too-many-groups";
