@@ -1,6 +1,9 @@
 package com.recallio.user.domain;
 
+import java.util.Collection;
+import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 
 public interface UserProfileRepository {
 
@@ -13,4 +16,7 @@ public interface UserProfileRepository {
     UserProfile createIfAbsent(UserProfile candidate);
 
     void update(UserProfile profile);
+
+    /** Le nom affiché de chacun des profils demandés qui existent. */
+    Map<UUID, DisplayName> findDisplayNames(Collection<UUID> ids);
 }

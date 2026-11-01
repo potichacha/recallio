@@ -1,6 +1,8 @@
 import type { RouteObject } from 'react-router'
 import { RequireAuth } from './auth/RequireAuth'
 import { Layout } from './components/Layout'
+import { GroupPage } from './groups/GroupPage'
+import { GroupsPage } from './groups/GroupsPage'
 import { AuthCallbackPage } from './pages/AuthCallbackPage'
 import { HomePage } from './pages/HomePage'
 import { ProfilePage } from './pages/ProfilePage'
@@ -24,6 +26,22 @@ export const routes: RouteObject[] = [
         element: (
           <RequireAuth>
             <ReviewPage />
+          </RequireAuth>
+        ),
+      },
+      {
+        path: 'groups',
+        element: (
+          <RequireAuth>
+            <GroupsPage />
+          </RequireAuth>
+        ),
+      },
+      {
+        path: 'groups/:groupId',
+        element: (
+          <RequireAuth>
+            <GroupPage />
           </RequireAuth>
         ),
       },

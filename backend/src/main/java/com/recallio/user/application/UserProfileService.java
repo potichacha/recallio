@@ -1,6 +1,7 @@
 package com.recallio.user.application;
 
 import com.recallio.platform.domain.IdGenerator;
+import com.recallio.user.UserDirectory;
 import com.recallio.user.domain.AuthenticatedUser;
 import com.recallio.user.domain.DisplayName;
 import com.recallio.user.domain.Timezones;
@@ -10,11 +11,15 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.transaction.Transactional;
 import java.time.Clock;
 import java.time.ZoneId;
+import java.util.Collection;
+import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
+import java.util.stream.Collectors;
 
 /** Cas d'usage du profil : création à la première connexion, consultation et préférences. */
 @ApplicationScoped
-public class UserProfileService {
+public class UserProfileService implements UserDirectory {
 
     private final UserProfileRepository repository;
     private final IdGenerator idGenerator;
@@ -42,6 +47,14 @@ public class UserProfileService {
         UserProfile updated = current.withPreferences(new DisplayName(displayName), Timezones.require(timezone));
         repository.update(updated);
         return updated;
+    }
+
+    @Override
+    @Transactional(Transactional.TxType.SUPPORTS)
+    public Map<UUID, String> displayNames(Collection<UUID> userIds) {
+        return repository.findDisplayNames(userIds).entrySet().stream()
+                .collect(Collectors.toMap(
+                        Map.Entry::getKey, entry -> entry.getValue().value()));
     }
 
     private UserProfile create(AuthenticatedUser user, Optional<String> browserTimezone) {

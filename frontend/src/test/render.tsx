@@ -81,6 +81,8 @@ export function stubApi(responses: Record<string, StubResponse>) {
     if (stub === undefined) {
       throw new Error(`Appel API non prévu dans le test : ${request.method} ${pathname}`)
     }
+    // Une réponse 204 n'a pas de corps : le constructeur de Response le refuserait.
+    if (stub.status === 204) return new Response(null, { status: 204 })
     return Response.json(stub.body, { status: stub.status ?? 200 })
   })
   vi.stubGlobal('fetch', fetchMock)
