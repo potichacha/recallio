@@ -180,15 +180,18 @@ module « tableau de bord » côté serveur : chaque module expose ce qu'il sait
 |---|---|
 | `domain.StudyGroup` | Un groupe et ses membres : un créateur unique, qui seul gère les membres et supprime le groupe (ADR 0015) ; 100 membres au plus. |
 | `domain.GroupSettings` | Les réglages : sujets, thèmes, formats, objectif quotidien, visibilité du classement (ADR 0017). |
+| `domain.Challenge`, `domain.ChallengeRun` | Un défi (série de QCM, délai par carte, ouvert sept jours) et la partie d'un membre (ADR 0020). |
 | `domain.GroupInvitation` | Le lien d'invitation d'un groupe : un jeton aléatoire (`InvitationToken`), valable 7 jours (ADR 0016). |
 | `application.GroupAccess` | Le contrôle d'accès commun : groupe visible d'un membre (sinon 404), géré par son créateur (sinon 403). |
 | `application.StudyGroupService` | Cas d'usage des groupes et de leurs membres. |
 | `application.GroupSettingsService` | Le créateur modifie les réglages ; implémente `group.GroupReviewScopes`, lu par le module review. |
+| `application.ChallengeService`, `application.ChallengePlayService` | Lancer un défi et le classer ; le jouer carte par carte, chrono mesuré par le serveur. |
 | `application.GroupInvitationService` | Générer, remplacer, désactiver le lien ; le consulter puis rejoindre le groupe. |
 | `infrastructure.JpaStudyGroupRepository` | Tables `study_group` et `group_member`, sans clé étrangère vers `app_user`. |
 | `infrastructure.JpaGroupSettingsRepository` | Table `group_settings`, avec des tableaux `text[]` ; pas de ligne : réglages par défaut. |
 | `infrastructure.JpaGroupInvitationRepository` | Table `group_invitation` : un lien par groupe au plus. |
 | `api.GroupsResource` | `/api/v1/groups` : mes groupes, création, détail, quitter, retirer un membre, supprimer, réglages, lien d'invitation. |
+| `api.GroupChallengesResource`, `api.ChallengesResource` | `/api/v1/groups/{id}/challenges`, puis `/api/v1/challenges/{id}` (`/next`, `/answers`). |
 | `api.InvitationsResource` | `/api/v1/invitations/{token}` : le groupe auquel invite un lien, et le rejoindre. |
 
 Il obtient les noms des membres par `user.UserDirectory` (API publique du module `user`) et les thèmes d'un sujet par

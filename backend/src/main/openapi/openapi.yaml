@@ -103,6 +103,195 @@ components:
       - OPEN_SCENARIO
       - DEFINITION
       - MULTIPLE_CHOICE
+    Challenge:
+      type: object
+      properties:
+        summary:
+          $ref: "#/components/schemas/ChallengeSummary"
+        groupId:
+          $ref: "#/components/schemas/UUID"
+        groupName:
+          type: string
+        visibility:
+          $ref: "#/components/schemas/LeaderboardVisibility"
+        standings:
+          type: array
+          items:
+            $ref: "#/components/schemas/ChallengeStanding"
+          description: "Les parties terminées, la meilleure d'abord ; seulement la\
+            \ sienne si le classement est désactivé"
+      required:
+      - summary
+      - groupId
+      - groupName
+      - visibility
+      - standings
+    ChallengeAnswerRequest:
+      type: object
+      properties:
+        position:
+          type: integer
+          format: int32
+          minimum: 0
+        selectedChoices:
+          type: array
+          items:
+            type: integer
+            format: int32
+            minimum: 0
+          description: "Positions des choix cochés, à partir de 0"
+          maxItems: 8
+      required:
+      - selectedChoices
+    ChallengeAnswerResult:
+      type: object
+      properties:
+        correct:
+          type: boolean
+        timedOut:
+          type: boolean
+          description: "La réponse est arrivée après le délai : elle compte comme\
+            \ fausse"
+        correctChoices:
+          type: array
+          items:
+            type: integer
+            format: int32
+        explanation:
+          type: string
+          description: En Markdown
+        finished:
+          type: boolean
+          description: Vrai si c'était la dernière carte
+      required:
+      - correct
+      - timedOut
+      - correctChoices
+      - explanation
+      - finished
+    ChallengeCard:
+      type: object
+      properties:
+        position:
+          type: integer
+          format: int32
+          description: "Position dans la série, à partir de 0"
+        subjectTitle:
+          type: string
+        themeTitle:
+          type: string
+        prompt:
+          type: string
+          description: En Markdown
+        choices:
+          type: array
+          items:
+            type: string
+          description: "En Markdown, sans dire lesquels sont justes"
+        multipleAnswers:
+          type: boolean
+        remainingMs:
+          type: integer
+          format: int64
+          description: "Temps restant pour répondre, mesuré par le serveur"
+      required:
+      - position
+      - subjectTitle
+      - themeTitle
+      - prompt
+      - choices
+      - multipleAnswers
+      - remainingMs
+    ChallengeStanding:
+      type: object
+      properties:
+        rank:
+          type: integer
+          format: int32
+        displayName:
+          type:
+          - string
+          - "null"
+          description: "Absent dans un classement anonymisé, sauf pour l'utilisateur"
+        me:
+          type: boolean
+        score:
+          type: integer
+          format: int32
+        timeMs:
+          type: integer
+          format: int64
+          description: "Temps passé à répondre, en millisecondes : il départage les\
+            \ ex æquo"
+      required:
+      - rank
+      - me
+      - score
+      - timeMs
+    ChallengeStatus:
+      type: string
+      enum:
+      - NOT_STARTED
+      - IN_PROGRESS
+      - FINISHED
+    ChallengeStep:
+      type: object
+      properties:
+        card:
+          description: La carte à jouer ; absente une fois la partie terminée
+          type:
+          - object
+          - "null"
+          anyOf:
+          - $ref: "#/components/schemas/ChallengeCard"
+          - type: "null"
+        cardCount:
+          type: integer
+          format: int32
+        score:
+          type: integer
+          format: int32
+          description: Bonnes réponses jusqu'ici
+        finished:
+          type: boolean
+      required:
+      - cardCount
+      - score
+      - finished
+    ChallengeSummary:
+      type: object
+      properties:
+        id:
+          $ref: "#/components/schemas/UUID"
+        title:
+          type: string
+        cardCount:
+          type: integer
+          format: int32
+        secondsPerCard:
+          type: integer
+          format: int32
+        endsAt:
+          $ref: "#/components/schemas/Instant"
+        open:
+          type: boolean
+          description: Vrai tant qu'on peut y jouer
+        myStatus:
+          $ref: "#/components/schemas/ChallengeStatus"
+        myScore:
+          type:
+          - integer
+          - "null"
+          format: int32
+          description: "Le score de l'utilisateur, une fois sa partie terminée"
+      required:
+      - id
+      - title
+      - cardCount
+      - secondsPerCard
+      - endsAt
+      - open
+      - myStatus
     Correction:
       type: object
       properties:
@@ -118,6 +307,25 @@ components:
       required:
       - correctChoices
       - explanation
+    CreateChallengeRequest:
+      type: object
+      required:
+      - title
+      properties:
+        title:
+          type: string
+          pattern: \S
+          maxLength: 80
+        cardCount:
+          type: integer
+          format: int32
+          maximum: 20
+          minimum: 3
+        secondsPerCard:
+          type: integer
+          format: int32
+          maximum: 120
+          minimum: 10
     CreateGroupRequest:
       type: object
       required:
@@ -935,6 +1143,116 @@ paths:
           description: Rôle admin requis
       security:
       - SecurityScheme: []
+  /api/v1/challenges/{challengeId}:
+    get:
+      summary: "Le défi, la partie de l'utilisateur et le classement"
+      operationId: getChallenge
+      tags:
+      - Groupes
+      parameters:
+      - name: challengeId
+        in: path
+        required: true
+        schema:
+          $ref: "#/components/schemas/UUID"
+      responses:
+        "200":
+          description: Le défi
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Challenge"
+        "404":
+          description: "Défi inconnu, ou d'un groupe dont l'utilisateur n'est pas\
+            \ membre"
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+      security:
+      - SecurityScheme: []
+  /api/v1/challenges/{challengeId}/answers:
+    post:
+      summary: Répond à la carte présentée ; renvoyer la même réponse rend la correction
+        déjà enregistrée
+      operationId: answerChallengeCard
+      tags:
+      - Groupes
+      parameters:
+      - name: challengeId
+        in: path
+        required: true
+        schema:
+          $ref: "#/components/schemas/UUID"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChallengeAnswerRequest"
+        required: true
+      responses:
+        "200":
+          description: La correction
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChallengeAnswerResult"
+        "400":
+          description: Requête invalide
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+        "404":
+          description: "Défi inconnu, ou d'un groupe dont l'utilisateur n'est pas\
+            \ membre"
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+        "409":
+          description: Cette carte n'a pas été présentée à l'utilisateur
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+      security:
+      - SecurityScheme: []
+  /api/v1/challenges/{challengeId}/next:
+    post:
+      summary: "La carte à jouer : celle en cours si son délai court encore, sinon\
+        \ la suivante (qui démarre son chrono)"
+      operationId: nextChallengeCard
+      tags:
+      - Groupes
+      parameters:
+      - name: challengeId
+        in: path
+        required: true
+        schema:
+          $ref: "#/components/schemas/UUID"
+      responses:
+        "200":
+          description: "La carte, ou la fin de la partie"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChallengeStep"
+        "404":
+          description: "Défi inconnu, ou d'un groupe dont l'utilisateur n'est pas\
+            \ membre"
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+        "409":
+          description: Le défi est terminé
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+      security:
+      - SecurityScheme: []
   /api/v1/groups:
     get:
       summary: Les groupes dont l'utilisateur est membre
@@ -1033,6 +1351,86 @@ paths:
                 $ref: "#/components/schemas/ProblemDetail"
         "404":
           description: "Groupe inconnu, ou dont l'utilisateur n'est pas membre"
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+      security:
+      - SecurityScheme: []
+  /api/v1/groups/{groupId}/challenges:
+    get:
+      summary: "Les défis récents du groupe, le plus récent d'abord"
+      operationId: listGroupChallenges
+      tags:
+      - Groupes
+      parameters:
+      - name: groupId
+        in: path
+        required: true
+        schema:
+          $ref: "#/components/schemas/UUID"
+      responses:
+        "200":
+          description: Les défis
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ChallengeSummary"
+        "404":
+          description: "Groupe inconnu, ou dont l'utilisateur n'est pas membre"
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+      security:
+      - SecurityScheme: []
+    post:
+      summary: "Lance un défi : une série de QCM tirée au hasard dans les sujets du\
+        \ groupe (créateur seulement)"
+      operationId: createChallenge
+      tags:
+      - Groupes
+      parameters:
+      - name: groupId
+        in: path
+        required: true
+        schema:
+          $ref: "#/components/schemas/UUID"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateChallengeRequest"
+        required: true
+      responses:
+        "201":
+          description: Le défi lancé
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChallengeSummary"
+        "400":
+          description: Requête invalide
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+        "403":
+          description: L'utilisateur n'est pas le créateur
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+        "404":
+          description: "Groupe inconnu, ou dont l'utilisateur n'est pas membre"
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+        "422":
+          description: Pas assez de QCM dans les sujets du groupe
           content:
             application/problem+json:
               schema:

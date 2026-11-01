@@ -43,6 +43,7 @@ describe('InvitationPanel', () => {
     const fetchMock = stubApi({
       ...SIGNED_IN_API,
       '/api/v1/groups/g1/leaderboard': { body: TEST_LEADERBOARD },
+      '/api/v1/groups/g1/challenges': { body: [] },
       '/api/v1/groups/g1': { body: group('OWNER') },
       '/api/v1/groups/g1/invitation': { status: 404, body: { code: 'group.no-active-invitation' } },
       'POST /api/v1/groups/g1/invitation': {
@@ -66,6 +67,7 @@ describe('InvitationPanel', () => {
     stubApi({
       ...SIGNED_IN_API,
       '/api/v1/groups/g1/leaderboard': { body: TEST_LEADERBOARD },
+      '/api/v1/groups/g1/challenges': { body: [] },
       '/api/v1/groups/g1': { body: group('OWNER') },
       '/api/v1/groups/g1/invitation': { body: { token: FIRST, expiresAt: EXPIRES_AT } },
       'POST /api/v1/groups/g1/invitation': {
@@ -94,6 +96,7 @@ describe('InvitationPanel', () => {
     const fetchMock = stubApi({
       ...SIGNED_IN_API,
       '/api/v1/groups/g1/leaderboard': { body: TEST_LEADERBOARD },
+      '/api/v1/groups/g1/challenges': { body: [] },
       '/api/v1/groups/g1': { body: group('MEMBER') },
     })
     renderAt('/groups/g1', signedIn())

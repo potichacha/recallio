@@ -64,6 +64,7 @@ describe('JoinPage', () => {
       [INVITATION]: { body: invitation(false) },
       [`POST ${INVITATION}/accept`]: { body: JOINED_GROUP },
       '/api/v1/groups/g1/leaderboard': { body: TEST_LEADERBOARD },
+      '/api/v1/groups/g1/challenges': { body: [] },
     })
     const router = renderAt(`/join/${TOKEN}`, signedIn())
 

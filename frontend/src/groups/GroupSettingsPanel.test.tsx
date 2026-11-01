@@ -57,6 +57,7 @@ describe('GroupSettingsPanel', () => {
     stubApi({
       ...SIGNED_IN_API,
       '/api/v1/groups/g1/leaderboard': { body: TEST_LEADERBOARD },
+      '/api/v1/groups/g1/challenges': { body: [] },
       '/api/v1/groups/g1': { body: group('MEMBER') },
       '/api/v1/subjects': { body: TEST_SUBJECTS },
     })
@@ -80,6 +81,7 @@ describe('GroupSettingsPanel', () => {
     stubApi({
       ...SIGNED_IN_API,
       '/api/v1/groups/g1/leaderboard': { body: TEST_LEADERBOARD },
+      '/api/v1/groups/g1/challenges': { body: [] },
       '/api/v1/groups/g1': { body: group('OWNER', TEST_GROUP_SETTINGS) },
       '/api/v1/groups/g1/invitation': NO_INVITATION,
     })
@@ -104,6 +106,7 @@ describe('GroupSettingsPanel', () => {
     const fetchMock = stubApi({
       ...SIGNED_IN_API,
       '/api/v1/groups/g1/leaderboard': { body: TEST_LEADERBOARD },
+      '/api/v1/groups/g1/challenges': { body: [] },
       '/api/v1/groups/g1': { body: group('OWNER') },
       '/api/v1/groups/g1/invitation': NO_INVITATION,
       '/api/v1/subjects': { body: TEST_SUBJECTS },
