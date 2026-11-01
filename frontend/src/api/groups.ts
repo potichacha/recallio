@@ -8,8 +8,11 @@ export type GroupSummary = components['schemas']['GroupSummary']
 export type GroupMember = components['schemas']['GroupMember']
 export type GroupSettings = components['schemas']['GroupSettings']
 export type LeaderboardVisibility = components['schemas']['LeaderboardVisibility']
+export type Leaderboard = components['schemas']['Leaderboard']
+export type LeaderboardEntry = components['schemas']['LeaderboardEntry']
 
 const GROUPS_KEY = ['groups']
+const leaderboardKey = (groupId: string) => [...GROUPS_KEY, groupId, 'leaderboard']
 
 /** Les groupes dont l'utilisateur connecté est membre. */
 export function useMyGroups() {
@@ -63,7 +66,25 @@ export function useUpdateGroupSettings(groupId: string) {
       if (data === undefined) throw ApiError.from(response, error)
       return data
     },
-    onSuccess: (group) => queryClient.setQueryData([...GROUPS_KEY, group.id], group),
+    onSuccess: async (group) => {
+      queryClient.setQueryData([...GROUPS_KEY, group.id], group)
+      // L'objectif et la visibilité changent le classement.
+      await queryClient.invalidateQueries({ queryKey: leaderboardKey(group.id) })
+    },
+  })
+}
+
+/** Le classement de la semaine en cours ; sans lignes si le créateur l'a désactivé. */
+export function useLeaderboard(groupId: string) {
+  return useQuery({
+    queryKey: leaderboardKey(groupId),
+    queryFn: async () => {
+      const { data, error, response } = await api.GET('/api/v1/groups/{groupId}/leaderboard', {
+        params: { path: { groupId } },
+      })
+      if (data === undefined) throw ApiError.from(response, error)
+      return data
+    },
   })
 }
 

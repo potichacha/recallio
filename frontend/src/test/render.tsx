@@ -71,6 +71,15 @@ export const TEST_GROUP_SETTINGS = {
   leaderboardVisibility: 'NAMED',
 }
 
+/** Le classement de la semaine d'un groupe dont personne n'a encore révisé. */
+export const TEST_LEADERBOARD = {
+  weekStart: '2026-10-26',
+  weekEnd: '2026-11-01',
+  dailyGoal: 10,
+  visibility: 'NAMED',
+  entries: [] as unknown[],
+}
+
 /** Ce que l'en-tête charge dès qu'un utilisateur est connecté : son profil et sa progression. */
 export const SIGNED_IN_API: Record<string, StubResponse> = {
   '/api/v1/me': { body: TEST_PROFILE },

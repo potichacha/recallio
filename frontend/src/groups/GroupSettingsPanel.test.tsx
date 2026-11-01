@@ -8,6 +8,7 @@ import {
   SIGNED_IN_API,
   stubApi,
   TEST_GROUP_SETTINGS,
+  TEST_LEADERBOARD,
   TEST_SUBJECTS,
 } from '../test/render'
 
@@ -55,6 +56,7 @@ describe('GroupSettingsPanel', () => {
   it('shows members what the group reviews, and lets them review with it', async () => {
     stubApi({
       ...SIGNED_IN_API,
+      '/api/v1/groups/g1/leaderboard': { body: TEST_LEADERBOARD },
       '/api/v1/groups/g1': { body: group('MEMBER') },
       '/api/v1/subjects': { body: TEST_SUBJECTS },
     })
@@ -77,6 +79,7 @@ describe('GroupSettingsPanel', () => {
   it('waits for the owner to choose subjects before offering a review', async () => {
     stubApi({
       ...SIGNED_IN_API,
+      '/api/v1/groups/g1/leaderboard': { body: TEST_LEADERBOARD },
       '/api/v1/groups/g1': { body: group('OWNER', TEST_GROUP_SETTINGS) },
       '/api/v1/groups/g1/invitation': NO_INVITATION,
     })
@@ -100,6 +103,7 @@ describe('GroupSettingsPanel', () => {
     }
     const fetchMock = stubApi({
       ...SIGNED_IN_API,
+      '/api/v1/groups/g1/leaderboard': { body: TEST_LEADERBOARD },
       '/api/v1/groups/g1': { body: group('OWNER') },
       '/api/v1/groups/g1/invitation': NO_INVITATION,
       '/api/v1/subjects': { body: TEST_SUBJECTS },

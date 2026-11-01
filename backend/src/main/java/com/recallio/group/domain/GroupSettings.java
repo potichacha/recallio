@@ -1,6 +1,7 @@
 package com.recallio.group.domain;
 
 import com.recallio.content.CardType;
+import com.recallio.group.LeaderboardVisibility;
 import java.util.List;
 import java.util.Set;
 

@@ -3,6 +3,7 @@ package com.recallio.group.domain;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.recallio.group.LeaderboardVisibility;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.IntStream;

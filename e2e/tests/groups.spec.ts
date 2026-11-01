@@ -57,6 +57,10 @@ test.describe('Groupes', () => {
       `${USERS.bob.displayName} (vous)`,
     )
 
+    const leaderboard = bob.getByRole('region', { name: 'Classement de la semaine' })
+    await expect(leaderboard.getByRole('listitem')).toHaveCount(2)
+    await expect(leaderboard).toContainText(`${USERS.bob.displayName} (vous)`)
+
     await alice.reload()
     await expect(alice.getByRole('region', { name: 'Membres (2)' })).toContainText(
       USERS.bob.displayName,

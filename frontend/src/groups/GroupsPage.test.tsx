@@ -8,6 +8,7 @@ import {
   SIGNED_IN_API,
   stubApi,
   TEST_GROUP_SETTINGS,
+  TEST_LEADERBOARD,
 } from '../test/render'
 
 const signedIn = () => fakeSession({ status: 'authenticated', userName: 'Alice' })
@@ -66,6 +67,7 @@ describe('GroupsPage', () => {
       ...SIGNED_IN_API,
       '/api/v1/groups': { body: [] },
       'POST /api/v1/groups': { status: 201, body: GROUP },
+      '/api/v1/groups/g1/leaderboard': { body: TEST_LEADERBOARD },
       '/api/v1/groups/g1': { body: GROUP },
       '/api/v1/groups/g1/invitation': { status: 404, body: { code: 'group.no-active-invitation' } },
     })

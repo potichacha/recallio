@@ -166,6 +166,9 @@ flowchart LR
 | `application.ActivityRecorder` | Observe `CardReviewed` dans la transaction de la révision (ADR 0012). |
 | `application.ProgressService` | Points, streak et objectif du jour, dans le fuseau de l'utilisateur. |
 | `api.ProgressResource` | `GET /api/v1/me/progress`, et `/activity` : cartes révisées chacun des derniers jours. |
+| `domain.leaderboard.WeeklyRanking` | Le rang de la semaine : jours réguliers, puis points, puis cartes ; ex æquo au même rang (ADR 0018). |
+| `application.GroupLeaderboardService` | Le classement d'un groupe : membres et réglages par `group.GroupLeaderboards`, activité par `WeeklyActivity`. |
+| `api.LeaderboardResource` | `GET /api/v1/groups/{id}/leaderboard`, rangé sous le groupe mais servi par ce module. |
 
 Le tableau de bord de la PWA (accueil, une fois connecté) assemble trois lectures indépendantes :
 `/api/v1/me/review-stats` (review), `/api/v1/me/progress` et `/api/v1/me/progress/activity` (gamification). Aucun
@@ -193,7 +196,8 @@ Il obtient les noms des membres par `user.UserDirectory` (API publique du module
 (`/api/v1/review-queue?group=...`).
 
 Les dépendances entre modules vont dans un seul sens : `gamification` → `review` (événement) → `content`, `user` ;
-`review` → `group` → `content`, `user`.
+`review` → `group` → `content`, `user` ;
+`gamification` → `group` (classement des groupes).
 
 Le module transverse `platform` fournit les identifiants (`IdGenerator`, UUID v7), l'horloge (`Clock`),
 la pagination (`Page`) et la traduction des erreurs en Problem Details (RFC 9457).
