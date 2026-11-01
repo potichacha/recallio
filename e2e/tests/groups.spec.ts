@@ -2,7 +2,9 @@ import { expect, test } from '@playwright/test'
 import { signIn, USERS } from './support/auth'
 
 test.describe('Groupes', () => {
-  test('creates a group, finds it among my groups, then deletes it', async ({ page }) => {
+  test('creates a group, chooses its subjects and reviews with it, then deletes it', async ({
+    page,
+  }) => {
     // Un nom propre à ce passage : les tests restent rejouables sur une base déjà utilisée.
     const name = `Équipe ${Date.now()}`
     await signIn(page, USERS.alice, '/groups')
@@ -13,7 +15,19 @@ test.describe('Groupes', () => {
     await expect(page.getByRole('heading', { name })).toBeVisible()
     await expect(page.getByRole('region', { name: 'Membres (1)' })).toContainText('Créateur')
 
-    await page.getByRole('link', { name: '← Mes groupes' }).click()
+    // Le créateur choisit les sujets du groupe, puis révise avec lui.
+    const settings = page.getByRole('region', { name: 'Réglages' })
+    await expect(settings).toContainText('Aucun sujet choisi pour le moment')
+    await settings.getByRole('button', { name: 'Modifier les réglages' }).click()
+    await settings.getByRole('checkbox', { name: 'Go' }).check()
+    await settings.getByRole('radio', { name: 'Anonymisé' }).check()
+    await settings.getByRole('button', { name: 'Enregistrer les réglages' }).click()
+    await expect(settings).toContainText('Anonymisé')
+    await settings.getByRole('link', { name: 'Réviser avec le groupe' }).click()
+    await expect(page.getByRole('heading', { name: `Réviser avec « ${name} »` })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Voir la réponse' })).toBeVisible()
+
+    await page.goto('/groups')
     await page.getByRole('link', { name: new RegExp(name) }).click()
     await page.getByRole('button', { name: 'Supprimer le groupe' }).click()
     await page.getByRole('button', { name: 'Confirmer la suppression' }).click()

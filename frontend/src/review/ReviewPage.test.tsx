@@ -8,6 +8,7 @@ import {
   sentRequests,
   SIGNED_IN_API,
   stubApi,
+  TEST_GROUP_SETTINGS,
   TEST_PROFILE,
   TEST_PROGRESS,
   TEST_SUBJECTS,
@@ -158,6 +159,31 @@ describe('ReviewPage', () => {
     await screen.findByText('Tout est à jour pour le moment.')
     const request = sentRequests(fetchMock).find((sent) => sent.url.includes(QUEUE))
     expect(new URL(request?.url ?? '').searchParams.get('theme')).toBe('java-fondamentaux')
+  })
+
+  it('reviews with a group, without the tabs of the followed subjects', async () => {
+    const fetchMock = stubApi({
+      ...PROFILE,
+      [QUEUE]: { body: queue([queuedCard()]) },
+      '/api/v1/groups/g1': {
+        body: {
+          id: 'g1',
+          name: 'Équipe backend',
+          createdAt: '2026-11-01T10:00:00Z',
+          myRole: 'MEMBER',
+          settings: TEST_GROUP_SETTINGS,
+          members: [],
+        },
+      },
+    })
+    renderAt('/review?group=g1', signedIn())
+
+    expect(
+      await screen.findByRole('heading', { name: 'Réviser avec « Équipe backend »' }),
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('navigation', { name: 'Sujet révisé' })).not.toBeInTheDocument()
+    const request = sentRequests(fetchMock).find((sent) => sent.url.includes(QUEUE))
+    expect(new URL(request?.url ?? '').searchParams.get('group')).toBe('g1')
   })
 
   it('lets the candidate write an answer to a scenario before revealing the model answer', async () => {

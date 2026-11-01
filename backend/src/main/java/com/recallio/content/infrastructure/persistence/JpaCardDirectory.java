@@ -26,6 +26,15 @@ public class JpaCardDirectory implements CardDirectory {
     /** Condition JPQL ; chaque requête qui l'utilise lie le paramètre {@code published}. */
     private static final String PUBLISHED = "s.status = :published";
 
+    /**
+     * Le thème est sélectionné, ou son sujet n'a aucun thème sélectionné (il les garde alors tous). Lie le paramètre
+     * {@code selection}.
+     */
+    private static final String THEME_SELECTION = """
+            (t.slug in :selection
+             or not exists (select 1 from ThemeEntity other where other.subjectId = s.id and other.slug in :selection))
+            """;
+
     private final EntityManager entityManager;
 
     public JpaCardDirectory(EntityManager entityManager) {
@@ -39,17 +48,24 @@ public class JpaCardDirectory implements CardDirectory {
             return List.of();
         }
         List<String> conditions = new ArrayList<>(List.of("c.retiredAt is null", PUBLISHED));
-        String themeSlug = filter.themeSlug();
-        CardType type = filter.type();
+        Map<String, Object> parameters = new HashMap<>(Map.of("published", Subject.Status.PUBLISHED));
         if (subjectSlugs != null) {
             conditions.add("s.slug in :subjects");
+            parameters.put("subjects", subjectSlugs);
         }
+        String themeSlug = filter.themeSlug();
         if (themeSlug != null) {
             requireTheme(themeSlug);
             conditions.add("t.slug = :slug");
+            parameters.put("slug", themeSlug);
         }
-        if (type != null) {
-            conditions.add("c.type = :type");
+        if (!filter.themeSelection().isEmpty()) {
+            conditions.add(THEME_SELECTION);
+            parameters.put("selection", filter.themeSelection());
+        }
+        if (!filter.types().isEmpty()) {
+            conditions.add("c.type in :types");
+            parameters.put("types", filter.types());
         }
         var query = entityManager.createQuery("""
                 select c.id, s.slug from CardEntity c
@@ -58,16 +74,7 @@ public class JpaCardDirectory implements CardDirectory {
                 where %s
                 order by s.position, t.position, c.position
                 """.formatted(String.join(" and ", conditions)), Object[].class);
-        query.setParameter("published", Subject.Status.PUBLISHED);
-        if (subjectSlugs != null) {
-            query.setParameter("subjects", subjectSlugs);
-        }
-        if (themeSlug != null) {
-            query.setParameter("slug", themeSlug);
-        }
-        if (type != null) {
-            query.setParameter("type", type);
-        }
+        parameters.forEach(query::setParameter);
         return query.getResultStream()
                 .map(row -> new ActiveCard((UUID) row[0], (String) row[1]))
                 .toList();

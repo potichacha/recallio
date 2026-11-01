@@ -5,6 +5,8 @@ import com.recallio.content.CardDirectory.CardFilter;
 import com.recallio.content.CardDirectory.CardSnapshot;
 import com.recallio.content.CardType;
 import com.recallio.content.SubjectDirectory;
+import com.recallio.group.GroupReviewScopes;
+import com.recallio.group.GroupReviewScopes.GroupReviewScope;
 import com.recallio.review.domain.LearningState;
 import com.recallio.review.domain.Rating;
 import com.recallio.review.domain.ReviewState;
@@ -28,7 +30,8 @@ import org.jspecify.annotations.Nullable;
 
 /**
  * Cas d'usage : quelles cartes réviser maintenant (CLAUDE.md, section 6.1). Sans filtre, les cartes viennent des sujets
- * suivis ; un sujet ou un thème demandé explicitement est révisable même s'il n'est pas suivi.
+ * suivis ; un sujet ou un thème demandé explicitement est révisable même s'il n'est pas suivi. Avec un groupe, elles
+ * viennent de ses réglages (ADR 0017).
  */
 @ApplicationScoped
 @Transactional(Transactional.TxType.SUPPORTS)
@@ -37,6 +40,7 @@ public class ReviewQueueService {
     private final CardDirectory cards;
     private final SubjectDirectory subjects;
     private final FollowedSubjects followedSubjects;
+    private final GroupReviewScopes groupScopes;
     private final ReviewStateRepository states;
     private final FsrsScheduler scheduler;
     private final NewCardQuota quota;
@@ -46,6 +50,7 @@ public class ReviewQueueService {
             CardDirectory cards,
             SubjectDirectory subjects,
             FollowedSubjects followedSubjects,
+            GroupReviewScopes groupScopes,
             ReviewStateRepository states,
             FsrsScheduler scheduler,
             NewCardQuota quota,
@@ -53,6 +58,7 @@ public class ReviewQueueService {
         this.cards = cards;
         this.subjects = subjects;
         this.followedSubjects = followedSubjects;
+        this.groupScopes = groupScopes;
         this.states = states;
         this.scheduler = scheduler;
         this.quota = quota;
@@ -73,15 +79,38 @@ public class ReviewQueueService {
     }
 
     private CardFilter cardFilter(UserRef user, QueueFilter filter) {
+        UUID group = filter.group();
+        if (group != null) {
+            return groupFilter(groupScopes.of(user, group), filter);
+        }
+        Set<CardType> types = filter.type() == null ? Set.of() : Set.of(filter.type());
         String subject = filter.subject();
         if (subject != null) {
             subjects.requirePublished(subject);
-            return new CardFilter(Set.of(subject), filter.theme(), filter.type());
+            return new CardFilter(Set.of(subject), filter.theme(), Set.of(), types);
         }
         if (filter.theme() != null) {
-            return new CardFilter(null, filter.theme(), filter.type());
+            return new CardFilter(null, filter.theme(), Set.of(), types);
         }
-        return new CardFilter(Set.copyOf(followedSubjects.of(user)), null, filter.type());
+        return new CardFilter(Set.copyOf(followedSubjects.of(user)), null, Set.of(), types);
+    }
+
+    /** Les cartes du groupe ; un sujet, un thème ou un format demandé en plus restreint encore la file. */
+    private static CardFilter groupFilter(GroupReviewScope scope, QueueFilter filter) {
+        Set<String> groupSubjects = scope.subjectSlugs();
+        String subject = filter.subject();
+        CardType type = filter.type();
+        boolean typeOutsideGroup = type != null
+                && !scope.cardTypes().isEmpty()
+                && !scope.cardTypes().contains(type);
+        if ((subject != null && !groupSubjects.contains(subject)) || typeOutsideGroup) {
+            return new CardFilter(Set.of(), null, Set.of(), Set.of());
+        }
+        return new CardFilter(
+                subject == null ? groupSubjects : Set.of(subject),
+                filter.theme(),
+                scope.themeSlugs(),
+                type == null ? scope.cardTypes() : Set.of(type));
     }
 
     private QueuedCard queuedCard(CardSnapshot card, ReviewState state, Instant now) {
@@ -93,18 +122,20 @@ public class ReviewQueueService {
     }
 
     /**
+     * @param group les cartes de ce groupe, dont l'utilisateur est membre, au lieu de ses sujets suivis
      * @param subject restreint à un sujet, suivi ou non
      * @param theme restreint à un thème, suivi ou non
      * @param type restreint à un format de carte
      */
     public record QueueFilter(
+            @Nullable UUID group,
             @Nullable String subject,
             @Nullable String theme,
             @Nullable CardType type) {
 
         /** Aucun filtre : les cartes des sujets suivis. */
         public static QueueFilter followedSubjects() {
-            return new QueueFilter(null, null, null);
+            return new QueueFilter(null, null, null, null);
         }
     }
 

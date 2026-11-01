@@ -3,8 +3,11 @@ package com.recallio.review.application;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.recallio.content.CardDirectory;
+import com.recallio.content.CardDirectory.CardFilter;
 import com.recallio.content.CardType;
 import com.recallio.content.SubjectDirectory;
+import com.recallio.group.GroupReviewScopes.GroupReviewScope;
+import com.recallio.review.application.ReviewQueueService.QueueFilter;
 import com.recallio.review.domain.LearningState;
 import com.recallio.review.domain.ReviewState;
 import com.recallio.review.domain.ReviewStateRepository;
@@ -22,6 +25,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.IntStream;
 import org.junit.jupiter.api.Test;
@@ -35,6 +39,10 @@ class ReviewQueueServiceTest {
     private final List<UUID> catalog =
             IntStream.range(0, 5).mapToObj(_ -> UUID.randomUUID()).toList();
     private final InMemoryStates states = new InMemoryStates();
+    private final List<CardFilter> filters = new ArrayList<>();
+    private final UUID groupId = UUID.randomUUID();
+    private final GroupReviewScope groupScope =
+            new GroupReviewScope(Set.of("java", "go"), Set.of("go-concurrence"), Set.of(CardType.FLASHCARD));
     private final UserRef user = new UserRef(UUID.randomUUID(), PARIS);
 
     @Test
@@ -78,9 +86,32 @@ class ReviewQueueServiceTest {
                         now.plus(Duration.ofDays(8)));
     }
 
+    @Test
+    void shouldReviewTheSubjectsThemesAndFormatsChosenByTheGroup() {
+        serviceAt(Instant.parse("2026-10-29T08:00:00Z")).queue(user, new QueueFilter(groupId, null, null, null), 10);
+
+        assertThat(filters)
+                .containsExactly(new CardFilter(
+                        Set.of("java", "go"), null, Set.of("go-concurrence"), Set.of(CardType.FLASHCARD)));
+    }
+
+    @Test
+    void shouldNarrowTheGroupCardsToARequestedSubject() {
+        var service = serviceAt(Instant.parse("2026-10-29T08:00:00Z"));
+
+        service.queue(user, new QueueFilter(groupId, "go", null, null), 10);
+        var outside = service.queue(user, new QueueFilter(groupId, "rust", null, null), 10);
+        service.queue(user, new QueueFilter(groupId, null, null, CardType.DEFINITION), 10);
+
+        assertThat(filters.get(0).subjectSlugs()).containsExactly("go");
+        assertThat(filters.get(1).subjectSlugs()).isEmpty();
+        assertThat(filters.get(2).subjectSlugs()).isEmpty();
+        assertThat(outside.cards()).isEmpty();
+    }
+
     private ReviewQueueService serviceAt(Instant now) {
         return new ReviewQueueService(
-                new FixedCatalog(catalog),
+                new FixedCatalog(catalog, filters),
                 new SubjectDirectory() {
                     @Override
                     public List<String> publishedSubjectSlugs() {
@@ -89,8 +120,14 @@ class ReviewQueueServiceTest {
 
                     @Override
                     public void requirePublished(String slug) {}
+
+                    @Override
+                    public List<String> themeSlugs(String subjectSlug) {
+                        return List.of("java-theme");
+                    }
                 },
                 _ -> List.of(SUBJECT),
+                (_, _) -> groupScope,
                 states,
                 new FsrsScheduler(FsrsParameters.DEFAULT),
                 new NewCardQuota(states, new TestConfig()),
@@ -109,9 +146,15 @@ class ReviewQueueServiceTest {
         }
     }
 
-    private record FixedCatalog(List<UUID> ids) implements CardDirectory {
+    /** Toujours les mêmes cartes, sauf pour un filtre qui n'admet aucun sujet ; garde les filtres reçus. */
+    private record FixedCatalog(List<UUID> ids, List<CardFilter> filters) implements CardDirectory {
         @Override
         public List<ActiveCard> activeCards(CardFilter filter) {
+            filters.add(filter);
+            Set<String> subjects = filter.subjectSlugs();
+            if (subjects != null && subjects.isEmpty()) {
+                return List.of();
+            }
             return ids.stream().map(id -> new ActiveCard(id, SUBJECT)).toList();
         }
 

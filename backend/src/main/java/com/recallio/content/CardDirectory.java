@@ -32,22 +32,29 @@ public interface CardDirectory {
     }
 
     /**
+     * Les conditions se cumulent.
+     *
      * @param subjectSlugs restreint à ces sujets (un ensemble vide ne laisse passer aucune carte), ou tous les sujets si
      *     {@code null}
      * @param themeSlug restreint à un thème, ou tous les thèmes si {@code null}
-     * @param type restreint à un format, ou tous les formats si {@code null}
+     * @param themeSelection restreint chaque sujet aux thèmes de cet ensemble qui lui appartiennent ; un sujet dont aucun
+     *     thème n'y figure garde tous ses thèmes. Vide : aucune restriction.
+     * @param types restreint à ces formats ; vide : tous les formats
      */
     record CardFilter(
             @Nullable Set<String> subjectSlugs,
             @Nullable String themeSlug,
-            @Nullable CardType type) {
+            Set<String> themeSelection,
+            Set<CardType> types) {
 
         public CardFilter {
             subjectSlugs = subjectSlugs == null ? null : Set.copyOf(subjectSlugs);
+            themeSelection = Set.copyOf(themeSelection);
+            types = Set.copyOf(types);
         }
 
         public static CardFilter all() {
-            return new CardFilter(null, null, null);
+            return new CardFilter(null, null, Set.of(), Set.of());
         }
     }
 

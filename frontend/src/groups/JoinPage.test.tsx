@@ -1,7 +1,7 @@
 import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
-import { fakeSession, renderAt, SIGNED_IN_API, stubApi } from '../test/render'
+import { fakeSession, renderAt, SIGNED_IN_API, stubApi, TEST_GROUP_SETTINGS } from '../test/render'
 
 const signedIn = () => fakeSession({ status: 'authenticated', userName: 'Bob' })
 
@@ -21,6 +21,7 @@ const JOINED_GROUP = {
   name: 'Équipe backend',
   createdAt: '2026-11-01T10:00:00Z',
   myRole: 'MEMBER',
+  settings: TEST_GROUP_SETTINGS,
   members: [
     {
       userId: 'u1',

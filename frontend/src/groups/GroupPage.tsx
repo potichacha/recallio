@@ -9,9 +9,13 @@ import {
   type Group,
   type GroupMember,
 } from '../api/groups'
+import { GroupSettingsPanel } from './GroupSettingsPanel'
 import { InvitationPanel } from './InvitationPanel'
 
-/** Un groupe : ses membres ; le créateur les gère et peut supprimer le groupe, un membre peut le quitter. */
+/**
+ * Un groupe : ses réglages et ses membres. Le créateur les gère, invite et peut supprimer le groupe ; un membre peut le
+ * quitter.
+ */
 export function GroupPage() {
   const { groupId = '' } = useParams()
   const group = useGroup(groupId)
@@ -36,6 +40,7 @@ export function GroupPage() {
       {group.isError && <p role="alert">Impossible de charger le groupe.</p>}
       {group.data && (
         <>
+          <GroupSettingsPanel group={group.data} />
           <MemberList group={group.data} />
           {group.data.myRole === 'OWNER' ? (
             <>

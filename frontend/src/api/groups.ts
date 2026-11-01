@@ -6,6 +6,8 @@ import type { components } from './schema'
 export type Group = components['schemas']['Group']
 export type GroupSummary = components['schemas']['GroupSummary']
 export type GroupMember = components['schemas']['GroupMember']
+export type GroupSettings = components['schemas']['GroupSettings']
+export type LeaderboardVisibility = components['schemas']['LeaderboardVisibility']
 
 const GROUPS_KEY = ['groups']
 
@@ -46,6 +48,22 @@ export function useCreateGroup() {
       queryClient.setQueryData([...GROUPS_KEY, group.id], group)
       await queryClient.invalidateQueries({ queryKey: GROUPS_KEY, exact: true })
     },
+  })
+}
+
+/** Le créateur remplace les réglages du groupe ; la réponse est le groupe à jour. */
+export function useUpdateGroupSettings(groupId: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (settings: GroupSettings) => {
+      const { data, error, response } = await api.PUT('/api/v1/groups/{groupId}/settings', {
+        params: { path: { groupId } },
+        body: settings,
+      })
+      if (data === undefined) throw ApiError.from(response, error)
+      return data
+    },
+    onSuccess: (group) => queryClient.setQueryData([...GROUPS_KEY, group.id], group),
   })
 }
 

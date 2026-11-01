@@ -4,6 +4,8 @@ import com.recallio.group.domain.GroupExceptions.MemberNotFoundException;
 import com.recallio.group.domain.GroupExceptions.TooManyGroupsException;
 import com.recallio.group.domain.GroupName;
 import com.recallio.group.domain.GroupRole;
+import com.recallio.group.domain.GroupSettings;
+import com.recallio.group.domain.GroupSettingsRepository;
 import com.recallio.group.domain.StudyGroup;
 import com.recallio.group.domain.StudyGroupRepository;
 import com.recallio.group.domain.StudyGroupRepository.GroupSummary;
@@ -33,6 +35,7 @@ public class StudyGroupService {
 
     private final StudyGroupRepository groups;
     private final GroupAccess access;
+    private final GroupSettingsRepository settings;
     private final UserDirectory users;
     private final IdGenerator idGenerator;
     private final Clock clock;
@@ -40,11 +43,13 @@ public class StudyGroupService {
     public StudyGroupService(
             StudyGroupRepository groups,
             GroupAccess access,
+            GroupSettingsRepository settings,
             UserDirectory users,
             IdGenerator idGenerator,
             Clock clock) {
         this.groups = groups;
         this.access = access;
+        this.settings = settings;
         this.users = users;
         this.idGenerator = idGenerator;
         this.clock = clock;
@@ -111,10 +116,17 @@ public class StudyGroupService {
                         member.userId().equals(viewer.id())))
                 .toList();
         GroupRole myRole = group.isOwner(viewer.id()) ? GroupRole.OWNER : GroupRole.MEMBER;
-        return new GroupDetail(group.id(), group.name().value(), group.createdAt(), myRole, members);
+        return new GroupDetail(
+                group.id(), group.name().value(), group.createdAt(), myRole, members, settings.findByGroup(group.id()));
     }
 
-    public record GroupDetail(UUID id, String name, Instant createdAt, GroupRole myRole, List<MemberView> members) {}
+    public record GroupDetail(
+            UUID id,
+            String name,
+            Instant createdAt,
+            GroupRole myRole,
+            List<MemberView> members,
+            GroupSettings settings) {}
 
     /** @param me vrai pour l'utilisateur qui consulte le groupe */
     public record MemberView(UUID userId, String displayName, GroupRole role, Instant joinedAt, boolean me) {}
