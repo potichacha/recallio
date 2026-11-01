@@ -13,7 +13,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
-import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
@@ -21,9 +21,9 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 
 /**
- * Contrôle de tous les documents de référence de {@code content/source} (CLAUDE.md, section 5.2) : si un document est
- * mal formé, ce test le dit dans la CI, avant le merge et avant l'import. Un nouveau sujet est vérifié dès qu'il est
- * ajouté au dossier, sans modifier ce test.
+ * Contrôle de tous les documents de référence de {@code content/source} (CLAUDE.md, section 5.2 ; règles dans
+ * content/README.md) : si un document est mal formé, ce test le dit dans la CI (job {@code content}), avant le merge et
+ * avant l'import. Un nouveau sujet est vérifié dès qu'il est ajouté au dossier, sans modifier ce test.
  */
 class ReferenceDocumentTest {
 
@@ -73,14 +73,29 @@ class ReferenceDocumentTest {
                 .allSatisfy(theme -> assertThat(theme.cards()).as(theme.title()).isNotEmpty());
     }
 
+    /**
+     * Un sujet n'a pas besoin de tous les formats (les questions pièges n'ont de sens que pour un langage, le glossaire
+     * est facultatif), mais les questions techniques en sont le cœur (content/README.md).
+     */
     @ParameterizedTest
     @MethodSource("documents")
-    void shouldProduceCardsOfEveryType(Path document) {
-        Map<CardType, Long> countByType = parse(document).themes().stream()
+    void shouldHaveTechnicalQuestions(Path document) {
+        Set<CardType> types = parse(document).themes().stream()
                 .flatMap(theme -> theme.cards().stream())
-                .collect(Collectors.groupingBy(card -> card.content().type(), Collectors.counting()));
+                .map(card -> card.content().type())
+                .collect(Collectors.toSet());
 
-        assertThat(countByType).containsOnlyKeys(CardType.values());
+        assertThat(types).contains(CardType.FLASHCARD);
+    }
+
+    @Test
+    void shouldProduceEveryCardTypeFromTheJavaDocument() {
+        Set<CardType> types = parse(SOURCES.resolve("java" + SUFFIX)).themes().stream()
+                .flatMap(theme -> theme.cards().stream())
+                .map(card -> card.content().type())
+                .collect(Collectors.toSet());
+
+        assertThat(types).containsExactlyInAnyOrder(CardType.values());
     }
 
     @Test

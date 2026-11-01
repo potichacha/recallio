@@ -346,7 +346,7 @@ Chaque phase se termine par une démo fonctionnelle, une CI verte, la documentat
 7. Déploiement sur l'hébergeur choisi, observabilité de base : **après l'étape 1 de la phase 1 bis** (voir ci-dessous).
 - **Terminé quand** : quelques testeurs peuvent réviser chaque jour sur mobile ; on mesure combien reviennent après 7 jours.
 
-### Phase 1 bis : catalogue multi-sujets
+### Phase 1 bis : catalogue multi-sujets ✅
 Faire de Recallio un catalogue de sujets (2.5), avec Java et Go comme premiers sujets.
 
 **L'étape 1 doit précéder le premier déploiement** : elle change l'identité des cartes (le sujet y entre). Aujourd'hui, sans utilisateur réel, ce n'est qu'un réimport ; après le déploiement, cela ferait perdre leur progression aux testeurs.
@@ -363,10 +363,10 @@ Faire de Recallio un catalogue de sujets (2.5), avec Java et Go comme premiers s
    - Choix des sujets au premier login (écran d'accueil) et dans le profil.
    - File de révision limitée aux sujets suivis, filtre par sujet, quota de nouvelles cartes réparti entre eux.
 4. ✅ **Tableau de bord par sujet** : progression par sujet, puis par thème dans chaque sujet.
-5. **Outillage du contenu**.
+5. ✅ **Outillage du contenu**.
    - `content/README.md` (guide de rédaction et liste de contrôle).
    - Contrôle du contenu en CI (tous les documents parsés, échec sur anomalie).
-   - Écran admin des brouillons, et documentation de la procédure « ajouter un sujet ». (Le contrôle de chaque document en CI et le statut `draft` / `published` existent depuis l'étape 1.)
+   - Écran admin des brouillons (le catalogue lui-même : un admin y voit les brouillons, badge « Brouillon », depuis l'étape 2), et documentation de la procédure « ajouter un sujet » (`content/README.md`, section 7). Job CI `content` dédié au contrôle des documents.
 - **Terminé quand** : un utilisateur suit Java et Go, révise les deux dans la même session et voit sa progression par sujet ; ajouter un troisième sujet ne demande qu'une pull request de contenu.
 
 Ensuite, chaque nouveau sujet (5.5) est une pull request de contenu, qui peut avancer en parallèle des phases suivantes.
