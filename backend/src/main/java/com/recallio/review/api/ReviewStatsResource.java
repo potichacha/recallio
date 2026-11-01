@@ -2,6 +2,7 @@ package com.recallio.review.api;
 
 import com.recallio.review.application.ReviewStatsService;
 import com.recallio.review.application.ReviewStatsService.ReviewStats;
+import com.recallio.review.application.ReviewStatsService.SubjectStats;
 import com.recallio.review.application.ReviewStatsService.ThemeStats;
 import com.recallio.review.domain.stats.CardCounts;
 import com.recallio.user.CurrentUser;
@@ -36,7 +37,7 @@ public class ReviewStatsResource {
     @GET
     @Operation(
             operationId = "getMyReviewStats",
-            summary = "Cartes dues et progression par thème de l'utilisateur connecté")
+            summary = "Cartes dues et progression par sujet, puis par thème, sur les sujets suivis")
     @APIResponse(responseCode = "200", description = "Les statistiques")
     @APIResponse(responseCode = "401", description = "Non authentifié")
     public ReviewStatsDto getMyReviewStats() {
@@ -50,26 +51,38 @@ public class ReviewStatsResource {
             @Schema(description = "Nouvelles cartes encore proposées aujourd'hui")
             int newToday,
 
-            List<ThemeStatsDto> themes) {
+            @Schema(description = "Les sujets suivis, dans l'ordre du catalogue")
+            List<SubjectStatsDto> subjects) {
 
         static ReviewStatsDto from(ReviewStats stats) {
             return new ReviewStatsDto(
                     CardCountsDto.from(stats.overall()),
                     stats.newToday(),
-                    stats.themes().stream().map(ThemeStatsDto::from).toList());
+                    stats.subjects().stream().map(SubjectStatsDto::from).toList());
+        }
+    }
+
+    @Schema(name = "SubjectStats")
+    public record SubjectStatsDto(
+            String slug,
+            String title,
+            CardCountsDto counts,
+
+            @Schema(description = "Les thèmes du sujet, dans l'ordre du document")
+            List<ThemeStatsDto> themes) {
+        static SubjectStatsDto from(SubjectStats subject) {
+            return new SubjectStatsDto(
+                    subject.slug(),
+                    subject.title(),
+                    CardCountsDto.from(subject.counts()),
+                    subject.themes().stream().map(ThemeStatsDto::from).toList());
         }
     }
 
     @Schema(name = "ThemeStats")
-    public record ThemeStatsDto(
-            String subjectSlug, String subjectTitle, String slug, String title, CardCountsDto counts) {
+    public record ThemeStatsDto(String slug, String title, CardCountsDto counts) {
         static ThemeStatsDto from(ThemeStats theme) {
-            return new ThemeStatsDto(
-                    theme.subjectSlug(),
-                    theme.subjectTitle(),
-                    theme.slug(),
-                    theme.title(),
-                    CardCountsDto.from(theme.counts()));
+            return new ThemeStatsDto(theme.slug(), theme.title(), CardCountsDto.from(theme.counts()));
         }
     }
 

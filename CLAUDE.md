@@ -362,7 +362,7 @@ Faire de Recallio un catalogue de sujets (2.5), avec Java et Go comme premiers s
 3. ✅ **Sujets suivis**.
    - Choix des sujets au premier login (écran d'accueil) et dans le profil.
    - File de révision limitée aux sujets suivis, filtre par sujet, quota de nouvelles cartes réparti entre eux.
-4. **Tableau de bord par sujet** : progression par sujet, puis par thème dans chaque sujet.
+4. ✅ **Tableau de bord par sujet** : progression par sujet, puis par thème dans chaque sujet.
 5. **Outillage du contenu**.
    - `content/README.md` (guide de rédaction et liste de contrôle).
    - Contrôle du contenu en CI (tous les documents parsés, échec sur anomalie).

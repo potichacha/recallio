@@ -4,12 +4,14 @@ import { ApiError } from './errors'
 import type { components } from './schema'
 
 export type ReviewStats = components['schemas']['ReviewStats']
+export type SubjectStats = components['schemas']['SubjectStats']
 export type ThemeStats = components['schemas']['ThemeStats']
+export type CardCounts = components['schemas']['CardCounts']
 export type DayActivity = components['schemas']['DayActivity']
 
 export const ACTIVITY_DAYS = 7
 
-/** Cartes dues et progression par thème de l'utilisateur connecté. */
+/** Cartes dues et progression par sujet, puis par thème, sur les sujets suivis. */
 export function useReviewStats() {
   return useQuery({
     queryKey: ['review-stats'],
