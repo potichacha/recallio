@@ -62,6 +62,15 @@ export const TEST_SUBJECTS = [
   testSubject('rust', 'Rust', { position: 30, status: 'DRAFT' }),
 ]
 
+/** Les réglages d'un groupe neuf : aucun sujet choisi. */
+export const TEST_GROUP_SETTINGS = {
+  subjects: [] as string[],
+  themes: [] as string[],
+  cardTypes: [] as string[],
+  dailyGoal: 10,
+  leaderboardVisibility: 'NAMED',
+}
+
 /** Ce que l'en-tête charge dès qu'un utilisateur est connecté : son profil et sa progression. */
 export const SIGNED_IN_API: Record<string, StubResponse> = {
   '/api/v1/me': { body: TEST_PROFILE },

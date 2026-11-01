@@ -25,6 +25,7 @@ import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
+import java.util.UUID;
 import org.eclipse.microprofile.openapi.annotations.Operation;
 import org.eclipse.microprofile.openapi.annotations.media.Content;
 import org.eclipse.microprofile.openapi.annotations.media.Schema;
@@ -59,7 +60,7 @@ public class ReviewsResource {
     @Operation(
             operationId = "getReviewQueue",
             summary = "Cartes à réviser maintenant : les cartes dues, puis des nouvelles dans la limite du jour."
-                    + " Sans filtre, elles viennent des sujets suivis.")
+                    + " Sans filtre, elles viennent des sujets suivis ; avec un groupe, de ses réglages.")
     @APIResponse(responseCode = "200", description = "La file de révision")
     @APIResponse(
             responseCode = "400",
@@ -70,12 +71,16 @@ public class ReviewsResource {
                             schema = @Schema(implementation = ProblemDetail.class)))
     @APIResponse(
             responseCode = "404",
-            description = "Sujet ou thème inconnu",
+            description = "Sujet ou thème inconnu, ou groupe dont l'utilisateur n'est pas membre",
             content =
                     @Content(
                             mediaType = ProblemDetail.MEDIA_TYPE,
                             schema = @Schema(implementation = ProblemDetail.class)))
     public ReviewQueueDto getReviewQueue(
+            @Parameter(description = "Identifiant d'un groupe dont l'utilisateur est membre, pour réviser ses cartes")
+                    @QueryParam("group")
+                    @Nullable
+                    UUID group,
             @Parameter(description = "Slug du sujet, pour ne réviser que ce sujet (suivi ou non)")
                     @QueryParam("subject")
                     @Nullable
@@ -85,7 +90,7 @@ public class ReviewsResource {
             @Parameter(description = "Format de carte, pour ne réviser que ce format") @QueryParam("type") @Nullable
                     CardType type,
             @QueryParam("size") @DefaultValue("20") @Min(1) @Max(MAX_QUEUE_SIZE) int size) {
-        return ReviewQueueDto.from(queues.queue(currentUser.get(), new QueueFilter(subject, theme, type), size));
+        return ReviewQueueDto.from(queues.queue(currentUser.get(), new QueueFilter(group, subject, theme, type), size));
     }
 
     @POST

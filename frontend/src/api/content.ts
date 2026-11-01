@@ -1,4 +1,4 @@
-import { keepPreviousData, useQuery } from '@tanstack/react-query'
+import { keepPreviousData, queryOptions, useQueries, useQuery } from '@tanstack/react-query'
 import { api } from './client'
 import { ApiError } from './errors'
 import type { components } from './schema'
@@ -36,8 +36,8 @@ export function useSubject(slug: string) {
   })
 }
 
-export function useSubjectThemes(slug: string) {
-  return useQuery({
+function subjectThemesQuery(slug: string) {
+  return queryOptions({
     queryKey: ['subjects', slug, 'themes'],
     queryFn: async () => {
       const { data, error, response } = await api.GET('/api/v1/subjects/{slug}/themes', {
@@ -46,6 +46,24 @@ export function useSubjectThemes(slug: string) {
       if (data === undefined) throw ApiError.from(response, error)
       return data
     },
+  })
+}
+
+export function useSubjectThemes(slug: string) {
+  return useQuery(subjectThemesQuery(slug))
+}
+
+/**
+ * Les thèmes de plusieurs sujets, dans l'ordre des sujets demandés. Tant que `pending` est vrai, ceux d'un sujet pas
+ * encore chargé manquent.
+ */
+export function useThemesOfSubjects(slugs: string[]) {
+  return useQueries({
+    queries: slugs.map((slug) => subjectThemesQuery(slug)),
+    combine: (results) => ({
+      themes: results.flatMap((result) => result.data ?? []),
+      pending: results.some((result) => result.isPending),
+    }),
   })
 }
 

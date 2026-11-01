@@ -10,4 +10,11 @@ public interface SubjectDirectory {
 
     /** @throws com.recallio.platform.domain.ResourceNotFoundException si aucun sujet publié ne porte ce slug */
     void requirePublished(String slug);
+
+    /**
+     * Les slugs des thèmes d'un sujet publié, dans l'ordre du programme.
+     *
+     * @throws com.recallio.platform.domain.ResourceNotFoundException si aucun sujet publié ne porte ce slug
+     */
+    List<String> themeSlugs(String subjectSlug);
 }

@@ -176,19 +176,24 @@ module « tableau de bord » côté serveur : chaque module expose ce qu'il sait
 | Élément | Rôle |
 |---|---|
 | `domain.StudyGroup` | Un groupe et ses membres : un créateur unique, qui seul gère les membres et supprime le groupe (ADR 0015) ; 100 membres au plus. |
+| `domain.GroupSettings` | Les réglages : sujets, thèmes, formats, objectif quotidien, visibilité du classement (ADR 0017). |
 | `domain.GroupInvitation` | Le lien d'invitation d'un groupe : un jeton aléatoire (`InvitationToken`), valable 7 jours (ADR 0016). |
 | `application.GroupAccess` | Le contrôle d'accès commun : groupe visible d'un membre (sinon 404), géré par son créateur (sinon 403). |
 | `application.StudyGroupService` | Cas d'usage des groupes et de leurs membres. |
+| `application.GroupSettingsService` | Le créateur modifie les réglages ; implémente `group.GroupReviewScopes`, lu par le module review. |
 | `application.GroupInvitationService` | Générer, remplacer, désactiver le lien ; le consulter puis rejoindre le groupe. |
 | `infrastructure.JpaStudyGroupRepository` | Tables `study_group` et `group_member`, sans clé étrangère vers `app_user`. |
+| `infrastructure.JpaGroupSettingsRepository` | Table `group_settings`, avec des tableaux `text[]` ; pas de ligne : réglages par défaut. |
 | `infrastructure.JpaGroupInvitationRepository` | Table `group_invitation` : un lien par groupe au plus. |
-| `api.GroupsResource` | `/api/v1/groups` : mes groupes, création, détail, quitter, retirer un membre, supprimer, lien d'invitation. |
+| `api.GroupsResource` | `/api/v1/groups` : mes groupes, création, détail, quitter, retirer un membre, supprimer, réglages, lien d'invitation. |
 | `api.InvitationsResource` | `/api/v1/invitations/{token}` : le groupe auquel invite un lien, et le rejoindre. |
 
-Il obtient les noms des membres par `user.UserDirectory` (API publique du module `user`).
+Il obtient les noms des membres par `user.UserDirectory` (API publique du module `user`) et les thèmes d'un sujet par
+`content.SubjectDirectory`. Le module `review` lit le périmètre d'un groupe par `group.GroupReviewScopes`
+(`/api/v1/review-queue?group=...`).
 
 Les dépendances entre modules vont dans un seul sens : `gamification` → `review` (événement) → `content`, `user` ;
-`group` → `user`.
+`review` → `group` → `content`, `user`.
 
 Le module transverse `platform` fournit les identifiants (`IdGenerator`, UUID v7), l'horloge (`Clock`),
 la pagination (`Page`) et la traduction des erreurs en Problem Details (RFC 9457).

@@ -1,7 +1,14 @@
 import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
-import { fakeSession, renderAt, sentRequests, SIGNED_IN_API, stubApi } from '../test/render'
+import {
+  fakeSession,
+  renderAt,
+  sentRequests,
+  SIGNED_IN_API,
+  stubApi,
+  TEST_GROUP_SETTINGS,
+} from '../test/render'
 
 /** Le groupe n'a pas encore de lien d'invitation. */
 const NO_INVITATION = { status: 404, body: { code: 'group.no-active-invitation' } }
@@ -23,6 +30,7 @@ function group(myRole: 'OWNER' | 'MEMBER') {
     name: 'Équipe backend',
     createdAt: '2026-11-01T10:00:00Z',
     myRole,
+    settings: TEST_GROUP_SETTINGS,
     members: [
       member('u1', 'Alice', { role: 'OWNER', me: myRole === 'OWNER' }),
       member('u2', 'Bob', { me: myRole === 'MEMBER' }),

@@ -2,6 +2,7 @@ import { useState, type ReactNode } from 'react'
 import { Link, useSearchParams } from 'react-router'
 import { useSubjects } from '../api/content'
 import { ApiError } from '../api/errors'
+import { useGroup } from '../api/groups'
 import { useProfile } from '../api/profile'
 import { useProgress } from '../api/progress'
 import { useReviewQueue, type ReviewFilter, type ReviewQueue } from '../api/review'
@@ -12,18 +13,22 @@ import { ReviewCard } from './ReviewCard'
 
 /**
  * Page de révision. Sans filtre, elle puise dans les sujets suivis (il faut donc en suivre au moins un) ; un sujet
- * (`?subject=go`) ou un thème (`?theme=...`) se révise même s'il n'est pas suivi.
+ * (`?subject=go`) ou un thème (`?theme=...`) se révise même s'il n'est pas suivi, et un groupe (`?group=...`) selon ses
+ * réglages.
  */
 export function ReviewPage() {
   const [searchParams] = useSearchParams()
   const filter: ReviewFilter = {
+    group: searchParams.get('group') ?? undefined,
     subject: searchParams.get('subject') ?? undefined,
     theme: searchParams.get('theme') ?? undefined,
   }
   // Changer de filtre démarre une nouvelle session : la position et le compteur repartent de zéro.
-  const session = <ReviewSession key={`${filter.subject}|${filter.theme}`} filter={filter} />
+  const session = (
+    <ReviewSession key={`${filter.group}|${filter.subject}|${filter.theme}`} filter={filter} />
+  )
 
-  if (filter.theme) return session
+  if (filter.group || filter.theme) return session
   // Les onglets restent en place d'un sujet à l'autre : seule la session change.
   return (
     <SubjectTabs current={filter.subject}>
@@ -94,10 +99,11 @@ function ReviewSession({ filter }: { filter: ReviewFilter }) {
   }
   if (queue.isError) {
     const notFound = queue.error instanceof ApiError && queue.error.status === 404
+    const missing = filter.group ? 'groupe' : filter.theme ? 'thème' : 'sujet'
     return (
       <p role="alert">
         {notFound
-          ? `Ce ${filter.theme ? 'thème' : 'sujet'} n’existe pas.`
+          ? `Ce ${missing} est introuvable.`
           : 'Impossible de charger les cartes à réviser.'}
       </p>
     )
@@ -112,7 +118,11 @@ function ReviewSession({ filter }: { filter: ReviewFilter }) {
   return (
     <section className="flex flex-col gap-4">
       <header className="flex items-baseline justify-between gap-2">
-        <h1 className="text-2xl font-bold">Réviser</h1>
+        {filter.group ? (
+          <GroupSessionTitle groupId={filter.group} />
+        ) : (
+          <h1 className="text-2xl font-bold">Réviser</h1>
+        )}
         <p className="text-sm text-slate-500">
           {reviewed} carte{reviewed > 1 ? 's' : ''} révisée{reviewed > 1 ? 's' : ''}
         </p>
@@ -136,6 +146,15 @@ function ReviewSession({ filter }: { filter: ReviewFilter }) {
         />
       )}
     </section>
+  )
+}
+
+function GroupSessionTitle({ groupId }: { groupId: string }) {
+  const group = useGroup(groupId)
+  return (
+    <h1 className="text-2xl font-bold">
+      {group.data ? `Réviser avec « ${group.data.name} »` : 'Réviser avec le groupe'}
+    </h1>
   )
 }
 

@@ -34,4 +34,18 @@ public class JpaSubjectDirectory implements SubjectDirectory {
             throw new SubjectNotFoundException(slug);
         }
     }
+
+    @Override
+    public List<String> themeSlugs(String subjectSlug) {
+        requirePublished(subjectSlug);
+        return entityManager
+                .createQuery("""
+                        select t.slug from ThemeEntity t
+                        join SubjectEntity s on s.id = t.subjectId
+                        where s.slug = :subject
+                        order by t.position
+                        """, String.class)
+                .setParameter("subject", subjectSlug)
+                .getResultList();
+    }
 }
