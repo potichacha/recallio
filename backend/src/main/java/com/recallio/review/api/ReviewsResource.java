@@ -1,15 +1,22 @@
 package com.recallio.review.api;
 
 import com.recallio.content.CardType;
+import com.recallio.content.ExerciseFiles.SourceFile;
 import com.recallio.platform.api.ProblemDetail;
+import com.recallio.review.api.ReviewDtos.ExerciseFileDto;
+import com.recallio.review.api.ReviewDtos.ExerciseRunDto;
+import com.recallio.review.api.ReviewDtos.ExerciseRunRequest;
 import com.recallio.review.api.ReviewDtos.RecordReviewRequest;
 import com.recallio.review.api.ReviewDtos.ReviewQueueDto;
 import com.recallio.review.api.ReviewDtos.ReviewResultDto;
+import com.recallio.review.application.ExerciseRunService;
+import com.recallio.review.application.ExerciseSubmissionService;
 import com.recallio.review.application.ReviewQueueService;
 import com.recallio.review.application.ReviewQueueService.QueueFilter;
 import com.recallio.review.application.ReviewRecordingService;
 import com.recallio.review.application.ReviewRecordingService.RecordReview;
 import com.recallio.review.application.ReviewRecordingService.ReviewOutcome;
+import com.recallio.review.domain.AnswerMismatchException;
 import com.recallio.user.CurrentUser;
 import io.quarkus.security.Authenticated;
 import jakarta.validation.Valid;
@@ -49,11 +56,20 @@ public class ReviewsResource {
 
     private final ReviewQueueService queues;
     private final ReviewRecordingService recordings;
+    private final ExerciseRunService exerciseRuns;
+    private final ExerciseSubmissionService exerciseSubmissions;
     private final CurrentUser currentUser;
 
-    public ReviewsResource(ReviewQueueService queues, ReviewRecordingService recordings, CurrentUser currentUser) {
+    public ReviewsResource(
+            ReviewQueueService queues,
+            ReviewRecordingService recordings,
+            ExerciseRunService exerciseRuns,
+            ExerciseSubmissionService exerciseSubmissions,
+            CurrentUser currentUser) {
         this.queues = queues;
         this.recordings = recordings;
+        this.exerciseRuns = exerciseRuns;
+        this.exerciseSubmissions = exerciseSubmissions;
         this.currentUser = currentUser;
     }
 
@@ -101,7 +117,8 @@ public class ReviewsResource {
     @Operation(
             operationId = "recordReview",
             summary =
-                    "Enregistre la note donnée à une carte, ou corrige les choix d'un QCM (idempotent grâce à requestId)")
+                    "Enregistre la note donnée à une carte, corrige un QCM ou un code à trous, ou juge un exercice de code"
+                            + " par ses tests (idempotent grâce à requestId)")
     @APIResponse(
             responseCode = "201",
             description = "Révision enregistrée",
@@ -139,9 +156,77 @@ public class ReviewsResource {
                     @Content(
                             mediaType = ProblemDetail.MEDIA_TYPE,
                             schema = @Schema(implementation = ProblemDetail.class)))
+    @APIResponse(
+            responseCode = "429",
+            description = "Un exercice de code de cet utilisateur est déjà en cours d'exécution",
+            content =
+                    @Content(
+                            mediaType = ProblemDetail.MEDIA_TYPE,
+                            schema = @Schema(implementation = ProblemDetail.class)))
+    @APIResponse(
+            responseCode = "503",
+            description =
+                    "L'exécution des exercices de code est indisponible : rien n'est enregistré, réessayer plus tard",
+            content =
+                    @Content(
+                            mediaType = ProblemDetail.MEDIA_TYPE,
+                            schema = @Schema(implementation = ProblemDetail.class)))
     public Response recordReview(@Valid @NotNull RecordReviewRequest request) {
+        List<ExerciseFileDto> submitted = request.submittedFiles();
+        ReviewOutcome outcome = submitted == null ? record(request) : submit(request, submitted);
+        Response.Status status = outcome.replayed() ? Response.Status.OK : Response.Status.CREATED;
+        return Response.status(status).entity(ReviewResultDto.from(outcome)).build();
+    }
+
+    @POST
+    @Path("/exercise-runs")
+    @Consumes(MediaType.APPLICATION_JSON)
+    @Operation(
+            operationId = "runExercise",
+            summary = "Exécute le code d'un exercice contre ses tests, pour l'essayer : rien n'est enregistré")
+    @APIResponse(responseCode = "200", description = "Le résultat de chaque test")
+    @APIResponse(
+            responseCode = "400",
+            description = "Requête invalide",
+            content =
+                    @Content(
+                            mediaType = ProblemDetail.MEDIA_TYPE,
+                            schema = @Schema(implementation = ProblemDetail.class)))
+    @APIResponse(
+            responseCode = "404",
+            description = "Carte inconnue ou retirée",
+            content =
+                    @Content(
+                            mediaType = ProblemDetail.MEDIA_TYPE,
+                            schema = @Schema(implementation = ProblemDetail.class)))
+    @APIResponse(
+            responseCode = "422",
+            description = "La carte n'est pas un exercice, ou les fichiers ne sont pas ceux de son code de départ",
+            content =
+                    @Content(
+                            mediaType = ProblemDetail.MEDIA_TYPE,
+                            schema = @Schema(implementation = ProblemDetail.class)))
+    @APIResponse(
+            responseCode = "429",
+            description = "Une exécution de cet utilisateur est déjà en cours",
+            content =
+                    @Content(
+                            mediaType = ProblemDetail.MEDIA_TYPE,
+                            schema = @Schema(implementation = ProblemDetail.class)))
+    @APIResponse(
+            responseCode = "503",
+            description = "L'exécution des exercices de code est indisponible",
+            content =
+                    @Content(
+                            mediaType = ProblemDetail.MEDIA_TYPE,
+                            schema = @Schema(implementation = ProblemDetail.class)))
+    public ExerciseRunDto runExercise(@Valid @NotNull ExerciseRunRequest request) {
+        return ExerciseRunDto.from(exerciseRuns.run(currentUser.get(), request.cardId(), sourceFiles(request.files())));
+    }
+
+    private ReviewOutcome record(RecordReviewRequest request) {
         List<Integer> selected = request.selectedChoices();
-        ReviewOutcome outcome = recordings.record(
+        return recordings.record(
                 currentUser.get(),
                 new RecordReview(
                         request.requestId(),
@@ -149,8 +234,20 @@ public class ReviewsResource {
                         request.rating(),
                         selected == null ? null : Set.copyOf(selected),
                         request.filledBlanks(),
+                        null,
                         request.elapsedMs()));
-        Response.Status status = outcome.replayed() ? Response.Status.OK : Response.Status.CREATED;
-        return Response.status(status).entity(ReviewResultDto.from(outcome)).build();
+    }
+
+    /** Un exercice rendu : ses fichiers seuls, sans note ni autre réponse, que ses tests jugent. */
+    private ReviewOutcome submit(RecordReviewRequest request, List<ExerciseFileDto> submitted) {
+        if (request.rating() != null || request.selectedChoices() != null || request.filledBlanks() != null) {
+            throw AnswerMismatchException.filesExpected();
+        }
+        return exerciseSubmissions.submit(
+                currentUser.get(), request.requestId(), request.cardId(), sourceFiles(submitted), request.elapsedMs());
+    }
+
+    private static List<SourceFile> sourceFiles(List<ExerciseFileDto> files) {
+        return files.stream().map(ExerciseFileDto::toSourceFile).toList();
     }
 }

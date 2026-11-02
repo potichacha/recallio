@@ -279,7 +279,8 @@ cards:
     -Dtest=ExercisesTest` (Docker requis).
   - Les tests nomment le comportement attendu (`retireLesDoublonsEnGardantLOrdre`) : ils servent aussi d'indice au
     joueur, qui les voit.
-  - En attendant le bac à sable, un exercice est auto-évalué : on lit le code de départ et les tests, puis la solution.
+  - En révision, le joueur modifie le code de départ, lance les tests autant de fois qu'il veut, puis rend son code :
+    ses tests le jugent (ADR 0030). La solution et l'explication n'apparaissent qu'avec la correction.
 - **Vrai ou faux** (`true-false`, ADR 0027) : la question est une affirmation, `truth: true` ou `truth: false` dit si
   elle est vraie, la réponse explique pourquoi. Le serveur corrige. Une affirmation sans ambiguïté : pas de « toujours »
   ni de « jamais » qui souffrent d'exceptions, pas de double négation.

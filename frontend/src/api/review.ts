@@ -55,3 +55,20 @@ export function useRecordReview() {
     },
   })
 }
+
+export type ExerciseRun = components['schemas']['ExerciseRun']
+export type ExerciseFile = components['schemas']['ExerciseFile']
+
+/**
+ * Exécute le code d'un exercice contre ses tests, pour l'essayer (ADR 0030). Rien n'est enregistré : on peut essayer
+ * autant de fois qu'on veut, sans nouvelle tentative automatique (une exécution dure quelques secondes).
+ */
+export function useRunExercise() {
+  return useMutation({
+    mutationFn: async (run: { cardId: string; files: ExerciseFile[] }) => {
+      const { data, error, response } = await api.POST('/api/v1/exercise-runs', { body: run })
+      if (data === undefined) throw ApiError.from(response, error)
+      return data
+    },
+  })
+}

@@ -327,6 +327,81 @@ describe('ReviewPage', () => {
     expect(body.rating).toBeUndefined()
   })
 
+  it('runs an exercise against its tests, then submits it and shows the solution', async () => {
+    const fetchMock = stubApi({
+      ...PROFILE,
+      [QUEUE]: {
+        body: queue([
+          queuedCard({
+            type: 'CODING_EXERCISE',
+            prompt: 'Retirer les doublons.',
+            answer: null,
+            exercise: {
+              starter: [{ path: 'Doublons.java', content: 'class Doublons {}' }],
+              tests: [{ path: 'DoublonsTest.java', content: 'class DoublonsTest {}' }],
+            },
+          }),
+        ]),
+      },
+      'POST /api/v1/exercise-runs': {
+        body: {
+          status: 'FAILED',
+          tests: [
+            {
+              className: 'DoublonsTest',
+              name: 'retireLesDoublons',
+              passed: false,
+              message: 'expected: <2> but was: <3>',
+            },
+          ],
+          output: '',
+        },
+      },
+      [REVIEWS]: {
+        status: 201,
+        body: {
+          cardId: 'card-1',
+          rating: 'GOOD',
+          state: 'LEARNING',
+          dueAt: '2026-10-29T10:10:00Z',
+          correction: {
+            correctChoices: [],
+            blanks: [],
+            explanation: 'Un LinkedHashSet garde l’ordre.',
+            exerciseRun: {
+              status: 'PASSED',
+              tests: [
+                { className: 'DoublonsTest', name: 'retireLesDoublons', passed: true, message: '' },
+              ],
+              output: '',
+            },
+            solution: [{ path: 'Doublons.java', content: 'class Doublons { /* solution */ }' }],
+          },
+        },
+      },
+    })
+    renderAt('/review', signedIn())
+
+    const editor = await screen.findByRole('textbox', { name: 'Doublons.java' })
+    await userEvent.clear(editor)
+    await userEvent.type(editor, 'class Doublons {{}')
+    await userEvent.click(screen.getByRole('button', { name: 'Lancer les tests' }))
+
+    expect(await screen.findByText('expected: <2> but was: <3>')).toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: 'Solution' })).not.toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Rendre' }))
+
+    expect(await screen.findByRole('status')).toHaveTextContent('Exercice réussi !')
+    expect(screen.getByRole('region', { name: 'Solution' })).toHaveTextContent('solution')
+    const posts = sentRequests(fetchMock).filter((request) => request.method === 'POST')
+    const submitted = await posts[1]?.json()
+    expect(submitted.submittedFiles).toEqual([
+      { path: 'Doublons.java', content: 'class Doublons {}' },
+    ])
+    expect(submitted.rating).toBeUndefined()
+  })
+
   it('lets the candidate write a fix to a bug before revealing the corrected code', async () => {
     stubApi({
       ...PROFILE,

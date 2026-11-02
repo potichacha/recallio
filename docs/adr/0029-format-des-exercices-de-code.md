@@ -49,6 +49,8 @@ content/java/exercices/collections/choisir-collection/sans-doublons/
   - on lit l'énoncé, le code de départ et les tests, puis on révèle la solution et on se note ;
   - la file de révision envoie donc la solution, comme la réponse de toute carte auto-évaluée, et la PWA ne la montre
     qu'une fois révélée.
+  - *Mise à jour* : depuis l'arrivée du runner, l'exercice est **jugé par ses tests** et la solution n'est envoyée
+    qu'avec la correction (ADR 0030, « Correction en révision »).
 - **Les exclusions** : comme le code à trous, l'exercice est exclu des défis et des parties live.
 - **La couverture** : le rapport de couverture compte les exercices **par chapitre**, pas dans la matrice par notion.
 
