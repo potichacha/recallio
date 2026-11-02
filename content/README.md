@@ -263,12 +263,16 @@ cards:
 - La **clé** d'une carte (minuscules, chiffres, tirets) est unique dans sa notion. On peut corriger ou reformuler la
   question et la réponse librement : la carte et la progression restent. Changer la clé crée une autre carte.
 - **Formats acceptés aujourd'hui** : `course`, `multiple-choice`, `code-output`, `scenario`, `definition`,
-  `true-false`, `bug-fix`. Les autres (`fill-in`, `exercise`) arrivent avec les étapes suivantes de la phase 3 bis.
+  `true-false`, `bug-fix`, `fill-in`. Les exercices de code (`exercise`) arrivent à l'étape 4 de la phase 3 bis.
 - **Vrai ou faux** (`true-false`, ADR 0027) : la question est une affirmation, `truth: true` ou `truth: false` dit si
   elle est vraie, la réponse explique pourquoi. Le serveur corrige. Une affirmation sans ambiguïté : pas de « toujours »
   ni de « jamais » qui souffrent d'exceptions, pas de double négation.
 - **Bug à corriger** (`bug-fix`) : la question montre le code bogué (et le symptôme), la réponse donne le code corrigé
   puis l'explication. Auto-évalué tant que le code n'est pas exécuté.
+- **Compléter le code** (`fill-in`) : chaque `___` de la question est un trou ; `blanks` liste, dans l'ordre, les
+  réponses acceptées par chaque trou (`blanks: [[equals], [compareTo, compareToIgnoreCase]]`). Le serveur corrige, aux
+  espaces près, en respectant la casse. Prévoir toutes les variantes justes ; un trou porte sur un mot-clé, une méthode
+  ou une courte expression, pas sur une ligne entière.
 - En YAML, une valeur qui contient « : » (la typographie française en met partout) doit être entre guillemets, ou
   écrite en bloc `|-`.
 - Un format exclu par le référentiel pour la notion (`formats`) est refusé.

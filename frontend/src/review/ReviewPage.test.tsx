@@ -35,6 +35,7 @@ function queuedCard(overrides: Partial<QueuedCard> = {}): QueuedCard {
     answer: 'La machine virtuelle qui exécute le bytecode.',
     choices: [],
     multipleAnswers: false,
+    blankCount: 0,
     state: 'NEW',
     previews: [
       { rating: 'AGAIN', dueAt: inMs(MINUTE) },
@@ -272,6 +273,57 @@ describe('ReviewPage', () => {
     const post = sentRequests(fetchMock).find((request) => request.method === 'POST')
     const body = await post?.json()
     expect(body.selectedChoices).toEqual([1])
+  })
+
+  it('grades each blank of a fill-in card on the server and shows the expected answers', async () => {
+    const fetchMock = stubApi({
+      ...PROFILE,
+      [QUEUE]: {
+        body: queue([
+          queuedCard({
+            type: 'FILL_IN',
+            prompt: '```java\npublic int ___() { return Objects.___(x, y); }\n```',
+            answer: null,
+            blankCount: 2,
+          }),
+        ]),
+      },
+      [REVIEWS]: {
+        status: 201,
+        body: {
+          cardId: 'card-1',
+          rating: 'AGAIN',
+          state: 'LEARNING',
+          dueAt: '2026-10-29T10:01:00Z',
+          correction: {
+            correctChoices: [],
+            blanks: [
+              { expected: 'hashCode', correct: true },
+              { expected: 'hash', correct: false },
+            ],
+            explanation: 'Les mêmes champs qu’equals.',
+          },
+        },
+      },
+    })
+    renderAt('/review', signedIn())
+
+    // Le code est découpé en éléments par la coloration syntaxique : on lit le texte de toute la carte.
+    expect(await screen.findByRole('article')).toHaveTextContent(
+      'public int [1]() { return Objects.[2](x, y); }',
+    )
+    const validate = screen.getByRole('button', { name: 'Valider' })
+    await userEvent.type(screen.getByRole('textbox', { name: /Trou 1/ }), 'hashCode')
+    expect(validate).toBeDisabled()
+    await userEvent.type(screen.getByRole('textbox', { name: /Trou 2/ }), 'combine')
+    await userEvent.click(validate)
+
+    expect(await screen.findByRole('status')).toHaveTextContent('Pas tout à fait')
+    expect(screen.getByText('Attendu : hash')).toBeInTheDocument()
+    const post = sentRequests(fetchMock).find((request) => request.method === 'POST')
+    const body = await post?.json()
+    expect(body.filledBlanks).toEqual(['hashCode', 'combine'])
+    expect(body.rating).toBeUndefined()
   })
 
   it('lets the candidate write a fix to a bug before revealing the corrected code', async () => {

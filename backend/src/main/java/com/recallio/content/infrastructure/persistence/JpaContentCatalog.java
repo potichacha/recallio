@@ -91,7 +91,7 @@ public class JpaContentCatalog implements ContentCatalog {
                 .getSingleResult();
         List<CardView> cards = entityManager
                 .createQuery("""
-                        select c.id, c.type, v.prompt, v.answer, v.choices, v.version
+                        select c.id, c.type, v.prompt, v.answer, v.choices, v.version, v.blanks
                         from CardEntity c
                         join CardVersionEntity v on v.cardId = c.id and v.version = c.currentVersion
                         where c.themeId = :themeId and c.retiredAt is null
@@ -107,6 +107,7 @@ public class JpaContentCatalog implements ContentCatalog {
                         (String) row[2],
                         (String) row[3],
                         JpaCardDirectory.choices(row[4]),
+                        JpaCardDirectory.blanks(row[6]),
                         (Integer) row[5]))
                 .toList();
         return new Page<>(cards, page, size, total);

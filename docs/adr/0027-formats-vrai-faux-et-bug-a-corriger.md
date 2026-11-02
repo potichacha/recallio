@@ -40,13 +40,35 @@ PWA. Comme le QCM, il est admis dans les défis de groupe et les parties live (`
 correction avant de révéler la réponse, puis on s'auto-évalue, comme pour une mise en situation. La vérification par
 exécution viendra avec le bac à sable (étape 4).
 
-**Compléter le code** (`FILL_IN`) : du code à trous, corrigé par le serveur. Il demande un champ en base et un champ dans
-l'API de révision : il fait l'objet d'une seconde pull request, qui complètera cet ADR.
+**Compléter le code** (`FILL_IN`) : chaque `___` de la question est un trou ; `blanks` donne, dans l'ordre, les réponses
+acceptées par chaque trou. Le serveur corrige :
+
+- une réponse est juste si elle est égale à l'une des réponses acceptées **aux espaces près** (`Objects.hash(x,y)` vaut
+  `Objects.hash(x, y)`), la casse comptant comme dans du code ;
+- la carte est réussie si tous les trous sont justes ; la correction montre, trou par trou, la réponse attendue ;
+- les trous sont stockés avec la version (`card_version.blanks`, JSON) ; la file de révision ne donne que leur nombre
+  (`blankCount`), jamais les réponses ; la réponse se fait par `filledBlanks`, une chaîne par trou.
+
+```yaml
+  - key: completer-hashcode-objects-hash
+    format: fill-in
+    question: |-
+      ```java
+      public int ___() { return Objects.___(x, y); }
+      ```
+    blanks: [[hashCode], [hash]]
+    answer: "On redéfinit `hashCode` sur les mêmes champs qu'`equals`."
+```
+
+Un code à trous n'est pas encore proposé dans les défis ni en live : la saisie est plus lente qu'un choix, et le chrono
+de ces modes est calibré pour des QCM.
 
 ## Conséquences
 
 - Le vrai ou faux compte dans la diversité des formats corrigés par le serveur, qui servira au profil « vérifié » et au
   classé (ADR 0025).
 - Un bug à corriger auto-évalué compte comme « déclaré », pas comme « vérifié », tant qu'il n'est pas exécuté.
+- Un code à trous est corrigé par le serveur : il compte comme « vérifié ». Rédiger ses trous demande de prévoir les
+  variantes justes (`compareTo` ou `compareToIgnoreCase`) : une réponse juste refusée décourage.
 - Rédiger un vrai ou faux demande une affirmation sans ambiguïté : « toujours », « jamais » et les doubles négations
   sont à éviter (content/README.md).

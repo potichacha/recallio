@@ -179,26 +179,7 @@ class ReviewsResourceTest {
     @TestSecurity(user = "alice")
     @OidcSecurity(claims = @Claim(key = "sub", value = "review-true-false"))
     void shouldGradeATrueOrFalseCardOnTheServerLikeATwoChoiceQuestion() {
-        contentImport.importFolder(new SubjectFolder("""
-                subject: scala
-                title: Scala
-                category: languages
-                position: 920
-                status: published
-                """, Map.of("01-bases.yaml", """
-                        domain: bases
-                        title: Les bases
-                        position: 10
-                        chapters:
-                          - id: valeurs
-                            title: Valeurs
-                            notions:
-                              - {id: val, title: "val", level: beginner, priority: 1}
-                        """), Map.of("bases/val.yaml", """
-                        notion: val
-                        cards:
-                          - {key: reaffecter, format: true-false, question: "Un val se réaffecte.", truth: false, answer: "Non."}
-                        """)));
+        importScala();
         String cardId = given().queryParam("subject", "scala")
                 .queryParam("type", "TRUE_FALSE")
                 .get(QUEUE)
@@ -214,6 +195,38 @@ class ReviewsResourceTest {
                 .body("rating", equalTo("GOOD"))
                 .body("correction.correctChoices", contains(1))
                 .body("correction.explanation", equalTo("Non."));
+    }
+
+    @Test
+    @TestSecurity(user = "alice")
+    @OidcSecurity(claims = @Claim(key = "sub", value = "review-fill-in"))
+    void shouldGradeEachBlankOfAFillInCardOnTheServer() {
+        importScala();
+        String cardId = given().queryParam("subject", "scala")
+                .queryParam("type", "FILL_IN")
+                .get(QUEUE)
+                .then()
+                .statusCode(200)
+                .body("cards[0].blankCount", is(2))
+                .body("cards[0].answer", nullValue())
+                .extract()
+                .path("cards[0].cardId");
+
+        record(UUID.randomUUID(), cardId, "GOOD").statusCode(422).body("code", equalTo("review.answer-mismatch"));
+        fill(UUID.randomUUID(), cardId, "[\"val\"]").statusCode(422);
+        UUID requestId = UUID.randomUUID();
+        fill(requestId, cardId, "[\" val \", \"var\"]")
+                .statusCode(201)
+                .body("rating", equalTo("AGAIN"))
+                .body("correction.blanks.expected", contains("val", "Int"))
+                .body("correction.blanks.correct", contains(true, false))
+                .body("correction.explanation", equalTo("val, puis le type."));
+        fill(requestId, cardId, "[\" val \", \"var\"]")
+                .statusCode(200)
+                .body("correction.blanks.correct", contains(true, false));
+        fill(UUID.randomUUID(), cardId, "[\"val\", \"scala.Int\"]")
+                .statusCode(201)
+                .body("rating", equalTo("GOOD"));
     }
 
     @Test
@@ -307,6 +320,43 @@ class ReviewsResourceTest {
                 .then()
                 .statusCode(200)
                 .body("cards", hasSize(1));
+    }
+
+    /** Un sujet en dossier (ADR 0026) avec un vrai ou faux et un code à trous (ADR 0027). */
+    private void importScala() {
+        contentImport.importFolder(new SubjectFolder("""
+                subject: scala
+                title: Scala
+                category: languages
+                position: 920
+                status: published
+                """, Map.of("01-bases.yaml", """
+                        domain: bases
+                        title: Les bases
+                        position: 10
+                        chapters:
+                          - id: valeurs
+                            title: Valeurs
+                            notions:
+                              - {id: val, title: "val", level: beginner, priority: 1}
+                        """), Map.of("bases/val.yaml", """
+                        notion: val
+                        cards:
+                          - {key: reaffecter, format: true-false, question: "Un val se réaffecte.", truth: false, answer: "Non."}
+                          - key: declarer
+                            format: fill-in
+                            question: "`___ x: ___ = 1`"
+                            blanks: [[val], [Int, scala.Int]]
+                            answer: "val, puis le type."
+                        """)));
+    }
+
+    private static ValidatableResponse fill(UUID requestId, String cardId, String filledBlanks) {
+        return given().contentType(ContentType.JSON)
+                .body("{\"requestId\": \"%s\", \"cardId\": \"%s\", \"filledBlanks\": %s}"
+                        .formatted(requestId, cardId, filledBlanks))
+                .post(REVIEWS)
+                .then();
     }
 
     private static ValidatableResponse answer(UUID requestId, String cardId, String selectedChoices) {

@@ -1,5 +1,6 @@
 package com.recallio.content.domain;
 
+import com.recallio.content.CardBlank;
 import com.recallio.content.CardChoice;
 import com.recallio.platform.domain.StableUuid;
 import java.nio.charset.StandardCharsets;
@@ -97,7 +98,8 @@ public final class CardIdentity {
 
     /**
      * Empreinte exacte du contenu : toute modification du texte (même de forme) crée une nouvelle version. Les choix
-     * d'un QCM en font partie ; les autres formats n'en ont pas, et leur empreinte ne change pas.
+     * d'un QCM et les trous d'un code à trous en font partie ; les autres formats n'en ont pas, et leur empreinte ne
+     * change pas.
      */
     public static String contentHash(CardContent content) {
         StringBuilder canonical = new StringBuilder()
@@ -111,6 +113,9 @@ public final class CardIdentity {
                     .append('\u0000')
                     .append(choice.correct() ? "[x] " : "[ ] ")
                     .append(choice.text());
+        }
+        for (CardBlank blank : content.blanks()) {
+            canonical.append('\u0000').append("___ ").append(String.join("\u0001", blank.accepted()));
         }
         try {
             byte[] digest = MessageDigest.getInstance("SHA-256")

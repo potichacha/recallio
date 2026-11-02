@@ -1,5 +1,6 @@
 package com.recallio.content.infrastructure.persistence;
 
+import com.recallio.content.CardBlank;
 import com.recallio.content.CardChoice;
 import com.recallio.content.domain.CardContent;
 import jakarta.persistence.Column;
@@ -42,6 +43,12 @@ public class CardVersionEntity {
     @Nullable
     List<CardChoice> choices;
 
+    /** Les trous d'un code à trous, en JSON ; {@code null} pour les autres formats. */
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "blanks")
+    @Nullable
+    List<CardBlank> blanks;
+
     @Column(name = "created_at", nullable = false)
     Instant createdAt;
 
@@ -54,6 +61,7 @@ public class CardVersionEntity {
         this.prompt = content.prompt();
         this.answer = content.answer();
         this.choices = content.choices().isEmpty() ? null : content.choices();
+        this.blanks = content.blanks().isEmpty() ? null : content.blanks();
         this.contentHash = contentHash;
         this.createdAt = now;
     }

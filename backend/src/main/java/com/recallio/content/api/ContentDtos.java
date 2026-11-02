@@ -1,5 +1,6 @@
 package com.recallio.content.api;
 
+import com.recallio.content.CardBlank;
 import com.recallio.content.CardChoice;
 import com.recallio.content.CardType;
 import com.recallio.content.domain.Subject;
@@ -98,6 +99,11 @@ final class ContentDtos {
             @Schema(description = "Les choix d'un QCM, bonnes réponses marquées ; vide pour les autres formats")
             List<ChoiceDto> choices,
 
+            @Schema(
+                    description = "Les réponses acceptées par chaque trou d'un code à trous, dans l'ordre des trous ;"
+                            + " vide pour les autres formats")
+            List<List<String>> blanks,
+
             int version) {
         static CardDto from(CardView card) {
             return new CardDto(
@@ -106,6 +112,7 @@ final class ContentDtos {
                     card.prompt(),
                     card.answer(),
                     card.choices().stream().map(ChoiceDto::from).toList(),
+                    card.blanks().stream().map(CardBlank::accepted).toList(),
                     card.version());
         }
     }

@@ -2,6 +2,7 @@ package com.recallio.review.application;
 
 import com.recallio.content.CardDirectory;
 import com.recallio.content.CardDirectory.CardSnapshot;
+import com.recallio.content.CardType;
 import com.recallio.platform.domain.IdGenerator;
 import com.recallio.review.CardReviewed;
 import com.recallio.review.domain.AnswerMismatchException;
@@ -20,9 +21,11 @@ import jakarta.enterprise.event.Event;
 import jakarta.transaction.Transactional;
 import java.time.Clock;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.IntStream;
 import org.jspecify.annotations.Nullable;
 
 /**
@@ -70,9 +73,10 @@ public class ReviewRecordingService {
         ReviewState current = states.findForUpdate(user.id(), card.cardId()).orElse(ReviewState.newCard(now));
 
         Rating rating = rating(card, command);
+        @Nullable Correction correction = correction(card, command);
         Optional<ReviewLogEntry> previous = log.findByRequestId(command.requestId());
         if (previous.isPresent()) {
-            return replay(user, command, rating, previous.get(), card);
+            return replay(user, command, rating, previous.get(), correction);
         }
 
         ReviewState next = scheduler.review(current, rating, now);
@@ -95,55 +99,82 @@ public class ReviewRecordingService {
                     command,
                     rating,
                     log.findByRequestId(command.requestId()).orElseThrow(),
-                    card);
+                    correction);
         }
         states.save(user.id(), card.cardId(), next);
         // Seulement pour une réponse nouvelle : une requête rejouée ne rapporte rien une seconde fois.
         cardReviewed.fire(new CardReviewed(user, entry.id(), card.cardId(), now));
-        return ReviewOutcome.of(entry, false, correction(card));
+        return ReviewOutcome.of(entry, false, correction);
     }
 
     /**
-     * La note choisie par l'utilisateur, ou, pour un QCM ou un vrai ou faux, celle que donne la correction de ses choix
-     * (ADR 0019, 0027).
+     * La note choisie par l'utilisateur, ou, pour un format corrigé par le serveur, celle que donne la correction de sa
+     * réponse (ADR 0019, 0027).
      *
      * @throws AnswerMismatchException si la réponse ne correspond pas au format de la carte
      */
     private static Rating rating(CardSnapshot card, RecordReview command) {
         Set<Integer> selected = command.selectedChoices();
+        List<String> filled = command.filledBlanks();
         Rating chosen = command.rating();
         if (card.type().isGradedByChoices()) {
-            if (selected == null || chosen != null) {
+            if (selected == null || chosen != null || filled != null) {
                 throw AnswerMismatchException.choicesExpected();
             }
             return Rating.ofGradedAnswer(card.isCorrectSelection(selected));
         }
-        if (chosen == null || selected != null) {
+        if (card.type() == CardType.FILL_IN) {
+            if (filled == null || filled.size() != card.blanks().size() || chosen != null || selected != null) {
+                throw AnswerMismatchException.blanksExpected(card.blanks().size());
+            }
+            return Rating.ofGradedAnswer(!card.checkBlanks(filled).contains(false));
+        }
+        if (chosen == null || selected != null || filled != null) {
             throw AnswerMismatchException.ratingExpected();
         }
         return chosen;
     }
 
-    /** Pour un QCM : les bonnes réponses et l'explication, montrées une fois la réponse enregistrée. */
-    private static @Nullable Correction correction(CardSnapshot card) {
-        return card.type().isGradedByChoices() ? new Correction(card.correctChoices(), card.answer()) : null;
+    /**
+     * Pour un format corrigé par le serveur : les bonnes réponses et l'explication, montrées une fois la réponse
+     * enregistrée. À appeler après {@link #rating}, qui vérifie la forme de la réponse.
+     */
+    private static @Nullable Correction correction(CardSnapshot card, RecordReview command) {
+        if (card.type().isGradedByChoices()) {
+            return new Correction(card.correctChoices(), List.of(), card.answer());
+        }
+        List<String> filled = command.filledBlanks();
+        if (card.type() == CardType.FILL_IN && filled != null) {
+            List<Boolean> results = card.checkBlanks(filled);
+            List<BlankCorrection> blanks = IntStream.range(0, results.size())
+                    .mapToObj(index ->
+                            new BlankCorrection(card.blanks().get(index).expected(), results.get(index)))
+                    .toList();
+            return new Correction(Set.of(), blanks, card.answer());
+        }
+        return null;
     }
 
     private static ReviewOutcome replay(
-            UserRef user, RecordReview command, Rating rating, ReviewLogEntry previous, CardSnapshot card) {
+            UserRef user,
+            RecordReview command,
+            Rating rating,
+            ReviewLogEntry previous,
+            @Nullable Correction correction) {
         boolean sameReview = previous.userId().equals(user.id())
                 && previous.cardId().equals(command.cardId())
                 && previous.rating() == rating;
         if (!sameReview) {
             throw new RequestIdConflictException(command.requestId());
         }
-        return ReviewOutcome.of(previous, true, correction(card));
+        return ReviewOutcome.of(previous, true, correction);
     }
 
     /**
      * @param requestId identifiant choisi par le client, unique par réponse
      * @param rating la note d'auto-évaluation ; absente pour un QCM
      * @param selectedChoices les positions cochées d'un QCM (à partir de 0) ; absentes pour les autres formats
+     * @param filledBlanks les réponses d'un code à trous, une par trou ; absentes pour les autres formats
      * @param elapsedMs temps de réflexion, facultatif ; il ne rapporte rien (pas de prime à la vitesse)
      */
     public record RecordReview(
@@ -151,16 +182,18 @@ public class ReviewRecordingService {
             UUID cardId,
             @Nullable Rating rating,
             @Nullable Set<Integer> selectedChoices,
+            @Nullable List<String> filledBlanks,
             @Nullable Integer elapsedMs) {
 
         public RecordReview {
             selectedChoices = selectedChoices == null ? null : Set.copyOf(selectedChoices);
+            filledBlanks = filledBlanks == null ? null : List.copyOf(filledBlanks);
         }
     }
 
     /**
      * @param replayed {@code true} si la réponse avait déjà été enregistrée par une requête précédente
-     * @param correction la correction d'un QCM ; absente pour les autres formats
+     * @param correction la correction d'un format corrigé par le serveur ; absente pour les autres formats
      */
     public record ReviewOutcome(
             UUID cardId,
@@ -176,11 +209,21 @@ public class ReviewRecordingService {
         }
     }
 
-    /** @param correctChoices les positions des bonnes réponses, à partir de 0 */
-    public record Correction(Set<Integer> correctChoices, String explanation) {
+    /**
+     * @param correctChoices les positions des bonnes réponses d'un QCM ou d'un vrai ou faux, à partir de 0
+     * @param blanks la correction de chaque trou d'un code à trous, dans l'ordre
+     */
+    public record Correction(Set<Integer> correctChoices, List<BlankCorrection> blanks, String explanation) {
 
         public Correction {
             correctChoices = Set.copyOf(correctChoices);
+            blanks = List.copyOf(blanks);
         }
     }
+
+    /**
+     * @param expected la réponse attendue (la première des réponses acceptées)
+     * @param correct si la réponse donnée pour ce trou est acceptée
+     */
+    public record BlankCorrection(String expected, boolean correct) {}
 }
