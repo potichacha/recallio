@@ -51,12 +51,13 @@ public final class CardIdentity {
     }
 
     /**
-     * Slug d'un thème, unique dans tout le catalogue : préfixé par le sujet, sauf si le titre commence déjà par lui
-     * ({@code JAVA : FONDAMENTAUX} donne {@code java-fondamentaux}, {@code COLLECTIONS} donne {@code java-collections}).
+     * Slug d'un thème, unique dans tout le catalogue : préfixé par le sujet, sauf si le titre commence déjà par lui ou
+     * n'est que lui ({@code JAVA : FONDAMENTAUX} donne {@code java-fondamentaux}, {@code COLLECTIONS} donne
+     * {@code java-collections}, {@code GIT} dans le sujet Git donne {@code git}).
      */
     public static String themeSlug(String subjectSlug, String title) {
         String local = normalize(title).replace(' ', '-');
-        return local.startsWith(subjectSlug + "-") ? local : subjectSlug + "-" + local;
+        return local.equals(subjectSlug) || local.startsWith(subjectSlug + "-") ? local : subjectSlug + "-" + local;
     }
 
     private static String qualified(String subjectSlug, String themeKey) {

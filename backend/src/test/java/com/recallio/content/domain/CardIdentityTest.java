@@ -51,6 +51,8 @@ class CardIdentityTest {
                 .isEqualTo("go-glossaire-des-sigles-et-termes");
         assertThat(CardIdentity.themeSlug("java", "QUESTIONS PIÈGES : QU'AFFICHE CE CODE ?"))
                 .isEqualTo("java-questions-pieges-qu-affiche-ce-code");
+        assertThat(CardIdentity.themeSlug("git", "GIT")).isEqualTo("git");
+        assertThat(CardIdentity.themeSlug("spring-boot", "SPRING BOOT")).isEqualTo("spring-boot");
     }
 
     @Test
