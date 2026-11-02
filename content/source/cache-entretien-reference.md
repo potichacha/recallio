@@ -118,3 +118,11 @@ Et je surveillerais le **hit ratio** : si le cache n'est utile que dans 20% des 
 
 **Q : "Après une mise à jour d'un produit, certaines instances affichent encore l'ancien prix pendant plusieurs minutes."**
 R : "Un cache **local** par instance : l'instance qui a traité l'écriture a invalidé son cache, les autres non. Trois corrections possibles : réduire le TTL local à une durée acceptable pour le métier ; diffuser l'invalidation à toutes les instances (pub/sub Redis, un topic Kafka) ; ou passer à un cache distribué unique, cohérent entre instances, au prix d'un appel réseau. Pour un prix, je validerais avec le métier quelle péremption est acceptable : si c'est zéro, cette donnée ne devrait peut-être pas être mise en cache côté local du tout."
+
+═══════════════════════════════════════════
+# GLOSSAIRE DES SIGLES ET TERMES
+═══════════════════════════════════════════
+
+| Terme | Signification |
+|---|---|
+| **TTL** | Time To Live : durée de validité (cache, DNS) |

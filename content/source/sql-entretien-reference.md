@@ -470,3 +470,16 @@ ORDER BY mois;
 
 **Q : "Trouve les clients qui n'ont jamais commandé."**
 R : "Trois écritures : `LEFT JOIN commandes o ON o.client_id = c.id WHERE o.id IS NULL`, `WHERE NOT EXISTS (SELECT 1 FROM commandes o WHERE o.client_id = c.id)`, ou `NOT IN (SELECT client_id FROM commandes)`. J'éviterais la troisième : si une ligne de la sous-requête a un `client_id` NULL, `NOT IN` ne renvoie plus rien. `NOT EXISTS` est la plus sûre et en général aussi performante que la jointure."
+
+═══════════════════════════════════════════
+# GLOSSAIRE DES SIGLES ET TERMES
+═══════════════════════════════════════════
+
+| Terme | Signification |
+|---|---|
+| **2PC** | Two-Phase Commit : commit en deux phases d'une transaction distribuée (préparer, puis valider) |
+| **ACID** | Atomicity, Consistency, Isolation, Durability : garanties des transactions relationnelles |
+| **BASE** | Basically Available, Soft state, Eventual consistency : alternative à ACID dans les systèmes distribués |
+| **CAP** | Consistency, Availability, Partition tolerance : théorème des systèmes distribués |
+| **MVCC** | Multi-Version Concurrency Control : lectures sur instantané sans bloquer les écritures |
+| **PACELC** | Extension de CAP : latence vs cohérence hors partition |

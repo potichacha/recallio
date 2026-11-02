@@ -197,3 +197,16 @@ R : "`kubectl describe pod` en premier : la section Events indique presque toujo
 **Q : "Comment rendre un service hautement disponible sur Kubernetes ?"**
 R : "Au moins trois replicas, répartis sur plusieurs nœuds et zones par anti-affinité ou `topologySpreadConstraints`, pour qu'une panne de nœud ou de zone ne les emporte pas tous. Un **PodDisruptionBudget** pour que les maintenances ne vident pas le service. Des **readiness probes** justes et un arrêt propre pour les déploiements sans coupure. Des requests réalistes pour un placement fiable, et un HPA pour absorber la charge.
 Puis les dépendances : un service n'est pas plus disponible que sa base ou ses appels externes, d'où timeouts, circuit breakers et une base elle-même répliquée."
+
+═══════════════════════════════════════════
+# GLOSSAIRE DES SIGLES ET TERMES
+═══════════════════════════════════════════
+
+| Terme | Signification |
+|---|---|
+| **CNI** | Container Network Interface : plugin réseau de Kubernetes |
+| **CRD** | Custom Resource Definition : nouveau type de ressource Kubernetes |
+| **HPA / VPA** | Horizontal / Vertical Pod Autoscaler |
+| **PDB** | PodDisruptionBudget |
+| **PV / PVC** | PersistentVolume / PersistentVolumeClaim |
+| **QoS** | Classes de qualité de service des pods (Guaranteed, Burstable, BestEffort) |

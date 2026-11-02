@@ -162,6 +162,8 @@ Les familles : 1xx information, 2xx succès, 3xx redirection, 4xx erreur du clie
 
 **Q : À quoi sert une requête OPTIONS ?** R : Connaître les méthodes autorisées ; c'est la requête preflight du CORS.
 
+**Q : C'est quoi la RFC 9457 ?** R : Le format standard Problem Details pour les erreurs d'API HTTP (successeur de la RFC 7807).
+
 ### Questions de situation
 
 **Q : "Conçois une API de réservation de vol."**
@@ -192,3 +194,14 @@ Je vérifierais enfin qu'un **cache HTTP** est en place si les données s'y prê
 R : "Le levier principal est le **cache HTTP** à tous les niveaux : `Cache-Control: public, max-age=...` adapté à la fréquence de mise à jour, des `ETag` pour les revalidations à 304, et un **CDN** devant l'API pour que la majorité des requêtes n'atteigne jamais le serveur.
 Côté serveur : un cache applicatif ou Redis pour les lectures qui passent, des réponses paginées par curseur, de la compression, et des projections qui ne chargent que les champs exposés.
 L'invalidation se fait par expiration courte, ou par purge ciblée du CDN lors d'une modification. Et un rate limiting par clé d'API pour protéger le service des abus."
+
+═══════════════════════════════════════════
+# GLOSSAIRE DES SIGLES ET TERMES
+═══════════════════════════════════════════
+
+| Terme | Signification |
+|---|---|
+| **ETag** | Empreinte de version d'une ressource HTTP pour le cache et la concurrence optimiste |
+| **gRPC** | Framework RPC de Google sur HTTP/2 et Protobuf |
+| **HATEOAS** | Hypermedia As The Engine Of Application State : liens dans les réponses REST |
+| **SSE** | Server-Sent Events : flux serveur vers client sur HTTP |

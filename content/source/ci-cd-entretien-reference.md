@@ -137,3 +137,13 @@ R : "Sur chaque **pull request** : build Maven avec cache, tests unitaires et d'
 Au **merge sur main** : construction d'**une** image en multi-stage, tag immuable (version ou SHA), scan de l'image, génération du SBOM, signature, publication dans le registry. Puis mise à jour du tag dans le dépôt GitOps de l'environnement de dev, ArgoCD déploie, tests de fumée et tests de contrat.
 **Promotion** vers la recette puis la production par PR sur le dépôt GitOps, la même image, avec revue pour la production. En production, **canary** avec Argo Rollouts et analyse automatique des métriques d'erreur et de latence, rollback automatique si elles se dégradent.
 Transversalement : secrets dans un vault, comptes de service à moindre privilège, et suivi des métriques DORA pour améliorer le pipeline lui-même."
+
+═══════════════════════════════════════════
+# GLOSSAIRE DES SIGLES ET TERMES
+═══════════════════════════════════════════
+
+| Terme | Signification |
+|---|---|
+| **CI/CD** | Continuous Integration / Continuous Delivery ou Deployment |
+| **DORA** | Métriques de performance de livraison (fréquence, délai, taux d'échec, temps de restauration) |
+| **GitOps** | Git comme source de vérité de l'infrastructure, réconciliée par un opérateur (ArgoCD, Flux) |

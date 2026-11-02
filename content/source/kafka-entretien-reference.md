@@ -154,3 +154,15 @@ Et je m'assurerais que le lag est **surveillé avec alerte**, parce qu'un retard
 **Q : "Comment tu garantis qu'un événement de commande est traité une et une seule fois par le service de facturation ?"**
 R : "Exactement une fois de bout en bout n'existe pas gratuitement ; je viserais **au moins une fois + idempotence**, ce qui produit l'effet d'exactement une fois.
 Côté production : outbox pour ne jamais perdre l'événement, producteur idempotent et `acks=all`. Côté consommation : commit des offsets **après** traitement. Et l'idempotence : chaque événement porte un identifiant unique ; dans la **même transaction** que la création de la facture, j'enregistre cet identifiant dans une table des événements traités avec une contrainte unique. Un événement rejoué viole la contrainte et est ignoré. La clé de partitionnement est l'identifiant de commande, pour que tous les événements d'une commande restent ordonnés."
+
+═══════════════════════════════════════════
+# GLOSSAIRE DES SIGLES ET TERMES
+═══════════════════════════════════════════
+
+| Terme | Signification |
+|---|---|
+| **AMQP** | Advanced Message Queuing Protocol : protocole de messagerie de RabbitMQ |
+| **CDC** | Change Data Capture : capture des modifications d'une base depuis son journal (Debezium) |
+| **DLQ** | Dead Letter Queue : file des messages non traitables |
+| **ISR** | In-Sync Replicas : réplicas Kafka à jour |
+| **KRaft** | Mode de consensus de Kafka sans ZooKeeper |

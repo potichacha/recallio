@@ -2,10 +2,13 @@ package com.recallio.content.infrastructure.folder;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.recallio.content.CardType;
 import com.recallio.content.domain.source.ParsedContent;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.stream.Collectors;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 
@@ -46,6 +49,22 @@ class SubjectFolderTest {
 
         assertThat(document).doesNotExist();
         assertThat(Files.isDirectory(folder.resolve("referentiel"))).isTrue();
+    }
+
+    /**
+     * Garde-fou contre une suppression accidentelle. Les cartes du document Java ont été rangées dans les notions de son
+     * référentiel (ADR 0026) ; Java reste le sujet qui présente tous les formats.
+     */
+    @Test
+    void shouldKeepEveryJavaCardAndEveryFormat() {
+        ParsedContent java = parse(CONTENT.resolve("java"));
+
+        assertThat(java.cardCount()).isEqualTo(561);
+        assertThat(java.themes().stream()
+                        .flatMap(theme -> theme.cards().stream())
+                        .map(card -> card.content().type())
+                        .collect(Collectors.toSet()))
+                .containsExactlyInAnyOrder(CardType.values());
     }
 
     private static ParsedContent parse(Path folder) {

@@ -134,3 +134,16 @@ Le tout décrit en **Terraform**, avec un state distant verrouillé, et déploy�
 **Q : "Lors d'un terraform plan, on voit qu'une ressource de production va être détruite puis recréée."**
 R : "Je n'appliquerais pas avant d'avoir compris. Le plan l'indique avec le symbole `-/+` et l'attribut responsable (*forces replacement*) : souvent un attribut qui ne peut pas être modifié en place (un nom, un sous-réseau, un type de moteur), ou un renommage de ressource dans le code que Terraform interprète comme une suppression suivie d'une création.
 Selon le cas : pour un renommage, un bloc `moved` (ou `terraform state mv`) qui dit à Terraform que c'est la même ressource ; pour un attribut immuable, planifier le remplacement avec migration de données ; et protéger les ressources critiques avec `prevent_destroy`. Le plan est revu en pull request précisément pour attraper ce genre de surprise."
+
+═══════════════════════════════════════════
+# GLOSSAIRE DES SIGLES ET TERMES
+═══════════════════════════════════════════
+
+| Terme | Signification |
+|---|---|
+| **FaaS** | Function as a Service : serverless (Lambda) |
+| **IaC** | Infrastructure as Code (Terraform, Ansible) |
+| **IaaS, PaaS, SaaS, CaaS** | Modèles de service cloud |
+| **IAM** | Identity and Access Management : gestion des identités et droits |
+| **RPO / RTO** | Perte de données maximale / durée de restauration maximale |
+| **VPC** | Virtual Private Cloud : réseau privé cloud |

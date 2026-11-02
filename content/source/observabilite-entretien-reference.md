@@ -142,3 +142,14 @@ Enfin, je m'assurerais que chaque log porte un **identifiant de corrélation**, 
 **Q : "La facture de l'outil d'observabilité a triplé en un mois."**
 R : "Je chercherais trois causes. Une **explosion de cardinalité** des métriques (un label à valeurs illimitées ajouté récemment), visible en listant les métriques au plus grand nombre de séries. Un **volume de logs** devenu excessif (un DEBUG oublié en production, une boucle qui logge, des stack traces répétées). Une absence d'**échantillonnage** des traces.
 Corrections : supprimer ou regrouper les labels fautifs, revoir les niveaux de log et filtrer au collecteur, échantillonner les traces en tail-based en gardant les erreurs. Et mettre en place un suivi du volume par service pour détecter la prochaine dérive avant la facture."
+
+═══════════════════════════════════════════
+# GLOSSAIRE DES SIGLES ET TERMES
+═══════════════════════════════════════════
+
+| Terme | Signification |
+|---|---|
+| **APM** | Application Performance Monitoring : outils de supervision applicative |
+| **OTLP / OTel** | OpenTelemetry Protocol / OpenTelemetry |
+| **RED / USE** | Rate-Errors-Duration / Utilization-Saturation-Errors |
+| **SLI / SLO / SLA** | Indicateur / objectif interne / engagement contractuel |
