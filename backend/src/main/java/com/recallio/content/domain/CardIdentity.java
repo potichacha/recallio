@@ -20,12 +20,17 @@ import java.util.regex.Pattern;
  *
  * <p>Corriger une faute de frappe ou ajouter du gras garde donc la même carte (et la progression des utilisateurs) ;
  * seule une réécriture du sens de la question crée une nouvelle carte.
+ *
+ * <p>Les cartes d'un dossier de sujet ont une clé explicite (ADR 0026) : leur identifiant dérive de la notion et de la
+ * clé, jamais du texte ({@link #keyedCardId}).
  */
 public final class CardIdentity {
 
     private static final String SUBJECT_NAMESPACE = "recallio:subject";
     private static final String THEME_NAMESPACE = "recallio:theme";
     private static final String CARD_NAMESPACE = "recallio:card";
+    private static final String NOTION_NAMESPACE = "recallio:notion";
+    private static final String KEYED_CARD_NAMESPACE = "recallio:keyed-card";
     private static final Pattern DIACRITICS = Pattern.compile("\\p{M}+");
     /** Marqueurs Markdown d'emphase et de code : supprimés sans laisser d'espace ({@code **JVM**} → {@code JVM}). */
     private static final Pattern MARKDOWN_MARKERS = Pattern.compile("[*`_]");
@@ -48,6 +53,18 @@ public final class CardIdentity {
 
     public static UUID cardId(String subjectSlug, String themeKey, String prompt) {
         return StableUuid.of(CARD_NAMESPACE, qualified(subjectSlug, themeKey) + '|' + normalize(prompt));
+    }
+
+    public static UUID notionId(String subjectSlug, String notionSlug) {
+        return StableUuid.of(NOTION_NAMESPACE, qualified(subjectSlug, notionSlug));
+    }
+
+    /**
+     * Identifiant d'une carte à clé explicite (ADR 0026) : il ne dépend que du sujet, de la notion et de la clé, pas du
+     * texte. Reformuler la question garde la carte.
+     */
+    public static UUID keyedCardId(String subjectSlug, String notionSlug, String key) {
+        return StableUuid.of(KEYED_CARD_NAMESPACE, qualified(subjectSlug, notionSlug) + '#' + key);
     }
 
     /**

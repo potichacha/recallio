@@ -236,6 +236,37 @@ La CI (`ReferentialTest`) refuse :
 - un cycle de prérequis ;
 - un prérequis plus avancé ou moins essentiel que la notion qui en dépend (un débutant ne doit pas buter sur une notion d'expert).
 
+### Les fichiers de notion (ADR 0026)
+
+Un sujet migré a son **dossier** : `content/<sujet>/subject.yaml` (les mêmes clés que l'en-tête d'un document), son
+référentiel, et un fichier par notion, `notions/<domaine>/<notion>.yaml`. Un sujet a soit un document Markdown, soit un
+dossier, jamais les deux.
+
+```yaml
+notion: string-pool                 # un identifiant du référentiel
+lesson: |                           # facultative pour l'instant
+  Le **pool de chaînes** déduplique les littéraux...
+cards:
+  - key: emplacement-du-pool        # définitive : la progression s'y rattache
+    format: course
+    question: Où se trouve le pool de chaînes ?
+    answer: Dans le tas (heap) depuis Java 7.
+  - key: comparer-deux-chaines
+    format: multiple-choice
+    question: Comment tester que deux chaînes ont le même contenu ?
+    choices:
+      - {text: "`a.equals(b)`", correct: true}
+      - {text: "`a == b`", correct: false}
+    answer: "`equals` compare le contenu, `==` les références."
+```
+
+- La **clé** d'une carte (minuscules, chiffres, tirets) est unique dans sa notion. On peut corriger ou reformuler la
+  question et la réponse librement : la carte et la progression restent. Changer la clé crée une autre carte.
+- **Formats acceptés aujourd'hui** : `course`, `multiple-choice`, `code-output`, `scenario`, `definition`. Les autres
+  (`true-false`, `fill-in`, `bug-fix`, `exercise`) arrivent avec les étapes suivantes de la phase 3 bis.
+- Un format exclu par le référentiel pour la notion (`formats`) est refusé.
+- `./mvnw test -Dtest='SubjectFolderTest'` vérifie chaque dossier, comme la CI.
+
 ## 9. Liste de contrôle avant la pull request
 
 - [ ] Le fichier s'appelle `source/<subject>-entretien-reference.md`.

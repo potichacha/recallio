@@ -16,7 +16,7 @@ public class JpaContentCatalog implements ContentCatalog {
     private static final String SUBJECT_SUMMARIES = """
             select s.id, s.slug, s.title, s.category, s.position, s.status, count(distinct t.id), count(c.id)
             from SubjectEntity s
-            left join ThemeEntity t on t.subjectId = s.id
+            left join ThemeEntity t on t.subjectId = s.id and t.retiredAt is null
             left join CardEntity c on c.themeId = t.id and c.retiredAt is null
             where s.status in :statuses %s
             group by s.id, s.slug, s.title, s.category, s.position, s.status
@@ -28,7 +28,7 @@ public class JpaContentCatalog implements ContentCatalog {
             from ThemeEntity t
             join SubjectEntity s on s.id = t.subjectId
             left join CardEntity c on c.themeId = t.id and c.retiredAt is null
-            where %s
+            where t.retiredAt is null and %s
             group by t.id, s.slug, s.title, t.slug, t.title, t.position
             order by t.position
             """;

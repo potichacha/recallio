@@ -34,7 +34,8 @@ public class JpaCardDirectory implements CardDirectory {
      */
     private static final String THEME_SELECTION = """
             (t.slug in :selection
-             or not exists (select 1 from ThemeEntity other where other.subjectId = s.id and other.slug in :selection))
+             or not exists (select 1 from ThemeEntity other where other.subjectId = s.id and other.retiredAt is null
+                    and other.slug in :selection))
             """;
 
     private final EntityManager entityManager;
@@ -133,7 +134,7 @@ public class JpaCardDirectory implements CardDirectory {
                         select t.id, s.slug, s.title, t.slug, t.title
                         from ThemeEntity t
                         join SubjectEntity s on s.id = t.subjectId
-                        where %s
+                        where t.retiredAt is null and %s
                         order by s.position, t.position
                         """.formatted(PUBLISHED), Object[].class)
                 .setParameter("published", Subject.Status.PUBLISHED)
@@ -152,7 +153,7 @@ public class JpaCardDirectory implements CardDirectory {
                 .createQuery("""
                         select t.id from ThemeEntity t
                         join SubjectEntity s on s.id = t.subjectId
-                        where t.slug = :slug and %s
+                        where t.slug = :slug and t.retiredAt is null and %s
                         """.formatted(PUBLISHED), UUID.class)
                 .setParameter("published", Subject.Status.PUBLISHED)
                 .setParameter("slug", slug)

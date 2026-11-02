@@ -42,7 +42,7 @@ public class JpaSubjectDirectory implements SubjectDirectory {
                 .createQuery("""
                         select t.slug from ThemeEntity t
                         join SubjectEntity s on s.id = t.subjectId
-                        where s.slug = :subject
+                        where s.slug = :subject and t.retiredAt is null
                         order by t.position
                         """, String.class)
                 .setParameter("subject", subjectSlug)

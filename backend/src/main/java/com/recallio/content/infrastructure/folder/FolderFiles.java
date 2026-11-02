@@ -1,0 +1,61 @@
+package com.recallio.content.infrastructure.folder;
+
+import com.fasterxml.jackson.annotation.JsonProperty;
+import java.util.List;
+import org.jspecify.annotations.Nullable;
+
+/**
+ * La forme des fichiers YAML d'un dossier de sujet (ADR 0026), telle que Jackson la lit. Une propriété inconnue ou une
+ * propriété obligatoire absente fait échouer la lecture : une faute de frappe dans un nom de champ se voit.
+ */
+final class FolderFiles {
+
+    private FolderFiles() {}
+
+    /** {@code subject.yaml} : les mêmes clés que l'en-tête d'un document Markdown (ADR 0013). */
+    record SubjectFile(
+            @JsonProperty(required = true) String subject,
+            @JsonProperty(required = true) String title,
+            @JsonProperty(required = true) String category,
+            @JsonProperty(required = true) int position,
+            @JsonProperty(required = true) String status) {}
+
+    /** Un fichier du référentiel : un domaine, ses chapitres et leurs notions (ADR 0025). */
+    record DomainFile(
+            @JsonProperty(required = true) String domain,
+            @JsonProperty(required = true) String title,
+            @JsonProperty(required = true) int position,
+            @JsonProperty(required = true) List<ChapterEntry> chapters) {}
+
+    record ChapterEntry(
+            @JsonProperty(required = true) String id,
+            @JsonProperty(required = true) String title,
+            @JsonProperty(required = true) List<NotionEntry> notions) {}
+
+    /** @param formats les formats qui conviennent à la notion ; tous si absent */
+    record NotionEntry(
+            @JsonProperty(required = true) String id,
+            @JsonProperty(required = true) String title,
+            @JsonProperty(required = true) String level,
+            @JsonProperty(required = true) int priority,
+            @Nullable List<String> requires,
+            @Nullable List<String> formats) {}
+
+    /** Un fichier de notion : sa leçon et ses cartes. */
+    record NotionFile(
+            @JsonProperty(required = true) String notion,
+            @Nullable String lesson,
+            @JsonProperty(required = true) List<CardEntry> cards) {}
+
+    /** @param choices les choix d'un QCM ; absents pour les autres formats */
+    record CardEntry(
+            @JsonProperty(required = true) String key,
+            @JsonProperty(required = true) String format,
+            @JsonProperty(required = true) String question,
+            @JsonProperty(required = true) String answer,
+            @Nullable List<ChoiceEntry> choices) {}
+
+    record ChoiceEntry(
+            @JsonProperty(required = true) String text,
+            @JsonProperty(required = true) boolean correct) {}
+}

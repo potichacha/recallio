@@ -4,11 +4,13 @@ import com.recallio.content.CardType;
 import com.recallio.content.domain.CardContent;
 import com.recallio.content.domain.importing.CatalogSnapshot;
 import com.recallio.content.domain.importing.CatalogSnapshot.ExistingCard;
+import com.recallio.content.domain.importing.CatalogSnapshot.ExistingNotion;
 import com.recallio.content.domain.importing.CatalogSnapshot.ExistingTheme;
 import com.recallio.content.domain.importing.CatalogStore;
 import com.recallio.content.domain.importing.ImportPlan;
 import com.recallio.content.domain.importing.ImportPlan.CardPlacement;
 import com.recallio.content.domain.importing.ImportPlan.NewVersion;
+import com.recallio.content.domain.importing.ImportPlan.NotionUpsert;
 import com.recallio.content.domain.importing.ImportPlan.SubjectUpsert;
 import com.recallio.content.domain.importing.ImportPlan.ThemeUpsert;
 import com.recallio.platform.domain.IdGenerator;
@@ -42,11 +44,18 @@ public class JpaCatalogStore implements CatalogStore {
                 .createQuery("select t from ThemeEntity t where t.subjectId = :subjectId", ThemeEntity.class)
                 .setParameter("subjectId", subjectId)
                 .getResultStream()
-                .map(theme -> new ExistingTheme(theme.id, theme.slug, theme.title, theme.position))
+                .map(theme ->
+                        new ExistingTheme(theme.id, theme.slug, theme.title, theme.position, theme.retiredAt != null))
                 .collect(Collectors.toMap(ExistingTheme::id, Function.identity()));
+        Map<UUID, ExistingNotion> notions = entityManager
+                .createQuery("select n from NotionEntity n where n.subjectId = :subjectId", NotionEntity.class)
+                .setParameter("subjectId", subjectId)
+                .getResultStream()
+                .map(notion -> new ExistingNotion(notion.id, notion.toParsed(), notion.retiredAt != null))
+                .collect(Collectors.toMap(ExistingNotion::id, Function.identity()));
         Map<UUID, ExistingCard> cards = entityManager
                 .createQuery("""
-                        select c.id, c.themeId, c.type, c.position, c.currentVersion, v.contentHash, c.retiredAt
+                        select c.id, c.themeId, c.notionId, c.type, c.position, c.currentVersion, v.contentHash, c.retiredAt
                         from CardEntity c
                         join CardVersionEntity v on v.cardId = c.id and v.version = c.currentVersion
                         join ThemeEntity t on t.id = c.themeId
@@ -56,23 +65,30 @@ public class JpaCatalogStore implements CatalogStore {
                 .getResultStream()
                 .map(JpaCatalogStore::toExistingCard)
                 .collect(Collectors.toMap(ExistingCard::id, Function.identity()));
-        return new CatalogSnapshot(subject == null ? null : subject.toDomain(), themes, cards);
+        return new CatalogSnapshot(subject == null ? null : subject.toDomain(), themes, notions, cards);
     }
 
     @Override
     public void apply(ImportPlan plan) {
         Instant now = clock.instant();
-        // Sujet, thèmes, puis cartes, puis versions : les insertions restent groupées par table (batch JDBC) et les
-        // clés
-        // étrangères sont satisfaites.
+        // Sujet, thèmes et notions, puis cartes, puis versions : les insertions restent groupées par table (batch JDBC)
+        // et les clés étrangères sont satisfaites.
         SubjectUpsert subject = plan.subjectUpsert();
         if (subject != null) {
             upsertSubject(subject, now);
         }
+        retireThemes(plan, now);
         plan.themes().forEach(theme -> upsertTheme(theme, now));
+        plan.retiredNotionIds().forEach(id -> notion(id).retiredAt = now);
+        plan.notions().forEach(notion -> upsertNotion(notion, now));
         plan.newCards()
-                .forEach(card -> entityManager.persist(
-                        new CardEntity(card.id(), card.themeId(), card.content().type(), card.position(), now)));
+                .forEach(card -> entityManager.persist(new CardEntity(
+                        card.id(),
+                        card.themeId(),
+                        card.notionId(),
+                        card.content().type(),
+                        card.position(),
+                        now)));
         plan.newCards().forEach(card -> persistVersion(card.id(), 1, card.content(), card.contentHash(), now));
         plan.newVersions().forEach(version -> addVersion(version, now));
         plan.placements().forEach(this::place);
@@ -88,6 +104,24 @@ public class JpaCatalogStore implements CatalogStore {
             entityManager.flush();
         } else {
             existing.update(upsert.subject(), now);
+        }
+    }
+
+    /** Les thèmes retirés libèrent leur slug avant qu'un nouveau thème ne le reprenne (index unique partiel, V14). */
+    private void retireThemes(ImportPlan plan, Instant now) {
+        if (plan.retiredThemeIds().isEmpty()) {
+            return;
+        }
+        plan.retiredThemeIds().forEach(id -> theme(id).retiredAt = now);
+        entityManager.flush();
+    }
+
+    private void upsertNotion(NotionUpsert upsert, Instant now) {
+        NotionEntity existing = entityManager.find(NotionEntity.class, upsert.id());
+        if (existing == null) {
+            entityManager.persist(new NotionEntity(upsert.id(), upsert.subjectId(), upsert.notion(), now));
+        } else {
+            existing.update(upsert.notion(), now);
         }
     }
 
@@ -113,6 +147,7 @@ public class JpaCatalogStore implements CatalogStore {
     private void place(CardPlacement placement) {
         CardEntity card = card(placement.cardId());
         card.themeId = placement.themeId();
+        card.notionId = placement.notionId();
         card.type = placement.type();
         card.position = placement.position();
     }
@@ -125,14 +160,31 @@ public class JpaCatalogStore implements CatalogStore {
         return card;
     }
 
+    private ThemeEntity theme(UUID id) {
+        ThemeEntity theme = entityManager.find(ThemeEntity.class, id);
+        if (theme == null) {
+            throw new IllegalStateException("Thème introuvable pendant l'import : " + id);
+        }
+        return theme;
+    }
+
+    private NotionEntity notion(UUID id) {
+        NotionEntity notion = entityManager.find(NotionEntity.class, id);
+        if (notion == null) {
+            throw new IllegalStateException("Notion introuvable pendant l'import : " + id);
+        }
+        return notion;
+    }
+
     private static ExistingCard toExistingCard(Object[] row) {
         return new ExistingCard(
                 (UUID) row[0],
                 (UUID) row[1],
-                (CardType) row[2],
-                (Integer) row[3],
+                (UUID) row[2],
+                (CardType) row[3],
                 (Integer) row[4],
-                (String) row[5],
-                row[6] != null);
+                (Integer) row[5],
+                (String) row[6],
+                row[7] != null);
     }
 }
