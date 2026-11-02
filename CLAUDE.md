@@ -53,7 +53,7 @@ Mode live, exécution de code, correction des réponses ouvertes par IA, SSO ent
 Il est impossible d'empêcher totalement l'usage d'une IA ou d'internet dans un navigateur. Règles produit :
 - en **révision personnelle**, aucune mesure anti-triche : tricher ne nuit qu'au tricheur ;
 - dans les **groupes**, les classements valorisent la **régularité** (streak, révisions faites) plus que le score brut ;
-- le **mode live** (phase 3), synchronisé et chronométré, est le seul contexte compétitif ;
+- le **mode live** (phase 3), synchronisé et chronométré, est un contexte compétitif ; le **mode classé** (phase 3 ter, ADR 0025) en sera le second. Les deux n'utilisent que des formats corrigés par le serveur, avec un chrono mesuré par le serveur ;
 - pas de surveillance intrusive (webcam, détection invasive).
 
 ### 2.5 Un catalogue multi-sujets
@@ -244,7 +244,18 @@ Les commentaires ci-dessus sont là pour l'explication : un vrai en-tête n'a qu
   5. relecture dans l'application ;
   6. une seconde PR le passe en `published`.
 
-### 5.5 Feuille de route du contenu
+### 5.5 Refonte du contenu : référentiel, notions, niveaux (phase 3 bis, ADR 0025)
+L'application doit servir trois publics avec le même contenu : **apprendre** un langage sans le connaître, **préparer** un entretien, **entretenir** un niveau d'expert. Les documents d'entretien actuels ne servent bien que le deuxième. La refonte change l'unité de contenu :
+- **Un référentiel par sujet** (`content/<sujet>/referentiel/*.yaml`) : l'inventaire de **toutes** les notions du sujet, en domaines → chapitres → notions. Chaque notion a un identifiant définitif, un **niveau** (`beginner`, `intermediate`, `expert`), une **priorité** (1 essentiel, 2 courant, 3 avancé, 4 rare) et ses **prérequis**. La CI vérifie le référentiel (identifiants uniques, prérequis existants, sans cycle) et mesure la couverture du contenu par priorité.
+- **Une notion = une courte leçon + des cartes de formats variés** : cours, vrai ou faux, QCM, compléter le code, qu'affiche ce code, bug à corriger, mise en situation, définition, et des **exercices de code** (un ou plusieurs fichiers, jugés par des tests).
+- **Matrice** : **4 à 5 cartes par format** pour chaque notion, sur les formats qui ont du sens pour elle (pas de « bug à corriger » sur l'histoire du langage), et au moins un exercice de code par chapitre.
+- **Production par priorité** : toutes les notions de priorité 1, puis 2, etc. Claude rédige les brouillons (référentiel, cartes, exercices) à partir des documents existants ; **chaque PR de contenu est relue par le propriétaire du projet avant le merge** (ADR 0025).
+- **Le code est vérifié** : la CI exécute chaque « qu'affiche ce code » et compare la sortie à la réponse ; la solution modèle de chaque exercice doit passer ses tests, et le code de départ y échouer.
+- **Un sujet, c'est un langage ou un outil** : le sujet Java couvre le langage, la JVM, la bibliothèque standard et l'outillage Java (tests, build). Les chapitres du document actuel qui relèvent d'autres sujets du catalogue (Spring, Quarkus, Docker, Kubernetes, SQL, Kafka, Git, sécurité, cloud, algorithmes, conception, entretien comportemental) deviennent leurs propres sujets lors de la migration.
+
+Les documents de `content/source/` restent la source tant que la migration (phase 3 bis, étape 1) n'est pas faite.
+
+### 5.6 Feuille de route du contenu
 Les sujets s'ajoutent un par un, au rythme de la rédaction, indépendamment des phases de développement (section 9). Ordre indicatif :
 
 | Sujet | Catégorie | État |
@@ -279,6 +290,9 @@ Les sujets s'ajoutent un par un, au rythme de la rédaction, indépendamment des
 - **Points** : attribués à chaque révision (barème simple, configurable, défini en phase 1). Stockés comme des **événements** dans un registre append-only (`points_ledger`) ; le total est une somme ou une projection, jamais un compteur modifié en place.
 - **Streak** : un jour compte si l'utilisateur a terminé au moins un objectif minimal (par exemple 10 cartes) **dans son fuseau horaire**. Un jour manqué remet le streak à zéro. Plus tard : "gel de streak" à gagner.
 - La gamification ne doit jamais pousser à bâcler : pas de points pour aller plus vite en révision personnelle.
+- **Gamification v2** (phase 3 ter, ADR 0025) : carte des compétences par sujet, **maîtrise par notion** (mémoire FSRS et diversité des formats réussis), XP par sujet (plus pour les formats exigeants, jamais pour la vitesse), quêtes du jour et de la semaine qui font varier les formats, succès, gel de streak.
+- **Partage** : cartes de partage (chapitre maîtrisé, podium, promotion) et **profil public de compétences**, **privé par défaut** (RGPD, protection des données dès la conception), que chacun rend public ou privé à tout moment. Le profil distingue le **vérifié** (classé, live, défis, exercices jugés par le serveur) du **déclaré** (maîtrise en révision personnelle, auto-évaluée).
+- **Classé** : un **rang par sujet** (Bronze → Argent → Or → Platine → Diamant → Maître, en divisions), cote Glicko-2 cachée, matchs de placement, saisons aux récompenses cosmétiques ; duels asynchrones d'abord, classé en direct ensuite ; uniquement des formats corrigés par le serveur, questions adaptées au niveau (cote de difficulté des cartes).
 
 ### 6.4 Groupes (phase 2)
 - Un créateur crée un groupe, génère un lien d'invitation (expirant), définit : sujets et thèmes inclus, types de cartes, objectif quotidien, visibilité du classement (nominatif, anonymisé, désactivé).
@@ -392,11 +406,27 @@ WebSockets, parties synchronisées, chrono, classement en direct, tests de charg
 4. ✅ **Robustesse et charge** : départ de l'hôte, déconnexions, parties abandonnées, limites ; test de charge simple et métriques (ADR 0024).
 - **Terminé quand** : les membres d'un groupe jouent ensemble une partie live de bout en bout, sur mobile, et le classement s'affiche en direct.
 
+### Phase 3 bis : refonte du contenu (ADR 0025)
+Faire du contenu un référentiel complet, pour apprendre, préparer un entretien ou entretenir son niveau (5.5).
+
+1. **Référentiel et modèle** : le référentiel Java (toutes les notions, niveaux, priorités, prérequis) vérifié en CI ; puis notions, identifiants explicites, un fichier par notion, migration sans perte des cartes actuelles et découpage des chapitres hors Java en sujets propres.
+2. **Nouveaux formats texte** : vrai ou faux, compléter le code, bug à corriger.
+3. **Contrôles du contenu en CI** : matrice par notion, couverture du référentiel par priorité, exécution des « qu'affiche ce code ».
+4. **Exercices de code** : format en dossier (énoncé, fichiers de départ, solution, tests), vérification en CI, **bac à sable d'exécution** (avancé depuis la phase 5, ADR à venir), éditeur multi-fichiers dans la PWA, correction par les tests.
+5. **Parcours** : apprendre (prérequis, leçons, déblocage), préparer un entretien, entretenir son niveau ; deux cartes d'une même notion pas le même jour.
+6. **Pilote** : deux ou trois chapitres Java complets en priorité 1, pour valider la matrice et la qualité des brouillons ; puis la production, priorité par priorité.
+- **Terminé quand** : un débutant suit le parcours Java de bout en bout sur les notions de priorité 1, en codant dans l'application.
+
+### Phase 3 ter : gamification v2, partage, classé (ADR 0025)
+Carte des compétences, maîtrise par notion, XP, quêtes, succès, gel de streak ; cartes de partage et profil public (privé par défaut) ; classé par sujet : duels asynchrones, rangs, placement, cotes des cartes, puis saisons et classé en direct.
+
+Le **déploiement** (phase 1, étape 7) vient après ces phases.
+
 ### Phase 4 : offre entreprise
 Multi-organisation (colonne `organization_id` + Row-Level Security PostgreSQL), SSO entreprise via le fournisseur OIDC, tableau de bord admin avec statistiques **agrégées**, questions privées par organisation, export, conformité RGPD (registre, suppression de compte, DPA).
 
 ### Phase 5 : options
-Exécution de code dans un bac à sable isolé (Judge0 ou Piston) pour les exercices de live coding (`CODING_EXERCISE`), correction des réponses ouvertes par IA, aide à la rédaction de nouveaux sujets par IA (toujours relue par un humain avant publication), paiement.
+Correction des réponses ouvertes par IA, paiement. L'exécution de code en bac à sable et la rédaction assistée par IA sont avancées en phase 3 bis (ADR 0025).
 
 ---
 
@@ -412,6 +442,8 @@ Exécution de code dans un bac à sable isolé (Judge0 ou Piston) pour les exerc
 7. Nom du projet. **Provisoire** : Recallio (ADR 0005), à confirmer avant le premier déploiement public. Il ne doit pas évoquer Java seul.
 8. ~~Format du manifeste des sujets (phase 1 bis, étape 1).~~ **Tranché** : pas de manifeste, un en-tête dans chaque document (ADR 0013).
 9. ~~Répartition du quota de nouvelles cartes entre sujets suivis : parts égales, ou pondération choisie par l'utilisateur (phase 1 bis, étape 3).~~ **Tranché** : parts égales, en alternant les sujets (ADR 0014).
+10. Bac à sable d'exécution du code des joueurs : service existant (Judge0, Piston) ou exécuteur maison à conteneurs jetables (phase 3 bis, étape 4).
+11. ~~Rédaction du contenu à l'échelle.~~ **Tranché** : brouillons rédigés par Claude, chaque PR de contenu relue par le propriétaire avant le merge (ADR 0025).
 
 ---
 
