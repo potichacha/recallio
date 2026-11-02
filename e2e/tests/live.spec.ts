@@ -78,4 +78,24 @@ test.describe('Mode live', () => {
     await expect(live.getByText('Dernières parties')).toBeVisible()
     await expect(live).toContainText(USERS.bob.displayName)
   })
+
+  test('when the host leaves the lobby, bob becomes the host and can start', async ({
+    browser,
+  }) => {
+    const name = `Hôte ${Date.now()}`
+    const alice = await (await browser.newContext()).newPage()
+    const bob = await (await browser.newContext()).newPage()
+    await groupOfAliceAndBob(alice, bob, name)
+
+    await alice.getByRole('button', { name: 'Lancer une partie live' }).click()
+    await expect(alice.getByRole('button', { name: 'Démarrer la partie' })).toBeVisible()
+    await bob.reload()
+    await bob.getByRole('link', { name: 'Rejoindre la partie' }).click()
+    await expect(bob.getByText('En attente du lancement par l’hôte.')).toBeVisible()
+
+    // Alice part : sans hôte, personne ne pourrait démarrer ; le rôle passe à Bob.
+    await alice.goto('/groups')
+    await expect(bob.getByRole('button', { name: 'Démarrer la partie' })).toBeVisible()
+    await expect(bob.getByRole('region', { name: 'Joueurs (1)' })).toContainText('Hôte')
+  })
 })

@@ -73,6 +73,29 @@ class LiveGameTest {
         assertThat(game.isOverAt(NOW.plusSeconds(3600))).isFalse();
     }
 
+    @Test
+    void shouldHandTheHostRoleToTheEarliestPlayerWhenTheHostLeavesTheLobby() {
+        UUID third = UUID.randomUUID();
+        game.join(host, "Alice", NOW);
+        game.join(guest, "Bob", NOW);
+        game.join(third, "Carol", NOW);
+
+        var afterLeave = game.leave(host, NOW);
+
+        assertThat(afterLeave.hostId()).isEqualTo(guest);
+        assertThat(afterLeave.players()).extracting(PlayerView::host).containsExactly(true, false);
+    }
+
+    @Test
+    void shouldExpireAnAbandonedLobbyButNotOneWithPlayers() {
+        Instant check = game.expiryCheckAt();
+        assertThat(check).isEqualTo(NOW.plus(LiveGame.ABANDONED_AFTER));
+        assertThat(game.isExpiredAt(check)).isTrue();
+
+        game.join(host, "Alice", NOW);
+        assertThat(game.isExpiredAt(check)).isFalse();
+    }
+
     @Nested
     class Rounds {
 
@@ -186,6 +209,11 @@ class LiveGameTest {
             assertThat(result.standings()).extracting(Standing::correctCount).containsExactly(1, 0);
             assertThat(result.questionCount()).isEqualTo(2);
             assertThat(result.finishedAt()).isEqualTo(NOW.plusSeconds(32));
+            assertThat(game.isExpiredAt(
+                            NOW.plusSeconds(32).plus(LiveGame.KEPT_AFTER_END).minusSeconds(1)))
+                    .isFalse();
+            assertThat(game.expiryCheckAt()).isEqualTo(NOW.plusSeconds(32).plus(LiveGame.KEPT_AFTER_END));
+            assertThat(game.isExpiredAt(game.expiryCheckAt())).isTrue();
         }
 
         private static Round roundOf(Snapshot snapshot) {

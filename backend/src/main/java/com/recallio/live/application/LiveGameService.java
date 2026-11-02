@@ -5,6 +5,7 @@ import com.recallio.group.GroupReviewScopes;
 import com.recallio.live.domain.LiveExceptions.LiveGameAlreadyOpenException;
 import com.recallio.live.domain.LiveExceptions.LiveGameNotFoundException;
 import com.recallio.live.domain.LiveExceptions.SubjectNotInGroupException;
+import com.recallio.live.domain.LiveExceptions.TooManyLiveGamesException;
 import com.recallio.live.domain.LiveGame;
 import com.recallio.live.domain.LiveGame.Snapshot;
 import com.recallio.live.domain.LiveGameRepository;
@@ -48,6 +49,7 @@ public class LiveGameService {
     private final LiveQuestionDraw draw;
     private final LiveGameEvents events;
     private final LiveScheduler scheduler;
+    private final LiveMetrics metrics;
     private final GroupMembers members;
     private final GroupReviewScopes groupScopes;
     private final UserDirectory users;
@@ -61,6 +63,7 @@ public class LiveGameService {
             LiveQuestionDraw draw,
             LiveGameEvents events,
             LiveScheduler scheduler,
+            LiveMetrics metrics,
             GroupMembers members,
             GroupReviewScopes groupScopes,
             UserDirectory users,
@@ -72,6 +75,7 @@ public class LiveGameService {
         this.draw = draw;
         this.events = events;
         this.scheduler = scheduler;
+        this.metrics = metrics;
         this.members = members;
         this.groupScopes = groupScopes;
         this.users = users;
@@ -92,10 +96,14 @@ public class LiveGameService {
         }
         Instant now = clock.instant();
         closeIfOver(groupId, now);
+        if (games.openCount() >= config.maxOpenGames()) {
+            throw new TooManyLiveGamesException();
+        }
         LiveGame game = new LiveGame(idGenerator.newId(), groupId, subjectSlug, user.id(), now);
         if (games.registerUnlessGroupHasOne(game).isPresent()) {
             throw new LiveGameAlreadyOpenException();
         }
+        scheduleExpiryCheck(game);
         return game.snapshot();
     }
 
@@ -143,14 +151,18 @@ public class LiveGameService {
         Set<String> themes = groupScopes.of(user, game.groupId()).themeSlugs();
         List<LiveQuestion> questions = draw.draw(game.subjectSlug(), themes);
         Instant before = game.phaseEndsAt();
-        return changed(game, before, game.start(user.id(), questions, config.timing(), clock.instant()));
+        Snapshot started = changed(game, before, game.start(user.id(), questions, config.timing(), clock.instant()));
+        metrics.gameStarted();
+        return started;
     }
 
     /** La réponse d'un joueur à la question en cours ; la correction n'est diffusée qu'à la fin de la question. */
     public Snapshot answer(UserRef user, UUID gameId, int questionIndex, Set<Integer> selected) {
         LiveGame game = visibleGame(user, gameId);
         Instant before = game.phaseEndsAt();
-        return changed(game, before, game.answer(user.id(), questionIndex, selected, clock.instant()));
+        Snapshot answered = changed(game, before, game.answer(user.id(), questionIndex, selected, clock.instant()));
+        metrics.answerReceived();
+        return answered;
     }
 
     /**
@@ -166,6 +178,8 @@ public class LiveGameService {
                     // La base bloque : l'enregistrement quitte la boucle d'événements.
                     LiveGameResult result = game.result();
                     scheduler.runBlocking(() -> results.save(result));
+                    metrics.gameFinished();
+                    scheduleExpiryCheck(game);
                 }
             } else {
                 scheduler.wakeUpAt(dueAt, () -> wakeUp(gameId, dueAt));
@@ -194,6 +208,20 @@ public class LiveGameService {
             throw new LiveGameNotFoundException(gameId);
         }
         return game;
+    }
+
+    /**
+     * Une partie quitte la mémoire d'elle-même : salle jamais rejointe, ou partie finie depuis un moment, même si des
+     * onglets restent ouverts (ADR 0024).
+     */
+    private void scheduleExpiryCheck(LiveGame game) {
+        UUID gameId = game.id();
+        scheduler.wakeUpAt(game.expiryCheckAt(), () -> expireIfDue(gameId));
+    }
+
+    /** Sur la boucle d'événements : rien qui bloque. */
+    void expireIfDue(UUID gameId) {
+        games.findById(gameId).filter(game -> game.isExpiredAt(clock.instant())).ifPresent(games::remove);
     }
 
     private void closeIfOver(UUID groupId, Instant now) {

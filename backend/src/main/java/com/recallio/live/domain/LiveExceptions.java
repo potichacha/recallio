@@ -31,6 +31,16 @@ public final class LiveExceptions {
         }
     }
 
+    /** L'instance a atteint sa limite de parties simultanées : un refus temporaire. */
+    public static final class TooManyLiveGamesException extends ConflictException {
+
+        public static final String CODE = "live.too-many-games";
+
+        public TooManyLiveGamesException() {
+            super(CODE, "Trop de parties live sont en cours : réessayez dans quelques minutes.");
+        }
+    }
+
     public static final class LiveGameFullException extends ConflictException {
 
         public static final String CODE = "live.game-full";

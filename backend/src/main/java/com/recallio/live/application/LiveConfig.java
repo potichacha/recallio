@@ -25,6 +25,10 @@ public interface LiveConfig {
     @WithDefault("5")
     int revealSeconds();
 
+    /** Parties ouvertes en même temps sur l'instance, toutes confondues : borne la mémoire et les minuteurs. */
+    @WithDefault("200")
+    int maxOpenGames();
+
     default LiveTiming timing() {
         return new LiveTiming(Duration.ofSeconds(questionSeconds()), Duration.ofSeconds(revealSeconds()));
     }

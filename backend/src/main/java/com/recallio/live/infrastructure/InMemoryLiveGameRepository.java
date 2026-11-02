@@ -36,6 +36,11 @@ public class InMemoryLiveGameRepository implements LiveGameRepository {
     }
 
     @Override
+    public int openCount() {
+        return games.size();
+    }
+
+    @Override
     public void remove(LiveGame game) {
         games.remove(game.id());
         openGameByGroup.remove(game.groupId(), game.id());

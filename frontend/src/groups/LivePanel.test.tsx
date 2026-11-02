@@ -98,10 +98,22 @@ describe('LivePanel', () => {
         close() {}
       },
     )
+    // Une fois la partie ouverte, le serveur la liste : recharger la liste ferait disparaître le formulaire avant que
+    // la navigation vers la salle d'attente ait eu lieu (bug corrigé).
+    let opened = false
     const fetchMock = stubGroup({
-      '/api/v1/groups/g1/live-games': { body: [] },
-      '/api/v1/groups/g1/live-games/results': { body: [] },
-      'POST /api/v1/groups/g1/live-games': { status: 201, body: LIVE_GAME },
+      '/api/v1/groups/g1/live-games': {
+        get body() {
+          return opened ? [LIVE_GAME] : []
+        },
+      },
+      'POST /api/v1/groups/g1/live-games': {
+        status: 201,
+        get body() {
+          opened = true
+          return LIVE_GAME
+        },
+      },
     })
     const router = renderAt('/groups/g1', signedIn())
 

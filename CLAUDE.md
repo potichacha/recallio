@@ -383,13 +383,13 @@ Groupes, invitations, réglages (dont les sujets du groupe), classements (Valkey
 6. ✅ **Défis de groupe** : une série de QCM commune, avec un délai de réponse par carte mesuré par le serveur (ADR 0020).
 - **Terminé quand** : une équipe crée son groupe, invite ses membres, révise les mêmes sujets et suit son classement de la semaine.
 
-### Phase 3 : mode live
+### Phase 3 : mode live ✅
 WebSockets, parties synchronisées, chrono, classement en direct, tests de charge simples.
 
 1. ✅ **Salle d'attente en temps réel** : WebSockets Next authentifié par le JWT (sous-protocole), tout membre ouvre une partie sur un sujet du groupe, les membres la rejoignent et se voient en direct (ADR 0021).
 2. ✅ **Déroulé synchronisé** : l'hôte démarre ; la même question pour tous, au même moment, chrono commun mesuré par le serveur ; correction révélée, puis question suivante ; reprise après reconnexion (ADR 0022).
 3. ✅ **Points et classement en direct** : justesse et rapidité, classement après chaque question, podium final, résultats conservés (ADR 0023).
-4. **Robustesse et charge** : départ de l'hôte, déconnexions, parties abandonnées, limites ; test de charge simple et métriques.
+4. ✅ **Robustesse et charge** : départ de l'hôte, déconnexions, parties abandonnées, limites ; test de charge simple et métriques (ADR 0024).
 - **Terminé quand** : les membres d'un groupe jouent ensemble une partie live de bout en bout, sur mobile, et le classement s'affiche en direct.
 
 ### Phase 4 : offre entreprise

@@ -21,6 +21,9 @@ public interface LiveGameRepository {
 
     Optional<LiveGame> findOpenByGroup(UUID groupId);
 
+    /** Les parties en mémoire, toutes confondues. */
+    int openCount();
+
     /** Ferme la partie : elle n'est plus trouvée, et son groupe peut en ouvrir une autre. */
     void remove(LiveGame game);
 }
