@@ -202,7 +202,41 @@ signale une renumérotation.
 Pour **retirer temporairement** un sujet publié, repasser en `status: draft` et réimporter : il disparaît du catalogue
 et des révisions, sans perte de progression, et revient tel quel s'il est republié.
 
-## 8. Liste de contrôle avant la pull request
+## 8. Le référentiel d'un sujet (refonte en cours, ADR 0025)
+
+Le contenu évolue vers un **référentiel de notions** : `content/<sujet>/referentiel/*.yaml`, un fichier par domaine
+(bases, objet, collections...), puis des chapitres et des notions. Il fait l'inventaire de **tout** le sujet ; le
+contenu (leçons, cartes, exercices) viendra s'y rattacher notion par notion.
+
+```yaml
+domain: collections
+title: Collections
+position: 60
+chapters:
+  - id: maps
+    title: Maps
+    notions:
+      - {id: hashmap-usage, title: "HashMap : put, get, getOrDefault", level: beginner, priority: 1, requires: [collections-panorama]}
+```
+
+| Champ | Valeurs | Rôle |
+|---|---|---|
+| `id` | minuscules, chiffres, tirets | **définitif** : la progression s'y rattachera |
+| `level` | `beginner`, `intermediate`, `expert` | le public visé : apprendre, préparer un entretien, entretenir son niveau |
+| `priority` | 1 essentiel, 2 courant, 3 avancé, 4 rare | l'ordre de production du contenu |
+| `requires` | des `id` de notions | les prérequis, pour le parcours « apprendre » |
+| `formats` | facultatif | les formats qui conviennent, quand tous ne conviennent pas (pas de bug à corriger sur l'histoire de Java) |
+
+Formats possibles : `course`, `true-false`, `multiple-choice`, `fill-in`, `code-output`, `bug-fix`, `scenario`,
+`definition`, `exercise`. La cible est de **4 à 5 cartes par format applicable** pour chaque notion.
+
+La CI (`ReferentialTest`) refuse :
+- un identifiant en double ou mal formé ;
+- un prérequis inexistant ;
+- un cycle de prérequis ;
+- un prérequis plus avancé ou moins essentiel que la notion qui en dépend (un débutant ne doit pas buter sur une notion d'expert).
+
+## 9. Liste de contrôle avant la pull request
 
 - [ ] Le fichier s'appelle `source/<subject>-entretien-reference.md`.
 - [ ] L'en-tête est complet ; le `subject` est définitif ; `status: draft` pour un nouveau sujet.
