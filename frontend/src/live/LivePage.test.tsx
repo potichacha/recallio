@@ -2,7 +2,14 @@ import { act, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { setAccessTokenProvider } from '../api/client'
-import { fakeSession, renderAt, SIGNED_IN_API, stubApi, TEST_SUBJECTS } from '../test/render'
+import {
+  fakeSession,
+  renderAt,
+  sentRequests,
+  SIGNED_IN_API,
+  stubApi,
+  TEST_SUBJECTS,
+} from '../test/render'
 
 /** Un WebSocket factice : le test joue le rôle du serveur (messages, fermeture). */
 class FakeWebSocket {
@@ -41,7 +48,7 @@ const player = (userId: string, displayName: string, host = false) => ({
   host,
 })
 
-const game = (players: object[]) => ({
+const game = (players: object[], status = 'LOBBY', round: object | null = null) => ({
   type: 'game',
   game: {
     id: 'game-1',
@@ -49,9 +56,21 @@ const game = (players: object[]) => ({
     subject: 'java',
     hostId: 'u1',
     createdAt: '2026-11-02T18:00:00Z',
-    status: 'LOBBY',
+    status,
     players,
+    round,
   },
+})
+
+const round = (reveal: object | null = null, answeredCount = 0) => ({
+  index: 0,
+  total: 3,
+  prompt: 'Où vivent les objets ?',
+  choices: ['Dans la pile', 'Dans le tas'],
+  multipleAnswers: false,
+  remainingMs: 15_000,
+  answeredCount,
+  reveal,
 })
 
 /** La dernière connexion ouverte, une fois le jeton obtenu (asynchrone). */
@@ -83,6 +102,62 @@ describe('LivePage', () => {
 
     connection.receive(game([player('u1', 'Alice', true), player('u2', 'Bob')]))
     expect(await screen.findByRole('region', { name: 'Joueurs (2)' })).toHaveTextContent('Bob')
+  })
+
+  it('lets the host start, then plays a question up to its correction', async () => {
+    const fetchMock = stubApi({
+      ...SIGNED_IN_API,
+      '/api/v1/subjects': { body: TEST_SUBJECTS },
+      'POST /api/v1/live-games/game-1/start': { body: game([]).game },
+      'POST /api/v1/live-games/game-1/answers': { body: game([]).game },
+    })
+    renderAt('/live/game-1', signedIn())
+    const connection = await socket()
+    const players = [player('u1', 'Alice', true), player('u2', 'Bob')]
+    connection.receive(game(players))
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Démarrer la partie' }))
+    expect(sentRequests(fetchMock).some((request) => request.url.endsWith('/start'))).toBe(true)
+
+    // Le nouvel état arrive par le WebSocket, à tous les joueurs en même temps.
+    connection.receive(game(players, 'QUESTION', round()))
+    expect(await screen.findByText('Question 1 / 3')).toBeInTheDocument()
+    expect(screen.getByRole('timer', { name: 'Temps restant' })).toHaveTextContent('15 s')
+    await userEvent.click(screen.getByRole('radio', { name: /Dans la pile/ }))
+    await userEvent.click(screen.getByRole('button', { name: 'Valider' }))
+    expect(await screen.findByRole('status')).toHaveTextContent('Réponse envoyée.')
+    const answer = sentRequests(fetchMock).find((request) => request.url.endsWith('/answers'))
+    expect(await answer?.json()).toEqual({ question: 0, selectedChoices: [0] })
+
+    connection.receive(
+      game(
+        [player('u1', 'Alice', true), { ...player('u2', 'Bob'), answered: true }],
+        'REVEAL',
+        round({ correctChoices: [1], explanation: 'Dans le **tas**.', correctCount: 1 }, 2),
+      ),
+    )
+    expect(await screen.findByText('1 joueur sur 2 a trouvé.')).toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: /Dans le tas/ }).closest('label')).toHaveTextContent(
+      'Bonne réponse, non cochée',
+    )
+    expect(screen.getByRole('timer', { name: 'Avant la suite' })).toBeInTheDocument()
+
+    connection.receive(
+      game(players, 'FINISHED', round({ correctChoices: [1], explanation: '', correctCount: 1 })),
+    )
+    expect(await screen.findByText('Partie terminée : merci d’avoir joué !')).toBeInTheDocument()
+  })
+
+  it('waits for the host when the player is not the host', async () => {
+    renderAt('/live/game-1', signedIn())
+
+    ;(await socket()).receive({
+      ...game([player('u2', 'Bob', true)]),
+      game: { ...game([]).game, hostId: 'u2' },
+    })
+
+    expect(await screen.findByText('En attente du lancement par l’hôte.')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Démarrer la partie' })).not.toBeInTheDocument()
   })
 
   it('carries the access token in the subprotocol, the browser cannot send headers', async () => {

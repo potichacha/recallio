@@ -3,10 +3,22 @@ package com.recallio.live.domain;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.recallio.live.domain.LiveExceptions.HostOnlyException;
 import com.recallio.live.domain.LiveExceptions.LiveGameFullException;
+import com.recallio.live.domain.LiveExceptions.LiveGameStartedException;
+import com.recallio.live.domain.LiveExceptions.NotInGameException;
+import com.recallio.live.domain.LiveExceptions.RoundClosedException;
 import com.recallio.live.domain.LiveGame.PlayerView;
+import com.recallio.live.domain.LiveGame.Round;
+import com.recallio.live.domain.LiveGame.Snapshot;
+import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
+import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 class LiveGameTest {
@@ -24,7 +36,8 @@ class LiveGameTest {
 
         assertThat(snapshot.status()).isEqualTo(LiveGameStatus.LOBBY);
         assertThat(snapshot.players())
-                .containsExactly(new PlayerView(host, "Alice", true), new PlayerView(guest, "Bob", false));
+                .containsExactly(
+                        new PlayerView(host, "Alice", true, false), new PlayerView(guest, "Bob", false, false));
     }
 
     @Test
@@ -32,10 +45,10 @@ class LiveGameTest {
         game.join(guest, "Bob", NOW);
         game.join(guest, "Bob", NOW);
 
-        assertThat(game.leave(guest).players()).hasSize(1);
-        assertThat(game.leave(guest).players()).isEmpty();
+        assertThat(game.leave(guest, NOW).players()).hasSize(1);
+        assertThat(game.leave(guest, NOW).players()).isEmpty();
         assertThat(game.isEmpty()).isTrue();
-        assertThat(game.leave(UUID.randomUUID()).players()).isEmpty();
+        assertThat(game.leave(UUID.randomUUID(), NOW).players()).isEmpty();
     }
 
     @Test
@@ -50,12 +63,100 @@ class LiveGameTest {
     }
 
     @Test
-    void shouldBeAbandonedWhenNobodyJoinedForFiveMinutes() {
-        assertThat(game.isAbandonedAt(NOW.plus(LiveGame.ABANDONED_AFTER).minusSeconds(1)))
+    void shouldNoLongerBlockTheGroupWhenNobodyJoinedForFiveMinutes() {
+        assertThat(game.isOverAt(NOW.plus(LiveGame.ABANDONED_AFTER).minusSeconds(1)))
                 .isFalse();
-        assertThat(game.isAbandonedAt(NOW.plus(LiveGame.ABANDONED_AFTER))).isTrue();
+        assertThat(game.isOverAt(NOW.plus(LiveGame.ABANDONED_AFTER))).isTrue();
 
         game.join(host, "Alice", NOW);
-        assertThat(game.isAbandonedAt(NOW.plusSeconds(3600))).isFalse();
+        assertThat(game.isOverAt(NOW.plusSeconds(3600))).isFalse();
+    }
+
+    @Nested
+    class Rounds {
+
+        private static final LiveTiming TIMING = new LiveTiming(Duration.ofSeconds(20), Duration.ofSeconds(5));
+
+        private final List<LiveQuestion> questions = List.of(question("Un ?"), question("Deux ?"));
+
+        @BeforeEach
+        void twoPlayers() {
+            game.join(host, "Alice", NOW);
+            game.join(guest, "Bob", NOW);
+        }
+
+        @Test
+        void shouldLetOnlyTheHostStartAndOnlyOnce() {
+            assertThatThrownBy(() -> game.start(guest, questions, TIMING, NOW)).isInstanceOf(HostOnlyException.class);
+
+            var started = game.start(host, questions, TIMING, NOW);
+
+            assertThat(started.status()).isEqualTo(LiveGameStatus.QUESTION);
+            assertThat(started.round()).isNotNull();
+            assertThat(roundOf(started).index()).isZero();
+            assertThat(roundOf(started).endsAt()).isEqualTo(NOW.plusSeconds(20));
+            assertThatThrownBy(() -> game.start(host, questions, TIMING, NOW))
+                    .isInstanceOf(LiveGameStartedException.class);
+        }
+
+        @Test
+        void shouldRevealAtTheEndOfTheTimerThenAskTheNextQuestionThenFinish() {
+            game.start(host, questions, TIMING, NOW);
+
+            assertThat(game.advance(NOW.plusSeconds(19))).isFalse();
+            assertThat(game.advance(NOW.plusSeconds(20))).isTrue();
+            assertThat(game.snapshot().status()).isEqualTo(LiveGameStatus.REVEAL);
+            assertThat(game.phaseEndsAt()).isEqualTo(NOW.plusSeconds(25));
+
+            assertThat(game.advance(NOW.plusSeconds(25))).isTrue();
+            assertThat(roundOf(game.snapshot()).index()).isEqualTo(1);
+            game.advance(NOW.plusSeconds(45));
+            game.advance(NOW.plusSeconds(50));
+
+            assertThat(game.snapshot().status()).isEqualTo(LiveGameStatus.FINISHED);
+            assertThat(game.phaseEndsAt()).isNull();
+            assertThat(game.isOverAt(NOW.plusSeconds(50))).isTrue();
+            assertThat(game.advance(NOW.plusSeconds(3600))).isFalse();
+        }
+
+        @Test
+        void shouldRevealEarlyOnceEveryPresentPlayerHasAnswered() {
+            game.start(host, questions, TIMING, NOW);
+
+            var afterOne = game.answer(host, 0, Set.of(0), NOW.plusSeconds(3));
+            assertThat(afterOne.status()).isEqualTo(LiveGameStatus.QUESTION);
+            assertThat(afterOne.players()).extracting(PlayerView::answered).containsExactly(true, false);
+
+            // Bob part sans répondre : tous ceux qui restent ont répondu.
+            var afterLeave = game.leave(guest, NOW.plusSeconds(4));
+            assertThat(afterLeave.status()).isEqualTo(LiveGameStatus.REVEAL);
+            assertThat(roundOf(afterLeave).correctCount()).isEqualTo(1);
+            assertThat(game.phaseEndsAt()).isEqualTo(NOW.plusSeconds(9));
+        }
+
+        @Test
+        void shouldKeepTheFirstAnswerAndRefuseLateOrMisplacedOnes() {
+            game.start(host, questions, TIMING, NOW);
+
+            game.answer(guest, 0, Set.of(1), NOW.plusSeconds(1));
+            game.answer(guest, 0, Set.of(0), NOW.plusSeconds(2));
+            assertThatThrownBy(() -> game.answer(host, 1, Set.of(0), NOW.plusSeconds(3)))
+                    .isInstanceOf(RoundClosedException.class);
+            assertThatThrownBy(() -> game.answer(host, 0, Set.of(0), NOW.plusSeconds(21)))
+                    .isInstanceOf(RoundClosedException.class);
+            assertThatThrownBy(() -> game.answer(UUID.randomUUID(), 0, Set.of(0), NOW.plusSeconds(3)))
+                    .isInstanceOf(NotInGameException.class);
+
+            game.advance(NOW.plusSeconds(20));
+            assertThat(roundOf(game.snapshot()).correctCount()).isZero();
+        }
+
+        private static Round roundOf(Snapshot snapshot) {
+            return Objects.requireNonNull(snapshot.round(), "aucune question en cours");
+        }
+
+        private static LiveQuestion question(String prompt) {
+            return new LiveQuestion(UUID.randomUUID(), prompt, List.of("Juste", "Faux"), Set.of(0), "Parce que.");
+        }
     }
 }

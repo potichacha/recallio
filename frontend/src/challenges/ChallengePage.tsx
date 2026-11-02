@@ -11,8 +11,8 @@ import { ApiError } from '../api/errors'
 import { ChoiceOption } from '../components/ChoiceOption'
 import { choiceOutcome, toggleChoice } from '../components/choices'
 import { Markdown } from '../components/Markdown'
+import { useCountdown } from '../components/useCountdown'
 
-const TICK_MS = 250
 const SECOND = 1000
 
 /** Un défi de groupe (ADR 0020) : ses règles, la partie carte par carte, puis le classement. */
@@ -111,17 +111,6 @@ function ChallengePlay({
       onNext={() => mutate()}
     />
   )
-}
-
-/** Le temps restant, décompté localement à partir de celui donné par le serveur (pas d'écart d'horloge). */
-function useCountdown(totalMs: number) {
-  const [deadline] = useState(() => Date.now() + totalMs)
-  const [remaining, setRemaining] = useState(totalMs)
-  useEffect(() => {
-    const timer = setInterval(() => setRemaining(Math.max(0, deadline - Date.now())), TICK_MS)
-    return () => clearInterval(timer)
-  }, [deadline])
-  return remaining
 }
 
 function ChallengeCardPlay({

@@ -1,10 +1,15 @@
 import { useState } from 'react'
 import { Link, useParams } from 'react-router'
 import { useSubjects } from '../api/content'
-import { LIVE_CLOSE, useLiveGameSocket, type LiveGame } from '../api/live'
+import { ApiError } from '../api/errors'
+import { LIVE_CLOSE, useLiveGameSocket, useStartLiveGame, type LiveGame } from '../api/live'
 import { useProfile } from '../api/profile'
+import { LiveRoundView } from './LiveRound'
 
-/** Une partie live (ADR 0021) : la salle d'attente, mise à jour en direct à chaque arrivée et départ. */
+/**
+ * Une partie live (ADR 0021 et 0022) : la salle d'attente, puis les questions au rythme du serveur, mises à jour en
+ * direct pour tous les joueurs.
+ */
 export function LivePage() {
   const { gameId = '' } = useParams()
   // Chaque tentative remonte la connexion : un état neuf, un nouveau WebSocket.
@@ -47,7 +52,34 @@ function LiveConnectionView({ gameId, onReconnect }: { gameId: string; onReconne
       </section>
     )
   }
-  return <Lobby game={connection.game} />
+  return <LiveGameView game={connection.game} />
+}
+
+function LiveGameView({ game }: { game: LiveGame }) {
+  const profile = useProfile()
+  const subjects = useSubjects()
+  const subjectTitle =
+    subjects.data?.find((subject) => subject.slug === game.subject)?.title ?? game.subject
+  const me = profile.data?.id
+
+  return (
+    <section className="flex flex-col gap-4">
+      <Link to={`/groups/${game.groupId}`} className="text-sm text-indigo-600 hover:underline">
+        ← Le groupe
+      </Link>
+      <h1 className="text-2xl font-bold">Partie live : {subjectTitle}</h1>
+      {game.status === 'LOBBY' && <Lobby game={game} me={me} />}
+      {(game.status === 'QUESTION' || game.status === 'REVEAL') && game.round && (
+        <LiveRoundView key={game.round.index} game={game} round={game.round} me={me} />
+      )}
+      {game.status === 'FINISHED' && (
+        <p role="status" className="font-medium">
+          Partie terminée : merci d’avoir joué !
+        </p>
+      )}
+      <Players game={game} me={me} />
+    </section>
+  )
 }
 
 function ClosedMessage({ title, detail }: { title: string; detail: string }) {
@@ -62,49 +94,63 @@ function ClosedMessage({ title, detail }: { title: string; detail: string }) {
   )
 }
 
-function Lobby({ game }: { game: LiveGame }) {
-  const profile = useProfile()
-  const subjects = useSubjects()
-  const subjectTitle =
-    subjects.data?.find((subject) => subject.slug === game.subject)?.title ?? game.subject
-  const me = profile.data?.id
-  const iAmHost = me !== undefined && me === game.hostId
-
+function Lobby({ game, me }: { game: LiveGame; me: string | undefined }) {
+  const start = useStartLiveGame(game.id)
+  if (me === undefined || me !== game.hostId) {
+    return <p className="text-slate-600">En attente du lancement par l’hôte.</p>
+  }
   return (
-    <section className="flex flex-col gap-4">
-      <Link to={`/groups/${game.groupId}`} className="text-sm text-indigo-600 hover:underline">
-        ← Le groupe
-      </Link>
-      <h1 className="text-2xl font-bold">Partie live : {subjectTitle}</h1>
+    <div className="flex flex-col items-start gap-2">
       <p className="text-slate-600">
-        {iAmHost
-          ? 'Vous êtes l’hôte : vous lancerez la partie quand tout le monde sera là.'
-          : 'En attente du lancement par l’hôte.'}
+        Vous êtes l’hôte : démarrez la partie quand tout le monde est là. Chaque question dure
+        quelques secondes, la même pour tous.
       </p>
-      <section
-        aria-labelledby="players-title"
-        className="flex flex-col gap-2 rounded-xl bg-white p-4 shadow-sm"
+      <button
+        type="button"
+        onClick={() => start.mutate()}
+        disabled={start.isPending}
+        className="rounded-lg bg-indigo-600 px-4 py-2 font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
       >
-        <h2 id="players-title" className="text-lg font-semibold">
-          Joueurs ({game.players.length})
-        </h2>
-        <ul className="flex flex-col gap-2">
-          {game.players.map((player) => (
-            <li
-              key={player.userId}
-              className="flex items-center gap-2 rounded-lg bg-slate-50 px-3 py-2"
-            >
-              {player.displayName}
-              {player.userId === me && <span className="text-slate-500">(vous)</span>}
-              {player.host && (
-                <span className="rounded bg-indigo-50 px-1.5 py-0.5 text-xs font-medium text-indigo-700">
-                  Hôte
-                </span>
-              )}
-            </li>
-          ))}
-        </ul>
-      </section>
+        Démarrer la partie
+      </button>
+      {start.isError && (
+        <p role="alert">
+          {start.error instanceof ApiError ? start.error.message : 'La partie n’a pas pu démarrer.'}
+        </p>
+      )}
+    </div>
+  )
+}
+
+function Players({ game, me }: { game: LiveGame; me: string | undefined }) {
+  const playing = game.status === 'QUESTION'
+  return (
+    <section
+      aria-labelledby="players-title"
+      className="flex flex-col gap-2 rounded-xl bg-white p-4 shadow-sm"
+    >
+      <h2 id="players-title" className="text-lg font-semibold">
+        Joueurs ({game.players.length})
+      </h2>
+      <ul className="flex flex-col gap-2">
+        {game.players.map((player) => (
+          <li
+            key={player.userId}
+            className="flex items-center gap-2 rounded-lg bg-slate-50 px-3 py-2"
+          >
+            {player.displayName}
+            {player.userId === me && <span className="text-slate-500">(vous)</span>}
+            {player.host && (
+              <span className="rounded bg-indigo-50 px-1.5 py-0.5 text-xs font-medium text-indigo-700">
+                Hôte
+              </span>
+            )}
+            {playing && player.answered && (
+              <span className="ml-auto text-xs font-medium text-emerald-700">A répondu</span>
+            )}
+          </li>
+        ))}
+      </ul>
     </section>
   )
 }
