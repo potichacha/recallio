@@ -277,6 +277,10 @@ cards:
   écrite en bloc `|-`.
 - Un format exclu par le référentiel pour la notion (`formats`) est refusé.
 - `./mvnw test -Dtest='SubjectFolderTest'` vérifie chaque dossier, comme la CI.
+- **Couverture** : le job CI `content` publie, dans le résumé de chaque PR, la couverture du référentiel par priorité,
+  la matrice par format et la liste des notions essentielles sans carte. Une notion est *complète* quand chacun de ses
+  formats a au moins 4 cartes. C'est une mesure, pas un blocage, jusqu'au pilote (étape 6 de la phase 3 bis). En local,
+  `./mvnw test -Dtest='ContentCoverageReportTest'` l'écrit dans `backend/target/content-coverage.md`.
 
 ## 9. Liste de contrôle avant la pull request
 

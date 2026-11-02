@@ -5,6 +5,8 @@ import com.fasterxml.jackson.core.JsonLocation;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 import com.recallio.content.domain.Subject;
+import com.recallio.content.domain.source.ContentCoverage;
+import com.recallio.content.domain.source.ContentCoverage.NotionTarget;
 import com.recallio.content.domain.source.InvalidSourceException;
 import com.recallio.content.domain.source.ParsedContent;
 import com.recallio.content.domain.source.ParsedContent.ParsedCard;
@@ -47,10 +49,7 @@ public class YamlSubjectFolderParser implements SubjectFolderParser {
     @Override
     public ParsedContent parse(SubjectFolder folder) {
         Subject subject = subject(read(folder.subject(), SubjectFile.class, "subject.yaml"));
-        Referential referential = Referential.of(new TreeMap<>(folder.referential())
-                .entrySet().stream()
-                        .map(file -> read(file.getValue(), DomainFile.class, "referentiel/" + file.getKey()))
-                        .toList());
+        Referential referential = referential(folder);
         List<SourceIssue> issues = new ArrayList<>();
         Map<String, NotionFile> files = notionFiles(folder, referential, issues);
         List<ParsedNotion> notions = new ArrayList<>();
@@ -75,6 +74,30 @@ public class YamlSubjectFolderParser implements SubjectFolderParser {
                         .toList(),
                 notions,
                 issues);
+    }
+
+    /**
+     * La couverture du référentiel par les cartes valides du dossier (ADR 0025), publiée par la CI.
+     *
+     * @throws InvalidSourceException si l'en-tête ou le référentiel est illisible
+     */
+    public ContentCoverage coverage(SubjectFolder folder) {
+        ParsedContent parsed = parse(folder);
+        return ContentCoverage.of(
+                parsed.subject().slug(),
+                referential(folder).entries().stream()
+                        .map(entry -> new NotionTarget(entry.notion(), NotionCards.types(entry.formats())))
+                        .toList(),
+                parsed.themes().stream()
+                        .flatMap(theme -> theme.cards().stream())
+                        .toList());
+    }
+
+    private static Referential referential(SubjectFolder folder) {
+        return Referential.of(new TreeMap<>(folder.referential())
+                .entrySet().stream()
+                        .map(file -> read(file.getValue(), DomainFile.class, "referentiel/" + file.getKey()))
+                        .toList());
     }
 
     /** Les fichiers de notion lisibles, par notion ; les autres deviennent des anomalies du rapport. */
