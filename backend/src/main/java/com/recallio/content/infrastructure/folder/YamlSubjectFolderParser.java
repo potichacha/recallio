@@ -9,6 +9,7 @@ import com.recallio.content.domain.source.ContentCoverage;
 import com.recallio.content.domain.source.ContentCoverage.NotionTarget;
 import com.recallio.content.domain.source.InvalidSourceException;
 import com.recallio.content.domain.source.ParsedContent;
+import com.recallio.content.domain.source.ParsedContent.CardKey;
 import com.recallio.content.domain.source.ParsedContent.ParsedCard;
 import com.recallio.content.domain.source.ParsedContent.ParsedNotion;
 import com.recallio.content.domain.source.ParsedContent.ParsedTheme;
@@ -24,7 +25,10 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 import java.util.TreeMap;
+import java.util.stream.Collectors;
 import org.jspecify.annotations.Nullable;
 
 /**
@@ -52,15 +56,17 @@ public class YamlSubjectFolderParser implements SubjectFolderParser {
         Referential referential = referential(folder);
         List<SourceIssue> issues = new ArrayList<>();
         Map<String, NotionFile> files = notionFiles(folder, referential, issues);
+        Map<String, List<ParsedCard>> exercises = new NotionExercises(referential, issues).read(folder.exercises());
         List<ParsedNotion> notions = new ArrayList<>();
         Map<String, ThemeCards> themes = new LinkedHashMap<>();
         for (Referential.Entry entry : referential.entries()) {
             NotionFile file = files.get(entry.notion().slug());
             notions.add(withLesson(entry.notion(), file));
-            if (file == null) {
-                continue;
+            List<ParsedCard> cards = new ArrayList<>();
+            if (file != null) {
+                cards.addAll(new NotionCards(entry, path(entry), issues).read(file));
             }
-            List<ParsedCard> cards = new NotionCards(entry, path(entry), issues).read(file);
+            addExercises(cards, exercises.getOrDefault(entry.notion().slug(), List.of()), issues);
             if (!cards.isEmpty()) {
                 themes.computeIfAbsent(entry.notion().domain(), _ -> new ThemeCards(entry))
                         .cards
@@ -98,6 +104,27 @@ public class YamlSubjectFolderParser implements SubjectFolderParser {
                 .entrySet().stream()
                         .map(file -> read(file.getValue(), DomainFile.class, "referentiel/" + file.getKey()))
                         .toList());
+    }
+
+    /**
+     * Ajoute les exercices d'une notion après ses cartes. Un exercice et une carte de même clé auraient le même
+     * identifiant : l'exercice est alors refusé.
+     */
+    private static void addExercises(List<ParsedCard> cards, List<ParsedCard> exercises, List<SourceIssue> issues) {
+        Set<CardKey> keys =
+                cards.stream().map(ParsedCard::key).filter(Objects::nonNull).collect(Collectors.toSet());
+        for (ParsedCard exercise : exercises) {
+            CardKey key = Objects.requireNonNull(exercise.key());
+            if (keys.contains(key)) {
+                issues.add(new SourceIssue(
+                        0,
+                        "exercices : la clé « %s » est déjà celle d'une carte de la notion « %s »"
+                                .formatted(key.key(), key.notion()),
+                        key.key()));
+            } else {
+                cards.add(exercise);
+            }
+        }
     }
 
     /** Les fichiers de notion lisibles, par notion ; les autres deviennent des anomalies du rapport. */

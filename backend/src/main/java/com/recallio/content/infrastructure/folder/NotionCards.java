@@ -39,7 +39,10 @@ final class NotionCards {
             "bug-fix", CardType.BUG_FIX,
             "fill-in", CardType.FILL_IN);
 
-    /** Les types de carte de ces formats ; ceux que l'application ne présente pas encore sont ignorés. */
+    /**
+     * Les types de carte de ces formats, pour la matrice : les exercices de code, comptés par chapitre, n'en font pas
+     * partie.
+     */
     static Set<CardType> types(Set<String> formats) {
         return SUPPORTED.entrySet().stream()
                 .filter(supported -> formats.contains(supported.getKey()))
@@ -89,6 +92,10 @@ final class NotionCards {
             return Referential.ALL_FORMATS.contains(card.format())
                     ? "format « " + card.format() + " » non retenu pour cette notion par le référentiel"
                     : "format inconnu « " + card.format() + " »";
+        }
+        if (card.format().equals(NotionExercises.FORMAT)) {
+            return "un exercice de code a son propre dossier : exercices/"
+                    + notion.notion().domain() + "/" + notion.notion().slug() + "/<clé>/";
         }
         if (!SUPPORTED.containsKey(card.format())) {
             return "format « " + card.format() + " » pas encore pris en charge par l'application";

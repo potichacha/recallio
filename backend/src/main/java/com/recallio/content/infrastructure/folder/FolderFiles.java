@@ -48,6 +48,16 @@ final class FolderFiles {
             @JsonProperty(required = true) List<CardEntry> cards) {}
 
     /**
+     * Le fichier {@code exercise.yaml} d'un exercice de code (ADR 0029) ; ses fichiers sont à côté de lui.
+     *
+     * @param statement l'énoncé, en Markdown
+     * @param explanation l'explication de la solution, montrée avec elle
+     */
+    record ExerciseFile(
+            @JsonProperty(required = true) String statement,
+            @JsonProperty(required = true) String explanation) {}
+
+    /**
      * @param choices les choix d'un QCM ; absents pour les autres formats
      * @param truth la valeur de l'affirmation d'un vrai ou faux ; absente pour les autres formats
      * @param blanks pour un code à trous, les réponses acceptées par chaque trou ({@code [[hashCode], [hash]]}) ;

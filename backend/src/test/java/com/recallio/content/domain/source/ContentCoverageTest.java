@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.tuple;
 
 import com.recallio.content.CardType;
+import com.recallio.content.ExerciseFiles;
+import com.recallio.content.ExerciseFiles.SourceFile;
 import com.recallio.content.domain.CardContent;
 import com.recallio.content.domain.NotionLevel;
 import com.recallio.content.domain.source.ContentCoverage.NotionTarget;
@@ -73,6 +75,39 @@ class ContentCoverageTest {
                         flashcard("hashset", "a")));
 
         assertThat(coverage.notions().getFirst().covered()).isFalse();
+    }
+
+    @Test
+    void shouldCountTheExercisesOfEachChapter() {
+        var exercise = new ParsedCard(
+                new CardContent.CodingExercise(
+                        "Écrire un ensemble.",
+                        "Avec un HashSet.",
+                        new ExerciseFiles(
+                                List.of(new SourceFile("Ensemble.java", "class Ensemble {}")),
+                                List.of(new SourceFile("Ensemble.java", "class Ensemble { }")),
+                                List.of(new SourceFile("EnsembleTest.java", "class EnsembleTest {}")))),
+                0,
+                new CardKey("hashset", "ensemble"));
+        NotionTarget otherChapter = new NotionTarget(
+                new ParsedNotion(
+                        "list",
+                        "collections",
+                        "lists",
+                        "Les listes",
+                        "list",
+                        NotionLevel.BEGINNER,
+                        1,
+                        List.of(),
+                        1,
+                        null),
+                Set.of(CardType.FLASHCARD));
+
+        ContentCoverage coverage =
+                ContentCoverage.of("java", List.of(HASHSET, TREESET, otherChapter), List.of(exercise));
+
+        assertThat(coverage.chapterExercises()).isEqualTo(new ContentCoverage.ChapterExercises(2, 1, 1));
+        assertThat(coverage.notions().getFirst().complete()).isFalse();
     }
 
     private static List<ParsedCard> atTarget(String notion, CardType type) {

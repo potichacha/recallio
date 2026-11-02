@@ -3,6 +3,8 @@ package com.recallio.content.api;
 import com.recallio.content.CardBlank;
 import com.recallio.content.CardChoice;
 import com.recallio.content.CardType;
+import com.recallio.content.ExerciseFiles;
+import com.recallio.content.ExerciseFiles.SourceFile;
 import com.recallio.content.domain.Subject;
 import com.recallio.content.domain.catalog.ContentCatalog.CardView;
 import com.recallio.content.domain.catalog.ContentCatalog.SubjectSummary;
@@ -12,6 +14,7 @@ import com.recallio.platform.domain.Page;
 import java.util.List;
 import java.util.UUID;
 import org.eclipse.microprofile.openapi.annotations.media.Schema;
+import org.jspecify.annotations.Nullable;
 
 /** Contrat JSON du module content : le domaine n'est jamais exposé directement. */
 final class ContentDtos {
@@ -104,6 +107,12 @@ final class ContentDtos {
                             + " vide pour les autres formats")
             List<List<String>> blanks,
 
+            @Schema(
+                    description = "Les fichiers d'un exercice de code ; absent pour les autres formats",
+                    nullable = true)
+            @Nullable
+            ExerciseDto exercise,
+
             int version) {
         static CardDto from(CardView card) {
             return new CardDto(
@@ -113,7 +122,39 @@ final class ContentDtos {
                     card.answer(),
                     card.choices().stream().map(ChoiceDto::from).toList(),
                     card.blanks().stream().map(CardBlank::accepted).toList(),
+                    card.exercise() == null ? null : ExerciseDto.from(card.exercise()),
                     card.version());
+        }
+    }
+
+    @Schema(name = "Exercise")
+    record ExerciseDto(
+            @Schema(description = "Le code de départ, à modifier")
+            List<SourceFileDto> starter,
+
+            @Schema(description = "La solution modèle : les mêmes fichiers que le code de départ")
+            List<SourceFileDto> solution,
+
+            @Schema(description = "Les tests qui jugent le code")
+            List<SourceFileDto> tests) {
+        static ExerciseDto from(ExerciseFiles files) {
+            return new ExerciseDto(
+                    SourceFileDto.from(files.starter()),
+                    SourceFileDto.from(files.solution()),
+                    SourceFileDto.from(files.tests()));
+        }
+    }
+
+    @Schema(name = "SourceFile")
+    record SourceFileDto(
+            @Schema(description = "Chemin relatif, avec des /")
+            String path,
+
+            String content) {
+        static List<SourceFileDto> from(List<SourceFile> files) {
+            return files.stream()
+                    .map(file -> new SourceFileDto(file.path(), file.content()))
+                    .toList();
         }
     }
 

@@ -19,6 +19,7 @@ const CARD = {
   answer: '**false** : imprécision des flottants.',
   choices: [],
   blanks: [],
+  exercise: null,
   version: 1,
 }
 
@@ -93,6 +94,33 @@ describe('ThemePage', () => {
 
     expect(screen.getByText('Dans le tas').closest('li')).toHaveTextContent('Bonne réponse')
     expect(screen.getByText('Dans la pile').closest('li')).not.toHaveTextContent('Bonne réponse')
+  })
+
+  it('shows the starter code and the tests of an exercise, and its solution once revealed', async () => {
+    stubTheme([
+      {
+        ...CARD,
+        type: 'CODING_EXERCISE',
+        prompt: 'Écrire `Doublons.sansDoublons`.',
+        answer: 'Un LinkedHashSet garde l’ordre.',
+        exercise: {
+          starter: [{ path: 'Doublons.java', content: 'class Doublons { /* départ */ }' }],
+          solution: [{ path: 'Doublons.java', content: 'class Doublons { /* solution */ }' }],
+          tests: [{ path: 'DoublonsTest.java', content: 'class DoublonsTest {}' }],
+        },
+      },
+    ])
+    renderAt('/themes/java-fondamentaux')
+
+    expect(await screen.findByRole('region', { name: 'Code de départ' })).toHaveTextContent(
+      'départ',
+    )
+    expect(screen.getByRole('region', { name: 'Tests' })).toHaveTextContent('DoublonsTest.java')
+    expect(screen.queryByRole('region', { name: 'Solution' })).not.toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Voir la réponse' }))
+
+    expect(screen.getByRole('region', { name: 'Solution' })).toHaveTextContent('solution')
   })
 
   it('shows the pagination only when there are several pages', async () => {

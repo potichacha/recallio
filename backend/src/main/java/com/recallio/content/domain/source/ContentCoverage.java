@@ -75,6 +75,28 @@ public record ContentCoverage(String subject, List<NotionCoverage> notions) {
                 .toList();
     }
 
+    /** Les exercices de code, comptés par chapitre : la matrice en vise au moins un par chapitre (ADR 0025). */
+    public ChapterExercises chapterExercises() {
+        Map<String, Integer> byChapter = new TreeMap<>();
+        for (NotionCoverage notion : notions) {
+            byChapter.merge(
+                    notion.notion().domain() + "/" + notion.notion().chapter(),
+                    notion.count(CardType.CODING_EXERCISE),
+                    Integer::sum);
+        }
+        return new ChapterExercises(
+                byChapter.size(),
+                (int) byChapter.values().stream().filter(count -> count > 0).count(),
+                byChapter.values().stream().mapToInt(Integer::intValue).sum());
+    }
+
+    /**
+     * @param chapters les chapitres du référentiel
+     * @param chaptersWithExercise ceux qui ont au moins un exercice de code
+     * @param exercises les exercices de code du sujet
+     */
+    public record ChapterExercises(int chapters, int chaptersWithExercise, int exercises) {}
+
     /**
      * @param cards le nombre de cartes par format ; un format absent n'a aucune carte
      */

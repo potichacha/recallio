@@ -177,7 +177,8 @@ class ReviewQueueServiceTest {
                             "Question ?",
                             "Réponse.",
                             List.of(),
-                            List.of()))
+                            List.of(),
+                            null))
                     .toList();
         }
     }

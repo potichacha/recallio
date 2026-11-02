@@ -36,6 +36,7 @@ function queuedCard(overrides: Partial<QueuedCard> = {}): QueuedCard {
     choices: [],
     multipleAnswers: false,
     blankCount: 0,
+    exercise: null,
     state: 'NEW',
     previews: [
       { rating: 'AGAIN', dueAt: inMs(MINUTE) },

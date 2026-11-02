@@ -3,11 +3,13 @@ package com.recallio.content.domain.catalog;
 import com.recallio.content.CardBlank;
 import com.recallio.content.CardChoice;
 import com.recallio.content.CardType;
+import com.recallio.content.ExerciseFiles;
 import com.recallio.content.domain.Subject;
 import com.recallio.platform.domain.Page;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Port de lecture du catalogue : sujets, thèmes et cartes actives (les cartes retirées n'apparaissent jamais). Les sujets
@@ -64,6 +66,7 @@ public interface ContentCatalog {
             String answer,
             List<CardChoice> choices,
             List<CardBlank> blanks,
+            @Nullable ExerciseFiles exercise,
             int version) {
 
         public CardView {
