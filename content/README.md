@@ -274,8 +274,9 @@ cards:
   ```
   - La clé est le nom du dossier : définitive, et distincte des clés des cartes de la notion.
   - Des fichiers `.java` seulement, de 1 à 10 par partie ; des packages sont permis (`starter/fr/recallio/Panier.java`).
-  - La solution doit passer tous les tests, et le code de départ en échouer au moins un : lance-les dans ton IDE avant la
-    pull request (la CI le vérifiera avec le bac à sable).
+  - La solution doit passer tous les tests, et le code de départ compiler mais en échouer au moins un : le job CI
+    `runner` joue chaque exercice dans le bac à sable (ADR 0030). En local : `cd runner && ./mvnw test
+    -Dtest=ExercisesTest` (Docker requis).
   - Les tests nomment le comportement attendu (`retireLesDoublonsEnGardantLOrdre`) : ils servent aussi d'indice au
     joueur, qui les voit.
   - En attendant le bac à sable, un exercice est auto-évalué : on lit le code de départ et les tests, puis la solution.
