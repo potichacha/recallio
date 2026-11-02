@@ -273,6 +273,25 @@ cards:
   réponses acceptées par chaque trou (`blanks: [[equals], [compareTo, compareToIgnoreCase]]`). Le serveur corrige, aux
   espaces près, en respectant la casse. Prévoir toutes les variantes justes ; un trou porte sur un mot-clé, une méthode
   ou une courte expression, pas sur une ligne entière.
+- **Qu'affiche ce code ?** (`code-output`, ADR 0028) : la CI exécute le code avec JShell et compare le résultat à la
+  vérification `check`, qui n'est jamais montrée à l'utilisateur :
+  ```yaml
+  check:
+    code: |-                       # facultatif : par défaut, le premier bloc java de la question
+      System.out.println(10 / 3 + " " + 10 % 3);
+    output: "3 1"                  # la sortie exacte ; un bloc |- pour plusieurs lignes
+    throws: NullPointerException   # facultatif : l'exception qui arrête le code
+    # ou, seul : compiles: false
+  ```
+  - Le code a les imports par défaut de JShell (`java.util.*`, `java.util.stream.*`, `java.io.*`, `java.math.*`...), et
+    peut déclarer classes et méthodes sans classe englobante.
+  - Une question qui n'est pas exécutable telle quelle (une expression suivie de « ? », du code avec `...`) donne son
+    `code`, avec un `println` qui affiche ce que la question demande.
+  - Au premier niveau, JShell ignore `final` et `static` : une variable y est un champ. Une carte qui dépend d'une
+    variable locale (une constante `final` calculée à la compilation) place son code dans une méthode :
+    `void run() { ... }` puis `run();`.
+  - Une sortie non déterministe (threads, `hashCode` d'identité) remplace `check` par `unverifiable: <raison>`.
+  - `./mvnw test -Dtest='CodeOutputTest'` exécute toutes ces cartes, comme la CI.
 - En YAML, une valeur qui contient « : » (la typographie française en met partout) doit être entre guillemets, ou
   écrite en bloc `|-`.
 - Un format exclu par le référentiel pour la notion (`formats`) est refusé.
@@ -291,5 +310,6 @@ cards:
 - [ ] Les questions techniques ont une réponse courte, les questions de situation une réponse rédigée.
 - [ ] Chaque QCM a de 2 à 8 choix, au moins une bonne réponse et une explication.
 - [ ] Chaque bloc de code indique son langage ; le code des questions pièges a été exécuté.
+- [ ] Dans un dossier de sujet, chaque « qu'affiche ce code ? » a sa vérification `check` (ou `unverifiable`).
 - [ ] `./mvnw test -Dtest=ReferenceDocumentTest` est vert.
 - [ ] Le rapport d'import ne liste ni anomalie ni retrait inattendu.

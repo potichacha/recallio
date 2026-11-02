@@ -152,11 +152,16 @@ class YamlSubjectFolderParserTest {
                   - {key: qcm-sans-choix, format: multiple-choice, question: "Q ?", answer: "R."}
                   - {key: qcm-un-choix, format: multiple-choice, question: "Q ?", answer: "R.", choices: [{text: a, correct: true}]}
                   - {key: vide, format: course, question: " ", answer: "R."}
+                  - {key: verification-hors-format, format: course, question: "Q ?", answer: "R.", check: {output: "1"}}
+                  - {key: verification-et-raison, format: code-output, question: "Q ?", answer: "R.", check: {output: "1"}, unverifiable: threads}
+                  - {key: verification-sans-attendu, format: code-output, question: "Q ?", answer: "R.", check: {code: "f();"}}
+                  - {key: compile-et-affiche, format: code-output, question: "Q ?", answer: "R.", check: {output: "1", compiles: false}}
+                  - {key: verifiee, format: code-output, question: "Q ?", answer: "R.", check: {code: "f();", throws: NullPointerException}}
                 """;
 
         ParsedContent parsed = parse(Map.of("api-de-base/string-bases.yaml", notion));
 
-        assertThat(parsed.cardCount()).isEqualTo(1);
+        assertThat(parsed.cardCount()).isEqualTo(2);
         assertThat(parsed.issues())
                 .extracting(SourceIssue::excerpt)
                 .containsExactly(
@@ -171,7 +176,11 @@ class YamlSubjectFolderParserTest {
                         "inconnu",
                         "qcm-sans-choix",
                         "qcm-un-choix",
-                        "vide");
+                        "vide",
+                        "verification-hors-format",
+                        "verification-et-raison",
+                        "verification-sans-attendu",
+                        "compile-et-affiche");
         assertThat(parsed.issues().get(2).reason()).contains("pas encore pris en charge");
     }
 

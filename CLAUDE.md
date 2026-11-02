@@ -414,7 +414,7 @@ Faire du contenu un référentiel complet, pour apprendre, préparer un entretie
 
 1. **Référentiel et modèle** : ✅ le référentiel Java (toutes les notions, niveaux, priorités, prérequis) vérifié en CI ; ✅ découpage des chapitres hors Java en sujets propres ; ✅ dossier de sujet, un fichier YAML par notion, cartes à clé explicite (ADR 0026) ; ✅ migration sans perte des cartes Java vers les notions.
 2. ✅ **Nouveaux formats texte** : vrai ou faux, bug à corriger, compléter le code (ADR 0027).
-3. **Contrôles du contenu en CI** : ✅ matrice par notion et couverture du référentiel par priorité, publiées dans le résumé du job `content` (non bloquantes jusqu'au pilote) ; exécution des « qu'affiche ce code ».
+3. ✅ **Contrôles du contenu en CI** : matrice par notion et couverture du référentiel par priorité, publiées dans le résumé du job `content` (non bloquantes jusqu'au pilote) ; exécution de chaque « qu'affiche ce code » avec JShell, comparée à sa vérification `check` (ADR 0028).
 4. **Exercices de code** : format en dossier (énoncé, fichiers de départ, solution, tests), vérification en CI, **bac à sable d'exécution** (avancé depuis la phase 5, ADR à venir), éditeur multi-fichiers dans la PWA, correction par les tests.
 5. **Parcours** : apprendre (prérequis, leçons, déblocage), préparer un entretien, entretenir son niveau ; deux cartes d'une même notion pas le même jour.
 6. **Pilote** : deux ou trois chapitres Java complets en priorité 1, pour valider la matrice et la qualité des brouillons ; puis la production, priorité par priorité.
