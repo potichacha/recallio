@@ -1,8 +1,10 @@
 package com.recallio.content.domain;
 
+import com.recallio.content.CardBlank;
 import com.recallio.content.CardChoice;
 import com.recallio.content.CardType;
 import java.util.List;
+import java.util.regex.Pattern;
 
 /**
  * Contenu d'une carte, selon son format. Les textes sont en Markdown.
@@ -23,6 +25,11 @@ public sealed interface CardContent {
         return List.of();
     }
 
+    /** Les trous d'une carte « compléter le code » ; aucun pour les autres formats. */
+    default List<CardBlank> blanks() {
+        return List.of();
+    }
+
     default CardType type() {
         return switch (this) {
             case Flashcard _ -> CardType.FLASHCARD;
@@ -32,6 +39,7 @@ public sealed interface CardContent {
             case MultipleChoice _ -> CardType.MULTIPLE_CHOICE;
             case TrueFalse _ -> CardType.TRUE_FALSE;
             case BugFix _ -> CardType.BUG_FIX;
+            case FillIn _ -> CardType.FILL_IN;
         };
     }
 
@@ -80,7 +88,26 @@ public sealed interface CardContent {
     /** {@code prompt} contient le code bogué, {@code answer} le code corrigé et l'explication du bug. */
     record BugFix(String prompt, String answer) implements CardContent {}
 
-    /** Un contenu sans choix ; un QCM ou un vrai ou faux se construit avec ses choix ou sa valeur. */
+    /**
+     * Du code à trous (ADR 0027) : chaque {@link CardBlank#MARKER} de la question est un trou, dans l'ordre de
+     * {@code blanks}.
+     *
+     * @param answer l'explication, montrée après la correction
+     */
+    record FillIn(String prompt, String answer, List<CardBlank> blanks) implements CardContent {
+
+        public FillIn {
+            blanks = List.copyOf(blanks);
+            int markers = prompt.split(Pattern.quote(CardBlank.MARKER), -1).length - 1;
+            if (blanks.isEmpty() || blanks.size() > CardBlank.MAX_PER_CARD || markers != blanks.size()) {
+                throw new IllegalArgumentException("Le code a %d trou(s) « %s » pour %d réponse(s) : il en faut autant,"
+                                .formatted(markers, CardBlank.MARKER, blanks.size())
+                        + " de 1 à " + CardBlank.MAX_PER_CARD);
+            }
+        }
+    }
+
+    /** Un contenu sans choix ni trous ; un QCM, un vrai ou faux ou un code à trous se construit avec eux. */
     static CardContent of(CardType type, String prompt, String answer) {
         return switch (type) {
             case FLASHCARD -> new Flashcard(prompt, answer);
@@ -90,6 +117,7 @@ public sealed interface CardContent {
             case BUG_FIX -> new BugFix(prompt, answer);
             case MULTIPLE_CHOICE -> throw new IllegalArgumentException("Un QCM se construit avec ses choix");
             case TRUE_FALSE -> throw new IllegalArgumentException("Un vrai ou faux se construit avec sa valeur");
+            case FILL_IN -> throw new IllegalArgumentException("Un code à trous se construit avec ses trous");
         };
     }
 }

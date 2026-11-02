@@ -133,7 +133,8 @@ public class ReviewsResource {
                             schema = @Schema(implementation = ProblemDetail.class)))
     @APIResponse(
             responseCode = "422",
-            description = "Une note pour un QCM, ou des choix pour une carte en auto-évaluation",
+            description = "Une réponse qui ne correspond pas au format : une note pour un QCM ou un code à trous, des"
+                    + " choix ou des trous pour une carte en auto-évaluation, un nombre de trous inexact",
             content =
                     @Content(
                             mediaType = ProblemDetail.MEDIA_TYPE,
@@ -147,6 +148,7 @@ public class ReviewsResource {
                         request.cardId(),
                         request.rating(),
                         selected == null ? null : Set.copyOf(selected),
+                        request.filledBlanks(),
                         request.elapsedMs()));
         Response.Status status = outcome.replayed() ? Response.Status.OK : Response.Status.CREATED;
         return Response.status(status).entity(ReviewResultDto.from(outcome)).build();

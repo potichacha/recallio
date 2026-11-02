@@ -1,10 +1,12 @@
 package com.recallio.review.api;
 
+import com.recallio.content.CardBlank;
 import com.recallio.content.CardChoice;
 import com.recallio.content.CardType;
 import com.recallio.review.application.ReviewQueueService.QueuedCard;
 import com.recallio.review.application.ReviewQueueService.RatingPreview;
 import com.recallio.review.application.ReviewQueueService.ReviewQueue;
+import com.recallio.review.application.ReviewRecordingService.BlankCorrection;
 import com.recallio.review.application.ReviewRecordingService.Correction;
 import com.recallio.review.application.ReviewRecordingService.ReviewOutcome;
 import com.recallio.review.domain.LearningState;
@@ -24,6 +26,8 @@ final class ReviewDtos {
 
     /** Au-delà d'une heure, le temps de réflexion n'a plus de sens (application laissée ouverte). */
     static final int MAX_ELAPSED_MS = 3_600_000;
+    /** Longueur maximale de la réponse d'un trou : une expression, pas un programme. */
+    static final int MAX_BLANK_LENGTH = 200;
 
     private ReviewDtos() {}
 
@@ -73,13 +77,16 @@ final class ReviewDtos {
                             "Vrai si le QCM a plusieurs bonnes réponses (cases à cocher plutôt que boutons radio)")
             boolean multipleAnswers,
 
+            @Schema(description = "Le nombre de trous d'un code à trous, à remplir dans l'ordre ; 0 sinon")
+            int blankCount,
+
             LearningState state,
 
             @Schema(description = "Échéance obtenue pour chacune des quatre notes")
             List<RatingPreviewDto> previews) {
         static QueuedCardDto from(QueuedCard queued) {
             var card = queued.card();
-            boolean multipleChoice = card.type().isGradedByChoices();
+            boolean gradedByServer = card.type().isGradedByChoices() || card.type() == CardType.FILL_IN;
             return new QueuedCardDto(
                     card.cardId(),
                     card.type(),
@@ -88,9 +95,10 @@ final class ReviewDtos {
                     card.themeSlug(),
                     card.themeTitle(),
                     card.prompt(),
-                    multipleChoice ? null : card.answer(),
+                    gradedByServer ? null : card.answer(),
                     card.choices().stream().map(CardChoice::text).toList(),
                     card.correctChoices().size() > 1,
+                    card.blanks().size(),
                     queued.state(),
                     queued.previews().stream().map(RatingPreviewDto::from).toList());
         }
@@ -124,6 +132,13 @@ final class ReviewDtos {
             @Nullable
             List<@NotNull @PositiveOrZero Integer> selectedChoices,
 
+            @Schema(
+                    description = "Pour un code à trous seulement : la réponse de chaque trou, dans l'ordre",
+                    nullable = true)
+            @Size(max = CardBlank.MAX_PER_CARD)
+            @Nullable
+            List<@NotNull @Size(max = MAX_BLANK_LENGTH) String> filledBlanks,
+
             @Schema(description = "Temps de réflexion en millisecondes", nullable = true)
             @PositiveOrZero
             @Max(MAX_ELAPSED_MS)
@@ -155,14 +170,32 @@ final class ReviewDtos {
 
     @Schema(name = "Correction")
     record CorrectionDto(
-            @Schema(description = "Positions des bonnes réponses, à partir de 0, dans l'ordre")
+            @Schema(
+                    description =
+                            "Positions des bonnes réponses d'un QCM ou d'un vrai ou faux, à partir de 0, dans l'ordre")
             List<Integer> correctChoices,
+
+            @Schema(description = "La correction de chaque trou d'un code à trous, dans l'ordre ; vide sinon")
+            List<BlankCorrectionDto> blanks,
 
             @Schema(description = "L'explication, en Markdown")
             String explanation) {
         static CorrectionDto from(Correction correction) {
             return new CorrectionDto(
-                    correction.correctChoices().stream().sorted().toList(), correction.explanation());
+                    correction.correctChoices().stream().sorted().toList(),
+                    correction.blanks().stream().map(BlankCorrectionDto::from).toList(),
+                    correction.explanation());
+        }
+    }
+
+    @Schema(name = "BlankCorrection")
+    record BlankCorrectionDto(
+            @Schema(description = "La réponse attendue") String expected,
+
+            @Schema(description = "Vrai si la réponse donnée est acceptée")
+            boolean correct) {
+        static BlankCorrectionDto from(BlankCorrection blank) {
+            return new BlankCorrectionDto(blank.expected(), blank.correct());
         }
     }
 }

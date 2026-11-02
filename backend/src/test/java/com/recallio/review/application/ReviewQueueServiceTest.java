@@ -176,6 +176,7 @@ class ReviewQueueServiceTest {
                             "Thème",
                             "Question ?",
                             "Réponse.",
+                            List.of(),
                             List.of()))
                     .toList();
         }

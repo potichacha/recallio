@@ -18,6 +18,7 @@ const CARD = {
   prompt: 'Que vaut `0.1 + 0.2 == 0.3` ?',
   answer: '**false** : imprécision des flottants.',
   choices: [],
+  blanks: [],
   version: 1,
 }
 

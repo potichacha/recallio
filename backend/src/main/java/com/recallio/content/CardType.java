@@ -17,7 +17,9 @@ public enum CardType {
     /** Une affirmation, vraie ou fausse : un QCM à deux choix fixes, corrigé par le serveur (ADR 0027). */
     TRUE_FALSE,
     /** Un code bogué à corriger : rédaction libre puis comparaison avec la correction modèle (ADR 0027). */
-    BUG_FIX;
+    BUG_FIX,
+    /** Du code à trous, chaque trou corrigé par le serveur (ADR 0027). */
+    FILL_IN;
 
     /**
      * Les formats corrigés par le serveur d'après les choix cochés : seuls admis là où la triche ou la rapidité compte

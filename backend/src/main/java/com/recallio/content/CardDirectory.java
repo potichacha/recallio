@@ -74,6 +74,7 @@ public interface CardDirectory {
      * Une carte dans sa version courante : {@code versionId} est l'identifiant de la version révisée.
      *
      * @param choices les choix d'un QCM, dans l'ordre de la source ; aucun pour les autres formats
+     * @param blanks les trous d'un code à trous, dans l'ordre de la question ; aucun pour les autres formats
      */
     record CardSnapshot(
             UUID cardId,
@@ -85,10 +86,27 @@ public interface CardDirectory {
             String themeTitle,
             String prompt,
             String answer,
-            List<CardChoice> choices) {
+            List<CardChoice> choices,
+            List<CardBlank> blanks) {
 
         public CardSnapshot {
             choices = List.copyOf(choices);
+            blanks = List.copyOf(blanks);
+        }
+
+        /**
+         * Pour chaque trou, si la réponse donnée est acceptée.
+         *
+         * @throws IllegalArgumentException s'il n'y a pas une réponse par trou
+         */
+        public List<Boolean> checkBlanks(List<String> filled) {
+            if (filled.size() != blanks.size()) {
+                throw new IllegalArgumentException(
+                        "%d réponse(s) pour %d trou(s)".formatted(filled.size(), blanks.size()));
+            }
+            return IntStream.range(0, blanks.size())
+                    .mapToObj(index -> blanks.get(index).accepts(filled.get(index)))
+                    .toList();
         }
 
         /** Les positions (à partir de 0) des bonnes réponses d'un QCM. */

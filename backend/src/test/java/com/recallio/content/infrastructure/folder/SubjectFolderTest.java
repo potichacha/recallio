@@ -59,7 +59,7 @@ class SubjectFolderTest {
     void shouldKeepEveryJavaCardAndEveryFormat() {
         ParsedContent java = parse(CONTENT.resolve("java"));
 
-        assertThat(java.cardCount()).isEqualTo(567);
+        assertThat(java.cardCount()).isEqualTo(570);
         assertThat(java.themes().stream()
                         .flatMap(theme -> theme.cards().stream())
                         .map(card -> card.content().type())

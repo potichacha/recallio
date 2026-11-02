@@ -1,5 +1,6 @@
 package com.recallio.content.infrastructure.folder;
 
+import com.recallio.content.CardBlank;
 import com.recallio.content.CardChoice;
 import com.recallio.content.CardType;
 import com.recallio.content.domain.CardContent;
@@ -33,7 +34,8 @@ final class NotionCards {
             "scenario", CardType.OPEN_SCENARIO,
             "definition", CardType.DEFINITION,
             "true-false", CardType.TRUE_FALSE,
-            "bug-fix", CardType.BUG_FIX);
+            "bug-fix", CardType.BUG_FIX,
+            "fill-in", CardType.FILL_IN);
 
     private final Referential.Entry notion;
     private final String path;
@@ -93,12 +95,22 @@ final class NotionCards {
                     ? "un vrai ou faux a besoin de sa valeur (truth: true ou false)"
                     : "seul un vrai ou faux a une valeur (truth)";
         }
+        if ((type == CardType.FILL_IN) != (card.blanks() != null)) {
+            return type == CardType.FILL_IN
+                    ? "un code à trous a besoin des réponses de ses trous (blanks)"
+                    : "seul un code à trous a des trous (blanks)";
+        }
         return null;
     }
 
     private static CardContent content(CardEntry card) {
         String question = card.question().strip();
         String answer = card.answer().strip();
+        List<List<String>> blanks = card.blanks();
+        if (blanks != null) {
+            return new CardContent.FillIn(
+                    question, answer, blanks.stream().map(CardBlank::new).toList());
+        }
         Boolean truth = card.truth();
         if (truth != null) {
             return new CardContent.TrueFalse(question, answer, truth);

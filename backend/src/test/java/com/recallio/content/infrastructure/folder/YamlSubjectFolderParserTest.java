@@ -3,6 +3,7 @@ package com.recallio.content.infrastructure.folder;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.recallio.content.CardBlank;
 import com.recallio.content.CardChoice;
 import com.recallio.content.CardType;
 import com.recallio.content.domain.CardContent;
@@ -14,6 +15,7 @@ import com.recallio.content.domain.source.ParsedContent.CardKey;
 import com.recallio.content.domain.source.ParsedContent.ParsedCard;
 import com.recallio.content.domain.source.ParsedContent.SourceIssue;
 import com.recallio.content.domain.source.SubjectFolder;
+import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
@@ -140,7 +142,10 @@ class YamlSubjectFolderParserTest {
                   - {key: valide, format: course, question: "Q ?", answer: "R."}
                   - {key: valide, format: course, question: "Autre ?", answer: "R."}
                   - {key: Majuscule, format: course, question: "Q ?", answer: "R."}
-                  - {key: a-trous, format: fill-in, question: "Q ?", answer: "R."}
+                  - {key: exercice, format: exercise, question: "Q ?", answer: "R."}
+                  - {key: trous-sans-reponses, format: fill-in, question: "`___`", answer: "R."}
+                  - {key: trous-en-trop, format: fill-in, question: "`___`", answer: "R.", blanks: [[a], [b]]}
+                  - {key: trous-hors-format, format: course, question: "Q ?", answer: "R.", blanks: [[a]]}
                   - {key: vrai-faux-sans-valeur, format: true-false, question: "Q ?", answer: "R."}
                   - {key: valeur-hors-vrai-faux, format: course, question: "Q ?", answer: "R.", truth: true}
                   - {key: inconnu, format: quiz, question: "Q ?", answer: "R."}
@@ -157,7 +162,10 @@ class YamlSubjectFolderParserTest {
                 .containsExactly(
                         "valide",
                         "Majuscule",
-                        "a-trous",
+                        "exercice",
+                        "trous-sans-reponses",
+                        "trous-en-trop",
+                        "trous-hors-format",
                         "vrai-faux-sans-valeur",
                         "valeur-hors-vrai-faux",
                         "inconnu",
@@ -189,6 +197,34 @@ class YamlSubjectFolderParserTest {
                 .containsExactly(new CardChoice("Vrai", true), new CardChoice("Faux", false));
         assertThat(cards.get(1).content().type()).isEqualTo(CardType.BUG_FIX);
         assertThat(cards.get(1).content().choices()).isEmpty();
+    }
+
+    @Test
+    void shouldReadAFillInCardWithTheAcceptedAnswersOfEachBlank() {
+        String notion = """
+                notion: string-bases
+                cards:
+                  - key: comparer
+                    format: fill-in
+                    question: |-
+                      ```java
+                      boolean memeTexte = a.___(b);
+                      int ordre = a.___(b);
+                      ```
+                    blanks: [[equals], [compareTo, compareToIgnoreCase]]
+                    answer: equals compare le contenu, compareTo l'ordre.
+                """;
+
+        ParsedCard card = parse(Map.of("api-de-base/string-bases.yaml", notion))
+                .themes()
+                .getFirst()
+                .cards()
+                .getFirst();
+
+        assertThat(card.content().type()).isEqualTo(CardType.FILL_IN);
+        assertThat(card.content().blanks())
+                .containsExactly(
+                        new CardBlank(List.of("equals")), new CardBlank(List.of("compareTo", "compareToIgnoreCase")));
     }
 
     @Test

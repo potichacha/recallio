@@ -9,6 +9,7 @@ export const CARD_TYPE_LABELS: Record<CardType, string> = {
   MULTIPLE_CHOICE: 'QCM',
   TRUE_FALSE: 'Vrai ou faux',
   BUG_FIX: 'Bug à corriger',
+  FILL_IN: 'Compléter le code',
 }
 
 /** Les formats corrigés par le serveur d'après les choix cochés (ADR 0019, 0027) ; les autres s'auto-évaluent. */

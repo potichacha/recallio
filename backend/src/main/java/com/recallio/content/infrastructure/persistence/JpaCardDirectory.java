@@ -1,5 +1,6 @@
 package com.recallio.content.infrastructure.persistence;
 
+import com.recallio.content.CardBlank;
 import com.recallio.content.CardChoice;
 import com.recallio.content.CardDirectory;
 import com.recallio.content.CardType;
@@ -90,7 +91,8 @@ public class JpaCardDirectory implements CardDirectory {
         }
         Map<UUID, CardSnapshot> found = entityManager
                 .createQuery("""
-                        select c.id, v.id, c.type, s.slug, s.title, t.slug, t.title, v.prompt, v.answer, v.choices
+                        select c.id, v.id, c.type, s.slug, s.title, t.slug, t.title, v.prompt, v.answer, v.choices,
+                               v.blanks
                         from CardEntity c
                         join CardVersionEntity v on v.cardId = c.id and v.version = c.currentVersion
                         join ThemeEntity t on t.id = c.themeId
@@ -110,7 +112,8 @@ public class JpaCardDirectory implements CardDirectory {
                         (String) row[6],
                         (String) row[7],
                         (String) row[8],
-                        choices(row[9])))
+                        choices(row[9]),
+                        blanks(row[10])))
                 .collect(Collectors.toMap(CardSnapshot::cardId, Function.identity()));
         return cardIds.stream()
                 .distinct()
@@ -162,6 +165,12 @@ public class JpaCardDirectory implements CardDirectory {
         if (!exists) {
             throw new ThemeNotFoundException(slug);
         }
+    }
+
+    /** La colonne JSON {@code blanks}, lue par Hibernate dans le type de l'attribut ; absente hors code à trous. */
+    @SuppressWarnings("unchecked")
+    static List<CardBlank> blanks(@Nullable Object column) {
+        return column == null ? List.of() : (List<CardBlank>) column;
     }
 
     /** La colonne JSON {@code choices}, lue par Hibernate dans le type de l'attribut ; absente hors QCM. */

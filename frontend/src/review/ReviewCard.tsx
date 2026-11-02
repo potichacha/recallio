@@ -4,6 +4,7 @@ import { useRecordReview, type QueuedCard, type Rating } from '../api/review'
 import { GRADED_BY_CHOICES } from '../components/cardTypeLabels'
 import { Markdown } from '../components/Markdown'
 import { CardHeader } from './CardHeader'
+import { FillInCard } from './FillInCard'
 import { formatDelay } from './formatDelay'
 import { MultipleChoiceCard } from './MultipleChoiceCard'
 
@@ -22,14 +23,17 @@ const RATING_STYLES: Record<Rating, string> = {
 }
 
 /**
- * Une carte à réviser : un QCM ou un vrai ou faux est corrigé par le serveur, les autres formats s'auto-évaluent.
+ * Une carte à réviser : un QCM, un vrai ou faux ou un code à trous est corrigé par le serveur, les autres formats
+ * s'auto-évaluent.
  */
 export function ReviewCard({ card, onReviewed }: { card: QueuedCard; onReviewed: () => void }) {
-  return GRADED_BY_CHOICES.has(card.type) ? (
-    <MultipleChoiceCard card={card} onReviewed={onReviewed} />
-  ) : (
-    <SelfAssessedCard card={card} onReviewed={onReviewed} />
-  )
+  if (GRADED_BY_CHOICES.has(card.type)) {
+    return <MultipleChoiceCard card={card} onReviewed={onReviewed} />
+  }
+  if (card.type === 'FILL_IN') {
+    return <FillInCard card={card} onReviewed={onReviewed} />
+  }
+  return <SelfAssessedCard card={card} onReviewed={onReviewed} />
 }
 
 /**

@@ -50,6 +50,8 @@ final class FolderFiles {
     /**
      * @param choices les choix d'un QCM ; absents pour les autres formats
      * @param truth la valeur de l'affirmation d'un vrai ou faux ; absente pour les autres formats
+     * @param blanks pour un code à trous, les réponses acceptées par chaque trou ({@code [[hashCode], [hash]]}) ;
+     *     absentes pour les autres formats
      */
     record CardEntry(
             @JsonProperty(required = true) String key,
@@ -57,7 +59,8 @@ final class FolderFiles {
             @JsonProperty(required = true) String question,
             @JsonProperty(required = true) String answer,
             @Nullable List<ChoiceEntry> choices,
-            @Nullable Boolean truth) {}
+            @Nullable Boolean truth,
+            @Nullable List<List<String>> blanks) {}
 
     record ChoiceEntry(
             @JsonProperty(required = true) String text,

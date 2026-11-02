@@ -2,6 +2,7 @@ import { useState } from 'react'
 import type { Card } from '../api/content'
 import { CARD_TYPE_LABELS } from '../components/cardTypeLabels'
 import { Markdown } from '../components/Markdown'
+import { numberBlanks } from '../review/blanks'
 
 /** Une carte en consultation : la réponse reste masquée jusqu'à ce qu'on choisisse de la révéler. */
 export function CardItem({ card }: { card: Card }) {
@@ -12,7 +13,7 @@ export function CardItem({ card }: { card: Card }) {
       <span className="text-xs font-medium tracking-wide text-indigo-600 uppercase">
         {CARD_TYPE_LABELS[card.type]}
       </span>
-      <Markdown>{card.prompt}</Markdown>
+      <Markdown>{card.blanks.length > 0 ? numberBlanks(card.prompt) : card.prompt}</Markdown>
       {card.choices.length > 0 && (
         <ul className="flex flex-col gap-1">
           {card.choices.map((choice, index) => (
@@ -29,7 +30,16 @@ export function CardItem({ card }: { card: Card }) {
         </ul>
       )}
       {revealed ? (
-        <div className="border-t border-slate-100 pt-3">
+        <div className="flex flex-col gap-2 border-t border-slate-100 pt-3">
+          {card.blanks.length > 0 && (
+            <ol className="flex flex-col gap-1 text-sm">
+              {card.blanks.map((accepted, index) => (
+                <li key={index}>
+                  Trou {index + 1} : <code className="font-mono">{accepted.join(' ou ')}</code>
+                </li>
+              ))}
+            </ol>
+          )}
           <Markdown>{card.answer}</Markdown>
         </div>
       ) : (
