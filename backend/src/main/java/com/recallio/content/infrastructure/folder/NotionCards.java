@@ -16,6 +16,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 import org.jspecify.annotations.Nullable;
 
 /**
@@ -27,7 +28,7 @@ final class NotionCards {
     private static final Pattern KEY = Pattern.compile("[a-z0-9]+(-[a-z0-9]+)*");
 
     /** Les formats que l'application sait déjà présenter, et leur type de carte. */
-    private static final Map<String, CardType> SUPPORTED = Map.of(
+    static final Map<String, CardType> SUPPORTED = Map.of(
             "course", CardType.FLASHCARD,
             "multiple-choice", CardType.MULTIPLE_CHOICE,
             "code-output", CardType.CODE_OUTPUT,
@@ -36,6 +37,14 @@ final class NotionCards {
             "true-false", CardType.TRUE_FALSE,
             "bug-fix", CardType.BUG_FIX,
             "fill-in", CardType.FILL_IN);
+
+    /** Les types de carte de ces formats ; ceux que l'application ne présente pas encore sont ignorés. */
+    static Set<CardType> types(Set<String> formats) {
+        return SUPPORTED.entrySet().stream()
+                .filter(supported -> formats.contains(supported.getKey()))
+                .map(Map.Entry::getValue)
+                .collect(Collectors.toUnmodifiableSet());
+    }
 
     private final Referential.Entry notion;
     private final String path;
