@@ -1,6 +1,7 @@
 package com.recallio.content.infrastructure.persistence;
 
 import com.recallio.content.CardType;
+import com.recallio.content.ExerciseFiles;
 import com.recallio.content.domain.Subject;
 import com.recallio.content.domain.catalog.ContentCatalog;
 import com.recallio.platform.domain.Page;
@@ -91,7 +92,7 @@ public class JpaContentCatalog implements ContentCatalog {
                 .getSingleResult();
         List<CardView> cards = entityManager
                 .createQuery("""
-                        select c.id, c.type, v.prompt, v.answer, v.choices, v.version, v.blanks
+                        select c.id, c.type, v.prompt, v.answer, v.choices, v.version, v.blanks, v.exercise
                         from CardEntity c
                         join CardVersionEntity v on v.cardId = c.id and v.version = c.currentVersion
                         where c.themeId = :themeId and c.retiredAt is null
@@ -108,6 +109,7 @@ public class JpaContentCatalog implements ContentCatalog {
                         (String) row[3],
                         JpaCardDirectory.choices(row[4]),
                         JpaCardDirectory.blanks(row[6]),
+                        (ExerciseFiles) row[7],
                         (Integer) row[5]))
                 .toList();
         return new Page<>(cards, page, size, total);

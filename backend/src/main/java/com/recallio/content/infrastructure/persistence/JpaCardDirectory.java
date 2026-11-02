@@ -4,6 +4,7 @@ import com.recallio.content.CardBlank;
 import com.recallio.content.CardChoice;
 import com.recallio.content.CardDirectory;
 import com.recallio.content.CardType;
+import com.recallio.content.ExerciseFiles;
 import com.recallio.content.domain.Subject;
 import com.recallio.content.domain.catalog.ThemeNotFoundException;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -92,7 +93,7 @@ public class JpaCardDirectory implements CardDirectory {
         Map<UUID, CardSnapshot> found = entityManager
                 .createQuery("""
                         select c.id, v.id, c.type, s.slug, s.title, t.slug, t.title, v.prompt, v.answer, v.choices,
-                               v.blanks
+                               v.blanks, v.exercise
                         from CardEntity c
                         join CardVersionEntity v on v.cardId = c.id and v.version = c.currentVersion
                         join ThemeEntity t on t.id = c.themeId
@@ -113,7 +114,8 @@ public class JpaCardDirectory implements CardDirectory {
                         (String) row[7],
                         (String) row[8],
                         choices(row[9]),
-                        blanks(row[10])))
+                        blanks(row[10]),
+                        (ExerciseFiles) row[11]))
                 .collect(Collectors.toMap(CardSnapshot::cardId, Function.identity()));
         return cardIds.stream()
                 .distinct()

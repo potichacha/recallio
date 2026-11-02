@@ -2,12 +2,14 @@ package com.recallio.content.domain;
 
 import com.recallio.content.CardBlank;
 import com.recallio.content.CardChoice;
+import com.recallio.content.ExerciseFiles.SourceFile;
 import com.recallio.platform.domain.StableUuid;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.text.Normalizer;
 import java.util.HexFormat;
+import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
 import java.util.regex.Pattern;
@@ -98,7 +100,7 @@ public final class CardIdentity {
 
     /**
      * Empreinte exacte du contenu : toute modification du texte (même de forme) crée une nouvelle version. Les choix
-     * d'un QCM et les trous d'un code à trous en font partie ; les autres formats n'en ont pas, et leur empreinte ne
+     * d'un QCM, les trous d'un code à trous et les fichiers d'un exercice en font partie ; les autres formats n'en ont pas, et leur empreinte ne
      * change pas.
      */
     public static String contentHash(CardContent content) {
@@ -117,12 +119,29 @@ public final class CardIdentity {
         for (CardBlank blank : content.blanks()) {
             canonical.append('\u0000').append("___ ").append(String.join("\u0001", blank.accepted()));
         }
+        content.exercise().ifPresent(files -> {
+            appendFiles(canonical, "starter", files.starter());
+            appendFiles(canonical, "solution", files.solution());
+            appendFiles(canonical, "tests", files.tests());
+        });
         try {
             byte[] digest = MessageDigest.getInstance("SHA-256")
                     .digest(canonical.toString().getBytes(StandardCharsets.UTF_8));
             return HexFormat.of().formatHex(digest);
         } catch (NoSuchAlgorithmException e) {
             throw new IllegalStateException("SHA-256 est garanti par la plateforme Java", e);
+        }
+    }
+
+    private static void appendFiles(StringBuilder canonical, String part, List<SourceFile> files) {
+        for (SourceFile file : files) {
+            canonical
+                    .append('\u0000')
+                    .append(part)
+                    .append(' ')
+                    .append(file.path())
+                    .append('\u0001')
+                    .append(file.content());
         }
     }
 }

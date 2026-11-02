@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.recallio.content.CardBlank;
 import com.recallio.content.CardChoice;
 import com.recallio.content.CardType;
+import com.recallio.content.ExerciseFiles.SourceFile;
 import com.recallio.content.domain.CardContent;
 import com.recallio.content.domain.NotionLevel;
 import com.recallio.content.domain.Subject;
@@ -15,6 +16,7 @@ import com.recallio.content.domain.source.ParsedContent.CardKey;
 import com.recallio.content.domain.source.ParsedContent.ParsedCard;
 import com.recallio.content.domain.source.ParsedContent.SourceIssue;
 import com.recallio.content.domain.source.SubjectFolder;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -181,7 +183,8 @@ class YamlSubjectFolderParserTest {
                         "verification-et-raison",
                         "verification-sans-attendu",
                         "compile-et-affiche");
-        assertThat(parsed.issues().get(2).reason()).contains("pas encore pris en charge");
+        assertThat(parsed.issues().get(2).reason())
+                .contains("son propre dossier : exercices/api-de-base/string-bases/");
     }
 
     @Test
@@ -288,8 +291,97 @@ class YamlSubjectFolderParserTest {
                 .hasMessageContaining("owner");
     }
 
+    @Test
+    void shouldReadACodingExerciseFromItsFolderAfterTheCardsOfItsNotion() {
+        ParsedContent parsed =
+                parse(Map.of("api-de-base/string-pool.yaml", POOL), exercise("api-de-base/string-pool/inverser"));
+
+        ParsedCard exercise = parsed.themes().getFirst().cards().getLast();
+        assertThat(exercise.key()).isEqualTo(new CardKey("string-pool", "inverser"));
+        assertThat(exercise.content()).isInstanceOfSatisfying(CardContent.CodingExercise.class, content -> {
+            assertThat(content.prompt()).isEqualTo("Inverser une chaîne.");
+            assertThat(content.answer()).isEqualTo("Avec un StringBuilder.");
+            assertThat(content.files().starter())
+                    .containsExactly(new SourceFile("fr/recallio/Chaines.java", STARTER_CODE));
+            assertThat(content.files().solution())
+                    .extracting(SourceFile::path)
+                    .containsExactly("fr/recallio/Chaines.java");
+            assertThat(content.files().tests()).extracting(SourceFile::path).containsExactly("ChainesTest.java");
+        });
+        assertThat(parsed.issues()).isEmpty();
+    }
+
+    @Test
+    void shouldReadTheExercisesOfANotionThatHasNoCardFile() {
+        ParsedContent parsed = parse(Map.of(), exercise("api-de-base/string-bases/inverser"));
+
+        assertThat(parsed.cardCount()).isEqualTo(1);
+        assertThat(parsed.issues()).isEmpty();
+    }
+
+    @Test
+    void shouldReportInvalidExercisesAndImportTheOthers() {
+        Map<String, String> files = new HashMap<>(exercise("api-de-base/string-bases/valide"));
+        files.putAll(exercise("api-de-base/inconnue/exercice"));
+        files.putAll(exercise("bases/string-bases/mauvais-domaine"));
+        files.putAll(exercise("bases/histoire-java/format-exclu"));
+        files.putAll(exercise("api-de-base/string-pool/emplacement-du-pool"));
+        files.putAll(exercise("api-de-base/string-bases/sans-solution"));
+        files.remove("api-de-base/string-bases/sans-solution/solution/fr/recallio/Chaines.java");
+        files.putAll(exercise("api-de-base/string-bases/fichier-en-trop"));
+        files.put("api-de-base/string-bases/fichier-en-trop/notes.md", "Des notes.");
+        files.putAll(exercise("api-de-base/string-bases/sans-description"));
+        files.remove("api-de-base/string-bases/sans-description/exercise.yaml");
+        files.put("api-de-base/orphelin.java", "class Orphelin {}");
+
+        ParsedContent parsed = parse(Map.of("api-de-base/string-pool.yaml", POOL), files);
+
+        assertThat(parsed.themes().stream().flatMap(theme -> theme.cards().stream()))
+                .filteredOn(card -> card.content().type() == CardType.CODING_EXERCISE)
+                .extracting(ParsedCard::key)
+                .containsExactly(new CardKey("string-bases", "valide"));
+        assertThat(parsed.issues())
+                .extracting(SourceIssue::excerpt)
+                .containsExactlyInAnyOrder(
+                        "api-de-base/orphelin.java",
+                        "api-de-base/inconnue/exercice",
+                        "bases/string-bases/mauvais-domaine",
+                        "bases/histoire-java/format-exclu",
+                        "emplacement-du-pool",
+                        "api-de-base/string-bases/sans-solution",
+                        "api-de-base/string-bases/fichier-en-trop",
+                        "api-de-base/string-bases/sans-description");
+    }
+
+    private static final String STARTER_CODE = """
+            package fr.recallio;
+
+            public class Chaines {
+                public static String inverser(String texte) {
+                    return texte;
+                }
+            }
+            """;
+
+    /** Un exercice valide dans ce dossier : son énoncé, son code de départ, sa solution et son test. */
+    private static Map<String, String> exercise(String directory) {
+        return Map.of(
+                directory + "/exercise.yaml",
+                "statement: Inverser une chaîne.\nexplanation: Avec un StringBuilder.\n",
+                directory + "/starter/fr/recallio/Chaines.java",
+                STARTER_CODE,
+                directory + "/solution/fr/recallio/Chaines.java",
+                STARTER_CODE.replace("return texte;", "return new StringBuilder(texte).reverse().toString();"),
+                directory + "/tests/ChainesTest.java",
+                "class ChainesTest {}");
+    }
+
     private ParsedContent parse(Map<String, String> notions) {
-        return parser.parse(
-                new SubjectFolder(SUBJECT, Map.of("01-bases.yaml", HISTORY, "03-api-de-base.yaml", STRINGS), notions));
+        return parse(notions, Map.of());
+    }
+
+    private ParsedContent parse(Map<String, String> notions, Map<String, String> exercises) {
+        return parser.parse(new SubjectFolder(
+                SUBJECT, Map.of("01-bases.yaml", HISTORY, "03-api-de-base.yaml", STRINGS), notions, exercises));
     }
 }

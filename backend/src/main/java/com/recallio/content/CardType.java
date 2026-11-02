@@ -19,7 +19,12 @@ public enum CardType {
     /** Un code bogué à corriger : rédaction libre puis comparaison avec la correction modèle (ADR 0027). */
     BUG_FIX,
     /** Du code à trous, chaque trou corrigé par le serveur (ADR 0027). */
-    FILL_IN;
+    FILL_IN,
+    /**
+     * Un exercice de code en plusieurs fichiers, jugé par ses tests (ADR 0029) : auto-évalué tant que le code n'est pas
+     * exécuté.
+     */
+    CODING_EXERCISE;
 
     /**
      * Les formats corrigés par le serveur d'après les choix cochés : seuls admis là où la triche ou la rapidité compte

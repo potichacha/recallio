@@ -8,6 +8,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -17,6 +18,7 @@ public final class SubjectFolders {
     public static final String SUBJECT_FILE = "subject.yaml";
     private static final String REFERENTIAL = "referentiel";
     private static final String NOTIONS = "notions";
+    private static final String EXERCISES = "exercices";
     private static final String YAML = ".yaml";
 
     private SubjectFolders() {}
@@ -36,17 +38,22 @@ public final class SubjectFolders {
         return new SubjectFolder(
                 readString(folder.resolve(SUBJECT_FILE)),
                 yamlFiles(folder.resolve(REFERENTIAL), false),
-                yamlFiles(folder.resolve(NOTIONS), true));
+                yamlFiles(folder.resolve(NOTIONS), true),
+                files(folder.resolve(EXERCISES), true, _ -> true));
     }
 
     /** Les fichiers YAML d'un dossier, par chemin relatif (séparateur {@code /}) ; aucun si le dossier n'existe pas. */
     private static Map<String, String> yamlFiles(Path directory, boolean recursive) {
+        return files(directory, recursive, file -> file.getFileName().toString().endsWith(YAML));
+    }
+
+    /** Les fichiers retenus d'un dossier, par chemin relatif (séparateur {@code /}) ; aucun s'il n'existe pas. */
+    private static Map<String, String> files(Path directory, boolean recursive, Predicate<Path> retained) {
         if (!Files.isDirectory(directory)) {
             return Map.of();
         }
         try (Stream<Path> files = recursive ? Files.walk(directory) : Files.list(directory)) {
-            return files.filter(file -> Files.isRegularFile(file)
-                            && file.getFileName().toString().endsWith(YAML))
+            return files.filter(file -> Files.isRegularFile(file) && retained.test(file))
                     .collect(Collectors.toMap(
                             file -> directory.relativize(file).toString().replace('\\', '/'),
                             SubjectFolders::readString));

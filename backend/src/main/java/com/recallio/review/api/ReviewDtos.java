@@ -3,6 +3,8 @@ package com.recallio.review.api;
 import com.recallio.content.CardBlank;
 import com.recallio.content.CardChoice;
 import com.recallio.content.CardType;
+import com.recallio.content.ExerciseFiles;
+import com.recallio.content.ExerciseFiles.SourceFile;
 import com.recallio.review.application.ReviewQueueService.QueuedCard;
 import com.recallio.review.application.ReviewQueueService.RatingPreview;
 import com.recallio.review.application.ReviewQueueService.ReviewQueue;
@@ -80,6 +82,12 @@ final class ReviewDtos {
             @Schema(description = "Le nombre de trous d'un code à trous, à remplir dans l'ordre ; 0 sinon")
             int blankCount,
 
+            @Schema(
+                    description = "Les fichiers d'un exercice de code ; absent pour les autres formats",
+                    nullable = true)
+            @Nullable
+            ExerciseToSolveDto exercise,
+
             LearningState state,
 
             @Schema(description = "Échéance obtenue pour chacune des quatre notes")
@@ -99,8 +107,44 @@ final class ReviewDtos {
                     card.choices().stream().map(CardChoice::text).toList(),
                     card.correctChoices().size() > 1,
                     card.blanks().size(),
+                    card.exercise() == null ? null : ExerciseToSolveDto.from(card.exercise()),
                     queued.state(),
                     queued.previews().stream().map(RatingPreviewDto::from).toList());
+        }
+    }
+
+    /**
+     * Un exercice à résoudre. Auto-évalué tant que le code n'est pas exécuté (ADR 0029) : la solution vient avec lui,
+     * comme la réponse d'une carte auto-évaluée, et la PWA ne la montre qu'une fois révélée.
+     */
+    @Schema(name = "ExerciseToSolve")
+    record ExerciseToSolveDto(
+            @Schema(description = "Le code de départ, à modifier")
+            List<ExerciseFileDto> starter,
+
+            @Schema(description = "Les tests qui jugent le code")
+            List<ExerciseFileDto> tests,
+
+            @Schema(description = "La solution modèle, à montrer une fois la réponse révélée")
+            List<ExerciseFileDto> solution) {
+        static ExerciseToSolveDto from(ExerciseFiles files) {
+            return new ExerciseToSolveDto(
+                    ExerciseFileDto.from(files.starter()),
+                    ExerciseFileDto.from(files.tests()),
+                    ExerciseFileDto.from(files.solution()));
+        }
+    }
+
+    @Schema(name = "ExerciseFile")
+    record ExerciseFileDto(
+            @Schema(description = "Chemin relatif, avec des /")
+            String path,
+
+            String content) {
+        static List<ExerciseFileDto> from(List<SourceFile> files) {
+            return files.stream()
+                    .map(file -> new ExerciseFileDto(file.path(), file.content()))
+                    .toList();
         }
     }
 

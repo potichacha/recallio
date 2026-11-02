@@ -2,6 +2,7 @@ package com.recallio.content.infrastructure.persistence;
 
 import com.recallio.content.CardBlank;
 import com.recallio.content.CardChoice;
+import com.recallio.content.ExerciseFiles;
 import com.recallio.content.domain.CardContent;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -49,6 +50,12 @@ public class CardVersionEntity {
     @Nullable
     List<CardBlank> blanks;
 
+    /** Les fichiers d'un exercice de code, en JSON ; {@code null} pour les autres formats. */
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "exercise")
+    @Nullable
+    ExerciseFiles exercise;
+
     @Column(name = "created_at", nullable = false)
     Instant createdAt;
 
@@ -62,6 +69,7 @@ public class CardVersionEntity {
         this.answer = content.answer();
         this.choices = content.choices().isEmpty() ? null : content.choices();
         this.blanks = content.blanks().isEmpty() ? null : content.blanks();
+        this.exercise = content.exercise().orElse(null);
         this.contentHash = contentHash;
         this.createdAt = now;
     }

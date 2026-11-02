@@ -3,7 +3,9 @@ package com.recallio.content.domain;
 import com.recallio.content.CardBlank;
 import com.recallio.content.CardChoice;
 import com.recallio.content.CardType;
+import com.recallio.content.ExerciseFiles;
 import java.util.List;
+import java.util.Optional;
 import java.util.regex.Pattern;
 
 /**
@@ -30,6 +32,11 @@ public sealed interface CardContent {
         return List.of();
     }
 
+    /** Les fichiers d'un exercice de code ; aucun pour les autres formats. */
+    default Optional<ExerciseFiles> exercise() {
+        return Optional.empty();
+    }
+
     default CardType type() {
         return switch (this) {
             case Flashcard _ -> CardType.FLASHCARD;
@@ -40,6 +47,7 @@ public sealed interface CardContent {
             case TrueFalse _ -> CardType.TRUE_FALSE;
             case BugFix _ -> CardType.BUG_FIX;
             case FillIn _ -> CardType.FILL_IN;
+            case CodingExercise _ -> CardType.CODING_EXERCISE;
         };
     }
 
@@ -107,7 +115,24 @@ public sealed interface CardContent {
         }
     }
 
-    /** Un contenu sans choix ni trous ; un QCM, un vrai ou faux ou un code à trous se construit avec eux. */
+    /**
+     * Un exercice de code (ADR 0029) : un énoncé, des fichiers de départ à modifier, une solution et des tests.
+     *
+     * @param prompt l'énoncé
+     * @param answer l'explication de la solution, montrée avec elle
+     */
+    record CodingExercise(String prompt, String answer, ExerciseFiles files) implements CardContent {
+
+        @Override
+        public Optional<ExerciseFiles> exercise() {
+            return Optional.of(files);
+        }
+    }
+
+    /**
+     * Un contenu sans choix, trous ni fichiers ; un QCM, un vrai ou faux, un code à trous ou un exercice se construit
+     * avec eux.
+     */
     static CardContent of(CardType type, String prompt, String answer) {
         return switch (type) {
             case FLASHCARD -> new Flashcard(prompt, answer);
@@ -118,6 +143,7 @@ public sealed interface CardContent {
             case MULTIPLE_CHOICE -> throw new IllegalArgumentException("Un QCM se construit avec ses choix");
             case TRUE_FALSE -> throw new IllegalArgumentException("Un vrai ou faux se construit avec sa valeur");
             case FILL_IN -> throw new IllegalArgumentException("Un code à trous se construit avec ses trous");
+            case CODING_EXERCISE -> throw new IllegalArgumentException("Un exercice se construit avec ses fichiers");
         };
     }
 }

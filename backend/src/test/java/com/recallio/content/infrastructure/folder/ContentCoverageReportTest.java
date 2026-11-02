@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.recallio.content.CardType;
 import com.recallio.content.domain.source.ContentCoverage;
+import com.recallio.content.domain.source.ContentCoverage.ChapterExercises;
 import com.recallio.content.domain.source.ContentCoverage.NotionCoverage;
 import com.recallio.content.domain.source.ContentCoverage.PriorityCoverage;
 import java.io.IOException;
@@ -64,6 +65,12 @@ class ContentCoverageReportTest {
                             share(priority.complete(), priority.notions())));
         }
         appendFormats(report, coverage);
+        ChapterExercises exercises = coverage.chapterExercises();
+        report.append("\n**Exercices de code** : %d. Chapitres qui en ont au moins un, comme visé : %s sur %d.\n"
+                .formatted(
+                        exercises.exercises(),
+                        share(exercises.chaptersWithExercise(), exercises.chapters()),
+                        exercises.chapters()));
         appendUncovered(report, coverage);
         appendMatrix(report, coverage);
         return report.toString();

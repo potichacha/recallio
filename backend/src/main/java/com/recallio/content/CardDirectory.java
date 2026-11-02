@@ -87,7 +87,8 @@ public interface CardDirectory {
             String prompt,
             String answer,
             List<CardChoice> choices,
-            List<CardBlank> blanks) {
+            List<CardBlank> blanks,
+            @Nullable ExerciseFiles exercise) {
 
         public CardSnapshot {
             choices = List.copyOf(choices);

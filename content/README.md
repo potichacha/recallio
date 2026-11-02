@@ -262,8 +262,23 @@ cards:
 
 - La **clé** d'une carte (minuscules, chiffres, tirets) est unique dans sa notion. On peut corriger ou reformuler la
   question et la réponse librement : la carte et la progression restent. Changer la clé crée une autre carte.
-- **Formats acceptés aujourd'hui** : `course`, `multiple-choice`, `code-output`, `scenario`, `definition`,
-  `true-false`, `bug-fix`, `fill-in`. Les exercices de code (`exercise`) arrivent à l'étape 4 de la phase 3 bis.
+- **Formats acceptés dans un fichier de notion** : `course`, `multiple-choice`, `code-output`, `scenario`, `definition`,
+  `true-false`, `bug-fix`, `fill-in`. Les exercices de code (`exercise`) ont leur propre dossier (ci-dessous).
+- **Exercice de code** (`exercise`, ADR 0029) : un dossier `exercices/<domaine>/<notion>/<clé>/`, à côté de `notions/` :
+  ```
+  exercices/collections/choisir-collection/sans-doublons/
+  ├── exercise.yaml        # statement: l'énoncé ; explanation: l'explication de la solution (Markdown)
+  ├── starter/Doublons.java    # le code de départ, que le joueur modifie
+  ├── solution/Doublons.java   # la solution : exactement les fichiers du code de départ
+  └── tests/DoublonsTest.java  # des tests JUnit 5, qui jugent l'un et l'autre
+  ```
+  - La clé est le nom du dossier : définitive, et distincte des clés des cartes de la notion.
+  - Des fichiers `.java` seulement, de 1 à 10 par partie ; des packages sont permis (`starter/fr/recallio/Panier.java`).
+  - La solution doit passer tous les tests, et le code de départ en échouer au moins un : lance-les dans ton IDE avant la
+    pull request (la CI le vérifiera avec le bac à sable).
+  - Les tests nomment le comportement attendu (`retireLesDoublonsEnGardantLOrdre`) : ils servent aussi d'indice au
+    joueur, qui les voit.
+  - En attendant le bac à sable, un exercice est auto-évalué : on lit le code de départ et les tests, puis la solution.
 - **Vrai ou faux** (`true-false`, ADR 0027) : la question est une affirmation, `truth: true` ou `truth: false` dit si
   elle est vraie, la réponse explique pourquoi. Le serveur corrige. Une affirmation sans ambiguïté : pas de « toujours »
   ni de « jamais » qui souffrent d'exceptions, pas de double négation.

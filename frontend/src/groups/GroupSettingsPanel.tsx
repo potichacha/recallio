@@ -18,6 +18,7 @@ const FORMAT_LABELS: Record<CardType, string> = {
   TRUE_FALSE: 'Vrai ou faux',
   BUG_FIX: 'Bugs à corriger',
   FILL_IN: 'Codes à compléter',
+  CODING_EXERCISE: 'Exercices de code',
 }
 
 const VISIBILITY_LABELS: Record<LeaderboardVisibility, string> = {

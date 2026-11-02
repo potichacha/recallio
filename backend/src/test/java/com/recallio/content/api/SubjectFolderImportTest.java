@@ -3,8 +3,10 @@ package com.recallio.content.api;
 import static io.restassured.RestAssured.given;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.contains;
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.nullValue;
 
 import com.recallio.content.application.ContentImportService;
 import com.recallio.content.domain.importing.ImportReport;
@@ -89,6 +91,35 @@ class SubjectFolderImportTest {
 
         assertThat(again.cardsAdded() + again.cardsUpdated() + again.cardsRetired())
                 .isZero();
+    }
+
+    @Test
+    void shouldImportACodingExerciseWithItsFilesAndServeItInTheCatalog() {
+        Map<String, String> exercise = Map.of(
+                "bases/null-safety/longueur/exercise.yaml",
+                "statement: Renvoyer la longueur, 0 pour null.\nexplanation: Avec l'opérateur Elvis.\n",
+                "bases/null-safety/longueur/starter/Longueur.java",
+                "class Longueur { static int de(String s) { return s.length(); } }",
+                "bases/null-safety/longueur/solution/Longueur.java",
+                "class Longueur { static int de(String s) { return s == null ? 0 : s.length(); } }",
+                "bases/null-safety/longueur/tests/LongueurTest.java",
+                "class LongueurTest {}");
+        importService.importFolder(new SubjectFolder(
+                SUBJECT, Map.of("01-bases.yaml", REFERENTIAL), Map.of("bases/val-var.yaml", VAL_VAR), exercise));
+
+        ImportReport again = importService.importFolder(new SubjectFolder(
+                SUBJECT, Map.of("01-bases.yaml", REFERENTIAL), Map.of("bases/val-var.yaml", VAL_VAR), exercise));
+
+        assertThat(again.cardsAdded() + again.cardsUpdated()).isZero();
+        given().get("/api/v1/themes/kotlin-bases/cards")
+                .then()
+                .statusCode(200)
+                .body("items[1].type", equalTo("CODING_EXERCISE"))
+                .body("items[1].prompt", equalTo("Renvoyer la longueur, 0 pour null."))
+                .body("items[1].exercise.starter.path", contains("Longueur.java"))
+                .body("items[1].exercise.solution[0].content", containsString("s == null ? 0"))
+                .body("items[1].exercise.tests.path", contains("LongueurTest.java"))
+                .body("items[0].exercise", nullValue());
     }
 
     @Test
