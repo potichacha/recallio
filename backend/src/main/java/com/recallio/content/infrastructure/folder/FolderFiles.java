@@ -47,13 +47,17 @@ final class FolderFiles {
             @Nullable String lesson,
             @JsonProperty(required = true) List<CardEntry> cards) {}
 
-    /** @param choices les choix d'un QCM ; absents pour les autres formats */
+    /**
+     * @param choices les choix d'un QCM ; absents pour les autres formats
+     * @param truth la valeur de l'affirmation d'un vrai ou faux ; absente pour les autres formats
+     */
     record CardEntry(
             @JsonProperty(required = true) String key,
             @JsonProperty(required = true) String format,
             @JsonProperty(required = true) String question,
             @JsonProperty(required = true) String answer,
-            @Nullable List<ChoiceEntry> choices) {}
+            @Nullable List<ChoiceEntry> choices,
+            @Nullable Boolean truth) {}
 
     record ChoiceEntry(
             @JsonProperty(required = true) String text,

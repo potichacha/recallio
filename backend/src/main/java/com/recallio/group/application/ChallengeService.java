@@ -67,7 +67,8 @@ public class ChallengeService {
     }
 
     /**
-     * Le créateur lance un défi : une série tirée au hasard parmi les QCM des sujets et thèmes du groupe.
+     * Le créateur lance un défi : une série tirée au hasard parmi les QCM et les vrai ou faux des sujets et
+     * thèmes du groupe (ADR 0027).
      *
      * @throws NotEnoughCardsException si le groupe n'a pas assez de QCM pour la série demandée
      */
@@ -119,10 +120,7 @@ public class ChallengeService {
 
     private List<UUID> multipleChoiceCards(GroupSettings group) {
         CardFilter filter = new CardFilter(
-                Set.copyOf(group.subjectSlugs()),
-                null,
-                Set.copyOf(group.themeSlugs()),
-                Set.of(CardType.MULTIPLE_CHOICE));
+                Set.copyOf(group.subjectSlugs()), null, Set.copyOf(group.themeSlugs()), CardType.GRADED_BY_CHOICES);
         return cards.activeCards(filter).stream().map(ActiveCard::cardId).toList();
     }
 

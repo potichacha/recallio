@@ -79,7 +79,7 @@ final class ReviewDtos {
             List<RatingPreviewDto> previews) {
         static QueuedCardDto from(QueuedCard queued) {
             var card = queued.card();
-            boolean multipleChoice = card.type() == CardType.MULTIPLE_CHOICE;
+            boolean multipleChoice = card.type().isGradedByChoices();
             return new QueuedCardDto(
                     card.cardId(),
                     card.type(),

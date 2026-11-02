@@ -2,7 +2,6 @@ package com.recallio.review.application;
 
 import com.recallio.content.CardDirectory;
 import com.recallio.content.CardDirectory.CardSnapshot;
-import com.recallio.content.CardType;
 import com.recallio.platform.domain.IdGenerator;
 import com.recallio.review.CardReviewed;
 import com.recallio.review.domain.AnswerMismatchException;
@@ -105,14 +104,15 @@ public class ReviewRecordingService {
     }
 
     /**
-     * La note choisie par l'utilisateur, ou, pour un QCM, celle que donne la correction de ses choix (ADR 0019).
+     * La note choisie par l'utilisateur, ou, pour un QCM ou un vrai ou faux, celle que donne la correction de ses choix
+     * (ADR 0019, 0027).
      *
      * @throws AnswerMismatchException si la réponse ne correspond pas au format de la carte
      */
     private static Rating rating(CardSnapshot card, RecordReview command) {
         Set<Integer> selected = command.selectedChoices();
         Rating chosen = command.rating();
-        if (card.type() == CardType.MULTIPLE_CHOICE) {
+        if (card.type().isGradedByChoices()) {
             if (selected == null || chosen != null) {
                 throw AnswerMismatchException.choicesExpected();
             }
@@ -126,7 +126,7 @@ public class ReviewRecordingService {
 
     /** Pour un QCM : les bonnes réponses et l'explication, montrées une fois la réponse enregistrée. */
     private static @Nullable Correction correction(CardSnapshot card) {
-        return card.type() == CardType.MULTIPLE_CHOICE ? new Correction(card.correctChoices(), card.answer()) : null;
+        return card.type().isGradedByChoices() ? new Correction(card.correctChoices(), card.answer()) : null;
     }
 
     private static ReviewOutcome replay(

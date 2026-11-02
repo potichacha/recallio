@@ -140,7 +140,9 @@ class YamlSubjectFolderParserTest {
                   - {key: valide, format: course, question: "Q ?", answer: "R."}
                   - {key: valide, format: course, question: "Autre ?", answer: "R."}
                   - {key: Majuscule, format: course, question: "Q ?", answer: "R."}
-                  - {key: vrai-faux, format: true-false, question: "Q ?", answer: "R."}
+                  - {key: a-trous, format: fill-in, question: "Q ?", answer: "R."}
+                  - {key: vrai-faux-sans-valeur, format: true-false, question: "Q ?", answer: "R."}
+                  - {key: valeur-hors-vrai-faux, format: course, question: "Q ?", answer: "R.", truth: true}
                   - {key: inconnu, format: quiz, question: "Q ?", answer: "R."}
                   - {key: qcm-sans-choix, format: multiple-choice, question: "Q ?", answer: "R."}
                   - {key: qcm-un-choix, format: multiple-choice, question: "Q ?", answer: "R.", choices: [{text: a, correct: true}]}
@@ -153,8 +155,40 @@ class YamlSubjectFolderParserTest {
         assertThat(parsed.issues())
                 .extracting(SourceIssue::excerpt)
                 .containsExactly(
-                        "valide", "Majuscule", "vrai-faux", "inconnu", "qcm-sans-choix", "qcm-un-choix", "vide");
+                        "valide",
+                        "Majuscule",
+                        "a-trous",
+                        "vrai-faux-sans-valeur",
+                        "valeur-hors-vrai-faux",
+                        "inconnu",
+                        "qcm-sans-choix",
+                        "qcm-un-choix",
+                        "vide");
         assertThat(parsed.issues().get(2).reason()).contains("pas encore pris en charge");
+    }
+
+    @Test
+    void shouldReadATrueFalseCardAsTwoFixedChoicesAndABugFixAsSelfAssessed() {
+        String notion = """
+                notion: string-bases
+                cards:
+                  - {key: affirmation, format: true-false, question: "String est immuable.", truth: true, answer: "Oui."}
+                  - key: bug
+                    format: bug-fix
+                    question: "`if (s == \\"oui\\")`"
+                    answer: "`if (\\"oui\\".equals(s))`"
+                """;
+
+        var cards = parse(Map.of("api-de-base/string-bases.yaml", notion))
+                .themes()
+                .getFirst()
+                .cards();
+
+        assertThat(cards.get(0).content()).isEqualTo(new CardContent.TrueFalse("String est immuable.", "Oui.", true));
+        assertThat(cards.get(0).content().choices())
+                .containsExactly(new CardChoice("Vrai", true), new CardChoice("Faux", false));
+        assertThat(cards.get(1).content().type()).isEqualTo(CardType.BUG_FIX);
+        assertThat(cards.get(1).content().choices()).isEmpty();
     }
 
     @Test

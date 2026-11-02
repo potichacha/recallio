@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { ApiError } from '../api/errors'
 import { useRecordReview, type QueuedCard, type Rating } from '../api/review'
+import { GRADED_BY_CHOICES } from '../components/cardTypeLabels'
 import { Markdown } from '../components/Markdown'
 import { CardHeader } from './CardHeader'
 import { formatDelay } from './formatDelay'
@@ -20,9 +21,11 @@ const RATING_STYLES: Record<Rating, string> = {
   EASY: 'border-sky-200 text-sky-700 hover:bg-sky-50',
 }
 
-/** Une carte à réviser : un QCM est corrigé par le serveur, les autres formats s'auto-évaluent. */
+/**
+ * Une carte à réviser : un QCM ou un vrai ou faux est corrigé par le serveur, les autres formats s'auto-évaluent.
+ */
 export function ReviewCard({ card, onReviewed }: { card: QueuedCard; onReviewed: () => void }) {
-  return card.type === 'MULTIPLE_CHOICE' ? (
+  return GRADED_BY_CHOICES.has(card.type) ? (
     <MultipleChoiceCard card={card} onReviewed={onReviewed} />
   ) : (
     <SelfAssessedCard card={card} onReviewed={onReviewed} />
@@ -31,7 +34,7 @@ export function ReviewCard({ card, onReviewed }: { card: QueuedCard; onReviewed:
 
 /**
  * Une carte en auto-évaluation (CLAUDE.md, section 6.1) : la question, puis la réponse, puis l'une des quatre notes.
- * Une mise en situation propose d'abord d'écrire sa réponse, pour la comparer à la réponse modèle.
+ * Une mise en situation ou un bug à corriger propose d'abord d'écrire sa réponse, pour la comparer à la réponse modèle.
  */
 function SelfAssessedCard({ card, onReviewed }: { card: QueuedCard; onReviewed: () => void }) {
   const [shownAt] = useState(() => Date.now())
@@ -55,15 +58,20 @@ function SelfAssessedCard({ card, onReviewed }: { card: QueuedCard; onReviewed: 
       <CardHeader card={card} />
       <Markdown>{card.prompt}</Markdown>
 
-      {card.type === 'OPEN_SCENARIO' && (
+      {(card.type === 'OPEN_SCENARIO' || card.type === 'BUG_FIX') && (
         <label className="flex flex-col gap-1">
-          <span className="text-sm font-medium">Votre réponse (facultatif)</span>
+          <span className="text-sm font-medium">
+            {card.type === 'BUG_FIX'
+              ? 'Votre correction (facultatif)'
+              : 'Votre réponse (facultatif)'}
+          </span>
           <textarea
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
             readOnly={revealed}
             rows={5}
-            className="rounded-lg border border-slate-300 px-3 py-2"
+            spellCheck={card.type !== 'BUG_FIX'}
+            className={`rounded-lg border border-slate-300 px-3 py-2 ${card.type === 'BUG_FIX' ? 'font-mono text-sm' : ''}`}
           />
         </label>
       )}

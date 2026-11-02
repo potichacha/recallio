@@ -7,4 +7,9 @@ export const CARD_TYPE_LABELS: Record<CardType, string> = {
   OPEN_SCENARIO: 'Mise en situation',
   DEFINITION: 'Définition',
   MULTIPLE_CHOICE: 'QCM',
+  TRUE_FALSE: 'Vrai ou faux',
+  BUG_FIX: 'Bug à corriger',
 }
+
+/** Les formats corrigés par le serveur d'après les choix cochés (ADR 0019, 0027) ; les autres s'auto-évaluent. */
+export const GRADED_BY_CHOICES: ReadonlySet<CardType> = new Set(['MULTIPLE_CHOICE', 'TRUE_FALSE'])

@@ -30,6 +30,8 @@ public sealed interface CardContent {
             case OpenScenario _ -> CardType.OPEN_SCENARIO;
             case Definition _ -> CardType.DEFINITION;
             case MultipleChoice _ -> CardType.MULTIPLE_CHOICE;
+            case TrueFalse _ -> CardType.TRUE_FALSE;
+            case BugFix _ -> CardType.BUG_FIX;
         };
     }
 
@@ -56,14 +58,38 @@ public sealed interface CardContent {
         }
     }
 
-    /** Un contenu sans choix ; un QCM se construit avec ses choix ({@link MultipleChoice}). */
+    /**
+     * Une affirmation à juger (ADR 0027) : ses deux choix, « Vrai » et « Faux », sont fixes, ce qui la corrige comme un
+     * QCM.
+     *
+     * @param prompt l'affirmation
+     * @param answer l'explication, montrée après la correction
+     * @param truth vrai si l'affirmation est vraie
+     */
+    record TrueFalse(String prompt, String answer, boolean truth) implements CardContent {
+
+        public static final String TRUE_LABEL = "Vrai";
+        public static final String FALSE_LABEL = "Faux";
+
+        @Override
+        public List<CardChoice> choices() {
+            return List.of(new CardChoice(TRUE_LABEL, truth), new CardChoice(FALSE_LABEL, !truth));
+        }
+    }
+
+    /** {@code prompt} contient le code bogué, {@code answer} le code corrigé et l'explication du bug. */
+    record BugFix(String prompt, String answer) implements CardContent {}
+
+    /** Un contenu sans choix ; un QCM ou un vrai ou faux se construit avec ses choix ou sa valeur. */
     static CardContent of(CardType type, String prompt, String answer) {
         return switch (type) {
             case FLASHCARD -> new Flashcard(prompt, answer);
             case CODE_OUTPUT -> new CodeOutput(prompt, answer);
             case OPEN_SCENARIO -> new OpenScenario(prompt, answer);
             case DEFINITION -> new Definition(prompt, answer);
+            case BUG_FIX -> new BugFix(prompt, answer);
             case MULTIPLE_CHOICE -> throw new IllegalArgumentException("Un QCM se construit avec ses choix");
+            case TRUE_FALSE -> throw new IllegalArgumentException("Un vrai ou faux se construit avec sa valeur");
         };
     }
 }
