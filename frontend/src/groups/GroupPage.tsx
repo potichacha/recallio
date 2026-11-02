@@ -13,6 +13,7 @@ import { ChallengesPanel } from './ChallengesPanel'
 import { GroupSettingsPanel } from './GroupSettingsPanel'
 import { InvitationPanel } from './InvitationPanel'
 import { LeaderboardPanel } from './LeaderboardPanel'
+import { LivePanel } from './LivePanel'
 
 /**
  * Un groupe : ses réglages et ses membres. Le créateur les gère, invite et peut supprimer le groupe ; un membre peut le
@@ -45,6 +46,8 @@ export function GroupPage() {
           <GroupSettingsPanel group={group.data} />
           <LeaderboardPanel groupId={group.data.id} />
           <ChallengesPanel group={group.data} />
+          {/* Une partie live porte sur un sujet du groupe : rien à lancer tant qu'il n'en a pas. */}
+          {group.data.settings.subjects.length > 0 && <LivePanel group={group.data} />}
           <MemberList group={group.data} />
           {group.data.myRole === 'OWNER' ? (
             <>

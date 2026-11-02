@@ -30,7 +30,8 @@ export default defineConfig({
   ],
   server: {
     // En dev, le front appelle /api sur son propre origin : pas de CORS à configurer.
-    proxy: { '/api': BACKEND_URL },
+    // `ws` : le mode live passe par un WebSocket sous /api (ADR 0021).
+    proxy: { '/api': { target: BACKEND_URL, ws: true } },
   },
   test: {
     environment: 'jsdom',

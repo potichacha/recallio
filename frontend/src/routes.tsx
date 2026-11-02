@@ -4,6 +4,7 @@ import { Layout } from './components/Layout'
 import { GroupPage } from './groups/GroupPage'
 import { GroupsPage } from './groups/GroupsPage'
 import { JoinPage } from './groups/JoinPage'
+import { LivePage } from './live/LivePage'
 import { ChallengePage } from './challenges/ChallengePage'
 import { AuthCallbackPage } from './pages/AuthCallbackPage'
 import { HomePage } from './pages/HomePage'
@@ -52,6 +53,14 @@ export const routes: RouteObject[] = [
         element: (
           <RequireAuth>
             <ChallengePage />
+          </RequireAuth>
+        ),
+      },
+      {
+        path: 'live/:gameId',
+        element: (
+          <RequireAuth>
+            <LivePage />
           </RequireAuth>
         ),
       },
