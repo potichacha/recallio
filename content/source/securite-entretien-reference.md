@@ -176,6 +176,8 @@ Rôles : *resource owner* (l'utilisateur), *client* (l'application), *authorizat
 
 **Q : Comment comparer deux secrets sans fuite temporelle ?** R : Avec une comparaison en temps constant (MessageDigest.isEqual).
 
+**Q : SAST vs DAST vs SCA ?** R : Analyse du code source / attaque de l'application en fonctionnement / analyse des dépendances.
+
 ### Questions de situation
 
 **Q : "Comment tu sécurises une API REST ?"**
@@ -204,3 +206,27 @@ Défenses : n'autoriser que `https`, résoudre le nom et **refuser les adresses 
 R : "Jamais en clair, jamais chiffrés de façon réversible, jamais avec un hachage rapide comme SHA-256 seul. Un algorithme **lent, salé et paramétrable** : argon2id ou bcrypt (avec un facteur de coût ajusté pour environ 100 ms à la vérification), scrypt ou PBKDF2 si une conformité l'impose. Le sel unique par mot de passe est généré par l'algorithme et stocké avec le hash.
 En Spring, un `DelegatingPasswordEncoder`, qui préfixe l'algorithme et permet de migrer progressivement : à la connexion d'un utilisateur dont le hash utilise un ancien algorithme, on re-hache avec le nouveau.
 Autour : limitation des tentatives, vérification contre les listes de mots de passe compromis, MFA, et de préférence déléguer l'authentification à un fournisseur d'identité (Keycloak, OIDC) plutôt que de la gérer soi-même."
+
+═══════════════════════════════════════════
+# GLOSSAIRE DES SIGLES ET TERMES
+═══════════════════════════════════════════
+
+| Terme | Signification |
+|---|---|
+| **BOLA / IDOR** | Broken Object Level Authorization / Insecure Direct Object Reference : accès à l'objet d'un autre |
+| **CORS** | Cross-Origin Resource Sharing : autorisation par le serveur des appels cross-origin dans le navigateur |
+| **CSRF** | Cross-Site Request Forgery : action déclenchée à l'insu d'un utilisateur authentifié |
+| **CSP** | Content Security Policy : en-tête qui restreint les sources de scripts et contenus |
+| **DAST / SAST / SCA** | Tests de sécurité dynamiques / analyse statique du code / analyse des dépendances |
+| **HMAC** | Hash-based Message Authentication Code : empreinte authentifiée par un secret |
+| **JWT / JWKS** | JSON Web Token / ensemble de clés publiques pour vérifier les JWT |
+| **mTLS** | TLS mutuel : authentification des deux parties |
+| **OAuth 2.0 / OIDC** | Autorisation déléguée / couche d'authentification par-dessus |
+| **OWASP** | Open Worldwide Application Security Project (Top 10 2025) |
+| **PKCE** | Proof Key for Code Exchange : protection du flux Authorization Code |
+| **RBAC / ABAC** | Contrôle d'accès par rôles / par attributs |
+| **SBOM** | Software Bill of Materials : inventaire des composants d'un logiciel |
+| **SSRF** | Server-Side Request Forgery |
+| **TLS** | Transport Layer Security |
+| **XSS** | Cross-Site Scripting : injection de script dans une page |
+| **XXE** | XML External Entity : faille des parseurs XML |

@@ -136,6 +136,8 @@ Autres annotations utiles : `@Produces` (méthode fabriquant un bean), `@Named`/
 
 **Q : Comment compiler en natif sans installer GraalVM ?** R : `-Dquarkus.native.container-build=true`, qui compile dans un conteneur (Mandrel).
 
+**Q : Que signifie @Blocking en Quarkus ?** R : La méthode s'exécute sur un thread worker et non sur l'event loop.
+
 ### Questions de situation
 
 **Q : "Pourquoi choisir Quarkus plutôt que Spring Boot ?"**

@@ -34,7 +34,7 @@ test.describe('Session de révision', () => {
       .getByRole('region', { name: 'Langages' })
       .getByRole('link', { name: /^Java/ })
       .click()
-    await page.getByRole('link', { name: /JAVA : FONDAMENTAUX/ }).click()
+    await page.getByRole('link', { name: /Bases du langage/ }).click()
 
     await page.getByRole('link', { name: 'Réviser ce thème' }).click()
 
@@ -43,6 +43,6 @@ test.describe('Session de révision', () => {
     await expect(page.getByRole('heading', { name: 'Réviser', exact: true })).toBeVisible()
     await page.getByRole('button', { name: 'Voir la réponse' }).click()
     await expect(page.getByRole('group', { name: 'Noter la carte' })).toBeVisible()
-    await expect(page.locator('article header')).toContainText('JAVA : FONDAMENTAUX')
+    await expect(page.locator('article header')).toContainText('Bases du langage')
   })
 })

@@ -183,7 +183,7 @@ Si une règle devient gênante, on en discute et on consigne l'exception dans un
 ## 5. Contenu : des documents de référence aux cartes
 
 ### 5.1 Format de la source
-Chaque sujet a son document de référence, `content/source/<sujet>-entretien-reference.md` (par exemple `java-entretien-reference.md`, `go-entretien-reference.md`). Tous suivent le même format :
+Chaque sujet a son document de référence, `content/source/<sujet>-entretien-reference.md` (par exemple `go-entretien-reference.md`), tant que le sujet n'est pas migré vers son dossier de notions (5.5, ADR 0026). Tous suivent le même format :
 - Titre du document : `# <Sujet> : le document de référence pour les entretiens techniques`, suivi d'une introduction (ignorée par l'import).
 - Chapitres : un titre `# N. TITRE` encadré de lignes de séparation `═══...`.
 - Dans chaque chapitre, des sections `### Vue d'ensemble`, `### Cours`, `### En situation`, `### Questions techniques`, `### Questions de situation`, et facultativement `### QCM`.
@@ -260,7 +260,7 @@ Les sujets s'ajoutent un par un, au rythme de la rédaction, indépendamment des
 
 | Sujet | Catégorie | État |
 |---|---|---|
-| Java | Langages | ✅ rédigé, importé |
+| Java | Langages | ✅ rédigé, migré vers son dossier de notions (ADR 0026) |
 | Go | Langages | ✅ rédigé, importé |
 | Spring Boot, Quarkus, Jakarta EE, JPA & Hibernate | Frameworks | ✅ sortis du document Java (ADR 0025), à enrichir |
 | SQL, Kafka, Cache | Données | ✅ sortis du document Java, à enrichir |
@@ -409,7 +409,7 @@ WebSockets, parties synchronisées, chrono, classement en direct, tests de charg
 ### Phase 3 bis : refonte du contenu (ADR 0025)
 Faire du contenu un référentiel complet, pour apprendre, préparer un entretien ou entretenir son niveau (5.5).
 
-1. **Référentiel et modèle** : ✅ le référentiel Java (toutes les notions, niveaux, priorités, prérequis) vérifié en CI ; ✅ découpage des chapitres hors Java en sujets propres ; ✅ dossier de sujet, un fichier YAML par notion, cartes à clé explicite (ADR 0026) ; migration sans perte des cartes Java vers les notions.
+1. **Référentiel et modèle** : ✅ le référentiel Java (toutes les notions, niveaux, priorités, prérequis) vérifié en CI ; ✅ découpage des chapitres hors Java en sujets propres ; ✅ dossier de sujet, un fichier YAML par notion, cartes à clé explicite (ADR 0026) ; ✅ migration sans perte des cartes Java vers les notions.
 2. **Nouveaux formats texte** : vrai ou faux, compléter le code, bug à corriger.
 3. **Contrôles du contenu en CI** : matrice par notion, couverture du référentiel par priorité, exécution des « qu'affiche ce code ».
 4. **Exercices de code** : format en dossier (énoncé, fichiers de départ, solution, tests), vérification en CI, **bac à sable d'exécution** (avancé depuis la phase 5, ADR à venir), éditeur multi-fichiers dans la PWA, correction par les tests.

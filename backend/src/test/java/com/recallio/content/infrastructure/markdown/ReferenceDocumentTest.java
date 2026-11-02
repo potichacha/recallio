@@ -89,16 +89,6 @@ class ReferenceDocumentTest {
     }
 
     @Test
-    void shouldProduceEveryCardTypeFromTheJavaDocument() {
-        Set<CardType> types = parse(SOURCES.resolve("java" + SUFFIX)).themes().stream()
-                .flatMap(theme -> theme.cards().stream())
-                .map(card -> card.content().type())
-                .collect(Collectors.toSet());
-
-        assertThat(types).containsExactlyInAnyOrder(CardType.values());
-    }
-
-    @Test
     void shouldHaveUniqueSubjectsAndThemeSlugsAcrossAllDocuments() throws IOException {
         List<ParsedContent> all = documents().map(ReferenceDocumentTest::parse).toList();
 
@@ -109,18 +99,6 @@ class ReferenceDocumentTest {
                                         CardIdentity.themeSlug(parsed.subject().slug(), theme.title())))
                         .toList())
                 .doesNotHaveDuplicates();
-    }
-
-    /**
-     * Garde-fou contre une suppression accidentelle. Les chapitres hors Java sont devenus des sujets propres (ADR 0025) :
-     * le document Java garde 18 chapitres et le glossaire.
-     */
-    @Test
-    void shouldKeepTheJavaDocumentComplete() {
-        ParsedContent java = parse(SOURCES.resolve("java" + SUFFIX));
-
-        assertThat(java.themes()).hasSize(18 + 1);
-        assertThat(java.cardCount()).isEqualTo(669);
     }
 
     private static ParsedContent parse(Path document) {

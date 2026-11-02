@@ -105,6 +105,8 @@ Même si on code en Spring Boot, on utilise des spécifications Jakarta au quoti
 
 **Q : Micronaut vs Quarkus vs Spring ?** R : Micronaut et Quarkus résolvent l'injection à la compilation (démarrage rapide) ; Spring à l'exécution, avec l'écosystème le plus large.
 
+**Q : javax → jakarta, c'est lié au JDK ?** R : Non, c'est un changement de Jakarta EE 9 (licence de la marque Java) ; il concerne les API EE comme Servlet, JPA, Bean Validation.
+
 ### Questions de situation
 
 **Q : "Tu dois migrer une application Spring Boot 2.7 vers Spring Boot 3 ou 4."**
@@ -112,3 +114,14 @@ R : "Par étapes. D'abord monter en Java 17 minimum, puis passer en Boot 2.7 à 
 Le gros du travail est le renommage `javax` → `jakarta` dans le code et dans les dépendances : toutes les bibliothèques doivent avoir une version compatible Jakarta. **OpenRewrite** automatise une grande partie de la migration (recettes Spring Boot 3 et 4).
 Ensuite les changements fonctionnels : configuration de Spring Security réécrite en `SecurityFilterChain`, Hibernate 6 (changements de génération d'identifiants et de types), propriétés renommées (le module `spring-boot-properties-migrator` les signale au démarrage), Micrometer Tracing à la place de Sleuth. Pour Boot 4 en plus : Jackson 3, modules de starters renommés, `@MockitoBean`.
 Je migrerais sur une branche avec une CI complète, et je déploierais progressivement en surveillant les erreurs."
+
+═══════════════════════════════════════════
+# GLOSSAIRE DES SIGLES ET TERMES
+═══════════════════════════════════════════
+
+| Terme | Signification |
+|---|---|
+| **CDI** | Contexts and Dependency Injection : injection de dépendances standard Jakarta |
+| **EJB** | Enterprise JavaBeans : composants Java EE historiques |
+| **JMS** | Java (Jakarta) Messaging : API de messagerie standard |
+| **JTA / XA** | Transactions Jakarta / protocole de transaction distribuée |

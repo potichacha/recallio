@@ -168,6 +168,8 @@ try (Connection c = dataSource.getConnection();
 
 **Q : Quand préférer jOOQ ou MyBatis ?** R : Pour un SQL complexe et maîtrisé (rapports, requêtes spécifiques) où l'ORM gêne plus qu'il n'aide.
 
+**Q : Pourquoi éviter @Data de Lombok sur une entité JPA ?** R : equals/hashCode/toString sur toutes les relations : chargements lazy déclenchés, récursions, hashCode instable.
+
 ### Questions de situation
 
 **Q : "Mappe une commande avec ses lignes de commande et son client."**
@@ -205,3 +207,14 @@ Si chaque commande demande une logique Java, je traiterais **par paquets** : lec
 **Q : "Les logs montrent un UPDATE sur des entités que personne n'a modifiées."**
 R : "C'est le dirty checking qui détecte une différence. Causes fréquentes : un setter ou une méthode `@PostLoad` qui normalise une valeur au chargement, un type mutable mal comparé (un `Date`, un tableau, un champ JSON converti), un `AttributeConverter` dont la conversion aller-retour ne redonne pas exactement la même valeur, ou une collection remplacée par une nouvelle instance.
 Je chercherais quelles colonnes changent dans l'UPDATE, et je corrigerais la source. Pour une lecture pure, `@Transactional(readOnly = true)` désactive le dirty checking et supprime le problème au passage."
+
+═══════════════════════════════════════════
+# GLOSSAIRE DES SIGLES ET TERMES
+═══════════════════════════════════════════
+
+| Terme | Signification |
+|---|---|
+| **JDBC** | Java Database Connectivity : API d'accès aux bases relationnelles |
+| **JPA** | Java (Jakarta) Persistence API : ORM standard |
+| **N+1** | Une requête puis une requête par élément pour ses relations |
+| **ORM** | Object-Relational Mapping |

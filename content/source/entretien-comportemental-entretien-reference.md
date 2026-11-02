@@ -102,3 +102,16 @@ R : "[**Situation** : le système, l'enjeu, le symptôme observé, en deux phras
 **Q : "Comment réagis-tu si on te confie une tâche sur une technologie que tu ne connais pas, avec une échéance courte ?"**
 R : "Je commencerais par cadrer ce qui est vraiment nécessaire pour l'échéance, puis par la documentation officielle et un prototype minimal pour valider le cœur du besoin rapidement. J'identifierais qui, dans l'équipe ou l'entreprise, connaît cette technologie pour lever les blocages vite plutôt que de rester bloqué seul.
 Et je serais transparent sur les risques dès le début : si l'échéance me paraît intenable, je préfère le signaler tôt avec une proposition (réduire le périmètre, être épaulé) que de découvrir le retard à la fin."
+
+**Q : "En entretien, on te montre un code et tu n'es pas sûr de la réponse."**
+R : "Je raisonnerais à voix haute en appliquant les règles que je connais : 'cette expression est un int parce que...', 'cette concaténation est évaluée à la compilation parce que les deux opérandes sont des constantes'. Même si je me trompe sur le résultat final, l'évaluateur voit que je connais les mécanismes.
+Et si on me demande ce que je ferais en vrai : je l'exécuterais dans `jshell` en dix secondes. Le but de ces questions n'est pas de remplacer un compilateur, mais de vérifier qu'on reconnaît les situations dangereuses quand on les rencontre dans une revue de code."
+
+═══════════════════════════════════════════
+# GLOSSAIRE DES SIGLES ET TERMES
+═══════════════════════════════════════════
+
+| Terme | Signification |
+|---|---|
+| **ESN** | Entreprise de Services du Numérique |
+| **STAR** | Situation, Tâche, Action, Résultat |

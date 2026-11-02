@@ -174,6 +174,8 @@ C'est le fondement de l'**injection de dépendances** et de l'**architecture hex
 
 **Q : Comment Spring facilite-t-il l'OCP ?** R : En injectant automatiquement toutes les implémentations d'une interface (List ou Map de beans).
 
+**Q : Que privilégier : forte cohésion ou faible couplage ?** R : Les deux à la fois ; ils vont ensemble.
+
 ### Questions de situation
 
 **Q : "Une classe de 800 lignes gère la création d'utilisateurs, l'envoi d'emails et la génération de rapports."**
@@ -599,6 +601,8 @@ Exemple court, **rate limiter** : algorithme *token bucket* (un seau se remplit 
 
 **Q : Algorithme token bucket ?** R : Des jetons ajoutés à débit fixe, une requête consomme un jeton ; il autorise des rafales jusqu'à la taille du seau.
 
+**Q : C'est quoi un modèle anémique ?** R : Des entités sans comportement dont toute la logique est dans des services.
+
 ### Questions de situation
 
 **Q : "Comment tu construis l'architecture d'un nouveau projet backend ?"**
@@ -777,3 +781,28 @@ Si je reste en désaccord, j'argumenterais sur des **faits** : un test qui montr
 **Q : "On te demande une estimation pour une tâche dans une techno que tu ne connais pas."**
 R : "Je refuserais de donner un chiffre précis à l'aveugle, mais je ne bloquerais pas non plus. Je proposerais un **spike** à durée limitée (une demi-journée ou une journée) pour explorer et lever les inconnues principales, puis une estimation sérieuse.
 Si on a besoin d'un ordre de grandeur immédiat, je donnerais une **fourchette** avec les hypothèses qui la fondent ('entre 3 et 8 jours selon que la bibliothèque X gère nativement Y'), et je découperais la tâche pour isoler la partie incertaine. Annoncer clairement l'incertitude est plus utile qu'un chiffre faussement précis."
+
+═══════════════════════════════════════════
+# GLOSSAIRE DES SIGLES ET TERMES
+═══════════════════════════════════════════
+
+| Terme | Signification |
+|---|---|
+| **ADR** | Architecture Decision Record : document court qui consigne une décision d'architecture |
+| **API Gateway** | Point d'entrée unique devant des services (routage, authentification, limitation) |
+| **BFF** | Backend For Frontend : une façade par type de client |
+| **CQRS** | Command Query Responsibility Segregation : modèles d'écriture et de lecture séparés |
+| **DDD** | Domain-Driven Design : conception centrée sur le métier |
+| **DI / IoC** | Dependency Injection / Inversion of Control |
+| **DIP** | Dependency Inversion Principle (le D de SOLID) |
+| **DoD / DoR** | Definition of Done / Definition of Ready |
+| **DRY, KISS, YAGNI** | Don't Repeat Yourself, Keep It Simple, You Aren't Gonna Need It |
+| **DTO** | Data Transfer Object : objet de transfert découplé du modèle interne |
+| **GoF** | Gang of Four : auteurs du catalogue des 23 design patterns |
+| **ISP** | Interface Segregation Principle (le I de SOLID) |
+| **LSP** | Liskov Substitution Principle (le L de SOLID) |
+| **MVC** | Model-View-Controller |
+| **OCP** | Open/Closed Principle (le O de SOLID) |
+| **SOLID** | SRP, OCP, LSP, ISP, DIP |
+| **SRP** | Single Responsibility Principle (le S de SOLID) |
+| **WIP** | Work In Progress : travail en cours (limites Kanban) |

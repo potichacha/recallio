@@ -173,3 +173,14 @@ Sur le fond, la vraie correction est la **rotation des logs** (logrotate), une p
 **Q : "Ton service lève des 'Too many open files' après quelques heures."**
 R : "Une croissance progressive évoque une **fuite** plutôt qu'une limite mal réglée. Je regarderais `lsof -p <pid> | wc -l` dans le temps, puis le type des descripteurs : des sockets vers un même service (des clients HTTP créés à chaque appel et jamais fermés, des réponses dont le corps n'est pas consommé), des fichiers (des streams `Files.lines` non fermés).
 Correction : try-with-resources systématique, un client HTTP partagé avec un pool, fermeture des réponses. Et en parallèle, une limite `ulimit -n` adaptée à la charge normale, avec une métrique et une alerte sur le nombre de descripteurs ouverts."
+
+═══════════════════════════════════════════
+# GLOSSAIRE DES SIGLES ET TERMES
+═══════════════════════════════════════════
+
+| Terme | Signification |
+|---|---|
+| **CDN** | Content Delivery Network : cache réparti géographiquement |
+| **CIDR** | Notation d'une plage d'adresses IP (`10.0.0.0/24`) |
+| **DNS** | Domain Name System : résolution de noms en adresses |
+| **OSI** | Modèle réseau à sept couches |

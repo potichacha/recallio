@@ -204,6 +204,12 @@ Autres attributs : `isolation`, `readOnly = true` (optimisations : pas de dirty 
 
 **Q : Quel serveur embarqué par défaut ?** R : Tomcat (Netty pour WebFlux) ; Undertow n'est plus supporté en Boot 4.
 
+**Q : @SpringBootTest vs @WebMvcTest ?** R : Contexte complet vs couche web seule, plus rapide.
+
+**Q : Que remplace @MockitoBean ?** R : @MockBean de Spring Boot, déprécié en 3.4 et supprimé en Boot 4.
+
+**Q : Pourquoi trop de @MockitoBean différents ralentissent-ils les tests ?** R : Chaque configuration différente crée un nouveau contexte Spring au lieu de réutiliser le contexte en cache.
+
 ### Questions de situation
 
 **Q : "Comment tu optimises un projet Spring / Quarkus ?"** *(très fréquent)*
@@ -385,6 +391,8 @@ En Kubernetes, une partie de Spring Cloud devient redondante (découverte, confi
 
 **Q : À quoi sert @ServiceConnection ?** R : À brancher automatiquement un conteneur Testcontainers sur la configuration Spring Boot.
 
+**Q : Piège de @DataJpaTest ?** R : La transaction est annulée et le flush peut ne pas avoir lieu, donc certaines contraintes ne sont jamais vérifiées.
+
 ### Questions de situation
 
 **Q : "Implémente une recherche de produits avec filtres optionnels (catégorie, prix min, prix max, texte)."**
@@ -403,3 +411,11 @@ Chaque critère est testable isolément et la requête générée reste paramét
 R : "C'est un contrôle d'accès défaillant au niveau de l'objet (IDOR), la première faille de l'OWASP. L'authentification fonctionne, l'autorisation sur la **ressource** n'est pas vérifiée.
 Correction immédiate : vérifier côté serveur que la commande appartient à l'utilisateur, soit dans la requête elle-même (`findByIdAndClientId(id, utilisateurCourant)`, qui renvoie 404 sinon), soit par `@PreAuthorize` avec une expression ou un bean de vérification. Renvoyer 404 plutôt que 403 évite de révéler l'existence de la ressource.
 Puis je chercherais le même défaut sur tous les endpoints exposant un identifiant, et j'ajouterais des tests d'autorisation systématiques : un utilisateur A ne doit jamais pouvoir lire, modifier ni supprimer une ressource de B."
+
+═══════════════════════════════════════════
+# GLOSSAIRE DES SIGLES ET TERMES
+═══════════════════════════════════════════
+
+| Terme | Signification |
+|---|---|
+| **AOP** | Aspect-Oriented Programming : comportement transversal (transactions, logs) appliqué par proxy |

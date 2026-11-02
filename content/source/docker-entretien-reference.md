@@ -156,3 +156,11 @@ En pratique je lance un shell avec `docker exec -it` et je lis `docker logs`. L'
 **Q : "Ton application dans un conteneur met 30 secondes à s'arrêter et perd des requêtes."**
 R : "Trente secondes, c'est le délai de grâce par défaut : le processus n'a pas réagi au SIGTERM et a été tué par SIGKILL. Cause probable : l'ENTRYPOINT en forme **shell**, donc java n'est pas PID 1 et ne reçoit pas le signal, ou un script qui lance java sans `exec`.
 Correction : forme exec, ou `exec java ...` dans le script, voire un mini-init comme `tini`. Ensuite, côté application : activer l'arrêt gracieux (`server.shutdown=graceful` en Spring Boot) pour finir les requêtes en cours, et en Kubernetes un `preStop` court pour laisser le temps au retrait du pod des endpoints."
+
+═══════════════════════════════════════════
+# GLOSSAIRE DES SIGLES ET TERMES
+═══════════════════════════════════════════
+
+| Terme | Signification |
+|---|---|
+| **OCI** | Open Container Initiative : standard d'images et de runtimes de conteneurs |
