@@ -52,6 +52,10 @@ final class FolderFiles {
      * @param truth la valeur de l'affirmation d'un vrai ou faux ; absente pour les autres formats
      * @param blanks pour un code à trous, les réponses acceptées par chaque trou ({@code [[hashCode], [hash]]}) ;
      *     absentes pour les autres formats
+     * @param check pour un « qu'affiche ce code ? », ce que la CI exécute et le résultat attendu (ADR 0028) ; ni importé
+     *     ni montré
+     * @param unverifiable pour un « qu'affiche ce code ? » dont le résultat n'est pas déterministe, la raison pour
+     *     laquelle la CI ne l'exécute pas
      */
     record CardEntry(
             @JsonProperty(required = true) String key,
@@ -60,7 +64,24 @@ final class FolderFiles {
             @JsonProperty(required = true) String answer,
             @Nullable List<ChoiceEntry> choices,
             @Nullable Boolean truth,
-            @Nullable List<List<String>> blanks) {}
+            @Nullable List<List<String>> blanks,
+            @Nullable CheckEntry check,
+            @Nullable String unverifiable) {}
+
+    /**
+     * La vérification d'un « qu'affiche ce code ? » par la CI (ADR 0028) : soit le code ne compile pas, soit il affiche
+     * {@code output} (rien si absent) puis lève éventuellement l'exception {@code throws}.
+     *
+     * @param code le code exécuté, quand la question n'est pas exécutable telle quelle ; sinon son bloc {@code java}
+     * @param output la sortie standard attendue, exacte aux fins de ligne près
+     * @param throwsName le nom simple de l'exception attendue ({@code NullPointerException})
+     * @param compiles {@code false} si le code ne doit pas compiler
+     */
+    record CheckEntry(
+            @Nullable String code,
+            @Nullable String output,
+            @JsonProperty("throws") @Nullable String throwsName,
+            @Nullable Boolean compiles) {}
 
     record ChoiceEntry(
             @JsonProperty(required = true) String text,

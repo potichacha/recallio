@@ -8,6 +8,7 @@ import com.recallio.content.domain.source.ParsedContent.CardKey;
 import com.recallio.content.domain.source.ParsedContent.ParsedCard;
 import com.recallio.content.domain.source.ParsedContent.SourceIssue;
 import com.recallio.content.infrastructure.folder.FolderFiles.CardEntry;
+import com.recallio.content.infrastructure.folder.FolderFiles.CheckEntry;
 import com.recallio.content.infrastructure.folder.FolderFiles.ChoiceEntry;
 import com.recallio.content.infrastructure.folder.FolderFiles.NotionFile;
 import java.util.ArrayList;
@@ -108,6 +109,25 @@ final class NotionCards {
             return type == CardType.FILL_IN
                     ? "un code à trous a besoin des réponses de ses trous (blanks)"
                     : "seul un code à trous a des trous (blanks)";
+        }
+        return checkProblem(card, type);
+    }
+
+    /** La vérification d'un « qu'affiche ce code ? » (ADR 0028) : sa forme, pas sa présence, contrôlée par la CI. */
+    private static @Nullable String checkProblem(CardEntry card, CardType type) {
+        CheckEntry check = card.check();
+        if (type != CardType.CODE_OUTPUT && (check != null || card.unverifiable() != null)) {
+            return "seul un « qu'affiche ce code ? » a une vérification (check, unverifiable)";
+        }
+        if (check != null && card.unverifiable() != null) {
+            return "une carte a soit une vérification (check), soit la raison de son absence (unverifiable)";
+        }
+        if (check == null) {
+            return null;
+        }
+        boolean expectsResult = check.output() != null || check.throwsName() != null;
+        if (Boolean.FALSE.equals(check.compiles()) == expectsResult) {
+            return "une vérification attend soit une sortie ou une exception (output, throws), soit compiles: false";
         }
         return null;
     }
