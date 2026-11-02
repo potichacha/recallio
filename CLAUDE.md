@@ -386,6 +386,12 @@ Groupes, invitations, réglages (dont les sujets du groupe), classements (Valkey
 ### Phase 3 : mode live
 WebSockets, parties synchronisées, chrono, classement en direct, tests de charge simples.
 
+1. ✅ **Salle d'attente en temps réel** : WebSockets Next authentifié par le JWT (sous-protocole), tout membre ouvre une partie sur un sujet du groupe, les membres la rejoignent et se voient en direct (ADR 0021).
+2. **Déroulé synchronisé** : l'hôte démarre ; la même question pour tous, au même moment, chrono commun ; correction révélée, puis question suivante ; reprise après reconnexion.
+3. **Points et classement en direct** : justesse et rapidité, classement après chaque question, podium final, résultats conservés.
+4. **Robustesse et charge** : départ de l'hôte, déconnexions, parties abandonnées, limites ; test de charge simple et métriques.
+- **Terminé quand** : les membres d'un groupe jouent ensemble une partie live de bout en bout, sur mobile, et le classement s'affiche en direct.
+
 ### Phase 4 : offre entreprise
 Multi-organisation (colonne `organization_id` + Row-Level Security PostgreSQL), SSO entreprise via le fournisseur OIDC, tableau de bord admin avec statistiques **agrégées**, questions privées par organisation, export, conformité RGPD (registre, suppression de compte, DPA).
 

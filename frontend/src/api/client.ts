@@ -10,6 +10,11 @@ export function setAccessTokenProvider(provider: AccessTokenProvider) {
   accessTokenProvider = provider
 }
 
+/** Le jeton courant, pour ce qui ne passe pas par le client HTTP (le WebSocket du mode live). */
+export function currentAccessToken() {
+  return accessTokenProvider()
+}
+
 /**
  * Client HTTP typé, généré depuis la spec OpenAPI du backend (`npm run generate:api`).
  * Ne jamais écrire d'appel `fetch` à la main vers l'API : passer par ce client.

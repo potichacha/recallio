@@ -198,9 +198,29 @@ Il obtient les noms des membres par `user.UserDirectory` (API publique du module
 `content.SubjectDirectory`. Le module `review` lit le périmètre d'un groupe par `group.GroupReviewScopes`
 (`/api/v1/review-queue?group=...`).
 
+### Module `live` (en place, phase 3)
+
+| Élément | Rôle |
+|---|---|
+| `domain.LiveGame` | Une partie en cours, en mémoire : hôte, sujet, joueurs et leurs connexions ; 50 joueurs au plus (ADR 0021). |
+| `domain.LiveGameRepository` | Les parties ouvertes, une au plus par groupe ; `infrastructure.InMemoryLiveGameRepository` les garde en mémoire. |
+| `application.LiveGameService` | Ouvrir une partie sur un sujet du groupe, la rejoindre, la quitter ; appartenance vérifiée par `group.GroupMembers`. |
+| `api.GroupLiveGamesResource`, `api.LiveGamesResource` | `/api/v1/groups/{id}/live-games`, `/api/v1/live-games/{id}`. |
+| `api.LiveGameSocket` | WebSocket `/api/v1/live/{id}`, authentifié par le JWT porté dans le sous-protocole ; diffuse l'état de la partie. |
+
+```mermaid
+flowchart LR
+    pwa["PWA (/live/:id)"] -- "WebSocket + JWT (sous-protocole)" --> nginx["nginx (Upgrade)"]
+    nginx --> socket["LiveGameSocket"]
+    socket --> service["LiveGameService"]
+    service --> games[("parties en mémoire")]
+    service -- "GroupMembers, GroupReviewScopes" --> group["module group"]
+    socket -- "état de la partie, à chaque arrivée et départ" --> pwa
+```
+
 Les dépendances entre modules vont dans un seul sens : `gamification` → `review` (événement) → `content`, `user` ;
 `review` → `group` → `content`, `user` ;
-`gamification` → `group` (classement des groupes).
+`gamification` → `group` (classement des groupes) ; `live` → `group`, `user`.
 
 Le module transverse `platform` fournit les identifiants (`IdGenerator`, UUID v7), l'horloge (`Clock`),
 la pagination (`Page`) et la traduction des erreurs en Problem Details (RFC 9457).
