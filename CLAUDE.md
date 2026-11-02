@@ -253,7 +253,7 @@ L'application doit servir trois publics avec le même contenu : **apprendre** un
 - **Le code est vérifié** : la CI exécute chaque « qu'affiche ce code » et compare la sortie à la réponse ; la solution modèle de chaque exercice doit passer ses tests, et le code de départ y échouer.
 - **Un sujet, c'est un langage ou un outil** : le sujet Java couvre le langage, la JVM, la bibliothèque standard et l'outillage Java (tests, build). Les chapitres du document actuel qui relèvent d'autres sujets du catalogue (Spring, Quarkus, Docker, Kubernetes, SQL, Kafka, Git, sécurité, cloud, algorithmes, conception, entretien comportemental) deviennent leurs propres sujets lors de la migration.
 
-Les documents de `content/source/` restent la source tant que la migration (phase 3 bis, étape 1) n'est pas faite.
+Un sujet migré a son **dossier** `content/<sujet>/` (`subject.yaml`, référentiel, un fichier YAML par notion, cartes à clé explicite, ADR 0026) ; les documents de `content/source/` restent la source des autres sujets.
 
 ### 5.6 Feuille de route du contenu
 Les sujets s'ajoutent un par un, au rythme de la rédaction, indépendamment des phases de développement (section 9). Ordre indicatif :
@@ -409,7 +409,7 @@ WebSockets, parties synchronisées, chrono, classement en direct, tests de charg
 ### Phase 3 bis : refonte du contenu (ADR 0025)
 Faire du contenu un référentiel complet, pour apprendre, préparer un entretien ou entretenir son niveau (5.5).
 
-1. **Référentiel et modèle** : le référentiel Java (toutes les notions, niveaux, priorités, prérequis) vérifié en CI ; puis notions, identifiants explicites, un fichier par notion, migration sans perte des cartes actuelles et découpage des chapitres hors Java en sujets propres.
+1. **Référentiel et modèle** : ✅ le référentiel Java (toutes les notions, niveaux, priorités, prérequis) vérifié en CI ; ✅ découpage des chapitres hors Java en sujets propres ; ✅ dossier de sujet, un fichier YAML par notion, cartes à clé explicite (ADR 0026) ; migration sans perte des cartes Java vers les notions.
 2. **Nouveaux formats texte** : vrai ou faux, compléter le code, bug à corriger.
 3. **Contrôles du contenu en CI** : matrice par notion, couverture du référentiel par priorité, exécution des « qu'affiche ce code ».
 4. **Exercices de code** : format en dossier (énoncé, fichiers de départ, solution, tests), vérification en CI, **bac à sable d'exécution** (avancé depuis la phase 5, ADR à venir), éditeur multi-fichiers dans la PWA, correction par les tests.

@@ -21,6 +21,11 @@ public class CardEntity {
     @Column(name = "theme_id", nullable = false)
     UUID themeId;
 
+    /** La notion de la carte ; {@code null} pour une carte d'un document Markdown. */
+    @Column(name = "notion_id")
+    @Nullable
+    UUID notionId;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     CardType type;
@@ -40,9 +45,10 @@ public class CardEntity {
 
     protected CardEntity() {}
 
-    CardEntity(UUID id, UUID themeId, CardType type, int position, Instant now) {
+    CardEntity(UUID id, UUID themeId, @Nullable UUID notionId, CardType type, int position, Instant now) {
         this.id = id;
         this.themeId = themeId;
+        this.notionId = notionId;
         this.type = type;
         this.position = position;
         this.currentVersion = 1;

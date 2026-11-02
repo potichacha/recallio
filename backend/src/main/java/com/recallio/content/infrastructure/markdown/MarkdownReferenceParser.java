@@ -95,10 +95,13 @@ public class MarkdownReferenceParser implements ContentParser {
         private Section section = Section.IGNORED;
         private @Nullable PendingQuestion pending;
         private boolean inFence;
+        /** Le sujet de l'en-tête, qui préfixe le slug des thèmes ; connu dès la fin de l'en-tête. */
+        private String subjectSlug = "";
 
         ParsedContent run(String source) {
             String[] lines = source.split("\\R", -1);
             SubjectHeader.Read header = SubjectHeader.read(lines);
+            subjectSlug = header.subject().slug();
             for (int index = header.lineCount(); index < lines.length; index++) {
                 accept(lines[index], index + 1);
             }
@@ -231,7 +234,7 @@ public class MarkdownReferenceParser implements ContentParser {
         private void closeTheme() {
             closePending();
             if (theme != null) {
-                themes.add(theme.build());
+                themes.add(theme.build(subjectSlug));
                 theme = null;
             }
         }
@@ -341,8 +344,8 @@ public class MarkdownReferenceParser implements ContentParser {
             return CardIdentity.normalize(title).contains(CODE_OUTPUT_TITLE);
         }
 
-        ParsedTheme build() {
-            return new ParsedTheme(key, title, position, cards);
+        ParsedTheme build(String subjectSlug) {
+            return new ParsedTheme(key, CardIdentity.themeSlug(subjectSlug, title), title, position, cards);
         }
     }
 

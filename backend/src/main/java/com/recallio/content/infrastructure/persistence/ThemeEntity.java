@@ -6,6 +6,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import java.time.Instant;
 import java.util.UUID;
+import org.jspecify.annotations.Nullable;
 
 @Entity
 @Table(name = "theme")
@@ -17,7 +18,8 @@ public class ThemeEntity {
     @Column(name = "subject_id", nullable = false)
     UUID subjectId;
 
-    @Column(nullable = false, unique = true)
+    /** Unique parmi les thèmes actifs : un thème retiré libère le sien (V14). */
+    @Column(nullable = false)
     String slug;
 
     @Column(nullable = false)
@@ -31,6 +33,11 @@ public class ThemeEntity {
 
     @Column(name = "updated_at", nullable = false)
     Instant updatedAt;
+
+    /** Le thème a disparu de la source de son sujet : il n'est plus listé. */
+    @Column(name = "retired_at")
+    @Nullable
+    Instant retiredAt;
 
     protected ThemeEntity() {}
 
@@ -49,5 +56,6 @@ public class ThemeEntity {
         this.title = title;
         this.position = position;
         this.updatedAt = now;
+        this.retiredAt = null;
     }
 }

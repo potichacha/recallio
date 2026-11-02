@@ -1,0 +1,133 @@
+package com.recallio.content.api;
+
+import static io.restassured.RestAssured.given;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.contains;
+import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.is;
+
+import com.recallio.content.application.ContentImportService;
+import com.recallio.content.domain.importing.ImportReport;
+import com.recallio.content.domain.source.SubjectFolder;
+import io.quarkus.test.junit.QuarkusTest;
+import io.quarkus.test.security.TestSecurity;
+import jakarta.inject.Inject;
+import java.util.Map;
+import org.junit.jupiter.api.Test;
+
+/**
+ * Import d'un dossier de sujet (ADR 0026) et retrait des thèmes disparus, de bout en bout jusqu'à l'API du catalogue.
+ * Les sujets de ces tests sont des brouillons, visibles des seuls admins : ils ne gênent pas les autres tests.
+ */
+@QuarkusTest
+@TestSecurity(user = "admin", roles = "admin")
+class SubjectFolderImportTest {
+
+    private static final String SUBJECT = """
+            subject: kotlin
+            title: Kotlin
+            category: languages
+            position: 900
+            status: draft
+            """;
+
+    private static final String REFERENTIAL = """
+            domain: bases
+            title: Les bases
+            position: 10
+            chapters:
+              - id: variables
+                title: Variables
+                notions:
+                  - {id: val-var, title: "val et var", level: beginner, priority: 1}
+                  - {id: null-safety, title: "La sûreté du null", level: beginner, priority: 1, requires: [val-var]}
+            """;
+
+    private static final String VAL_VAR = """
+            notion: val-var
+            cards:
+              - key: difference
+                format: course
+                question: Quelle différence entre val et var ?
+                answer: val ne se réaffecte pas, var si.
+            """;
+
+    @Inject
+    ContentImportService importService;
+
+    @Test
+    void shouldImportAFolderAsOneThemePerDomain() {
+        importFolder(VAL_VAR);
+
+        given().get("/api/v1/subjects/kotlin/themes")
+                .then()
+                .statusCode(200)
+                .body("slug", contains("kotlin-bases"))
+                .body("[0].title", equalTo("Les bases"))
+                .body("[0].cardCount", is(1));
+    }
+
+    @Test
+    void shouldKeepAKeyedCardWhenItsQuestionIsReworded() {
+        importFolder(VAL_VAR);
+
+        ImportReport reworded = importFolder(VAL_VAR.replace("Quelle différence", "Quelle est la différence"));
+
+        assertThat(reworded.cardsAdded()).isZero();
+        assertThat(reworded.cardsUpdated()).isEqualTo(1);
+        given().get("/api/v1/themes/kotlin-bases/cards")
+                .then()
+                .body("totalItems", is(1))
+                .body("items[0].prompt", equalTo("Quelle est la différence entre val et var ?"));
+    }
+
+    @Test
+    void shouldBeIdempotent() {
+        importFolder(VAL_VAR);
+
+        ImportReport again = importFolder(VAL_VAR);
+
+        assertThat(again.cardsAdded() + again.cardsUpdated() + again.cardsRetired())
+                .isZero();
+    }
+
+    @Test
+    void shouldStopListingAThemeThatDisappearedFromItsDocument() {
+        importService.importContent(rustDocument("# 1. LES BASES", "# 2. LA POSSESSION"));
+        importService.importContent(rustDocument("# 2. LA POSSESSION"));
+
+        given().get("/api/v1/subjects/rust/themes").then().statusCode(200).body("slug", contains("rust-la-possession"));
+        given().get("/api/v1/themes/rust-les-bases/cards").then().statusCode(404);
+
+        importService.importContent(rustDocument("# 1. LES BASES", "# 2. LA POSSESSION"));
+
+        given().get("/api/v1/subjects/rust/themes")
+                .then()
+                .body("slug", contains("rust-les-bases", "rust-la-possession"))
+                .body("[0].cardCount", is(1));
+    }
+
+    private ImportReport importFolder(String valVar) {
+        return importService.importFolder(
+                new SubjectFolder(SUBJECT, Map.of("01-bases.yaml", REFERENTIAL), Map.of("bases/val-var.yaml", valVar)));
+    }
+
+    private static String rustDocument(String... chapters) {
+        var document = new StringBuilder("""
+                ---
+                subject: rust
+                title: Rust
+                category: languages
+                position: 910
+                status: draft
+                ---
+                """);
+        for (String chapter : chapters) {
+            document.append(chapter)
+                    .append("\n### Questions techniques\n**Q : Question de ")
+                    .append(chapter.substring(2))
+                    .append(" ?** R : Réponse.\n");
+        }
+        return document.toString();
+    }
+}

@@ -4,11 +4,15 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.recallio.content.domain.CardContent;
 import com.recallio.content.domain.CardIdentity;
+import com.recallio.content.domain.NotionLevel;
 import com.recallio.content.domain.Subject;
 import com.recallio.content.domain.importing.CatalogSnapshot.ExistingCard;
+import com.recallio.content.domain.importing.CatalogSnapshot.ExistingNotion;
 import com.recallio.content.domain.importing.CatalogSnapshot.ExistingTheme;
 import com.recallio.content.domain.source.ParsedContent;
+import com.recallio.content.domain.source.ParsedContent.CardKey;
 import com.recallio.content.domain.source.ParsedContent.ParsedCard;
+import com.recallio.content.domain.source.ParsedContent.ParsedNotion;
 import com.recallio.content.domain.source.ParsedContent.ParsedTheme;
 import java.util.Arrays;
 import java.util.List;
@@ -28,6 +32,19 @@ class ImportPlannerTest {
     private static final CardContent JVM =
             new CardContent.Flashcard("Qu'est-ce que la JVM ?", "Une machine virtuelle.");
     private static final CardContent JIT = new CardContent.Flashcard("Qu'est-ce que le JIT ?", "Un compilateur.");
+    private static final ParsedNotion JVM_ROLE = new ParsedNotion(
+            "jvm-role",
+            "jvm",
+            "machine",
+            "La machine virtuelle",
+            "Le rôle de la JVM",
+            NotionLevel.BEGINNER,
+            1,
+            List.of(),
+            0,
+            null);
+    private static final UUID NOTION_ID = CardIdentity.notionId("java", "jvm-role");
+    private static final UUID JVM_THEME_ID = CardIdentity.themeId("java", "jvm");
 
     private final ImportPlanner planner = new ImportPlanner();
 
@@ -127,24 +144,115 @@ class ImportPlannerTest {
                 .satisfies(found -> assertThat(found.line()).isEqualTo(2));
     }
 
+    @Test
+    void shouldRetireThemesThatDisappearedFromTheSource() {
+        var otherTheme = new ParsedTheme("02", "java-objet", "OBJET", 2, List.of(new ParsedCard(JVM, 1)));
+        var source = new ParsedContent(JAVA, List.of(otherTheme), List.of());
+
+        ImportPlan plan = planner.plan(source, catalogOf(card(JVM, 0, 1, false)));
+
+        assertThat(plan.retiredThemeIds()).containsExactly(THEME_ID);
+        assertThat(plan.retiredCardIds()).containsExactly(idOf(JVM));
+    }
+
+    @Test
+    void shouldReactivateARetiredThemeThatComesBack() {
+        var retired = new ExistingTheme(THEME_ID, "java-fondamentaux", "JAVA : FONDAMENTAUX", 1, true);
+        var catalog = new CatalogSnapshot(JAVA, Map.of(THEME_ID, retired), Map.of(), Map.of());
+
+        ImportPlan plan = planner.plan(source(JVM), catalog);
+
+        assertThat(plan.themes()).extracting(ImportPlan.ThemeUpsert::id).containsExactly(THEME_ID);
+        assertThat(plan.retiredThemeIds()).isEmpty();
+    }
+
+    @Test
+    void shouldKeepAKeyedCardWhenItsQuestionIsReworded() {
+        var reworded = new CardContent.Flashcard("À quoi sert la JVM ?", JVM.answer());
+        UUID cardId = CardIdentity.keyedCardId("java", "jvm-role", "definition-jvm");
+        var existing = new ExistingCard(
+                cardId, JVM_THEME_ID, NOTION_ID, JVM.type(), 0, 1, CardIdentity.contentHash(JVM), false);
+
+        ImportPlan plan = planner.plan(keyedSource(reworded), keyedCatalog(existing));
+
+        assertThat(plan.newCards()).isEmpty();
+        assertThat(plan.newVersions()).singleElement().satisfies(version -> {
+            assertThat(version.cardId()).isEqualTo(cardId);
+            assertThat(version.content()).isEqualTo(reworded);
+        });
+    }
+
+    @Test
+    void shouldAttachKeyedCardsToTheirNotion() {
+        ImportPlan plan = planner.plan(keyedSource(JVM), CatalogSnapshot.empty());
+
+        assertThat(plan.notions()).singleElement().satisfies(upsert -> {
+            assertThat(upsert.id()).isEqualTo(NOTION_ID);
+            assertThat(upsert.notion()).isEqualTo(JVM_ROLE);
+        });
+        assertThat(plan.newCards()).singleElement().satisfies(card -> {
+            assertThat(card.id()).isEqualTo(CardIdentity.keyedCardId("java", "jvm-role", "definition-jvm"));
+            assertThat(card.notionId()).isEqualTo(NOTION_ID);
+        });
+    }
+
+    @Test
+    void shouldPlanNothingForAnUnchangedNotionAndRetireTheOnesThatDisappeared() {
+        UUID goneId = CardIdentity.notionId("java", "applets");
+        var catalog = new CatalogSnapshot(
+                JAVA,
+                Map.of(),
+                Map.of(
+                        NOTION_ID, new ExistingNotion(NOTION_ID, JVM_ROLE, false),
+                        goneId, new ExistingNotion(goneId, JVM_ROLE, false)),
+                Map.of());
+
+        ImportPlan plan = planner.plan(new ParsedContent(JAVA, List.of(), List.of(JVM_ROLE), List.of()), catalog);
+
+        assertThat(plan.notions()).isEmpty();
+        assertThat(plan.retiredNotionIds()).containsExactly(goneId);
+    }
+
+    private static ParsedContent keyedSource(CardContent content) {
+        var card = new ParsedCard(content, 0, new CardKey("jvm-role", "definition-jvm"));
+        var theme = new ParsedTheme("jvm", "java-jvm", "La JVM", 110, List.of(card));
+        return new ParsedContent(JAVA, List.of(theme), List.of(JVM_ROLE), List.of());
+    }
+
+    private static CatalogSnapshot keyedCatalog(ExistingCard card) {
+        var theme = new ExistingTheme(JVM_THEME_ID, "java-jvm", "La JVM", 110, false);
+        return new CatalogSnapshot(
+                JAVA,
+                Map.of(JVM_THEME_ID, theme),
+                Map.of(NOTION_ID, new ExistingNotion(NOTION_ID, JVM_ROLE, false)),
+                Map.of(card.id(), card));
+    }
+
     private static ParsedContent source(CardContent... contents) {
         List<ParsedCard> cards = Arrays.stream(contents)
                 .map(content -> new ParsedCard(content, Arrays.asList(contents).indexOf(content) + 1))
                 .toList();
-        var theme = new ParsedTheme(THEME_KEY, "JAVA : FONDAMENTAUX", 1, cards);
+        var theme = new ParsedTheme(THEME_KEY, "java-fondamentaux", "JAVA : FONDAMENTAUX", 1, cards);
         return new ParsedContent(JAVA, List.of(theme), List.of());
     }
 
     private static CatalogSnapshot catalogOf(ExistingCard... cards) {
-        var theme = new ExistingTheme(THEME_ID, "java-fondamentaux", "JAVA : FONDAMENTAUX", 1);
+        var theme = new ExistingTheme(THEME_ID, "java-fondamentaux", "JAVA : FONDAMENTAUX", 1, false);
         Map<UUID, ExistingCard> byId =
                 Arrays.stream(cards).collect(Collectors.toMap(ExistingCard::id, Function.identity()));
-        return new CatalogSnapshot(JAVA, Map.of(THEME_ID, theme), byId);
+        return new CatalogSnapshot(JAVA, Map.of(THEME_ID, theme), Map.of(), byId);
     }
 
     private static ExistingCard card(CardContent content, int position, int version, boolean retired) {
         return new ExistingCard(
-                idOf(content), THEME_ID, content.type(), position, version, CardIdentity.contentHash(content), retired);
+                idOf(content),
+                THEME_ID,
+                null,
+                content.type(),
+                position,
+                version,
+                CardIdentity.contentHash(content),
+                retired);
     }
 
     private static UUID idOf(CardContent content) {
