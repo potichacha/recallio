@@ -12,6 +12,7 @@ import static org.hamcrest.Matchers.notNullValue;
 import static org.hamcrest.Matchers.nullValue;
 
 import com.recallio.content.application.ContentImportService;
+import com.recallio.content.domain.source.SubjectFolder;
 import io.quarkus.test.junit.QuarkusTest;
 import io.quarkus.test.security.TestSecurity;
 import io.quarkus.test.security.oidc.Claim;
@@ -22,6 +23,7 @@ import jakarta.inject.Inject;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
@@ -171,6 +173,47 @@ class ReviewsResourceTest {
         String cardId = multipleChoiceCard().extract().path("cards[0].cardId");
 
         answer(UUID.randomUUID(), cardId, "[1]").statusCode(201).body("rating", equalTo("GOOD"));
+    }
+
+    @Test
+    @TestSecurity(user = "alice")
+    @OidcSecurity(claims = @Claim(key = "sub", value = "review-true-false"))
+    void shouldGradeATrueOrFalseCardOnTheServerLikeATwoChoiceQuestion() {
+        contentImport.importFolder(new SubjectFolder("""
+                subject: scala
+                title: Scala
+                category: languages
+                position: 920
+                status: published
+                """, Map.of("01-bases.yaml", """
+                        domain: bases
+                        title: Les bases
+                        position: 10
+                        chapters:
+                          - id: valeurs
+                            title: Valeurs
+                            notions:
+                              - {id: val, title: "val", level: beginner, priority: 1}
+                        """), Map.of("bases/val.yaml", """
+                        notion: val
+                        cards:
+                          - {key: reaffecter, format: true-false, question: "Un val se réaffecte.", truth: false, answer: "Non."}
+                        """)));
+        String cardId = given().queryParam("subject", "scala")
+                .queryParam("type", "TRUE_FALSE")
+                .get(QUEUE)
+                .then()
+                .statusCode(200)
+                .body("cards[0].choices", contains("Vrai", "Faux"))
+                .body("cards[0].answer", nullValue())
+                .extract()
+                .path("cards[0].cardId");
+
+        answer(UUID.randomUUID(), cardId, "[1]")
+                .statusCode(201)
+                .body("rating", equalTo("GOOD"))
+                .body("correction.correctChoices", contains(1))
+                .body("correction.explanation", equalTo("Non."));
     }
 
     @Test

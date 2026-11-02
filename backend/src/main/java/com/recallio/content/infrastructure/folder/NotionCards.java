@@ -31,7 +31,9 @@ final class NotionCards {
             "multiple-choice", CardType.MULTIPLE_CHOICE,
             "code-output", CardType.CODE_OUTPUT,
             "scenario", CardType.OPEN_SCENARIO,
-            "definition", CardType.DEFINITION);
+            "definition", CardType.DEFINITION,
+            "true-false", CardType.TRUE_FALSE,
+            "bug-fix", CardType.BUG_FIX);
 
     private final Referential.Entry notion;
     private final String path;
@@ -82,9 +84,14 @@ final class NotionCards {
         if (card.question().isBlank() || card.answer().isBlank()) {
             return "question ou réponse vide";
         }
-        boolean multipleChoice = SUPPORTED.get(card.format()) == CardType.MULTIPLE_CHOICE;
-        if (multipleChoice != (card.choices() != null)) {
-            return multipleChoice ? "un QCM a besoin de ses choix" : "seul un QCM a des choix";
+        CardType type = SUPPORTED.get(card.format());
+        if ((type == CardType.MULTIPLE_CHOICE) != (card.choices() != null)) {
+            return type == CardType.MULTIPLE_CHOICE ? "un QCM a besoin de ses choix" : "seul un QCM a des choix";
+        }
+        if ((type == CardType.TRUE_FALSE) != (card.truth() != null)) {
+            return type == CardType.TRUE_FALSE
+                    ? "un vrai ou faux a besoin de sa valeur (truth: true ou false)"
+                    : "seul un vrai ou faux a une valeur (truth)";
         }
         return null;
     }
@@ -92,6 +99,10 @@ final class NotionCards {
     private static CardContent content(CardEntry card) {
         String question = card.question().strip();
         String answer = card.answer().strip();
+        Boolean truth = card.truth();
+        if (truth != null) {
+            return new CardContent.TrueFalse(question, answer, truth);
+        }
         List<ChoiceEntry> choices = card.choices();
         if (choices != null) {
             return new CardContent.MultipleChoice(

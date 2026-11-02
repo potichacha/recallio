@@ -213,6 +213,8 @@ Chaque sujet a son document de référence, `content/source/<sujet>-entretien-re
 | `MULTIPLE_CHOICE` | section `### QCM` des chapitres | correction automatique par le serveur (ADR 0019) |
 | `OPEN_SCENARIO` | questions de situation | rédaction libre puis comparaison avec la réponse modèle et auto-évaluation |
 | `DEFINITION` | glossaire | auto-évaluation |
+| `TRUE_FALSE` | fichiers de notion (`true-false`) | correction automatique : un QCM à deux choix fixes (ADR 0027) |
+| `BUG_FIX` | fichiers de notion (`bug-fix`) | rédaction de la correction puis auto-évaluation, en attendant l'exécution (ADR 0027) |
 
 Modéliser le type avec une interface `sealed` côté domaine.
 
@@ -410,7 +412,7 @@ WebSockets, parties synchronisées, chrono, classement en direct, tests de charg
 Faire du contenu un référentiel complet, pour apprendre, préparer un entretien ou entretenir son niveau (5.5).
 
 1. **Référentiel et modèle** : ✅ le référentiel Java (toutes les notions, niveaux, priorités, prérequis) vérifié en CI ; ✅ découpage des chapitres hors Java en sujets propres ; ✅ dossier de sujet, un fichier YAML par notion, cartes à clé explicite (ADR 0026) ; ✅ migration sans perte des cartes Java vers les notions.
-2. **Nouveaux formats texte** : vrai ou faux, compléter le code, bug à corriger.
+2. **Nouveaux formats texte** : ✅ vrai ou faux et bug à corriger (ADR 0027) ; compléter le code.
 3. **Contrôles du contenu en CI** : matrice par notion, couverture du référentiel par priorité, exécution des « qu'affiche ce code ».
 4. **Exercices de code** : format en dossier (énoncé, fichiers de départ, solution, tests), vérification en CI, **bac à sable d'exécution** (avancé depuis la phase 5, ADR à venir), éditeur multi-fichiers dans la PWA, correction par les tests.
 5. **Parcours** : apprendre (prérequis, leçons, déblocage), préparer un entretien, entretenir son niveau ; deux cartes d'une même notion pas le même jour.

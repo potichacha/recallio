@@ -238,6 +238,57 @@ describe('ReviewPage', () => {
     expect(await screen.findByText('Taille d’un int ?')).toBeInTheDocument()
   })
 
+  it('grades a true-or-false card on the server like a two-choice question', async () => {
+    const fetchMock = stubApi({
+      ...PROFILE,
+      [QUEUE]: {
+        body: queue([
+          queuedCard({
+            type: 'TRUE_FALSE',
+            prompt: '`new String("a") == "a"` vaut `true`.',
+            answer: null,
+            choices: ['Vrai', 'Faux'],
+          }),
+        ]),
+      },
+      [REVIEWS]: {
+        status: 201,
+        body: {
+          cardId: 'card-1',
+          rating: 'GOOD',
+          state: 'LEARNING',
+          dueAt: '2026-10-29T10:10:00Z',
+          correction: { correctChoices: [1], explanation: '`new` crée toujours un nouvel objet.' },
+        },
+      },
+    })
+    renderAt('/review', signedIn())
+
+    expect(await screen.findByText('Vrai ou faux')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('radio', { name: /Faux/ }))
+    await userEvent.click(screen.getByRole('button', { name: 'Valider' }))
+
+    expect(await screen.findByRole('status')).toBeInTheDocument()
+    const post = sentRequests(fetchMock).find((request) => request.method === 'POST')
+    const body = await post?.json()
+    expect(body.selectedChoices).toEqual([1])
+  })
+
+  it('lets the candidate write a fix to a bug before revealing the corrected code', async () => {
+    stubApi({
+      ...PROFILE,
+      [QUEUE]: { body: queue([queuedCard({ type: 'BUG_FIX', answer: 'Utiliser `equals`.' })]) },
+    })
+    renderAt('/review', signedIn())
+
+    const draft = await screen.findByRole('textbox', { name: 'Votre correction (facultatif)' })
+    await userEvent.type(draft, 'if ("oui".equals(s))')
+    await userEvent.click(screen.getByRole('button', { name: 'Voir la réponse' }))
+
+    expect(draft).toHaveValue('if ("oui".equals(s))')
+    expect(screen.getByRole('group', { name: 'Noter la carte' })).toBeInTheDocument()
+  })
+
   it('lets the candidate write an answer to a scenario before revealing the model answer', async () => {
     stubApi({ ...PROFILE, [QUEUE]: { body: queue([queuedCard({ type: 'OPEN_SCENARIO' })]) } })
     renderAt('/review', signedIn())

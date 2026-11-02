@@ -262,8 +262,15 @@ cards:
 
 - La **clé** d'une carte (minuscules, chiffres, tirets) est unique dans sa notion. On peut corriger ou reformuler la
   question et la réponse librement : la carte et la progression restent. Changer la clé crée une autre carte.
-- **Formats acceptés aujourd'hui** : `course`, `multiple-choice`, `code-output`, `scenario`, `definition`. Les autres
-  (`true-false`, `fill-in`, `bug-fix`, `exercise`) arrivent avec les étapes suivantes de la phase 3 bis.
+- **Formats acceptés aujourd'hui** : `course`, `multiple-choice`, `code-output`, `scenario`, `definition`,
+  `true-false`, `bug-fix`. Les autres (`fill-in`, `exercise`) arrivent avec les étapes suivantes de la phase 3 bis.
+- **Vrai ou faux** (`true-false`, ADR 0027) : la question est une affirmation, `truth: true` ou `truth: false` dit si
+  elle est vraie, la réponse explique pourquoi. Le serveur corrige. Une affirmation sans ambiguïté : pas de « toujours »
+  ni de « jamais » qui souffrent d'exceptions, pas de double négation.
+- **Bug à corriger** (`bug-fix`) : la question montre le code bogué (et le symptôme), la réponse donne le code corrigé
+  puis l'explication. Auto-évalué tant que le code n'est pas exécuté.
+- En YAML, une valeur qui contient « : » (la typographie française en met partout) doit être entre guillemets, ou
+  écrite en bloc `|-`.
 - Un format exclu par le référentiel pour la notion (`formats`) est refusé.
 - `./mvnw test -Dtest='SubjectFolderTest'` vérifie chaque dossier, comme la CI.
 

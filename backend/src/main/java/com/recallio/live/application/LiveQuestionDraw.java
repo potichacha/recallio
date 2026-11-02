@@ -16,7 +16,10 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
 
-/** Tire les questions d'une partie : des QCM du sujet, dans les thèmes du groupe, au hasard (ADR 0022). */
+/**
+ * Tire les questions d'une partie : des QCM ou des vrai ou faux du sujet (corrigés par le serveur), dans les thèmes du
+ * groupe, au hasard (ADR 0022, 0027).
+ */
 @ApplicationScoped
 public class LiveQuestionDraw {
 
@@ -33,7 +36,7 @@ public class LiveQuestionDraw {
      * @throws NotEnoughQuestionsException si le sujet compte moins de QCM que le minimum d'une partie
      */
     public List<LiveQuestion> draw(String subjectSlug, Set<String> themeSlugs) {
-        CardFilter filter = new CardFilter(Set.of(subjectSlug), null, themeSlugs, Set.of(CardType.MULTIPLE_CHOICE));
+        CardFilter filter = new CardFilter(Set.of(subjectSlug), null, themeSlugs, CardType.GRADED_BY_CHOICES);
         List<UUID> pool = new ArrayList<>(
                 cards.activeCards(filter).stream().map(ActiveCard::cardId).toList());
         if (pool.size() < config.minQuestions()) {

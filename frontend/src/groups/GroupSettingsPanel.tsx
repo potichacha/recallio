@@ -15,6 +15,8 @@ const FORMAT_LABELS: Record<CardType, string> = {
   OPEN_SCENARIO: 'Mises en situation',
   DEFINITION: 'Définitions',
   MULTIPLE_CHOICE: 'QCM',
+  TRUE_FALSE: 'Vrai ou faux',
+  BUG_FIX: 'Bugs à corriger',
 }
 
 const VISIBILITY_LABELS: Record<LeaderboardVisibility, string> = {
