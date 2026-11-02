@@ -262,11 +262,11 @@ Les sujets s'ajoutent un par un, au rythme de la rédaction, indépendamment des
 |---|---|---|
 | Java | Langages | ✅ rédigé, importé |
 | Go | Langages | ✅ rédigé, importé |
-| Spring Boot, Quarkus | Frameworks | à rédiger |
+| Spring Boot, Quarkus, Jakarta EE, JPA & Hibernate | Frameworks | ✅ sortis du document Java (ADR 0025), à enrichir |
+| SQL, Kafka, Cache | Données | ✅ sortis du document Java, à enrichir |
+| Docker, Kubernetes, CI/CD, Observabilité, Cloud, Git | Cloud & DevOps | ✅ sortis du document Java, à enrichir |
+| API REST, Sécurité, Réseau & Linux, Algorithmes, Conception, Entretien comportemental | Fondamentaux | ✅ sortis du document Java, à enrichir |
 | Python | Langages | à rédiger |
-| Kubernetes, Docker | Cloud & DevOps | à rédiger |
-| Algorithmes & structures de données | Fondamentaux | à rédiger |
-| SQL & PostgreSQL | Données | à rédiger |
 | C, C++, C# | Langages | à rédiger |
 | IA : machine learning, LLM & prompting | IA | à rédiger |
 

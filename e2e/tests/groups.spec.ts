@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { signIn, USERS } from './support/auth'
+import { signIn, subjectCheckbox, USERS } from './support/auth'
 
 test.describe('Groupes', () => {
   test('creates a group, chooses its subjects and answers a multiple-choice card with it, then deletes it', async ({
@@ -19,7 +19,7 @@ test.describe('Groupes', () => {
     const settings = page.getByRole('region', { name: 'Réglages' })
     await expect(settings).toContainText('Aucun sujet choisi pour le moment')
     await settings.getByRole('button', { name: 'Modifier les réglages' }).click()
-    await settings.getByRole('checkbox', { name: 'Go' }).check()
+    await settings.getByRole('checkbox', { name: subjectCheckbox('Go') }).check()
     await settings.getByRole('checkbox', { name: 'QCM' }).check()
     await settings.getByRole('radio', { name: 'Anonymisé' }).check()
     await settings.getByRole('button', { name: 'Enregistrer les réglages' }).click()
@@ -94,7 +94,7 @@ test.describe('Groupes', () => {
     await alice.getByRole('button', { name: 'Créer' }).click()
     const settings = alice.getByRole('region', { name: 'Réglages' })
     await settings.getByRole('button', { name: 'Modifier les réglages' }).click()
-    await settings.getByRole('checkbox', { name: 'Go' }).check()
+    await settings.getByRole('checkbox', { name: subjectCheckbox('Go') }).check()
     await settings.getByRole('button', { name: 'Enregistrer les réglages' }).click()
     await expect(settings.getByRole('button', { name: 'Modifier les réglages' })).toBeVisible()
 

@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { signIn, USERS } from './support/auth'
+import { signIn, subjectCheckbox, USERS } from './support/auth'
 
 /** Alice crée un groupe sur Go et y fait entrer Bob par un lien d'invitation. */
 async function groupOfAliceAndBob(alice: Page, bob: Page, name: string) {
@@ -8,7 +8,7 @@ async function groupOfAliceAndBob(alice: Page, bob: Page, name: string) {
   await alice.getByRole('button', { name: 'Créer' }).click()
   const settings = alice.getByRole('region', { name: 'Réglages' })
   await settings.getByRole('button', { name: 'Modifier les réglages' }).click()
-  await settings.getByRole('checkbox', { name: 'Go' }).check()
+  await settings.getByRole('checkbox', { name: subjectCheckbox('Go') }).check()
   await settings.getByRole('button', { name: 'Enregistrer les réglages' }).click()
   await expect(settings.getByRole('button', { name: 'Modifier les réglages' })).toBeVisible()
 

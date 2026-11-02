@@ -111,12 +111,16 @@ class ReferenceDocumentTest {
                 .doesNotHaveDuplicates();
     }
 
+    /**
+     * Garde-fou contre une suppression accidentelle. Les chapitres hors Java sont devenus des sujets propres (ADR 0025) :
+     * le document Java garde 18 chapitres et le glossaire.
+     */
     @Test
     void shouldKeepTheJavaDocumentComplete() {
         ParsedContent java = parse(SOURCES.resolve("java" + SUFFIX));
 
-        assertThat(java.themes()).hasSize(42 + 1);
-        assertThat(java.cardCount()).isEqualTo(1314);
+        assertThat(java.themes()).hasSize(18 + 1);
+        assertThat(java.cardCount()).isEqualTo(669);
     }
 
     private static ParsedContent parse(Path document) {

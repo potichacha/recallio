@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { signIn, USERS } from './support/auth'
+import { signIn, subjectCheckbox, USERS } from './support/auth'
 
 test.describe('Premier login', () => {
   test('chooses the subjects to review, then reviews them', async ({ page }) => {
@@ -10,7 +10,7 @@ test.describe('Premier login', () => {
     ).toBeVisible()
     const start = page.getByRole('button', { name: 'Commencer à réviser' })
     await expect(start).toBeDisabled()
-    await page.getByRole('checkbox', { name: 'Go' }).check()
+    await page.getByRole('checkbox', { name: subjectCheckbox('Go') }).check()
     await start.click()
 
     await expect(page).toHaveURL(/\/review$/)

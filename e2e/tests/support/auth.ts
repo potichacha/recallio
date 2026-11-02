@@ -26,6 +26,14 @@ export async function signIn(page: Page, user: TestUser, startPath = '/') {
 }
 
 /**
+ * Nom accessible de la case d'un sujet : son titre en tête du libellé, suivi ou non du nombre de cartes. Une simple
+ * chaîne ne suffit pas, Playwright la cherche partout sans tenir compte de la casse (« Go » dans « Algorithmes »).
+ */
+export function subjectCheckbox(title: string): RegExp {
+  return new RegExp(`^${title}(?![\\p{L}])`, 'u')
+}
+
+/**
  * Suit au moins ces sujets, depuis le profil : fonctionne que l'utilisateur ait déjà choisi ses sujets ou non, ce qui
  * rend les parcours indépendants de leur ordre d'exécution.
  */
@@ -33,7 +41,7 @@ export async function followSubjects(page: Page, titles: string[]) {
   await page.goto('/profile')
   const form = page.getByRole('form', { name: 'Mes sujets' })
   for (const title of titles) {
-    await form.getByRole('checkbox', { name: title }).check()
+    await form.getByRole('checkbox', { name: subjectCheckbox(title) }).check()
   }
   await form.getByRole('button', { name: 'Enregistrer mes sujets' }).click()
   await expect(form.getByText('Sujets enregistrés.')).toBeVisible()
