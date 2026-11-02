@@ -1,15 +1,18 @@
 package com.recallio.live.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.recallio.content.CardDirectory;
 import com.recallio.group.GroupReviewScopes.GroupReviewScope;
+import com.recallio.live.domain.LiveExceptions.TooManyLiveGamesException;
 import com.recallio.live.domain.LiveGame;
 import com.recallio.live.domain.LiveGameResult;
 import com.recallio.live.domain.LiveGameStatus;
 import com.recallio.live.domain.LiveQuestion;
 import com.recallio.live.domain.LiveResultRepository;
 import com.recallio.live.infrastructure.InMemoryLiveGameRepository;
+import com.recallio.user.UserRef;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneId;
@@ -58,6 +61,16 @@ class LiveGameServiceTest {
                 public void runBlocking(Runnable task) {
                     blockingTasks.add(task);
                 }
+            },
+            new LiveMetrics() {
+                @Override
+                public void gameStarted() {}
+
+                @Override
+                public void gameFinished() {}
+
+                @Override
+                public void answerReceived() {}
             },
             (_, _) -> {},
             (_, _) -> new GroupReviewScope(Set.of("go"), Set.of(), Set.of()),
@@ -121,6 +134,31 @@ class LiveGameServiceTest {
         });
     }
 
+    @Test
+    void shouldRefuseANewGameOnceTheInstanceHoldsAsManyAsAllowed() {
+        var user = new UserRef(UUID.randomUUID(), ZoneOffset.UTC);
+        service.open(user, UUID.randomUUID(), "go");
+        service.open(user, UUID.randomUUID(), "go");
+
+        assertThatThrownBy(() -> service.open(user, UUID.randomUUID(), "go"))
+                .isInstanceOf(TooManyLiveGamesException.class);
+    }
+
+    @Test
+    void shouldForgetAFinishedGameSomeTimeAfterItsEndEvenWithPlayersStillConnected() {
+        shouldRecordTheResultOffTheEventLoopOnceTheGameIsOver();
+        Instant expiry = game.expiryCheckAt();
+        assertThat(wakes).extracting(Wake::at).contains(expiry);
+
+        clock.set(expiry.minusSeconds(1));
+        service.expireIfDue(game.id());
+        assertThat(games.findById(game.id())).isPresent();
+
+        clock.set(expiry);
+        service.expireIfDue(game.id());
+        assertThat(games.findById(game.id())).isEmpty();
+    }
+
     private void startGame() {
         game.join(host, "Alice", START);
         game.start(
@@ -152,6 +190,11 @@ class LiveGameServiceTest {
         @Override
         public int revealSeconds() {
             return 5;
+        }
+
+        @Override
+        public int maxOpenGames() {
+            return 2;
         }
     }
 

@@ -35,8 +35,9 @@ export function useOpenLiveGame(groupId: string) {
       if (data === undefined) throw ApiError.from(response, error)
       return data
     },
-    // Refusée parce qu'une partie existe déjà : la liste la montrera.
-    onSettled: () => queryClient.invalidateQueries({ queryKey: groupLiveKey(groupId) }),
+    // Refusée parce qu'une partie existe déjà : la liste la montrera. Pas après un succès : la liste rechargée
+    // remplacerait le formulaire, démonté avant d'avoir conduit l'hôte à sa salle d'attente.
+    onError: () => queryClient.invalidateQueries({ queryKey: groupLiveKey(groupId) }),
   })
 }
 

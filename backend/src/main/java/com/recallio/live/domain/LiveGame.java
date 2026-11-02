@@ -35,10 +35,12 @@ public final class LiveGame {
     /** Une salle restée vide aussi longtemps est abandonnée : l'hôte l'a ouverte sans jamais la rejoindre. */
     public static final Duration ABANDONED_AFTER = Duration.ofMinutes(5);
 
+    /** Une partie finie reste affichée (podium) ce temps-là, puis quitte la mémoire. */
+    public static final Duration KEPT_AFTER_END = Duration.ofMinutes(10);
+
     private final UUID id;
     private final UUID groupId;
     private final String subjectSlug;
-    private final UUID hostId;
     private final Instant createdAt;
     private final Map<UUID, Player> players = new LinkedHashMap<>();
     /** Tous ceux qui ont joué, même partis depuis : ils gardent leurs points au classement. */
@@ -55,6 +57,8 @@ public final class LiveGame {
     private @Nullable Instant phaseEndsAt;
     private @Nullable Instant startedAt;
     private @Nullable Instant finishedAt;
+    /** Change si l'hôte quitte la salle d'attente : quelqu'un doit pouvoir démarrer la partie. */
+    private UUID hostId;
 
     public LiveGame(UUID id, UUID groupId, String subjectSlug, UUID hostId, Instant createdAt) {
         this.id = id;
@@ -97,7 +101,8 @@ public final class LiveGame {
 
     /**
      * Une connexion de moins ; le joueur quitte la partie avec sa dernière connexion. Si tous ceux qui restent ont déjà
-     * répondu, la correction est révélée sans attendre.
+     * répondu, la correction est révélée sans attendre. Si c'était l'hôte, en salle d'attente, le rôle passe au joueur
+     * présent arrivé le plus tôt : sinon personne ne pourrait démarrer.
      */
     public synchronized Snapshot leave(UUID userId, Instant now) {
         Player current = players.get(userId);
@@ -106,10 +111,17 @@ public final class LiveGame {
                 players.put(userId, current.withConnections(current.connections() - 1));
             } else {
                 players.remove(userId);
+                handOverHostIfNeeded(userId);
                 revealIfEveryoneAnswered(now);
             }
         }
         return snapshot();
+    }
+
+    private void handOverHostIfNeeded(UUID leaving) {
+        if (status == LiveGameStatus.LOBBY && leaving.equals(hostId) && !players.isEmpty()) {
+            hostId = players.keySet().iterator().next();
+        }
     }
 
     /**
@@ -207,8 +219,26 @@ public final class LiveGame {
 
     /** La partie ne bloque plus son groupe : finie, ou salle restée vide au-delà de {@link #ABANDONED_AFTER}. */
     public synchronized boolean isOverAt(Instant now) {
-        return status == LiveGameStatus.FINISHED
-                || (players.isEmpty() && !now.isBefore(createdAt.plus(ABANDONED_AFTER)));
+        return status == LiveGameStatus.FINISHED || isAbandonedAt(now);
+    }
+
+    /**
+     * La partie peut quitter la mémoire, même si des joueurs y sont encore connectés : salle abandonnée, ou partie finie
+     * depuis plus de {@link #KEPT_AFTER_END}.
+     */
+    public synchronized boolean isExpiredAt(Instant now) {
+        Instant finished = finishedAt;
+        return isAbandonedAt(now) || (finished != null && !now.isBefore(finished.plus(KEPT_AFTER_END)));
+    }
+
+    /** L'instant où la partie pourra quitter la mémoire si rien ne change : celui à vérifier. */
+    public synchronized Instant expiryCheckAt() {
+        Instant finished = finishedAt;
+        return finished != null ? finished.plus(KEPT_AFTER_END) : createdAt.plus(ABANDONED_AFTER);
+    }
+
+    private boolean isAbandonedAt(Instant now) {
+        return status == LiveGameStatus.LOBBY && players.isEmpty() && !now.isBefore(createdAt.plus(ABANDONED_AFTER));
     }
 
     /** L'état de la partie, figé : ce qui est diffusé aux joueurs. */
