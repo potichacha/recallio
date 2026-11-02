@@ -5,8 +5,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.recallio.content.CardDirectory;
 import com.recallio.group.GroupReviewScopes.GroupReviewScope;
 import com.recallio.live.domain.LiveGame;
+import com.recallio.live.domain.LiveGameResult;
 import com.recallio.live.domain.LiveGameStatus;
 import com.recallio.live.domain.LiveQuestion;
+import com.recallio.live.domain.LiveResultRepository;
 import com.recallio.live.infrastructure.InMemoryLiveGameRepository;
 import java.time.Clock;
 import java.time.Instant;
@@ -28,12 +30,35 @@ class LiveGameServiceTest {
 
     private final MutableClock clock = new MutableClock(START);
     private final List<Wake> wakes = new ArrayList<>();
+    private final List<Runnable> blockingTasks = new ArrayList<>();
+    private final List<LiveGameResult> saved = new ArrayList<>();
     private final InMemoryLiveGameRepository games = new InMemoryLiveGameRepository();
     private final LiveGameService service = new LiveGameService(
             games,
+            new LiveResultRepository() {
+                @Override
+                public void save(LiveGameResult result) {
+                    saved.add(result);
+                }
+
+                @Override
+                public List<LiveGameResult> recentOfGroup(UUID groupId, int limit) {
+                    return List.copyOf(saved);
+                }
+            },
             new LiveQuestionDraw(new NoCards(), CONFIG),
             _ -> {},
-            (at, task) -> wakes.add(new Wake(at, task)),
+            new LiveScheduler() {
+                @Override
+                public void wakeUpAt(Instant at, Runnable task) {
+                    wakes.add(new Wake(at, task));
+                }
+
+                @Override
+                public void runBlocking(Runnable task) {
+                    blockingTasks.add(task);
+                }
+            },
             (_, _) -> {},
             (_, _) -> new GroupReviewScope(Set.of("go"), Set.of(), Set.of()),
             _ -> Map.of(),
@@ -75,6 +100,25 @@ class LiveGameServiceTest {
         service.wakeUp(game.id(), questionDeadline);
 
         assertThat(wakes).isEmpty();
+    }
+
+    @Test
+    void shouldRecordTheResultOffTheEventLoopOnceTheGameIsOver() {
+        startGame();
+        clock.set(START.plusSeconds(4));
+        game.answer(host, 0, Set.of(0), clock.instant());
+        Instant revealEnd = clock.instant().plus(CONFIG.timing().reveal());
+
+        clock.set(revealEnd);
+        service.wakeUp(game.id(), revealEnd);
+
+        assertThat(game.snapshot().status()).isEqualTo(LiveGameStatus.FINISHED);
+        assertThat(saved).as("rien n'est écrit sur la boucle d'événements").isEmpty();
+        blockingTasks.forEach(Runnable::run);
+        assertThat(saved).singleElement().satisfies(result -> {
+            assertThat(result.standings()).extracting(LiveGame.Standing::score).containsExactly(900);
+            assertThat(result.questionCount()).isEqualTo(1);
+        });
     }
 
     private void startGame() {

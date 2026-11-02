@@ -48,7 +48,12 @@ const player = (userId: string, displayName: string, host = false) => ({
   host,
 })
 
-const game = (players: object[], status = 'LOBBY', round: object | null = null) => ({
+const game = (
+  players: object[],
+  status = 'LOBBY',
+  round: object | null = null,
+  standings: object[] = [],
+) => ({
   type: 'game',
   game: {
     id: 'game-1',
@@ -59,8 +64,17 @@ const game = (players: object[], status = 'LOBBY', round: object | null = null) 
     status,
     players,
     round,
+    standings,
   },
 })
+
+const standing = (
+  rank: number,
+  userId: string,
+  displayName: string,
+  score: number,
+  lastPoints = 0,
+) => ({ rank, userId, displayName, score, correctCount: score > 0 ? 1 : 0, lastPoints })
 
 const round = (reveal: object | null = null, answeredCount = 0) => ({
   index: 0,
@@ -134,18 +148,33 @@ describe('LivePage', () => {
         [player('u1', 'Alice', true), { ...player('u2', 'Bob'), answered: true }],
         'REVEAL',
         round({ correctChoices: [1], explanation: 'Dans le **tas**.', correctCount: 1 }, 2),
+        [standing(1, 'u2', 'Bob', 875, 875), standing(2, 'u1', 'Alice', 0)],
       ),
     )
     expect(await screen.findByText('1 joueur sur 2 a trouvé.')).toBeInTheDocument()
+    expect(screen.getByText('Aucun point sur cette question')).toBeInTheDocument()
+    const standings = screen.getByRole('region', { name: 'Classement' })
+    expect(
+      within(standings)
+        .getAllByRole('listitem')
+        .map((row) => row.textContent),
+    ).toEqual(['1Bob875 pts', '2Alice (vous)0 pts'])
     expect(screen.getByRole('radio', { name: /Dans le tas/ }).closest('label')).toHaveTextContent(
       'Bonne réponse, non cochée',
     )
     expect(screen.getByRole('timer', { name: 'Avant la suite' })).toBeInTheDocument()
 
     connection.receive(
-      game(players, 'FINISHED', round({ correctChoices: [1], explanation: '', correctCount: 1 })),
+      game(players, 'FINISHED', round({ correctChoices: [1], explanation: '', correctCount: 1 }), [
+        standing(1, 'u2', 'Bob', 1875),
+        standing(2, 'u1', 'Alice', 900),
+      ]),
     )
     expect(await screen.findByText('Partie terminée : merci d’avoir joué !')).toBeInTheDocument()
+    const podium = screen.getByRole('region', { name: 'Podium' })
+    expect(within(podium).getAllByRole('listitem')[0]).toHaveTextContent('1erBob1875 pts')
+    expect(within(podium).getAllByRole('listitem')[1]).toHaveTextContent('2eAlice (vous)900 pts')
+    expect(screen.getByRole('region', { name: 'Classement final' })).toBeInTheDocument()
   })
 
   it('waits for the host when the player is not the host', async () => {

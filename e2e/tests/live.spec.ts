@@ -23,7 +23,7 @@ async function groupOfAliceAndBob(alice: Page, bob: Page, name: string) {
 const NEXT_QUESTION_TIMEOUT_MS = 10_000
 
 test.describe('Mode live', () => {
-  test('alice opens a live game, bob joins, they answer every question together until the end', async ({
+  test('alice opens a live game, bob joins, they answer every question together, then see the podium', async ({
     browser,
   }) => {
     const name = `Live ${Date.now()}`
@@ -69,8 +69,13 @@ test.describe('Mode live', () => {
       })
     }
 
-    // Bob s'en va : Alice le voit partir.
-    await bob.goto('/groups')
-    await expect(alice.getByRole('region', { name: 'Joueurs (1)' })).toBeVisible()
+    // Le podium réunit les deux joueurs ; le résultat reste visible depuis le groupe.
+    const podium = alice.getByRole('region', { name: 'Podium' })
+    await expect(podium).toContainText(USERS.alice.displayName)
+    await expect(podium).toContainText(USERS.bob.displayName)
+    await alice.getByRole('link', { name: '← Le groupe' }).click()
+    const live = alice.getByRole('region', { name: 'Partie live' })
+    await expect(live.getByText('Dernières parties')).toBeVisible()
+    await expect(live).toContainText(USERS.bob.displayName)
   })
 })

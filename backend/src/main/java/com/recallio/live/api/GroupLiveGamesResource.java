@@ -1,6 +1,7 @@
 package com.recallio.live.api;
 
 import com.recallio.live.api.LiveDtos.LiveGameDto;
+import com.recallio.live.api.LiveDtos.LiveGameResultDto;
 import com.recallio.live.api.LiveDtos.OpenLiveGameRequest;
 import com.recallio.live.application.LiveGameService;
 import com.recallio.platform.api.ProblemDetail;
@@ -60,6 +61,25 @@ public class GroupLiveGamesResource {
                 .openGameOf(currentUser.get(), groupId)
                 .map(game -> LiveGameDto.from(game, clock.instant()))
                 .stream()
+                .toList();
+    }
+
+    @GET
+    @Path("/results")
+    @Operation(
+            operationId = "listGroupLiveResults",
+            summary = "Les dernières parties finies du groupe, avec leur classement")
+    @APIResponse(responseCode = "200", description = "Les parties, la plus récente d'abord")
+    @APIResponse(
+            responseCode = "404",
+            description = "Groupe inconnu, ou dont l'utilisateur n'est pas membre",
+            content =
+                    @Content(
+                            mediaType = ProblemDetail.MEDIA_TYPE,
+                            schema = @Schema(implementation = ProblemDetail.class)))
+    public List<LiveGameResultDto> listGroupLiveResults(@PathParam("groupId") UUID groupId) {
+        return games.recentResults(currentUser.get(), groupId).stream()
+                .map(LiveGameResultDto::from)
                 .toList();
     }
 

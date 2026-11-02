@@ -5,6 +5,10 @@ import { ApiError } from '../api/errors'
 import { LIVE_CLOSE, useLiveGameSocket, useStartLiveGame, type LiveGame } from '../api/live'
 import { useProfile } from '../api/profile'
 import { LiveRoundView } from './LiveRound'
+import { LivePodium, LiveStandings } from './LiveStandings'
+
+/** Entre deux questions, les premiers seulement (et soi-même) : la correction reste lisible. */
+const STANDINGS_DURING_GAME = 5
 
 /**
  * Une partie live (ADR 0021 et 0022) : la salle d'attente, puis les questions au rythme du serveur, mises à jour en
@@ -72,12 +76,24 @@ function LiveGameView({ game }: { game: LiveGame }) {
       {(game.status === 'QUESTION' || game.status === 'REVEAL') && game.round && (
         <LiveRoundView key={game.round.index} game={game} round={game.round} me={me} />
       )}
-      {game.status === 'FINISHED' && (
-        <p role="status" className="font-medium">
-          Partie terminée : merci d’avoir joué !
-        </p>
+      {game.status === 'REVEAL' && (
+        <LiveStandings
+          standings={game.standings}
+          me={me}
+          title="Classement"
+          limit={STANDINGS_DURING_GAME}
+        />
       )}
-      <Players game={game} me={me} />
+      {game.status === 'FINISHED' && (
+        <>
+          <p role="status" className="font-medium">
+            Partie terminée : merci d’avoir joué !
+          </p>
+          <LivePodium standings={game.standings} me={me} />
+          <LiveStandings standings={game.standings} me={me} title="Classement final" />
+        </>
+      )}
+      {game.status !== 'FINISHED' && <Players game={game} me={me} />}
     </section>
   )
 }

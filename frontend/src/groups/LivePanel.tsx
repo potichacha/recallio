@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router'
 import { useSubjects } from '../api/content'
 import { ApiError } from '../api/errors'
 import type { Group } from '../api/groups'
-import { useGroupLiveGame, useOpenLiveGame } from '../api/live'
+import { useGroupLiveGame, useGroupLiveResults, useOpenLiveGame } from '../api/live'
 
 /** La partie live du groupe (ADR 0021) : la rejoindre si elle est ouverte, sinon en lancer une. */
 export function LivePanel({ group }: { group: Group }) {
@@ -39,7 +39,41 @@ export function LivePanel({ group }: { group: Group }) {
       {live.data === null && (
         <OpenLiveGameForm groupId={group.id} subjects={group.settings.subjects} titleOf={titleOf} />
       )}
+      <LastResults groupId={group.id} titleOf={titleOf} />
     </section>
+  )
+}
+
+const FINISHED_ON = new Intl.DateTimeFormat('fr-FR', { dateStyle: 'medium', timeStyle: 'short' })
+const PODIUM_SIZE = 3
+
+/** Les dernières parties du groupe et leurs trois premiers : ce qui reste d'une partie live (ADR 0023). */
+function LastResults({ groupId, titleOf }: { groupId: string; titleOf: (slug: string) => string }) {
+  const results = useGroupLiveResults(groupId)
+  if (!results.data || results.data.length === 0) return null
+  return (
+    <div className="flex flex-col gap-2 border-t border-slate-100 pt-3">
+      <h3 className="text-sm font-semibold">Dernières parties</h3>
+      <ul className="flex flex-col gap-2">
+        {results.data.map((result) => (
+          <li key={result.gameId} className="rounded-lg bg-slate-50 px-3 py-2 text-sm">
+            <span className="font-medium">{titleOf(result.subject)}</span>
+            <span className="text-slate-500">
+              {' '}
+              · {FINISHED_ON.format(new Date(result.finishedAt))}
+            </span>
+            <span className="block text-slate-600">
+              {result.standings
+                .filter((standing) => standing.rank <= PODIUM_SIZE)
+                .map(
+                  (standing) => `${standing.rank}. ${standing.displayName} (${standing.score} pts)`,
+                )
+                .join(' · ')}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
   )
 }
 

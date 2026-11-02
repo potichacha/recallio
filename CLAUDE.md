@@ -388,7 +388,7 @@ WebSockets, parties synchronisées, chrono, classement en direct, tests de charg
 
 1. ✅ **Salle d'attente en temps réel** : WebSockets Next authentifié par le JWT (sous-protocole), tout membre ouvre une partie sur un sujet du groupe, les membres la rejoignent et se voient en direct (ADR 0021).
 2. ✅ **Déroulé synchronisé** : l'hôte démarre ; la même question pour tous, au même moment, chrono commun mesuré par le serveur ; correction révélée, puis question suivante ; reprise après reconnexion (ADR 0022).
-3. **Points et classement en direct** : justesse et rapidité, classement après chaque question, podium final, résultats conservés.
+3. ✅ **Points et classement en direct** : justesse et rapidité, classement après chaque question, podium final, résultats conservés (ADR 0023).
 4. **Robustesse et charge** : départ de l'hôte, déconnexions, parties abandonnées, limites ; test de charge simple et métriques.
 - **Terminé quand** : les membres d'un groupe jouent ensemble une partie live de bout en bout, sur mobile, et le classement s'affiche en direct.
 

@@ -8,6 +8,7 @@ import com.recallio.live.domain.LiveExceptions.RoundClosedException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -40,14 +41,20 @@ public final class LiveGame {
     private final UUID hostId;
     private final Instant createdAt;
     private final Map<UUID, Player> players = new LinkedHashMap<>();
+    /** Tous ceux qui ont joué, même partis depuis : ils gardent leurs points au classement. */
+    private final Map<UUID, String> participants = new LinkedHashMap<>();
     /** Les réponses de chaque question, par joueur. */
     private final List<Map<UUID, Answer>> answers = new ArrayList<>();
+    /** L'instant où chaque question a été posée : la rapidité d'une réponse se mesure depuis. */
+    private final List<Instant> askedAt = new ArrayList<>();
 
     private LiveGameStatus status = LiveGameStatus.LOBBY;
     private List<LiveQuestion> questions = List.of();
     private @Nullable LiveTiming timing;
     private int round = -1;
     private @Nullable Instant phaseEndsAt;
+    private @Nullable Instant startedAt;
+    private @Nullable Instant finishedAt;
 
     public LiveGame(UUID id, UUID groupId, String subjectSlug, UUID hostId, Instant createdAt) {
         this.id = id;
@@ -84,6 +91,7 @@ public final class LiveGame {
                 current == null
                         ? new Player(userId, displayName, now, 1)
                         : current.withConnections(current.connections() + 1));
+        participants.putIfAbsent(userId, displayName);
         return snapshot();
     }
 
@@ -122,6 +130,7 @@ public final class LiveGame {
         }
         questions = List.copyOf(series);
         timing = rhythm;
+        startedAt = now;
         ask(0, now);
         return snapshot();
     }
@@ -167,8 +176,23 @@ public final class LiveGame {
         } else {
             status = LiveGameStatus.FINISHED;
             phaseEndsAt = null;
+            finishedAt = now;
         }
         return true;
+    }
+
+    /**
+     * Le résultat d'une partie finie, à conserver.
+     *
+     * @throws IllegalStateException si la partie n'est pas finie
+     */
+    public synchronized LiveGameResult result() {
+        Instant started = startedAt;
+        Instant finished = finishedAt;
+        if (status != LiveGameStatus.FINISHED || started == null || finished == null) {
+            throw new IllegalStateException("La partie " + id + " n'est pas finie");
+        }
+        return new LiveGameResult(id, groupId, subjectSlug, hostId, started, finished, questions.size(), standings());
     }
 
     /** L'échéance de l'étape en cours ; aucune en salle d'attente ni une fois la partie finie. */
@@ -197,7 +221,49 @@ public final class LiveGame {
                         player.userId().equals(hostId),
                         current.containsKey(player.userId())))
                 .toList();
-        return new Snapshot(id, groupId, subjectSlug, hostId, createdAt, status, views, currentRound(current));
+        return new Snapshot(
+                id, groupId, subjectSlug, hostId, createdAt, status, views, currentRound(current), standings());
+    }
+
+    /**
+     * Le classement, sur les questions déjà corrigées : pendant le chrono, la question en cours n'y entre pas, il ne
+     * révèle donc rien des réponses. Les ex æquo partagent leur rang (1, 1, 3).
+     */
+    private List<Standing> standings() {
+        int revealed = status == LiveGameStatus.QUESTION ? round : round + 1;
+        List<Score> scores = participants.entrySet().stream()
+                .map(participant -> score(participant.getKey(), participant.getValue(), revealed))
+                .sorted(Comparator.comparingInt(Score::points).reversed())
+                .toList();
+        List<Standing> standings = new ArrayList<>(scores.size());
+        for (int index = 0; index < scores.size(); index++) {
+            Score score = scores.get(index);
+            boolean tied = index > 0 && scores.get(index - 1).points() == score.points();
+            int rank = tied ? standings.get(index - 1).rank() : index + 1;
+            standings.add(new Standing(
+                    rank, score.userId(), score.displayName(), score.points(), score.correct(), score.lastPoints()));
+        }
+        return standings;
+    }
+
+    /** Les points d'un participant sur les {@code revealed} premières questions. */
+    private Score score(UUID userId, String displayName, int revealed) {
+        int points = 0;
+        int correct = 0;
+        int last = 0;
+        for (int index = 0; index < revealed; index++) {
+            Answer answer = answers.get(index).get(userId);
+            int earned = answer == null ? 0 : pointsFor(index, answer);
+            points += earned;
+            correct += answer != null && answer.correct() ? 1 : 0;
+            last = earned;
+        }
+        return new Score(userId, displayName, points, correct, last);
+    }
+
+    private int pointsFor(int index, Answer answer) {
+        Duration taken = Duration.between(askedAt.get(index), answer.answeredAt());
+        return LiveScoring.points(answer.correct(), taken, requireTiming().question());
     }
 
     private @Nullable Round currentRound(Map<UUID, Answer> current) {
@@ -211,6 +277,7 @@ public final class LiveGame {
     private void ask(int index, Instant now) {
         round = index;
         answers.add(new HashMap<>());
+        askedAt.add(now);
         status = LiveGameStatus.QUESTION;
         phaseEndsAt = now.plus(requireTiming().question());
     }
@@ -244,8 +311,10 @@ public final class LiveGame {
         }
     }
 
-    /** La réponse d'un joueur à une question ; son instant servira à récompenser la rapidité (étape suivante). */
+    /** La réponse d'un joueur à une question ; son instant mesure la rapidité. */
     private record Answer(Set<Integer> selected, boolean correct, Instant answeredAt) {}
+
+    private record Score(UUID userId, String displayName, int points, int correct, int lastPoints) {}
 
     /**
      * @param players dans l'ordre d'arrivée
@@ -259,12 +328,21 @@ public final class LiveGame {
             Instant createdAt,
             LiveGameStatus status,
             List<PlayerView> players,
-            @Nullable Round round) {
+            @Nullable Round round,
+            List<Standing> standings) {
 
         public Snapshot {
             players = List.copyOf(players);
+            standings = List.copyOf(standings);
         }
     }
+
+    /**
+     * Une ligne du classement : un participant, présent ou parti.
+     *
+     * @param lastPoints les points gagnés à la dernière question corrigée
+     */
+    public record Standing(int rank, UUID userId, String displayName, int score, int correctCount, int lastPoints) {}
 
     /** @param answered vrai s'il a répondu à la question en cours */
     public record PlayerView(UUID userId, String displayName, boolean host, boolean answered) {}
