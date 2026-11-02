@@ -19,8 +19,11 @@ async function groupOfAliceAndBob(alice: Page, bob: Page, name: string) {
   await expect(bob.getByRole('heading', { name })).toBeVisible()
 }
 
+/** Plus long que la correction (5 s, recallio.live.reveal-seconds) qui précède chaque question, et la fin. */
+const NEXT_QUESTION_TIMEOUT_MS = 10_000
+
 test.describe('Mode live', () => {
-  test('alice opens a live game, bob joins its lobby, both see each other live', async ({
+  test('alice opens a live game, bob joins, they answer every question together until the end', async ({
     browser,
   }) => {
     const name = `Live ${Date.now()}`
@@ -40,9 +43,33 @@ test.describe('Mode live', () => {
     await expect(bob.getByText('En attente du lancement par l’hôte.')).toBeVisible()
     await expect(bob.getByRole('region', { name: 'Joueurs (2)' })).toBeVisible()
 
-    // Alice voit Bob arriver, puis repartir, sans recharger la page.
+    // Alice voit Bob arriver sans recharger la page.
     const players = alice.getByRole('region', { name: /Joueurs/ })
     await expect(players).toContainText(USERS.bob.displayName)
+
+    // Alice démarre : les trois QCM de Go, posés aux deux joueurs en même temps.
+    await alice.getByRole('button', { name: 'Démarrer la partie' }).click()
+    for (const question of [1, 2, 3]) {
+      for (const page of [alice, bob]) {
+        // La question suivante vient après les 5 secondes de correction : on l'attend plus longtemps.
+        await expect(page.getByText(`Question ${question} / 3`)).toBeVisible({
+          timeout: NEXT_QUESTION_TIMEOUT_MS,
+        })
+        await page.locator('input[name="choice"]').first().check()
+        await page.getByRole('button', { name: 'Valider' }).click()
+      }
+      // Les deux ont répondu : la correction arrive sans attendre la fin du chrono.
+      for (const page of [alice, bob]) {
+        await expect(page.getByRole('status')).toContainText(/sur 2 (a|ont) trouvé/)
+      }
+    }
+    for (const page of [alice, bob]) {
+      await expect(page.getByText('Partie terminée : merci d’avoir joué !')).toBeVisible({
+        timeout: NEXT_QUESTION_TIMEOUT_MS,
+      })
+    }
+
+    // Bob s'en va : Alice le voit partir.
     await bob.goto('/groups')
     await expect(alice.getByRole('region', { name: 'Joueurs (1)' })).toBeVisible()
   })

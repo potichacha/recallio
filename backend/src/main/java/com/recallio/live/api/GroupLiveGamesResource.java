@@ -17,6 +17,7 @@ import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import java.net.URI;
+import java.time.Clock;
 import java.util.List;
 import java.util.UUID;
 import org.eclipse.microprofile.openapi.annotations.Operation;
@@ -36,10 +37,12 @@ public class GroupLiveGamesResource {
 
     private final LiveGameService games;
     private final CurrentUser currentUser;
+    private final Clock clock;
 
-    public GroupLiveGamesResource(LiveGameService games, CurrentUser currentUser) {
+    public GroupLiveGamesResource(LiveGameService games, CurrentUser currentUser, Clock clock) {
         this.games = games;
         this.currentUser = currentUser;
+        this.clock = clock;
     }
 
     @GET
@@ -53,7 +56,10 @@ public class GroupLiveGamesResource {
                             mediaType = ProblemDetail.MEDIA_TYPE,
                             schema = @Schema(implementation = ProblemDetail.class)))
     public List<LiveGameDto> listGroupLiveGames(@PathParam("groupId") UUID groupId) {
-        return games.openGameOf(currentUser.get(), groupId).map(LiveGameDto::from).stream()
+        return games
+                .openGameOf(currentUser.get(), groupId)
+                .map(game -> LiveGameDto.from(game, clock.instant()))
+                .stream()
                 .toList();
     }
 
@@ -95,7 +101,7 @@ public class GroupLiveGamesResource {
                             mediaType = ProblemDetail.MEDIA_TYPE,
                             schema = @Schema(implementation = ProblemDetail.class)))
     public Response openLiveGame(@PathParam("groupId") UUID groupId, @Valid @NotNull OpenLiveGameRequest request) {
-        LiveGameDto game = LiveGameDto.from(games.open(currentUser.get(), groupId, request.subject()));
+        LiveGameDto game = LiveGameDto.from(games.open(currentUser.get(), groupId, request.subject()), clock.instant());
         return Response.created(URI.create("/api/v1/live-games/" + game.id()))
                 .entity(game)
                 .build();

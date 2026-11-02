@@ -40,6 +40,44 @@ export function useOpenLiveGame(groupId: string) {
   })
 }
 
+export type LiveRound = components['schemas']['LiveRound']
+
+/**
+ * L'hôte démarre la partie. Rien à mettre en cache : le nouvel état arrive par le WebSocket, à tous les joueurs à la
+ * fois.
+ */
+export function useStartLiveGame(gameId: string) {
+  return useMutation({
+    mutationFn: async () => {
+      const { data, error, response } = await api.POST('/api/v1/live-games/{gameId}/start', {
+        params: { path: { gameId } },
+      })
+      if (data === undefined) throw ApiError.from(response, error)
+      return data
+    },
+  })
+}
+
+/** La réponse à la question en cours ; la correction arrive par le WebSocket, à la fin de la question. */
+export function useAnswerLiveQuestion(gameId: string) {
+  return useMutation({
+    mutationFn: async ({
+      question,
+      selectedChoices,
+    }: {
+      question: number
+      selectedChoices: number[]
+    }) => {
+      const { data, error, response } = await api.POST('/api/v1/live-games/{gameId}/answers', {
+        params: { path: { gameId } },
+        body: { question, selectedChoices },
+      })
+      if (data === undefined) throw ApiError.from(response, error)
+      return data
+    },
+  })
+}
+
 /** Codes de fermeture envoyés par le serveur quand il refuse la connexion (ADR 0021). */
 export const LIVE_CLOSE = { NOT_FOUND: 4404, CONFLICT: 4409 } as const
 

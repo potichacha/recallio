@@ -31,12 +31,14 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -64,11 +66,13 @@ class LiveGameSocketTest {
     @Inject
     LiveGameService liveGames;
 
+    /** Java (sans QCM) et « quiz » (quatre QCM dont on connaît les bonnes réponses). */
     @BeforeEach
-    void importJava() throws IOException {
-        try (InputStream input =
-                Objects.requireNonNull(getClass().getResourceAsStream("/content/reference-sample.md"))) {
-            contentImport.importContent(new String(input.readAllBytes(), StandardCharsets.UTF_8));
+    void importSubjects() throws IOException {
+        for (String resource : List.of("/content/reference-sample.md", "/content/quiz-sample.md")) {
+            try (InputStream input = Objects.requireNonNull(getClass().getResourceAsStream(resource))) {
+                contentImport.importContent(new String(input.readAllBytes(), StandardCharsets.UTF_8));
+            }
         }
     }
 
@@ -81,7 +85,7 @@ class LiveGameSocketTest {
     @TestSecurity(user = "alice")
     @OidcSecurity(claims = {@Claim(key = "sub", value = "live-host"), @Claim(key = "name", value = "Alice")})
     void shouldOpenAGameAndFollowItsLobbyLive() throws InterruptedException {
-        String groupId = javaGroup();
+        String groupId = groupOn("java");
         open(groupId, "go").statusCode(422).body("code", equalTo("live.subject-not-in-group"));
         String gameId = open(groupId, "java")
                 .statusCode(201)
@@ -101,6 +105,12 @@ class LiveGameSocketTest {
         Client second = connect(gameId);
         assertThat(second.nextMessage().getList("game.players")).hasSize(1);
         assertThat(first.nextMessage().getList("game.players")).hasSize(1);
+
+        // Java n'a pas de QCM : impossible de démarrer.
+        given().post("/api/v1/live-games/" + gameId + "/start")
+                .then()
+                .statusCode(422)
+                .body("code", equalTo("live.not-enough-questions"));
 
         first.connection().closeAndAwait();
         assertThat(second.nextMessage().getList("game.players")).hasSize(1);
@@ -135,8 +145,75 @@ class LiveGameSocketTest {
         assertThat(closeCodes.poll(TIMEOUT_SECONDS, TimeUnit.SECONDS)).isEqualTo(LiveGameSocket.CLOSE_NOT_FOUND);
     }
 
-    /** Un groupe de l'utilisateur connecté, qui révise Java. */
-    private static String javaGroup() {
+    @Test
+    @TestSecurity(user = "alice")
+    @OidcSecurity(claims = {@Claim(key = "sub", value = "live-runner"), @Claim(key = "name", value = "Alice")})
+    void shouldAskEveryQuestionInTurnUntilTheEnd() throws InterruptedException {
+        String gameId = open(groupOn("quiz"), "quiz").statusCode(201).extract().path("id");
+        Client player = connect(gameId);
+        player.awaitStatus("LOBBY");
+
+        JsonPath first = start(gameId);
+        assertThat(first.getInt("round.index")).isZero();
+        assertThat(first.getInt("round.total")).isEqualTo(3);
+        assertThat(first.getLong("round.remainingMs")).isPositive();
+        assertThat(first.getMap("round.reveal"))
+                .as("la correction attend la fin de la question")
+                .isNull();
+        assertThat(player.awaitStatus("QUESTION").getInt("game.round.index")).isZero();
+
+        // Seul joueur : sa réponse clôt la question, la correction est diffusée aussitôt.
+        answer(gameId, 0, RIGHT_ANSWERS.get(first.getString("round.prompt")));
+        JsonPath revealed = player.awaitStatus("REVEAL");
+        assertThat(revealed.getInt("game.round.reveal.correctCount")).isEqualTo(1);
+        assertThat(revealed.getList("game.players.answered")).containsExactly(true);
+
+        // Après la correction, la question suivante ; sans réponse, le chrono la clôt.
+        assertThat(player.awaitStatus("QUESTION").getInt("game.round.index")).isEqualTo(1);
+        assertThat(player.awaitStatus("REVEAL").getInt("game.round.reveal.correctCount"))
+                .isZero();
+
+        String third = player.awaitStatus("QUESTION").getString("game.round.prompt");
+        answer(gameId, 2, RIGHT_ANSWERS.get(third));
+        player.awaitStatus("REVEAL");
+        player.awaitStatus("FINISHED");
+
+        given().contentType(ContentType.JSON)
+                .body("{\"question\": 2, \"selectedChoices\": [0]}")
+                .post("/api/v1/live-games/" + gameId + "/answers")
+                .then()
+                .statusCode(409)
+                .body("code", equalTo("live.round-closed"));
+        player.connection().closeAndAwait();
+    }
+
+    /** Les bonnes réponses des QCM du document « quiz », par énoncé. */
+    private static final Map<String, String> RIGHT_ANSWERS = Map.of(
+            "Combien font 2 + 2 ?", "[1]",
+            "Quelle est la couleur du ciel par beau temps ?", "[0]",
+            "Quels nombres sont pairs ?", "[0, 2]",
+            "Combien de jours compte une semaine ?", "[1]");
+
+    private static JsonPath start(String gameId) {
+        return given().post("/api/v1/live-games/" + gameId + "/start")
+                .then()
+                .statusCode(200)
+                .body("status", equalTo("QUESTION"))
+                .extract()
+                .jsonPath();
+    }
+
+    private static void answer(String gameId, int question, @Nullable String selectedChoices) {
+        given().contentType(ContentType.JSON)
+                .body("{\"question\": %d, \"selectedChoices\": %s}"
+                        .formatted(question, Objects.requireNonNull(selectedChoices, "QCM inattendu")))
+                .post("/api/v1/live-games/" + gameId + "/answers")
+                .then()
+                .statusCode(200);
+    }
+
+    /** Un groupe de l'utilisateur connecté, qui révise ce sujet. */
+    private static String groupOn(String subject) {
         String groupId = given().contentType(ContentType.JSON)
                 .body("{\"name\": \"Live\"}")
                 .post("/api/v1/groups")
@@ -145,9 +222,9 @@ class LiveGameSocketTest {
                 .path("id");
         given().contentType(ContentType.JSON)
                 .body("""
-                        {"subjects": ["java"], "themes": [], "cardTypes": [], "dailyGoal": 10,
+                        {"subjects": ["%s"], "themes": [], "cardTypes": [], "dailyGoal": 10,
                          "leaderboardVisibility": "NAMED"}
-                        """)
+                        """.formatted(subject))
                 .put("/api/v1/groups/" + groupId + "/settings")
                 .then()
                 .statusCode(200);
@@ -183,6 +260,16 @@ class LiveGameSocketTest {
             String message = messages.poll(TIMEOUT_SECONDS, TimeUnit.SECONDS);
             assertThat(message).as("message du serveur").isNotNull();
             return JsonPath.from(Objects.requireNonNull(message));
+        }
+
+        /** Le prochain message où la partie a ce statut ; ceux d'avant (arrivées, réponses) sont passés. */
+        JsonPath awaitStatus(String status) throws InterruptedException {
+            while (true) {
+                JsonPath message = nextMessage();
+                if (status.equals(message.getString("game.status"))) {
+                    return message;
+                }
+            }
         }
     }
 }

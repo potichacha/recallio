@@ -202,10 +202,13 @@ Il obtient les noms des membres par `user.UserDirectory` (API publique du module
 
 | Élément | Rôle |
 |---|---|
-| `domain.LiveGame` | Une partie en cours, en mémoire : hôte, sujet, joueurs et leurs connexions ; 50 joueurs au plus (ADR 0021). |
+| `domain.LiveGame` | Une partie en cours, en mémoire : hôte, sujet, joueurs et leurs connexions (50 au plus, ADR 0021) ; machine à états `LOBBY` → (`QUESTION` → `REVEAL`) × N → `FINISHED`, pilotée par l'instant reçu (ADR 0022). |
 | `domain.LiveGameRepository` | Les parties ouvertes, une au plus par groupe ; `infrastructure.InMemoryLiveGameRepository` les garde en mémoire. |
-| `application.LiveGameService` | Ouvrir une partie sur un sujet du groupe, la rejoindre, la quitter ; appartenance vérifiée par `group.GroupMembers`. |
-| `api.GroupLiveGamesResource`, `api.LiveGamesResource` | `/api/v1/groups/{id}/live-games`, `/api/v1/live-games/{id}`. |
+| `application.LiveGameService` | Ouvrir, rejoindre, quitter, démarrer, répondre ; appartenance vérifiée par `group.GroupMembers`. Chaque changement est diffusé (`LiveGameEvents`) et programme le réveil de l'étape (`LiveScheduler`). |
+| `application.LiveQuestionDraw` | Tire les QCM d'une partie, dans le sujet et les thèmes du groupe. |
+| `infrastructure.VertxLiveScheduler` | Minuteurs Vert.x : réveillent une partie à l'échéance de son étape, sans bloquer de thread. |
+| `api.GroupLiveGamesResource`, `api.LiveGamesResource` | `/api/v1/groups/{id}/live-games`, `/api/v1/live-games/{id}` ; les commandes `/start` et `/answers` passent en REST. |
+| `api.LiveGameBroadcaster` | Implémente `LiveGameEvents` : l'état de la partie, temps restant compris, à toutes ses connexions. |
 | `api.LiveGameSocket` | WebSocket `/api/v1/live/{id}`, authentifié par le JWT porté dans le sous-protocole ; diffuse l'état de la partie. |
 
 ```mermaid

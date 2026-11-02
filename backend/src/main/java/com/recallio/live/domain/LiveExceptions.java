@@ -2,6 +2,7 @@ package com.recallio.live.domain;
 
 import com.recallio.platform.domain.ConflictException;
 import com.recallio.platform.domain.DomainException;
+import com.recallio.platform.domain.ForbiddenException;
 import com.recallio.platform.domain.ResourceNotFoundException;
 import java.util.UUID;
 
@@ -36,6 +37,55 @@ public final class LiveExceptions {
 
         public LiveGameFullException(int limit) {
             super(CODE, "Cette partie compte déjà " + limit + " joueurs, le maximum.");
+        }
+    }
+
+    public static final class HostOnlyException extends ForbiddenException {
+
+        public static final String CODE = "live.host-only";
+
+        public HostOnlyException() {
+            super(CODE, "Seul l'hôte de la partie peut la démarrer.");
+        }
+    }
+
+    public static final class LiveGameStartedException extends ConflictException {
+
+        public static final String CODE = "live.already-started";
+
+        public LiveGameStartedException() {
+            super(CODE, "La partie a déjà démarré.");
+        }
+    }
+
+    /** On répond depuis la page de la partie, une fois connecté : sinon on ne voit pas la question. */
+    public static final class NotInGameException extends ConflictException {
+
+        public static final String CODE = "live.not-in-game";
+
+        public NotInGameException() {
+            super(CODE, "Rejoignez la partie pour répondre.");
+        }
+    }
+
+    public static final class RoundClosedException extends ConflictException {
+
+        public static final String CODE = "live.round-closed";
+
+        public RoundClosedException() {
+            super(CODE, "Cette question n'attend plus de réponse.");
+        }
+    }
+
+    public static final class NotEnoughQuestionsException extends DomainException {
+
+        public static final String CODE = "live.not-enough-questions";
+
+        public NotEnoughQuestionsException(int available, int minimum) {
+            super(
+                    CODE,
+                    "Ce sujet ne compte que " + available + " QCM dans les thèmes du groupe ; il en faut au moins "
+                            + minimum + " pour une partie.");
         }
     }
 
