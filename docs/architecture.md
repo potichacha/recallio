@@ -13,6 +13,8 @@ flowchart LR
         front["Frontend<br/>React + TypeScript (PWA)<br/>servi par nginx"]
         back["Backend<br/>Quarkus 3 · Java 25<br/>API REST /api/v1"]
         db[("PostgreSQL 18<br/>schéma géré par Flyway")]
+        runner["Runner<br/>Quarkus 3 · Java 25<br/>exécute le code des exercices"]
+        sandbox["Bac à sable<br/>un conteneur jetable par exécution<br/>sans réseau, en lecture seule"]
     end
 
     idp["Fournisseur OIDC<br/>Keycloak en local<br/>(production : à choisir)"]
@@ -22,6 +24,8 @@ flowchart LR
     front -- "/api : JSON, JWT bearer" --> back
     back -- JDBC --> db
     back -- "clés de signature (JWKS)" --> idp
+    back -. "/api/v1/runs : jeton partagé (étape 4, PR 3)" .-> runner
+    runner -- "docker run (stdin : tar)" --> sandbox
 ```
 
 | Conteneur | Rôle | Technologies |
@@ -30,6 +34,8 @@ flowchart LR
 | Backend | Règles métier, API REST versionnée, validation des JWT. | Quarkus REST, Hibernate ORM, Hibernate Validator, SmallRye Health et OpenAPI |
 | PostgreSQL | Données métier et progression. Le schéma est versionné par des migrations Flyway, jamais généré. | PostgreSQL 18 |
 | Fournisseur OIDC | Authentification. Le backend ne connaît que le standard OIDC, pas le fournisseur. | Keycloak (local et Dev Services) |
+| Runner | Exécute le code des exercices et renvoie le résultat de chaque test. Seul à accéder au socket Docker ; joint par le seul backend (ADR 0030). | Quarkus REST, ligne de commande `docker`, commons-compress |
+| Bac à sable | Un conteneur neuf par exécution : réseau coupé, système de fichiers en lecture seule, ressources plafonnées, utilisateur sans droits, délai. | Image `sandbox/java` : JDK 25, JUnit 6 |
 
 En local avec Docker (`infra/compose.yaml`), nginx relaie `/api` vers le backend : le front et
 l'API partagent la même origine, donc pas de CORS.

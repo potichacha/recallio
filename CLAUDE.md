@@ -100,6 +100,7 @@ Recallio n'est pas une application « Java » : c'est un **catalogue de sujets d
 | Conteneurs | Docker, `docker compose` pour le local | une image backend, une image frontend (fichiers statiques servis par un serveur web) |
 | Hébergement | PaaS ou VPS européen (Clever Cloud, Scaleway ou OVHcloud), PostgreSQL managé | décision à prendre en phase 1, consignée en ADR |
 | Observabilité | logs JSON sur stdout, métriques Micrometer, Sentry pour les erreurs (plus tard OpenTelemetry) | |
+| Exécution du code | service **`runner`** (Quarkus) et image **`sandbox/java`** : un conteneur jetable par exécution (ADR 0030) | seul composant à accéder à Docker ; joint par le seul backend |
 | Phase 2+ | **Valkey/Redis** (classements, temps réel), WebSockets Next (mode live) | ne pas l'introduire avant la phase concernée |
 
 Toute nouvelle dépendance doit être justifiée et, si elle est structurante, faire l'objet d'un ADR.
@@ -416,7 +417,7 @@ Faire du contenu un référentiel complet, pour apprendre, préparer un entretie
 1. **Référentiel et modèle** : ✅ le référentiel Java (toutes les notions, niveaux, priorités, prérequis) vérifié en CI ; ✅ découpage des chapitres hors Java en sujets propres ; ✅ dossier de sujet, un fichier YAML par notion, cartes à clé explicite (ADR 0026) ; ✅ migration sans perte des cartes Java vers les notions.
 2. ✅ **Nouveaux formats texte** : vrai ou faux, bug à corriger, compléter le code (ADR 0027).
 3. ✅ **Contrôles du contenu en CI** : matrice par notion et couverture du référentiel par priorité, publiées dans le résumé du job `content` (non bloquantes jusqu'au pilote) ; exécution de chaque « qu'affiche ce code » avec JShell, comparée à sa vérification `check` (ADR 0028).
-4. **Exercices de code** : ✅ format en dossier (énoncé, fichiers de départ, solution, tests), import et consultation, auto-évalués en attendant le bac à sable (ADR 0029) ; vérification en CI, **bac à sable d'exécution** (avancé depuis la phase 5 : exécuteur maison à conteneurs jetables, ADR à venir), éditeur multi-fichiers dans la PWA (CodeMirror 6), correction par les tests.
+4. **Exercices de code** : ✅ format en dossier (énoncé, fichiers de départ, solution, tests), import et consultation, auto-évalués en attendant le bac à sable (ADR 0029) ; ✅ **bac à sable d'exécution** (avancé depuis la phase 5 : service `runner` et conteneurs jetables, ADR 0030) et vérification de chaque exercice en CI ; éditeur multi-fichiers dans la PWA (CodeMirror 6), correction par les tests.
 5. **Parcours** : apprendre (prérequis, leçons, déblocage), préparer un entretien, entretenir son niveau ; deux cartes d'une même notion pas le même jour.
 6. **Pilote** : deux ou trois chapitres Java complets en priorité 1, pour valider la matrice et la qualité des brouillons ; puis la production, priorité par priorité.
 - **Terminé quand** : un débutant suit le parcours Java de bout en bout sur les notions de priorité 1, en codant dans l'application.
@@ -446,7 +447,7 @@ Correction des réponses ouvertes par IA, paiement. L'exécution de code en bac 
 7. Nom du projet. **Provisoire** : Recallio (ADR 0005), à confirmer avant le premier déploiement public. Il ne doit pas évoquer Java seul.
 8. ~~Format du manifeste des sujets (phase 1 bis, étape 1).~~ **Tranché** : pas de manifeste, un en-tête dans chaque document (ADR 0013).
 9. ~~Répartition du quota de nouvelles cartes entre sujets suivis : parts égales, ou pondération choisie par l'utilisateur (phase 1 bis, étape 3).~~ **Tranché** : parts égales, en alternant les sujets (ADR 0014).
-10. Bac à sable d'exécution du code des joueurs : service existant (Judge0, Piston) ou exécuteur maison à conteneurs jetables (phase 3 bis, étape 4).
+10. ~~Bac à sable d'exécution du code des joueurs : service existant (Judge0, Piston) ou exécuteur maison à conteneurs jetables (phase 3 bis, étape 4).~~ **Tranché** : exécuteur maison à conteneurs jetables, un service `runner` séparé (ADR 0030).
 11. ~~Rédaction du contenu à l'échelle.~~ **Tranché** : brouillons rédigés par Claude, chaque PR de contenu relue par le propriétaire avant le merge (ADR 0025).
 
 ---

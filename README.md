@@ -10,7 +10,9 @@ Application web (PWA) de révision des entretiens techniques par répétition es
 |---|---|
 | [`backend/`](backend/) | API Quarkus (Java 25), monolithe modulaire |
 | [`frontend/`](frontend/) | PWA React + TypeScript + Vite |
-| [`content/source/`](content/source/) | Contenu source des cartes (Markdown) |
+| [`runner/`](runner/) | Service Quarkus qui exécute le code des exercices dans des conteneurs jetables (ADR 0030) |
+| [`sandbox/java/`](sandbox/java/) | Image du bac à sable : JDK 25 et JUnit, lancée par le runner |
+| [`content/`](content/) | Contenu : documents Markdown (`source/`) et dossiers de sujet (`java/` : référentiel, notions, exercices) |
 | [`infra/`](infra/) | `compose.yaml` et royaume Keycloak pour lancer l'ensemble avec Docker |
 | [`e2e/`](e2e/) | Parcours de bout en bout (Playwright) contre la pile Docker |
 | [`docs/`](docs/) | Architecture, ADR, rétrospectives |
@@ -64,7 +66,8 @@ Front : http://localhost:3000 · Keycloak : http://localhost:8180 (admin / admin
 
 Chaque pull request lance [`.github/workflows/ci.yml`](.github/workflows/ci.yml) : build et tests
 du backend (avec vérification que la spec OpenAPI est à jour), lint, tests et build du front,
-puis construction et scan (Trivy) des deux images Docker, et enfin les parcours de bout en bout Playwright
+tests du runner (isolation du bac à sable, et chaque exercice de code joué : la solution passe, le code de départ
+échoue), puis construction et scan (Trivy) des deux images Docker, et enfin les parcours de bout en bout Playwright
 contre la pile complète (voir [`e2e/README.md`](e2e/README.md)). Dependabot propose chaque semaine les
 mises à jour de dépendances.
 
