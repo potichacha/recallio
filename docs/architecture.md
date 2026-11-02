@@ -206,6 +206,8 @@ Il obtient les noms des membres par `user.UserDirectory` (API publique du module
 | `domain.LiveGameRepository` | Les parties ouvertes, une au plus par groupe ; `infrastructure.InMemoryLiveGameRepository` les garde en mémoire. |
 | `application.LiveGameService` | Ouvrir, rejoindre, quitter, démarrer, répondre ; appartenance vérifiée par `group.GroupMembers`. Chaque changement est diffusé (`LiveGameEvents`) et programme le réveil de l'étape (`LiveScheduler`). |
 | `application.LiveQuestionDraw` | Tire les QCM d'une partie, dans le sujet et les thèmes du groupe. |
+| `domain.LiveScoring` | Le barème : 500 points pour une réponse juste, jusqu'à 500 de plus selon le temps restant (ADR 0023). |
+| `infrastructure.JpaLiveResultRepository` | Tables `live_game` et `live_game_player` : le classement final de chaque partie, écrit hors de la boucle d'événements. |
 | `infrastructure.VertxLiveScheduler` | Minuteurs Vert.x : réveillent une partie à l'échéance de son étape, sans bloquer de thread. |
 | `api.GroupLiveGamesResource`, `api.LiveGamesResource` | `/api/v1/groups/{id}/live-games`, `/api/v1/live-games/{id}` ; les commandes `/start` et `/answers` passent en REST. |
 | `api.LiveGameBroadcaster` | Implémente `LiveGameEvents` : l'état de la partie, temps restant compris, à toutes ses connexions. |

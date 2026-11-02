@@ -8,7 +8,10 @@ import com.recallio.live.domain.LiveExceptions.SubjectNotInGroupException;
 import com.recallio.live.domain.LiveGame;
 import com.recallio.live.domain.LiveGame.Snapshot;
 import com.recallio.live.domain.LiveGameRepository;
+import com.recallio.live.domain.LiveGameResult;
+import com.recallio.live.domain.LiveGameStatus;
 import com.recallio.live.domain.LiveQuestion;
+import com.recallio.live.domain.LiveResultRepository;
 import com.recallio.platform.domain.IdGenerator;
 import com.recallio.platform.domain.ResourceNotFoundException;
 import com.recallio.user.UserDirectory;
@@ -37,7 +40,11 @@ public class LiveGameService {
     /** Un membre dont le profil a disparu reste affiché, sans nom. */
     private static final String UNKNOWN_PLAYER = "Joueur";
 
+    /** Le groupe montre ses dernières parties ; les plus anciennes n'ont plus d'intérêt. */
+    static final int RECENT_RESULTS = 5;
+
     private final LiveGameRepository games;
+    private final LiveResultRepository results;
     private final LiveQuestionDraw draw;
     private final LiveGameEvents events;
     private final LiveScheduler scheduler;
@@ -50,6 +57,7 @@ public class LiveGameService {
 
     public LiveGameService(
             LiveGameRepository games,
+            LiveResultRepository results,
             LiveQuestionDraw draw,
             LiveGameEvents events,
             LiveScheduler scheduler,
@@ -60,6 +68,7 @@ public class LiveGameService {
             LiveConfig config,
             Clock clock) {
         this.games = games;
+        this.results = results;
         this.draw = draw;
         this.events = events;
         this.scheduler = scheduler;
@@ -88,6 +97,12 @@ public class LiveGameService {
             throw new LiveGameAlreadyOpenException();
         }
         return game.snapshot();
+    }
+
+    /** Les dernières parties finies du groupe, avec leur classement. */
+    public List<LiveGameResult> recentResults(UserRef user, UUID groupId) {
+        members.requireMember(user, groupId);
+        return results.recentOfGroup(groupId, RECENT_RESULTS);
     }
 
     /** La partie ouverte du groupe, s'il y en a une. */
@@ -146,7 +161,12 @@ public class LiveGameService {
     void wakeUp(UUID gameId, Instant dueAt) {
         games.findById(gameId).filter(game -> dueAt.equals(game.phaseEndsAt())).ifPresent(game -> {
             if (game.advance(clock.instant())) {
-                changed(game, dueAt, game.snapshot());
+                Snapshot snapshot = changed(game, dueAt, game.snapshot());
+                if (snapshot.status() == LiveGameStatus.FINISHED) {
+                    // La base bloque : l'enregistrement quitte la boucle d'événements.
+                    LiveGameResult result = game.result();
+                    scheduler.runBlocking(() -> results.save(result));
+                }
             } else {
                 scheduler.wakeUpAt(dueAt, () -> wakeUp(gameId, dueAt));
             }

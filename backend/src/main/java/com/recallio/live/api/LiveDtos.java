@@ -4,6 +4,8 @@ import com.recallio.content.CardChoice;
 import com.recallio.live.domain.LiveGame.PlayerView;
 import com.recallio.live.domain.LiveGame.Round;
 import com.recallio.live.domain.LiveGame.Snapshot;
+import com.recallio.live.domain.LiveGame.Standing;
+import com.recallio.live.domain.LiveGameResult;
 import com.recallio.live.domain.LiveGameStatus;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -53,7 +55,10 @@ final class LiveDtos {
                     description = "La question en cours, ou la dernière posée ; absente en salle d'attente",
                     nullable = true)
             @Nullable
-            LiveRoundDto round) {
+            LiveRoundDto round,
+
+            @Schema(description = "Le classement, sur les questions déjà corrigées ; ex æquo au même rang")
+            List<LiveStandingDto> standings) {
         static LiveGameDto from(Snapshot game, Instant now) {
             Round round = game.round();
             return new LiveGameDto(
@@ -64,7 +69,48 @@ final class LiveDtos {
                     game.createdAt(),
                     game.status(),
                     game.players().stream().map(LivePlayerDto::from).toList(),
-                    round == null ? null : LiveRoundDto.from(round, game.status(), now));
+                    round == null ? null : LiveRoundDto.from(round, game.status(), now),
+                    game.standings().stream().map(LiveStandingDto::from).toList());
+        }
+    }
+
+    @Schema(name = "LiveStanding")
+    record LiveStandingDto(
+            int rank,
+            UUID userId,
+            String displayName,
+            int score,
+            int correctCount,
+
+            @Schema(description = "Points gagnés à la dernière question corrigée")
+            int lastPoints) {
+        static LiveStandingDto from(Standing standing) {
+            return new LiveStandingDto(
+                    standing.rank(),
+                    standing.userId(),
+                    standing.displayName(),
+                    standing.score(),
+                    standing.correctCount(),
+                    standing.lastPoints());
+        }
+    }
+
+    @Schema(name = "LiveGameResult")
+    record LiveGameResultDto(
+            UUID gameId,
+            String subject,
+            Instant startedAt,
+            Instant finishedAt,
+            int questionCount,
+            @Schema(description = "Le classement final") List<LiveStandingDto> standings) {
+        static LiveGameResultDto from(LiveGameResult result) {
+            return new LiveGameResultDto(
+                    result.gameId(),
+                    result.subjectSlug(),
+                    result.startedAt(),
+                    result.finishedAt(),
+                    result.questionCount(),
+                    result.standings().stream().map(LiveStandingDto::from).toList());
         }
     }
 

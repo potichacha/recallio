@@ -149,7 +149,8 @@ class LiveGameSocketTest {
     @TestSecurity(user = "alice")
     @OidcSecurity(claims = {@Claim(key = "sub", value = "live-runner"), @Claim(key = "name", value = "Alice")})
     void shouldAskEveryQuestionInTurnUntilTheEnd() throws InterruptedException {
-        String gameId = open(groupOn("quiz"), "quiz").statusCode(201).extract().path("id");
+        String groupId = groupOn("quiz");
+        String gameId = open(groupId, "quiz").statusCode(201).extract().path("id");
         Client player = connect(gameId);
         player.awaitStatus("LOBBY");
 
@@ -176,7 +177,23 @@ class LiveGameSocketTest {
         String third = player.awaitStatus("QUESTION").getString("game.round.prompt");
         answer(gameId, 2, RIGHT_ANSWERS.get(third));
         player.awaitStatus("REVEAL");
-        player.awaitStatus("FINISHED");
+        JsonPath finished = player.awaitStatus("FINISHED");
+
+        // Deux bonnes réponses sur trois, données vite : entre 500 et 1 000 points chacune.
+        assertThat(finished.getInt("game.standings[0].correctCount")).isEqualTo(2);
+        assertThat(finished.getInt("game.standings[0].score")).isBetween(2 * 500, 2 * 1000);
+        int score = finished.getInt("game.standings[0].score");
+
+        // Le résultat est conservé, hors de la boucle d'événements : on attend qu'il soit écrit.
+        String results = "/api/v1/groups/" + groupId + "/live-games/results";
+        await().atMost(Duration.ofSeconds(TIMEOUT_SECONDS))
+                .until(() -> given().get(results).jsonPath().getList("$").size() == 1);
+        given().get(results)
+                .then()
+                .body("[0].gameId", equalTo(gameId))
+                .body("[0].questionCount", equalTo(3))
+                .body("[0].standings[0].displayName", equalTo("Alice"))
+                .body("[0].standings[0].score", equalTo(score));
 
         given().contentType(ContentType.JSON)
                 .body("{\"question\": 2, \"selectedChoices\": [0]}")

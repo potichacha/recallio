@@ -11,6 +11,7 @@ import com.recallio.live.domain.LiveExceptions.RoundClosedException;
 import com.recallio.live.domain.LiveGame.PlayerView;
 import com.recallio.live.domain.LiveGame.Round;
 import com.recallio.live.domain.LiveGame.Snapshot;
+import com.recallio.live.domain.LiveGame.Standing;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -149,6 +150,42 @@ class LiveGameTest {
 
             game.advance(NOW.plusSeconds(20));
             assertThat(roundOf(game.snapshot()).correctCount()).isZero();
+        }
+
+        @Test
+        void shouldScoreOnlyRevealedQuestionsAndRewardSpeed() {
+            game.start(host, questions, TIMING, NOW);
+            game.answer(host, 0, Set.of(0), NOW.plusSeconds(5));
+
+            // Pendant le chrono, le classement ne dit rien des réponses déjà données.
+            assertThat(game.snapshot().standings()).extracting(Standing::score).containsExactly(0, 0);
+
+            game.answer(guest, 0, Set.of(0), NOW.plusSeconds(10));
+            var revealed = game.snapshot().standings();
+            assertThat(revealed).extracting(Standing::displayName).containsExactly("Alice", "Bob");
+            assertThat(revealed).extracting(Standing::score).containsExactly(875, 750);
+            assertThat(revealed).extracting(Standing::lastPoints).containsExactly(875, 750);
+            assertThat(revealed).extracting(Standing::rank).containsExactly(1, 2);
+        }
+
+        @Test
+        void shouldShareTheRankOfExAequoAndKeepThePointsOfAPlayerWhoLeft() {
+            game.start(host, questions, TIMING, NOW);
+            game.answer(host, 0, Set.of(1), NOW.plusSeconds(1));
+            game.answer(guest, 0, Set.of(1), NOW.plusSeconds(2));
+            assertThat(game.snapshot().standings()).extracting(Standing::rank).containsExactly(1, 1);
+
+            game.advance(NOW.plusSeconds(7));
+            game.answer(guest, 1, Set.of(0), NOW.plusSeconds(7));
+            game.leave(guest, NOW.plusSeconds(8));
+            game.advance(NOW.plusSeconds(27));
+            game.advance(NOW.plusSeconds(32));
+
+            var result = game.result();
+            assertThat(result.standings()).extracting(Standing::displayName).containsExactly("Bob", "Alice");
+            assertThat(result.standings()).extracting(Standing::correctCount).containsExactly(1, 0);
+            assertThat(result.questionCount()).isEqualTo(2);
+            assertThat(result.finishedAt()).isEqualTo(NOW.plusSeconds(32));
         }
 
         private static Round roundOf(Snapshot snapshot) {

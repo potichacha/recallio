@@ -40,6 +40,7 @@ function stubGroup(extra: object) {
     '/api/v1/groups/g1/leaderboard': { body: TEST_LEADERBOARD },
     '/api/v1/groups/g1/challenges': { body: [] },
     '/api/v1/subjects': { body: TEST_SUBJECTS },
+    '/api/v1/groups/g1/live-games/results': { body: [] },
     ...extra,
   })
 }
@@ -59,6 +60,37 @@ describe('LivePanel', () => {
     )
   })
 
+  it('shows the podium of the last games of the group', async () => {
+    const standing = (rank: number, userId: string, displayName: string, score: number) => ({
+      rank,
+      userId,
+      displayName,
+      score,
+      correctCount: 1,
+      lastPoints: 0,
+    })
+    stubGroup({
+      '/api/v1/groups/g1/live-games': { body: [] },
+      '/api/v1/groups/g1/live-games/results': {
+        body: [
+          {
+            gameId: 'old',
+            subject: 'go',
+            startedAt: '2026-11-02T18:00:00Z',
+            finishedAt: '2026-11-02T18:05:00Z',
+            questionCount: 3,
+            standings: [standing(1, 'u2', 'Alice', 2400), standing(2, 'u1', 'Bob', 900)],
+          },
+        ],
+      },
+    })
+    renderAt('/groups/g1', signedIn())
+
+    const panel = await screen.findByRole('region', { name: 'Partie live' })
+    expect(await within(panel).findByText('Dernières parties')).toBeInTheDocument()
+    expect(panel).toHaveTextContent('1. Alice (2400 pts) · 2. Bob (900 pts)')
+  })
+
   it('opens a game on a subject of the group, then goes to its lobby', async () => {
     vi.stubGlobal(
       'WebSocket',
@@ -68,6 +100,7 @@ describe('LivePanel', () => {
     )
     const fetchMock = stubGroup({
       '/api/v1/groups/g1/live-games': { body: [] },
+      '/api/v1/groups/g1/live-games/results': { body: [] },
       'POST /api/v1/groups/g1/live-games': { status: 201, body: LIVE_GAME },
     })
     const router = renderAt('/groups/g1', signedIn())

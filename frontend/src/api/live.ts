@@ -41,6 +41,25 @@ export function useOpenLiveGame(groupId: string) {
 }
 
 export type LiveRound = components['schemas']['LiveRound']
+export type LiveStanding = components['schemas']['LiveStanding']
+export type LiveGameResult = components['schemas']['LiveGameResult']
+
+/** Les dernières parties finies du groupe, avec leur classement. */
+export function useGroupLiveResults(groupId: string) {
+  return useQuery({
+    queryKey: [...groupLiveKey(groupId), 'results'],
+    queryFn: async () => {
+      const { data, error, response } = await api.GET(
+        '/api/v1/groups/{groupId}/live-games/results',
+        {
+          params: { path: { groupId } },
+        },
+      )
+      if (data === undefined) throw ApiError.from(response, error)
+      return data
+    },
+  })
+}
 
 /**
  * L'hôte démarre la partie. Rien à mettre en cache : le nouvel état arrive par le WebSocket, à tous les joueurs à la

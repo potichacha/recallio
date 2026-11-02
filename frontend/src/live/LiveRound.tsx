@@ -28,6 +28,7 @@ export function LiveRoundView({
   const answered =
     answer.isSuccess || game.players.some((player) => player.userId === me && player.answered)
   const locked = answered || answer.isPending || reveal != null
+  const myPoints = game.standings.find((standing) => standing.userId === me)?.lastPoints
 
   const submit = (event: FormEvent) => {
     event.preventDefault()
@@ -95,6 +96,11 @@ export function LiveRoundView({
       )}
       {reveal && (
         <div className="flex flex-col gap-2 border-t border-slate-100 pt-4">
+          {myPoints !== undefined && (
+            <p className="text-lg font-semibold text-indigo-700">
+              {myPoints > 0 ? `+${myPoints} points` : 'Aucun point sur cette question'}
+            </p>
+          )}
           <p role="status" className="font-medium">
             {reveal.correctCount} joueur{reveal.correctCount > 1 ? 's' : ''} sur{' '}
             {game.players.length} {reveal.correctCount > 1 ? 'ont' : 'a'} trouvé.
