@@ -217,11 +217,11 @@ Chaque sujet a son document de référence, `content/source/<sujet>-entretien-re
 | `TRUE_FALSE` | fichiers de notion (`true-false`) | correction automatique : un QCM à deux choix fixes (ADR 0027) |
 | `BUG_FIX` | fichiers de notion (`bug-fix`) | rédaction de la correction puis auto-évaluation, en attendant l'exécution (ADR 0027) |
 | `FILL_IN` | fichiers de notion (`fill-in`) | correction automatique de chaque trou, aux espaces près (ADR 0027) |
-| `CODING_EXERCISE` | dossiers d'exercice (`exercices/`) | auto-évaluation, puis jugé par ses tests dans le bac à sable (ADR 0029) |
+| `CODING_EXERCISE` | dossiers d'exercice (`exercices/`) | jugé par ses tests dans le bac à sable (ADR 0029, 0030) |
 
 Modéliser le type avec une interface `sealed` côté domaine.
 
-Le type `CODING_EXERCISE` porte les exercices de code d'un dossier de sujet (`exercices/`, ADR 0029) : d'abord en auto-évaluation, puis jugés par leurs tests dans le bac à sable (phase 3 bis, étape 4).
+Le type `CODING_EXERCISE` porte les exercices de code d'un dossier de sujet (`exercices/`, ADR 0029) : on les essaie, puis on les rend, et leurs tests les jugent dans le bac à sable (ADR 0030).
 
 ### 5.4 En-tête des documents (le sujet)
 Chaque document commence par un **en-tête** qui décrit son sujet (ADR 0013). Il n'y a pas de fichier de manifeste séparé : un document se suffit à lui-même, et l'import par un admin n'a besoin que de lui.
@@ -417,7 +417,7 @@ Faire du contenu un référentiel complet, pour apprendre, préparer un entretie
 1. **Référentiel et modèle** : ✅ le référentiel Java (toutes les notions, niveaux, priorités, prérequis) vérifié en CI ; ✅ découpage des chapitres hors Java en sujets propres ; ✅ dossier de sujet, un fichier YAML par notion, cartes à clé explicite (ADR 0026) ; ✅ migration sans perte des cartes Java vers les notions.
 2. ✅ **Nouveaux formats texte** : vrai ou faux, bug à corriger, compléter le code (ADR 0027).
 3. ✅ **Contrôles du contenu en CI** : matrice par notion et couverture du référentiel par priorité, publiées dans le résumé du job `content` (non bloquantes jusqu'au pilote) ; exécution de chaque « qu'affiche ce code » avec JShell, comparée à sa vérification `check` (ADR 0028).
-4. **Exercices de code** : ✅ format en dossier (énoncé, fichiers de départ, solution, tests), import et consultation, auto-évalués en attendant le bac à sable (ADR 0029) ; ✅ **bac à sable d'exécution** (avancé depuis la phase 5 : service `runner` et conteneurs jetables, ADR 0030) et vérification de chaque exercice en CI ; éditeur multi-fichiers dans la PWA (CodeMirror 6), correction par les tests.
+4. **Exercices de code** : ✅ format en dossier (énoncé, fichiers de départ, solution, tests), import et consultation, auto-évalués en attendant le bac à sable (ADR 0029) ; ✅ **bac à sable d'exécution** (avancé depuis la phase 5 : service `runner` et conteneurs jetables, ADR 0030) et vérification de chaque exercice en CI ; ✅ correction par les tests en révision (essayer, puis rendre ; ADR 0030) ; éditeur multi-fichiers dans la PWA (CodeMirror 6).
 5. **Parcours** : apprendre (prérequis, leçons, déblocage), préparer un entretien, entretenir son niveau ; deux cartes d'une même notion pas le même jour.
 6. **Pilote** : deux ou trois chapitres Java complets en priorité 1, pour valider la matrice et la qualité des brouillons ; puis la production, priorité par priorité.
 - **Terminé quand** : un débutant suit le parcours Java de bout en bout sur les notions de priorité 1, en codant dans l'application.

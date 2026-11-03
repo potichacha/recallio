@@ -1,10 +1,11 @@
 package com.recallio.review.domain;
 
 import com.recallio.platform.domain.DomainException;
+import java.util.Collection;
 
 /**
- * La réponse ne correspond pas au format de la carte : un QCM attend les choix cochés et un code à trous ses réponses (le
- * serveur en déduit la note), les autres formats une note d'auto-évaluation.
+ * La réponse ne correspond pas au format de la carte : un QCM attend les choix cochés, un code à trous ses réponses et un
+ * exercice ses fichiers (le serveur en déduit la note), les autres formats une note d'auto-évaluation.
  */
 public class AnswerMismatchException extends DomainException {
 
@@ -22,6 +23,20 @@ public class AnswerMismatchException extends DomainException {
         return new AnswerMismatchException(
                 "Un code à trous se répond en remplissant ses %d trou(s), sans note : le serveur corrige."
                         .formatted(blankCount));
+    }
+
+    public static AnswerMismatchException filesExpected() {
+        return new AnswerMismatchException(
+                "Un exercice de code se répond en rendant ses fichiers, sans note : ses tests le jugent.");
+    }
+
+    public static AnswerMismatchException starterFilesExpected(Collection<String> paths) {
+        return new AnswerMismatchException(
+                "Un exercice se rend avec exactement les fichiers de son code de départ : " + String.join(", ", paths));
+    }
+
+    public static AnswerMismatchException notAnExercise() {
+        return new AnswerMismatchException("Seul un exercice de code s'exécute.");
     }
 
     public static AnswerMismatchException ratingExpected() {

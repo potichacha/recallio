@@ -1,12 +1,13 @@
 import { useState, type ReactNode } from 'react'
 import { Link, useSearchParams } from 'react-router'
-import { useSubjects } from '../api/content'
+import { useSubjects, type CardType } from '../api/content'
 import { ApiError } from '../api/errors'
 import { useGroup } from '../api/groups'
 import { useProfile } from '../api/profile'
 import { useProgress } from '../api/progress'
 import { useReviewQueue, type ReviewFilter, type ReviewQueue } from '../api/review'
 import { RequireFollowedSubjects } from '../auth/RequireFollowedSubjects'
+import { CARD_TYPE_LABELS } from '../components/cardTypeLabels'
 import { DailyGoal } from '../components/DailyGoal'
 import { formatDelay } from './formatDelay'
 import { ReviewCard } from './ReviewCard'
@@ -14,7 +15,7 @@ import { ReviewCard } from './ReviewCard'
 /**
  * Page de révision. Sans filtre, elle puise dans les sujets suivis (il faut donc en suivre au moins un) ; un sujet
  * (`?subject=go`) ou un thème (`?theme=...`) se révise même s'il n'est pas suivi, et un groupe (`?group=...`) selon ses
- * réglages.
+ * réglages. Un format (`?type=CODING_EXERCISE`) restreint encore la file.
  */
 export function ReviewPage() {
   const [searchParams] = useSearchParams()
@@ -22,10 +23,14 @@ export function ReviewPage() {
     group: searchParams.get('group') ?? undefined,
     subject: searchParams.get('subject') ?? undefined,
     theme: searchParams.get('theme') ?? undefined,
+    type: cardType(searchParams.get('type')),
   }
   // Changer de filtre démarre une nouvelle session : la position et le compteur repartent de zéro.
   const session = (
-    <ReviewSession key={`${filter.group}|${filter.subject}|${filter.theme}`} filter={filter} />
+    <ReviewSession
+      key={`${filter.group}|${filter.subject}|${filter.theme}|${filter.type}`}
+      filter={filter}
+    />
   )
 
   if (filter.group || filter.theme) return session
@@ -35,6 +40,11 @@ export function ReviewPage() {
       {filter.subject ? session : <RequireFollowedSubjects>{session}</RequireFollowedSubjects>}
     </SubjectTabs>
   )
+}
+
+/** Un format connu, ou aucun : un format inconnu dans l'URL est ignoré plutôt que refusé par l'API. */
+function cardType(value: string | null): CardType | undefined {
+  return value !== null && value in CARD_TYPE_LABELS ? (value as CardType) : undefined
 }
 
 /** Le choix du sujet révisé (tous les sujets suivis, ou l'un d'eux), dès qu'il y a plus d'un sujet. */

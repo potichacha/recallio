@@ -48,12 +48,21 @@ npm run dev
 La page d'accueil affiche « API : UP » quand le backend répond ; une fois connecté, elle devient le tableau de
 bord (cartes dues, série, progression par thème) et le menu « Réviser » lance une session.
 
+Exercices de code : ils s'exécutent dans le runner (ADR 0030), à lancer dans un troisième terminal si l'on veut les
+essayer en dev (sans lui, les essayer ou les rendre répond 503) :
+
+```shell
+docker build -t recallio-sandbox-java sandbox/java   # l'image du bac à sable, une fois
+cd runner
+./mvnw quarkus:dev
+```
+
 Comptes de test (royaume Keycloak `recallio`, en dev comme dans le compose) : `alice` / `alice` (rôle `admin`),
 `bob` / `bob` et `carol` / `carol`. En dev, Keycloak tourne sur http://localhost:8180 (console d'administration : `admin` / `admin`).
 
 ## Lancer avec Docker (comme en production)
 
-Construit les images et lance PostgreSQL, Keycloak, le backend et le front :
+Construit les images et lance PostgreSQL, Keycloak, le runner (et l'image du bac à sable), le backend et le front :
 
 ```shell
 docker compose -f infra/compose.yaml up --build

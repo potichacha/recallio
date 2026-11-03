@@ -4,6 +4,8 @@ import com.recallio.platform.domain.ConflictException;
 import com.recallio.platform.domain.DomainException;
 import com.recallio.platform.domain.ForbiddenException;
 import com.recallio.platform.domain.ResourceNotFoundException;
+import com.recallio.platform.domain.TooManyRequestsException;
+import com.recallio.platform.domain.UnavailableException;
 import jakarta.validation.ConstraintViolationException;
 import jakarta.ws.rs.core.Response;
 import java.util.Comparator;
@@ -22,6 +24,10 @@ public class ProblemExceptionMappers {
                 new Outcome(Response.Status.NOT_FOUND.getStatusCode(), "Ressource introuvable");
             case ConflictException _ -> new Outcome(Response.Status.CONFLICT.getStatusCode(), "Conflit");
             case ForbiddenException _ -> new Outcome(Response.Status.FORBIDDEN.getStatusCode(), "Action non autorisée");
+            case TooManyRequestsException _ ->
+                new Outcome(Response.Status.TOO_MANY_REQUESTS.getStatusCode(), "Trop de requêtes");
+            case UnavailableException _ ->
+                new Outcome(Response.Status.SERVICE_UNAVAILABLE.getStatusCode(), "Service indisponible");
             default -> new Outcome(UNPROCESSABLE_CONTENT, "Requête refusée");
         };
         return problem(ProblemDetail.of(outcome.status(), outcome.title(), exception.code(), exception.detail()));

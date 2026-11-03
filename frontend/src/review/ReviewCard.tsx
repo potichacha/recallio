@@ -3,8 +3,8 @@ import { ApiError } from '../api/errors'
 import { useRecordReview, type QueuedCard, type Rating } from '../api/review'
 import { GRADED_BY_CHOICES } from '../components/cardTypeLabels'
 import { Markdown } from '../components/Markdown'
-import { SourceFiles } from '../components/SourceFiles'
 import { CardHeader } from './CardHeader'
+import { ExerciseCard } from './ExerciseCard'
 import { FillInCard } from './FillInCard'
 import { formatDelay } from './formatDelay'
 import { MultipleChoiceCard } from './MultipleChoiceCard'
@@ -24,8 +24,8 @@ const RATING_STYLES: Record<Rating, string> = {
 }
 
 /**
- * Une carte à réviser : un QCM, un vrai ou faux ou un code à trous est corrigé par le serveur, les autres formats
- * s'auto-évaluent.
+ * Une carte à réviser : un QCM, un vrai ou faux ou un code à trous est corrigé par le serveur, un exercice de code
+ * jugé par ses tests ; les autres formats s'auto-évaluent.
  */
 export function ReviewCard({ card, onReviewed }: { card: QueuedCard; onReviewed: () => void }) {
   if (GRADED_BY_CHOICES.has(card.type)) {
@@ -34,14 +34,15 @@ export function ReviewCard({ card, onReviewed }: { card: QueuedCard; onReviewed:
   if (card.type === 'FILL_IN') {
     return <FillInCard card={card} onReviewed={onReviewed} />
   }
+  if (card.type === 'CODING_EXERCISE') {
+    return <ExerciseCard card={card} onReviewed={onReviewed} />
+  }
   return <SelfAssessedCard card={card} onReviewed={onReviewed} />
 }
 
 /**
  * Une carte en auto-évaluation (CLAUDE.md, section 6.1) : la question, puis la réponse, puis l'une des quatre notes.
  * Une mise en situation ou un bug à corriger propose d'abord d'écrire sa réponse, pour la comparer à la réponse modèle.
- * Un exercice de code montre son code de départ et ses tests, puis sa solution : il s'auto-évalue tant que le code
- * n'est pas exécuté (ADR 0029).
  */
 function SelfAssessedCard({ card, onReviewed }: { card: QueuedCard; onReviewed: () => void }) {
   const [shownAt] = useState(() => Date.now())
@@ -64,12 +65,6 @@ function SelfAssessedCard({ card, onReviewed }: { card: QueuedCard; onReviewed: 
     <article className="flex flex-col gap-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
       <CardHeader card={card} />
       <Markdown>{card.prompt}</Markdown>
-      {card.exercise && (
-        <>
-          <SourceFiles title="Code de départ" files={card.exercise.starter} />
-          <SourceFiles title="Tests" files={card.exercise.tests} />
-        </>
-      )}
 
       {(card.type === 'OPEN_SCENARIO' || card.type === 'BUG_FIX') && (
         <label className="flex flex-col gap-1">
@@ -91,8 +86,7 @@ function SelfAssessedCard({ card, onReviewed }: { card: QueuedCard; onReviewed: 
 
       {revealed ? (
         <>
-          <div className="flex flex-col gap-3 border-t border-slate-100 pt-4">
-            {card.exercise && <SourceFiles title="Solution" files={card.exercise.solution} />}
+          <div className="border-t border-slate-100 pt-4">
             <Markdown>{card.answer ?? ''}</Markdown>
           </div>
           <RatingButtons

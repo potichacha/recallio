@@ -55,13 +55,41 @@ services:
       RECALLIO_CONTENT_IMPORT_ON_STARTUP: "true"
       RECALLIO_CONTENT_SOURCE_DIRECTORY: /content/source
       RECALLIO_CONTENT_SUBJECTS_DIRECTORY: /content
+      # Les exercices de code s'exécutent dans le runner (ADR 0030), joint sur le réseau interne avec un jeton partagé.
+      RECALLIO_RUNNER_URL: http://runner:8090
+      RECALLIO_RUNNER_TOKEN: ${RECALLIO_RUNNER_TOKEN:-dev-token-du-runner-a-ne-jamais-deployer}
     volumes:
       - ../content:/content:ro
     depends_on:
+      runner:
+        condition: service_healthy
       postgres:
         condition: service_healthy
       keycloak:
         condition: service_healthy
+
+  # Construit l'image du bac à sable, que le runner lance sur le Docker de l'hôte ; le service s'arrête aussitôt.
+  sandbox:
+    build: ../sandbox/java
+    image: recallio-sandbox-java
+    restart: "no"
+
+  # Exécute le code des exercices dans des conteneurs jetables (ADR 0030). Il est le seul à accéder au socket Docker,
+  # ce qui vaut des droits root sur l'hôte, et n'est joint que par le backend : aucun port publié.
+  runner:
+    build: ../runner
+    environment:
+      RECALLIO_RUNNER_TOKEN: ${RECALLIO_RUNNER_TOKEN:-dev-token-du-runner-a-ne-jamais-deployer}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8090 && printf 'GET /q/health/ready HTTP/1.0\\r\\n\\r\\n' >&3 && grep -q UP <&3"]
+      interval: 5s
+      timeout: 3s
+      retries: 40
+    depends_on:
+      sandbox:
+        condition: service_completed_successfully
 
   frontend:
     build:

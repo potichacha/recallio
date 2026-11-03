@@ -54,6 +54,23 @@ utilisateur sans droits, boucle infinie tuée, mémoire bornée. Il joue aussi *
 - la solution passe tous ses tests ;
 - le code de départ compile et en échoue au moins un.
 
+**La correction en révision** (backend, module `review`) :
+- **Essayer** (`POST /api/v1/exercise-runs`) : le code du joueur est exécuté contre les tests de l'exercice, autant de
+  fois qu'il veut. Rien n'est enregistré.
+- **Rendre** (`POST /api/v1/reviews` avec `submittedFiles`) : le code est exécuté, puis la révision est enregistrée
+  avec la note qui en découle (**Bien** si tous les tests passent, **À revoir** sinon, comme un QCM). La correction
+  donne le résultat de chaque test, la solution et son explication.
+- **L'exécution précède la transaction** d'enregistrement, qui verrouille l'état de la carte : on ne garde pas un
+  verrou pendant plusieurs secondes. Une requête renvoyée (même `requestId`) exécute le code de nouveau ; le résultat
+  étant le même, l'enregistrement la reconnaît comme déjà reçue.
+- **La solution n'est plus envoyée avant la correction** : la file de révision ne donne que le code de départ et les
+  tests.
+- **Une exécution à la fois par utilisateur** (429 sinon), verrou en mémoire, suffisant pour un backend unique.
+- **Une panne du runner** (injoignable, saturé, statut `ERROR`) répond 503 et **n'enregistre rien** : ce n'est jamais
+  la faute du joueur. Une boucle infinie, elle, est un échec du joueur (`TIMEOUT`, À revoir).
+- **Le port `CodeRunner`** (domaine) est implémenté par un client REST Quarkus (`quarkus-rest-client-jackson`) ; les
+  tests du backend le remplacent par un faux, et le runner a ses propres tests avec Docker.
+
 ## Conséquences
 
 - **Le code des joueurs ne touche jamais le backend ni sa base.** Une évasion du conteneur reste le risque principal ;

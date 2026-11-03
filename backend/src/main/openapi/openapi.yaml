@@ -362,10 +362,24 @@ components:
         explanation:
           type: string
           description: "L'explication, en Markdown"
+        exerciseRun:
+          description: Le résultat des tests d'un exercice de code ; absent sinon
+          type: object
+          anyOf:
+          - $ref: "#/components/schemas/ExerciseRun"
+          - type: "null"
+        solution:
+          type: array
+          items:
+            $ref: "#/components/schemas/ExerciseFile"
+          description: "La solution modèle d'un exercice de code, une fois rendu ;\
+            \ vide sinon"
       required:
       - correctChoices
       - blanks
       - explanation
+      - exerciseRun
+      - solution
     CreateChallengeRequest:
       type: object
       required:
@@ -433,15 +447,51 @@ components:
       - tests
     ExerciseFile:
       type: object
+      required:
+      - path
+      - content
       properties:
         path:
           type: string
           description: "Chemin relatif, avec des /"
+          pattern: "([A-Za-z0-9_-]+/)*[A-Za-z0-9_-]+\\.java"
         content:
           type: string
+          maxLength: 20000
+    ExerciseRun:
+      type: object
+      properties:
+        status:
+          $ref: "#/components/schemas/Status"
+        tests:
+          type: array
+          items:
+            $ref: "#/components/schemas/TestResult"
+          description: Chaque test et son résultat ; vide si le code n'a pas compilé
+            ou n'a pas fini à temps
+        output:
+          type: string
+          description: "Les erreurs de compilation, ou ce qui a arrêté les tests ;\
+            \ vide sinon"
       required:
-      - path
-      - content
+      - status
+      - tests
+      - output
+    ExerciseRunRequest:
+      type: object
+      required:
+      - cardId
+      - files
+      properties:
+        cardId:
+          $ref: "#/components/schemas/UUID"
+        files:
+          type: array
+          items:
+            $ref: "#/components/schemas/ExerciseFile"
+          description: "Les fichiers à essayer : exactement ceux du code de départ"
+          minItems: 1
+          maxItems: 10
     ExerciseToSolve:
       type: object
       properties:
@@ -455,15 +505,9 @@ components:
           items:
             $ref: "#/components/schemas/ExerciseFile"
           description: Les tests qui jugent le code
-        solution:
-          type: array
-          items:
-            $ref: "#/components/schemas/ExerciseFile"
-          description: "La solution modèle, à montrer une fois la réponse révélée"
       required:
       - starter
       - tests
-      - solution
     FollowSubjectsRequest:
       type: object
       required:
@@ -1076,8 +1120,9 @@ components:
           type:
           - string
           - "null"
-          description: "Verso, en Markdown ; absent pour un QCM, dont l'explication\
-            \ arrive avec la correction"
+          description: "Verso, en Markdown ; absent pour un format corrigé par le\
+            \ serveur (QCM, code à trous, exercice), dont l'explication arrive avec\
+            \ la correction"
         choices:
           type: array
           items:
@@ -1182,6 +1227,16 @@ components:
           description: "Pour un code à trous seulement : la réponse de chaque trou,\
             \ dans l'ordre"
           maxItems: 10
+        submittedFiles:
+          type:
+          - array
+          - "null"
+          items:
+            $ref: "#/components/schemas/ExerciseFile"
+          description: "Pour un exercice de code seulement : les fichiers rendus,\
+            \ exactement ceux du code de départ. Le serveur les exécute contre les\
+            \ tests et en déduit la note"
+          maxItems: 10
         elapsedMs:
           type:
           - integer
@@ -1272,6 +1327,13 @@ components:
       required:
       - path
       - content
+    Status:
+      type: string
+      enum:
+      - PASSED
+      - FAILED
+      - COMPILATION_ERROR
+      - TIMEOUT
     Subject:
       type: object
       properties:
@@ -1339,6 +1401,23 @@ components:
       enum:
       - DRAFT
       - PUBLISHED
+    TestResult:
+      type: object
+      properties:
+        className:
+          type: string
+        name:
+          type: string
+        passed:
+          type: boolean
+        message:
+          type: string
+          description: Pourquoi le test échoue ; vide s'il passe
+      required:
+      - className
+      - name
+      - passed
+      - message
     Theme:
       type: object
       properties:
@@ -1590,6 +1669,59 @@ paths:
                 $ref: "#/components/schemas/ProblemDetail"
         "409":
           description: Le défi est terminé
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+      security:
+      - SecurityScheme: []
+  /api/v1/exercise-runs:
+    post:
+      summary: "Exécute le code d'un exercice contre ses tests, pour l'essayer : rien\
+        \ n'est enregistré"
+      operationId: runExercise
+      tags:
+      - Révision
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExerciseRunRequest"
+        required: true
+      responses:
+        "200":
+          description: Le résultat de chaque test
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExerciseRun"
+        "400":
+          description: Requête invalide
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+        "404":
+          description: Carte inconnue ou retirée
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+        "422":
+          description: "La carte n'est pas un exercice, ou les fichiers ne sont pas\
+            \ ceux de son code de départ"
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+        "429":
+          description: Une exécution de cet utilisateur est déjà en cours
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+        "503":
+          description: L'exécution des exercices de code est indisponible
           content:
             application/problem+json:
               schema:
@@ -2533,8 +2665,8 @@ paths:
       - SecurityScheme: []
   /api/v1/reviews:
     post:
-      summary: "Enregistre la note donnée à une carte, ou corrige les choix d'un QCM\
-        \ (idempotent grâce à requestId)"
+      summary: "Enregistre la note donnée à une carte, corrige un QCM ou un code à\
+        \ trous, ou juge un exercice de code par ses tests (idempotent grâce à requestId)"
       operationId: recordReview
       tags:
       - Révision
@@ -2579,6 +2711,19 @@ paths:
           description: "Une réponse qui ne correspond pas au format : une note pour\
             \ un QCM ou un code à trous, des choix ou des trous pour une carte en\
             \ auto-évaluation, un nombre de trous inexact"
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+        "429":
+          description: Un exercice de code de cet utilisateur est déjà en cours d'exécution
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+        "503":
+          description: "L'exécution des exercices de code est indisponible : rien\
+            \ n'est enregistré, réessayer plus tard"
           content:
             application/problem+json:
               schema:

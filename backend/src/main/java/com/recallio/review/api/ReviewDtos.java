@@ -13,8 +13,12 @@ import com.recallio.review.application.ReviewRecordingService.Correction;
 import com.recallio.review.application.ReviewRecordingService.ReviewOutcome;
 import com.recallio.review.domain.LearningState;
 import com.recallio.review.domain.Rating;
+import com.recallio.review.domain.exercise.ExerciseRun;
+import com.recallio.review.domain.exercise.ExerciseRun.TestResult;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.PositiveOrZero;
 import jakarta.validation.constraints.Size;
 import java.time.Instant;
@@ -65,7 +69,8 @@ final class ReviewDtos {
             @Schema(description = "Recto, en Markdown") String prompt,
 
             @Schema(
-                    description = "Verso, en Markdown ; absent pour un QCM, dont l'explication arrive avec la"
+                    description = "Verso, en Markdown ; absent pour un format corrigé par le serveur (QCM, code à"
+                            + " trous, exercice), dont l'explication arrive avec la"
                             + " correction",
                     nullable = true)
             @Nullable
@@ -94,7 +99,9 @@ final class ReviewDtos {
             List<RatingPreviewDto> previews) {
         static QueuedCardDto from(QueuedCard queued) {
             var card = queued.card();
-            boolean gradedByServer = card.type().isGradedByChoices() || card.type() == CardType.FILL_IN;
+            boolean gradedByServer = card.type().isGradedByChoices()
+                    || card.type() == CardType.FILL_IN
+                    || card.type() == CardType.CODING_EXERCISE;
             return new QueuedCardDto(
                     card.cardId(),
                     card.type(),
@@ -123,24 +130,24 @@ final class ReviewDtos {
             List<ExerciseFileDto> starter,
 
             @Schema(description = "Les tests qui jugent le code")
-            List<ExerciseFileDto> tests,
-
-            @Schema(description = "La solution modèle, à montrer une fois la réponse révélée")
-            List<ExerciseFileDto> solution) {
+            List<ExerciseFileDto> tests) {
         static ExerciseToSolveDto from(ExerciseFiles files) {
-            return new ExerciseToSolveDto(
-                    ExerciseFileDto.from(files.starter()),
-                    ExerciseFileDto.from(files.tests()),
-                    ExerciseFileDto.from(files.solution()));
+            return new ExerciseToSolveDto(ExerciseFileDto.from(files.starter()), ExerciseFileDto.from(files.tests()));
         }
     }
 
+    /** Un fichier d'exercice : envoyé au joueur (code de départ, tests, solution) ou rendu par lui. */
     @Schema(name = "ExerciseFile")
     record ExerciseFileDto(
-            @Schema(description = "Chemin relatif, avec des /")
+            @Schema(description = "Chemin relatif, avec des /") @NotNull @Pattern(regexp = SourceFile.PATH_PATTERN)
             String path,
 
-            String content) {
+            @NotNull @Size(max = SourceFile.MAX_LENGTH) String content) {
+
+        SourceFile toSourceFile() {
+            return new SourceFile(path, content);
+        }
+
         static List<ExerciseFileDto> from(List<SourceFile> files) {
             return files.stream()
                     .map(file -> new ExerciseFileDto(file.path(), file.content()))
@@ -183,6 +190,14 @@ final class ReviewDtos {
             @Nullable
             List<@NotNull @Size(max = MAX_BLANK_LENGTH) String> filledBlanks,
 
+            @Schema(
+                    description = "Pour un exercice de code seulement : les fichiers rendus, exactement ceux du code de"
+                            + " départ. Le serveur les exécute contre les tests et en déduit la note",
+                    nullable = true)
+            @Size(max = ExerciseFiles.MAX_FILES_PER_PART)
+            @Nullable
+            List<@NotNull @Valid ExerciseFileDto> submittedFiles,
+
             @Schema(description = "Temps de réflexion en millisecondes", nullable = true)
             @PositiveOrZero
             @Max(MAX_ELAPSED_MS)
@@ -223,12 +238,61 @@ final class ReviewDtos {
             List<BlankCorrectionDto> blanks,
 
             @Schema(description = "L'explication, en Markdown")
-            String explanation) {
+            String explanation,
+
+            @Schema(description = "Le résultat des tests d'un exercice de code ; absent sinon", nullable = true)
+            @Nullable
+            ExerciseRunDto exerciseRun,
+
+            @Schema(description = "La solution modèle d'un exercice de code, une fois rendu ; vide sinon")
+            List<ExerciseFileDto> solution) {
         static CorrectionDto from(Correction correction) {
+            ExerciseRun run = correction.exerciseRun();
             return new CorrectionDto(
                     correction.correctChoices().stream().sorted().toList(),
                     correction.blanks().stream().map(BlankCorrectionDto::from).toList(),
-                    correction.explanation());
+                    correction.explanation(),
+                    run == null ? null : ExerciseRunDto.from(run),
+                    ExerciseFileDto.from(correction.solution()));
+        }
+    }
+
+    @Schema(name = "ExerciseRunRequest")
+    record ExerciseRunRequest(
+            @NotNull UUID cardId,
+
+            @Schema(description = "Les fichiers à essayer : exactement ceux du code de départ")
+            @NotNull
+            @Size(min = 1, max = ExerciseFiles.MAX_FILES_PER_PART)
+            List<@NotNull @Valid ExerciseFileDto> files) {}
+
+    @Schema(name = "ExerciseRun")
+    record ExerciseRunDto(
+            ExerciseRun.Status status,
+
+            @Schema(
+                    description =
+                            "Chaque test et son résultat ; vide si le code n'a pas compilé ou n'a pas fini à temps")
+            List<TestResultDto> tests,
+
+            @Schema(description = "Les erreurs de compilation, ou ce qui a arrêté les tests ; vide sinon")
+            String output) {
+        static ExerciseRunDto from(ExerciseRun run) {
+            return new ExerciseRunDto(
+                    run.status(), run.tests().stream().map(TestResultDto::from).toList(), run.output());
+        }
+    }
+
+    @Schema(name = "TestResult")
+    record TestResultDto(
+            String className,
+            String name,
+            boolean passed,
+
+            @Schema(description = "Pourquoi le test échoue ; vide s'il passe")
+            String message) {
+        static TestResultDto from(TestResult test) {
+            return new TestResultDto(test.className(), test.name(), test.passed(), test.message());
         }
     }
 
