@@ -1,4 +1,37 @@
 notion: options-memoire
+lesson: |-
+  Les principales options de mémoire :
+
+  | Option | Rôle |
+  |---|---|
+  | `-Xms`, `-Xmx` | taille initiale et maximale du tas |
+  | `-XX:MaxRAMPercentage=75` | tas maximal en **pourcentage** de la mémoire disponible (du conteneur) |
+  | `-XX:InitialRAMPercentage` | tas initial en pourcentage |
+  | `-Xss` | taille de la pile de chaque thread |
+  | `-XX:MaxMetaspaceSize` | plafond du Metaspace |
+  | `-XX:MaxDirectMemorySize` | plafond des buffers directs |
+  | `-XX:+HeapDumpOnOutOfMemoryError`, `-XX:HeapDumpPath` | heap dump automatique |
+  | `-XX:+ExitOnOutOfMemoryError` | arrêter la JVM sur `OutOfMemoryError`, pour que l'orchestrateur la redémarre |
+
+  **En conteneur** :
+  - la JVM lit les limites du conteneur (cgroups) : CPU et mémoire ; sans option, le tas maximal vaut **25 %** de la
+    mémoire du conteneur (souvent trop peu pour un service) ;
+  - on préfère **`MaxRAMPercentage`** (souvent 60 à 75 %) à un `-Xmx` fixe : la valeur suit la limite du conteneur ;
+  - la mémoire du processus = **tas + hors-tas** : Metaspace, code cache, piles des threads, buffers directs (Netty),
+    structures du GC, bibliothèques natives. Si le total dépasse la limite, le noyau **tue** le processus (**OOMKilled**)
+    sans erreur Java ni heap dump ;
+  - **Native Memory Tracking** (`-XX:NativeMemoryTracking=summary`, puis `jcmd <pid> VM.native_memory summary`) détaille
+    le hors-tas.
+
+  Dimensionner : mesurer sous charge réaliste le **tas après GC** (le vrai besoin), ajouter une marge, puis régler la
+  limite du conteneur pour couvrir tas **et** hors-tas. `-Xms` égal à `-Xmx` évite les redimensionnements (au prix de la
+  mémoire réservée).
+
+  **Piège classique** : `-Xmx` égal à la limite du conteneur. Le tas peut remplir la limite à lui seul, et le hors-tas fait
+  tuer le pod par le noyau, sans aucune trace dans les journaux Java.
+
+  **En entretien** : « En conteneur, `MaxRAMPercentage` autour de 70 % plutôt qu'un `-Xmx` fixe, parce que le processus
+  consomme aussi du hors-tas ; heap dump sur OOM, et Native Memory Tracking quand le pod est OOMKilled. »
 cards:
   - key: maxrampercentage
     format: course
@@ -12,6 +45,86 @@ cards:
     format: course
     question: Pourquoi un OOMKilled ne laisse-t-il pas de trace Java ?
     answer: Le noyau tue le processus de l'extérieur ; la JVM n'a pas l'occasion de lever d'erreur ni de produire un heap dump.
+  - key: defaut-conteneur
+    format: course
+    question: Sans option, quelle taille de tas maximale la JVM choisit-elle dans un conteneur ?
+    answer: 25 % de la mémoire disponible pour le conteneur, souvent trop peu pour un service.
+  - key: exit-oom
+    format: course
+    question: Pourquoi utiliser `-XX:+ExitOnOutOfMemoryError` en production ?
+    answer: Après un `OutOfMemoryError`, l'état de l'application est incertain ; arrêter la JVM laisse l'orchestrateur redémarrer une instance saine.
+  - key: vf-conteneur
+    format: true-false
+    question: Une JVM récente tient compte des limites mémoire et CPU du conteneur.
+    truth: true
+    answer: Elle lit les cgroups (v1 et v2).
+  - key: vf-xmx-limite
+    format: true-false
+    question: Régler `-Xmx` égal à la limite mémoire du conteneur est sûr.
+    truth: false
+    answer: Le hors-tas s'ajoute au tas et fait dépasser la limite.
+  - key: vf-xms-xmx
+    format: true-false
+    question: Fixer `-Xms` égal à `-Xmx` évite les redimensionnements du tas.
+    truth: true
+    answer: Au prix d'une mémoire réservée dès le démarrage.
+  - key: vf-nmt
+    format: true-false
+    question: Native Memory Tracking détaille la mémoire hors tas de la JVM.
+    truth: true
+    answer: Activé par `-XX:NativeMemoryTracking=summary`, lu avec `jcmd VM.native_memory`.
+  - key: qcm-conteneur
+    format: multiple-choice
+    question: Un pod limité à 2 Gio. Quel réglage du tas est raisonnable ?
+    choices:
+      - text: "`-XX:MaxRAMPercentage=70`"
+        correct: true
+      - text: "`-Xmx1400m`, avec une marge pour le hors-tas"
+        correct: true
+      - text: "`-Xmx2g`"
+        correct: false
+      - text: "`-Xmx4g`"
+        correct: false
+    answer: Il faut laisser de la place au Metaspace, aux piles et aux buffers.
+  - key: qcm-hors-tas
+    format: multiple-choice
+    question: Qu'est-ce qui consomme de la mémoire en dehors du tas ?
+    choices:
+      - text: "Les piles des threads"
+        correct: true
+      - text: "Les buffers directs"
+        correct: true
+      - text: "Les objets créés avec `new`"
+        correct: false
+      - text: "Les chaînes internées"
+        correct: false
+    answer: Objets et chaînes internées sont dans le tas.
+  - key: qcm-oom
+    format: multiple-choice
+    question: Quelles options sont utiles en production face aux `OutOfMemoryError` ?
+    choices:
+      - text: "`-XX:+HeapDumpOnOutOfMemoryError` avec `-XX:HeapDumpPath`"
+        correct: true
+      - text: "`-XX:+ExitOnOutOfMemoryError`"
+        correct: true
+      - text: "`-Xss1k`"
+        correct: false
+      - text: "`-XX:-UseGC`"
+        correct: false
+    answer: Un dump pour comprendre, un arrêt pour repartir sain.
+  - key: qcm-mesurer
+    format: multiple-choice
+    question: Quelle mesure donne le vrai besoin en tas d'un service ?
+    choices:
+      - text: "Le niveau du tas après GC sous charge réaliste"
+        correct: true
+      - text: "Le pic d'utilisation juste avant un GC"
+        correct: false
+      - text: "La taille du JAR"
+        correct: false
+      - text: "Le nombre de classes"
+        correct: false
+    answer: Le pic inclut les objets déjà morts, pas encore collectés.
   - key: dimensionnes-memoire-service-production
     format: scenario
     question: Comment tu dimensionnes la mémoire d'un service en production ?
@@ -26,3 +139,20 @@ cards:
       Si le heap n'est pas plein, c'est la **mémoire native** qui dépasse la limite du conteneur. Je listerais les postes : metaspace, piles de threads (des centaines de threads × 1 Mo), buffers directs (Netty, NIO), code cache, structures du GC.
       J'activerais le Native Memory Tracking pour voir quel poste grossit. Les causes fréquentes : un `-Xmx` trop proche de la limite du pod, un nombre de threads qui explose, une bibliothèque qui alloue des buffers directs sans limite, ou une fuite de class loaders qui gonfle le metaspace.
       Correction : réduire le heap (via `MaxRAMPercentage` autour de 70-75 %), borner ce qui peut l'être (`MaxMetaspaceSize`, `MaxDirectMemorySize`, taille des pools de threads) et garder une marge réelle entre la somme et la limite du conteneur.
+  - key: scenario-defaut-25
+    format: scenario
+    question: Un service conteneurisé fait beaucoup de GC alors que le pod a 4 Gio et n'en utilise qu'un. Que regardes-tu ?
+    answer: |-
+      La taille réelle du tas : sans option, la JVM ne prend que 25 % de la mémoire du conteneur, soit 1 Gio de tas
+      maximal, et le GC travaille beaucoup pour tenir dedans. Je vérifie avec `jcmd <pid> VM.flags` ou
+      `-XX:+PrintFlagsFinal` (`MaxHeapSize`). Je règle `MaxRAMPercentage` autour de 70 %, je vérifie le hors-tas avec NMT
+      pour garder une marge, puis je mesure à nouveau la fréquence et la durée des GC sous charge.
+  - key: scenario-threads
+    format: scenario
+    question: La mémoire native d'un service augmente avec la charge, sans fuite dans le tas. NMT montre que la catégorie « Thread » grossit. Explique et corrige.
+    answer: |-
+      Chaque thread de plateforme réserve sa pile (jusqu'à 1 Mo) en mémoire native : un pool qui crée des threads sans
+      limite (`newCachedThreadPool`, un thread par connexion) fait grossir la mémoire avec la charge. Je borne les pools
+      (taille fixe, file bornée), je cherche qui crée des threads (thread dump : noms et nombre), et pour les tâches
+      d'entrée-sortie, je passe à des threads virtuels, dont la pile vit dans le tas et ne coûte que ce qu'elle utilise.
+      Réduire `-Xss` est un dernier recours, avec un risque de `StackOverflowError`.

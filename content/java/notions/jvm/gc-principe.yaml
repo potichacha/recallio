@@ -1,4 +1,39 @@
 notion: gc-principe
+lesson: |-
+  Le **ramasse-miettes** (*garbage collector*, GC) libère la mémoire des objets **inaccessibles**. Un objet est vivant
+  s'il est atteignable, par une chaîne de références, depuis une **racine** :
+  - les variables locales et paramètres des méthodes en cours (les piles des threads) ;
+  - les champs statiques des classes chargées ;
+  - les références tenues par du code natif (JNI), les moniteurs détenus.
+
+  Tout le reste est récupérable, même si des objets se référencent entre eux (un **cycle** isolé est collecté : pas de
+  comptage de références en Java).
+
+  Les grandes techniques :
+  - **marquer** les objets vivants à partir des racines, puis
+    - **balayer** (*sweep*) : libérer la place des morts sur place, au risque de fragmenter ;
+    - **compacter** : tasser les vivants pour obtenir un espace libre contigu ;
+    - **copier** : déplacer les vivants dans une zone vide ; le coût dépend du nombre de **vivants**, pas de morts.
+
+  L'**hypothèse générationnelle** : la plupart des objets meurent **jeunes** (objets temporaires d'une requête). Le tas est
+  donc découpé :
+  - la **jeune génération** (*Young*) : un espace **Eden** où naissent les objets, et des espaces **Survivor** ; collectée
+    souvent et vite (*minor GC*), par copie, car presque tout y est mort ;
+  - la **vieille génération** (*Old*) : les objets qui ont survécu à plusieurs collectes y sont **promus** ; collectée
+    plus rarement, plus coûteuse.
+
+  Une collecte peut **arrêter tous les threads** applicatifs (*stop-the-world*) le temps d'une phase ; les GC modernes
+  font l'essentiel du travail **en parallèle** de l'application (concurrent) pour réduire ces pauses.
+
+  - **`System.gc()`** n'est qu'une **suggestion** (souvent un GC complet coûteux) : on ne l'appelle pas dans le code.
+  - Un GC qui travaille sans arrêt et récupère peu mène à `OutOfMemoryError: GC overhead limit exceeded` (ou Java heap
+    space).
+
+  **Piège classique** : mettre des variables à `null` partout « pour aider le GC ». Une variable locale disparaît avec sa
+  méthode ; seules les références de longue durée (champs, collections, caches) méritent d'être nettoyées.
+
+  **En entretien** : « Le GC libère ce qui n'est plus atteignable depuis les racines ; il exploite le fait que la plupart
+  des objets meurent jeunes, avec une jeune génération collectée souvent par copie et une vieille génération plus rarement. »
 cards:
   - key: repose-separation-young-old-gen
     format: course
@@ -12,3 +47,114 @@ cards:
     format: course
     question: Mark-sweep vs mark-compact vs copying ?
     answer: Libérer sur place (fragmentation) / tasser les survivants / copier les survivants dans une zone vide.
+  - key: racines
+    format: course
+    question: Que sont les racines du GC ?
+    answer: "Les points de départ du marquage : variables locales et paramètres des méthodes en cours, champs statiques, références tenues par le code natif ; tout objet atteignable depuis elles est vivant."
+  - key: vf-cycles
+    format: true-false
+    question: Deux objets qui se référencent mutuellement, sans autre référence, ne sont jamais collectés.
+    truth: false
+    answer: Le GC part des racines ; un cycle isolé est inaccessible, donc collecté.
+  - key: vf-jeunes
+    format: true-false
+    question: La plupart des objets d'une application meurent jeunes.
+    truth: true
+    answer: C'est l'hypothèse générationnelle, sur laquelle reposent les GC générationnels.
+  - key: vf-copie-cout
+    format: true-false
+    question: Le coût d'une collecte par copie dépend surtout du nombre d'objets vivants.
+    truth: true
+    answer: Seuls les vivants sont copiés ; les morts sont ignorés.
+  - key: vf-null
+    format: true-false
+    question: Mettre les variables locales à `null` à la fin d'une méthode aide nettement le GC.
+    truth: false
+    answer: Elles disparaissent avec le cadre de la méthode.
+  - key: qcm-racines
+    format: multiple-choice
+    question: Lesquelles sont des racines du GC ?
+    choices:
+      - text: "Les variables locales des méthodes en cours"
+        correct: true
+      - text: "Les champs statiques des classes chargées"
+        correct: true
+      - text: "Les objets référencés seulement par un objet inaccessible"
+        correct: false
+      - text: "Les fichiers `.class` du disque"
+        correct: false
+    answer: Les références JNI et les moniteurs détenus aussi.
+  - key: qcm-promotion
+    format: multiple-choice
+    question: Que signifie « promouvoir » un objet ?
+    choices:
+      - text: "Le déplacer de la jeune vers la vieille génération après plusieurs collectes survécues"
+        correct: true
+      - text: "Le rendre immuable"
+        correct: false
+      - text: "Le placer dans le Metaspace"
+        correct: false
+      - text: "Augmenter sa priorité"
+        correct: false
+    answer: Un objet qui survit longtemps finit en vieille génération.
+  - key: qcm-stw
+    format: multiple-choice
+    question: Qu'est-ce qu'une pause stop-the-world ?
+    choices:
+      - text: "Une phase où tous les threads applicatifs sont arrêtés pour le GC"
+        correct: true
+      - text: "L'arrêt définitif de la JVM"
+        correct: false
+      - text: "Une pause du réseau"
+        correct: false
+      - text: "Un thread qui dort"
+        correct: false
+    answer: Les GC modernes les raccourcissent en travaillant en concurrence avec l'application.
+  - key: qcm-system-gc
+    format: multiple-choice
+    question: Pourquoi éviter `System.gc()` dans le code applicatif ?
+    choices:
+      - text: "Il peut déclencher un GC complet coûteux, sans garantie"
+        correct: true
+      - text: "Il désactive le GC"
+        correct: false
+      - text: "Il lève toujours une exception"
+        correct: false
+      - text: "Il vide le Metaspace"
+        correct: false
+    answer: '`-XX:+DisableExplicitGC` permet de l''ignorer.'
+  - key: scenario-expliquer
+    format: scenario
+    question: Explique en quelques phrases comment le GC sait qu'un objet peut être libéré.
+    answer: |-
+      Il ne compte pas les références : il part des racines (variables locales des threads en cours, champs statiques,
+      références natives) et marque tout ce qu'il peut atteindre en suivant les références. Ce qui n'a pas été marqué est
+      inaccessible, donc libérable, même si ces objets se référencent entre eux. Pour aller vite, il exploite le fait que
+      la plupart des objets meurent jeunes : il collecte souvent la jeune génération, où presque tout est mort, et plus
+      rarement la vieille.
+  - key: scenario-taux-allocation
+    format: scenario
+    question: Les GC de la jeune génération sont très fréquents sur un service. Est-ce un problème, et que regardes-tu ?
+    answer: |-
+      Pas forcément : des collectes jeunes fréquentes et courtes sont normales pour un service qui alloue beaucoup. Je
+      regarde leur durée cumulée (le pourcentage du temps passé en GC), et si des objets survivent anormalement et sont
+      promus (la vieille génération qui grossit vite). Si le coût est significatif, je profile les allocations (JFR,
+      async-profiler) pour réduire les plus grosses sources (chaînes construites inutilement, conversions, copies), ou
+      j'agrandis la jeune génération pour espacer les collectes.
+  - key: scenario-overhead
+    format: scenario
+    question: "Une application lève `OutOfMemoryError: GC overhead limit exceeded`. Qu'est-ce que cela signifie ?"
+    answer: |-
+      Le GC passe presque tout son temps à collecter (plus de 98 %) et récupère très peu de mémoire (moins de 2 %) : le
+      tas est quasi plein d'objets vivants. Soit le tas est trop petit pour le besoin réel, soit une fuite retient des
+      objets. Je regarde la tendance du tas après GC et je capture un heap dump pour voir ce qui occupe la mémoire et qui
+      le retient. Agrandir le tas n'est la bonne réponse que si le besoin est légitime et stable.
+  - key: scenario-null
+    format: scenario
+    question: En revue, un collègue met systématiquement ses variables à `null` « pour aider le GC ». Qu'en dis-tu ?
+    answer: |-
+      Que c'est inutile pour les variables locales : elles disparaissent quand la méthode se termine, et le JIT sait même
+      qu'une variable n'est plus utilisée avant la fin. Cela alourdit le code sans gain. Ce qui compte, ce sont les
+      références de longue durée : un champ d'un objet qui vit longtemps, une collection ou un cache, un écouteur
+      enregistré. Là, retirer la référence quand l'objet ne sert plus évite une fuite (par exemple, mettre à `null` les
+      cases d'une pile maison après un `pop`).

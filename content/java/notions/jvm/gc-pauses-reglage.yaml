@@ -1,4 +1,40 @@
 notion: gc-pauses-reglage
+lesson: |-
+  Régler un GC, c'est arbitrer entre trois objectifs qu'on ne maximise pas tous à la fois :
+  - le **débit** : la part du temps passée à exécuter l'application plutôt que le GC ;
+  - la **latence** : la durée des pauses (ce que voient les utilisateurs, aux percentiles 99 et 99,9) ;
+  - l'**empreinte** : la mémoire et le CPU consommés.
+
+  **Lire les journaux du GC** (*unified logging*, Java 9) :
+
+  ```
+  -Xlog:gc*:file=gc.log:time,uptime,level,tags:filecount=5,filesize=20m
+  [12.345s][info][gc] GC(42) Pause Young (Normal) (G1 Evacuation Pause) 512M->128M(1024M) 8.123ms
+  ```
+  On y lit le type de collecte, la mémoire avant et après, la taille du tas et la durée de la pause. Des outils (GCeasy,
+  GCViewer) et **JFR** les résument.
+
+  **Démarche** :
+  1. Fixer un objectif mesurable (« p99 sous 50 ms », « le batch finit en 1 h »).
+  2. Mesurer : temps cumulé en GC, durée et fréquence des pauses, mémoire après GC, taux d'allocation et de promotion.
+  3. Agir sur la cause, dans l'ordre :
+     - **dimensionner** le tas (`-Xmx`, `MaxRAMPercentage`) d'après le niveau après GC ;
+     - **réduire les allocations** (profilage), souvent le levier le plus efficace ;
+     - ajuster l'objectif de pause de G1 (`-XX:MaxGCPauseMillis`) ;
+     - changer de GC (ZGC pour la latence, Parallel pour le débit).
+  4. Remesurer sous charge réaliste, une modification à la fois.
+
+  Les signaux d'alerte :
+  - des **Full GC** répétés (avec G1, c'est un échec : le tas est trop petit ou une fuite le remplit) ;
+  - une mémoire après GC qui **monte** dans le temps (fuite) ;
+  - une part du temps en GC supérieure à quelques pourcents ;
+  - des pauses dues aux **objets humongous** ou à une promotion massive.
+
+  **Piège classique** : empiler des dizaines d'options de GC copiées d'un article. Les options par défaut des GC modernes
+  sont bonnes ; des réglages non mesurés dégradent souvent la situation et compliquent les montées de version.
+
+  **En entretien** : « Débit, latence, empreinte : on fixe un objectif, on lit les journaux du GC (ou JFR), on dimensionne
+  et on réduit les allocations avant de toucher aux options, puis on remesure. »
 cards:
   - key: pause-stop-the-world
     format: course
@@ -8,6 +44,86 @@ cards:
     format: course
     question: Que contrôle MaxGCPauseMillis ?
     answer: L'objectif de durée de pause de G1 (200 ms par défaut), pas une garantie.
+  - key: compromis
+    format: course
+    question: Quels sont les trois objectifs entre lesquels on arbitre en réglant un GC ?
+    answer: Le débit (temps consacré à l'application), la latence (durée des pauses) et l'empreinte (mémoire et CPU consommés).
+  - key: journaux
+    format: course
+    question: Comment activer les journaux du GC depuis Java 9 ?
+    answer: Avec le unified logging, par exemple `-Xlog:gc*:file=gc.log:time,uptime:filecount=5,filesize=20m`.
+  - key: vf-full-gc
+    format: true-false
+    question: Avec G1, des Full GC répétés sont un fonctionnement normal.
+    truth: false
+    answer: Ils signalent un tas trop petit, une fuite ou des objets humongous.
+  - key: vf-garantie
+    format: true-false
+    question: "`-XX:MaxGCPauseMillis=50` garantit qu'aucune pause ne dépassera 50 ms."
+    truth: false
+    answer: C'est un objectif que G1 essaie d'atteindre.
+  - key: vf-allocations
+    format: true-false
+    question: Réduire le taux d'allocation est souvent plus efficace que régler les options du GC.
+    truth: true
+    answer: Moins d'objets créés, c'est moins de travail pour le GC.
+  - key: vf-percentiles
+    format: true-false
+    question: Pour une API, la latence se juge sur les percentiles élevés (p99), pas sur la moyenne.
+    truth: true
+    answer: Les pauses du GC touchent surtout la queue de la distribution.
+  - key: qcm-signaux
+    format: multiple-choice
+    question: Quels signaux indiquent un problème de GC ?
+    choices:
+      - text: "Une mémoire après GC qui monte de jour en jour"
+        correct: true
+      - text: "Plus de 10 % du temps passé en GC"
+        correct: true
+      - text: "Des collectes jeunes courtes et régulières"
+        correct: false
+      - text: "Un tas qui oscille entre 30 et 60 %"
+        correct: false
+    answer: Des collectes jeunes rapides sont normales.
+  - key: qcm-ordre
+    format: multiple-choice
+    question: Dans quel ordre agir sur un problème de pauses ?
+    choices:
+      - text: "Mesurer, dimensionner le tas, réduire les allocations, ajuster l'objectif de pause, puis changer de GC"
+        correct: true
+      - text: "Changer de GC d'abord, puis mesurer"
+        correct: false
+      - text: "Copier les options d'un article"
+        correct: false
+      - text: "Augmenter `-Xmx` jusqu'à ce que le problème disparaisse"
+        correct: false
+    answer: Une modification à la fois, remesurée.
+  - key: qcm-lecture
+    format: multiple-choice
+    question: "Que lit-on dans `GC(42) Pause Young (Normal) 512M->128M(1024M) 8.123ms` ?"
+    choices:
+      - text: "Une pause de la jeune génération de 8 ms, qui a fait passer le tas occupé de 512 Mo à 128 Mo sur 1 024 Mo"
+        correct: true
+      - text: "Un Full GC de 8 secondes"
+        correct: false
+      - text: "Une fuite de 128 Mo"
+        correct: false
+      - text: "Un tas maximal de 512 Mo"
+        correct: false
+    answer: Le nombre entre parenthèses est la taille actuelle du tas.
+  - key: qcm-outils
+    format: multiple-choice
+    question: Quels outils aident à analyser le comportement du GC ?
+    choices:
+      - text: "Java Flight Recorder et Mission Control"
+        correct: true
+      - text: "Des analyseurs de journaux GC (GCeasy, GCViewer)"
+        correct: true
+      - text: "`javap`"
+        correct: false
+      - text: "`jar tf`"
+        correct: false
+    answer: '`jstat -gcutil` donne aussi une vue rapide en direct.'
   - key: temps-reponse-ont-pics-reguliers-plusieurs
     format: scenario
     question: Les temps de réponse ont des pics réguliers de plusieurs centaines de millisecondes.
@@ -15,3 +131,31 @@ cards:
       Des pics réguliers évoquent des **pauses GC**. Je commencerais par les logs GC (`-Xlog:gc*`) ou JFR pour corréler les pics avec des pauses.
       Si ce sont des collectes Young fréquentes : le taux d'allocation est trop élevé, je profilerais les allocations pour trouver qui produit autant d'objets. Si ce sont des Full GC : l'Old Generation se remplit, fuite possible ou heap trop petit. Si c'est G1 avec des objets humongous : de gros tableaux alloués souvent.
       Selon le diagnostic : réduire les allocations, agrandir le heap, ajuster la pause cible de G1, ou passer à **ZGC** si l'objectif est une latence très basse et qu'on accepte un léger surcoût CPU.
+  - key: scenario-options-copiees
+    format: scenario
+    question: Tu découvres une ligne de lancement avec vingt options de GC dont personne ne connaît l'origine. Que fais-tu ?
+    answer: |-
+      Je mesure la situation actuelle (pauses, débit, mémoire après GC, sous une charge représentative), puis je teste une
+      configuration minimale : le GC choisi, la taille du tas, éventuellement l'objectif de pause, et les options de
+      diagnostic (journaux GC, heap dump sur OOM). Les GC modernes ont de bons réglages par défaut, et beaucoup d'options
+      anciennes n'ont plus d'effet ou sont devenues contre-productives. Je ne réintroduis une option que si la mesure
+      montre un gain, et je documente pourquoi.
+  - key: scenario-objectif
+    format: scenario
+    question: Le métier exige des réponses en moins de 100 ms au percentile 99,9. Comment abordes-tu la partie GC ?
+    answer: |-
+      Je mesure la latence de bout en bout et j'isole la part due au GC (journaux, JFR, corrélation des pics avec les
+      pauses). Avec G1, je dimensionne le tas pour éviter tout Full GC et je règle un objectif de pause compatible
+      (`MaxGCPauseMillis` bien en dessous de 100 ms) ; si les pauses restent trop longues, ZGC donne des pauses de l'ordre
+      de la milliseconde. En parallèle, je réduis les allocations sur le chemin critique. Le GC n'est qu'une source de
+      latence parmi d'autres : réseau, base, verrous comptent aussi au p99,9.
+  - key: scenario-full-gc
+    format: scenario
+    question: Les journaux montrent des « Pause Full (G1 Compaction Pause) » de plusieurs secondes, une fois par heure. Que cherches-tu ?
+    answer: |-
+      Un Full GC avec G1 signifie que le GC concurrent n'a pas suivi : la vieille génération s'est remplie avant la fin du
+      marquage, ou une allocation humongous n'a pas trouvé de place. Je regarde la mémoire après GC (fuite ou tas trop
+      petit), le taux de promotion, les allocations humongous dans les journaux, et un éventuel `System.gc()` explicite
+      (une bibliothèque, ou RMI). Selon la cause : agrandir le tas, corriger la fuite, réduire les gros tableaux ou
+      agrandir les régions, démarrer le marquage plus tôt (`-XX:InitiatingHeapOccupancyPercent`), ou désactiver les GC
+      explicites.

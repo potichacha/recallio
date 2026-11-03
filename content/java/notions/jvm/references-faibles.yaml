@@ -1,6 +1,176 @@
 notion: references-faibles
+lesson: |-
+  `java.lang.ref` propose des références que le ramasse-miettes **peut ignorer**, du plus fort au plus faible :
+
+  | Référence | L'objet est collecté... | Usage |
+  |---|---|---|
+  | **forte** (ordinaire) | jamais tant qu'elle existe | tout le code normal |
+  | **`SoftReference`** | seulement si la mémoire **manque** | caches sensibles à la mémoire (déconseillé en pratique) |
+  | **`WeakReference`** | au prochain GC, dès qu'il n'a plus de référence forte | associer des données sans retenir l'objet (`WeakHashMap`) |
+  | **`PhantomReference`** | déjà collecté ; `get()` renvoie toujours `null` | être prévenu **après** la collecte pour libérer une ressource |
+
+  ```java
+  WeakReference<Image> ref = new WeakReference<>(image);
+  Image i = ref.get();                     // l'objet, ou null s'il a été collecté
+  if (i != null) afficher(i);
+
+  // Libérer une ressource native quand l'objet devient inaccessible (remplace finalize)
+  private static final Cleaner CLEANER = Cleaner.create();
+  CLEANER.register(tampon, () -> liberer(adresseNative));   // l'action ne doit pas référencer tampon
+  ```
+
+  - On teste toujours `get()` contre `null`, et l'on garde une référence forte locale le temps de l'utiliser.
+  - Une **`ReferenceQueue`** reçoit les références dont l'objet a été collecté, pour faire le ménage.
+  - **`Cleaner`** (Java 9) s'appuie sur les références fantômes : c'est le remplaçant de **`finalize()`**, déprécié pour
+    suppression (imprévisible, lent, dangereux). Mais `close()` et try-with-resources restent le moyen normal de libérer
+    une ressource ; le `Cleaner` n'est qu'un filet de sécurité.
+  - Les `SoftReference` font de mauvais caches : le GC les vide en bloc sous pression, et elles rallongent les GC. On
+    préfère un cache borné (Caffeine).
+  - Le moment de la collecte n'est **jamais garanti** : on ne bâtit pas de logique sur « l'objet aura disparu après
+    `System.gc()` ».
+
+  **Piège classique** : `if (ref.get() != null) ref.get().utiliser();`. Entre les deux appels, l'objet peut être
+  collecté : on lit `get()` une fois dans une variable locale.
+
+  **En entretien** : « Soft collectée sous pression, weak au prochain GC, phantom après la collecte pour nettoyer
+  (`Cleaner`, qui remplace `finalize`) ; et pour un cache, une taille bornée plutôt que des soft references. »
 cards:
   - key: strong-soft-weak-phantom
     format: course
     question: Strong, soft, weak, phantom ?
     answer: Empêche la collecte / collectée si la mémoire manque / collectée au prochain GC / notification après collecte (Cleaner).
+  - key: cleaner
+    format: course
+    question: Que remplace `Cleaner`, et pourquoi ?
+    answer: '`finalize()`, déprécié pour suppression car imprévisible, lent et dangereux (résurrection d''objets) ; `Cleaner` exécute une action après la collecte grâce aux références fantômes.'
+  - key: soft-cache
+    format: course
+    question: Pourquoi les `SoftReference` font-elles de mauvais caches ?
+    answer: Le GC les vide toutes d'un coup sous pression mémoire et elles allongent les collectes ; un cache borné en taille (Caffeine) est plus prévisible.
+  - key: get-null
+    format: course
+    question: Comment utiliser correctement une `WeakReference` ?
+    answer: Lire `get()` une seule fois dans une variable locale, tester `null`, puis utiliser la variable, qui garde une référence forte pendant l'usage.
+  - key: vf-phantom-get
+    format: true-false
+    question: "`PhantomReference.get()` renvoie toujours `null`."
+    truth: true
+    answer: Elle ne sert qu'à être prévenu de la collecte.
+  - key: vf-weak-gc
+    format: true-false
+    question: Un objet référencé seulement par une `WeakReference` peut être collecté au prochain GC.
+    truth: true
+    answer: Une référence faible ne retient pas l'objet.
+  - key: vf-finalize
+    format: true-false
+    question: "`finalize()` est la méthode recommandée pour libérer une ressource."
+    truth: false
+    answer: Il est déprécié pour suppression ; on utilise `close()` (et un `Cleaner` en filet de sécurité).
+  - key: vf-garanti
+    format: true-false
+    question: Après `System.gc()`, un objet faiblement référencé est garanti collecté.
+    truth: false
+    answer: '`System.gc()` n''est qu''une suggestion, et le moment de la collecte n''est jamais garanti.'
+  - key: qcm-forces
+    format: multiple-choice
+    question: Classez de la plus forte à la plus faible.
+    choices:
+      - text: "forte, soft, weak, phantom"
+        correct: true
+      - text: "soft, forte, weak, phantom"
+        correct: false
+      - text: "weak, soft, forte, phantom"
+        correct: false
+      - text: "phantom, weak, soft, forte"
+        correct: false
+    answer: Chaque niveau retient moins l'objet que le précédent.
+  - key: qcm-weakhashmap
+    format: multiple-choice
+    question: Sur quel type de référence repose `WeakHashMap` ?
+    choices:
+      - text: "Des `WeakReference` sur les clés"
+        correct: true
+      - text: "Des `SoftReference` sur les valeurs"
+        correct: false
+      - text: "Des `PhantomReference` sur les clés"
+        correct: false
+      - text: "Des références fortes uniquement"
+        correct: false
+    answer: Une entrée disparaît quand sa clé n'est plus référencée ailleurs.
+  - key: qcm-ressource
+    format: multiple-choice
+    question: Comment libérer une ressource native associée à un objet Java ?
+    choices:
+      - text: "Une méthode `close()` appelée explicitement (try-with-resources)"
+        correct: true
+      - text: "Un `Cleaner` comme filet de sécurité si `close()` est oublié"
+        correct: true
+      - text: "Redéfinir `finalize()`"
+        correct: false
+      - text: "Appeler `System.gc()` régulièrement"
+        correct: false
+    answer: Le `Cleaner` ne doit pas être le mécanisme principal.
+  - key: qcm-queue
+    format: multiple-choice
+    question: À quoi sert une `ReferenceQueue` ?
+    choices:
+      - text: "À recevoir les références dont l'objet a été collecté, pour faire le ménage"
+        correct: true
+      - text: "À ordonner les objets du tas"
+        correct: false
+      - text: "À accélérer le GC"
+        correct: false
+      - text: "À stocker des objets forts"
+        correct: false
+    answer: '`WeakHashMap` l''utilise pour retirer ses entrées mortes.'
+  - key: code-forte
+    format: code-output
+    question: |-
+      ```java
+      import java.lang.ref.*;
+      Object objet = new Object();
+      WeakReference<Object> faible = new WeakReference<>(objet);
+      System.gc();
+      System.out.println(faible.get() == objet);
+      ```
+    answer: '`true` : tant que la variable `objet` garde une référence forte, l''objet n''est pas collecté.'
+    check:
+      output: "true"
+  - key: code-phantom
+    format: code-output
+    question: |-
+      ```java
+      import java.lang.ref.*;
+      Object objet = new Object();
+      PhantomReference<Object> fantome = new PhantomReference<>(objet, new ReferenceQueue<>());
+      System.out.println(fantome.get());
+      ```
+    answer: '`null` : une référence fantôme ne donne jamais accès à l''objet.'
+    check:
+      output: "null"
+  - key: code-clear
+    format: code-output
+    question: |-
+      ```java
+      import java.lang.ref.*;
+      SoftReference<String> douce = new SoftReference<>(new String("cache"));
+      douce.clear();
+      System.out.println(douce.get());
+      ```
+    answer: '`null` : `clear()` coupe la référence sans attendre le GC.'
+    check:
+      output: "null"
+  - key: code-cleaner
+    format: code-output
+    question: |-
+      ```java
+      import java.lang.ref.*;
+      Cleaner cleaner = Cleaner.create();
+      Object ressource = new Object();
+      Cleaner.Cleanable c = cleaner.register(ressource, () -> System.out.println("libérée"));
+      c.clean();
+      c.clean();
+      ```
+    answer: '`libérée`, une seule fois : l''action d''un `Cleanable` ne s''exécute qu''une fois.'
+    check:
+      output: "libérée"

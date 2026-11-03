@@ -1,5 +1,128 @@
 notion: thread-dump
+lesson: |-
+  Un **thread dump** est une photo de **tous les threads** d'une JVM à un instant : leur nom, leur état et leur **pile
+  d'appels**. C'est l'outil de base pour une application **figée**, **lente** ou dont le CPU s'emballe.
+
+  ```
+  jcmd <pid> Thread.print          # ou : jstack <pid>, ou kill -3 <pid> (dans la sortie standard)
+
+  "http-nio-8080-exec-7" #42 daemon prio=5 os_prio=0 cpu=1520ms nid=0x3a1f waiting for monitor entry
+     java.lang.Thread.State: BLOCKED (on object monitor)
+          at com.exemple.Stock.reserver(Stock.java:58)
+          - waiting to lock <0x00000007a3c1e2f8> (a com.exemple.Stock)
+          at com.exemple.CommandeService.valider(CommandeService.java:31)
+  ```
+
+  Lire un dump :
+  - l'**état** : `RUNNABLE` (exécute, ou attend une entrée-sortie native), `BLOCKED` (attend un moniteur
+    `synchronized`), `WAITING`/`TIMED_WAITING` (attend une condition, un `join`, une file, un verrou `ReentrantLock`) ;
+  - **qui détient quoi** : `- locked <0x...>` (verrou détenu) et `- waiting to lock <0x...>` (verrou attendu) permettent de
+    remonter jusqu'au thread bloquant ;
+  - la JVM signale les **interblocages** : `Found one Java-level deadlock` ;
+  - le `nid` est l'identifiant système du thread (en hexadécimal), qui fait le lien avec `top -H`.
+
+  La méthode :
+  - prendre **plusieurs dumps** à quelques secondes d'intervalle : un thread toujours au même endroit est bloqué, un état
+    unique peut n'être que transitoire ;
+  - chercher les **motifs** : beaucoup de threads au même endroit (un verrou disputé, un pool de connexions épuisé, un
+    appel externe sans délai), ou un thread `RUNNABLE` dans une boucle ;
+  - des **noms de threads explicites** rendent le dump lisible ;
+  - pour les **threads virtuels** : `jcmd <pid> Thread.dump_to_file -format=json`.
+
+  **Piège classique** : conclure sur un seul dump. Un thread vu une fois dans une méthode lente n'est pas forcément bloqué
+  ; c'est la répétition sur plusieurs dumps qui désigne le problème.
+
+  **En entretien** : « Plusieurs dumps espacés de quelques secondes ; je lis les états et les verrous détenus et attendus,
+  je cherche les threads accumulés au même endroit, et la JVM signale elle-même les interblocages. »
 cards:
+  - key: prendre-plusieurs-thread-dumps
+    format: course
+    question: Pourquoi prendre plusieurs thread dumps ?
+    answer: Pour distinguer un blocage durable d'un état transitoire.
+  - key: obtenir
+    format: course
+    question: Comment obtenir un thread dump ?
+    answer: Avec `jcmd <pid> Thread.print`, `jstack <pid>`, ou `kill -3 <pid>` (le dump est écrit sur la sortie standard de la JVM).
+  - key: verrous
+    format: course
+    question: Comment trouver, dans un dump, le thread qui bloque les autres ?
+    answer: En reliant les `waiting to lock <adresse>` des threads bloqués au thread qui affiche `locked <même adresse>`, puis en regardant ce que fait ce dernier.
+  - key: nid
+    format: course
+    question: À quoi sert le champ `nid` d'un thread dans un dump ?
+    answer: C'est l'identifiant du thread pour le système, en hexadécimal ; il permet de relier un thread vu dans `top -H` à sa pile Java.
+  - key: vf-deadlock
+    format: true-false
+    question: Un thread dump signale automatiquement les interblocages entre moniteurs.
+    truth: true
+    answer: Avec le message « Found one Java-level deadlock ».
+  - key: vf-runnable-io
+    format: true-false
+    question: Un thread à l'état `RUNNABLE` consomme forcément du CPU.
+    truth: false
+    answer: Un thread bloqué dans une lecture réseau native apparaît aussi `RUNNABLE`.
+  - key: vf-un-dump
+    format: true-false
+    question: Un seul thread dump suffit pour affirmer qu'un thread est bloqué.
+    truth: false
+    answer: Il faut voir le même état sur plusieurs dumps.
+  - key: vf-kill
+    format: true-false
+    question: "`kill -3 <pid>` arrête la JVM."
+    truth: false
+    answer: Il lui demande d'écrire un thread dump sur sa sortie standard.
+  - key: qcm-etats
+    format: multiple-choice
+    question: Associez correctement l'état et sa signification.
+    choices:
+      - text: "`BLOCKED` : attend un moniteur `synchronized`"
+        correct: true
+      - text: "`WAITING` : attend une condition, un `join` ou une file"
+        correct: true
+      - text: "`BLOCKED` : attend la fin d'un `Thread.sleep`"
+        correct: false
+      - text: "`TIMED_WAITING` : en train de calculer"
+        correct: false
+    answer: '`sleep` met le thread en `TIMED_WAITING`.'
+  - key: qcm-motif
+    format: multiple-choice
+    question: Deux cents threads HTTP sont en `WAITING` dans `HikariPool.getConnection`. Que conclure ?
+    choices:
+      - text: "Le pool de connexions à la base est épuisé"
+        correct: true
+      - text: "Le CPU est saturé"
+        correct: false
+      - text: "Le GC est en pause"
+        correct: false
+      - text: "Tout va bien"
+        correct: false
+    answer: Des connexions sont gardées trop longtemps, ou le pool est trop petit pour la charge.
+  - key: qcm-virtuels
+    format: multiple-choice
+    question: Comment voir les threads virtuels dans un dump ?
+    choices:
+      - text: "`jcmd <pid> Thread.dump_to_file -format=json fichier.json`"
+        correct: true
+      - text: "`jstack <pid>`"
+        correct: false
+      - text: "`jmap -histo <pid>`"
+        correct: false
+      - text: "`kill -9 <pid>`"
+        correct: false
+    answer: Le format classique ne liste que les threads de plateforme.
+  - key: qcm-lisibilite
+    format: multiple-choice
+    question: Qu'est-ce qui rend un thread dump plus lisible ?
+    choices:
+      - text: "Des threads nommés selon leur rôle (pools nommés)"
+        correct: true
+      - text: "Des piles d'appels courtes et des noms de méthodes explicites"
+        correct: true
+      - text: "Des threads anonymes `Thread-37`"
+        correct: false
+      - text: "Des priorités élevées"
+        correct: false
+    answer: Une `ThreadFactory` qui nomme les threads est un petit investissement rentable.
   - key: application-fige-temps-temps-sans-erreur
     format: scenario
     question: L'application se fige de temps en temps, sans erreur dans les logs.
@@ -7,7 +130,30 @@ cards:
       Un gel silencieux oriente vers un blocage de threads. L'outil clé est le **thread dump** pris pendant l'incident : il montre l'état de chaque thread, et la JVM détecte et signale explicitement les deadlocks.
       Trois causes fréquentes. Un **deadlock** entre verrous acquis dans des ordres différents. Un **pool de connexions épuisé** parce que des connexions ne sont pas rendues, souvent une transaction qui ne se ferme pas. Et surtout des **appels externes sans timeout** : chaque appel lent immobilise un thread, le pool du serveur sature, et l'application ne répond plus du tout, même pour des requêtes sans rapport.
       C'est pour ça que la règle 'un timeout sur tout appel réseau' n'admet aucune exception.
-  - key: prendre-plusieurs-thread-dumps
-    format: course
-    question: Pourquoi prendre plusieurs thread dumps ?
-    answer: Pour distinguer un blocage durable d'un état transitoire.
+  - key: scenario-cpu
+    format: scenario
+    question: Le CPU est à 100 % sur une instance. Comment utilises-tu les thread dumps pour trouver la cause ?
+    answer: |-
+      Avec `top -H -p <pid>`, je repère les threads les plus gourmands et leur identifiant système. Je prends trois dumps à
+      quelques secondes d'intervalle, je convertis ces identifiants en hexadécimal pour retrouver leur `nid`, et je
+      regarde leurs piles : si elles sont toujours dans la même boucle ou la même méthode (une expression régulière, un
+      parcours de collection géante, une sérialisation), le coupable est trouvé. Si ce sont les threads du GC, c'est un
+      problème de mémoire. Pour un profil complet, j'enchaîne avec async-profiler ou JFR.
+  - key: scenario-deadlock
+    format: scenario
+    question: Le dump affiche « Found one Java-level deadlock » entre deux threads. Que fais-tu ensuite ?
+    answer: |-
+      Le dump indique quel thread détient quel verrou et attend lequel, avec les piles : je repère les deux chemins de
+      code qui prennent les mêmes verrous dans un ordre différent. Pour rétablir le service, il faut redémarrer
+      l'instance (un interblocage ne se résout pas seul). La correction : imposer un ordre global de prise des verrous,
+      réduire le code exécuté sous verrou (pas d'appel externe ni d'écouteur), ou utiliser `tryLock` avec un délai. J'ajoute
+      un test qui reproduit les deux accès concurrents.
+  - key: scenario-requetes-bloquees
+    format: scenario
+    question: Toutes les requêtes HTTP sont bloquées ; le dump montre les threads du serveur en `RUNNABLE` dans `SocketInputStream.read`, appelé par un client HTTP. Explique.
+    answer: |-
+      Les threads attendent la réponse d'un service externe : `RUNNABLE` dans une lecture de socket signifie une attente
+      réseau native, pas un calcul. Le service appelé est lent ou ne répond plus, et l'appel n'a pas de délai de lecture :
+      chaque requête immobilise un thread du serveur jusqu'à saturation du pool. La correction : des délais de connexion
+      et de lecture sur tous les appels externes, un coupe-circuit pour échouer vite quand le service est en panne, et un
+      pool (ou un sémaphore) dédié à cet appel pour qu'il ne puisse pas bloquer tout le serveur.

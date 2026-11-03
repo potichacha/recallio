@@ -1,6 +1,157 @@
 notion: heap-dump
+lesson: |-
+  Un **heap dump** est une copie du **contenu du tas** à un instant : tous les objets, leurs champs et leurs
+  références. C'est l'outil pour comprendre **ce qui occupe la mémoire** et **pourquoi ce n'est pas libéré**.
+
+  Le capturer :
+  ```
+  -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/dumps     # automatiquement, au premier OOM
+  jcmd <pid> GC.heap_dump /dumps/app.hprof                       # à la demande (objets vivants seulement par défaut)
+  jmap -dump:live,format=b,file=/dumps/app.hprof <pid>
+  ```
+
+  L'analyser, avec **Eclipse MAT** (ou VisualVM, IntelliJ) :
+  - l'**histogramme** : le nombre d'instances et la taille par classe ;
+  - la taille **retenue** (*retained size*) : la mémoire qui serait libérée si l'objet disparaissait (lui et tout ce que
+    lui seul retient), bien plus parlante que la taille propre (*shallow size*) ;
+  - le **dominator tree** : les objets qui retiennent le plus de mémoire ;
+  - le **leak suspects report** : un premier diagnostic automatique ;
+  - le **chemin vers les racines** (*path to GC roots*) : la chaîne de références qui empêche un objet d'être collecté,
+    qui désigne le coupable (un champ statique, un cache, un thread, un `ThreadLocal`).
+
+  Précautions :
+  - la capture **fige la JVM** pendant l'écriture (secondes, voire minutes pour un gros tas) ;
+  - le fichier fait à peu près la **taille du tas utilisé** : prévoir l'espace disque ;
+  - le dump contient **toutes les données en mémoire** (mots de passe, données personnelles) : à traiter comme une donnée
+    sensible (accès restreint, suppression après analyse) ;
+  - en conteneur, l'écrire sur un **volume persistant**, sinon il disparaît avec le pod redémarré.
+
+  **Piège classique** : regarder seulement les classes les plus nombreuses (`byte[]`, `String`). Elles sont presque
+  toujours en tête ; ce qui compte est **qui les retient**, via le dominator tree et le chemin vers les racines.
+
+  **En entretien** : « Un dump capturé à l'OOM ou à la demande, analysé dans MAT : dominator tree et taille retenue pour
+  voir ce qui pèse, chemin vers les racines pour voir qui le retient ; et c'est une donnée sensible. »
 cards:
   - key: production-lors-outofmemoryerror
     format: course
     question: Que faire en production lors d'un OutOfMemoryError ?
     answer: Capturer un heap dump (-XX:+HeapDumpOnOutOfMemoryError) et souvent arrêter la JVM (-XX:+ExitOnOutOfMemoryError) pour que l'orchestrateur la redémarre proprement.
+  - key: retained
+    format: course
+    question: Quelle différence entre la taille propre et la taille retenue d'un objet ?
+    answer: La taille propre (shallow) est celle de l'objet seul ; la taille retenue (retained) est toute la mémoire qui serait libérée s'il disparaissait, lui et ce que lui seul retient.
+  - key: dominator
+    format: course
+    question: À quoi sert le dominator tree d'Eclipse MAT ?
+    answer: À voir quels objets retiennent le plus de mémoire, c'est-à-dire ceux dont la disparition libérerait le plus.
+  - key: sensible
+    format: course
+    question: Pourquoi un heap dump est-il une donnée sensible ?
+    answer: Il contient tout ce qui est en mémoire, y compris des mots de passe, des jetons et des données personnelles ; il faut en restreindre l'accès et le supprimer après analyse.
+  - key: vf-fige
+    format: true-false
+    question: La capture d'un heap dump n'interrompt pas l'application.
+    truth: false
+    answer: La JVM est figée pendant l'écriture.
+  - key: vf-live
+    format: true-false
+    question: L'option `live` ne garde que les objets encore accessibles, après un GC complet.
+    truth: true
+    answer: Le dump est plus petit et plus pertinent pour une fuite.
+  - key: vf-taille
+    format: true-false
+    question: Un heap dump fait à peu près la taille de la mémoire du tas utilisée.
+    truth: true
+    answer: Prévoir l'espace disque en conséquence.
+  - key: vf-conteneur
+    format: true-false
+    question: Un heap dump écrit dans le système de fichiers d'un conteneur survit toujours au redémarrage du pod.
+    truth: false
+    answer: Il faut l'écrire sur un volume persistant.
+  - key: qcm-capture
+    format: multiple-choice
+    question: Comment obtenir un heap dump ?
+    choices:
+      - text: "`-XX:+HeapDumpOnOutOfMemoryError` au démarrage"
+        correct: true
+      - text: "`jcmd <pid> GC.heap_dump fichier.hprof`"
+        correct: true
+      - text: "`jstack <pid>`"
+        correct: false
+      - text: "`jstat -gcutil <pid>`"
+        correct: false
+    answer: '`jstack` donne un thread dump.'
+  - key: qcm-coupable
+    format: multiple-choice
+    question: Dans MAT, qu'est-ce qui désigne le responsable d'une fuite ?
+    choices:
+      - text: "Le chemin vers les racines du GC de l'objet qui retient la mémoire"
+        correct: true
+      - text: "La classe qui a le plus d'instances, toujours"
+        correct: false
+      - text: "La taille propre des `byte[]`"
+        correct: false
+      - text: "Le nombre de threads"
+        correct: false
+    answer: '`byte[]` et `String` sont presque toujours en tête de l''histogramme.'
+  - key: qcm-precautions
+    format: multiple-choice
+    question: Quelles précautions prendre avec un heap dump de production ?
+    choices:
+      - text: "Prévoir l'espace disque et un volume persistant"
+        correct: true
+      - text: "Restreindre l'accès au fichier et le supprimer après analyse"
+        correct: true
+      - text: "Le joindre à un ticket public"
+        correct: false
+      - text: "En capturer toutes les minutes"
+        correct: false
+    answer: Il fige la JVM et contient des données sensibles.
+  - key: qcm-outils
+    format: multiple-choice
+    question: Quels outils analysent un fichier `.hprof` ?
+    choices:
+      - text: "Eclipse MAT"
+        correct: true
+      - text: "VisualVM"
+        correct: true
+      - text: "`javap`"
+        correct: false
+      - text: "Maven"
+        correct: false
+    answer: IntelliJ IDEA sait aussi les ouvrir.
+  - key: scenario-oom
+    format: scenario
+    question: Un service a planté en `OutOfMemoryError` cette nuit, et tu disposes du heap dump. Décris ton analyse.
+    answer: |-
+      J'ouvre le dump dans MAT sur une machine qui a assez de mémoire et je lance le rapport des suspects. Je regarde le
+      dominator tree pour trouver les objets qui retiennent le plus (une `HashMap` statique de 3 Go, un cache, une file),
+      puis le chemin vers les racines pour savoir qui les retient (un champ statique, un singleton, un thread). Je
+      regarde le contenu (quelles clés, depuis quand) pour comprendre pourquoi ça grossit, puis je corrige (borne,
+      expiration, nettoyage) et je reproduis en préproduction pour vérifier que la mémoire après GC se stabilise.
+  - key: scenario-comparer
+    format: scenario
+    question: La mémoire monte lentement sans aller jusqu'à l'OOM. Comment utilises-tu les dumps pour trouver ce qui grossit ?
+    answer: |-
+      Je prends deux histogrammes (`jcmd GC.class_histogram`) ou deux dumps `live` à quelques heures d'intervalle, et je
+      compare : MAT sait comparer deux histogrammes et montre les classes dont le nombre d'instances augmente. Je
+      retiens les classes métier qui croissent (pas les `byte[]`, qui suivent toujours), puis dans le second dump je
+      regarde le chemin vers les racines de quelques instances récentes pour trouver la collection qui les accumule.
+  - key: scenario-kubernetes
+    format: scenario
+    question: En Kubernetes, le pod est redémarré après chaque OOM et le heap dump est perdu. Comment le récupérer la prochaine fois ?
+    answer: |-
+      Je configure `-XX:+HeapDumpOnOutOfMemoryError` avec `-XX:HeapDumpPath` vers un volume persistant (un PVC) monté dans
+      le pod, assez grand pour la taille du tas, et je garde `-XX:+ExitOnOutOfMemoryError` pour que le pod redémarre
+      proprement après l'écriture. Si l'arrêt vient d'un OOMKilled (le noyau tue le processus), il n'y aura pas de dump :
+      c'est alors la mémoire native qui dépasse, et je passe par Native Memory Tracking et les réglages de
+      `MaxRAMPercentage`.
+  - key: scenario-retained
+    format: scenario
+    question: Dans MAT, un objet `SessionManager` a une taille propre de 48 octets mais une taille retenue de 2 Go. Comment l'interprètes-tu ?
+    answer: |-
+      L'objet lui-même est minuscule, mais il est le seul à retenir un énorme graphe d'objets : s'il disparaissait, 2 Go
+      seraient libérés. C'est donc un excellent suspect. Je descends dans ce qu'il retient (une map de sessions,
+      probablement) pour voir combien d'entrées il y a, leur ancienneté, et pourquoi elles ne sont jamais retirées
+      (expiration absente, déconnexion non traitée). La correction porte sur le cycle de vie des sessions, pas sur la taille
+      du tas.
