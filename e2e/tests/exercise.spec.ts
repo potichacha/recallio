@@ -36,7 +36,8 @@ test.describe('Exercice de code', () => {
   test('runs the starter code against the tests, then submits a solution judged by them', async ({
     page,
   }) => {
-    await signIn(page, USERS.alice, '/review?subject=java&type=CODING_EXERCISE')
+    // Le thème est fixé : l'exercice testé ne dépend pas de l'ordre des nouvelles cartes.
+    await signIn(page, USERS.alice, '/review?theme=java-objet&type=CODING_EXERCISE')
     const editor = page.getByRole('textbox', { name: 'Point.java' })
     await expect(editor).toBeVisible()
 
