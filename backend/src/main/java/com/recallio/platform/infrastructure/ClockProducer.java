@@ -14,7 +14,7 @@ import java.time.temporal.ChronoUnit;
  */
 public class ClockProducer {
 
-    private static final Duration DATABASE_PRECISION = Duration.of(1, ChronoUnit.MICROS);
+    static final Duration DATABASE_PRECISION = Duration.of(1, ChronoUnit.MICROS);
 
     @Produces
     @ApplicationScoped
