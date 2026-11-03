@@ -16,6 +16,7 @@ const PROFILE = {
   timezone: 'Europe/Paris',
   roles: ['admin'],
   followedSubjects: ['java'],
+  tracks: { java: 'PREPARE' },
 }
 const SUBJECTS = { '/api/v1/subjects': { body: TEST_SUBJECTS } }
 const SIGNED_IN = fakeSession({ status: 'authenticated', userName: 'Alice Martin' })
@@ -105,5 +106,27 @@ describe('ProfilePage', () => {
       request.url.endsWith('/followed-subjects'),
     )
     expect(await put?.json()).toEqual({ subjects: ['java', 'go'] })
+  })
+
+  it('chooses the track of a followed subject', async () => {
+    const fetchMock = stubApi({
+      ...SIGNED_IN_API,
+      ...SUBJECTS,
+      '/api/v1/me': { body: PROFILE },
+      'PUT /api/v1/me/followed-subjects/java/track': {
+        body: { ...PROFILE, tracks: { java: 'LEARN' } },
+      },
+    })
+    renderAt('/profile', SIGNED_IN)
+
+    const tracks = await screen.findByRole('region', { name: 'Mes parcours' })
+    const java = await within(tracks).findByRole('combobox', { name: 'Java' })
+    expect(java).toHaveValue('PREPARE')
+    await userEvent.selectOptions(java, 'Apprendre')
+
+    expect(await screen.findByText('Parcours enregistré.')).toBeInTheDocument()
+    expect(java).toHaveValue('LEARN')
+    const put = sentRequests(fetchMock).find((request) => request.url.endsWith('/java/track'))
+    expect(await put?.json()).toEqual({ track: 'LEARN' })
   })
 })

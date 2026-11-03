@@ -2,6 +2,7 @@ package com.recallio.user.application;
 
 import com.recallio.content.SubjectDirectory;
 import com.recallio.user.FollowedSubjects;
+import com.recallio.user.LearningTrack;
 import com.recallio.user.UserRef;
 import com.recallio.user.domain.AuthenticatedUser;
 import com.recallio.user.domain.FollowedSubjectRepository;
@@ -12,9 +13,11 @@ import jakarta.transaction.Transactional;
 import java.time.Clock;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 /**
  * Cas d'usage : choisir les sujets qu'on suit (CLAUDE.md, sections 2.5 et 6.1). Ils alimentent la file de révision ;
@@ -24,6 +27,7 @@ import java.util.UUID;
 public class FollowedSubjectsService implements FollowedSubjects {
 
     public static final String UNKNOWN_SUBJECT = "user.unknown-subject";
+    public static final String NOT_FOLLOWED = "user.subject-not-followed";
 
     private final FollowedSubjectRepository repository;
     private final SubjectDirectory subjects;
@@ -53,6 +57,34 @@ public class FollowedSubjectsService implements FollowedSubjects {
     @Override
     public List<String> of(UserRef user) {
         return followed(user.id());
+    }
+
+    @Override
+    @Transactional(Transactional.TxType.SUPPORTS)
+    public Map<String, LearningTrack> tracksOf(UserRef user) {
+        return tracks(user.id());
+    }
+
+    /** Le parcours de chaque sujet suivi et publié, par slug. */
+    @Transactional(Transactional.TxType.SUPPORTS)
+    public Map<String, LearningTrack> tracks(UUID userId) {
+        Map<String, LearningTrack> tracks = repository.findTracks(userId);
+        return followed(userId).stream()
+                .collect(Collectors.toMap(slug -> slug, slug -> tracks.getOrDefault(slug, LearningTrack.DEFAULT)));
+    }
+
+    /**
+     * Choisit le parcours d'un sujet suivi (ADR 0032).
+     *
+     * @throws InvalidProfileException si l'utilisateur ne suit pas ce sujet
+     */
+    @Transactional
+    public void chooseTrack(AuthenticatedUser user, String slug, LearningTrack track) {
+        UserProfile profile = profiles.currentProfile(user, Optional.empty());
+        if (!repository.updateTrack(profile.id(), slug, track)) {
+            throw new InvalidProfileException(
+                    NOT_FOLLOWED, "Le sujet « " + slug + " » n'est pas suivi : il faut d'abord le suivre.");
+        }
     }
 
     /**

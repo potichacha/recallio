@@ -63,6 +63,38 @@ class FollowedSubjectsTest {
 
     @Test
     @TestSecurity(user = "alice")
+    @OidcSecurity(claims = @Claim(key = "sub", value = "followed-track"))
+    void shouldPrepareAnInterviewByDefaultAndKeepTheChosenTrack() {
+        follow("[\"java\", \"go\"]")
+                .statusCode(200)
+                .body("tracks.java", equalTo("PREPARE"))
+                .body("tracks.go", equalTo("PREPARE"));
+
+        chooseTrack("go", "LEARN").statusCode(200).body("tracks.go", equalTo("LEARN"));
+
+        follow("[\"java\", \"go\"]").statusCode(200).body("tracks.go", equalTo("LEARN"));
+        given().get(ME).then().body("tracks.java", equalTo("PREPARE"));
+    }
+
+    @Test
+    @TestSecurity(user = "alice")
+    @OidcSecurity(claims = @Claim(key = "sub", value = "followed-track-unfollowed"))
+    void shouldRefuseATrackForASubjectThatIsNotFollowed() {
+        follow("[\"java\"]").statusCode(200);
+
+        chooseTrack("go", "LEARN").statusCode(422).body("code", equalTo("user.subject-not-followed"));
+        chooseTrack("java", "QUICK").statusCode(400);
+    }
+
+    private static ValidatableResponse chooseTrack(String subject, String track) {
+        return given().contentType(ContentType.JSON)
+                .body("{\"track\": \"%s\"}".formatted(track))
+                .put(FOLLOWED + "/" + subject + "/track")
+                .then();
+    }
+
+    @Test
+    @TestSecurity(user = "alice")
     @OidcSecurity(claims = @Claim(key = "sub", value = "followed-replace"))
     void shouldReplaceThePreviousChoice() {
         follow("[\"java\", \"go\"]").statusCode(200);

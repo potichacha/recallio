@@ -1,6 +1,8 @@
 package com.recallio.user.domain;
 
+import com.recallio.user.LearningTrack;
 import java.time.Instant;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
@@ -8,6 +10,12 @@ import java.util.UUID;
 public interface FollowedSubjectRepository {
 
     Set<String> findSlugs(UUID userId);
+
+    /** Le parcours de chaque sujet suivi, par slug (ADR 0032). */
+    Map<String, LearningTrack> findTracks(UUID userId);
+
+    /** @return {@code false} si l'utilisateur ne suit pas ce sujet */
+    boolean updateTrack(UUID userId, String slug, LearningTrack track);
 
     /**
      * Remplace les sujets suivis par {@code slugs} : les sujets déjà suivis gardent leur date de suivi, les autres sont

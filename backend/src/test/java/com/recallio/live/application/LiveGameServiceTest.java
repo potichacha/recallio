@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.recallio.content.CardDirectory;
+import com.recallio.content.NotionInfo;
 import com.recallio.group.GroupReviewScopes.GroupReviewScope;
 import com.recallio.live.domain.LiveExceptions.TooManyLiveGamesException;
 import com.recallio.live.domain.LiveGame;
@@ -240,6 +241,11 @@ class LiveGameServiceTest {
 
         @Override
         public Map<UUID, UUID> notionsOf(Collection<UUID> cardIds) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public List<NotionInfo> notions(Collection<String> subjectSlugs) {
             throw new UnsupportedOperationException();
         }
 

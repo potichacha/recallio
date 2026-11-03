@@ -19,4 +19,7 @@ public interface ReviewLogRepository {
 
     /** Les cartes que l'utilisateur a révisées depuis cet instant (le début de sa journée, par exemple). */
     Set<UUID> cardsReviewedSince(UUID userId, Instant since);
+
+    /** Les cartes que l'utilisateur a réussies au moins une fois (notées « Bien » ou « Facile »). */
+    Set<UUID> cardsRecalled(UUID userId);
 }

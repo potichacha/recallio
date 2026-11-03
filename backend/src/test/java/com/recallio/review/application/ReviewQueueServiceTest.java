@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.recallio.content.CardDirectory;
 import com.recallio.content.CardDirectory.CardFilter;
 import com.recallio.content.CardType;
+import com.recallio.content.NotionInfo;
 import com.recallio.content.SubjectDirectory;
 import com.recallio.group.GroupReviewScopes.GroupReviewScope;
 import com.recallio.review.application.ReviewQueueService.QueueFilter;
@@ -15,6 +16,8 @@ import com.recallio.review.domain.ReviewState;
 import com.recallio.review.domain.ReviewStateRepository;
 import com.recallio.review.domain.fsrs.FsrsParameters;
 import com.recallio.review.domain.fsrs.FsrsScheduler;
+import com.recallio.user.FollowedSubjects;
+import com.recallio.user.LearningTrack;
 import com.recallio.user.UserRef;
 import java.time.Clock;
 import java.time.Duration;
@@ -128,7 +131,7 @@ class ReviewQueueServiceTest {
                         return List.of("java-theme");
                     }
                 },
-                _ -> List.of(SUBJECT),
+                new FollowingJava(),
                 (_, _) -> groupScope,
                 states,
                 new NoReviewsToday(),
@@ -164,6 +167,11 @@ class ReviewQueueServiceTest {
         @Override
         public Map<UUID, UUID> notionsOf(Collection<UUID> cardIds) {
             return Map.of();
+        }
+
+        @Override
+        public List<NotionInfo> notions(Collection<String> subjectSlugs) {
+            return List.of();
         }
 
         @Override
@@ -206,6 +214,24 @@ class ReviewQueueServiceTest {
         @Override
         public Set<UUID> cardsReviewedSince(UUID userId, Instant since) {
             return Set.of();
+        }
+
+        @Override
+        public Set<UUID> cardsRecalled(UUID userId) {
+            return Set.of();
+        }
+    }
+
+    /** L'utilisateur suit le seul sujet du catalogue, avec le parcours par défaut. */
+    private static final class FollowingJava implements FollowedSubjects {
+        @Override
+        public List<String> of(UserRef user) {
+            return List.of(SUBJECT);
+        }
+
+        @Override
+        public Map<String, LearningTrack> tracksOf(UserRef user) {
+            return Map.of();
         }
     }
 

@@ -1,10 +1,13 @@
 package com.recallio.user.infrastructure;
 
+import com.recallio.user.LearningTrack;
 import com.recallio.user.domain.FollowedSubjectRepository;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.persistence.EntityManager;
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
@@ -27,6 +30,33 @@ public class JpaFollowedSubjectRepository implements FollowedSubjectRepository {
                 .getResultList()
                 .forEach(slug -> slugs.add((String) slug));
         return slugs;
+    }
+
+    @Override
+    public Map<String, LearningTrack> findTracks(UUID userId) {
+        Map<String, LearningTrack> tracks = new HashMap<>();
+        entityManager
+                .createNativeQuery(
+                        "select subject_slug, track from followed_subject where user_id = :userId", Object[].class)
+                .setParameter("userId", userId)
+                .getResultList()
+                .forEach(row -> {
+                    Object[] columns = (Object[]) row;
+                    tracks.put((String) columns[0], LearningTrack.valueOf((String) columns[1]));
+                });
+        return tracks;
+    }
+
+    @Override
+    public boolean updateTrack(UUID userId, String slug, LearningTrack track) {
+        return entityManager
+                        .createNativeQuery(
+                                "update followed_subject set track = :track where user_id = :userId and subject_slug = :slug")
+                        .setParameter("track", track.name())
+                        .setParameter("userId", userId)
+                        .setParameter("slug", slug)
+                        .executeUpdate()
+                == 1;
     }
 
     @Override

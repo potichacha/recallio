@@ -57,3 +57,24 @@ export function useFollowSubjects() {
     },
   })
 }
+
+export type LearningTrack = components['schemas']['LearningTrack']
+
+/** Choisit le parcours d'un sujet suivi (ADR 0032) : la file de révision en tient compte dès la session suivante. */
+export function useChooseTrack() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ subject, track }: { subject: string; track: LearningTrack }) => {
+      const { data, error, response } = await api.PUT('/api/v1/me/followed-subjects/{slug}/track', {
+        params: { path: { slug: subject } },
+        body: { track },
+      })
+      if (data === undefined) throw ApiError.from(response, error)
+      return data
+    },
+    onSuccess: async (profile) => {
+      queryClient.setQueryData(PROFILE_KEY, profile)
+      await queryClient.invalidateQueries({ queryKey: ['review-queue'] })
+    },
+  })
+}
