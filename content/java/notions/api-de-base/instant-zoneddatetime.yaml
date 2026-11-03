@@ -1,4 +1,35 @@
 notion: instant-zoneddatetime
+lesson: |-
+  Trois façons de désigner un moment précis :
+
+  - **`Instant`** : un point sur la ligne du temps, en secondes et nanosecondes depuis le 1er janvier 1970 UTC
+    (l'*epoch*). Indépendant de tout fuseau : `2025-07-01T10:00:00Z`.
+  - **`ZonedDateTime`** : une date et une heure locales **dans un fuseau** (`ZoneId.of("Europe/Paris")`), avec ses
+    règles d'heure d'été.
+  - **`OffsetDateTime`** : une date et une heure avec un **décalage fixe** (`+02:00`), sans règles.
+
+  ```java
+  Instant i = Instant.parse("2025-07-01T10:00:00Z");
+  ZonedDateTime paris = i.atZone(ZoneId.of("Europe/Paris"));       // 12:00 à Paris (UTC+2 l'été)
+  paris.toInstant();                                               // retour à l'instant
+
+  ZonedDateTime newYork = paris.withZoneSameInstant(ZoneId.of("America/New_York"));   // même instant, 06:00
+  ZonedDateTime tokyo = paris.withZoneSameLocal(ZoneId.of("Asia/Tokyo"));             // même heure murale, autre instant
+  ```
+
+  - Un `ZoneId` (`Europe/Paris`) n'est pas un `ZoneOffset` (`+01:00`) : le décalage de Paris change deux fois par an.
+  - Règle d'architecture : on **stocke et on échange des instants** (UTC, `timestamptz` en PostgreSQL, ISO 8601 avec `Z`
+    ou un décalage), et l'on convertit au fuseau de l'utilisateur à l'**affichage**.
+  - Pour comparer deux `ZonedDateTime` de fuseaux différents, `isEqual` ou `isBefore` (sur l'instant), pas `equals`
+    (qui compare aussi le fuseau).
+  - Jamais de fuseau par défaut implicite (`ZoneId.systemDefault()`) côté serveur : le résultat dépendrait de la
+    machine.
+
+  **Piège classique** : un décalage fixe `ZoneOffset.of("+01:00")` pour « l'heure de Paris ». Il est faux six mois par
+  an.
+
+  **En entretien** : « On stocke des instants en UTC et on convertit au fuseau de l'utilisateur à l'affichage ; un fuseau
+  est un `ZoneId`, pas un décalage fixe. »
 cards:
   - key: localdatetime-vs-zoneddatetime-vs-instant
     format: course
@@ -8,6 +39,183 @@ cards:
     format: course
     question: Dans quel format stocker des dates en base ?
     answer: En UTC (Instant / timestamp with time zone), conversion au fuseau de l'utilisateur à l'affichage.
+  - key: zone-vs-offset
+    format: course
+    question: Quelle différence entre `ZoneId.of("Europe/Paris")` et `ZoneOffset.of("+01:00")` ?
+    answer: Le `ZoneId` porte les règles du fuseau, dont l'heure d'été (+01:00 l'hiver, +02:00 l'été) ; le `ZoneOffset` est un décalage fixe.
+  - key: same-instant-vs-same-local
+    format: course
+    question: Quelle différence entre `withZoneSameInstant` et `withZoneSameLocal` ?
+    answer: Le premier garde l'instant et change l'heure affichée (la même réunion vue d'un autre pays) ; le second garde l'heure murale et change l'instant (la même heure ailleurs).
+  - key: vf-instant-utc
+    format: true-false
+    question: Un `Instant` dépend du fuseau horaire du serveur.
+    truth: false
+    answer: C'est un point absolu sur la ligne du temps, toujours exprimé en UTC.
+  - key: vf-offset-paris
+    format: true-false
+    question: "`ZoneOffset.of(\"+01:00\")` représente correctement l'heure de Paris toute l'année."
+    truth: false
+    answer: Paris passe à +02:00 l'été ; il faut `ZoneId.of("Europe/Paris")`.
+  - key: vf-equals-zones
+    format: true-false
+    question: Deux `ZonedDateTime` qui désignent le même instant dans deux fuseaux différents sont égaux selon `equals`.
+    truth: false
+    answer: '`equals` compare aussi le fuseau ; `isEqual` compare l''instant.'
+  - key: vf-epoch
+    format: true-false
+    question: "`Instant.ofEpochSecond(0)` vaut `1970-01-01T00:00:00Z`."
+    truth: true
+    answer: C'est l'*epoch* Unix.
+  - key: qcm-stocker
+    format: multiple-choice
+    question: Comment stocker l'horodatage d'un paiement en PostgreSQL ?
+    choices:
+      - text: "Un `Instant` dans une colonne `timestamptz`"
+        correct: true
+      - text: "Un `LocalDateTime` dans une colonne `timestamp`"
+        correct: false
+      - text: "Une chaîne au format `dd/MM/yyyy HH:mm`"
+        correct: false
+      - text: "Le fuseau du serveur, implicite"
+        correct: false
+    answer: Un instant est sans ambiguïté ; une date locale sans fuseau ne l'est pas.
+  - key: qcm-conversion
+    format: multiple-choice
+    question: Comment afficher un `Instant` à l'heure de Paris ?
+    choices:
+      - text: "`instant.atZone(ZoneId.of(\"Europe/Paris\"))`"
+        correct: true
+      - text: "`ZonedDateTime.ofInstant(instant, ZoneId.of(\"Europe/Paris\"))`"
+        correct: true
+      - text: "`instant.plusHours(1)`"
+        correct: false
+      - text: "`LocalDateTime.from(instant)`"
+        correct: false
+    answer: Ajouter une heure à la main ignore l'heure d'été ; `LocalDateTime.from(instant)` lève une exception (pas de fuseau).
+  - key: qcm-comparer
+    format: multiple-choice
+    question: "Comment tester qu'une réunion à Paris et une autre à New York ont lieu au même instant ?"
+    choices:
+      - text: "`paris.isEqual(newYork)`"
+        correct: true
+      - text: "`paris.toInstant().equals(newYork.toInstant())`"
+        correct: true
+      - text: "`paris.equals(newYork)`"
+        correct: false
+      - text: "`paris.toLocalTime().equals(newYork.toLocalTime())`"
+        correct: false
+    answer: '`equals` compare aussi les fuseaux ; les heures locales diffèrent forcément.'
+  - key: qcm-api
+    format: multiple-choice
+    question: Quels formats conviennent pour un instant dans une API ?
+    choices:
+      - text: "`2025-03-14T09:00:00Z`"
+        correct: true
+      - text: "`2025-03-14T10:00:00+01:00`"
+        correct: true
+      - text: "`2025-03-14T10:00:00` (sans fuseau)"
+        correct: false
+      - text: "`14/03/2025 10:00`"
+        correct: false
+    answer: Sans fuseau ni décalage, la valeur ne désigne pas un instant.
+  - key: code-paris-ete
+    format: code-output
+    question: |-
+      ```java
+      import java.time.*;
+      Instant i = Instant.parse("2025-07-01T10:00:00Z");
+      System.out.println(i.atZone(ZoneId.of("Europe/Paris")).toLocalTime());
+      ```
+    answer: '`12:00` : Paris est à UTC+2 en été.'
+    check:
+      output: "12:00"
+  - key: code-same-instant
+    format: code-output
+    question: |-
+      ```java
+      import java.time.*;
+      ZonedDateTime paris = ZonedDateTime.of(2025, 1, 15, 9, 0, 0, 0, ZoneId.of("Europe/Paris"));
+      System.out.println(paris.withZoneSameInstant(ZoneId.of("America/New_York")).toLocalTime());
+      ```
+    answer: '`03:00` : en hiver, Paris est à UTC+1 et New York à UTC-5.'
+    check:
+      output: "03:00"
+  - key: code-same-local
+    format: code-output
+    question: |-
+      ```java
+      import java.time.*;
+      ZonedDateTime paris = ZonedDateTime.of(2025, 1, 15, 9, 0, 0, 0, ZoneId.of("Europe/Paris"));
+      System.out.println(paris.withZoneSameLocal(ZoneId.of("Asia/Tokyo")).toInstant());
+      ```
+    answer: '`2025-01-15T00:00:00Z` : 9 h à Tokyo (UTC+9), c''est minuit en UTC.'
+    check:
+      output: "2025-01-15T00:00:00Z"
+  - key: code-epoch
+    format: code-output
+    question: |-
+      ```java
+      import java.time.*;
+      System.out.println(Instant.ofEpochSecond(0) + " " + Instant.parse("2025-01-01T00:00:00Z").getEpochSecond());
+      ```
+    answer: '`1970-01-01T00:00:00Z 1735689600`.'
+    check:
+      output: "1970-01-01T00:00:00Z 1735689600"
+  - key: bug-local-horodatage
+    format: bug-fix
+    question: |-
+      Après le déplacement des serveurs à Singapour, les horodatages des commandes sont décalés de sept heures :
+      ```java
+      commande.setCreeLe(LocalDateTime.now());
+      ```
+    answer: |-
+      ```java
+      commande.setCreeLe(Instant.now(clock));
+      ```
+      `LocalDateTime.now()` prend l'heure locale du serveur, sans fuseau : sa signification change avec la machine. Un
+      `Instant` est absolu (et la `Clock` injectée rend le code testable).
+  - key: bug-offset-fixe
+    format: bug-fix
+    question: |-
+      L'été, les rappels de rendez-vous à Paris partent une heure trop tôt :
+      ```java
+      ZonedDateTime rappel = rdv.atZone(ZoneOffset.of("+01:00")).minusHours(24);
+      ```
+    answer: |-
+      ```java
+      ZonedDateTime rappel = rdv.atZone(ZoneId.of("Europe/Paris")).minusHours(24);
+      ```
+      Un décalage fixe ignore l'heure d'été. Le `ZoneId` applique les règles du fuseau à chaque date.
+  - key: bug-equals-zones
+    format: bug-fix
+    question: |-
+      Ce test de conflit d'agenda rate deux réunions au même instant, saisies dans deux pays :
+      ```java
+      if (reunionA.debut().equals(reunionB.debut())) {   // ZonedDateTime
+          signalerConflit();
+      }
+      ```
+    answer: |-
+      ```java
+      if (reunionA.debut().isEqual(reunionB.debut())) {
+          signalerConflit();
+      }
+      ```
+      `equals` compare l'heure locale et le fuseau ; `isEqual` compare l'instant.
+  - key: bug-fuseau-defaut
+    format: bug-fix
+    question: |-
+      Le jour d'une commande diffère selon le serveur qui calcule le rapport :
+      ```java
+      LocalDate jour = commande.creeLe().atZone(ZoneId.systemDefault()).toLocalDate();
+      ```
+    answer: |-
+      ```java
+      LocalDate jour = commande.creeLe().atZone(boutique.fuseau()).toLocalDate();
+      ```
+      Le fuseau par défaut dépend de la machine. Le jour métier se calcule dans le fuseau du métier (la boutique,
+      l'utilisateur), rendu explicite.
   - key: utilisateurs-plusieurs-pays-reservent-creneaux
     format: scenario
     question: Des utilisateurs dans plusieurs pays réservent des créneaux. Comment tu gères les dates ?
@@ -16,3 +224,28 @@ cards:
       Le fuseau de l'utilisateur, ou celui du lieu du rendez-vous, est une donnée à part entière (un `ZoneId` comme `Europe/Paris`, pas un décalage fixe, parce que le décalage change avec l'heure d'été).
       La conversion se fait à la frontière : à l'affichage et à la saisie, via `ZonedDateTime`. Pour un rendez-vous futur récurrent, il peut être plus juste de stocker l'heure locale + le ZoneId, car les règles de fuseau d'un pays peuvent changer entre la prise du rendez-vous et sa date.
       Côté API, de l'ISO 8601 avec décalage (`2026-03-29T10:00:00+02:00`). Et en test, un `Clock` injecté pour couvrir les cas de changement d'heure.
+  - key: scenario-serveurs-fuseaux
+    format: scenario
+    question: Tes serveurs tournent dans plusieurs régions cloud. Comment éviter que le fuseau de la machine influence les résultats ?
+    answer: |-
+      Je fais en sorte que le code ne dépende jamais du fuseau par défaut : je stocke et je compare des `Instant`, et
+      chaque conversion vers une date locale reçoit un `ZoneId` explicite (celui de l'utilisateur ou du métier). Une
+      `Clock` injectée, en UTC, fournit l'heure courante. Par précaution, je fixe aussi les JVM et la base en UTC
+      (`-Duser.timezone=UTC`, le fuseau de la session PostgreSQL), et un test d'architecture ou une règle de revue
+      interdit `ZoneId.systemDefault()` et `LocalDateTime.now()` sans argument.
+  - key: scenario-affichage-utilisateur
+    format: scenario
+    question: Comment affiches-tu l'heure d'un événement à un utilisateur qui voyage ?
+    answer: |-
+      L'événement est un `Instant` en base. Le fuseau d'affichage est une préférence de l'utilisateur (stockée en
+      `ZoneId`), ou celui de son navigateur, transmis par le client. Je convertis au dernier moment
+      (`instant.atZone(fuseau)`) et je formate avec sa locale. Pour un événement lié à un lieu (un vol, un concert), j'affiche
+      plutôt l'heure locale du lieu, en précisant le fuseau, parce que c'est elle qui compte pour l'utilisateur.
+  - key: scenario-planification
+    format: scenario
+    question: Un traitement doit s'exécuter « tous les jours à 8 h, heure de Paris ». Comment le planifies-tu ?
+    answer: |-
+      Je planifie dans le fuseau `Europe/Paris`, pas en UTC : à chaque exécution, je calcule la prochaine occurrence avec
+      `ZonedDateTime` (`demain.atTime(8, 0).atZone(paris)`), ce qui suit l'heure d'été (7 h ou 6 h UTC selon la saison).
+      Un `cron` en UTC serait décalé d'une heure six mois par an. J'évite aussi les heures qui tombent dans un trou ou
+      un doublon horaire (entre 2 h et 3 h), et je teste les deux week-ends de changement d'heure avec une `Clock`.
