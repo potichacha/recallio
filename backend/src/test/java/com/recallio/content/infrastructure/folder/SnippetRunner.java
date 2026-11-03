@@ -74,7 +74,12 @@ final class SnippetRunner implements AutoCloseable {
     SnippetRunner(Duration timeout) {
         this.timeout = timeout;
         PrintStream console = new PrintStream(output, true, StandardCharsets.UTF_8);
-        shell = JShell.builder().out(console).err(console).build();
+        // La JVM d'exécution écrit en UTF-8 sur tous les systèmes : sinon, sous Windows, un « é » arrive en « ? ».
+        shell = JShell.builder()
+                .out(console)
+                .err(console)
+                .remoteVMOptions("-Dstdout.encoding=UTF-8", "-Dstderr.encoding=UTF-8", "-Dfile.encoding=UTF-8")
+                .build();
         DEFAULT_IMPORTS.forEach(imported -> shell.eval("import " + imported + ".*;"));
     }
 

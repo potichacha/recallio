@@ -99,7 +99,8 @@ public class YamlSubjectFolderParser implements SubjectFolderParser {
                         .map(entry -> new NotionTarget(
                                 withLessons.getOrDefault(entry.notion().slug(), entry.notion()),
                                 NotionCards.types(entry.formats()),
-                                entry.complete()))
+                                entry.complete(),
+                                entry.formats().contains(NotionExercises.FORMAT)))
                         .toList(),
                 parsed.themes().stream()
                         .flatMap(theme -> theme.cards().stream())

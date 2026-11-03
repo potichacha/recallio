@@ -14,6 +14,7 @@ import java.nio.file.Path;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterAll;
@@ -95,9 +96,18 @@ class CodeOutputTest {
         return block.group(1);
     }
 
-    /** La sortie aux fins de ligne près : {@code \r\n} comme {@code \n}, sans la dernière. */
+    /**
+     * La sortie aux fins de ligne près : {@code \r\n} comme {@code \n}, sans les espaces invisibles en fin de ligne, sans
+     * la dernière ligne vide.
+     */
     private static String lines(@Nullable String output) {
-        return output == null ? "" : output.replace("\r\n", "\n").stripTrailing();
+        return output == null
+                ? ""
+                : output.replace("\r\n", "\n")
+                        .lines()
+                        .map(String::stripTrailing)
+                        .collect(Collectors.joining("\n"))
+                        .stripTrailing();
     }
 
     private static NotionFile read(String content) {
