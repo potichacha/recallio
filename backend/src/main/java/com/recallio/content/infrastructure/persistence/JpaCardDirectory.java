@@ -73,7 +73,7 @@ public class JpaCardDirectory implements CardDirectory {
             parameters.put("types", filter.types());
         }
         var query = entityManager.createQuery("""
-                select c.id, s.slug from CardEntity c
+                select c.id, s.slug, c.notionId from CardEntity c
                 join ThemeEntity t on t.id = c.themeId
                 join SubjectEntity s on s.id = t.subjectId
                 where %s
@@ -81,8 +81,22 @@ public class JpaCardDirectory implements CardDirectory {
                 """.formatted(String.join(" and ", conditions)), Object[].class);
         parameters.forEach(query::setParameter);
         return query.getResultStream()
-                .map(row -> new ActiveCard((UUID) row[0], (String) row[1]))
+                .map(row -> new ActiveCard((UUID) row[0], (String) row[1], (UUID) row[2]))
                 .toList();
+    }
+
+    @Override
+    public Map<UUID, UUID> notionsOf(Collection<UUID> cardIds) {
+        if (cardIds.isEmpty()) {
+            return Map.of();
+        }
+        return entityManager
+                .createQuery(
+                        "select c.id, c.notionId from CardEntity c where c.id in :ids and c.notionId is not null",
+                        Object[].class)
+                .setParameter("ids", cardIds)
+                .getResultStream()
+                .collect(Collectors.toMap(row -> (UUID) row[0], row -> (UUID) row[1]));
     }
 
     @Override

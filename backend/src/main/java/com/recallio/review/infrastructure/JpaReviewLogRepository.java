@@ -5,7 +5,9 @@ import com.recallio.review.domain.ReviewLogEntry;
 import com.recallio.review.domain.ReviewLogRepository;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.persistence.EntityManager;
+import java.time.Instant;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import org.hibernate.query.TypedParameterValue;
 import org.hibernate.type.StandardBasicTypes;
@@ -58,6 +60,17 @@ public class JpaReviewLogRepository implements ReviewLogRepository {
                 .getResultStream()
                 .findFirst()
                 .map(JpaReviewLogRepository::toDomain);
+    }
+
+    @Override
+    public Set<UUID> cardsReviewedSince(UUID userId, Instant since) {
+        return Set.copyOf(entityManager
+                .createQuery(
+                        "select distinct l.cardId from ReviewLogEntity l where l.userId = :userId and l.reviewedAt >= :since",
+                        UUID.class)
+                .setParameter("userId", userId)
+                .setParameter("since", since)
+                .getResultList());
     }
 
     private static ReviewLogEntry toDomain(ReviewLogEntity entity) {

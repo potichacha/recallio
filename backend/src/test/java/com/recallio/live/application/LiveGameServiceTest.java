@@ -239,6 +239,11 @@ class LiveGameServiceTest {
         }
 
         @Override
+        public Map<UUID, UUID> notionsOf(Collection<UUID> cardIds) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
         public List<ThemeCards> activeCardsByTheme() {
             throw new UnsupportedOperationException();
         }
