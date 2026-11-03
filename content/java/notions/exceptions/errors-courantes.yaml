@@ -1,4 +1,35 @@
 notion: errors-courantes
+lesson: |-
+  Les `Error` signalent que la JVM elle-même est en difficulté. On ne les « traite » pas : on les comprend pour corriger
+  la cause.
+
+  | Erreur | Cause habituelle |
+  |---|---|
+  | `StackOverflowError` | une récursion infinie (ou trop profonde) épuise la pile du thread |
+  | `OutOfMemoryError` | le tas est plein (fuite, cache sans limite, fichier chargé en entier), ou le *Metaspace*, la mémoire directe, les threads natifs ; ou un tableau trop grand |
+  | `NoClassDefFoundError` | une classe présente à la compilation manque à l'exécution, ou son initialisation `static` a échoué |
+  | `ExceptionInInitializerError` | une exception dans l'initialisation `static` d'une classe |
+  | `AssertionError` | une assertion `assert` échouée (avec `-ea`) |
+
+  ```java
+  static int profondeur(Noeud n) {
+      return 1 + profondeur(n.enfant);    // pas de cas d'arrêt : StackOverflowError
+  }
+  ```
+
+  - **`ClassNotFoundException`** (une exception vérifiée) vient d'un chargement **dynamique** par nom
+    (`Class.forName`) ; **`NoClassDefFoundError`** d'une classe connue à la compilation mais absente (ou cassée) à
+    l'exécution : un JAR manquant, un conflit de versions.
+  - Après un `OutOfMemoryError`, la JVM n'est plus fiable : on la laisse s'arrêter, avec un vidage du tas pour enquêter
+    (`-XX:+HeapDumpOnOutOfMemoryError`), et on redémarre.
+  - En conteneur, un dépassement de la limite mémoire du **conteneur** tue le processus (*OOMKilled*) sans
+    `OutOfMemoryError` : on dimensionne le tas par rapport au conteneur (`-XX:MaxRAMPercentage`).
+
+  **Piège classique** : attraper `StackOverflowError` pour « continuer ». La pile est dans un état incertain ; il faut
+  corriger la récursion.
+
+  **En entretien** : « `StackOverflowError` : récursion sans fin ; `OutOfMemoryError` : mémoire épuisée, souvent une
+  fuite ; `NoClassDefFoundError` : une classe connue à la compilation manque ou a échoué à s'initialiser. »
 cards:
   - key: stackoverflowerror
     format: course
@@ -16,7 +47,213 @@ cards:
     format: course
     question: Que se passe-t-il si un bloc static lève une exception ?
     answer: ExceptionInInitializerError la première fois, puis NoClassDefFoundError à chaque usage.
+  - key: vf-recursion
+    format: true-false
+    question: Une récursion sans cas d'arrêt finit par une `StackOverflowError`.
+    truth: true
+    answer: Chaque appel ajoute un cadre à la pile, jusqu'à l'épuiser.
+  - key: vf-oom-catch
+    format: true-false
+    question: Après avoir attrapé une `OutOfMemoryError`, on peut continuer normalement.
+    truth: false
+    answer: L'état de la JVM est incertain ; on journalise, on fait un vidage du tas et on redémarre.
+  - key: vf-class-not-found
+    format: true-false
+    question: "`ClassNotFoundException` est une `Error`."
+    truth: false
+    answer: C'est une exception vérifiée, levée par un chargement par nom ; `NoClassDefFoundError` est l'erreur.
+  - key: vf-oomkilled
+    format: true-false
+    question: Un conteneur tué pour dépassement de mémoire (OOMKilled) produit toujours une `OutOfMemoryError` dans les journaux.
+    truth: false
+    answer: Le noyau tue le processus sans que la JVM puisse rien écrire.
+  - key: qcm-causes-oom
+    format: multiple-choice
+    question: Lesquelles peuvent provoquer une `OutOfMemoryError` ?
+    choices:
+      - text: "Un cache sans limite qui retient tous les objets"
+        correct: true
+      - text: "Un fichier de plusieurs gigaoctets chargé entièrement en mémoire"
+        correct: true
+      - text: "Une récursion infinie"
+        correct: false
+      - text: "Une division par zéro"
+        correct: false
+    answer: La récursion infinie donne une `StackOverflowError`.
+  - key: qcm-ncdfe
+    format: multiple-choice
+    question: Quelle est une cause typique de `NoClassDefFoundError` ?
+    choices:
+      - text: "Un JAR présent à la compilation mais absent du classpath à l'exécution"
+        correct: true
+      - text: "Une faute de frappe dans `Class.forName(\"...\")`"
+        correct: false
+      - text: "Un tableau trop grand"
+        correct: false
+      - text: "Un argument `null`"
+        correct: false
+    answer: Une faute dans `Class.forName` donne une `ClassNotFoundException`.
+  - key: qcm-diagnostic
+    format: multiple-choice
+    question: Quelle option aide à enquêter après une `OutOfMemoryError` ?
+    choices:
+      - text: "`-XX:+HeapDumpOnOutOfMemoryError`"
+        correct: true
+      - text: "`-XX:-OmitStackTraceInFastThrow`"
+        correct: false
+      - text: "`-ea`"
+        correct: false
+      - text: "`-Xss`"
+        correct: false
+    answer: Le vidage du tas montre ce qui occupait la mémoire.
+  - key: qcm-conteneur
+    format: multiple-choice
+    question: Comment dimensionner le tas d'une JVM dans un conteneur limité à 1 Go ?
+    choices:
+      - text: "`-XX:MaxRAMPercentage=75` (le tas suit la limite du conteneur)"
+        correct: true
+      - text: "`-Xmx4g`"
+        correct: false
+      - text: "Ne rien faire, et laisser la JVM prendre toute la mémoire de l'hôte"
+        correct: false
+      - text: "`-Xss1g`"
+        correct: false
+    answer: Les JVM récentes connaissent la limite du conteneur ; on laisse de la marge pour la mémoire hors tas.
+  - key: code-recursion
+    format: code-output
+    question: |-
+      ```java
+      static int f(int n) {
+          return f(n + 1);
+      }
+      f(0);
+      ```
+    answer: "Une `StackOverflowError` : la récursion n'a pas de cas d'arrêt."
+    check:
+      throws: StackOverflowError
+  - key: code-tableau-trop-grand
+    format: code-output
+    question: |-
+      ```java
+      int[] t = new int[Integer.MAX_VALUE];
+      ```
+    answer: "Une `OutOfMemoryError` (« Requested array size exceeds VM limit ») : la taille dépasse ce que la JVM sait allouer."
+    check:
+      throws: OutOfMemoryError
+  - key: code-initialisation
+    format: code-output
+    question: |-
+      ```java
+      class Config {
+          static final int PORT = Integer.parseInt("abc");
+      }
+      System.out.println(Config.PORT);
+      ```
+    answer: Une `ExceptionInInitializerError`, dont la cause est la `NumberFormatException` de l'initialisation `static`.
+    check:
+      throws: ExceptionInInitializerError
+  - key: code-class-for-name
+    format: code-output
+    question: |-
+      ```java
+      try {
+          Class.forName("com.exemple.Inexistante");
+      } catch (ClassNotFoundException e) {
+          System.out.println(e.getClass().getSimpleName());
+      }
+      ```
+    answer: '`ClassNotFoundException` : le chargement par nom échoue.'
+    check:
+      output: "ClassNotFoundException"
+  - key: bug-cas-arret
+    format: bug-fix
+    question: |-
+      Le calcul de la profondeur d'un arbre lève une `StackOverflowError` :
+      ```java
+      static int profondeur(Noeud n) {
+          return 1 + Math.max(profondeur(n.gauche), profondeur(n.droite));
+      }
+      ```
+    answer: |-
+      ```java
+      static int profondeur(Noeud n) {
+          if (n == null) {
+              return 0;
+          }
+          return 1 + Math.max(profondeur(n.gauche), profondeur(n.droite));
+      }
+      ```
+      Sans cas d'arrêt, la récursion ne finit jamais (ici, elle lèverait d'ailleurs d'abord une NPE sur une feuille).
+  - key: bug-catch-stack-overflow
+    format: bug-fix
+    question: |-
+      Ce code « protège » le parcours d'un graphe :
+      ```java
+      try {
+          parcourir(racine);
+      } catch (StackOverflowError e) {
+          log.warn("graphe trop profond, parcours partiel");
+      }
+      ```
+      Le graphe contient des cycles.
+    answer: |-
+      ```java
+      void parcourir(Noeud depart) {
+          Set<Noeud> vus = new HashSet<>();
+          Deque<Noeud> aVisiter = new ArrayDeque<>(List.of(depart));
+          while (!aVisiter.isEmpty()) {
+              Noeud n = aVisiter.pop();
+              if (vus.add(n)) {
+                  traiter(n);
+                  aVisiter.addAll(n.voisins());
+              }
+          }
+      }
+      ```
+      Les cycles rendaient la récursion infinie. Un ensemble des nœuds visités et une pile explicite corrigent la cause, au
+      lieu d'attraper l'erreur.
+  - key: bug-fichier-entier
+    format: bug-fix
+    question: |-
+      L'import d'un fichier de 8 Go échoue avec `OutOfMemoryError: Java heap space` :
+      ```java
+      List<String> lignes = Files.readAllLines(chemin);
+      lignes.forEach(this::importer);
+      ```
+    answer: |-
+      ```java
+      try (Stream<String> lignes = Files.lines(chemin)) {
+          lignes.forEach(this::importer);
+      }
+      ```
+      `readAllLines` charge tout le fichier en mémoire. `Files.lines` lit au fil de l'eau : la mémoire reste constante.
+  - key: bug-xmx-conteneur
+    format: bug-fix
+    question: |-
+      Le pod est régulièrement tué (*OOMKilled*) sans aucune erreur dans les journaux :
+      ```dockerfile
+      # limite du conteneur : 1 Go
+      ENTRYPOINT ["java", "-Xmx1g", "-jar", "app.jar"]
+      ```
+    answer: |-
+      ```dockerfile
+      ENTRYPOINT ["java", "-XX:MaxRAMPercentage=75", "-jar", "app.jar"]
+      ```
+      Un tas de 1 Go, plus la mémoire hors tas (Metaspace, piles, tampons), dépasse la limite de 1 Go du conteneur : le
+      noyau tue le processus. On dimensionne le tas en pourcentage de la limite, avec une marge.
   - key: definition-oom-oomkilled
     format: definition
     question: OOM / OOMKilled
     answer: OutOfMemoryError de la JVM / processus tué par le noyau ou Kubernetes
+  - key: definition-stack-overflow
+    format: definition
+    question: StackOverflowError
+    answer: L'erreur levée quand la pile d'un thread est épuisée, le plus souvent par une récursion infinie.
+  - key: definition-ncdfe
+    format: definition
+    question: NoClassDefFoundError
+    answer: L'erreur levée quand une classe connue à la compilation est introuvable ou inutilisable à l'exécution.
+  - key: definition-eiie
+    format: definition
+    question: ExceptionInInitializerError
+    answer: L'erreur qui enveloppe une exception levée pendant l'initialisation `static` d'une classe.

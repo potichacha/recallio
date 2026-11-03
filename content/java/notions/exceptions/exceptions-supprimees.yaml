@@ -1,6 +1,265 @@
 notion: exceptions-supprimees
+lesson: |-
+  Quand le corps d'un `try-with-resources` lève une exception et que la fermeture de la ressource en lève une
+  **autre**, Java garde les deux : l'exception du corps remonte, et celle de `close()` lui est **attachée** comme
+  exception **supprimée** (*suppressed*, Java 7).
+
+  ```java
+  try (Connexion c = ouvrir()) {
+      c.envoyer(message);          // lève EnvoiImpossible
+  }                                // close() lève aussi ConnexionPerdue
+  // → EnvoiImpossible remonte ; e.getSuppressed()[0] est la ConnexionPerdue
+  ```
+
+  Dans la pile affichée, elle apparaît sous **`Suppressed:`** :
+
+  ```
+  EnvoiImpossible: message refusé
+      at ...
+      Suppressed: ConnexionPerdue: socket fermée
+          at ...
+  ```
+
+  - `getSuppressed()` renvoie le tableau des exceptions supprimées ; `addSuppressed(t)` permet d'en attacher à la main
+    (utile pour regrouper plusieurs échecs).
+  - Avec plusieurs ressources, chaque échec de fermeture s'ajoute, dans l'ordre de fermeture (l'inverse de l'ouverture).
+  - Si seul `close()` échoue, son exception remonte normalement, sans exception supprimée.
+  - Avec un `try`/`finally` écrit à la main, l'exception de `close()` **remplace** celle du corps, qui est perdue : c'est
+    le problème que ce mécanisme résout.
+  - Journaliser l'exception elle-même (`log.error("...", e)`) affiche aussi ses exceptions supprimées.
+
+  **Piège classique** : relancer `new RuntimeException(e.getMessage())`. On perd la pile, la cause et les exceptions
+  supprimées ; on passe `e` comme cause.
+
+  **En entretien** : « Quand le corps et `close()` échouent, l'exception du corps remonte et celle de `close()` lui est
+  attachée comme supprimée : rien n'est perdu. »
 cards:
   - key: exception-try-close
     format: course
     question: Exception dans try ET close ?
     answer: Celle du close devient suppressed, accessible via getSuppressed().
+  - key: seul-close
+    format: course
+    question: Que se passe-t-il si seul `close()` lève une exception ?
+    answer: Son exception remonte normalement, comme si elle avait été levée par le bloc ; il n'y a pas d'exception supprimée.
+  - key: add-suppressed
+    format: course
+    question: À quoi sert `addSuppressed` ?
+    answer: À attacher à la main une exception secondaire à une exception principale, par exemple pour regrouper les échecs d'un traitement par lot sans en perdre aucun.
+  - key: vs-finally
+    format: course
+    question: Pourquoi un `close()` dans un `finally` est-il moins bon ?
+    answer: Si le corps et `close()` échouent, l'exception de `close()` remplace celle du corps, qui disparaît ; `try-with-resources` garde les deux.
+  - key: vf-perdue
+    format: true-false
+    question: Avec `try-with-resources`, une exception levée par `close()` pendant une autre exception est perdue.
+    truth: false
+    answer: Elle est attachée comme exception supprimée.
+  - key: vf-get-suppressed
+    format: true-false
+    question: "`getSuppressed()` renvoie un tableau."
+    truth: true
+    answer: Il peut contenir plusieurs exceptions, une par ressource qui a échoué à se fermer.
+  - key: vf-version
+    format: true-false
+    question: Les exceptions supprimées sont apparues avec Java 7.
+    truth: true
+    answer: En même temps que `try-with-resources`.
+  - key: vf-journal
+    format: true-false
+    question: "`log.error(\"échec\", e)` affiche aussi les exceptions supprimées de `e`."
+    truth: true
+    answer: Elles font partie de la pile affichée, sous `Suppressed:`.
+  - key: qcm-remonte
+    format: multiple-choice
+    question: Le corps lève `A`, puis `close()` lève `B`. Que reçoit le `catch` ?
+    choices:
+      - text: "`A`, avec `B` dans `getSuppressed()`"
+        correct: true
+      - text: "`B`, avec `A` comme cause"
+        correct: false
+      - text: "`A` seule, `B` est perdue"
+        correct: false
+      - text: "`B` seule"
+        correct: false
+    answer: L'exception principale est celle du corps.
+  - key: qcm-affichage
+    format: multiple-choice
+    question: Sous quel libellé une pile affiche-t-elle les exceptions supprimées ?
+    choices:
+      - text: "`Suppressed:`"
+        correct: true
+      - text: "`Caused by:`"
+        correct: false
+      - text: "`Hidden:`"
+        correct: false
+      - text: "`... more`"
+        correct: false
+    answer: '`Caused by` est réservé à la cause.'
+  - key: qcm-perdre
+    format: multiple-choice
+    question: Quelles façons de relancer perdent les exceptions supprimées ?
+    choices:
+      - text: "`throw new RuntimeException(e.getMessage());`"
+        correct: true
+      - text: "`throw new RuntimeException(\"échec\");`"
+        correct: true
+      - text: "`throw new RuntimeException(\"échec\", e);`"
+        correct: false
+      - text: "`throw e;`"
+        correct: false
+    answer: En passant `e` comme cause (ou en la relançant), ses exceptions supprimées restent accessibles.
+  - key: qcm-lot
+    format: multiple-choice
+    question: Un traitement par lot veut signaler tous les éléments en échec par une seule exception. Comment ?
+    choices:
+      - text: "Créer une exception principale et lui ajouter chaque échec avec `addSuppressed`"
+        correct: true
+      - text: "Ne garder que la dernière exception"
+        correct: false
+      - text: "Concaténer les messages dans une `String`"
+        correct: false
+      - text: "Lever la première et ignorer les suivantes"
+        correct: false
+    answer: Chaque échec garde sa pile.
+  - key: code-supprimee
+    format: code-output
+    question: |-
+      ```java
+      record R() implements AutoCloseable {
+          public void close() { throw new IllegalStateException("close"); }
+      }
+      try (R r = new R()) {
+          throw new RuntimeException("corps");
+      } catch (RuntimeException e) {
+          System.out.println(e.getMessage() + " " + e.getSuppressed()[0].getMessage());
+      }
+      ```
+    answer: '`corps close` : l''exception du corps remonte, celle de `close` est supprimée.'
+    check:
+      output: "corps close"
+  - key: code-seul-close
+    format: code-output
+    question: |-
+      ```java
+      record R() implements AutoCloseable {
+          public void close() { throw new IllegalStateException("close"); }
+      }
+      try (R r = new R()) {
+          System.out.print("ok ");
+      } catch (RuntimeException e) {
+          System.out.println(e.getMessage() + " " + e.getSuppressed().length);
+      }
+      ```
+    answer: '`ok close 0` : sans exception dans le corps, celle de `close` remonte seule.'
+    check:
+      output: "ok close 0"
+  - key: code-add-suppressed
+    format: code-output
+    question: |-
+      ```java
+      var principale = new RuntimeException("principale");
+      principale.addSuppressed(new IllegalStateException("secondaire"));
+      System.out.println(principale.getSuppressed().length + " " + principale.getSuppressed()[0].getMessage());
+      ```
+    answer: '`1 secondaire`.'
+    check:
+      output: "1 secondaire"
+  - key: code-deux-ressources
+    format: code-output
+    question: |-
+      ```java
+      record R(String nom) implements AutoCloseable {
+          public void close() { throw new IllegalStateException(nom); }
+      }
+      try (R a = new R("a"); R b = new R("b")) {
+          throw new RuntimeException("corps");
+      } catch (RuntimeException e) {
+          System.out.println(e.getMessage() + " " + Arrays.stream(e.getSuppressed()).map(Throwable::getMessage).toList());
+      }
+      ```
+    answer: '`corps [b, a]` : une exception supprimée par ressource, dans l''ordre de fermeture.'
+    check:
+      output: "corps [b, a]"
+  - key: bug-finally-masque
+    format: bug-fix
+    question: |-
+      Les journaux ne montrent que « connexion perdue », jamais la vraie raison de l'échec de l'envoi :
+      ```java
+      Connexion c = ouvrir();
+      try {
+          c.envoyer(message);
+      } finally {
+          c.close();
+      }
+      ```
+    answer: |-
+      ```java
+      try (Connexion c = ouvrir()) {
+          c.envoyer(message);
+      }
+      ```
+      Dans un `finally`, l'exception de `close()` remplace celle d'`envoyer`. `try-with-resources` garde l'erreur
+      d'envoi et lui attache celle de fermeture.
+  - key: bug-message-seul
+    format: bug-fix
+    question: |-
+      Après ce relancement, les exceptions supprimées et la pile d'origine ont disparu :
+      ```java
+      } catch (IOException e) {
+          throw new ExportImpossible(e.getMessage());
+      }
+      ```
+    answer: |-
+      ```java
+      } catch (IOException e) {
+          throw new ExportImpossible("export de " + fichier, e);
+      }
+      ```
+      En passant `e` comme cause, sa pile et ses exceptions supprimées restent dans la trace (`Caused by:` puis
+      `Suppressed:`).
+  - key: bug-lot-premiere
+    format: bug-fix
+    question: |-
+      Sur un lot de 100 fichiers, seul le premier échec est signalé :
+      ```java
+      for (Path f : fichiers) {
+          importer(f);   // lève à la première erreur
+      }
+      ```
+      On veut importer tous les fichiers valides et signaler tous les échecs.
+    answer: |-
+      ```java
+      ImportPartiel erreurs = new ImportPartiel();
+      for (Path f : fichiers) {
+          try {
+              importer(f);
+          } catch (ImportImpossible e) {
+              erreurs.addSuppressed(e);
+          }
+      }
+      if (erreurs.getSuppressed().length > 0) {
+          throw erreurs;
+      }
+      ```
+      Chaque échec est attaché à l'exception principale avec sa propre pile, au lieu de s'arrêter au premier ou de
+      concaténer des messages.
+  - key: bug-catch-close
+    format: bug-fix
+    question: |-
+      Ce code avale toute erreur de fermeture, y compris celle qui signale que les données n'ont pas été écrites :
+      ```java
+      try {
+          ecrivain.write(donnees);
+      } finally {
+          try { ecrivain.close(); } catch (IOException ignoree) { }
+      }
+      ```
+    answer: |-
+      ```java
+      try (ecrivain) {
+          ecrivain.write(donnees);
+      }
+      ```
+      Pour un flux en écriture, `close()` vide le tampon : son échec signifie souvent des données perdues. `try-with-resources`
+      propage cette erreur, ou l'attache comme supprimée si `write` a déjà échoué.

@@ -1,4 +1,48 @@
 notion: exceptions-lambdas
+lesson: |-
+  Les interfaces fonctionnelles de la JDK (`Function`, `Consumer`, `Supplier`, `Predicate`...) ne déclarent **aucune
+  exception vérifiée**. Une lambda qui appelle une méthode levant une `IOException` ne compile donc pas :
+
+  ```java
+  chemins.stream()
+         .map(Files::readString)          // ne compile pas : IOException non traitée
+         .toList();
+  ```
+
+  Les solutions, de la plus simple à la plus générale :
+
+  ```java
+  // 1. une méthode qui enveloppe
+  private static String lire(Path p) {
+      try {
+          return Files.readString(p);
+      } catch (IOException e) {
+          throw new UncheckedIOException(e);     // non vérifiée, avec la cause
+      }
+  }
+  chemins.stream().map(Lecteur::lire).toList();
+
+  // 2. une interface fonctionnelle qui déclare l'exception, et un adaptateur
+  @FunctionalInterface
+  interface FonctionRisquee<T, R> { R appliquer(T t) throws IOException; }
+
+  static <T, R> Function<T, R> envelopper(FonctionRisquee<T, R> f) {
+      return t -> {
+          try { return f.appliquer(t); }
+          catch (IOException e) { throw new UncheckedIOException(e); }
+      };
+  }
+  ```
+
+  - L'exception enveloppée sort du stream à l'opération terminale ; on peut l'attraper autour et récupérer la cause.
+  - Une boucle `for` classique accepte les exceptions vérifiées : pour quelques éléments, c'est souvent le plus lisible.
+  - Si un élément en échec ne doit pas tout arrêter, on renvoie un **résultat** (succès ou échec) plutôt que de lever.
+
+  **Piège classique** : attraper l'exception dans la lambda et renvoyer `null`. Le stream continue avec des `null`, et
+  l'erreur réapparaît plus loin sous forme de `NullPointerException`.
+
+  **En entretien** : « `Function` et ses sœurs ne déclarent pas d'exception vérifiée : j'enveloppe dans une exception non
+  vérifiée avec la cause, ou j'utilise une boucle `for`. »
 cards:
   - key: lambda-lancer-ioexception-map
     format: course
@@ -8,3 +52,232 @@ cards:
     format: course
     question: Comment lever une exception checked depuis une lambda ?
     answer: L'envelopper dans une unchecked (UncheckedIOException) ou définir une interface fonctionnelle qui la déclare.
+  - key: sortie-stream
+    format: course
+    question: Où récupère-t-on une exception levée dans une lambda d'un stream ?
+    answer: Elle remonte de l'opération terminale (`toList`, `forEach`, `collect`), qu'on peut entourer d'un `try/catch` ; la cause d'origine reste accessible par `getCause()`.
+  - key: boucle
+    format: course
+    question: Pourquoi une boucle `for` est-elle parfois préférable à un stream avec des exceptions vérifiées ?
+    answer: Le corps d'une boucle peut lever et propager une exception vérifiée directement (avec `throws`), sans enveloppe ni adaptateur.
+  - key: vf-function
+    format: true-false
+    question: "`Function.apply` déclare `throws Exception`."
+    truth: false
+    answer: Elle ne déclare aucune exception vérifiée.
+  - key: vf-unchecked-ok
+    format: true-false
+    question: Une lambda passée à `map` peut lever une `IllegalArgumentException`.
+    truth: true
+    answer: Les exceptions non vérifiées passent sans problème.
+  - key: vf-interface-propre
+    format: true-false
+    question: On peut définir une interface fonctionnelle dont la méthode déclare `throws IOException`.
+    truth: true
+    answer: Une lambda qui l'implémente peut alors lever une `IOException`.
+  - key: vf-null
+    format: true-false
+    question: Renvoyer `null` dans la lambda en cas d'erreur est une bonne façon de gérer une exception vérifiée.
+    truth: false
+    answer: L'erreur disparaît et revient plus loin en `NullPointerException`.
+  - key: qcm-compile
+    format: multiple-choice
+    question: Lesquelles compilent, avec `List<Path> chemins` ?
+    choices:
+      - text: "`chemins.stream().map(Lecteur::lire)`, où `lire` enveloppe l'`IOException`"
+        correct: true
+      - text: "`for (Path p : chemins) contenus.add(Files.readString(p));` dans une méthode `throws IOException`"
+        correct: true
+      - text: "`chemins.stream().map(Files::readString)`"
+        correct: false
+      - text: "`chemins.forEach(p -> Files.readString(p))`"
+        correct: false
+    answer: Les deux dernières laissent une `IOException` non traitée dans une lambda.
+  - key: qcm-envelopper
+    format: multiple-choice
+    question: Dans quelle exception envelopper une `IOException` dans une lambda ?
+    choices:
+      - text: "`UncheckedIOException`, faite pour ça"
+        correct: true
+      - text: "`RuntimeException`, avec la cause"
+        correct: true
+      - text: "Une `Error`"
+        correct: false
+      - text: "Aucune, il suffit de l'ignorer"
+        correct: false
+    answer: L'important est de garder la cause.
+  - key: qcm-tolerance
+    format: multiple-choice
+    question: Un fichier illisible parmi mille ne doit pas arrêter le traitement des autres. Que faire ?
+    choices:
+      - text: "Renvoyer pour chaque fichier un résultat (succès ou échec) et traiter les échecs à la fin"
+        correct: true
+      - text: "Attraper l'exception dans la lambda et renvoyer `null`"
+        correct: false
+      - text: "Envelopper et laisser l'exception arrêter le stream"
+        correct: false
+      - text: "Attraper `Throwable` autour du stream"
+        correct: false
+    answer: Un type résultat garde l'information de chaque échec sans interrompre les autres.
+  - key: qcm-terminale
+    format: multiple-choice
+    question: Quand une exception levée dans `map` remonte-t-elle à l'appelant ?
+    choices:
+      - text: "Pendant l'opération terminale, quand l'élément est traité"
+        correct: true
+      - text: "À l'appel de `map`"
+        correct: false
+      - text: "Jamais, le stream l'ignore"
+        correct: false
+      - text: "À la fin du programme"
+        correct: false
+    answer: Les opérations intermédiaires sont paresseuses.
+  - key: code-compile-pas
+    format: code-output
+    question: |-
+      ```java
+      List<String> contenus = Stream.of(Path.of("a.txt")).map(p -> Files.readString(p)).toList();
+      ```
+      Ce code compile-t-il ?
+    answer: 'Non : `unreported exception IOException; must be caught or declared to be thrown`.'
+    check:
+      compiles: false
+  - key: code-envelopper
+    format: code-output
+    question: |-
+      ```java
+      static String lire(String s) {
+          try {
+              if (s.isEmpty()) throw new IOException("vide");
+              return s.toUpperCase();
+          } catch (IOException e) {
+              throw new UncheckedIOException(e);
+          }
+      }
+      System.out.println(Stream.of("a", "b").map(s -> lire(s)).toList());
+      ```
+    answer: '`[A, B]` : la méthode intermédiaire rend la lambda compatible avec `Function`.'
+    check:
+      output: "[A, B]"
+  - key: code-cause
+    format: code-output
+    question: |-
+      ```java
+      static String lire(String s) {
+          try {
+              if (s.isEmpty()) throw new IOException("vide");
+              return s.toUpperCase();
+          } catch (IOException e) {
+              throw new UncheckedIOException(e);
+          }
+      }
+      try {
+          Stream.of("a", "").map(s -> lire(s)).toList();
+      } catch (UncheckedIOException e) {
+          System.out.println(e.getCause().getMessage());
+      }
+      ```
+    answer: '`vide` : l''exception sort de l''opération terminale, avec sa cause.'
+    check:
+      output: "vide"
+  - key: code-adaptateur
+    format: code-output
+    question: |-
+      ```java
+      @FunctionalInterface
+      interface FonctionRisquee<T, R> { R appliquer(T t) throws IOException; }
+
+      static <T, R> Function<T, R> envelopper(FonctionRisquee<T, R> f) {
+          return t -> {
+              try { return f.appliquer(t); }
+              catch (IOException e) { throw new UncheckedIOException(e); }
+          };
+      }
+      System.out.println(Stream.of("x", "yy").map(envelopper(s -> s.length())).toList());
+      ```
+    answer: '`[1, 2]` : l''adaptateur transforme une fonction qui peut lever en `Function` ordinaire.'
+    check:
+      output: "[1, 2]"
+  - key: bug-null
+    format: bug-fix
+    question: |-
+      Une `NullPointerException` apparaît plus loin dans le traitement, sans rapport apparent :
+      ```java
+      List<String> contenus = chemins.stream()
+              .map(p -> {
+                  try { return Files.readString(p); }
+                  catch (IOException e) { return null; }
+              })
+              .toList();
+      ```
+    answer: |-
+      ```java
+      List<String> contenus = chemins.stream()
+              .map(p -> {
+                  try { return Files.readString(p); }
+                  catch (IOException e) { throw new UncheckedIOException("lecture de " + p, e); }
+              })
+              .toList();
+      ```
+      Renvoyer `null` cache l'erreur dans les données. On l'enveloppe, avec le chemin et la cause, et elle remonte de
+      l'opération terminale.
+  - key: bug-for-each
+    format: bug-fix
+    question: |-
+      Ce code ne compile pas (`unreported exception IOException`) :
+      ```java
+      void exporter(List<Rapport> rapports) throws IOException {
+          rapports.forEach(r -> Files.writeString(r.chemin(), r.contenu()));
+      }
+      ```
+    answer: |-
+      ```java
+      void exporter(List<Rapport> rapports) throws IOException {
+          for (Rapport r : rapports) {
+              Files.writeString(r.chemin(), r.contenu());
+          }
+      }
+      ```
+      La lambda de `forEach` ne peut pas propager une exception vérifiée, même si la méthode la déclare. Une boucle `for`
+      le peut.
+  - key: bug-avaler
+    format: bug-fix
+    question: |-
+      Des lignes disparaissent silencieusement de l'export :
+      ```java
+      lignes.forEach(l -> {
+          try { ecrivain.write(l); }
+          catch (IOException e) { }
+      });
+      ```
+    answer: |-
+      ```java
+      for (String l : lignes) {
+          ecrivain.write(l);
+      }
+      ```
+      Le `catch` vide dans la lambda avale les erreurs d'écriture. Une boucle `for`, dans une méthode qui déclare
+      `throws IOException`, les laisse remonter.
+  - key: bug-tolerance
+    format: bug-fix
+    question: |-
+      Un seul fichier corrompu fait échouer l'analyse de tout le dossier :
+      ```java
+      List<Rapport> rapports = fichiers.stream().map(this::analyser).toList();   // analyser lève une UncheckedIOException
+      ```
+      On veut analyser les fichiers valides et lister les échecs.
+    answer: |-
+      ```java
+      sealed interface Analyse permits Reussie, Echouee { }
+      record Reussie(Rapport rapport) implements Analyse { }
+      record Echouee(Path fichier, Exception erreur) implements Analyse { }
+
+      List<Analyse> resultats = fichiers.stream()
+              .map(f -> {
+                  try { return new Reussie(analyser(f)); }
+                  catch (UncheckedIOException e) { return new Echouee(f, e); }
+              })
+              .toList();
+      ```
+      Chaque fichier produit un résultat, succès ou échec, au lieu d'interrompre le stream. Les échecs gardent leur
+      exception pour être journalisés.

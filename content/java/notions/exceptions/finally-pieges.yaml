@@ -1,4 +1,41 @@
 notion: finally-pieges
+lesson: |-
+  `finally` s'exécute après le `try` et le `catch`, **même** s'ils contiennent un `return` ou lèvent une exception. Cette
+  garantie a des effets surprenants :
+
+  ```java
+  static int f() {
+      int x = 1;
+      try {
+          return x;          // la valeur 1 est figée ici...
+      } finally {
+          x = 2;             // ...modifier x ne change plus le résultat : f() renvoie 1
+      }
+  }
+
+  static int g() {
+      try {
+          throw new IllegalStateException("perdue");
+      } finally {
+          return 42;         // ce return ÉCRASE l'exception : g() renvoie 42, sans erreur
+      }
+  }
+  ```
+
+  - Un **`return` dans `finally`** remplace le `return` du `try` et **avale** toute exception en cours.
+  - Une **exception levée dans `finally`** remplace l'exception d'origine, qui disparaît (c'est ce que
+    `try-with-resources` évite, avec les exceptions supprimées).
+  - Si le `try` renvoie un objet **mutable**, le `finally` peut encore le modifier : la référence est figée, pas son
+    contenu.
+  - `finally` ne s'exécute pas si la JVM s'arrête : `System.exit`, plantage, processus tué, thread démon arrêté.
+
+  Règle simple : un `finally` ne contient que du **nettoyage**, jamais de `return`, de `throw`, ni de logique métier.
+
+  **Piège classique** : un `close()` qui lève une exception dans le `finally`. Il masque l'erreur qui a vraiment fait
+  échouer le `try`.
+
+  **En entretien** : « Pas de `return` ni de `throw` dans un `finally` : ils écrasent le résultat ou l'exception du
+  `try` ; et `finally` ne survit pas à `System.exit`. »
 cards:
   - key: finally-return
     format: course
@@ -8,6 +45,86 @@ cards:
     format: course
     question: finally s'exécute-t-il toujours ?
     answer: 'Non : pas en cas de System.exit, crash, kill -9, ou thread démon tué.'
+  - key: exception-masquee
+    format: course
+    question: Que devient l'exception du `try` si le `finally` lève à son tour une exception ?
+    answer: "Elle est perdue : c'est l'exception du `finally` qui remonte. `try-with-resources` évite ce problème en gardant la seconde comme exception supprimée."
+  - key: objet-mutable
+    format: course
+    question: Un `finally` peut-il changer ce que renvoie `return liste;` dans le `try` ?
+    answer: Il ne peut pas changer la référence renvoyée, mais il peut modifier le contenu de l'objet référencé s'il est mutable.
+  - key: vf-return-avale
+    format: true-false
+    question: Un `return` dans `finally` peut faire disparaître une exception levée dans le `try`.
+    truth: true
+    answer: Le `return` du `finally` termine la méthode normalement, et l'exception est abandonnée.
+  - key: vf-valeur-figee
+    format: true-false
+    question: "Avec `try { return x; } finally { x = 2; }`, la méthode renvoie 2."
+    truth: false
+    answer: La valeur de retour est évaluée avant le `finally` ; modifier `x` n'y change rien.
+  - key: vf-exit
+    format: true-false
+    question: "`finally` s'exécute même après un `System.exit(0)` dans le `try`."
+    truth: false
+    answer: '`System.exit` arrête la JVM sans exécuter les `finally`.'
+  - key: vf-nettoyage
+    format: true-false
+    question: Un `finally` ne devrait contenir que du nettoyage.
+    truth: true
+    answer: Pas de `return`, de `throw` ni de logique métier.
+  - key: qcm-resultat
+    format: multiple-choice
+    question: "Que renvoie `try { return 1; } finally { return 2; }` ?"
+    choices:
+      - text: "2"
+        correct: true
+      - text: "1"
+        correct: false
+      - text: "Une erreur de compilation"
+        correct: false
+      - text: "Une exception"
+        correct: false
+    answer: Le `return` du `finally` l'emporte (le compilateur avertit seulement).
+  - key: qcm-ne-s-execute-pas
+    format: multiple-choice
+    question: Dans quels cas un `finally` ne s'exécute-t-il pas ?
+    choices:
+      - text: "Après `System.exit()` dans le `try`"
+        correct: true
+      - text: "Si le processus est tué (`kill -9`)"
+        correct: true
+      - text: "Si le `try` contient un `return`"
+        correct: false
+      - text: "Si le `try` lève une exception non attrapée"
+        correct: false
+    answer: Le `finally` s'exécute dans tous les cas de sortie normale ou par exception.
+  - key: qcm-a-eviter
+    format: multiple-choice
+    question: Qu'est-ce qu'il ne faut pas mettre dans un `finally` ?
+    choices:
+      - text: "Un `return`"
+        correct: true
+      - text: "Un `throw`"
+        correct: true
+      - text: "La libération d'un verrou"
+        correct: false
+      - text: "La remise à zéro d'un indicateur"
+        correct: false
+    answer: Le `finally` sert précisément au nettoyage.
+  - key: qcm-masquage
+    format: multiple-choice
+    question: Comment éviter qu'une erreur de fermeture masque l'erreur principale ?
+    choices:
+      - text: "Utiliser `try-with-resources`"
+        correct: true
+      - text: "Mettre `close()` dans le `finally` sans précaution"
+        correct: false
+      - text: "Ajouter `return` dans le `finally`"
+        correct: false
+      - text: "Attraper `Throwable` dans le `finally`"
+        correct: false
+    answer: '`try-with-resources` garde l''erreur principale et attache celle de `close` comme exception supprimée.'
   - key: code-static-int-f-int-x
     format: code-output
     question: |-
@@ -22,3 +139,137 @@ cards:
         static int g() { try { return 1; } finally { return 2; } }
         System.out.println(f() + " " + g());
       output: "1 2"
+  - key: code-exception-masquee
+    format: code-output
+    question: |-
+      ```java
+      try {
+          try {
+              throw new IllegalStateException("originale");
+          } finally {
+              throw new RuntimeException("finally");
+          }
+      } catch (RuntimeException e) {
+          System.out.println(e.getMessage());
+      }
+      ```
+    answer: '`finally` : l''exception d''origine a disparu.'
+    check:
+      output: "finally"
+  - key: code-return-avale
+    format: code-output
+    question: |-
+      ```java
+      static int f() {
+          try {
+              throw new IllegalStateException();
+          } finally {
+              return 42;
+          }
+      }
+      System.out.println(f());
+      ```
+    answer: '`42` : le `return` du `finally` avale l''exception.'
+    check:
+      output: "42"
+  - key: code-mutable
+    format: code-output
+    question: |-
+      ```java
+      static StringBuilder f() {
+          StringBuilder sb = new StringBuilder("a");
+          try {
+              return sb;
+          } finally {
+              sb.append("b");
+          }
+      }
+      System.out.println(f());
+      ```
+    answer: '`ab` : la référence est figée, mais le `finally` modifie encore l''objet.'
+    check:
+      output: "ab"
+  - key: bug-return-finally
+    format: bug-fix
+    question: |-
+      Les erreurs de sauvegarde ne remontent jamais :
+      ```java
+      boolean sauvegarder(Document d) {
+          try {
+              depot.enregistrer(d);
+          } finally {
+              return true;
+          }
+      }
+      ```
+    answer: |-
+      ```java
+      void sauvegarder(Document d) {
+          depot.enregistrer(d);
+      }
+      ```
+      Le `return` du `finally` avalait toute exception et prétendait que tout s'était bien passé. Sans lui, l'erreur
+      remonte ; si un nettoyage est nécessaire, le `finally` ne fait que ça.
+  - key: bug-close-masque
+    format: bug-fix
+    question: |-
+      Les journaux montrent « erreur de fermeture », jamais l'erreur d'écriture qui l'a précédée :
+      ```java
+      Writer w = Files.newBufferedWriter(chemin);
+      try {
+          w.write(contenu);
+      } finally {
+          w.close();
+      }
+      ```
+    answer: |-
+      ```java
+      try (Writer w = Files.newBufferedWriter(chemin)) {
+          w.write(contenu);
+      }
+      ```
+      Une exception de `close()` dans le `finally` remplace celle de `write`. `try-with-resources` garde l'erreur
+      d'écriture et attache celle de fermeture comme exception supprimée.
+  - key: bug-logique-finally
+    format: bug-fix
+    question: |-
+      La commande est marquée « envoyée » même quand l'envoi échoue :
+      ```java
+      try {
+          passerelle.envoyer(commande);
+      } finally {
+          commande.marquerEnvoyee();
+      }
+      ```
+    answer: |-
+      ```java
+      passerelle.envoyer(commande);
+      commande.marquerEnvoyee();
+      ```
+      Le `finally` s'exécute aussi en cas d'échec : il ne doit contenir que ce qui vaut dans tous les cas (le nettoyage),
+      pas la suite du traitement normal.
+  - key: bug-throw-finally
+    format: bug-fix
+    question: |-
+      L'exception de validation n'arrive jamais à l'appelant, qui ne voit que « nettoyage incomplet » :
+      ```java
+      try {
+          valider(fichier);
+      } finally {
+          if (!temporaire.delete()) {
+              throw new IllegalStateException("nettoyage incomplet");
+          }
+      }
+      ```
+    answer: |-
+      ```java
+      try {
+          valider(fichier);
+      } finally {
+          if (!temporaire.delete()) {
+              log.warn("fichier temporaire non supprimé : {}", temporaire);
+          }
+      }
+      ```
+      Un `throw` dans le `finally` masque l'exception du `try`. Un échec de nettoyage secondaire se journalise, sans
+      écraser l'erreur principale.
