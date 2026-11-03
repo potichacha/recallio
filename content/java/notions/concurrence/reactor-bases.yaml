@@ -1,4 +1,45 @@
 notion: reactor-bases
+lesson: |-
+  **Project Reactor** (utilisé par Spring WebFlux) a deux types de base :
+  - **`Mono<T>`** : **0 ou 1** élément (une réponse HTTP, une ligne en base) ;
+  - **`Flux<T>`** : **0 à N** éléments, éventuellement infinis (un flux d'événements, des lignes).
+
+  ```java
+  Mono<Client> client = clientRepository.findById(id);              // rien n'est exécuté ici
+
+  Flux<String> villes = client
+          .flatMapMany(c -> commandeRepository.findByClient(c.id()))   // Mono → Flux
+          .filter(Commande::livree)
+          .map(Commande::ville)
+          .distinct()
+          .timeout(Duration.ofSeconds(2))
+          .onErrorResume(e -> Flux.empty());
+
+  Mono<Tableau> tableau = Mono.zip(prix(ref), stock(ref), avis(ref))     // trois appels en parallèle
+          .map(t -> new Tableau(t.getT1(), t.getT2(), t.getT3()));
+  ```
+
+  Les opérateurs essentiels :
+  - **`map`** (transformation synchrone), **`flatMap`** (étape asynchrone, concurrente, **sans ordre garanti**),
+    **`concatMap`** (asynchrone, **séquentielle**, garde l'ordre), **`switchMap`** (annule l'étape en cours à chaque
+    nouvel élément) ;
+  - `zip`, `merge`, `concat` pour combiner ; `timeout`, `retryWhen`, `onErrorResume`, `onErrorReturn` pour la résilience ;
+  - **`subscribeOn`** choisit le thread où démarre la source, **`publishOn`** celui des opérateurs suivants ;
+    `Schedulers.boundedElastic()` pour isoler un appel bloquant inévitable.
+
+  Règles :
+  - **rien ne se passe sans abonnement** (`subscribe`, ou le framework qui s'abonne à ce que renvoie le contrôleur) ;
+  - **jamais `block()`** dans du code réactif (seulement en test, ou à la frontière d'un code bloquant) ;
+  - un flux **froid** (*cold*) rejoue sa source pour chaque abonné (deux abonnements = deux requêtes en base) ; un flux
+    **chaud** (*hot*) émet indépendamment des abonnés ;
+  - le contexte (MDC, sécurité) passe par le **`Context`** de Reactor, pas par `ThreadLocal` ;
+  - tester avec **`StepVerifier`** ; déboguer avec `checkpoint()`, `log()` et le ReactorDebugAgent.
+
+  **Piège classique** : construire un `Mono` sans que personne ne s'y abonne (`repository.save(x);` sans retour ni
+  `subscribe`). La sauvegarde n'a jamais lieu, sans aucune erreur.
+
+  **En entretien** : « `Mono` pour 0 ou 1, `Flux` pour 0 à N ; `map`, `flatMap`, `concatMap`, `zip` ; rien sans abonnement,
+  jamais de `block`, et `boundedElastic` pour isoler le bloquant. »
 cards:
   - key: mono-vs-flux
     format: course
@@ -44,6 +85,78 @@ cards:
     format: course
     question: Comment déboguer un flux Reactor ?
     answer: checkpoint(), log(), Hooks.onOperatorDebug() en dev, ReactorDebugAgent.
+  - key: vf-flatmap-ordre
+    format: true-false
+    question: "`flatMap` sur un `Flux` garantit que les résultats sortent dans l'ordre des éléments d'entrée."
+    truth: false
+    answer: Les étapes s'exécutent en concurrence ; `concatMap` (ou `flatMapSequential`) garde l'ordre.
+  - key: vf-zip
+    format: true-false
+    question: "`Mono.zip(a, b, c)` s'abonne aux trois sources en parallèle."
+    truth: true
+    answer: Il attend les trois résultats et les combine.
+  - key: vf-block-test
+    format: true-false
+    question: "`block()` est acceptable dans un test unitaire."
+    truth: true
+    answer: Même si `StepVerifier` est préférable pour vérifier les signaux.
+  - key: vf-cold-double
+    format: true-false
+    question: S'abonner deux fois à un `Mono` froid issu d'une requête en base exécute la requête deux fois.
+    truth: true
+    answer: Chaque abonnement rejoue la source ; `cache()` partage le résultat.
+  - key: qcm-type
+    format: multiple-choice
+    question: Quel type pour une méthode qui cherche un client par identifiant ?
+    choices:
+      - text: "`Mono<Client>`"
+        correct: true
+      - text: "`Flux<Client>`"
+        correct: false
+      - text: "`Mono<List<Client>>`"
+        correct: false
+      - text: "`Client`, en bloquant"
+        correct: false
+    answer: 0 ou 1 résultat.
+  - key: qcm-operateur
+    format: multiple-choice
+    question: Pour chaque identifiant, on appelle un service asynchrone, et l'ordre des résultats doit suivre celui des identifiants. Quel opérateur ?
+    choices:
+      - text: "`concatMap`"
+        correct: true
+      - text: "`flatMapSequential`"
+        correct: true
+      - text: "`flatMap`"
+        correct: false
+      - text: "`map`"
+        correct: false
+    answer: '`flatMap` mélange l''ordre ; `map` ne gère pas l''asynchrone.'
+  - key: qcm-erreurs
+    format: multiple-choice
+    question: Comment fournir une valeur de repli quand un appel échoue ?
+    choices:
+      - text: "`onErrorResume(e -> Mono.just(defaut))`"
+        correct: true
+      - text: "`onErrorReturn(defaut)`"
+        correct: true
+      - text: "Un `try/catch` autour de la construction du `Mono`"
+        correct: false
+      - text: "`block()` puis un `catch`"
+        correct: false
+    answer: L'erreur arrive de façon asynchrone, sous forme de signal.
+  - key: qcm-tester
+    format: multiple-choice
+    question: Comment tester un `Flux` ?
+    choices:
+      - text: "Avec `StepVerifier.create(flux).expectNext(...).verifyComplete()`"
+        correct: true
+      - text: "Avec `Thread.sleep` puis une vérification"
+        correct: false
+      - text: "Avec `assertEquals(flux, liste)`"
+        correct: false
+      - text: "Ce n'est pas testable"
+        correct: false
+    answer: '`StepVerifier` vérifie chaque signal, y compris les erreurs et la fin.'
   - key: endpoint-doit-agreger-trois-appels-services
     format: scenario
     question: Un endpoint doit agréger trois appels de services en parallèle avec un timeout global.
@@ -57,3 +170,20 @@ cards:
       CPU bas et débit effondré sur WebFlux, c'est le symptôme typique d'un **appel bloquant sur l'event loop** : quelques threads seulement, et chacun reste coincé à attendre.
       Je prendrais un thread dump pour voir ce que font les threads `reactor-http-nio` : s'ils sont dans un appel JDBC, un `block()`, un client HTTP synchrone ou un `Thread.sleep`, le coupable est trouvé. BlockHound en test permet de le détecter systématiquement.
       La correction est de rendre l'appel non bloquant, ou à défaut de l'isoler sur `boundedElastic`.
+  - key: scenario-sauvegarde-perdue
+    format: scenario
+    question: Une sauvegarde en base dans un service WebFlux n'a jamais lieu, sans aucune erreur. Pourquoi ?
+    answer: |-
+      Le `Mono` de la sauvegarde a été créé mais personne ne s'y est abonné : `repository.save(entite);` sans utiliser le
+      résultat. En réactif, rien ne s'exécute sans abonnement. La correction : chaîner la sauvegarde dans le pipeline
+      renvoyé au framework (`return valider(x).flatMap(repository::save).map(Reponse::de);`), qui s'y abonne. Je ne
+      mets pas de `subscribe()` isolé, qui détacherait l'opération du cycle de la requête (erreurs perdues, pas de
+      contre-pression).
+  - key: scenario-double-requete
+    format: scenario
+    question: Les logs montrent que la même requête SQL part deux fois pour une seule requête HTTP. Comment est-ce possible en Reactor ?
+    answer: |-
+      Le `Mono` (ou `Flux`) issu de la requête est froid : chaque abonnement rejoue la source. S'il est utilisé deux fois
+      dans le pipeline (par exemple dans deux branches d'un `zip`, ou lu à deux endroits), la requête part deux fois.
+      Je restructure pour ne s'y abonner qu'une fois (un `flatMap` qui passe le résultat aux deux usages), ou j'utilise
+      `cache()` pour partager le résultat entre les abonnés de cette requête HTTP.

@@ -1,6 +1,312 @@
 notion: synchronized
+lesson: |-
+  Chaque objet Java a un **moniteur** (un verrou intrinsèque). `synchronized` le prend à l'entrée et le rend à la sortie
+  (même sur exception) : un seul thread à la fois exécute le code protégé **par ce même moniteur**.
+
+  ```java
+  class Compte {
+      private long solde;
+      private final Object verrou = new Object();
+
+      synchronized void deposer(long m) { solde += m; }       // verrou : this
+
+      void retirer(long m) {
+          synchronized (verrou) {                              // verrou : un objet privé
+              if (solde >= m) solde -= m;
+          }
+      }
+
+      static synchronized void initialiser() { }             // verrou : Compte.class
+  }
+  ```
+
+  `synchronized` garantit deux choses :
+  - l'**exclusion mutuelle** : une seule section protégée par le même verrou s'exécute à la fois ;
+  - la **visibilité** : ce qu'un thread a écrit avant de rendre le verrou est vu par le thread qui le prend ensuite.
+
+  Règles :
+  - **toutes** les lectures et écritures d'un état partagé doivent utiliser le **même** verrou ; une lecture non
+    synchronisée peut voir une valeur périmée ;
+  - le verrou est **réentrant** : un thread qui le détient peut le reprendre (une méthode synchronisée en appelle une
+    autre) ;
+  - un **verrou privé** (`private final Object`) évite qu'un code extérieur se synchronise sur notre objet et provoque
+    un blocage ;
+  - garder les sections **courtes** : pas d'entrée-sortie ni d'appel à du code inconnu sous verrou ;
+  - on ne se synchronise jamais sur une `String` littérale, un `Integer` en cache ou une valeur qui change.
+
+  **Piège classique** : synchroniser l'écriture (`synchronized void set`) mais pas la lecture (`int get()`). Le lecteur peut
+  voir une valeur ancienne : visibilité et exclusion ne valent que si les deux côtés prennent le verrou.
+
+  **En entretien** : « `synchronized` donne exclusion mutuelle et visibilité, sur le moniteur de `this`, d'un objet ou de la
+  classe ; il est réentrant, et toutes les accès à l'état partagé doivent passer par le même verrou. »
 cards:
   - key: synchronized-reentrant
     format: course
     question: synchronized est-il réentrant ?
     answer: Oui, un thread peut réacquérir un verrou qu'il détient déjà.
+  - key: garanties
+    format: course
+    question: Quelles sont les deux garanties de `synchronized` ?
+    answer: L'exclusion mutuelle (une seule section protégée par le même verrou à la fois) et la visibilité (les écritures faites avant de rendre le verrou sont vues par le thread qui le prend ensuite).
+  - key: quel-verrou
+    format: course
+    question: Sur quel objet se synchronisent une méthode d'instance `synchronized` et une méthode `static synchronized` ?
+    answer: Sur `this` pour la méthode d'instance, sur l'objet `Class` (`MaClasse.class`) pour la méthode statique.
+  - key: verrou-prive
+    format: course
+    question: Pourquoi préférer un verrou privé (`private final Object verrou`) à `synchronized (this)` ?
+    answer: Un code extérieur peut se synchroniser sur notre objet et interférer (blocage, contention) ; un verrou privé reste sous notre seul contrôle.
+  - key: vf-lecture
+    format: true-false
+    question: Il suffit de synchroniser les écritures d'un champ partagé ; les lectures peuvent rester libres.
+    truth: false
+    answer: Sans le verrou, la lecture peut voir une valeur périmée.
+  - key: vf-exception
+    format: true-false
+    question: Le verrou d'un bloc `synchronized` est rendu même si une exception est levée.
+    truth: true
+    answer: La sortie du bloc, normale ou non, rend le moniteur.
+  - key: vf-static-instance
+    format: true-false
+    question: Une méthode `static synchronized` et une méthode d'instance `synchronized` de la même classe s'excluent mutuellement.
+    truth: false
+    answer: Elles utilisent deux verrous différents (`Classe.class` et `this`).
+  - key: vf-string
+    format: true-false
+    question: "`synchronized (\"verrou\")` est une bonne pratique."
+    truth: false
+    answer: Les littéraux sont internés et partagés par toute la JVM.
+  - key: qcm-verrou
+    format: multiple-choice
+    question: Quels sont de bons verrous ?
+    choices:
+      - text: "Un champ `private final Object verrou = new Object()`"
+        correct: true
+      - text: "`this`, si la classe le documente et ne l'expose pas"
+        correct: true
+      - text: "Un littéral `String`"
+        correct: false
+      - text: "Un champ non `final` qui change de valeur"
+        correct: false
+    answer: Si le verrou change d'objet, deux threads peuvent prendre deux verrous différents.
+  - key: qcm-section
+    format: multiple-choice
+    question: Que ne faut-il pas faire dans une section `synchronized` ?
+    choices:
+      - text: "Un appel HTTP"
+        correct: true
+      - text: "Appeler un écouteur fourni par un code extérieur"
+        correct: true
+      - text: "Mettre à jour deux champs liés"
+        correct: false
+      - text: "Vérifier puis modifier un état"
+        correct: false
+    answer: Les opérations longues ou inconnues allongent les attentes et peuvent provoquer des interblocages.
+  - key: qcm-reentrance
+    format: multiple-choice
+    question: "Une méthode `synchronized a()` appelle `synchronized b()` sur le même objet. Que se passe-t-il ?"
+    choices:
+      - text: "Ça fonctionne, le verrou est réentrant"
+        correct: true
+      - text: "Un interblocage"
+        correct: false
+      - text: "Une `IllegalMonitorStateException`"
+        correct: false
+      - text: "`b()` s'exécute sans verrou"
+        correct: false
+    answer: Le thread détient déjà le moniteur.
+  - key: qcm-virtuels
+    format: multiple-choice
+    question: Qu'a changé Java 24 pour `synchronized` et les threads virtuels ?
+    choices:
+      - text: "Un thread virtuel bloqué dans `synchronized` n'épingle plus son thread porteur"
+        correct: true
+      - text: "`synchronized` est interdit dans les threads virtuels"
+        correct: false
+      - text: "`synchronized` n'est plus réentrant"
+        correct: false
+      - text: "Rien"
+        correct: false
+    answer: JEP 491 ; avant, on préférait `ReentrantLock` avec les threads virtuels.
+  - key: trous-methode
+    format: fill-in
+    question: |-
+      Complétez pour protéger la méthode :
+      ```java
+      public ___ void ajouter(Article a) { articles.add(a); }
+      ```
+    blanks: [[synchronized]]
+    answer: La méthode se synchronise sur `this`.
+  - key: trous-bloc
+    format: fill-in
+    question: |-
+      Complétez le bloc protégé par un verrou privé :
+      ```java
+      private final Object verrou = new Object();
+      void transferer() {
+          synchronized (___) {
+              debiter(); crediter();
+          }
+      }
+      ```
+    blanks: [[verrou]]
+    answer: Un objet privé, `final`, dédié au verrouillage.
+  - key: trous-lecture
+    format: fill-in
+    question: |-
+      Complétez pour que la lecture voie la dernière valeur écrite :
+      ```java
+      synchronized void definir(int v) { valeur = v; }
+      ___ int lire() { return valeur; }
+      ```
+    blanks: [[synchronized]]
+    answer: Les deux côtés doivent prendre le même verrou.
+  - key: trous-classe
+    format: fill-in
+    question: |-
+      Complétez pour verrouiller sur la classe dans un bloc :
+      ```java
+      synchronized (Registre.___) {
+          compteurGlobal++;
+      }
+      ```
+    blanks: [[class]]
+    answer: Le même verrou qu'une méthode `static synchronized`.
+  - key: code-reentrant
+    format: code-output
+    question: |-
+      ```java
+      class Demo {
+          synchronized String a() { return "a" + b(); }
+          synchronized String b() { return "b"; }
+      }
+      System.out.println(new Demo().a());
+      ```
+    answer: '`ab` : le verrou est réentrant.'
+    check:
+      output: "ab"
+  - key: code-holds-lock
+    format: code-output
+    question: |-
+      ```java
+      Object verrou = new Object();
+      System.out.print(Thread.holdsLock(verrou) + " ");
+      synchronized (verrou) {
+          System.out.print(Thread.holdsLock(verrou) + " ");
+      }
+      System.out.println(Thread.holdsLock(verrou));
+      ```
+    answer: '`false true false`.'
+    check:
+      output: "false true false"
+  - key: code-exception
+    format: code-output
+    question: |-
+      ```java
+      Object verrou = new Object();
+      try {
+          synchronized (verrou) {
+              throw new IllegalStateException();
+          }
+      } catch (IllegalStateException e) {
+          System.out.println(Thread.holdsLock(verrou));
+      }
+      ```
+    answer: '`false` : le verrou est rendu même en cas d''exception.'
+    check:
+      output: "false"
+  - key: code-total
+    format: code-output
+    question: |-
+      ```java
+      class Caisse {
+          private long total;
+          synchronized void ajouter(long m) { total += m; }
+          synchronized long total() { return total; }
+      }
+      Caisse c = new Caisse();
+      try (var pool = Executors.newFixedThreadPool(8)) {
+          for (int i = 0; i < 10_000; i++) pool.submit(() -> c.ajouter(2));
+      }
+      System.out.println(c.total());
+      ```
+    answer: '`20000`.'
+    check:
+      output: "20000"
+  - key: bug-lecture-libre
+    format: bug-fix
+    question: |-
+      Un thread de supervision lit parfois une ancienne valeur :
+      ```java
+      private int connexions;
+      synchronized void ouvrir() { connexions++; }
+      int connexions() { return connexions; }
+      ```
+    answer: |-
+      ```java
+      synchronized int connexions() { return connexions; }
+      // ou : private final AtomicInteger connexions = new AtomicInteger();
+      ```
+      La garantie de visibilité de `synchronized` ne vaut que si le lecteur prend aussi le verrou.
+  - key: bug-verrou-change
+    format: bug-fix
+    question: |-
+      Ce code se synchronise, mais deux threads entrent parfois en même temps :
+      ```java
+      private List<String> elements = new ArrayList<>();
+      void ajouter(String e) {
+          synchronized (elements) {
+              elements = new ArrayList<>(elements);
+              elements.add(e);
+          }
+      }
+      ```
+    answer: |-
+      ```java
+      private final Object verrou = new Object();
+      private List<String> elements = new ArrayList<>();
+      void ajouter(String e) {
+          synchronized (verrou) {
+              elements = new ArrayList<>(elements);
+              elements.add(e);
+          }
+      }
+      ```
+      Le verrou était l'objet référencé par `elements`, qui change : un second thread prenait le verrou de la nouvelle
+      liste. Un verrou doit être un objet `final` qui ne change pas.
+  - key: bug-io-sous-verrou
+    format: bug-fix
+    question: |-
+      Sous charge, toutes les requêtes attendent derrière ce verrou :
+      ```java
+      synchronized Prix prix(String produit) {
+          return cache.computeIfAbsent(produit, p -> clientHttp.chargerPrix(p));   // 300 ms
+      }
+      ```
+    answer: |-
+      ```java
+      private final ConcurrentHashMap<String, Prix> cache = new ConcurrentHashMap<>();
+      Prix prix(String produit) {
+          Prix p = cache.get(produit);
+          if (p != null) return p;
+          Prix charge = clientHttp.chargerPrix(produit);       // hors verrou
+          Prix existant = cache.putIfAbsent(produit, charge);
+          return existant != null ? existant : charge;
+      }
+      ```
+      Un appel réseau sous un verrou global sérialise toutes les requêtes. On fait l'entrée-sortie hors de toute section
+      critique, et on protège seulement la mise à jour du cache (ou on utilise Caffeine, qui gère le chargement).
+  - key: bug-string-verrou
+    format: bug-fix
+    question: |-
+      Deux modules sans rapport se bloquent mutuellement :
+      ```java
+      synchronized ("CONFIG") { recharger(); }
+      ```
+    answer: |-
+      ```java
+      private static final Object VERROU_CONFIG = new Object();
+      synchronized (VERROU_CONFIG) { recharger(); }
+      ```
+      Les littéraux `String` sont internés : tous les codes qui se synchronisent sur `"CONFIG"` partagent le même verrou.
+      Un objet privé dédié isole le verrouillage.

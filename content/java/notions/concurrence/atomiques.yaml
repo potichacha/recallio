@@ -1,4 +1,42 @@
 notion: atomiques
+lesson: |-
+  Les classes de `java.util.concurrent.atomic` font des mises à jour **atomiques sans verrou**, grâce à l'instruction
+  processeur **CAS** (*compare-and-swap*) : « si la valeur vaut encore A, remplace-la par B, sinon échoue ».
+
+  ```java
+  AtomicInteger compteur = new AtomicInteger();
+  compteur.incrementAndGet();                       // ++compteur, atomique
+  compteur.addAndGet(5);
+  compteur.updateAndGet(x -> Math.min(x * 2, 100));  // fonction appliquée atomiquement
+  compteur.accumulateAndGet(7, Math::max);
+
+  AtomicBoolean demarre = new AtomicBoolean();
+  if (demarre.compareAndSet(false, true)) { demarrer(); }   // un seul thread gagne
+
+  AtomicReference<Config> config = new AtomicReference<>(Config.defaut());
+  config.updateAndGet(c -> c.avecDelai(30));
+
+  LongAdder requetes = new LongAdder();             // compteur très sollicité
+  requetes.increment();
+  long total = requetes.sum();
+  ```
+
+  - Une boucle **CAS** : lire la valeur, calculer la nouvelle, `compareAndSet` ; si un autre thread est passé entre-temps,
+    recommencer. `updateAndGet` fait cette boucle pour nous : la fonction peut donc être appelée **plusieurs fois** et
+    doit être **sans effet de bord**.
+  - **`LongAdder`** répartit les incréments sur plusieurs cellules : bien plus rapide sous forte contention, mais `sum()`
+    n'est pas un instantané exact pendant les mises à jour. Idéal pour des métriques ; `AtomicLong` pour un identifiant
+    ou une valeur lue souvent.
+  - Les atomiques protègent **une** variable. Deux variables liées (un minimum et un maximum) demandent un verrou, ou un
+    objet immuable dans une `AtomicReference`.
+  - Le **problème ABA** : un CAS réussit si la valeur est revenue à A après être passée par B ; `AtomicStampedReference`
+    ajoute un compteur de version.
+
+  **Piège classique** : `if (compteur.get() < max) compteur.incrementAndGet();`. Chaque appel est atomique, pas la séquence :
+  on dépasse le maximum. Il faut `updateAndGet(x -> x < max ? x + 1 : x)` ou une boucle `compareAndSet`.
+
+  **En entretien** : « Des mises à jour atomiques par CAS, sans verrou ; `updateAndGet` avec une fonction pure,
+  `LongAdder` pour les compteurs très sollicités, et un verrou dès que plusieurs variables doivent changer ensemble. »
 cards:
   - key: cas
     format: course
@@ -12,7 +50,271 @@ cards:
     format: course
     question: C'est quoi le problème ABA ?
     answer: 'Un CAS réussit alors que la valeur a changé puis est revenue à l''identique ; solution : AtomicStampedReference.'
+  - key: update-pure
+    format: course
+    question: Pourquoi la fonction passée à `updateAndGet` doit-elle être sans effet de bord ?
+    answer: Parce qu'elle est appelée dans une boucle CAS et peut être rejouée plusieurs fois si un autre thread modifie la valeur entre-temps.
+  - key: plusieurs-variables
+    format: course
+    question: Comment mettre à jour atomiquement deux valeurs liées (min et max) ?
+    answer: Avec un verrou, ou en regroupant les deux dans un objet immuable remplacé par une `AtomicReference.updateAndGet`.
+  - key: vf-verrou
+    format: true-false
+    question: "`AtomicInteger.incrementAndGet` utilise un verrou."
+    truth: false
+    answer: Il repose sur une instruction CAS du processeur.
+  - key: vf-sequence
+    format: true-false
+    question: "`if (a.get() < 10) a.incrementAndGet();` garantit que `a` ne dépasse jamais 10."
+    truth: false
+    answer: Le test et l'incrément ne sont pas atomiques ensemble.
+  - key: vf-longadder-sum
+    format: true-false
+    question: "`LongAdder.sum()` est un instantané exact même pendant des incréments concurrents."
+    truth: false
+    answer: C'est une somme des cellules à un moment non garanti ; elle est exacte une fois les mises à jour terminées.
+  - key: vf-compare
+    format: true-false
+    question: "`compareAndSet(false, true)` sur un `AtomicBoolean` ne réussit que pour un seul thread."
+    truth: true
+    answer: Les suivants trouvent `true` et échouent.
+  - key: qcm-compteur
+    format: multiple-choice
+    question: Quel choix pour un compteur de requêtes incrémenté par des centaines de threads et lu toutes les minutes ?
+    choices:
+      - text: "`LongAdder`"
+        correct: true
+      - text: "`AtomicLong`, correct mais plus lent sous contention"
+        correct: false
+      - text: "`volatile long`"
+        correct: false
+      - text: "`long` dans une méthode `synchronized`"
+        correct: false
+    answer: '`LongAdder` réduit la contention sur une seule variable.'
+  - key: qcm-borne
+    format: multiple-choice
+    question: Comment incrémenter un compteur sans jamais dépasser 100, atomiquement ?
+    choices:
+      - text: "`c.updateAndGet(x -> x < 100 ? x + 1 : x)`"
+        correct: true
+      - text: "Une boucle `compareAndSet` qui relit la valeur à chaque essai"
+        correct: true
+      - text: "`if (c.get() < 100) c.incrementAndGet();`"
+        correct: false
+      - text: "`c.set(Math.min(c.get() + 1, 100))`"
+        correct: false
+    answer: Les deux dernières lisent puis écrivent sans atomicité.
+  - key: qcm-une-fois
+    format: multiple-choice
+    question: Comment garantir qu'une initialisation ne s'exécute qu'une fois, même appelée par plusieurs threads ?
+    choices:
+      - text: "`if (fait.compareAndSet(false, true)) initialiser();`"
+        correct: true
+      - text: "`if (!fait.get()) { fait.set(true); initialiser(); }`"
+        correct: false
+      - text: "`volatile boolean fait; if (!fait) { initialiser(); fait = true; }`"
+        correct: false
+      - text: "`fait.set(true); initialiser();`"
+        correct: false
+    answer: '`compareAndSet` fait du test et de l''écriture une seule opération.'
+  - key: qcm-reference
+    format: multiple-choice
+    question: "À quoi sert `AtomicReference<V>` ?"
+    choices:
+      - text: "Remplacer atomiquement une référence, par exemple vers un objet immuable"
+        correct: true
+      - text: "Rendre l'objet référencé thread-safe"
+        correct: false
+      - text: "Copier l'objet pour chaque thread"
+        correct: false
+      - text: "Verrouiller l'objet"
+        correct: false
+    answer: Seule la référence est atomique ; l'objet doit être immuable pour être sûr.
+  - key: trous-increment
+    format: fill-in
+    question: |-
+      Complétez l'incrément atomique :
+      ```java
+      int numero = compteur.___();
+      ```
+    blanks: [[incrementAndGet, getAndIncrement]]
+    answer: Renvoie la valeur après (ou avant) l'incrément.
+  - key: trous-cas
+    format: fill-in
+    question: |-
+      Complétez pour qu'un seul thread démarre le service :
+      ```java
+      if (demarre.___(false, true)) {
+          lancer();
+      }
+      ```
+    blanks: [[compareAndSet]]
+    answer: Le CAS ne réussit qu'une fois.
+  - key: trous-update
+    format: fill-in
+    question: |-
+      Complétez pour garder le maximum observé :
+      ```java
+      maximum.___(x -> Math.max(x, mesure));
+      ```
+    blanks: [[updateAndGet, getAndUpdate]]
+    answer: Ou `accumulateAndGet(mesure, Math::max)`.
+  - key: trous-adder
+    format: fill-in
+    question: |-
+      Complétez le compteur de métriques :
+      ```java
+      private final ___ appels = new ___();
+      void compter() { appels.increment(); }
+      ```
+    blanks: [[LongAdder], [LongAdder]]
+    answer: Pensé pour les incréments très concurrents.
+  - key: code-operations
+    format: code-output
+    question: |-
+      ```java
+      import java.util.concurrent.atomic.*;
+      AtomicInteger a = new AtomicInteger(5);
+      System.out.println(a.getAndIncrement() + " " + a.incrementAndGet() + " " + a.addAndGet(10)
+              + " " + a.updateAndGet(x -> x * 2) + " " + a.accumulateAndGet(100, Math::min));
+      ```
+    answer: '`5 7 17 34 34`.'
+    check:
+      output: "5 7 17 34 34"
+  - key: code-cas
+    format: code-output
+    question: |-
+      ```java
+      import java.util.concurrent.atomic.*;
+      AtomicInteger a = new AtomicInteger(1);
+      System.out.println(a.compareAndSet(1, 2) + " " + a.compareAndSet(1, 3) + " " + a.get());
+      ```
+    answer: '`true false 2` : le second CAS échoue, la valeur n''est plus 1.'
+    check:
+      output: "true false 2"
+  - key: code-adder
+    format: code-output
+    question: |-
+      ```java
+      import java.util.concurrent.atomic.*;
+      LongAdder adder = new LongAdder();
+      try (var pool = Executors.newFixedThreadPool(8)) {
+          for (int i = 0; i < 1000; i++) pool.submit(adder::increment);
+      }
+      System.out.println(adder.sum());
+      ```
+    answer: '`1000` : exact une fois les incréments terminés.'
+    check:
+      output: "1000"
+  - key: code-une-fois
+    format: code-output
+    question: |-
+      ```java
+      import java.util.concurrent.atomic.*;
+      AtomicBoolean fait = new AtomicBoolean();
+      AtomicInteger initialisations = new AtomicInteger();
+      try (var pool = Executors.newFixedThreadPool(8)) {
+          for (int i = 0; i < 100; i++) {
+              pool.submit(() -> { if (fait.compareAndSet(false, true)) initialisations.incrementAndGet(); });
+          }
+      }
+      System.out.println(initialisations.get());
+      ```
+    answer: '`1`.'
+    check:
+      output: "1"
+  - key: bug-sequence
+    format: bug-fix
+    question: |-
+      Plus de places que prévu sont vendues :
+      ```java
+      private final AtomicInteger vendues = new AtomicInteger();
+      boolean vendre() {
+          if (vendues.get() < CAPACITE) {
+              vendues.incrementAndGet();
+              return true;
+          }
+          return false;
+      }
+      ```
+    answer: |-
+      ```java
+      boolean vendre() {
+          while (true) {
+              int actuel = vendues.get();
+              if (actuel >= CAPACITE) return false;
+              if (vendues.compareAndSet(actuel, actuel + 1)) return true;
+          }
+      }
+      ```
+      Plusieurs threads passent le test avant l'incrément. La boucle CAS n'incrémente que si la valeur n'a pas changé
+      depuis la lecture.
+  - key: bug-effet-bord
+    format: bug-fix
+    question: |-
+      Le journal montre parfois deux lignes pour une seule mise à jour :
+      ```java
+      solde.updateAndGet(s -> {
+          journal.info("ancien solde {}", s);
+          return s + depot;
+      });
+      ```
+    answer: |-
+      ```java
+      long ancien = solde.getAndAdd(depot);
+      journal.info("ancien solde {}", ancien);
+      ```
+      La fonction d'`updateAndGet` est rejouée si un autre thread modifie la valeur entre-temps : son effet de bord se
+      répète. On garde la fonction pure, et on journalise après, avec la valeur renvoyée.
+  - key: bug-deux-variables
+    format: bug-fix
+    question: |-
+      Le minimum et le maximum sont parfois incohérents (min > max) :
+      ```java
+      private final AtomicLong min = new AtomicLong(Long.MAX_VALUE);
+      private final AtomicLong max = new AtomicLong(Long.MIN_VALUE);
+      void mesurer(long v) { min.accumulateAndGet(v, Math::min); max.accumulateAndGet(v, Math::max); }
+      Plage plage() { return new Plage(min.get(), max.get()); }
+      ```
+    answer: |-
+      ```java
+      record Plage(long min, long max) {
+          Plage avec(long v) { return new Plage(Math.min(min, v), Math.max(max, v)); }
+      }
+      private final AtomicReference<Plage> plage = new AtomicReference<>(new Plage(Long.MAX_VALUE, Long.MIN_VALUE));
+      void mesurer(long v) { plage.updateAndGet(p -> p.avec(v)); }
+      Plage plage() { return plage.get(); }
+      ```
+      Deux atomiques séparées ne forment pas un état cohérent. Un objet immuable remplacé en bloc garde les deux valeurs
+      ensemble.
+  - key: bug-synchronized-compteur
+    format: bug-fix
+    question: |-
+      Ce compteur de métriques, appelé à chaque requête, devient un point de contention :
+      ```java
+      private long requetes;
+      synchronized void compter() { requetes++; }
+      ```
+    answer: |-
+      ```java
+      private final LongAdder requetes = new LongAdder();
+      void compter() { requetes.increment(); }
+      long requetes() { return requetes.sum(); }
+      ```
+      Un verrou sérialise tous les threads. `LongAdder` répartit les incréments et ne les combine qu'à la lecture.
   - key: definition-cas
     format: definition
     question: CAS
     answer: 'Compare-And-Swap : instruction atomique à la base des classes Atomic'
+  - key: definition-sans-verrou
+    format: definition
+    question: Algorithme sans verrou (lock-free)
+    answer: Un algorithme concurrent où au moins un thread progresse toujours, sans blocage, en général grâce à des CAS.
+  - key: definition-contention
+    format: definition
+    question: Contention
+    answer: La concurrence de nombreux threads pour la même ressource (un verrou, une variable), qui les fait attendre ou réessayer.
+  - key: definition-aba
+    format: definition
+    question: Problème ABA
+    answer: Un CAS qui réussit parce que la valeur est revenue à A, alors qu'elle a été modifiée entre-temps (A, puis B, puis A).

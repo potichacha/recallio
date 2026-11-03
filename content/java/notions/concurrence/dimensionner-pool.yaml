@@ -1,6 +1,160 @@
 notion: dimensionner-pool
+lesson: |-
+  La bonne taille d'un pool dépend de **ce que font les tâches** :
+
+  - des tâches **de calcul** (CPU) occupent un cœur tout le temps : au-delà du nombre de cœurs, les threads se disputent
+    le processeur. Taille ≈ **nombre de cœurs** (`Runtime.getRuntime().availableProcessors()`), parfois + 1 ;
+  - des tâches **d'entrée-sortie** passent l'essentiel de leur temps à **attendre** (base, réseau). Pendant ce temps, le
+    cœur est libre : on peut avoir plus de threads. La formule de Goetz :
+
+    ```
+    threads ≈ cœurs × utilisation visée × (1 + temps d'attente / temps de calcul)
+    ```
+
+    8 cœurs, des tâches qui attendent 90 ms et calculent 10 ms : 8 × (1 + 9) = 80 threads.
+
+  Mais la vraie limite est souvent **en aval** :
+  - un pool de 200 threads face à un pool de **20 connexions** à la base : 180 threads attendent une connexion ;
+  - un service distant qui supporte 50 requêtes simultanées.
+
+  La taille du pool se cale donc aussi sur la ressource la plus contrainte, et on **mesure** : temps d'attente dans la
+  file, utilisation du CPU, latence, nombre de threads actifs (métriques Micrometer des executors).
+
+  Autres règles :
+  - **séparer** les pools par type de charge (une cloison, *bulkhead*) : un pool pour le calcul, un pour les appels lents,
+    pour qu'un service lent ne paralyse pas tout ;
+  - **borner** la file d'attente, et choisir une politique de rejet ;
+  - dans un conteneur, `availableProcessors()` respecte la limite de CPU du conteneur (JVM récentes) ;
+  - avec les **threads virtuels**, on ne dimensionne plus de pool pour les entrées-sorties : un thread par tâche, et un
+    `Semaphore` pour borner l'accès à la ressource aval.
+
+  **Piège classique** : un pool énorme « pour aller plus vite » devant une base de données. On ne fait que déplacer
+  l'attente vers le pool de connexions, avec plus de mémoire et de changements de contexte.
+
+  **En entretien** : « Calcul : le nombre de cœurs. Entrées-sorties : cœurs × (1 + attente/calcul), plafonné par la
+  ressource aval. Pools séparés par charge, files bornées, et on mesure. Avec des threads virtuels, on borne par
+  sémaphore. »
 cards:
   - key: dimensionner-pool
     format: course
     question: Comment dimensionner un pool ?
     answer: 'CPU-bound : nombre de cœurs ; I/O-bound : cœurs × (1 + attente/calcul) ; plafonné par la ressource aval.'
+  - key: limite-aval
+    format: course
+    question: Pourquoi la ressource aval limite-t-elle la taille utile d'un pool ?
+    answer: Si les tâches attendent toutes une ressource bornée (20 connexions à la base), les threads en plus ne font qu'attendre cette ressource, avec un coût en mémoire et en contexte.
+  - key: cloison
+    format: course
+    question: Pourquoi séparer les pools par type de charge ?
+    answer: Pour qu'une charge lente ou bloquée (appels à un service défaillant) n'occupe pas tous les threads et ne paralyse pas les autres traitements (principe de la cloison, bulkhead).
+  - key: virtuels
+    format: course
+    question: Comment limite-t-on la concurrence avec des threads virtuels ?
+    answer: On crée un thread virtuel par tâche, et on borne l'accès à la ressource aval avec un `Semaphore` plutôt qu'avec la taille d'un pool.
+  - key: vf-cpu
+    format: true-false
+    question: Pour des tâches de calcul pur, un pool de la taille du nombre de cœurs est un bon point de départ.
+    truth: true
+    answer: Plus de threads se disputeraient les cœurs.
+  - key: vf-io-plus
+    format: true-false
+    question: Des tâches qui attendent beaucoup (réseau) justifient plus de threads que de cœurs.
+    truth: true
+    answer: Le cœur est libre pendant l'attente.
+  - key: vf-plus-grand
+    format: true-false
+    question: Augmenter la taille du pool accélère toujours un service qui appelle une base de données.
+    truth: false
+    answer: Au-delà du nombre de connexions disponibles, les threads attendent une connexion.
+  - key: vf-conteneur
+    format: true-false
+    question: Dans un conteneur limité à 2 CPU, une JVM récente renvoie 2 avec `availableProcessors()`.
+    truth: true
+    answer: Elle tient compte des limites du conteneur (cgroups).
+  - key: qcm-formule
+    format: multiple-choice
+    question: "8 cœurs, des tâches qui calculent 10 ms et attendent 40 ms. Quelle taille de pool suggère la formule ?"
+    choices:
+      - text: "40"
+        correct: true
+      - text: "8"
+        correct: false
+      - text: "80"
+        correct: false
+      - text: "400"
+        correct: false
+    answer: 8 × (1 + 40/10) = 40, à plafonner selon la ressource aval.
+  - key: qcm-mesurer
+    format: multiple-choice
+    question: Quelles mesures guident le dimensionnement ?
+    choices:
+      - text: "Le temps d'attente des tâches dans la file"
+        correct: true
+      - text: "L'utilisation du CPU et la latence"
+        correct: true
+      - text: "Le nombre de lignes du code des tâches"
+        correct: false
+      - text: "La version de Java"
+        correct: false
+    answer: Les métriques des executors (Micrometer) les exposent.
+  - key: qcm-base
+    format: multiple-choice
+    question: "Un service a un pool de 200 threads et un pool de 10 connexions à la base. Que se passe-t-il sous charge ?"
+    choices:
+      - text: "Jusqu'à 190 threads attendent une connexion"
+        correct: true
+      - text: "La base reçoit 200 requêtes simultanées"
+        correct: false
+      - text: "Les requêtes vont 20 fois plus vite"
+        correct: false
+      - text: "Une erreur au démarrage"
+        correct: false
+    answer: La limite réelle est le pool de connexions.
+  - key: qcm-separer
+    format: multiple-choice
+    question: Comment empêcher qu'un service partenaire lent paralyse toutes les requêtes ?
+    choices:
+      - text: "Un pool (ou un sémaphore) dédié et borné pour les appels à ce service"
+        correct: true
+      - text: "Des délais d'attente courts sur ces appels"
+        correct: true
+      - text: "Un seul grand pool partagé par tout"
+        correct: false
+      - text: "Supprimer les délais d'attente"
+        correct: false
+    answer: Cloison et délais limitent la propagation de la panne.
+  - key: scenario-dimensionner
+    format: scenario
+    question: Comment choisis-tu la taille du pool d'un service qui appelle une API externe pour chaque requête ?
+    answer: |-
+      Je mesure d'abord le temps de calcul et le temps d'attente d'une tâche, puis j'applique cœurs × (1 + attente /
+      calcul) comme point de départ. Je le plafonne par ce que l'API supporte (son quota ou sa limite de concurrence) et
+      par la taille du pool de connexions HTTP. Je borne la file, je choisis une politique de rejet, je mets des délais
+      sur les appels, et j'expose les métriques du pool (threads actifs, taille de la file, temps d'attente) pour ajuster
+      en charge réelle. Sur Java 21+, j'envisage des threads virtuels avec un sémaphore à la place.
+  - key: scenario-pool-sature
+    format: scenario
+    question: Les métriques montrent une file d'attente du pool qui grossit et une latence qui explose, avec un CPU à 20 %. Que conclus-tu ?
+    answer: |-
+      Les threads ne calculent pas, ils attendent : une ressource aval est lente ou saturée (base, service distant,
+      connexions épuisées), ou un verrou est disputé. Augmenter le pool aggraverait la pression sur cette ressource. Je
+      regarde un thread dump (où les threads attendent-ils ?), les métriques de la ressource aval et ses délais. Les
+      corrections : réduire le temps passé en aval (requêtes, index, cache), ajouter des délais et un coupe-circuit, ou
+      isoler cette charge dans son propre pool pour protéger le reste.
+  - key: scenario-calcul
+    format: scenario
+    question: Un traitement de redimensionnement d'images doit traiter un lot le plus vite possible sur un serveur de 16 cœurs. Quelle configuration ?
+    answer: |-
+      C'est du calcul pur : un pool de 16 threads (ou 15, pour laisser un cœur au reste du système), avec une file bornée
+      qui fournit les images au rythme du traitement. Plus de threads n'apporterait rien et ajouterait des changements de
+      contexte. Je vérifie que l'utilisation du CPU approche 100 %, que la mémoire tient (une image décompressée peut être
+      lourde, d'où la file bornée), et que la lecture et l'écriture des fichiers ne deviennent pas le goulot.
+  - key: scenario-virtuels
+    format: scenario
+    question: Un collègue propose de remplacer tous les pools par des threads virtuels. Qu'en penses-tu ?
+    answer: |-
+      Pour les tâches qui attendent beaucoup (HTTP, base), c'est une bonne idée : plus de pool à dimensionner, un thread
+      par tâche, un code simple. Mais il faut remplacer la limite qu'imposait la taille du pool par une limite explicite
+      sur la ressource aval (un `Semaphore`, la taille du pool de connexions), sinon un million de tâches inondent la base.
+      Pour le calcul pur, les threads virtuels n'apportent rien : un pool de la taille du nombre de cœurs reste le bon
+      outil. Et je vérifie les `ThreadLocal` lourds et le code natif, qui supportent mal des millions de threads.

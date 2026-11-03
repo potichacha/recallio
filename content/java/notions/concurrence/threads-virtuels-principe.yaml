@@ -1,6 +1,281 @@
 notion: threads-virtuels-principe
+lesson: |-
+  Un **thread virtuel** (Java 21, JEP 444) est un thread **léger géré par la JVM**, et non par le système. Quand il
+  **bloque** (entrée-sortie, `sleep`, verrou, file bloquante), la JVM le **démonte** de son thread porteur (*carrier*, un
+  thread de plateforme d'un petit `ForkJoinPool`) et réutilise ce porteur pour un autre thread virtuel.
+
+  ```java
+  try (ExecutorService es = Executors.newVirtualThreadPerTaskExecutor()) {
+      for (Commande c : commandes) {
+          es.submit(() -> facturer(c));        // un thread virtuel par tâche, même pour 100 000 tâches
+      }
+  }
+
+  Thread t = Thread.ofVirtual().name("import-", 0).start(() -> importer(fichier));
+  Thread.startVirtualThread(() -> notifier(client));
+  ```
+
+  Ce que ça change :
+  - un thread virtuel coûte quelques centaines d'octets à quelques kilo-octets, contre ~1 Mo réservé pour un thread de
+    plateforme : on peut en créer **des millions** ;
+  - le style **« un thread par requête »**, simple et **bloquant**, redevient abordable à grande échelle, sans
+    programmation réactive ni chaînes de `CompletableFuture` ;
+  - les traces de pile, le débogage et les profileurs fonctionnent comme d'habitude.
+
+  Ce que ça ne change pas :
+  - le **calcul** ne va pas plus vite : le nombre de cœurs reste la limite ; pour du calcul pur, un pool de plateforme
+    convient ;
+  - les **ressources aval** gardent leur capacité : base, services distants (d'où un `Semaphore` pour borner) ;
+  - ils sont toujours **démons**, de priorité fixe ; on ne les met **pas en pool** (ils sont jetables).
+
+  Dans les frameworks : `spring.threads.virtual.enabled=true` (Spring Boot), `@RunOnVirtualThread` (Quarkus).
+
+  **Piège classique** : attendre des threads virtuels qu'ils accélèrent un traitement de calcul. Ils servent la
+  **concurrence** des tâches qui attendent, pas le parallélisme du calcul.
+
+  **En entretien** : « Des threads légers démontés pendant les blocages : des millions de tâches bloquantes, avec un code
+  simple et séquentiel. Pas plus rapides pour le calcul, et la ressource aval se borne à part. »
 cards:
   - key: virtual-thread
     format: course
     question: C'est quoi un virtual thread ?
     answer: Un thread léger géré par la JVM, démonté de son carrier quand il bloque sur I/O.
+  - key: porteur
+    format: course
+    question: Qu'est-ce qu'un thread porteur (carrier) ?
+    answer: Un thread de plateforme d'un petit pool ForkJoin, sur lequel la JVM monte les threads virtuels pour les exécuter ; un thread virtuel bloqué est démonté et le porteur sert à un autre.
+  - key: quand
+    format: course
+    question: Pour quelles tâches les threads virtuels sont-ils faits ?
+    answer: Pour un grand nombre de tâches qui passent leur temps à attendre (HTTP, base de données, fichiers) ; pas pour accélérer du calcul.
+  - key: creer
+    format: course
+    question: Comment créer des threads virtuels ?
+    answer: Avec `Executors.newVirtualThreadPerTaskExecutor()`, `Thread.ofVirtual().start(tache)` ou `Thread.startVirtualThread(tache)`.
+  - key: vf-calcul
+    format: true-false
+    question: Les threads virtuels accélèrent un calcul pur sur 8 cœurs.
+    truth: false
+    answer: Le nombre de cœurs reste la limite du calcul.
+  - key: vf-millions
+    format: true-false
+    question: On peut créer un million de threads virtuels dans une JVM ordinaire.
+    truth: true
+    answer: Leur pile est stockée dans le tas et ne grandit qu'au besoin.
+  - key: vf-pool
+    format: true-false
+    question: Il faut mettre les threads virtuels dans un pool pour les réutiliser.
+    truth: false
+    answer: On en crée un par tâche ; ils sont bon marché.
+  - key: vf-demon
+    format: true-false
+    question: Un thread virtuel est toujours un thread démon.
+    truth: true
+    answer: Il n'empêche pas la JVM de s'arrêter.
+  - key: qcm-adapte
+    format: multiple-choice
+    question: Quels services profitent le plus des threads virtuels ?
+    choices:
+      - text: "Une API qui appelle d'autres services HTTP pour chaque requête"
+        correct: true
+      - text: "Un service qui interroge beaucoup la base de données"
+        correct: true
+      - text: "Un calcul de rendu 3D"
+        correct: false
+      - text: "Une compression vidéo"
+        correct: false
+    answer: Le gain vient du temps passé à attendre.
+  - key: qcm-creer
+    format: multiple-choice
+    question: Lesquelles créent des threads virtuels ?
+    choices:
+      - text: "`Executors.newVirtualThreadPerTaskExecutor()`"
+        correct: true
+      - text: "`Thread.ofVirtual().start(tache)`"
+        correct: true
+      - text: "`Executors.newFixedThreadPool(1000)`"
+        correct: false
+      - text: "`new Thread(tache)`"
+        correct: false
+    answer: Les deux dernières créent des threads de plateforme.
+  - key: qcm-limite
+    format: multiple-choice
+    question: Avec un thread virtuel par requête, comment éviter de saturer une API partenaire qui supporte 50 appels simultanés ?
+    choices:
+      - text: "Un `Semaphore(50)` autour de l'appel"
+        correct: true
+      - text: "Un pool de 50 threads virtuels"
+        correct: false
+      - text: "Baisser la priorité des threads"
+        correct: false
+      - text: "Rien, les threads virtuels s'en chargent"
+        correct: false
+    answer: On borne la ressource, pas le nombre de threads.
+  - key: qcm-framework
+    format: multiple-choice
+    question: Comment activer les threads virtuels dans Spring Boot ?
+    choices:
+      - text: "`spring.threads.virtual.enabled=true`"
+        correct: true
+      - text: "`@EnableVirtualThreads`"
+        correct: false
+      - text: "`-XX:+VirtualThreads`"
+        correct: false
+      - text: "Il faut réécrire les contrôleurs en réactif"
+        correct: false
+    answer: Quarkus propose `@RunOnVirtualThread`.
+  - key: trous-executor
+    format: fill-in
+    question: |-
+      Complétez pour un thread virtuel par tâche :
+      ```java
+      try (var es = Executors.___()) {
+          ids.forEach(id -> es.submit(() -> charger(id)));
+      }
+      ```
+    blanks: [[newVirtualThreadPerTaskExecutor]]
+    answer: Java 21.
+  - key: trous-start
+    format: fill-in
+    question: |-
+      Complétez pour démarrer un thread virtuel :
+      ```java
+      Thread.___(() -> envoyer(message));
+      ```
+    blanks: [[startVirtualThread]]
+    answer: Ou `Thread.ofVirtual().start(...)`.
+  - key: trous-builder
+    format: fill-in
+    question: |-
+      Complétez pour un thread virtuel nommé :
+      ```java
+      Thread t = Thread.___().name("export").start(tache);
+      ```
+    blanks: [[ofVirtual]]
+    answer: Le constructeur de threads virtuels.
+  - key: trous-is-virtual
+    format: fill-in
+    question: |-
+      Complétez pour savoir si le thread courant est virtuel :
+      ```java
+      boolean v = Thread.currentThread().___();
+      ```
+    blanks: [[isVirtual]]
+    answer: Depuis Java 21.
+  - key: code-million
+    format: code-output
+    question: |-
+      ```java
+      import java.util.concurrent.atomic.AtomicInteger;
+      AtomicInteger faits = new AtomicInteger();
+      try (var es = Executors.newVirtualThreadPerTaskExecutor()) {
+          for (int i = 0; i < 100_000; i++) {
+              es.submit(() -> {
+                  Thread.sleep(10);
+                  return faits.incrementAndGet();
+              });
+          }
+      }
+      System.out.println(faits.get());
+      ```
+    answer: '`100000`, en quelques dizaines de millisecondes : les threads endormis ne bloquent aucun thread système.'
+    check:
+      output: "100000"
+  - key: code-is-virtual
+    format: code-output
+    question: |-
+      ```java
+      Thread t = Thread.ofVirtual().start(() ->
+              System.out.println(Thread.currentThread().isVirtual() + " " + Thread.currentThread().isDaemon()));
+      t.join();
+      System.out.println(Thread.currentThread().isVirtual());
+      ```
+    answer: '`true true`, puis `false`.'
+    check:
+      output: "true true\nfalse"
+  - key: code-nom
+    format: code-output
+    question: |-
+      ```java
+      Thread t = Thread.ofVirtual().name("worker-", 7).start(() -> System.out.println(Thread.currentThread().getName()));
+      t.join();
+      ```
+    answer: '`worker-7`.'
+    check:
+      output: "worker-7"
+  - key: code-sans-nom
+    format: code-output
+    question: |-
+      ```java
+      Thread t = Thread.ofVirtual().unstarted(() -> {});
+      System.out.println("[" + t.getName() + "] " + t.getState());
+      ```
+    answer: '`[] NEW` : un thread virtuel n''a pas de nom par défaut.'
+    check:
+      output: "[] NEW"
+  - key: bug-pool-virtuels
+    format: bug-fix
+    question: |-
+      Corrigez ce « pool de threads virtuels » :
+      ```java
+      ExecutorService pool = Executors.newFixedThreadPool(200, Thread.ofVirtual().factory());
+      ```
+    answer: |-
+      ```java
+      ExecutorService es = Executors.newVirtualThreadPerTaskExecutor();
+      Semaphore limite = new Semaphore(200);    // si l'on veut borner la concurrence vers une ressource
+      ```
+      Les threads virtuels ne se mettent pas en pool : ils sont jetables. Pour limiter la concurrence, on borne l'accès à
+      la ressource avec un sémaphore.
+  - key: bug-calcul
+    format: bug-fix
+    question: |-
+      Un développeur a passé ce calcul de hachage sur des threads virtuels « pour aller plus vite », sans gain :
+      ```java
+      try (var es = Executors.newVirtualThreadPerTaskExecutor()) {
+          blocs.forEach(b -> es.submit(() -> hacher(b)));      // calcul pur
+      }
+      ```
+    answer: |-
+      ```java
+      int coeurs = Runtime.getRuntime().availableProcessors();
+      try (var es = Executors.newFixedThreadPool(coeurs)) {
+          blocs.forEach(b -> es.submit(() -> hacher(b)));
+      }
+      // ou : blocs.parallelStream().forEach(this::hacher)
+      ```
+      Les threads virtuels aident les tâches qui attendent, pas le calcul : le nombre de cœurs reste la limite. Un pool
+      dimensionné sur les cœurs est le bon outil.
+  - key: bug-cached-pool
+    format: bug-fix
+    question: |-
+      Ce service crée des milliers de threads système sous charge :
+      ```java
+      ExecutorService es = Executors.newCachedThreadPool();
+      requetes.forEach(r -> es.submit(() -> appelerApi(r)));      // appels HTTP bloquants
+      ```
+    answer: |-
+      ```java
+      ExecutorService es = Executors.newVirtualThreadPerTaskExecutor();
+      requetes.forEach(r -> es.submit(() -> appelerApi(r)));
+      ```
+      Un pool « cached » crée un thread de plateforme par appel en attente. Des threads virtuels attendent sans bloquer de
+      thread système (en bornant l'API appelée si besoin).
+  - key: bug-completable-chaine
+    format: bug-fix
+    question: |-
+      Simplifiez ce code, exécuté sur Java 21 avec un thread virtuel par requête :
+      ```java
+      return chargerClient(id)
+              .thenCompose(c -> chargerCommandes(c))
+              .thenCompose(cmds -> calculerTotal(cmds))
+              .join();
+      ```
+    answer: |-
+      ```java
+      Client c = clients.charger(id);              // appels bloquants, mais sur un thread virtuel
+      List<Commande> cmds = commandes.charger(c);
+      return calculerTotal(cmds);
+      ```
+      Les étapes dépendent les unes des autres : sur un thread virtuel, un code séquentiel bloquant est aussi scalable et
+      bien plus lisible, avec des traces de pile complètes.

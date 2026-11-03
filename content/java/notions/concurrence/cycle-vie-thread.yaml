@@ -1,4 +1,46 @@
 notion: cycle-vie-thread
+lesson: |-
+  Un thread passe par six états (`Thread.State`) :
+
+  | État | Signification |
+  |---|---|
+  | `NEW` | créé, pas encore démarré |
+  | `RUNNABLE` | en cours d'exécution, ou prêt à s'exécuter |
+  | `BLOCKED` | attend un moniteur (`synchronized`) détenu par un autre |
+  | `WAITING` | attend sans limite : `join()`, `wait()`, `LockSupport.park()` |
+  | `TIMED_WAITING` | attend avec une limite : `sleep(ms)`, `join(ms)`, `wait(ms)` |
+  | `TERMINATED` | `run()` est terminé |
+
+  - **`join()`** attend la fin d'un autre thread ; **`sleep(duree)`** suspend le thread courant (sans relâcher ses
+    verrous).
+  - **L'interruption** est le moyen **coopératif** d'arrêter un thread : `t.interrupt()` positionne un drapeau. Si le
+    thread est bloqué dans `sleep`, `wait` ou `join`, il reçoit une **`InterruptedException`** (et le drapeau est
+    effacé) ; sinon, il doit tester `Thread.currentThread().isInterrupted()`.
+
+  ```java
+  while (!Thread.currentThread().isInterrupted()) {
+      try {
+          traiterProchainLot();
+          Thread.sleep(1000);
+      } catch (InterruptedException e) {
+          Thread.currentThread().interrupt();     // restaurer le drapeau
+          break;                                  // et sortir proprement
+      }
+  }
+  ```
+
+  - On ne doit **jamais avaler** une `InterruptedException` : soit on la propage (`throws InterruptedException`), soit on
+    restaure le drapeau avec `interrupt()`.
+  - `Thread.stop()` est retiré (il levait une exception n'importe où et corrompait l'état) : il n'existe pas d'arrêt
+    forcé sûr.
+  - Un thread dump (`jstack`, `jcmd <pid> Thread.print`) montre l'état de chaque thread : précieux pour diagnostiquer un
+    blocage.
+
+  **Piège classique** : `catch (InterruptedException e) {}`. L'interruption est perdue : le code appelant, qui voulait
+  arrêter le thread (un arrêt d'application, l'annulation d'une tâche), ne sera jamais obéi.
+
+  **En entretien** : « Six états ; `join` attend un thread, `sleep` garde les verrous ; l'interruption est coopérative, et
+  une `InterruptedException` se propage ou se restaure avec `interrupt()`, jamais ne s'avale. »
 cards:
   - key: etats-thread
     format: course
@@ -12,3 +54,225 @@ cards:
     format: course
     question: Comment bien gérer une InterruptedException ?
     answer: La propager, ou restaurer le drapeau avec Thread.currentThread().interrupt() ; ne jamais l'avaler.
+  - key: interruption-cooperative
+    format: course
+    question: Pourquoi dit-on que l'interruption est coopérative ?
+    answer: '`interrupt()` ne fait que positionner un drapeau (ou réveiller un thread bloqué avec une `InterruptedException`) ; c''est au thread de le vérifier et de s''arrêter proprement.'
+  - key: vf-sleep-verrou
+    format: true-false
+    question: "`Thread.sleep` relâche les verrous détenus par le thread."
+    truth: false
+    answer: Il les garde ; `wait()` relâche le moniteur.
+  - key: vf-drapeau
+    format: true-false
+    question: Quand `sleep` lève `InterruptedException`, le drapeau d'interruption est effacé.
+    truth: true
+    answer: D'où l'intérêt de le restaurer avec `interrupt()`.
+  - key: vf-stop
+    format: true-false
+    question: "`Thread.stop()` est une façon sûre d'arrêter un thread."
+    truth: false
+    answer: "Il a été retiré : il corrompait l'état des objets."
+  - key: vf-runnable
+    format: true-false
+    question: Un thread à l'état `RUNNABLE` est forcément en train de s'exécuter sur un cœur.
+    truth: false
+    answer: Il peut être prêt et attendre que l'ordonnanceur lui donne un cœur.
+  - key: qcm-etats
+    format: multiple-choice
+    question: Dans quel état est un thread qui exécute `Thread.sleep(1000)` ?
+    choices:
+      - text: "`TIMED_WAITING`"
+        correct: true
+      - text: "`WAITING`"
+        correct: false
+      - text: "`BLOCKED`"
+        correct: false
+      - text: "`RUNNABLE`"
+        correct: false
+    answer: Une attente avec une durée limite.
+  - key: qcm-catch
+    format: multiple-choice
+    question: Quelles réactions à une `InterruptedException` sont correctes ?
+    choices:
+      - text: "La propager en déclarant `throws InterruptedException`"
+        correct: true
+      - text: "Appeler `Thread.currentThread().interrupt()` puis sortir proprement"
+        correct: true
+      - text: "Un bloc `catch` vide"
+        correct: false
+      - text: "La journaliser et continuer la boucle comme si de rien n'était"
+        correct: false
+    answer: L'interruption doit rester visible pour celui qui veut arrêter le thread.
+  - key: qcm-blocked
+    format: multiple-choice
+    question: Dans quel état est un thread qui attend d'entrer dans un bloc `synchronized` occupé ?
+    choices:
+      - text: "`BLOCKED`"
+        correct: true
+      - text: "`WAITING`"
+        correct: false
+      - text: "`TIMED_WAITING`"
+        correct: false
+      - text: "`NEW`"
+        correct: false
+    answer: '`BLOCKED` est réservé à l''attente d''un moniteur.'
+  - key: qcm-dump
+    format: multiple-choice
+    question: Comment voir l'état de tous les threads d'une JVM en cours d'exécution ?
+    choices:
+      - text: "`jstack <pid>`"
+        correct: true
+      - text: "`jcmd <pid> Thread.print`"
+        correct: true
+      - text: "`javac -threads`"
+        correct: false
+      - text: "`java -version`"
+        correct: false
+    answer: Un thread dump montre état et pile de chaque thread.
+  - key: code-etats
+    format: code-output
+    question: |-
+      ```java
+      Thread t = new Thread(() -> {});
+      System.out.print(t.getState() + " ");
+      t.start();
+      t.join();
+      System.out.println(t.getState());
+      ```
+    answer: '`NEW TERMINATED`.'
+    check:
+      output: "NEW TERMINATED"
+  - key: code-interrupt-sleep
+    format: code-output
+    question: |-
+      ```java
+      Thread t = new Thread(() -> {
+          try {
+              Thread.sleep(10_000);
+          } catch (InterruptedException e) {
+              System.out.println("interrompu, drapeau : " + Thread.currentThread().isInterrupted());
+          }
+      });
+      t.start();
+      t.interrupt();
+      t.join();
+      ```
+    answer: '`interrompu, drapeau : false` : l''exception efface le drapeau.'
+    check:
+      output: "interrompu, drapeau : false"
+  - key: code-drapeau
+    format: code-output
+    question: |-
+      ```java
+      Thread t = new Thread(() -> {
+          Thread.currentThread().interrupt();
+          System.out.println(Thread.currentThread().isInterrupted() + " " + Thread.interrupted() + " "
+                  + Thread.currentThread().isInterrupted());
+      });
+      t.start();
+      t.join();
+      ```
+    answer: '`true true false` : `Thread.interrupted()` lit le drapeau et l''efface.'
+    check:
+      output: "true true false"
+  - key: code-sleep-interrompu
+    format: code-output
+    question: |-
+      ```java
+      Thread t = new Thread(() -> {
+          Thread.currentThread().interrupt();
+          try {
+              Thread.sleep(1000);
+              System.out.println("dormi");
+          } catch (InterruptedException e) {
+              System.out.println("interrompu tout de suite");
+          }
+      });
+      t.start();
+      t.join();
+      ```
+    answer: '`interrompu tout de suite` : le drapeau était déjà positionné, `sleep` lève l''exception sans attendre.'
+    check:
+      output: "interrompu tout de suite"
+  - key: bug-catch-vide
+    format: bug-fix
+    question: |-
+      L'application ne s'arrête jamais proprement : ce thread ignore les demandes d'arrêt.
+      ```java
+      while (true) {
+          traiter();
+          try { Thread.sleep(500); } catch (InterruptedException e) { }
+      }
+      ```
+    answer: |-
+      ```java
+      while (!Thread.currentThread().isInterrupted()) {
+          traiter();
+          try {
+              Thread.sleep(500);
+          } catch (InterruptedException e) {
+              Thread.currentThread().interrupt();
+          }
+      }
+      ```
+      L'exception avalée effaçait la demande d'arrêt. On restaure le drapeau et la boucle le teste.
+  - key: bug-sleep-attente
+    format: bug-fix
+    question: |-
+      Ce code attend « assez longtemps » que le thread finisse, et échoue parfois :
+      ```java
+      t.start();
+      Thread.sleep(2000);
+      lireResultat();
+      ```
+    answer: |-
+      ```java
+      t.start();
+      t.join();
+      lireResultat();
+      ```
+      Une durée arbitraire n'est jamais une garantie. `join()` attend exactement la fin du thread (et rend ses écritures
+      visibles).
+  - key: bug-runtime-exception
+    format: bug-fix
+    question: |-
+      Ce code transforme l'interruption en exception technique et perd l'information :
+      ```java
+      try {
+          file.put(message);
+      } catch (InterruptedException e) {
+          throw new RuntimeException(e);
+      }
+      ```
+    answer: |-
+      ```java
+      try {
+          file.put(message);
+      } catch (InterruptedException e) {
+          Thread.currentThread().interrupt();
+          throw new IllegalStateException("envoi interrompu", e);
+      }
+      ```
+      On peut convertir l'exception si la signature l'impose, mais il faut d'abord restaurer le drapeau pour que le reste
+      de la pile sache que le thread doit s'arrêter. (La propager avec `throws` reste préférable si possible.)
+  - key: bug-boucle-sans-test
+    format: bug-fix
+    question: |-
+      Ce calcul long ne s'arrête pas quand on annule la tâche (`future.cancel(true)`) :
+      ```java
+      for (Fichier f : fichiers) {
+          analyser(f);        // calcul pur, sans sleep ni attente
+      }
+      ```
+    answer: |-
+      ```java
+      for (Fichier f : fichiers) {
+          if (Thread.currentThread().isInterrupted()) {
+              return;          // ou lever une exception d'annulation
+          }
+          analyser(f);
+      }
+      ```
+      `cancel(true)` interrompt le thread, mais un calcul qui ne bloque jamais ne reçoit pas d'exception : il doit tester
+      le drapeau lui-même.

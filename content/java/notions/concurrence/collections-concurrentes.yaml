@@ -1,4 +1,39 @@
 notion: collections-concurrentes
+lesson: |-
+  `java.util.concurrent` fournit des collections conçues pour être partagées entre threads, bien plus efficaces que les
+  enveloppes `Collections.synchronizedXxx` (un verrou global sur chaque méthode).
+
+  | Collection | Pour | Particularités |
+  |---|---|---|
+  | **`ConcurrentHashMap`** | une map partagée | lectures sans verrou, écritures verrouillées par case ; opérations atomiques `putIfAbsent`, `computeIfAbsent`, `merge`, `compute` ; refuse `null` |
+  | **`CopyOnWriteArrayList`** | beaucoup de lectures, très peu d'écritures | chaque écriture copie le tableau ; itération sur un instantané, jamais de `ConcurrentModificationException` |
+  | **`BlockingQueue`** | producteur-consommateur | `put` attend s'il n'y a pas de place, `take` attend un élément |
+  | `ConcurrentLinkedQueue`, `ConcurrentLinkedDeque` | files non bloquantes | algorithmes sans verrou |
+  | `ConcurrentSkipListMap`, `ConcurrentSkipListSet` | une map ou un ensemble **trié** partagé | équivalents concurrents de `TreeMap` et `TreeSet` |
+
+  Les `BlockingQueue` :
+  - **`ArrayBlockingQueue`** : bornée, sur un tableau ;
+  - **`LinkedBlockingQueue`** : chaînée, **illimitée par défaut** (lui donner une capacité) ;
+  - `PriorityBlockingQueue`, `DelayQueue`, `SynchronousQueue` (capacité zéro : chaque `put` attend un `take`).
+
+  ```java
+  Map<String, LongAdder> compteurs = new ConcurrentHashMap<>();
+  compteurs.computeIfAbsent(page, p -> new LongAdder()).increment();
+
+  Set<String> vus = ConcurrentHashMap.newKeySet();      // un Set concurrent
+  ```
+
+  - Chaque opération est sûre, mais une **séquence** d'opérations ne l'est pas : `containsKey` puis `put` reste une
+    condition de course ; on utilise les opérations atomiques.
+  - `size()` et l'itération d'une `ConcurrentHashMap` sont **faiblement cohérentes** : elles reflètent un état à peu près
+    actuel, sans exception.
+
+  **Piège classique** : une `LinkedBlockingQueue` sans capacité entre un producteur rapide et un consommateur lent. La
+  file grossit jusqu'à l'`OutOfMemoryError` au lieu de ralentir le producteur.
+
+  **En entretien** : « `ConcurrentHashMap` et ses opérations atomiques, `CopyOnWriteArrayList` pour les lectures
+  massives, une `BlockingQueue` **bornée** pour le producteur-consommateur ; et jamais de vérifier-puis-agir en deux
+  appels. »
 cards:
   - key: concurrenthashmap-utilise-encore-segments
     format: course
@@ -16,12 +51,6 @@ cards:
     format: course
     question: synchronizedMap vs ConcurrentHashMap ?
     answer: Un verrou global sur chaque méthode vs verrouillage fin et lectures sans verrou.
-  - key: liste-partagee-lue-permanence-dizaines-threads
-    format: scenario
-    question: Une liste partagée est lue en permanence par des dizaines de threads et modifiée une fois par heure.
-    answer: |-
-      C'est le cas d'école de `CopyOnWriteArrayList` : les lectures sont sans verrou et ne voient jamais d'état intermédiaire, et le coût de la copie à chaque écriture est négligeable vu la fréquence.
-      Une alternative tout aussi bonne : une référence `volatile` (ou `AtomicReference`) vers une **liste immuable**, remplacée en bloc à chaque mise à jour. Les lecteurs lisent toujours une version cohérente. À l'inverse, avec des écritures fréquentes, CopyOnWrite deviendrait catastrophique.
   - key: if-map-containskey-k-map-put
     format: course
     question: Pourquoi `if (!map.containsKey(k)) map.put(k, v)` est faux même avec une ConcurrentHashMap ?
@@ -34,6 +63,190 @@ cards:
     format: course
     question: C'est quoi une SynchronousQueue ?
     answer: 'Une file de capacité zéro : chaque put attend un take.'
+  - key: vf-cow-iteration
+    format: true-false
+    question: Itérer une `CopyOnWriteArrayList` pendant qu'un autre thread la modifie lève une `ConcurrentModificationException`.
+    truth: false
+    answer: L'itérateur parcourt un instantané.
+  - key: vf-cow-ecritures
+    format: true-false
+    question: "`CopyOnWriteArrayList` convient à une liste modifiée des milliers de fois par seconde."
+    truth: false
+    answer: Chaque écriture copie tout le tableau.
+  - key: vf-take
+    format: true-false
+    question: "`take()` sur une `BlockingQueue` vide attend qu'un élément arrive."
+    truth: true
+    answer: '`poll()` renvoie `null` immédiatement (ou après un délai).'
+  - key: vf-size
+    format: true-false
+    question: "`ConcurrentHashMap.size()` donne toujours la taille exacte au même instant pour tous les threads."
+    truth: false
+    answer: C'est une estimation faiblement cohérente pendant les mises à jour concurrentes.
+  - key: qcm-choix
+    format: multiple-choice
+    question: Associez correctement besoin et collection.
+    choices:
+      - text: "Des écouteurs lus à chaque événement, rarement ajoutés : `CopyOnWriteArrayList`"
+        correct: true
+      - text: "Un compteur par clé, très sollicité : `ConcurrentHashMap<K, LongAdder>`"
+        correct: true
+      - text: "Une file de tâches entre threads : `ArrayList` synchronisée"
+        correct: false
+      - text: "Un ensemble trié partagé : `TreeSet`"
+        correct: false
+    answer: Une `BlockingQueue` pour la file, une `ConcurrentSkipListSet` pour l'ensemble trié.
+  - key: qcm-atomiques
+    format: multiple-choice
+    question: Lesquelles sont atomiques sur une `ConcurrentHashMap` ?
+    choices:
+      - text: "`merge(k, 1, Integer::sum)`"
+        correct: true
+      - text: "`computeIfAbsent(k, f)`"
+        correct: true
+      - text: "`put(k, get(k) + 1)`"
+        correct: false
+      - text: "`if (!containsKey(k)) put(k, v)`"
+        correct: false
+    answer: Les deux dernières combinent deux appels.
+  - key: qcm-set
+    format: multiple-choice
+    question: Comment obtenir un `Set` concurrent efficace ?
+    choices:
+      - text: "`ConcurrentHashMap.newKeySet()`"
+        correct: true
+      - text: "`ConcurrentSkipListSet`, s'il doit être trié"
+        correct: true
+      - text: "`new HashSet<>()` partagé"
+        correct: false
+      - text: "`new ConcurrentHashSet<>()`"
+        correct: false
+    answer: '`ConcurrentHashSet` n''existe pas dans le JDK.'
+  - key: qcm-borne
+    format: multiple-choice
+    question: Pourquoi borner une `LinkedBlockingQueue` entre producteur et consommateur ?
+    choices:
+      - text: "Pour que `put` ralentisse le producteur quand le consommateur ne suit pas"
+        correct: true
+      - text: "Pour éviter un `OutOfMemoryError`"
+        correct: true
+      - text: "Pour rendre `take` non bloquant"
+        correct: false
+      - text: "Pour trier les éléments"
+        correct: false
+    answer: C'est la contre-pression.
+  - key: code-merge
+    format: code-output
+    question: |-
+      ```java
+      ConcurrentHashMap<String, Integer> m = new ConcurrentHashMap<>();
+      try (var pool = Executors.newFixedThreadPool(8)) {
+          for (int i = 0; i < 1000; i++) {
+              String cle = i % 2 == 0 ? "pair" : "impair";
+              pool.submit(() -> m.merge(cle, 1, Integer::sum));
+          }
+      }
+      System.out.println(m.get("pair") + " " + m.get("impair"));
+      ```
+    answer: '`500 500`.'
+    check:
+      output: "500 500"
+  - key: code-null
+    format: code-output
+    question: |-
+      ```java
+      Map<String, String> m = new ConcurrentHashMap<>();
+      m.put("a", null);
+      ```
+    answer: "Une `NullPointerException` : `ConcurrentHashMap` refuse les valeurs (et les clés) `null`."
+    check:
+      throws: NullPointerException
+  - key: code-cow
+    format: code-output
+    question: |-
+      ```java
+      List<Integer> l = new CopyOnWriteArrayList<>(List.of(1, 2, 3));
+      for (Integer x : l) {
+          if (x == 1) l.add(4);
+      }
+      System.out.println(l);
+      ```
+    answer: '`[1, 2, 3, 4]`, sans exception : l''itération voit l''instantané de départ.'
+    check:
+      output: "[1, 2, 3, 4]"
+  - key: code-queue
+    format: code-output
+    question: |-
+      ```java
+      BlockingQueue<String> file = new ArrayBlockingQueue<>(1);
+      System.out.println(file.offer("a") + " " + file.offer("b") + " " + file.poll() + " " + file.poll());
+      ```
+    answer: '`true false a null` : la file bornée refuse le second élément, `poll` renvoie `null` quand elle est vide.'
+    check:
+      output: "true false a null"
+  - key: bug-synchronized-map
+    format: bug-fix
+    question: |-
+      Ce cache partagé est un goulot d'étranglement sous charge :
+      ```java
+      private final Map<String, Produit> cache = Collections.synchronizedMap(new HashMap<>());
+      ```
+    answer: |-
+      ```java
+      private final Map<String, Produit> cache = new ConcurrentHashMap<>();
+      ```
+      `synchronizedMap` prend un verrou global à chaque appel, même pour lire. `ConcurrentHashMap` lit sans verrou et
+      verrouille finement les écritures.
+  - key: bug-file-illimitee
+    format: bug-fix
+    question: |-
+      Lors des pics, le service d'ingestion finit en `OutOfMemoryError` :
+      ```java
+      private final BlockingQueue<Evenement> file = new LinkedBlockingQueue<>();
+      ```
+    answer: |-
+      ```java
+      private final BlockingQueue<Evenement> file = new ArrayBlockingQueue<>(10_000);
+      // le producteur fait put() (attend) ou offer(e, délai) (et rejette proprement)
+      ```
+      Une file illimitée absorbe tout en mémoire quand le consommateur ne suit pas. Une file bornée fait attendre le
+      producteur (ou lui permet de rejeter), ce qui rend la saturation visible.
+  - key: bug-iteration-arraylist
+    format: bug-fix
+    question: |-
+      La diffusion d'événements lève parfois `ConcurrentModificationException` quand un écouteur s'inscrit au même
+      moment :
+      ```java
+      private final List<Ecouteur> ecouteurs = new ArrayList<>();
+      void diffuser(Evenement e) { for (Ecouteur l : ecouteurs) l.recevoir(e); }
+      void inscrire(Ecouteur l) { ecouteurs.add(l); }
+      ```
+    answer: |-
+      ```java
+      private final List<Ecouteur> ecouteurs = new CopyOnWriteArrayList<>();
+      ```
+      Les inscriptions sont rares, les diffusions fréquentes : `CopyOnWriteArrayList` itère sur un instantané, sans verrou
+      ni exception.
+  - key: bug-get-put
+    format: bug-fix
+    question: |-
+      Ce compteur par endpoint perd des appels, bien qu'il utilise une `ConcurrentHashMap` :
+      ```java
+      Integer n = compteurs.get(endpoint);
+      compteurs.put(endpoint, n == null ? 1 : n + 1);
+      ```
+    answer: |-
+      ```java
+      compteurs.merge(endpoint, 1, Integer::sum);
+      ```
+      `get` puis `put` laissent un autre thread écrire entre les deux. `merge` fait la lecture et l'écriture d'un bloc,
+      atomiquement.
+  - key: liste-partagee-lue-permanence-dizaines-threads
+    format: scenario
+    question: Une liste partagée est lue en permanence par des dizaines de threads et modifiée une fois par heure.
+    answer: |-
+      C'est le cas d'école de `CopyOnWriteArrayList` : les lectures sont sans verrou et ne voient jamais d'état intermédiaire, et le coût de la copie à chaque écriture est négligeable vu la fréquence.
+      Une alternative tout aussi bonne : une référence `volatile` (ou `AtomicReference`) vers une **liste immuable**, remplacée en bloc à chaque mise à jour. Les lecteurs lisent toujours une version cohérente. À l'inverse, avec des écritures fréquentes, CopyOnWrite deviendrait catastrophique.
   - key: implemente-producteur-consommateur
     format: scenario
     question: Implémente un producteur-consommateur.
@@ -57,3 +270,12 @@ cards:
       `ConcurrentHashMap.computeIfAbsent(cle, this::calculer)` garantit qu'une seule exécution a lieu par clé, les autres threads attendant le résultat. Attention : pendant le calcul, d'autres opérations sur la même zone de la map peuvent être bloquées, donc la fonction doit rester raisonnablement rapide et ne jamais modifier la map.
       Pour un calcul long ou de l'I/O, je stockerais plutôt des `CompletableFuture` : `computeIfAbsent(cle, k -> CompletableFuture.supplyAsync(() -> calculer(k), executor))`. L'insertion est instantanée et tous les demandeurs partagent le même future.
       Et en pratique, si j'ai besoin d'expiration et de taille maximale, Caffeine fait exactement ça avec `AsyncLoadingCache`.
+  - key: scenario-dedoublonnage
+    format: scenario
+    question: Plusieurs consommateurs reçoivent des messages qui peuvent arriver en double ; chaque message ne doit être traité qu'une fois. Comment ?
+    answer: |-
+      Dans une seule instance, un ensemble concurrent des identifiants déjà traités : `if (vus.add(message.id())) traiter(message)`
+      avec `vus = ConcurrentHashMap.newKeySet()` ; `add` est atomique et ne renvoie `true` qu'une fois par identifiant.
+      Il faut borner sa taille (une expiration avec Caffeine, par exemple). Avec plusieurs instances, l'état doit être
+      partagé : une contrainte d'unicité en base sur l'identifiant du message, insérée dans la même transaction que le
+      traitement, rend l'opération idempotente.

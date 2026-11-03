@@ -1,4 +1,43 @@
 notion: volatile
+lesson: |-
+  Sans synchronisation, un thread **peut ne jamais voir** une écriture faite par un autre : les valeurs restent dans les
+  registres ou les caches du processeur, et le compilateur JIT peut réordonner ou sortir une lecture d'une boucle.
+
+  ```java
+  class Tache implements Runnable {
+      private volatile boolean arretDemande;      // sans volatile, la boucle peut ne jamais s'arrêter
+
+      public void run() {
+          while (!arretDemande) {
+              travailler();
+          }
+      }
+
+      void arreter() { arretDemande = true; }
+  }
+  ```
+
+  Un champ **`volatile`** garantit :
+  - la **visibilité** : chaque lecture voit la dernière écriture faite par n'importe quel thread ;
+  - l'**ordre** : tout ce qu'un thread a écrit **avant** une écriture `volatile` est visible par un thread qui lit cette
+    variable ensuite (relation *happens-before*) ; ce qui permet de **publier** un objet construit.
+
+  Ce que `volatile` ne garantit **pas** : l'**atomicité** des opérations composées. `compteur++` sur un `volatile` perd
+  toujours des incréments ; `if (x == null) x = ...` reste une condition de course.
+
+  Quand l'utiliser :
+  - un **drapeau** écrit par un thread et lu par d'autres (arrêt, configuration rechargée) ;
+  - la **publication** d'une référence vers un objet **immuable** remplacé en bloc (`volatile Config config`) ;
+  - le double-checked locking.
+
+  Pour un compteur ou une mise à jour qui dépend de l'ancienne valeur : `AtomicInteger`, `LongAdder` ou un verrou.
+  Les écritures de `long` et `double` non `volatile` peuvent même être coupées en deux (non atomiques sur 32 bits).
+
+  **Piège classique** : `volatile int compteur; compteur++;` en croyant le compteur thread-safe. Il est visible, pas
+  atomique.
+
+  **En entretien** : « `volatile` donne visibilité et ordre, pas atomicité : parfait pour un drapeau ou publier un objet
+  immuable, insuffisant pour un compteur. »
 cards:
   - key: volatile
     format: course
@@ -8,3 +47,196 @@ cards:
     format: course
     question: Pourquoi volatile ne suffit pas pour un compteur ?
     answer: '`count++` = 3 opérations non atomiques.'
+  - key: drapeau
+    format: course
+    question: Pourquoi un drapeau d'arrêt doit-il être `volatile` ?
+    answer: Sans `volatile` (ni synchronisation), le thread qui boucle peut ne jamais voir l'écriture de l'autre thread, la lecture pouvant même être sortie de la boucle par le JIT.
+  - key: publication
+    format: course
+    question: Comment `volatile` aide-t-il à publier un objet ?
+    answer: Ce qu'un thread a écrit avant d'affecter une référence `volatile` est visible par le thread qui lit cette référence ensuite ; un objet immuable ainsi publié est vu complètement construit.
+  - key: vf-atomique
+    format: true-false
+    question: "`volatile` rend `compteur++` atomique."
+    truth: false
+    answer: Il ne rend atomiques que les lectures et écritures simples.
+  - key: vf-visibilite
+    format: true-false
+    question: Une lecture d'un champ `volatile` voit la dernière écriture faite par un autre thread.
+    truth: true
+    answer: C'est sa garantie de visibilité.
+  - key: vf-long
+    format: true-false
+    question: Les écritures d'un `long` non `volatile` peuvent ne pas être atomiques.
+    truth: true
+    answer: La spécification autorise leur découpage en deux écritures de 32 bits ; `volatile` l'interdit.
+  - key: vf-remplace-synchronized
+    format: true-false
+    question: "`volatile` peut remplacer `synchronized` pour protéger un « vérifier-puis-agir »."
+    truth: false
+    answer: Le test et l'action ne deviennent pas atomiques ensemble.
+  - key: qcm-usage
+    format: multiple-choice
+    question: Pour quels usages `volatile` suffit-il ?
+    choices:
+      - text: "Un drapeau d'arrêt écrit par un thread et lu par un autre"
+        correct: true
+      - text: "Une référence vers une configuration immuable remplacée en bloc"
+        correct: true
+      - text: "Un compteur incrémenté par plusieurs threads"
+        correct: false
+      - text: "Un solde débité après vérification"
+        correct: false
+    answer: Dès qu'une écriture dépend de la valeur lue, il faut de l'atomicité.
+  - key: qcm-garanties
+    format: multiple-choice
+    question: Que garantit `volatile` ?
+    choices:
+      - text: "La visibilité des écritures"
+        correct: true
+      - text: "Un ordre (happens-before) entre l'écriture et les lectures suivantes"
+        correct: true
+      - text: "L'atomicité de `x += 1`"
+        correct: false
+      - text: "L'exclusion mutuelle"
+        correct: false
+    answer: Pour l'exclusion mutuelle, il faut un verrou.
+  - key: qcm-compteur
+    format: multiple-choice
+    question: Quel remplacement corrige `private volatile int vues; void vue() { vues++; }` ?
+    choices:
+      - text: "`AtomicInteger vues; vues.incrementAndGet();`"
+        correct: true
+      - text: "`LongAdder vues; vues.increment();`"
+        correct: true
+      - text: "`private volatile long vues;`"
+        correct: false
+      - text: "`private static volatile int vues;`"
+        correct: false
+    answer: Le type ou le caractère statique ne change rien à l'atomicité.
+  - key: qcm-jit
+    format: multiple-choice
+    question: "Pourquoi `while (!arret) { }` peut-il boucler à l'infini si `arret` n'est pas `volatile` ?"
+    choices:
+      - text: "Le JIT peut lire `arret` une seule fois et sortir la lecture de la boucle"
+        correct: true
+      - text: "Parce que `boolean` n'est pas thread-safe"
+        correct: false
+      - text: "Parce que la boucle est vide"
+        correct: false
+      - text: "Parce qu'un autre thread ne peut pas écrire un champ privé"
+        correct: false
+    answer: Sans relation happens-before, cette optimisation est permise.
+  - key: trous-drapeau
+    format: fill-in
+    question: |-
+      Complétez pour que l'arrêt soit vu par le thread qui boucle :
+      ```java
+      private ___ boolean actif = true;
+      ```
+    blanks: [[volatile]]
+    answer: Le drapeau est écrit par un thread, lu par un autre.
+  - key: trous-config
+    format: fill-in
+    question: |-
+      Complétez pour publier une nouvelle configuration immuable à tous les threads :
+      ```java
+      private ___ Config config;
+      void recharger() { config = Config.lire(); }
+      ```
+    blanks: [[volatile]]
+    answer: La référence remplacée en bloc est vue par tous.
+  - key: trous-atomique
+    format: fill-in
+    question: |-
+      Complétez pour un compteur réellement atomique :
+      ```java
+      private final AtomicInteger vues = new AtomicInteger();
+      void vue() { vues.___(); }
+      ```
+    blanks: [[incrementAndGet, getAndIncrement]]
+    answer: Une opération atomique remplace `volatile` + `++`.
+  - key: trous-boucle
+    format: fill-in
+    question: |-
+      Complétez la boucle qui s'arrête quand on le demande :
+      ```java
+      private volatile boolean arretDemande;
+      public void run() {
+          while (!___) { traiter(); }
+      }
+      ```
+    blanks: [[arretDemande]]
+    answer: La lecture `volatile` est refaite à chaque tour.
+  - key: bug-drapeau
+    format: bug-fix
+    question: |-
+      Ce thread ne s'arrête jamais en production, alors que `arreter()` est bien appelé :
+      ```java
+      private boolean actif = true;
+      public void run() { while (actif) { traiter(); } }
+      public void arreter() { actif = false; }
+      ```
+    answer: |-
+      ```java
+      private volatile boolean actif = true;
+      ```
+      Sans `volatile`, l'écriture d'un thread peut ne jamais être vue par l'autre (le JIT peut même lire le champ une
+      seule fois). `volatile` garantit la visibilité. (L'interruption du thread est une autre solution.)
+  - key: bug-compteur
+    format: bug-fix
+    question: |-
+      Les statistiques sous-estiment le nombre d'appels :
+      ```java
+      private volatile int appels;
+      void enregistrer() { appels++; }
+      ```
+    answer: |-
+      ```java
+      private final LongAdder appels = new LongAdder();
+      void enregistrer() { appels.increment(); }
+      ```
+      `volatile` ne rend pas `++` atomique. `LongAdder` (ou `AtomicInteger`) fait l'incrément atomiquement.
+  - key: bug-publication
+    format: bug-fix
+    question: |-
+      Un thread lit parfois une configuration à moitié initialisée :
+      ```java
+      private Config config;              // remplacée par un thread de rechargement
+      void recharger() {
+          Config c = new Config();
+          c.charger();
+          config = c;
+      }
+      ```
+    answer: |-
+      ```java
+      private volatile Config config;
+      ```
+      Sans `volatile`, l'affectation de la référence peut être vue avant les écritures faites par `charger()`. Avec
+      `volatile`, tout ce qui précède l'affectation est visible pour qui lit la référence (et `Config` gagne à être
+      immuable).
+  - key: bug-check-then-act
+    format: bug-fix
+    question: |-
+      Le rapport est parfois généré deux fois, malgré le `volatile` :
+      ```java
+      private volatile boolean genere;
+      void generer() {
+          if (!genere) {
+              faireLeRapport();
+              genere = true;
+          }
+      }
+      ```
+    answer: |-
+      ```java
+      private final AtomicBoolean genere = new AtomicBoolean();
+      void generer() {
+          if (genere.compareAndSet(false, true)) {
+              faireLeRapport();
+          }
+      }
+      ```
+      Deux threads peuvent lire `false` avant que l'un n'écrive `true`. `compareAndSet` rend le test et l'écriture
+      atomiques : un seul thread gagne.

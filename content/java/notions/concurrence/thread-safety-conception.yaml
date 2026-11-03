@@ -1,0 +1,161 @@
+notion: thread-safety-conception
+lesson: |-
+  Une classe est **thread-safe** si elle reste correcte quand plusieurs threads l'utilisent en même temps, sans
+  synchronisation de la part de l'appelant. Trois stratégies, **de la plus simple à la plus délicate** :
+
+  1. **Ne pas partager** (confinement) : des variables locales, des objets créés par requête, un objet manipulé par un
+     seul thread. Pas de partage, pas de problème.
+  2. **Partager de l'immuable** : des records ou des classes `final` à champs `final`, des collections non modifiables
+     (`List.copyOf`). Un objet immuable est thread-safe par construction ; on « modifie » en créant une nouvelle valeur,
+     publiée par une référence `volatile` ou une `AtomicReference`.
+  3. **Partager du modifiable, en synchronisant** : de préférence avec des composants déjà thread-safe
+     (`ConcurrentHashMap`, `AtomicLong`, `BlockingQueue`), sinon avec un verrou qui protège **tout** l'état et **tous**
+     ses invariants.
+
+  ```java
+  // Un service sans état : thread-safe par construction
+  class Tarification {
+      private final Map<String, BigDecimal> tauxParPays;     // immuable, fourni à la construction
+      Tarification(Map<String, BigDecimal> taux) { this.tauxParPays = Map.copyOf(taux); }
+      BigDecimal prixTtc(Produit p, String pays) { ... }     // n'utilise que ses paramètres et l'état immuable
+  }
+  ```
+
+  Règles de conception :
+  - **encapsuler** l'état partagé : champs `private`, ne jamais exposer une collection interne modifiable ;
+  - un **invariant** qui lie plusieurs champs doit être protégé par **un seul** verrou (ou porté par un seul objet
+    immuable) ;
+  - ne pas laisser **`this` s'échapper** pendant la construction (enregistrer un écouteur, démarrer un thread dans le
+    constructeur) ;
+  - **documenter** la politique : immuable, thread-safe, ou « à confiner à un thread » ;
+  - les beans **singletons** d'un framework doivent être sans état modifiable (ou n'avoir que des champs thread-safe).
+
+  **Piège classique** : composer deux objets thread-safe et croire le tout thread-safe. Une `ConcurrentHashMap` et un
+  `AtomicLong` mis à jour l'un après l'autre ne forment pas une opération atomique.
+
+  **En entretien** : « D'abord ne pas partager, ensuite partager de l'immuable, enfin synchroniser avec des composants
+  concurrents ou un verrou qui protège tout l'invariant. Et documenter la politique de chaque classe. »
+cards:
+  - key: definition
+    format: course
+    question: Que veut dire « une classe est thread-safe » ?
+    answer: Elle reste correcte quand plusieurs threads l'utilisent en même temps, sans que l'appelant ait à ajouter de synchronisation.
+  - key: strategies
+    format: course
+    question: Quelles sont les trois stratégies pour un code thread-safe, dans l'ordre de préférence ?
+    answer: Ne pas partager (confinement), partager seulement de l'immuable, et sinon synchroniser l'état partagé (composants concurrents ou verrou).
+  - key: invariant
+    format: course
+    question: Comment protéger un invariant qui lie plusieurs champs ?
+    answer: Avec un seul verrou qui couvre tous ces champs, ou en regroupant les champs dans un objet immuable remplacé en bloc.
+  - key: echappement
+    format: course
+    question: Qu'est-ce que l'échappement de `this` pendant la construction, et pourquoi l'éviter ?
+    answer: Rendre l'objet accessible à d'autres threads avant la fin du constructeur (écouteur enregistré, thread démarré) ; ils peuvent voir un objet incomplet.
+  - key: vf-composition
+    format: true-false
+    question: Une classe composée uniquement de champs thread-safe est forcément thread-safe.
+    truth: false
+    answer: Les opérations qui combinent plusieurs champs doivent encore être atomiques.
+  - key: vf-immuable
+    format: true-false
+    question: Un objet immuable correctement construit peut être partagé entre threads sans synchronisation.
+    truth: true
+    answer: Ses champs `final` sont vus initialisés, et rien ne change ensuite.
+  - key: vf-sans-etat
+    format: true-false
+    question: Un service sans champ modifiable est thread-safe.
+    truth: true
+    answer: Tant que ses dépendances le sont aussi.
+  - key: vf-exposer
+    format: true-false
+    question: Un getter qui renvoie la liste interne d'une classe synchronisée garde la classe thread-safe.
+    truth: false
+    answer: L'appelant modifie la liste hors du verrou ; on renvoie une copie non modifiable.
+  - key: qcm-strategie
+    format: multiple-choice
+    question: Quelle stratégie privilégier pour un service appelé par toutes les requêtes ?
+    choices:
+      - text: "Aucun état modifiable, tout passé en paramètre"
+        correct: true
+      - text: "Un champ par requête, protégé par `synchronized`"
+        correct: false
+      - text: "Des champs `static` partagés"
+        correct: false
+      - text: "Un `ThreadLocal` par champ"
+        correct: false
+    answer: Sans état, rien à synchroniser.
+  - key: qcm-documenter
+    format: multiple-choice
+    question: Quelles informations documenter sur une classe partagée ?
+    choices:
+      - text: "Si elle est immuable, thread-safe, ou à confiner à un thread"
+        correct: true
+      - text: "Quel verrou protège quels champs"
+        correct: true
+      - text: "Le nom de chaque thread qui l'utilise"
+        correct: false
+      - text: "Le nombre de cœurs de la machine"
+        correct: false
+    answer: '`@ThreadSafe` / `@GuardedBy` (JCIP) ou un commentaire clair.'
+  - key: qcm-immuable
+    format: multiple-choice
+    question: Comment faire évoluer une configuration partagée de façon sûre ?
+    choices:
+      - text: "Créer une nouvelle configuration immuable et la publier via une référence `volatile`"
+        correct: true
+      - text: "Modifier ses champs un par un pendant que d'autres threads la lisent"
+        correct: false
+      - text: "La copier dans chaque thread au démarrage et ne plus jamais la mettre à jour"
+        correct: false
+      - text: "Utiliser une `HashMap` non synchronisée"
+        correct: false
+    answer: Les lecteurs voient l'ancienne ou la nouvelle version, jamais un mélange.
+  - key: qcm-composition
+    format: multiple-choice
+    question: "Un `Stock` garde `ConcurrentHashMap<String, Integer> quantites` et `AtomicInteger total`. `retirer` met à jour l'un puis l'autre. Quel est le problème ?"
+    choices:
+      - text: "Un lecteur peut voir les deux valeurs incohérentes entre les deux mises à jour"
+        correct: true
+      - text: "Aucun, chaque champ est thread-safe"
+        correct: false
+      - text: "Un interblocage certain"
+        correct: false
+      - text: "Une erreur de compilation"
+        correct: false
+    answer: L'invariant « total = somme des quantités » n'est pas protégé.
+  - key: scenario-revue
+    format: scenario
+    question: Comment vérifies-tu en revue de code qu'une classe partagée est thread-safe ?
+    answer: |-
+      Je liste son état : chaque champ, s'il est `final`, immuable, et s'il peut être modifié après la construction. Pour
+      chaque champ modifiable, je cherche le mécanisme qui le protège (verrou, atomique, collection concurrente) et je
+      vérifie que **toutes** les lectures et écritures passent par lui. Je cherche les séquences vérifier-puis-agir et
+      lire-modifier-écrire, les invariants qui lient plusieurs champs, les collections internes exposées par un getter,
+      et l'échappement de `this` dans le constructeur. Enfin, je regarde si l'état est vraiment nécessaire : souvent, le
+      supprimer est la meilleure correction.
+  - key: scenario-cache
+    format: scenario
+    question: Tu dois écrire un cache en mémoire partagé par toutes les requêtes. Comment le rends-tu thread-safe ?
+    answer: |-
+      Je n'écris pas la synchronisation moi-même : `ConcurrentHashMap.computeIfAbsent` pour un cache simple (le calcul
+      d'une clé est atomique), ou mieux Caffeine, qui ajoute taille maximale, expiration et statistiques, et gère la
+      concurrence. Les valeurs stockées sont immuables, sinon deux requêtes modifieraient le même objet. Je borne la
+      taille (sinon fuite mémoire), et je réfléchis à l'invalidation quand les données changent. Je teste avec de
+      nombreux threads concurrents sur les mêmes clés.
+  - key: scenario-singleton-etat
+    format: scenario
+    question: Un service singleton garde la dernière commande traitée dans un champ, pour la journaliser plus tard. Que proposes-tu ?
+    answer: |-
+      Ce champ est partagé par toutes les requêtes : deux requêtes simultanées s'écrasent et l'on journalise la commande
+      d'un autre. Je supprime l'état : la commande est passée en paramètre jusqu'à la journalisation, ou journalisée
+      dans la même méthode. Si une information doit vraiment suivre la requête, elle va dans un objet de contexte créé
+      par requête, ou dans le contexte prévu par le framework, pas dans un champ d'un bean partagé.
+  - key: scenario-immuable-ou-verrou
+    format: scenario
+    question: Une table de taux de change est lue en permanence et mise à jour toutes les heures. Verrou ou immuabilité ?
+    answer: |-
+      Immuabilité : chaque mise à jour construit une nouvelle `Map` immuable (`Map.copyOf`) et la publie dans un champ
+      `volatile` (ou une `AtomicReference`). Les lecteurs lisent la référence sans verrou, et voient toujours une table
+      complète, l'ancienne ou la nouvelle, jamais un mélange en cours de mise à jour. C'est plus simple et plus rapide
+      qu'un `ReadWriteLock`, et aucun lecteur n'attend jamais la mise à jour.

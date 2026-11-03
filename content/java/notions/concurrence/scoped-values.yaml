@@ -1,6 +1,172 @@
 notion: scoped-values
+lesson: |-
+  Une **`ScopedValue<T>`** (JEP 506, **définitive en Java 25**) transmet une valeur **implicite** (utilisateur courant,
+  identifiant de requête) à tout le code appelé **dans une portée**, sans la passer en paramètre. C'est l'alternative
+  moderne à `ThreadLocal`.
+
+  ```java
+  private static final ScopedValue<Utilisateur> UTILISATEUR = ScopedValue.newInstance();
+
+  void traiter(Requete r) {
+      ScopedValue.where(UTILISATEUR, authentifier(r))
+                 .run(() -> service.executer());         // visible pendant run(), et dans les appels qu'il fait
+  }
+
+  // plus loin dans la pile d'appels :
+  Utilisateur u = UTILISATEUR.get();                     // NoSuchElementException hors de la portée
+  boolean connu = UTILISATEUR.isBound();
+  ```
+
+  Différences avec `ThreadLocal` :
+  - la valeur est **immuable** dans la portée : pas de `set` (une portée imbriquée peut la **relier** à une autre valeur,
+    seulement pour son bloc) ;
+  - elle **disparaît automatiquement** à la fin de `run`/`call` : pas de `remove()` à oublier, pas de fuite d'une requête à
+    l'autre dans un pool ;
+  - elle est **partagée** sans copie avec les sous-tâches d'un `StructuredTaskScope` ;
+  - elle coûte très peu, même avec des **millions de threads virtuels**.
+
+  `ThreadLocal` reste utile pour un état **modifiable** propre au thread (rare), ou un cache par thread dans un petit
+  pool.
+
+  **Piège classique** : lire la valeur dans une tâche soumise à un `ExecutorService` ordinaire. Elle n'y est pas liée :
+  `get()` lève `NoSuchElementException`. Seules les sous-tâches d'un `StructuredTaskScope` l'héritent.
+
+  **En entretien** : « Une valeur immuable liée à une portée d'exécution : visible par tout le code appelé, effacée
+  automatiquement à la sortie ; l'alternative à `ThreadLocal`, adaptée aux threads virtuels, définitive en Java 25. »
 cards:
   - key: scopedvalue-plutot-threadlocal
     format: course
     question: Pourquoi ScopedValue plutôt que ThreadLocal ?
     answer: Immuable, borné à une portée d'exécution, sans fuite ni remove() à oublier, et adapté aux millions de virtual threads (final en Java 25).
+  - key: utilisation
+    format: course
+    question: Comment lier et lire une `ScopedValue` ?
+    answer: '`ScopedValue.where(CLE, valeur).run(() -> ...)` lie la valeur pendant l''exécution du bloc ; `CLE.get()` la lit dans tout le code appelé ; `isBound()` dit si elle est liée.'
+  - key: reliaison
+    format: course
+    question: Peut-on changer la valeur d'une `ScopedValue` ?
+    answer: Pas dans la portée en cours ; une portée imbriquée peut la relier à une autre valeur, seulement pour son bloc, puis l'ancienne valeur revient.
+  - key: heritage
+    format: course
+    question: Quelles tâches héritent d'une `ScopedValue` liée ?
+    answer: Les sous-tâches d'un `StructuredTaskScope` ouvert dans la portée ; pas les tâches soumises à un `ExecutorService` ordinaire.
+  - key: vf-set
+    format: true-false
+    question: Une `ScopedValue` a une méthode `set` comme `ThreadLocal`.
+    truth: false
+    answer: Elle est immuable dans sa portée.
+  - key: vf-remove
+    format: true-false
+    question: Il faut appeler `remove()` sur une `ScopedValue` à la fin du traitement.
+    truth: false
+    answer: La liaison disparaît automatiquement à la fin du bloc.
+  - key: vf-finale
+    format: true-false
+    question: "`ScopedValue` est définitive en Java 25."
+    truth: true
+    answer: JEP 506.
+  - key: vf-hors-portee
+    format: true-false
+    question: Lire une `ScopedValue` hors de toute portée renvoie `null`.
+    truth: false
+    answer: '`get()` lève `NoSuchElementException` ; `orElse` permet une valeur par défaut.'
+  - key: qcm-avantages
+    format: multiple-choice
+    question: Quels avantages a `ScopedValue` sur `ThreadLocal` ?
+    choices:
+      - text: "Pas de fuite d'une requête à l'autre dans un pool"
+        correct: true
+      - text: "Un coût faible même avec des millions de threads virtuels"
+        correct: true
+      - text: "Une valeur modifiable n'importe où"
+        correct: false
+      - text: "La transmission automatique à n'importe quel executor"
+        correct: false
+    answer: Elle est immuable et liée à une portée.
+  - key: qcm-lire
+    format: multiple-choice
+    question: Comment lire la valeur avec un repli si elle n'est pas liée ?
+    choices:
+      - text: "`CLE.orElse(valeurParDefaut)`"
+        correct: true
+      - text: "`CLE.isBound() ? CLE.get() : valeurParDefaut`"
+        correct: true
+      - text: "`CLE.get()`, qui renvoie `null`"
+        correct: false
+      - text: "`CLE.getOrDefault()`"
+        correct: false
+    answer: '`get()` lève une exception hors portée.'
+  - key: qcm-usage
+    format: multiple-choice
+    question: Pour quoi une `ScopedValue` convient-elle ?
+    choices:
+      - text: "L'utilisateur authentifié de la requête en cours"
+        correct: true
+      - text: "L'identifiant de corrélation des logs d'une requête"
+        correct: true
+      - text: "Un compteur incrémenté pendant la requête"
+        correct: false
+      - text: "Un cache partagé entre toutes les requêtes"
+        correct: false
+    answer: Une valeur immuable de contexte, pas un état modifiable ou partagé.
+  - key: qcm-executor
+    format: multiple-choice
+    question: "Que se passe-t-il si une tâche soumise à `executor.submit` lit `UTILISATEUR.get()` ?"
+    choices:
+      - text: "Une `NoSuchElementException`, la valeur n'est pas liée dans ce thread"
+        correct: true
+      - text: "Elle lit la valeur du thread qui a soumis la tâche"
+        correct: false
+      - text: "Elle lit `null`"
+        correct: false
+      - text: "Ne compile pas"
+        correct: false
+    answer: Seul un `StructuredTaskScope` transmet les liaisons.
+  - key: code-portee
+    format: code-output
+    question: |-
+      ```java
+      ScopedValue<String> UTILISATEUR = ScopedValue.newInstance();
+      ScopedValue.where(UTILISATEUR, "ada").run(() -> System.out.println(UTILISATEUR.get()));
+      System.out.println(UTILISATEUR.isBound());
+      ```
+    answer: '`ada`, puis `false` : la liaison disparaît à la fin du bloc.'
+    check:
+      output: "ada\nfalse"
+  - key: code-imbrique
+    format: code-output
+    question: |-
+      ```java
+      ScopedValue<String> ROLE = ScopedValue.newInstance();
+      ScopedValue.where(ROLE, "lecteur").run(() -> {
+          System.out.print(ROLE.get() + " ");
+          ScopedValue.where(ROLE, "admin").run(() -> System.out.print(ROLE.get() + " "));
+          System.out.println(ROLE.get());
+      });
+      ```
+    answer: '`lecteur admin lecteur` : la portée imbriquée relie la valeur pour son seul bloc.'
+    check:
+      output: "lecteur admin lecteur"
+  - key: code-or-else
+    format: code-output
+    question: |-
+      ```java
+      ScopedValue<String> LANGUE = ScopedValue.newInstance();
+      System.out.println(LANGUE.orElse("fr"));
+      LANGUE.get();
+      ```
+    answer: '`fr`, puis une `NoSuchElementException` : la valeur n''est pas liée.'
+    check:
+      output: "fr"
+      throws: NoSuchElementException
+  - key: code-call
+    format: code-output
+    question: |-
+      ```java
+      ScopedValue<Integer> REMISE = ScopedValue.newInstance();
+      int prix = ScopedValue.where(REMISE, 10).call(() -> 100 - REMISE.get());
+      System.out.println(prix);
+      ```
+    answer: '`90` : `call` renvoie le résultat du bloc.'
+    check:
+      output: "90"

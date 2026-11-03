@@ -1,6 +1,206 @@
 notion: flow-api
+lesson: |-
+  `java.util.concurrent.Flow` (Java 9) reprend les quatre interfaces de **Reactive Streams** dans le JDK :
+
+  | Interface | Rôle |
+  |---|---|
+  | `Flow.Publisher<T>` | produit des éléments ; `subscribe(subscriber)` |
+  | `Flow.Subscriber<T>` | les reçoit : `onSubscribe`, `onNext`, `onError`, `onComplete` |
+  | `Flow.Subscription` | le lien entre les deux : `request(n)`, `cancel()` |
+  | `Flow.Processor<T, R>` | à la fois abonné et éditeur (une étape intermédiaire) |
+
+  ```java
+  class Afficheur implements Flow.Subscriber<String> {
+      private Flow.Subscription abonnement;
+      public void onSubscribe(Flow.Subscription s) { abonnement = s; s.request(1); }     // contre-pression
+      public void onNext(String item) { System.out.println(item); abonnement.request(1); }
+      public void onError(Throwable e) { e.printStackTrace(); }
+      public void onComplete() { System.out.println("fin"); }
+  }
+
+  try (SubmissionPublisher<String> editeur = new SubmissionPublisher<>()) {
+      editeur.subscribe(new Afficheur());
+      editeur.submit("a");
+      editeur.submit("b");
+  }                                      // close() signale la fin aux abonnés
+  ```
+
+  - Le protocole : `onSubscribe` d'abord, puis au plus autant d'`onNext` que d'éléments **demandés**, puis **un seul**
+    signal de fin, `onError` ou `onComplete`.
+  - **`SubmissionPublisher`** est la seule implémentation fournie : il délivre de façon asynchrone (pool commun par défaut)
+    avec un tampon par abonné ; `submit` bloque si le tampon est plein, `offer` peut abandonner.
+  - `Flow` sert surtout d'**interface commune** : on n'écrit presque jamais ses propres `Publisher` (le protocole est
+    exigeant, la Reactive Streams TCK le vérifie) ; on utilise Reactor ou Mutiny, compatibles via des adaptateurs
+    (`JdkFlowAdapter`, `AdaptersToFlow`).
+  - Le `HttpClient` du JDK s'appuie sur `Flow` pour lire ou envoyer des corps en flux.
+
+  **Piège classique** : un abonné qui ne fait jamais `request`. Il ne reçoit rien : la contre-pression attend une demande
+  explicite.
+
+  **En entretien** : « Les quatre interfaces de Reactive Streams dans le JDK : `Publisher`, `Subscriber`, `Subscription`,
+  `Processor`, avec `request(n)` pour la contre-pression ; un socle commun, qu'on utilise via Reactor ou Mutiny. »
 cards:
   - key: quatre-interfaces-reactive-streams
     format: course
     question: Les quatre interfaces de Reactive Streams ?
     answer: Publisher, Subscriber, Subscription, Processor.
+  - key: protocole
+    format: course
+    question: Dans quel ordre un `Subscriber` reçoit-il ses signaux ?
+    answer: '`onSubscribe` d''abord, puis au plus autant d''`onNext` que d''éléments demandés, puis un seul signal de fin, `onError` ou `onComplete`.'
+  - key: submission-publisher
+    format: course
+    question: Qu'est-ce que `SubmissionPublisher` ?
+    answer: La seule implémentation de `Flow.Publisher` du JDK ; elle délivre les éléments de façon asynchrone, avec un tampon par abonné.
+  - key: role
+    format: course
+    question: Pourquoi écrit-on rarement ses propres `Flow.Publisher` ?
+    answer: Le protocole (demandes, concurrence, signaux de fin) est difficile à respecter ; on utilise des bibliothèques comme Reactor ou Mutiny, et `Flow` sert d'interface commune.
+  - key: vf-sans-request
+    format: true-false
+    question: Un abonné qui ne fait jamais `request` reçoit quand même tous les éléments.
+    truth: false
+    answer: Il ne reçoit rien ; il doit demander.
+  - key: vf-deux-fins
+    format: true-false
+    question: Un `Subscriber` peut recevoir `onComplete` puis `onError`.
+    truth: false
+    answer: Un seul signal de fin est permis.
+  - key: vf-java9
+    format: true-false
+    question: "`java.util.concurrent.Flow` existe depuis Java 9."
+    truth: true
+    answer: Il reprend Reactive Streams.
+  - key: vf-processor
+    format: true-false
+    question: Un `Flow.Processor` est à la fois un `Subscriber` et un `Publisher`.
+    truth: true
+    answer: Il transforme les éléments entre deux étapes.
+  - key: qcm-methodes
+    format: multiple-choice
+    question: Quelles méthodes appartiennent à `Flow.Subscription` ?
+    choices:
+      - text: "`request(long n)`"
+        correct: true
+      - text: "`cancel()`"
+        correct: true
+      - text: "`onNext(T item)`"
+        correct: false
+      - text: "`subscribe(Subscriber s)`"
+        correct: false
+    answer: '`onNext` est sur le `Subscriber`, `subscribe` sur le `Publisher`.'
+  - key: qcm-fin
+    format: multiple-choice
+    question: Comment un `SubmissionPublisher` signale-t-il la fin du flux aux abonnés ?
+    choices:
+      - text: "`close()`, qui provoque `onComplete`"
+        correct: true
+      - text: "`closeExceptionally(e)`, qui provoque `onError`"
+        correct: true
+      - text: "En soumettant `null`"
+        correct: false
+      - text: "Il ne le signale jamais"
+        correct: false
+    answer: '`null` n''est pas un élément valide.'
+  - key: qcm-adaptateurs
+    format: multiple-choice
+    question: Comment faire communiquer un `Flux` Reactor avec du code qui attend un `Flow.Publisher` ?
+    choices:
+      - text: "Avec les adaptateurs fournis par Reactor (`JdkFlowAdapter`)"
+        correct: true
+      - text: "Ce n'est pas possible"
+        correct: false
+      - text: "En convertissant le flux en `List`"
+        correct: false
+      - text: "Avec `Thread.join()`"
+        correct: false
+    answer: Reactor et Mutiny savent convertir vers et depuis `Flow`.
+  - key: qcm-jdk
+    format: multiple-choice
+    question: Quelle API du JDK utilise `Flow` pour envoyer ou recevoir des données en flux ?
+    choices:
+      - text: "`java.net.http.HttpClient` (`BodyPublisher`, `BodySubscriber`)"
+        correct: true
+      - text: "`java.util.Scanner`"
+        correct: false
+      - text: "`java.io.FileInputStream`"
+        correct: false
+      - text: "`java.time.Clock`"
+        correct: false
+    answer: Les corps de requête et de réponse reposent sur `Flow`.
+  - key: code-consume
+    format: code-output
+    question: |-
+      ```java
+      List<String> recus = new CopyOnWriteArrayList<>();
+      CompletableFuture<Void> fin;
+      try (SubmissionPublisher<String> editeur = new SubmissionPublisher<>()) {
+          fin = editeur.consume(recus::add);
+          editeur.submit("a");
+          editeur.submit("b");
+      }
+      fin.join();
+      System.out.println(recus);
+      ```
+    answer: '`[a, b]` : `close()` signale la fin, et `join` attend que tout soit consommé.'
+    check:
+      output: "[a, b]"
+  - key: code-subscriber
+    format: code-output
+    question: |-
+      ```java
+      CountDownLatch termine = new CountDownLatch(1);
+      StringBuffer sortie = new StringBuffer();
+      try (SubmissionPublisher<Integer> editeur = new SubmissionPublisher<>()) {
+          editeur.subscribe(new Flow.Subscriber<>() {
+              Flow.Subscription s;
+              public void onSubscribe(Flow.Subscription s) { this.s = s; s.request(1); }
+              public void onNext(Integer x) { sortie.append(x * 10).append(' '); s.request(1); }
+              public void onError(Throwable e) { }
+              public void onComplete() { sortie.append("fin"); termine.countDown(); }
+          });
+          editeur.submit(1);
+          editeur.submit(2);
+      }
+      termine.await();
+      System.out.println(sortie);
+      ```
+    answer: '`10 20 fin`.'
+    check:
+      output: "10 20 fin"
+  - key: code-abonnes
+    format: code-output
+    question: |-
+      ```java
+      try (SubmissionPublisher<String> editeur = new SubmissionPublisher<>()) {
+          editeur.consume(x -> {});
+          editeur.consume(x -> {});
+          System.out.println(editeur.getNumberOfSubscribers());
+      }
+      ```
+    answer: '`2`.'
+    check:
+      output: "2"
+  - key: code-sans-request
+    format: code-output
+    question: |-
+      ```java
+      import java.util.concurrent.atomic.AtomicInteger;
+      AtomicInteger recus = new AtomicInteger();
+      CountDownLatch abonne = new CountDownLatch(1);
+      try (SubmissionPublisher<String> editeur = new SubmissionPublisher<>()) {
+          editeur.subscribe(new Flow.Subscriber<>() {
+              public void onSubscribe(Flow.Subscription s) { abonne.countDown(); }   // aucune demande
+              public void onNext(String x) { recus.incrementAndGet(); }
+              public void onError(Throwable e) { }
+              public void onComplete() { }
+          });
+          abonne.await();
+          editeur.submit("a");
+          Thread.sleep(100);
+          System.out.println(recus.get());
+      }
+      ```
+    answer: '`0` : sans `request`, aucun élément n''est délivré.'
+    check:
+      output: "0"

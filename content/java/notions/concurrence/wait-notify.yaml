@@ -1,4 +1,49 @@
 notion: wait-notify
+lesson: |-
+  `wait`, `notify` et `notifyAll` (méthodes d'`Object`) permettent à un thread d'**attendre une condition** qu'un autre
+  thread rendra vraie. C'est le mécanisme bas niveau sur lequel reposent les files bloquantes.
+
+  ```java
+  class Boite<T> {
+      private T contenu;
+
+      synchronized void deposer(T valeur) throws InterruptedException {
+          while (contenu != null) {
+              wait();                      // relâche le moniteur et attend
+          }
+          contenu = valeur;
+          notifyAll();                     // réveille les threads en attente
+      }
+
+      synchronized T prendre() throws InterruptedException {
+          while (contenu == null) {
+              wait();
+          }
+          T v = contenu;
+          contenu = null;
+          notifyAll();
+          return v;
+      }
+  }
+  ```
+
+  Règles :
+  - on appelle `wait`/`notify` **en détenant le moniteur** de l'objet (dans un bloc `synchronized` sur lui), sinon
+    `IllegalMonitorStateException` ;
+  - `wait()` **relâche** le moniteur pendant l'attente et le reprend avant de revenir ;
+  - on teste toujours la condition dans une **boucle `while`**, jamais un `if` : un thread peut se réveiller sans
+    notification (*spurious wakeup*), ou la condition a pu changer entre la notification et son réveil ;
+  - **`notifyAll`** est plus sûr que `notify` quand plusieurs conditions partagent le même moniteur : `notify` peut
+    réveiller un thread qui attend une autre condition.
+
+  En pratique, on n'écrit presque plus ce code : **`BlockingQueue`**, `CountDownLatch`, `Semaphore` ou un
+  `ReentrantLock` avec des `Condition` séparées font cela plus clairement.
+
+  **Piège classique** : `if (contenu == null) wait();`. Après un réveil intempestif, ou si un autre thread a pris la valeur
+  entre-temps, le thread continue avec une condition fausse.
+
+  **En entretien** : « `wait` dans une boucle `while`, en détenant le moniteur, qu'il relâche ; `notifyAll` par défaut. Et
+  en vrai, une `BlockingQueue`. »
 cards:
   - key: appeler-wait-boucle
     format: course
@@ -12,3 +57,163 @@ cards:
     format: course
     question: notify vs notifyAll ?
     answer: Réveille un thread arbitraire vs tous les threads en attente ; notifyAll est plus sûr si plusieurs conditions partagent le même moniteur.
+  - key: alternative
+    format: course
+    question: Que préférer à `wait`/`notify` dans du code moderne ?
+    answer: "Les outils de `java.util.concurrent` : `BlockingQueue` pour un producteur-consommateur, `CountDownLatch`, `Semaphore`, ou `ReentrantLock` avec des `Condition` séparées."
+  - key: vf-moniteur
+    format: true-false
+    question: On peut appeler `wait()` hors d'un bloc `synchronized` sur l'objet.
+    truth: false
+    answer: Il lève `IllegalMonitorStateException`.
+  - key: vf-relache
+    format: true-false
+    question: "`wait()` relâche le moniteur pendant l'attente."
+    truth: true
+    answer: Et le reprend avant de revenir.
+  - key: vf-spurious
+    format: true-false
+    question: Un thread peut sortir de `wait()` sans avoir été notifié.
+    truth: true
+    answer: Un réveil intempestif, d'où la boucle `while`.
+  - key: vf-notify-tous
+    format: true-false
+    question: "`notify()` réveille tous les threads en attente sur l'objet."
+    truth: false
+    answer: Un seul, arbitraire ; `notifyAll()` les réveille tous.
+  - key: qcm-correct
+    format: multiple-choice
+    question: Quelle attente est correcte ?
+    choices:
+      - text: "`synchronized (this) { while (!pret) wait(); }`"
+        correct: true
+      - text: "`synchronized (this) { if (!pret) wait(); }`"
+        correct: false
+      - text: "`while (!pret) wait();` hors de tout bloc synchronized"
+        correct: false
+      - text: "`synchronized (this) { while (!pret) Thread.sleep(10); }`"
+        correct: false
+    answer: Le `sleep` sous verrou empêche l'autre thread de changer `pret`.
+  - key: qcm-notifyall
+    format: multiple-choice
+    question: Pourquoi `notify()` peut-il provoquer un blocage dans une boîte producteur-consommateur ?
+    choices:
+      - text: "Il peut réveiller un thread qui attend l'autre condition, qui se rendort, et personne ne progresse"
+        correct: true
+      - text: "Parce qu'il relâche le moniteur"
+        correct: false
+      - text: "Parce qu'il est plus lent"
+        correct: false
+      - text: "Il ne peut pas provoquer de blocage"
+        correct: false
+    answer: Avec un seul moniteur pour deux conditions, `notifyAll` est plus sûr.
+  - key: qcm-exception
+    format: multiple-choice
+    question: Quelle exception lève `wait()` appelé sans détenir le moniteur ?
+    choices:
+      - text: "`IllegalMonitorStateException`"
+        correct: true
+      - text: "`InterruptedException`"
+        correct: false
+      - text: "`IllegalStateException`"
+        correct: false
+      - text: "`ConcurrentModificationException`"
+        correct: false
+    answer: '`InterruptedException` sert à l''interruption pendant l''attente.'
+  - key: qcm-remplacer
+    format: multiple-choice
+    question: Un producteur et un consommateur échangent des messages. Que choisir ?
+    choices:
+      - text: "Une `BlockingQueue` (`put` / `take`)"
+        correct: true
+      - text: "Un `wait`/`notify` écrit à la main, plus sûr"
+        correct: false
+      - text: "Une `ArrayList` partagée et `Thread.sleep`"
+        correct: false
+      - text: "Une variable `volatile` par message"
+        correct: false
+    answer: '`BlockingQueue` encapsule exactement ce mécanisme.'
+  - key: bug-if
+    format: bug-fix
+    question: |-
+      Le consommateur lit parfois `null` :
+      ```java
+      synchronized T prendre() throws InterruptedException {
+          if (contenu == null) wait();
+          T v = contenu;
+          contenu = null;
+          return v;
+      }
+      ```
+    answer: |-
+      ```java
+      synchronized T prendre() throws InterruptedException {
+          while (contenu == null) wait();
+          T v = contenu;
+          contenu = null;
+          notifyAll();
+          return v;
+      }
+      ```
+      Après un réveil (intempestif, ou parce qu'un autre consommateur a pris la valeur avant), la condition doit être
+      retestée. Le `notifyAll` réveille aussi les producteurs qui attendent une boîte vide.
+  - key: bug-hors-moniteur
+    format: bug-fix
+    question: |-
+      Ce code lève `IllegalMonitorStateException` :
+      ```java
+      void signaler() {
+          pret = true;
+          verrou.notifyAll();
+      }
+      ```
+    answer: |-
+      ```java
+      void signaler() {
+          synchronized (verrou) {
+              pret = true;
+              verrou.notifyAll();
+          }
+      }
+      ```
+      `notify`/`notifyAll` exigent de détenir le moniteur de l'objet ; la condition est aussi modifiée sous ce verrou.
+  - key: bug-sleep-polling
+    format: bug-fix
+    question: |-
+      Ce consommateur consomme du CPU et réagit avec retard :
+      ```java
+      while (true) {
+          if (!messages.isEmpty()) traiter(messages.remove(0));
+          else Thread.sleep(50);
+      }
+      ```
+    answer: |-
+      ```java
+      BlockingQueue<Message> messages = new LinkedBlockingQueue<>();
+      while (!Thread.currentThread().isInterrupted()) {
+          traiter(messages.take());        // attend sans consommer de CPU
+      }
+      ```
+      Une attente active avec `sleep` est lente et coûteuse (et la liste partagée n'est pas thread-safe). `take()` bloque
+      jusqu'à l'arrivée d'un message.
+  - key: bug-notify
+    format: bug-fix
+    question: |-
+      Producteurs et consommateurs se bloquent parfois tous ensemble :
+      ```java
+      synchronized void deposer(T v) throws InterruptedException {
+          while (plein()) wait();
+          ajouter(v);
+          notify();
+      }
+      ```
+    answer: |-
+      ```java
+      synchronized void deposer(T v) throws InterruptedException {
+          while (plein()) wait();
+          ajouter(v);
+          notifyAll();
+      }
+      ```
+      Producteurs et consommateurs attendent sur le même moniteur : `notify` peut réveiller un autre producteur, qui se
+      rendort, et le consommateur n'est jamais réveillé. `notifyAll` (ou deux `Condition` séparées) évite ce blocage.

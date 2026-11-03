@@ -1,4 +1,49 @@
 notion: completablefuture
+lesson: |-
+  Un **`CompletableFuture<T>`** est un futur qu'on peut **composer** : on décrit ce qui se passe quand le résultat
+  arrive, sans bloquer.
+
+  ```java
+  ExecutorService es = ...;                                      // un pool dédié, pas le pool commun
+
+  CompletableFuture<Profil> profil = CompletableFuture
+          .supplyAsync(() -> clients.charger(id), es)            // lancer
+          .thenApply(Client::profil)                             // transformer (map)
+          .thenCompose(p -> enrichir(p))                         // enchaîner un autre futur (flatMap)
+          .orTimeout(2, TimeUnit.SECONDS)                        // délai (Java 9)
+          .exceptionally(e -> Profil.inconnu());                 // repli en cas d'erreur
+
+  CompletableFuture<Prix> prix = supplyAsync(() -> tarifs.prix(ref), es);
+  CompletableFuture<Stock> stock = supplyAsync(() -> stocks.stock(ref), es);
+  CompletableFuture<Fiche> fiche = prix.thenCombine(stock, Fiche::new);   // deux résultats indépendants
+
+  CompletableFuture.allOf(f1, f2, f3).join();                    // attendre plusieurs futurs
+  ```
+
+  | Méthode | Rôle |
+  |---|---|
+  | `supplyAsync`, `runAsync` | lancer une tâche (avec ou sans résultat) |
+  | `thenApply` | transformer le résultat |
+  | `thenAccept`, `thenRun` | consommer le résultat, enchaîner une action |
+  | `thenCompose` | enchaîner une étape qui renvoie elle-même un `CompletableFuture` |
+  | `thenCombine` | combiner deux futurs indépendants |
+  | `allOf`, `anyOf` | attendre tous / le premier |
+  | `exceptionally`, `handle`, `whenComplete` | traiter l'erreur, transformer résultat ou erreur, observer |
+  | `orTimeout`, `completeOnTimeout` | délai, ou valeur par défaut à l'expiration |
+
+  - Sans executor, les méthodes `Async` utilisent le **`ForkJoinPool` commun** : à éviter pour des entrées-sorties.
+  - Une exception dans une étape **saute** les étapes suivantes jusqu'au premier `exceptionally`/`handle` ; `join()` la
+    relance dans une `CompletionException`, `get()` dans une `ExecutionException`.
+  - `thenApply` sans `Async` s'exécute dans le thread qui termine l'étape précédente (ou dans l'appelant si elle est déjà
+    terminée).
+  - Avec les **threads virtuels**, un code séquentiel bloquant est souvent plus lisible pour enchaîner des appels ;
+    `CompletableFuture` reste utile pour lancer des appels en parallèle et les combiner.
+
+  **Piège classique** : `thenApply(p -> enrichir(p))` quand `enrichir` renvoie un `CompletableFuture`. On obtient un
+  `CompletableFuture<CompletableFuture<Profil>>` ; il faut `thenCompose`.
+
+  **En entretien** : « `thenApply` transforme, `thenCompose` enchaîne, `thenCombine` combine, `allOf` attend tout ;
+  `exceptionally` et `orTimeout` pour l'erreur et le délai ; et toujours un executor dédié pour les entrées-sorties. »
 cards:
   - key: thenapply-vs-thencompose
     format: course
@@ -20,6 +65,219 @@ cards:
     format: course
     question: get() vs join() sur CompletableFuture ?
     answer: get lève des exceptions checked (ExecutionException, InterruptedException) ; join lève une CompletionException unchecked.
+  - key: vf-propagation
+    format: true-false
+    question: Une exception dans `supplyAsync` fait sauter les `thenApply` suivants jusqu'au premier `exceptionally`.
+    truth: true
+    answer: Les étapes de transformation ne s'exécutent pas sur un futur en échec.
+  - key: vf-allof
+    format: true-false
+    question: "`CompletableFuture.allOf(f1, f2)` renvoie directement les deux résultats."
+    truth: false
+    answer: Il renvoie un `CompletableFuture<Void>` ; on lit ensuite `f1.join()` et `f2.join()`.
+  - key: vf-timeout
+    format: true-false
+    question: "`completeOnTimeout(valeur, 1, SECONDS)` termine le futur avec `valeur` s'il n'a pas fini à temps."
+    truth: true
+    answer: Depuis Java 9 ; `orTimeout` le fait échouer avec une `TimeoutException`.
+  - key: vf-pool-commun
+    format: true-false
+    question: Le pool commun convient bien aux appels réseau lancés par `supplyAsync`.
+    truth: false
+    answer: Il est dimensionné pour le calcul et partagé par toute la JVM.
+  - key: qcm-choisir
+    format: multiple-choice
+    question: "`charger(id)` renvoie `CompletableFuture<Client>`. Comment enchaîner après `trouverId(email)`, qui renvoie aussi un `CompletableFuture<Long>` ?"
+    choices:
+      - text: "`trouverId(email).thenCompose(this::charger)`"
+        correct: true
+      - text: "`trouverId(email).thenApply(this::charger)`, qui donne un futur de futur"
+        correct: false
+      - text: "`trouverId(email).thenCombine(this::charger)`"
+        correct: false
+      - text: "`trouverId(email).join().charger()`"
+        correct: false
+    answer: '`thenCompose` aplatit le futur renvoyé.'
+  - key: qcm-paralleles
+    format: multiple-choice
+    question: Comment lancer en parallèle le prix et le stock, puis construire la fiche ?
+    choices:
+      - text: "`prixF.thenCombine(stockF, Fiche::new)`"
+        correct: true
+      - text: "`allOf(prixF, stockF).thenApply(v -> new Fiche(prixF.join(), stockF.join()))`"
+        correct: true
+      - text: "`prixF.thenCompose(p -> stockF)`, qui perd le prix"
+        correct: false
+      - text: "`new Fiche(prixF.get(), stockF.get())` avant de lancer `stockF`"
+        correct: false
+    answer: '`thenCombine` attend les deux résultats indépendants.'
+  - key: qcm-erreur
+    format: multiple-choice
+    question: Comment fournir une valeur de repli en cas d'échec ?
+    choices:
+      - text: "`exceptionally(e -> valeurParDefaut)`"
+        correct: true
+      - text: "`handle((r, e) -> e != null ? valeurParDefaut : r)`"
+        correct: true
+      - text: "`whenComplete((r, e) -> valeurParDefaut)`, qui ne change pas le résultat"
+        correct: false
+      - text: "`thenApply(r -> valeurParDefaut)`"
+        correct: false
+    answer: '`whenComplete` observe sans remplacer le résultat.'
+  - key: qcm-join
+    format: multiple-choice
+    question: Quelle exception relance `join()` si le futur a échoué ?
+    choices:
+      - text: "`CompletionException`, avec l'exception d'origine en cause"
+        correct: true
+      - text: "`ExecutionException`"
+        correct: false
+      - text: "L'exception d'origine, toujours sans enveloppe"
+        correct: false
+      - text: "Aucune, il renvoie `null`"
+        correct: false
+    answer: '`get()` relance une `ExecutionException`, vérifiée.'
+  - key: trous-supply
+    format: fill-in
+    question: |-
+      Complétez pour lancer le calcul dans le pool dédié :
+      ```java
+      CompletableFuture<Prix> f = CompletableFuture.___(() -> calculerPrix(ref), executor);
+      ```
+    blanks: [[supplyAsync]]
+    answer: '`supplyAsync` pour une tâche avec résultat.'
+  - key: trous-compose
+    format: fill-in
+    question: |-
+      Complétez pour enchaîner un appel qui renvoie un futur :
+      ```java
+      CompletableFuture<Commande> c = trouverClient(id).___(client -> derniereCommande(client));
+      ```
+    blanks: [[thenCompose]]
+    answer: '`thenCompose` évite un futur de futur.'
+  - key: trous-exceptionally
+    format: fill-in
+    question: |-
+      Complétez le repli :
+      ```java
+      recommandations(id).___(e -> List.of());
+      ```
+    blanks: [[exceptionally]]
+    answer: En cas d'erreur, une liste vide.
+  - key: trous-allof
+    format: fill-in
+    question: |-
+      Complétez pour attendre tous les envois :
+      ```java
+      CompletableFuture.___(envois.toArray(CompletableFuture[]::new)).join();
+      ```
+    blanks: [[allOf]]
+    answer: '`allOf` se termine quand tous les futurs sont terminés.'
+  - key: code-chaine
+    format: code-output
+    question: |-
+      ```java
+      String r = CompletableFuture.supplyAsync(() -> 20)
+              .thenApply(x -> x + 1)
+              .thenCompose(x -> CompletableFuture.supplyAsync(() -> x * 2))
+              .thenApply(x -> "résultat " + x)
+              .join();
+      System.out.println(r);
+      ```
+    answer: '`résultat 42`.'
+    check:
+      output: "résultat 42"
+  - key: code-combine
+    format: code-output
+    question: |-
+      ```java
+      CompletableFuture<Integer> a = CompletableFuture.supplyAsync(() -> 3);
+      CompletableFuture<Integer> b = CompletableFuture.supplyAsync(() -> 4);
+      System.out.println(a.thenCombine(b, (x, y) -> x * y).join());
+      ```
+    answer: '`12`.'
+    check:
+      output: "12"
+  - key: code-exceptionally
+    format: code-output
+    question: |-
+      ```java
+      int r = CompletableFuture.supplyAsync(() -> Integer.parseInt("x"))
+              .thenApply(x -> { System.out.println("jamais"); return x; })
+              .exceptionally(e -> -1)
+              .join();
+      System.out.println(r);
+      ```
+    answer: '`-1` : l''étape `thenApply` est sautée.'
+    check:
+      output: "-1"
+  - key: code-timeout
+    format: code-output
+    question: |-
+      ```java
+      CompletableFuture<String> lent = new CompletableFuture<>();       // ne se termine jamais
+      System.out.println(lent.completeOnTimeout("par défaut", 100, TimeUnit.MILLISECONDS).join());
+      ```
+    answer: '`par défaut`.'
+    check:
+      output: "par défaut"
+  - key: bug-apply-futur
+    format: bug-fix
+    question: |-
+      Ce code ne compile pas : le type n'est pas celui attendu.
+      ```java
+      CompletableFuture<Profil> p = chargerClient(id).thenApply(c -> chargerProfil(c));   // chargerProfil renvoie CompletableFuture<Profil>
+      ```
+    answer: |-
+      ```java
+      CompletableFuture<Profil> p = chargerClient(id).thenCompose(c -> chargerProfil(c));
+      ```
+      `thenApply` donnait un `CompletableFuture<CompletableFuture<Profil>>`. `thenCompose` aplatit l'étape asynchrone.
+  - key: bug-pool-commun
+    format: bug-fix
+    question: |-
+      Depuis l'ajout de ces appels, les streams parallèles de l'application sont devenus très lents :
+      ```java
+      CompletableFuture.supplyAsync(() -> api.appeler(requete));
+      ```
+    answer: |-
+      ```java
+      private final ExecutorService appelsExternes = Executors.newVirtualThreadPerTaskExecutor();
+      CompletableFuture.supplyAsync(() -> api.appeler(requete), appelsExternes);
+      ```
+      Sans executor, l'appel bloquant occupe un thread du pool ForkJoin commun, partagé avec les streams parallèles. Un
+      executor dédié isole les entrées-sorties.
+  - key: bug-join-sequentiel
+    format: bug-fix
+    question: |-
+      Cet agrégateur n'est pas plus rapide que la version séquentielle :
+      ```java
+      Prix p = supplyAsync(this::prix, es).join();
+      Stock s = supplyAsync(this::stock, es).join();
+      return new Fiche(p, s);
+      ```
+    answer: |-
+      ```java
+      CompletableFuture<Prix> p = supplyAsync(this::prix, es);
+      CompletableFuture<Stock> s = supplyAsync(this::stock, es);
+      return p.thenCombine(s, Fiche::new).join();
+      ```
+      Chaque `join()` attendait avant de lancer l'appel suivant. On lance tout, puis on combine.
+  - key: bug-erreur-silencieuse
+    format: bug-fix
+    question: |-
+      L'envoi des notifications échoue parfois sans aucune trace :
+      ```java
+      CompletableFuture.runAsync(() -> notifier(client), es);
+      ```
+    answer: |-
+      ```java
+      CompletableFuture.runAsync(() -> notifier(client), es)
+              .whenComplete((ok, erreur) -> {
+                  if (erreur != null) log.error("notification de {} en échec", client.id(), erreur);
+              });
+      ```
+      Un futur que personne ne lit garde son exception pour lui. `whenComplete` (ou `exceptionally`) la journalise.
   - key: endpoint-5-appels-externes-200ms-chacun
     format: scenario
     question: Un endpoint fait 5 appels externes de 200ms chacun, la réponse met 1 seconde.
@@ -27,3 +285,30 @@ cards:
       Les appels sont séquentiels alors qu'ils semblent indépendants. Je les parallélise avec des `CompletableFuture` lancés ensemble, puis `allOf` pour attendre. Le temps total passe de la somme au maximum, soit environ 200ms.
       Trois précautions. Vérifier qu'ils sont **vraiment indépendants** : si l'un consomme le résultat du précédent, on ne peut pas. Utiliser un **pool dédié** plutôt que le ForkJoinPool commun, pour ne pas impacter le reste. Et mettre un **timeout individuel** sur chaque appel, sinon un service lent bloque toute la réponse.
       Si le volume d'appels concurrents est élevé, les virtual threads de Java 21 simplifient encore le modèle.
+  - key: scenario-degradation
+    format: scenario
+    question: Une page produit agrège le prix (indispensable), le stock (indispensable) et les avis (facultatifs). Comment gères-tu les pannes ?
+    answer: |-
+      Je lance les trois appels en parallèle sur un executor dédié, chacun avec un délai. Pour les avis, un repli :
+      `avisF.completeOnTimeout(List.of(), 300, MILLISECONDS).exceptionally(e -> List.of())`, et je journalise l'échec.
+      Pour le prix et le stock, pas de repli silencieux : une erreur ou un délai dépassé fait échouer la page avec une
+      erreur claire (ou une valeur en cache récente, si le métier l'accepte). Je combine avec `thenCombine` / `allOf`, et
+      je mesure le taux de replis par service pour repérer les dégradations.
+  - key: scenario-virtuels
+    format: scenario
+    question: Avec les threads virtuels, faut-il encore utiliser `CompletableFuture` ?
+    answer: |-
+      Moins qu'avant. Pour enchaîner des appels qui dépendent les uns des autres, un code séquentiel bloquant dans un
+      thread virtuel est plus lisible et se débogue mieux (traces de pile complètes) qu'une chaîne de `thenCompose`.
+      `CompletableFuture` reste pratique pour lancer des appels indépendants en parallèle et les combiner, ou pour
+      s'interfacer avec des API asynchrones existantes. La concurrence structurée (`StructuredTaskScope`, encore en
+      préversion en Java 25) vise à remplacer ce dernier usage de façon plus sûre.
+  - key: scenario-retry
+    format: scenario
+    question: Comment ajoutes-tu des réessais à un appel asynchrone qui échoue parfois ?
+    answer: |-
+      Je réessaie seulement les erreurs transitoires (délai, 503) et seulement des opérations idempotentes, avec un nombre
+      d'essais borné et un délai croissant (backoff exponentiel avec du hasard). Avec `CompletableFuture`, une méthode
+      récursive : en cas d'échec, `exceptionallyCompose(e -> essaisRestants > 0 ? attendrePuisReessayer(...) :
+      failedFuture(e))` (Java 12), le délai passant par `CompletableFuture.delayedExecutor`. En pratique, j'utilise une
+      bibliothèque de résilience (Resilience4j, SmallRye Fault Tolerance) qui combine réessais, délais et coupe-circuit.

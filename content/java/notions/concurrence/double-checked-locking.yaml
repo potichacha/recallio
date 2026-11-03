@@ -1,4 +1,52 @@
 notion: double-checked-locking
+lesson: |-
+  Le **double-checked locking** initialise paresseusement une instance partagée en évitant de prendre le verrou à
+  chaque lecture :
+
+  ```java
+  class Registre {
+      private static volatile Registre instance;      // volatile indispensable
+
+      static Registre instance() {
+          Registre r = instance;                       // une seule lecture volatile
+          if (r == null) {                             // 1er test, sans verrou
+              synchronized (Registre.class) {
+                  r = instance;
+                  if (r == null) {                     // 2e test, sous verrou
+                      instance = r = new Registre();
+                  }
+              }
+          }
+          return r;
+      }
+  }
+  ```
+
+  - Sans **`volatile`**, la référence peut être publiée **avant** la fin du constructeur (réordonnancement) : un autre
+    thread voit `instance != null` et utilise un objet **partiellement construit**. C'était la version cassée d'avant
+    Java 5.
+  - Le second test sous verrou évite qu'un deuxième thread, entré dans le `synchronized` juste après le premier, crée
+    une seconde instance.
+  - La variable locale `r` évite une seconde lecture `volatile` (petite optimisation).
+
+  Le plus souvent, on n'en a **pas besoin** :
+  - l'**idiome du holder** : la JVM initialise une classe à son premier usage, de façon paresseuse et thread-safe ;
+
+    ```java
+    class Registre {
+        private static class Holder { static final Registre INSTANCE = new Registre(); }
+        static Registre instance() { return Holder.INSTANCE; }
+    }
+    ```
+  - une **enum** à un seul élément ;
+  - une initialisation **non paresseuse** (`static final`), si le coût est faible ;
+  - dans une application à injection de dépendances, un **bean singleton** géré par le conteneur.
+
+  **Piège classique** : oublier `volatile`. Le code semble marcher en test, puis un thread voit un objet à moitié
+  initialisé sous charge, sur certaines architectures.
+
+  **En entretien** : « Deux tests, un `synchronized` et un champ `volatile` indispensable contre l'objet partiellement
+  construit ; mais je préfère l'idiome du holder ou une enum. »
 cards:
   - key: volatile-indispensable-double-checked-locking
     format: course
@@ -8,3 +56,178 @@ cards:
     format: course
     question: Alternative au double-checked locking ?
     answer: L'idiome holder (classe interne static), ou une enum.
+  - key: second-test
+    format: course
+    question: Pourquoi le second test sous verrou est-il nécessaire ?
+    answer: Deux threads peuvent passer le premier test ; sans second test, celui qui entre après le premier dans le bloc `synchronized` créerait une seconde instance.
+  - key: holder
+    format: course
+    question: Pourquoi l'idiome du holder est-il thread-safe et paresseux ?
+    answer: La JVM n'initialise la classe interne qu'à son premier usage, et garantit que cette initialisation est faite une seule fois et visible par tous les threads.
+  - key: vf-sans-volatile
+    format: true-false
+    question: Le double-checked locking est correct sans `volatile` depuis Java 5.
+    truth: false
+    answer: Depuis Java 5, il est correct **avec** `volatile` ; sans, il reste cassé.
+  - key: vf-holder
+    format: true-false
+    question: L'idiome du holder demande un bloc `synchronized`.
+    truth: false
+    answer: L'initialisation de classe par la JVM suffit.
+  - key: vf-enum
+    format: true-false
+    question: Une enum à un seul élément est un singleton thread-safe.
+    truth: true
+    answer: Et résistant à la sérialisation et à la réflexion.
+  - key: vf-utile
+    format: true-false
+    question: Dans une application Spring ou Quarkus, on écrit rarement soi-même un double-checked locking.
+    truth: true
+    answer: Le conteneur gère les singletons.
+  - key: qcm-correct
+    format: multiple-choice
+    question: Lesquelles donnent une initialisation paresseuse et thread-safe ?
+    choices:
+      - text: "L'idiome du holder (classe interne statique)"
+        correct: true
+      - text: "Le double-checked locking avec un champ `volatile`"
+        correct: true
+      - text: "Le double-checked locking sans `volatile`"
+        correct: false
+      - text: "`if (instance == null) instance = new X();` sans verrou"
+        correct: false
+    answer: Sans `volatile`, un objet partiellement construit peut être vu.
+  - key: qcm-risque
+    format: multiple-choice
+    question: Que risque-t-on sans `volatile` dans le double-checked locking ?
+    choices:
+      - text: "Voir une référence non nulle vers un objet dont les champs ne sont pas encore initialisés"
+        correct: true
+      - text: "Un interblocage"
+        correct: false
+      - text: "Une erreur de compilation"
+        correct: false
+      - text: "Une `NullPointerException` systématique"
+        correct: false
+    answer: Le réordonnancement permet de publier la référence avant la fin du constructeur.
+  - key: qcm-simple
+    format: multiple-choice
+    question: L'objet est bon marché à créer et toujours utilisé. Que choisir ?
+    choices:
+      - text: "Un `static final` initialisé directement"
+        correct: true
+      - text: "Le double-checked locking"
+        correct: false
+      - text: "Un `synchronized` sur chaque appel"
+        correct: false
+      - text: "Un `ThreadLocal`"
+        correct: false
+    answer: La paresse n'apporte rien si l'objet est toujours nécessaire.
+  - key: qcm-verrou
+    format: multiple-choice
+    question: Dans le double-checked locking d'un champ statique, sur quoi se synchroniser ?
+    choices:
+      - text: "Sur la classe (`Registre.class`) ou un verrou statique privé"
+        correct: true
+      - text: "Sur `this`"
+        correct: false
+      - text: "Sur l'instance elle-même, encore nulle"
+        correct: false
+      - text: "Sur une chaîne littérale"
+        correct: false
+    answer: '`this` n''existe pas dans une méthode statique, et l''instance est nulle.'
+  - key: bug-sans-volatile
+    format: bug-fix
+    question: |-
+      Sous charge, un thread lève parfois une `NullPointerException` sur un champ de l'instance :
+      ```java
+      private static Client instance;
+      static Client instance() {
+          if (instance == null) {
+              synchronized (Client.class) {
+                  if (instance == null) instance = new Client();
+              }
+          }
+          return instance;
+      }
+      ```
+    answer: |-
+      ```java
+      private static volatile Client instance;
+      ```
+      Sans `volatile`, la référence peut être vue avant la fin du constructeur : un thread utilise un objet dont les
+      champs ne sont pas initialisés. (Un holder ou une enum éviteraient tout ce code.)
+  - key: bug-un-seul-test
+    format: bug-fix
+    question: |-
+      Deux instances sont parfois créées :
+      ```java
+      static Client instance() {
+          if (instance == null) {
+              synchronized (Client.class) {
+                  instance = new Client();
+              }
+          }
+          return instance;
+      }
+      ```
+    answer: |-
+      ```java
+      static Client instance() {
+          if (instance == null) {
+              synchronized (Client.class) {
+                  if (instance == null) {
+                      instance = new Client();
+                  }
+              }
+          }
+          return instance;
+      }
+      // avec private static volatile Client instance;
+      ```
+      Deux threads passent le premier test ; le second, entré dans le bloc après le premier, recrée l'instance. Il faut
+      retester sous verrou.
+  - key: bug-holder
+    format: bug-fix
+    question: |-
+      Simplifiez cette initialisation paresseuse :
+      ```java
+      private static volatile Parseur instance;
+      static Parseur instance() {
+          Parseur p = instance;
+          if (p == null) {
+              synchronized (Parseur.class) {
+                  p = instance;
+                  if (p == null) instance = p = new Parseur();
+              }
+          }
+          return p;
+      }
+      ```
+    answer: |-
+      ```java
+      private static final class Holder {
+          static final Parseur INSTANCE = new Parseur();
+      }
+      static Parseur instance() { return Holder.INSTANCE; }
+      ```
+      L'initialisation de classe par la JVM est paresseuse et thread-safe : aucun verrou ni `volatile` à écrire.
+  - key: bug-synchronized-partout
+    format: bug-fix
+    question: |-
+      Ce singleton est un point de contention, appelé des milliers de fois par seconde :
+      ```java
+      static synchronized Cache instance() {
+          if (instance == null) instance = new Cache();
+          return instance;
+      }
+      ```
+    answer: |-
+      ```java
+      private static final class Holder {
+          static final Cache INSTANCE = new Cache();
+      }
+      static Cache instance() { return Holder.INSTANCE; }
+      ```
+      Le verrou n'est utile qu'à la création, mais il est pris à chaque appel. L'idiome du holder supprime tout verrou
+      après l'initialisation.
