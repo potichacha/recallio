@@ -4,11 +4,12 @@ import { useRecordReview, useRunExercise, type ExerciseFile, type QueuedCard } f
 import { Markdown } from '../components/Markdown'
 import { SourceFiles } from '../components/SourceFiles'
 import { CardHeader } from './CardHeader'
+import { ExerciseEditor } from './ExerciseEditor'
 import { ExerciseRunResult } from './ExerciseRunResult'
 
 /**
- * Un exercice de code (ADR 0029, 0030) : on modifie le code de départ, on lance les tests autant de fois qu'on veut,
- * puis on rend son code. Les tests le jugent, et la solution apparaît avec la correction.
+ * Un exercice de code (ADR 0029, 0030) : on modifie le code de départ dans l'éditeur, un onglet par fichier, on lance
+ * les tests autant de fois qu'on veut, puis on rend son code. Les tests le jugent, et la solution apparaît avec la correction.
  */
 export function ExerciseCard({ card, onReviewed }: { card: QueuedCard; onReviewed: () => void }) {
   const [shownAt] = useState(() => Date.now())
@@ -37,22 +38,12 @@ export function ExerciseCard({ card, onReviewed }: { card: QueuedCard; onReviewe
       <CardHeader card={card} />
       <Markdown>{card.prompt}</Markdown>
 
-      {files.map((file) => (
-        <label key={file.path} className="flex flex-col gap-1">
-          <span className="font-mono text-xs text-slate-500">{file.path}</span>
-          <textarea
-            value={file.content}
-            onChange={(event) => edit(file.path, event.target.value)}
-            readOnly={correction !== undefined}
-            rows={Math.min(20, file.content.split('\n').length + 2)}
-            spellCheck={false}
-            autoCapitalize="off"
-            autoComplete="off"
-            className="rounded-lg border border-slate-300 px-3 py-2 font-mono text-sm"
-          />
-        </label>
-      ))}
-      <SourceFiles title="Tests" files={card.exercise?.tests ?? []} />
+      <ExerciseEditor
+        files={files}
+        tests={card.exercise?.tests ?? []}
+        readOnly={correction !== undefined}
+        onEdit={edit}
+      />
 
       {!correction && (
         <div className="flex flex-wrap gap-2">

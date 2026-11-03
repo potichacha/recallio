@@ -40,6 +40,13 @@ test.describe('Exercice de code', () => {
     const editor = page.getByRole('textbox', { name: 'Point.java' })
     await expect(editor).toBeVisible()
 
+    // Les tests se lisent dans leur propre onglet, sans pouvoir les modifier.
+    await page.getByRole('tab', { name: /PointTest\.java/ }).click()
+    const tests = page.getByRole('textbox', { name: 'PointTest.java' })
+    await expect(tests).toContainText('unHashSetNeGardeQuUnPointParCoordonnees')
+    await expect(tests).toHaveAttribute('contenteditable', 'false')
+    await page.getByRole('tab', { name: 'Point.java' }).click()
+
     await page.getByRole('button', { name: 'Lancer les tests' }).click()
     const results = page.getByRole('region', { name: 'Résultat des tests' })
     await expect(results).toContainText('Des tests échouent.', { timeout: RUN_TIMEOUT })
