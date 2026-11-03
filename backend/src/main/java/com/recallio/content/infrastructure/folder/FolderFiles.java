@@ -32,14 +32,18 @@ final class FolderFiles {
             @JsonProperty(required = true) String title,
             @JsonProperty(required = true) List<NotionEntry> notions) {}
 
-    /** @param formats les formats qui conviennent à la notion ; tous si absent */
+    /**
+     * @param formats les formats qui conviennent à la notion ; tous si absent
+     * @param complete vrai si la notion est déclarée complète : la CI vérifie alors qu'elle le reste (ADR 0025)
+     */
     record NotionEntry(
             @JsonProperty(required = true) String id,
             @JsonProperty(required = true) String title,
             @JsonProperty(required = true) String level,
             @JsonProperty(required = true) int priority,
             @Nullable List<String> requires,
-            @Nullable List<String> formats) {}
+            @Nullable List<String> formats,
+            @Nullable Boolean complete) {}
 
     /** Un fichier de notion : sa leçon et ses cartes. */
     record NotionFile(

@@ -17,6 +17,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.IntStream;
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 
 class ContentCoverageTest {
@@ -108,6 +109,58 @@ class ContentCoverageTest {
 
         assertThat(coverage.chapterExercises()).isEqualTo(new ContentCoverage.ChapterExercises(2, 1, 1));
         assertThat(coverage.notions().getFirst().complete()).isFalse();
+    }
+
+    @Test
+    void shouldReportWhatADeclaredCompleteNotionLacks() {
+        NotionTarget declared = new NotionTarget(notion("hashset", 1, null), Set.of(CardType.FLASHCARD), true);
+        List<ParsedCard> cards = atTarget("hashset", CardType.FLASHCARD).subList(1, ContentCoverage.TARGET_PER_FORMAT);
+
+        ContentCoverage coverage = ContentCoverage.of("java", List.of(declared), cards);
+
+        assertThat(coverage.completionProblems())
+                .containsExactly(
+                        "hashset : 3 carte(s) FLASHCARD sur 4 visées",
+                        "hashset : pas de leçon",
+                        "collections/sets : pas d'exercice de code");
+    }
+
+    @Test
+    void shouldFindNothingToReportForACompleteNotionWithItsExercise() {
+        NotionTarget declared =
+                new NotionTarget(notion("hashset", 1, "Un ensemble sans doublon."), Set.of(CardType.FLASHCARD), true);
+        List<ParsedCard> cards = new ArrayList<>(atTarget("hashset", CardType.FLASHCARD));
+        cards.add(exercise("hashset"));
+
+        assertThat(ContentCoverage.of("java", List.of(declared, TREESET), cards).completionProblems())
+                .isEmpty();
+    }
+
+    private static ParsedCard exercise(String notion) {
+        return new ParsedCard(
+                new CardContent.CodingExercise(
+                        "Écrire un ensemble.",
+                        "Avec un HashSet.",
+                        new ExerciseFiles(
+                                List.of(new SourceFile("Ensemble.java", "class Ensemble {}")),
+                                List.of(new SourceFile("Ensemble.java", "class Ensemble { }")),
+                                List.of(new SourceFile("EnsembleTest.java", "class EnsembleTest {}")))),
+                0,
+                new CardKey(notion, "exercice"));
+    }
+
+    private static ParsedNotion notion(String slug, int priority, @Nullable String lesson) {
+        return new ParsedNotion(
+                slug,
+                "collections",
+                "sets",
+                "Les ensembles",
+                slug,
+                NotionLevel.BEGINNER,
+                priority,
+                List.of(),
+                0,
+                lesson);
     }
 
     private static List<ParsedCard> atTarget(String notion, CardType type) {

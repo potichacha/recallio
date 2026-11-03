@@ -65,6 +65,12 @@ class ContentCoverageReportTest {
                             share(priority.complete(), priority.notions())));
         }
         appendFormats(report, coverage);
+        long declared = coverage.notions().stream()
+                .filter(NotionCoverage::declaredComplete)
+                .count();
+        report.append("\n**Notions déclarées complètes** (`complete: true`, vérifiées par la CI) : ")
+                .append(declared)
+                .append(".\n");
         ChapterExercises exercises = coverage.chapterExercises();
         report.append("\n**Exercices de code** : %d. Chapitres qui en ont au moins un, comme visé : %s sur %d.\n"
                 .formatted(

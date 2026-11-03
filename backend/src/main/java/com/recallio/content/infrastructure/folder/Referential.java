@@ -34,8 +34,12 @@ final class Referential {
             "definition",
             "exercise");
 
-    /** Une notion, et ce que l'import doit savoir pour rattacher ses cartes. */
-    record Entry(ParsedNotion notion, String domainTitle, int domainPosition, Set<String> formats) {}
+    /**
+     * Une notion, et ce que l'import doit savoir pour rattacher ses cartes.
+     *
+     * @param complete vrai si le référentiel la déclare complète (ADR 0025)
+     */
+    record Entry(ParsedNotion notion, String domainTitle, int domainPosition, Set<String> formats, boolean complete) {}
 
     private static final int MIN_PRIORITY = 1;
     private static final int MAX_PRIORITY = 4;
@@ -102,7 +106,7 @@ final class Referential {
                 requires,
                 position,
                 null);
-        return new Entry(notion, domain.title(), domain.position(), formats);
+        return new Entry(notion, domain.title(), domain.position(), formats, Boolean.TRUE.equals(entry.complete()));
     }
 
     private static NotionLevel level(NotionEntry entry) {
