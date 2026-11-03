@@ -1,9 +1,190 @@
 notion: proxies-dynamiques
+lesson: |-
+  Un **proxy dynamique** (`java.lang.reflect.Proxy`) est un objet créé **à l'exécution** qui implémente une ou plusieurs
+  **interfaces** et confie chaque appel à un **`InvocationHandler`**. On peut ainsi ajouter un comportement (journal,
+  mesure, transaction, cache, sécurité) autour d'un objet sans modifier sa classe.
+
+  ```java
+  interface Tarifs { BigDecimal prix(String produit); }
+
+  Tarifs reel = new TarifsBase();
+  Tarifs mesure = (Tarifs) Proxy.newProxyInstance(
+          Tarifs.class.getClassLoader(),
+          new Class<?>[]{Tarifs.class},
+          (proxy, methode, args) -> {
+              long debut = System.nanoTime();
+              try {
+                  return methode.invoke(reel, args);               // déléguer à l'objet réel
+              } catch (InvocationTargetException e) {
+                  throw e.getCause();                              // relancer l'exception réelle
+              } finally {
+                  journal.info("{} : {} µs", methode.getName(), (System.nanoTime() - debut) / 1000);
+              }
+          });
+
+  mesure.prix("A1");     // passe par le handler, puis par l'objet réel
+  ```
+
+  - Le proxy du JDK ne fonctionne qu'avec des **interfaces**. Pour une classe sans interface, les bibliothèques de
+    bytecode (**ByteBuddy**, autrefois CGLIB) génèrent une **sous-classe** : elle ne peut pas intercepter les méthodes
+    `final` ou `private`.
+  - C'est le mécanisme de l'**AOP** des frameworks : `@Transactional`, `@Cacheable`, `@Async` de Spring, les intercepteurs
+    CDI (Quarkus les génère plutôt à la compilation), les clients REST déclaratifs, les repositories Spring Data, les
+    mocks de Mockito.
+  - Conséquence importante : un **appel interne** (`this.autreMethode()`) ne passe **pas** par le proxy, donc pas par la
+    transaction ou le cache.
+  - Les méthodes `equals`, `hashCode` et `toString` passent aussi par le handler.
+
+  **Piège classique** : appeler depuis la même classe une méthode `@Transactional`. L'appel passe par `this`, pas par le
+  proxy : aucune transaction n'est ouverte, sans erreur.
+
+  **En entretien** : « Un proxy implémente des interfaces à l'exécution et passe chaque appel à un handler qui ajoute un
+  comportement avant de déléguer ; c'est la base de l'AOP des frameworks, d'où le piège des appels internes. »
 cards:
   - key: proxy-jdk-vs-cglib
     format: course
     question: Proxy JDK vs CGLIB ?
     answer: Le proxy JDK implémente des interfaces ; CGLIB génère une sous-classe, donc ne peut pas intercepter les méthodes final ou private.
+  - key: definition
+    format: course
+    question: Qu'est-ce qu'un proxy dynamique ?
+    answer: Un objet créé à l'exécution par `Proxy.newProxyInstance`, qui implémente des interfaces et confie chaque appel à un `InvocationHandler`, pour ajouter un comportement autour d'un objet réel.
+  - key: appel-interne
+    format: course
+    question: Pourquoi un appel interne (`this.methode()`) échappe-t-il au proxy ?
+    answer: Le proxy enveloppe l'objet de l'extérieur ; un appel fait depuis l'objet lui-même passe directement par `this`, sans traverser le proxy ni son comportement (transaction, cache).
+  - key: usages
+    format: course
+    question: Quels mécanismes de frameworks reposent sur des proxies ?
+    answer: Les transactions et le cache déclaratifs (`@Transactional`, `@Cacheable`), les intercepteurs, les clients REST déclaratifs, les repositories générés et les mocks de Mockito.
+  - key: vf-classe
+    format: true-false
+    question: "`java.lang.reflect.Proxy` peut créer un proxy d'une classe sans interface."
+    truth: false
+    answer: Il faut une interface ; pour une classe, une bibliothèque de bytecode génère une sous-classe.
+  - key: vf-final
+    format: true-false
+    question: Un proxy par sous-classe peut intercepter une méthode `final`.
+    truth: false
+    answer: Une méthode `final` ne peut pas être redéfinie.
+  - key: vf-tostring
+    format: true-false
+    question: Les appels à `toString` d'un proxy passent aussi par l'`InvocationHandler`.
+    truth: true
+    answer: Comme `equals` et `hashCode`.
+  - key: vf-mockito
+    format: true-false
+    question: Les mocks de Mockito reposent sur la génération de classes à l'exécution.
+    truth: true
+    answer: Avec ByteBuddy.
+  - key: qcm-creer
+    format: multiple-choice
+    question: Que faut-il fournir à `Proxy.newProxyInstance` ?
+    choices:
+      - text: "Un chargeur de classes"
+        correct: true
+      - text: "Les interfaces à implémenter et un `InvocationHandler`"
+        correct: true
+      - text: "La classe concrète à étendre"
+        correct: false
+      - text: "Le nom du package"
+        correct: false
+    answer: Le proxy implémente les interfaces et délègue au handler.
+  - key: qcm-transaction
+    format: multiple-choice
+    question: "Dans un bean, `valider()` appelle `this.enregistrer()`, annotée `@Transactional`. Que se passe-t-il ?"
+    choices:
+      - text: "Aucune transaction n'est ouverte, car l'appel ne passe pas par le proxy"
+        correct: true
+      - text: "Une transaction est ouverte normalement"
+        correct: false
+      - text: "Une exception au démarrage"
+        correct: false
+      - text: "Deux transactions imbriquées"
+        correct: false
+    answer: Il faut appeler par une autre classe (ou annoter la méthode d'entrée).
+  - key: qcm-exception
+    format: multiple-choice
+    question: Dans un handler, `methode.invoke(reel, args)` lève `InvocationTargetException`. Que relancer ?
+    choices:
+      - text: "`e.getCause()`, l'exception réelle de l'objet"
+        correct: true
+      - text: "`e` lui-même, toujours"
+        correct: false
+      - text: "Rien, il faut l'ignorer"
+        correct: false
+      - text: "Une `RuntimeException` sans cause"
+        correct: false
+    answer: Sinon l'appelant reçoit une `UndeclaredThrowableException` inattendue.
+  - key: qcm-alternative
+    format: multiple-choice
+    question: Comment Quarkus applique-t-il ses intercepteurs sans proxy par réflexion à l'exécution ?
+    choices:
+      - text: "En générant les sous-classes d'interception à la compilation (ArC)"
+        correct: true
+      - text: "En modifiant le code source"
+        correct: false
+      - text: "Avec un `ServiceLoader`"
+        correct: false
+      - text: "Il n'a pas d'intercepteurs"
+        correct: false
+    answer: C'est plus rapide au démarrage et compatible avec le natif.
+  - key: code-proxy
+    format: code-output
+    question: |-
+      ```java
+      import java.lang.reflect.Proxy;
+      interface Salut { String dire(String nom); }
+      Salut reel = nom -> "bonjour " + nom;
+      Salut proxy = (Salut) Proxy.newProxyInstance(Salut.class.getClassLoader(), new Class<?>[]{Salut.class},
+              (p, m, args) -> ((String) m.invoke(reel, args)).toUpperCase());
+      System.out.println(proxy.dire("ada"));
+      ```
+    answer: '`BONJOUR ADA` : le handler délègue, puis transforme le résultat.'
+    check:
+      output: "BONJOUR ADA"
+  - key: code-compteur
+    format: code-output
+    question: |-
+      ```java
+      import java.lang.reflect.Proxy;
+      interface Calcul { int doubler(int x); }
+      int[] appels = {0};
+      Calcul reel = x -> 2 * x;
+      Calcul c = (Calcul) Proxy.newProxyInstance(Calcul.class.getClassLoader(), new Class<?>[]{Calcul.class},
+              (p, m, args) -> {
+                  if (m.getName().equals("doubler")) appels[0]++;     // toString passe aussi par ici
+                  return m.invoke(reel, args);
+              });
+      c.doubler(1); c.doubler(2);
+      System.out.println(c.doubler(3) + " " + appels[0]);
+      ```
+    answer: '`6 3` : chaque appel à `doubler` passe par le handler (comme `toString`, `equals` et `hashCode`, exclus du comptage ici).'
+    check:
+      output: "6 3"
+  - key: code-is-proxy
+    format: code-output
+    question: |-
+      ```java
+      import java.lang.reflect.Proxy;
+      Runnable r = (Runnable) Proxy.newProxyInstance(Runnable.class.getClassLoader(), new Class<?>[]{Runnable.class},
+              (p, m, args) -> null);
+      System.out.println(Proxy.isProxyClass(r.getClass()) + " " + (r instanceof Runnable));
+      ```
+    answer: '`true true`.'
+    check:
+      output: "true true"
+  - key: code-classe
+    format: code-output
+    question: |-
+      ```java
+      import java.lang.reflect.Proxy;
+      class Service {}
+      Proxy.newProxyInstance(Service.class.getClassLoader(), new Class<?>[]{Service.class}, (p, m, a) -> null);
+      ```
+    answer: "Une `IllegalArgumentException` : `Service` n'est pas une interface."
+    check:
+      throws: IllegalArgumentException
   - key: explique-spring-ajouter-transaction-autour
     format: scenario
     question: Explique comment Spring peut ajouter une transaction autour de ta méthode sans que tu écrives de code.
@@ -11,3 +192,29 @@ cards:
       Au démarrage, Spring détecte l'annotation `@Transactional` sur le bean et, au lieu d'injecter l'objet réel, il injecte un **proxy**. Avec Spring Boot c'est par défaut un proxy CGLIB : une sous-classe générée à l'exécution qui redéfinit les méthodes publiques.
       Quand j'appelle la méthode, c'est le proxy qui reçoit l'appel : il ouvre la transaction, délègue à l'objet réel, puis commit ou rollback selon le résultat.
       Ça explique les trois limites connues : un appel interne via `this` ne passe pas par le proxy ; une méthode `final` ne peut pas être redéfinie par la sous-classe générée ; une méthode `private` n'est pas visible. Le même mécanisme sert à `@Cacheable`, `@Async` et `@PreAuthorize`.
+  - key: scenario-cache-ignore
+    format: scenario
+    question: Une méthode `@Cacheable` est appelée des milliers de fois mais le cache n'est jamais utilisé. Pourquoi ?
+    answer: |-
+      Très probablement parce qu'elle est appelée depuis la même classe (`this.prix(...)`) : l'appel ne traverse pas le
+      proxy qui implémente le cache. Autres causes possibles : une méthode `private` ou `final`, ou un objet créé avec
+      `new` au lieu d'être injecté par le conteneur. Je déplace la méthode dans un autre bean (ou je fais appeler la méthode
+      d'entrée par l'extérieur), et j'ajoute un test qui vérifie le nombre d'appels au service sous-jacent.
+  - key: scenario-mesure
+    format: scenario
+    question: Tu veux mesurer le temps de tous les appels à un client de service externe sans modifier son code. Comment ?
+    answer: |-
+      Si le client est défini par une interface, je l'enveloppe dans un proxy (ou plus simplement un décorateur écrit à
+      la main) qui démarre un chronomètre, délègue et enregistre la durée dans un timer Micrometer, en relançant l'exception
+      réelle. Dans un framework, un intercepteur (`@Timed`, ou un intercepteur CDI) fait la même chose de façon déclarative.
+      Pour beaucoup de clients HTTP, l'instrumentation existe déjà (OpenTelemetry, métriques du client), ce qui évite tout
+      code.
+  - key: scenario-final
+    format: scenario
+    question: Après avoir rendu une classe de service `final` « par bonne pratique », les transactions ne fonctionnent plus. Explique.
+    answer: |-
+      Le framework crée un proxy par sous-classe pour ajouter la transaction autour des méthodes. Une classe `final` ne
+      peut pas être étendue (et ses méthodes `final` ne peuvent pas être redéfinies) : le proxy ne peut pas être généré,
+      ou ne peut pas intercepter les méthodes. Selon le framework, cela provoque une erreur au démarrage ou une
+      transaction silencieusement absente. On retire `final` des beans proxifiés, ou l'on passe par une interface ;
+      Quarkus signale d'ailleurs ce cas à la construction.

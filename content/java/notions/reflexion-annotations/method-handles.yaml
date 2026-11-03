@@ -1,0 +1,181 @@
+notion: method-handles
+lesson: |-
+  `java.lang.invoke` (Java 7) offre une alternative bas niveau et rapide à la réflexion :
+
+  **`MethodHandle`** : une référence typée et directement exécutable vers une méthode, un constructeur ou un champ.
+
+  ```java
+  MethodHandles.Lookup lookup = MethodHandles.lookup();
+  MethodHandle longueur = lookup.findVirtual(String.class, "length", MethodType.methodType(int.class));
+  int n = (int) longueur.invokeExact("bonjour");          // 7
+
+  MethodHandle max = lookup.findStatic(Math.class, "max", MethodType.methodType(int.class, int.class, int.class));
+  MethodHandle maxAvec10 = MethodHandles.insertArguments(max, 0, 10);   // composer : fixer un argument
+  int r = (int) maxAvec10.invoke(3);                       // 10
+  ```
+
+  - Le **contrôle d'accès** est fait une fois, à la recherche (`Lookup`), pas à chaque appel.
+  - `invokeExact` exige les types **exacts** (y compris le type de retour au point d'appel) ; `invoke` adapte les types.
+  - Les handles se **composent** (`insertArguments`, `filterReturnValue`, `guardWithTest`), et le JIT les optimise
+    très bien, surtout quand ils sont stockés dans un champ `static final`.
+  - Ils sont la base d'**`invokedynamic`** : lambdas, concaténation de chaînes, `toString` et `equals` des records ; et
+    depuis Java 18, `Method.invoke` est lui-même implémenté avec eux.
+
+  **`VarHandle`** (Java 9) : un accès à un **champ** ou à un élément de tableau avec des modes mémoire choisis : lecture
+  et écriture simples, `volatile`, *acquire/release*, et opérations atomiques (`compareAndSet`, `getAndAdd`). Il remplace
+  `sun.misc.Unsafe` et les classes `AtomicXxxFieldUpdater` dans le code de bas niveau (structures concurrentes, bibliothèques).
+
+  ```java
+  private volatile int etat;
+  private static final VarHandle ETAT;
+  static { ETAT = MethodHandles.lookup().findVarHandle(Machine.class, "etat", int.class); }
+  boolean demarrer() { return ETAT.compareAndSet(this, 0, 1); }   // CAS sur le champ, sans AtomicInteger
+  ```
+
+  Ces outils servent aux **bibliothèques** et frameworks (sérialisation rapide, langages sur la JVM, structures sans
+  verrou) ; le code applicatif s'en sert rarement.
+
+  **Piège classique** : `(long) handle.invokeExact(...)` pour une méthode qui renvoie `int`. `invokeExact` exige le type
+  exact : `WrongMethodTypeException` à l'exécution.
+
+  **En entretien** : « Un `MethodHandle` est une référence typée et composable vers une méthode, contrôlée une fois à la
+  recherche et bien optimisée, base d'`invokedynamic` ; un `VarHandle` donne des accès atomiques et des modes mémoire
+  sur un champ, à la place d'`Unsafe`. »
+cards:
+  - key: definition
+    format: course
+    question: Qu'est-ce qu'un `MethodHandle` ?
+    answer: Une référence typée et exécutable vers une méthode, un constructeur ou un champ, obtenue par un `Lookup`, dont le contrôle d'accès est fait à la recherche et que le JIT optimise bien.
+  - key: invoke-exact
+    format: course
+    question: Quelle différence entre `invokeExact` et `invoke` ?
+    answer: '`invokeExact` exige que les types au point d''appel correspondent exactement à ceux du handle (retour compris) ; `invoke` adapte les types (conversions, boxing).'
+  - key: varhandle
+    format: course
+    question: À quoi sert un `VarHandle` ?
+    answer: À accéder à un champ ou un élément de tableau avec des modes mémoire précis (volatile, acquire/release) et des opérations atomiques comme `compareAndSet`, en remplacement de `sun.misc.Unsafe`.
+  - key: invokedynamic
+    format: course
+    question: Quel lien entre `MethodHandle` et `invokedynamic` ?
+    answer: '`invokedynamic` lie un site d''appel à un `MethodHandle` fourni à l''exécution ; c''est ainsi que sont implémentées les lambdas et la concaténation de chaînes.'
+  - key: vf-acces
+    format: true-false
+    question: Le contrôle d'accès d'un `MethodHandle` est refait à chaque appel.
+    truth: false
+    answer: Il est fait une fois, lors de la recherche par le `Lookup`.
+  - key: vf-exact
+    format: true-false
+    question: "`invokeExact` accepte un type de retour différent de celui de la méthode."
+    truth: false
+    answer: Il lève `WrongMethodTypeException` ; `invoke` adapte.
+  - key: vf-reflect
+    format: true-false
+    question: Depuis Java 18, `Method.invoke` est implémenté avec des `MethodHandle`.
+    truth: true
+    answer: JEP 416.
+  - key: vf-unsafe
+    format: true-false
+    question: "`VarHandle` est le remplaçant officiel de `sun.misc.Unsafe` pour les accès atomiques aux champs."
+    truth: true
+    answer: Les méthodes d'accès mémoire d'`Unsafe` sont dépréciées pour suppression.
+  - key: qcm-lookup
+    format: multiple-choice
+    question: Comment obtenir un handle vers la méthode d'instance `String.length()` ?
+    choices:
+      - text: "`MethodHandles.lookup().findVirtual(String.class, \"length\", MethodType.methodType(int.class))`"
+        correct: true
+      - text: "`MethodHandles.lookup().findStatic(String.class, \"length\", ...)`"
+        correct: false
+      - text: "`String.class.getMethodHandle(\"length\")`"
+        correct: false
+      - text: "`new MethodHandle(String::length)`"
+        correct: false
+    answer: '`findVirtual` pour une méthode d''instance, `findStatic` pour une méthode statique.'
+  - key: qcm-varhandle
+    format: multiple-choice
+    question: Quelles opérations offre un `VarHandle` ?
+    choices:
+      - text: "`compareAndSet`"
+        correct: true
+      - text: "`getAndAdd` et des lectures `getAcquire`"
+        correct: true
+      - text: "L'appel d'une méthode"
+        correct: false
+      - text: "La création d'une classe"
+        correct: false
+    answer: Un `VarHandle` concerne les variables (champs, tableaux).
+  - key: qcm-usage
+    format: multiple-choice
+    question: Qui utilise typiquement `MethodHandle` et `VarHandle` ?
+    choices:
+      - text: "Les bibliothèques et frameworks (sérialisation, structures concurrentes, langages sur la JVM)"
+        correct: true
+      - text: "Le code métier ordinaire, pour chaque appel"
+        correct: false
+      - text: "Les fichiers de configuration"
+        correct: false
+      - text: "Le ramasse-miettes uniquement"
+        correct: false
+    answer: Le code applicatif s'en passe le plus souvent.
+  - key: qcm-perf
+    format: multiple-choice
+    question: Comment obtenir les meilleures performances d'un `MethodHandle` ?
+    choices:
+      - text: "Le stocker dans un champ `static final`"
+        correct: true
+      - text: "Le rechercher à chaque appel"
+        correct: false
+      - text: "Le convertir en `Method`"
+        correct: false
+      - text: "L'appeler par `toString()`"
+        correct: false
+    answer: Le JIT peut alors le traiter comme une constante et l'inliner.
+  - key: code-handle
+    format: code-output
+    question: |-
+      ```java
+      import java.lang.invoke.*;
+      MethodHandle longueur = MethodHandles.lookup().findVirtual(String.class, "length", MethodType.methodType(int.class));
+      System.out.println((int) longueur.invokeExact("bonjour"));
+      ```
+    answer: '`7`.'
+    check:
+      output: "7"
+  - key: code-insert
+    format: code-output
+    question: |-
+      ```java
+      import java.lang.invoke.*;
+      MethodHandle max = MethodHandles.lookup().findStatic(Math.class, "max",
+              MethodType.methodType(int.class, int.class, int.class));
+      MethodHandle auMoins10 = MethodHandles.insertArguments(max, 0, 10);
+      System.out.println((int) auMoins10.invoke(3) + " " + (int) auMoins10.invoke(42));
+      ```
+    answer: '`10 42` : le premier argument est fixé à 10.'
+    check:
+      output: "10 42"
+  - key: code-exact
+    format: code-output
+    question: |-
+      ```java
+      import java.lang.invoke.*;
+      MethodHandle longueur = MethodHandles.lookup().findVirtual(String.class, "length", MethodType.methodType(int.class));
+      long n = (long) longueur.invokeExact("abc");
+      ```
+    answer: "Une `WrongMethodTypeException` : `invokeExact` exige le type de retour exact, `int`."
+    check:
+      throws: WrongMethodTypeException
+  - key: code-varhandle
+    format: code-output
+    question: |-
+      ```java
+      import java.lang.invoke.*;
+      int[] tableau = {5, 0};
+      VarHandle elements = MethodHandles.arrayElementVarHandle(int[].class);
+      boolean ok = elements.compareAndSet(tableau, 0, 5, 9);
+      boolean ko = elements.compareAndSet(tableau, 0, 5, 1);
+      System.out.println(ok + " " + ko + " " + tableau[0]);
+      ```
+    answer: '`true false 9` : le second CAS échoue, la valeur n''est plus 5.'
+    check:
+      output: "true false 9"

@@ -1,6 +1,168 @@
 notion: securite-java
+lesson: |-
+  Le JDK fournit la cryptographie par la **JCA** (*Java Cryptography Architecture*) : des API standard (`MessageDigest`,
+  `Cipher`, `Mac`, `Signature`, `KeyStore`, `SecureRandom`) implémentées par des **fournisseurs** interchangeables.
+
+  ```java
+  // Hachage d'intégrité (pas pour les mots de passe)
+  byte[] empreinte = MessageDigest.getInstance("SHA-256").digest(contenu);
+
+  // Aléa cryptographique (jetons, sels, clés)
+  byte[] jeton = new byte[32];
+  SecureRandom.getInstanceStrong().nextBytes(jeton);
+
+  // Chiffrement authentifié : AES-GCM, avec un IV unique par message
+  Cipher c = Cipher.getInstance("AES/GCM/NoPadding");
+  c.init(Cipher.ENCRYPT_MODE, cle, new GCMParameterSpec(128, iv));
+  byte[] chiffre = c.doFinal(clair);
+
+  // Signature d'un message (HMAC) et comparaison en temps constant
+  Mac mac = Mac.getInstance("HmacSHA256");
+  mac.init(new SecretKeySpec(secret, "HmacSHA256"));
+  boolean valide = MessageDigest.isEqual(mac.doFinal(message), signatureRecue);
+  ```
+
+  Les règles à connaître :
+  - **mots de passe** : jamais un simple SHA-256, mais une fonction **lente et salée** (Argon2, bcrypt, scrypt,
+    PBKDF2 via `SecretKeyFactory`), avec une bibliothèque éprouvée ;
+  - **aléa** : `SecureRandom`, jamais `Random` ni `Math.random()`, pour tout ce qui doit être imprévisible ;
+  - **chiffrement** : AES-**GCM** (authentifié) avec un **IV unique** ; jamais `AES/ECB` (le défaut de
+    `Cipher.getInstance("AES")`), qui laisse voir les motifs ;
+  - **comparaisons** de secrets en **temps constant** (`MessageDigest.isEqual`), pas `Arrays.equals` ;
+  - **clés** dans un **`KeyStore`** (PKCS12) ou un gestionnaire de secrets, jamais dans le code ;
+  - **TLS** : laisser le JDK négocier (TLS 1.3), ne jamais désactiver la vérification des certificats ;
+  - **XML** : désactiver les DTD et les entités externes (faille **XXE**) ; **désérialisation** native : jamais de
+    données non fiables ;
+  - « ne pas inventer sa propre crypto » : utiliser les primitives standard et des bibliothèques reconnues.
+
+  Le Security Manager, ancien mécanisme de bac à sable, est déprécié puis désactivé définitivement (Java 24) : on isole
+  désormais par le système (conteneurs, processus).
+
+  **Piège classique** : `Cipher.getInstance("AES")`. Le mode par défaut est ECB, sans IV ni authentification : deux blocs
+  identiques donnent le même chiffré, et un attaquant peut modifier le message sans être détecté.
+
+  **En entretien** : « JCA pour les primitives ; `SecureRandom` pour l'aléa, Argon2 ou bcrypt pour les mots de passe,
+  AES-GCM avec un IV unique pour chiffrer, comparaisons en temps constant, clés hors du code ; et jamais de crypto maison. »
 cards:
   - key: faille-xxe
     format: course
     question: C'est quoi une faille XXE ?
     answer: 'Un XML qui référence des entités externes (fichiers, URL) ; parade : désactiver DTD et entités externes.'
+  - key: mots-de-passe
+    format: course
+    question: Comment stocker un mot de passe ?
+    answer: Avec une fonction de hachage lente et salée conçue pour cela (Argon2, bcrypt, scrypt, PBKDF2), jamais en clair ni avec un simple SHA-256.
+  - key: secure-random
+    format: course
+    question: Pourquoi utiliser `SecureRandom` plutôt que `Random` pour un jeton de session ?
+    answer: '`Random` est prévisible (un générateur linéaire dont on peut retrouver l''état) ; `SecureRandom` fournit un aléa cryptographique impossible à deviner.'
+  - key: ecb
+    format: course
+    question: Pourquoi éviter `Cipher.getInstance("AES")` ?
+    answer: Il utilise par défaut le mode ECB, sans IV ni authentification, où des blocs identiques donnent des chiffrés identiques ; on choisit `AES/GCM/NoPadding` avec un IV unique.
+  - key: vf-sha-mdp
+    format: true-false
+    question: SHA-256 seul est adapté au stockage des mots de passe.
+    truth: false
+    answer: "Il est trop rapide : un attaquant teste des milliards de mots de passe par seconde ; il faut une fonction lente et salée."
+  - key: vf-temps-constant
+    format: true-false
+    question: Comparer deux signatures avec `Arrays.equals` peut révéler des informations par le temps de réponse.
+    truth: true
+    answer: La comparaison s'arrête au premier octet différent ; `MessageDigest.isEqual` est en temps constant.
+  - key: vf-iv
+    format: true-false
+    question: Avec AES-GCM, on peut réutiliser le même IV pour plusieurs messages avec la même clé.
+    truth: false
+    answer: Réutiliser un IV en GCM compromet gravement la confidentialité et l'authenticité.
+  - key: vf-security-manager
+    format: true-false
+    question: Le Security Manager est toujours le moyen recommandé d'isoler du code non fiable.
+    truth: false
+    answer: Il est déprécié et désactivé depuis Java 24 ; on isole par conteneurs ou processus.
+  - key: qcm-choix
+    format: multiple-choice
+    question: Associez correctement besoin et outil.
+    choices:
+      - text: "Vérifier l'intégrité d'un fichier téléchargé : SHA-256"
+        correct: true
+      - text: "Générer un jeton de réinitialisation de mot de passe : `SecureRandom`"
+        correct: true
+      - text: "Stocker un mot de passe : MD5"
+        correct: false
+      - text: "Chiffrer des données sensibles : AES/ECB"
+        correct: false
+    answer: MD5 est cassé et trop rapide ; ECB laisse voir les motifs.
+  - key: qcm-chiffrement
+    format: multiple-choice
+    question: Quelle configuration de chiffrement symétrique choisir ?
+    choices:
+      - text: "`AES/GCM/NoPadding` avec un IV aléatoire unique par message"
+        correct: true
+      - text: "`AES` (le mode par défaut)"
+        correct: false
+      - text: "`DES/ECB/PKCS5Padding`"
+        correct: false
+      - text: "Un algorithme maison"
+        correct: false
+    answer: GCM chiffre et authentifie.
+  - key: qcm-xxe
+    format: multiple-choice
+    question: Comment se protéger d'une attaque XXE lors de la lecture de XML ?
+    choices:
+      - text: "Désactiver les DTD et les entités externes dans le parseur"
+        correct: true
+      - text: "Utiliser `XMLConstants.FEATURE_SECURE_PROCESSING` et interdire l'accès aux DTD externes"
+        correct: true
+      - text: "Augmenter la taille de la pile"
+        correct: false
+      - text: "Chiffrer le XML"
+        correct: false
+    answer: Les parseurs de Java acceptent par défaut des fonctions dangereuses.
+  - key: qcm-cles
+    format: multiple-choice
+    question: Où conserver une clé de chiffrement d'application ?
+    choices:
+      - text: "Dans un gestionnaire de secrets ou un `KeyStore` protégé, fourni à l'exécution"
+        correct: true
+      - text: "En constante dans le code source"
+        correct: false
+      - text: "Dans le dépôt Git, chiffrée avec elle-même"
+        correct: false
+      - text: "Dans les journaux, pour le débogage"
+        correct: false
+    answer: Une clé dans le code est compromise dès que le code l'est.
+  - key: scenario-mots-de-passe
+    format: scenario
+    question: Une ancienne application stocke les mots de passe en SHA-1 sans sel. Comment migres-tu sans forcer tous les utilisateurs à les changer ?
+    answer: |-
+      Je passe à une fonction adaptée (Argon2id ou bcrypt) avec une bibliothèque éprouvée. Deux options : à la prochaine
+      connexion de chaque utilisateur, je vérifie l'ancien haché, puis je stocke le nouveau calculé sur le mot de passe
+      saisi ; ou, tout de suite, je réhache les anciens hachés eux-mêmes (`argon2(sha1(mdp))`) pour protéger aussi les
+      comptes inactifs, avec une colonne qui indique le schéma utilisé. Je force la réinitialisation des comptes jamais
+      revenus après un délai, et je vérifie que la base n'a pas déjà fuité.
+  - key: scenario-webhook
+    format: scenario
+    question: Ton service reçoit des webhooks d'un prestataire de paiement. Comment vérifier qu'ils viennent bien de lui ?
+    answer: |-
+      Le prestataire signe chaque requête avec un secret partagé (HMAC-SHA256 du corps, souvent avec un horodatage) : je
+      recalcule la signature avec `Mac` sur le corps brut reçu (avant toute désérialisation), puis je la compare en temps
+      constant (`MessageDigest.isEqual`). Je refuse les messages trop anciens (horodatage) pour éviter les rejeux, et je
+      traite chaque événement de façon idempotente (identifiant unique). Le secret vient d'un gestionnaire de secrets,
+      jamais du code.
+  - key: scenario-jeton
+    format: scenario
+    question: Comment génères-tu un jeton d'invitation à un groupe, envoyé par lien ?
+    answer: |-
+      Avec `SecureRandom` : 32 octets aléatoires encodés en Base64 URL (sans remplissage), assez longs pour ne pas être
+      devinés. Je ne stocke en base que le haché du jeton (SHA-256 suffit pour une valeur aléatoire longue), avec sa date
+      d'expiration et son groupe ; à l'usage, je hache le jeton reçu et je le cherche. Ainsi une fuite de la base ne donne
+      pas de jetons utilisables. Le lien expire, et le jeton est invalidé après usage s'il est à usage unique.
+  - key: scenario-tls
+    format: scenario
+    question: Un appel HTTPS vers un partenaire échoue avec « PKIX path building failed ». Un collègue propose de désactiver la vérification des certificats. Que fais-tu ?
+    answer: |-
+      Je refuse : désactiver la vérification ouvre la porte à une attaque de l'homme du milieu. L'erreur signifie que la
+      JVM ne fait pas confiance à la chaîne de certificats du partenaire : soit sa chaîne est incomplète (à corriger de son
+      côté), soit il utilise une autorité interne. Dans ce cas, j'ajoute le certificat de cette autorité dans un truststore
+      dédié (PKCS12), chargé par l'application ou par `javax.net.ssl.trustStore`, et je documente son renouvellement.

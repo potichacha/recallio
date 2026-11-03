@@ -1,5 +1,173 @@
 notion: ffm-jni
+lesson: |-
+  Java peut appeler du **code natif** (C, C++, Rust...) et manipuler de la **mémoire hors du tas**, de deux façons.
+
+  **JNI** (*Java Native Interface*, depuis Java 1.1) : on déclare une méthode `native`, on écrit un « code colle » en C
+  qui respecte les conventions de JNI, on le compile pour chaque plateforme, puis on charge la bibliothèque :
+
+  ```java
+  class Compression {
+      static { System.loadLibrary("compression"); }
+      native int compresser(byte[] entree, byte[] sortie);
+  }
+  ```
+  Puissant mais fastidieux : du C à écrire et compiler par plateforme, des erreurs qui **plantent la JVM**, une gestion
+  manuelle des références.
+
+  **FFM** (*Foreign Function & Memory API*, définitive en **Java 22**) : on appelle directement une fonction d'une
+  bibliothèque native, **en Java pur**, sans code colle :
+
+  ```java
+  Linker linker = Linker.nativeLinker();
+  MethodHandle strlen = linker.downcallHandle(
+          linker.defaultLookup().find("strlen").orElseThrow(),
+          FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+
+  try (Arena arena = Arena.ofConfined()) {                 // la mémoire native est libérée à la fermeture
+      MemorySegment texte = arena.allocateFrom("bonjour");
+      long n = (long) strlen.invokeExact(texte);           // 7
+  }
+  ```
+
+  - **`MemorySegment`** : une zone de mémoire (native ou du tas) avec des **bornes vérifiées** ; **`Arena`** : sa durée de
+    vie (libération déterministe, contrairement aux `ByteBuffer` directs) ;
+  - **`Linker`** et les **downcalls** : appeler du natif ; les **upcalls** : passer une fonction Java au code natif ;
+  - **jextract** génère automatiquement les liaisons Java à partir des en-têtes C.
+  - L'accès natif est une opération **sensible** : depuis Java 24, la JVM avertit si on ne l'autorise pas explicitement
+    (`--enable-native-access=ALL-UNNAMED` ou nom de module), et le JNI suit la même règle.
+
+  Quand l'utiliser : réutiliser une bibliothèque native existante (calcul scientifique, codecs, matériel, API du système),
+  ou des structures mémoire très grandes hors du tas. Pour tout le reste, rester en Java.
+
+  **Piège classique** : un `MemorySegment` utilisé après la fermeture de son `Arena`. L'API le détecte (`IllegalStateException`)
+  là où le JNI ou `Unsafe` auraient lu de la mémoire libérée et planté la JVM.
+
+  **En entretien** : « JNI exige du code colle en C par plateforme ; FFM (Java 22) appelle le natif en Java pur avec
+  `Linker`, `MemorySegment` et `Arena`, avec des accès vérifiés et une mémoire libérée de façon déterministe. »
 cards:
+  - key: jni
+    format: course
+    question: Qu'est-ce que JNI, et quels sont ses inconvénients ?
+    answer: Le mécanisme historique d'appel de code natif par des méthodes `native` et un code colle en C ; il faut compiler ce code pour chaque plateforme, et une erreur peut planter toute la JVM.
+  - key: ffm
+    format: course
+    question: Qu'apporte l'API FFM par rapport à JNI ?
+    answer: L'appel direct de fonctions natives en Java pur, sans code colle, avec des accès mémoire vérifiés (`MemorySegment`) et une libération déterministe (`Arena`) ; définitive depuis Java 22.
+  - key: arena
+    format: course
+    question: À quoi sert une `Arena` ?
+    answer: "À définir la durée de vie de la mémoire native allouée : tous ses segments sont libérés à sa fermeture (try-with-resources), et tout accès ultérieur est refusé."
+  - key: quand
+    format: course
+    question: Quand faire appel à du code natif ?
+    answer: Pour réutiliser une bibliothèque native existante (calcul, codecs, matériel, API du système) ou manipuler de très grandes zones mémoire hors du tas ; sinon, rester en Java.
+  - key: vf-ffm-22
+    format: true-false
+    question: L'API FFM est définitive depuis Java 22.
+    truth: true
+    answer: JEP 454, après plusieurs préversions.
+  - key: vf-colle
+    format: true-false
+    question: Avec FFM, il faut écrire et compiler un code colle en C.
+    truth: false
+    answer: Les appels se décrivent en Java ; jextract peut générer les liaisons depuis les en-têtes C.
+  - key: vf-crash
+    format: true-false
+    question: Une erreur de pointeur dans un code JNI peut faire planter toute la JVM.
+    truth: true
+    answer: Le code natif échappe aux protections de la JVM.
+  - key: vf-acces
+    format: true-false
+    question: Depuis Java 24, la JVM avertit quand du code utilise l'accès natif sans autorisation explicite.
+    truth: true
+    answer: On l'autorise avec `--enable-native-access`.
+  - key: qcm-composants
+    format: multiple-choice
+    question: Quels sont des éléments de l'API FFM ?
+    choices:
+      - text: "`MemorySegment` et `Arena`"
+        correct: true
+      - text: "`Linker` et `FunctionDescriptor`"
+        correct: true
+      - text: "`native` et `System.loadLibrary`"
+        correct: false
+      - text: "`JNIEnv`"
+        correct: false
+    answer: Les autres appartiennent à JNI.
+  - key: qcm-apres-fermeture
+    format: multiple-choice
+    question: Que se passe-t-il si l'on lit un `MemorySegment` après la fermeture de son `Arena` ?
+    choices:
+      - text: "Une `IllegalStateException`, sans plantage de la JVM"
+        correct: true
+      - text: "La JVM plante"
+        correct: false
+      - text: "On lit des données aléatoires"
+        correct: false
+      - text: "La mémoire est réallouée automatiquement"
+        correct: false
+    answer: Les accès sont vérifiés.
+  - key: qcm-jextract
+    format: multiple-choice
+    question: À quoi sert jextract ?
+    choices:
+      - text: "À générer les liaisons Java d'une bibliothèque native depuis ses en-têtes C"
+        correct: true
+      - text: "À extraire les classes d'un JAR"
+        correct: false
+      - text: "À décompiler du bytecode"
+        correct: false
+      - text: "À compresser une image native"
+        correct: false
+    answer: Il évite d'écrire à la main les `FunctionDescriptor`.
+  - key: qcm-usages
+    format: multiple-choice
+    question: Pour quels besoins le code natif se justifie-t-il ?
+    choices:
+      - text: "Utiliser une bibliothèque de traitement d'images écrite en C"
+        correct: true
+      - text: "Piloter un matériel par une API du système"
+        correct: true
+      - text: "Accélérer une boucle Java simple"
+        correct: false
+      - text: "Lire un fichier JSON"
+        correct: false
+    answer: Le JIT rend rarement le natif plus rapide pour du code ordinaire.
+  - key: scenario-choisir
+    format: scenario
+    question: Tu dois utiliser une bibliothèque C de calcul existante depuis un service Java 25. JNI ou FFM ?
+    answer: |-
+      FFM : je génère les liaisons avec jextract depuis les en-têtes C, et j'appelle les fonctions en Java pur, sans code
+      colle à compiler par plateforme. La mémoire passée à la bibliothèque est allouée dans une `Arena` fermée par un
+      try-with-resources. J'isole ces appels derrière une interface Java, je les teste sur chaque plateforme cible, et
+      j'autorise explicitement l'accès natif (`--enable-native-access`). JNI ne se justifierait que pour du code existant
+      déjà écrit avec lui.
+  - key: scenario-risques
+    format: scenario
+    question: Quels risques prends-tu en introduisant du code natif dans une application Java ?
+    answer: |-
+      Une erreur côté natif (pointeur invalide, dépassement) peut planter toute la JVM sans exception Java ; il faut livrer
+      et tester une bibliothèque par plateforme (Linux x64, ARM, macOS) ; la mémoire native échappe au ramasse-miettes et
+      à `-Xmx` (comptée dans la mémoire du conteneur) ; le diagnostic est plus difficile ; et l'image native ou le
+      conteneur doivent embarquer la bibliothèque. Je limite la surface (une petite couche bien testée) et je mesure le
+      gain avant de m'engager.
+  - key: scenario-hors-tas
+    format: scenario
+    question: Un service doit manipuler un fichier mappé en mémoire de 50 Go. Comment avec Java 22+ ?
+    answer: |-
+      Avec FFM : `FileChannel.map(mode, 0, taille, arena)` renvoie un `MemorySegment` sur tout le fichier, sans la limite
+      de 2 Go des `MappedByteBuffer`, avec des accès vérifiés et une libération déterministe à la fermeture de l'`Arena`.
+      Je lis les structures avec des `ValueLayout` (et des `VarHandle` pour des enregistrements), sans copier les données
+      dans le tas. La mémoire mappée compte dans la mémoire du processus : je dimensionne le conteneur en conséquence.
+  - key: scenario-jni-existant
+    format: scenario
+    question: Une application ancienne utilise une bibliothèque JNI maison qui plante parfois la JVM. Que proposes-tu ?
+    answer: |-
+      D'abord diagnostiquer : le fichier `hs_err_pid*.log` produit au plantage indique la bibliothèque et la fonction
+      fautives, et `-Xcheck:jni` détecte les mauvais usages de l'API JNI. Ensuite, réécrire les appels avec FFM, qui
+      vérifie les bornes et les durées de vie et supprime le code colle en C, ce qui élimine une partie des erreurs. Si
+      possible, remplacer la bibliothèque par une alternative en Java pur. En attendant, isoler l'appel natif dans un
+      processus séparé limite l'impact d'un plantage.
   - key: definition-ffm
     format: definition
     question: FFM
@@ -8,3 +176,11 @@ cards:
     format: definition
     question: JNI
     answer: 'Java Native Interface : appel de code natif (historique)'
+  - key: definition-memory-segment
+    format: definition
+    question: MemorySegment
+    answer: Une zone de mémoire contiguë (native ou du tas) aux bornes vérifiées, manipulée par l'API FFM.
+  - key: definition-arena
+    format: definition
+    question: Arena
+    answer: L'objet FFM qui gère la durée de vie de segments de mémoire native et les libère à sa fermeture.
