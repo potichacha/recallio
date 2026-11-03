@@ -1,10 +1,243 @@
 notion: heap-pollution
+lesson: |-
+  La **pollution du tas** (*heap pollution*) survient quand une variable d'un type paramétré référence un objet qui n'est
+  pas de ce type : une `List<String>` qui contient un `Integer`. Elle vient des types bruts, des casts non vérifiés... et
+  des **varargs génériques**.
+
+  Une méthode `m(T... args)` reçoit en réalité un **tableau**. Comme on ne peut pas créer de tableau de `T`, le
+  compilateur crée un tableau du type effacé (`Object[]`), et avertit : *possible heap pollution*.
+
+  ```java
+  static <T> T[] enTableau(T... args) {
+      return args;                         // DANGER : expose le tableau de varargs
+  }
+  static <T> T[] deux(T a, T b) {
+      return enTableau(a, b);              // ici, T est effacé : le tableau créé est un Object[]
+  }
+  String[] s = deux("a", "b");             // ClassCastException : Object[] n'est pas un String[]
+  ```
+
+  Une méthode à varargs génériques est **sûre** si elle :
+  - ne **stocke** rien dans le tableau de varargs ;
+  - ne laisse **pas s'échapper** ce tableau (ni le renvoyer, ni le transmettre à du code non fiable).
+
+  On le déclare alors avec **`@SafeVarargs`**, qui supprime l'avertissement chez les appelants. L'annotation n'est
+  permise que sur des méthodes qui ne peuvent pas être redéfinies : `static`, `final`, `private` (Java 9) et les
+  constructeurs. Exemples de la JDK : `List.of(E...)`, `Arrays.asList(T...)`, `Stream.of(T...)`.
+
+  **Piège classique** : ajouter `@SafeVarargs` pour faire taire l'avertissement d'une méthode qui renvoie son tableau de
+  varargs. L'annotation est une **promesse**, pas un correctif.
+
+  **En entretien** : « Les varargs génériques créent un `Object[]` qui peut polluer le tas ; `@SafeVarargs` ne se met que
+  si la méthode ne stocke rien dans ce tableau et ne le laisse pas s'échapper. »
 cards:
   - key: pollution-heap
     format: course
     question: C'est quoi la pollution du heap ?
-    answer: Une variable paramétrée qui pointe vers un objet du mauvais type, révélée plus tard par une ClassCastException.
+    answer: Une variable d'un type paramétré qui référence un objet d'un autre type, souvent via varargs génériques ou cast unchecked.
   - key: sert-safevarargs
     format: course
     question: À quoi sert @SafeVarargs ?
-    answer: À certifier qu'une méthode à varargs génériques ne fait rien de dangereux avec le tableau, pour supprimer l'avertissement.
+    answer: Supprimer l'avertissement de heap pollution sur une méthode varargs générique sûre (static, final ou private).
+  - key: conditions-surete
+    format: course
+    question: Quand une méthode à varargs génériques est-elle sûre ?
+    answer: Quand elle ne stocke rien dans le tableau de varargs et ne le laisse pas s'échapper (ni renvoyé, ni transmis à du code qui pourrait le modifier ou l'exposer).
+  - key: pourquoi-object
+    format: course
+    question: Pourquoi `deux("a", "b")` renvoie-t-il un `Object[]` dans l'exemple `enTableau(T... args)` ?
+    answer: "Dans `deux`, `T` est effacé : l'appel à `enTableau(a, b)` crée un tableau de varargs du type effacé, `Object[]`, qui est renvoyé tel quel et ne peut pas être casté en `String[]`."
+  - key: vf-safevarargs-instance
+    format: true-false
+    question: "`@SafeVarargs` peut s'appliquer à une méthode d'instance non finale."
+    truth: false
+    answer: Une sous-classe pourrait la redéfinir de façon dangereuse ; seules les méthodes `static`, `final`, `private` et les constructeurs sont permis.
+  - key: vf-promesse
+    format: true-false
+    question: "`@SafeVarargs` rend une méthode sûre."
+    truth: false
+    answer: C'est une promesse du programmeur au compilateur ; si elle est fausse, la pollution reste possible.
+  - key: vf-list-of
+    format: true-false
+    question: "`List.of(E... elements)` est annotée `@SafeVarargs`."
+    truth: true
+    answer: Elle copie les éléments sans exposer le tableau.
+  - key: vf-tableau
+    format: true-false
+    question: Un paramètre varargs est en réalité un tableau.
+    truth: true
+    answer: '`T... args` se manipule comme un `T[]`.'
+  - key: qcm-surete
+    format: multiple-choice
+    question: Laquelle de ces méthodes peut être annotée `@SafeVarargs` en toute honnêteté ?
+    choices:
+      - text: "`static <T> List<T> liste(T... e) { return new ArrayList<>(Arrays.asList(e)); }`"
+        correct: true
+      - text: "`static <T> T[] enTableau(T... e) { return e; }`"
+        correct: false
+      - text: "`static void polluer(List<String>... l) { Object[] t = l; t[0] = List.of(1); }`"
+        correct: false
+      - text: "`static <T> void garder(T... e) { CACHE = e; }`"
+        correct: false
+    answer: La première copie les éléments ; les autres exposent ou modifient le tableau.
+  - key: qcm-ou
+    format: multiple-choice
+    question: Sur quelles méthodes `@SafeVarargs` est-elle permise ?
+    choices:
+      - text: "Les méthodes `static`"
+        correct: true
+      - text: "Les méthodes `private` (Java 9)"
+        correct: true
+      - text: "Les méthodes `final`"
+        correct: true
+      - text: "Les méthodes d'instance redéfinissables"
+        correct: false
+    answer: Et les constructeurs.
+  - key: qcm-sources
+    format: multiple-choice
+    question: Lesquels peuvent provoquer une pollution du tas ?
+    choices:
+      - text: "Un type brut"
+        correct: true
+      - text: "Un cast non vérifié `(List<String>) objet`"
+        correct: true
+      - text: "Un tableau de varargs générique exposé"
+        correct: true
+      - text: "Une `List<String>` utilisée normalement"
+        correct: false
+    answer: Ce sont les trois situations où le compilateur avertit (*unchecked*).
+  - key: qcm-alternative
+    format: multiple-choice
+    question: Quelle alternative évite les varargs génériques ?
+    choices:
+      - text: "Prendre une `List<T>` en paramètre"
+        correct: true
+      - text: "Prendre un `Object[]`"
+        correct: false
+      - text: "Utiliser un type brut"
+        correct: false
+      - text: "Ajouter `@SuppressWarnings(\"all\")`"
+        correct: false
+    answer: Une liste est vérifiée par le compilateur.
+  - key: code-object-tableau
+    format: code-output
+    question: |-
+      ```java
+      static <T> T[] enTableau(T... args) { return args; }
+      static <T> T[] deux(T a, T b) { return enTableau(a, b); }
+      String[] s = deux("a", "b");
+      ```
+    answer: "Une `ClassCastException` : le tableau renvoyé est un `Object[]`."
+    check:
+      throws: ClassCastException
+  - key: code-polluer
+    format: code-output
+    question: |-
+      ```java
+      static void polluer(List<String>... listes) {
+          Object[] t = listes;
+          t[0] = List.of(42);
+          String s = listes[0].get(0);
+      }
+      polluer(List.of("a"));
+      ```
+    answer: "Une `ClassCastException` : la `List<String>` du tableau contient maintenant un `Integer`."
+    check:
+      throws: ClassCastException
+  - key: code-safevarargs-instance
+    format: code-output
+    question: |-
+      ```java
+      class C {
+          @SafeVarargs
+          <T> void f(T... t) { }
+      }
+      ```
+      Ce code compile-t-il ?
+    answer: 'Non : `@SafeVarargs` exige une méthode `static`, `final` ou `private` (ou un constructeur).'
+    check:
+      compiles: false
+  - key: code-sure
+    format: code-output
+    question: |-
+      ```java
+      @SafeVarargs
+      static <T> List<T> liste(T... elements) { return List.of(elements); }
+      System.out.println(liste("a", "b"));
+      ```
+    answer: '`[a, b]` : les éléments sont copiés, le tableau ne s''échappe pas.'
+    check:
+      output: "[a, b]"
+  - key: bug-retour-varargs
+    format: bug-fix
+    question: |-
+      Les appelants reçoivent parfois une `ClassCastException` :
+      ```java
+      @SafeVarargs
+      static <T> T[] tableau(T... elements) { return elements; }
+      ```
+    answer: |-
+      ```java
+      @SafeVarargs
+      static <T> List<T> liste(T... elements) { return List.of(elements); }
+      ```
+      Renvoyer le tableau de varargs le laisse s'échapper : appelée depuis du code générique, la méthode renvoie un
+      `Object[]`. L'annotation était une fausse promesse ; on renvoie une copie dans une liste.
+  - key: bug-stockage
+    format: bug-fix
+    question: |-
+      Une `ClassCastException` surgit loin de cette méthode :
+      ```java
+      static void ajouterDefaut(List<String>... listes) {
+          Object[] tableau = listes;
+          tableau[0] = new ArrayList<Integer>(List.of(0));
+      }
+      ```
+    answer: |-
+      ```java
+      static void ajouterDefaut(List<List<String>> listes) {
+          listes.set(0, new ArrayList<>(List.of("0")));
+      }
+      ```
+      Écrire dans le tableau de varargs (vu comme `Object[]`) y glisse un objet du mauvais type. Une `List` en paramètre
+      est vérifiée par le compilateur.
+  - key: bug-annotation-silence
+    format: bug-fix
+    question: |-
+      L'annotation a été ajoutée « pour faire taire l'avertissement » :
+      ```java
+      @SafeVarargs
+      static <T> void enregistrer(T... valeurs) {
+          historique.add(valeurs);   // List<Object[]> statique
+      }
+      ```
+    answer: |-
+      ```java
+      static <T> void enregistrer(List<T> valeurs) {
+          historique.add(List.copyOf(valeurs));
+      }
+      ```
+      La méthode conserve le tableau de varargs : il s'échappe, et la promesse de `@SafeVarargs` est fausse. On reçoit une
+      liste et l'on garde une copie immuable.
+  - key: bug-safevarargs-instance
+    format: bug-fix
+    question: |-
+      Ce code ne compile pas (`Invalid SafeVarargs annotation`) :
+      ```java
+      class Journal {
+          @SafeVarargs
+          <T> void tracer(T... valeurs) {
+              for (T v : valeurs) log.info("{}", v);
+          }
+      }
+      ```
+    answer: |-
+      ```java
+      class Journal {
+          @SafeVarargs
+          final <T> void tracer(T... valeurs) {
+              for (T v : valeurs) log.info("{}", v);
+          }
+      }
+      ```
+      Une méthode d'instance doit être `final` (ou `private`) pour qu'aucune redéfinition ne rompe la promesse.
