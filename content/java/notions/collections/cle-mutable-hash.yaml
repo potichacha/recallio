@@ -1,6 +1,254 @@
 notion: cle-mutable-hash
+lesson: |-
+  Un `HashSet` (ou une `HashMap`) range chaque élément dans une case choisie par son `hashCode` **au moment de
+  l'ajout**. Si l'on modifie ensuite un champ utilisé par `hashCode`, l'objet reste dans l'**ancienne** case, alors que
+  son hash désigne maintenant une autre case :
+
+  ```java
+  Etiquette e = new Etiquette("java");   // equals et hashCode sur nom
+  Set<Etiquette> s = new HashSet<>();
+  s.add(e);
+  e.setNom("go");                        // le hash change
+
+  s.contains(e);    // false : on cherche dans la case de "go", l'objet est dans celle de "java"
+  s.remove(e);      // false : impossible de le retirer
+  s.add(e);         // true : il est maintenant présent DEUX fois
+  ```
+
+  L'ensemble est **corrompu** : un élément introuvable, des doublons possibles. Le problème touche aussi :
+  - les **clés** de `HashMap` ;
+  - un record qui contient une collection **mutable** (son hash dépend du contenu de la liste) ;
+  - une entité dont l'identifiant est affecté **après** l'ajout (au `persist`), si `hashCode` l'utilise.
+
+  Les remèdes :
+  - des éléments et des clés **immuables** (records aux composants immuables, `String`, enveloppes) ;
+  - un `hashCode` calculé sur des champs qui ne changent jamais (un identifiant fixé à la création) ;
+  - à défaut, **retirer** l'objet, le modifier, puis le **rajouter**.
+
+  **Piège classique** : une clé de cache construite à partir d'un objet métier modifiable. Après une mise à jour de
+  l'objet, le cache ne retrouve plus rien et grossit sans fin.
+
+  **En entretien** : « Modifier un champ utilisé par `hashCode` d'un objet présent dans un `HashSet` le rend introuvable ;
+  éléments et clés doivent être immuables sur ces champs. »
 cards:
   - key: cle-hashmap-doit-etre-immutable
     format: course
     question: Une clé de HashMap doit-elle être immutable ?
     answer: Ses champs utilisés dans hashCode/equals doivent l'être, sinon l'entrée devient introuvable.
+  - key: mecanisme
+    format: course
+    question: Pourquoi un objet modifié devient-il introuvable dans un `HashSet` ?
+    answer: Il est rangé dans la case de son ancien hash ; `contains` calcule le nouveau hash et cherche dans une autre case.
+  - key: record-mutable
+    format: course
+    question: Un record peut-il être une clé dangereuse ?
+    answer: "Oui, s'il contient un composant mutable (une `ArrayList`) : son hash change quand le contenu change. On copie dans le constructeur compact (`List.copyOf`)."
+  - key: remede
+    format: course
+    question: Comment modifier un objet déjà présent dans un `HashSet` ?
+    answer: Le retirer, le modifier, puis le rajouter ; mieux, rendre ses champs utilisés par `hashCode` immuables.
+  - key: vf-contains
+    format: true-false
+    question: Après modification d'un champ utilisé par `hashCode`, `contains` retrouve toujours l'objet.
+    truth: false
+    answer: Il cherche dans la case du nouveau hash.
+  - key: vf-doublon
+    format: true-false
+    question: On peut alors ajouter une seconde fois le même objet dans le `HashSet`.
+    truth: true
+    answer: L'ensemble ne le voit pas dans la case du nouveau hash, et l'ajoute.
+  - key: vf-champ-non-utilise
+    format: true-false
+    question: Modifier un champ qui n'intervient ni dans `equals` ni dans `hashCode` pose le même problème.
+    truth: false
+    answer: "Le hash ne change pas : l'objet reste trouvable."
+  - key: vf-string
+    format: true-false
+    question: Les `String` sont des clés sûres.
+    truth: true
+    answer: Elles sont immuables.
+  - key: qcm-sur
+    format: multiple-choice
+    question: Lesquelles font des clés sûres de `HashMap` ?
+    choices:
+      - text: "Un `record Id(UUID valeur)`"
+        correct: true
+      - text: "Une `String`"
+        correct: true
+      - text: "Une `ArrayList<String>` modifiée après l'ajout"
+        correct: false
+      - text: "Un objet mutable dont `hashCode` utilise un champ modifiable"
+        correct: false
+    answer: Une clé ne doit pas changer de hash.
+  - key: qcm-symptomes
+    format: multiple-choice
+    question: Quels symptômes provoque une clé modifiée après son ajout ?
+    choices:
+      - text: "`get` ou `contains` renvoient `null` ou `false` pour un objet présent"
+        correct: true
+      - text: "`remove` ne retire rien"
+        correct: true
+      - text: "Une erreur de compilation"
+        correct: false
+      - text: "Une `ConcurrentModificationException`"
+        correct: false
+    answer: "Aucune exception : la structure devient silencieusement incohérente."
+  - key: qcm-entite
+    format: multiple-choice
+    question: "Pourquoi une entité JPA dont `hashCode` utilise l'id généré au `persist` pose-t-elle problème dans un `HashSet` ?"
+    choices:
+      - text: "Son hash change au `persist`, après qu'elle a été ajoutée"
+        correct: true
+      - text: "JPA interdit les `HashSet`"
+        correct: false
+      - text: "Un id est toujours `null`"
+        correct: false
+      - text: "Aucun problème"
+        correct: false
+    answer: On préfère une clé métier stable ou un identifiant fixé à la création.
+  - key: qcm-corriger
+    format: multiple-choice
+    question: Comment modifier sans risque le nom d'une étiquette présente dans un `HashSet` ?
+    choices:
+      - text: "La retirer, la modifier, puis la rajouter"
+        correct: true
+      - text: "La modifier, puis appeler `set.rehash()`"
+        correct: false
+      - text: "La modifier directement : le set se met à jour"
+        correct: false
+      - text: "Vider tout l'ensemble"
+        correct: false
+    answer: Il n'y a pas de `rehash` public ; on remplace l'élément (ou l'on utilise des objets immuables).
+  - key: code-introuvable
+    format: code-output
+    question: |-
+      ```java
+      class Etiquette {
+          String nom;
+          Etiquette(String nom) { this.nom = nom; }
+          public boolean equals(Object o) { return o instanceof Etiquette e && e.nom.equals(nom); }
+          public int hashCode() { return nom.hashCode(); }
+      }
+      Set<Etiquette> s = new HashSet<>();
+      Etiquette e = new Etiquette("java");
+      s.add(e);
+      e.nom = "go";
+      System.out.println(s.contains(e) + " " + s.size());
+      ```
+    answer: '`false 1` : l''objet est toujours là, mais dans la case de son ancien hash.'
+    check:
+      output: "false 1"
+  - key: code-remove
+    format: code-output
+    question: |-
+      ```java
+      class Etiquette {
+          String nom;
+          Etiquette(String nom) { this.nom = nom; }
+          public boolean equals(Object o) { return o instanceof Etiquette e && e.nom.equals(nom); }
+          public int hashCode() { return nom.hashCode(); }
+      }
+      Set<Etiquette> s = new HashSet<>();
+      Etiquette e = new Etiquette("java");
+      s.add(e);
+      e.nom = "go";
+      System.out.println(s.remove(e) + " " + s.size());
+      ```
+    answer: '`false 1` : impossible de retirer l''objet modifié.'
+    check:
+      output: "false 1"
+  - key: code-doublon
+    format: code-output
+    question: |-
+      ```java
+      class Etiquette {
+          String nom;
+          Etiquette(String nom) { this.nom = nom; }
+          public boolean equals(Object o) { return o instanceof Etiquette e && e.nom.equals(nom); }
+          public int hashCode() { return nom.hashCode(); }
+      }
+      Set<Etiquette> s = new HashSet<>();
+      Etiquette e = new Etiquette("java");
+      s.add(e);
+      e.nom = "go";
+      System.out.println(s.add(e) + " " + s.size());
+      ```
+    answer: '`true 2` : le même objet est maintenant présent deux fois.'
+    check:
+      output: "true 2"
+  - key: code-record-liste
+    format: code-output
+    question: |-
+      ```java
+      record Groupe(List<String> membres) { }
+      Set<Groupe> s = new HashSet<>();
+      List<String> m = new ArrayList<>(List.of("a"));
+      Groupe g = new Groupe(m);
+      s.add(g);
+      m.add("b");
+      System.out.println(s.contains(g));
+      ```
+    answer: '`false` : le hash du record dépend du contenu de la liste, qui a changé.'
+    check:
+      output: "false"
+  - key: bug-modification
+    format: bug-fix
+    question: |-
+      Après le renommage d'un produit, il devient introuvable dans l'index :
+      ```java
+      Set<Produit> catalogue = new HashSet<>();   // equals et hashCode sur le nom
+      produit.renommer("Nouveau nom");
+      ```
+    answer: |-
+      ```java
+      catalogue.remove(produit);
+      produit.renommer("Nouveau nom");
+      catalogue.add(produit);
+      // mieux : equals/hashCode sur un identifiant immuable (la référence produit)
+      ```
+      Le nom intervient dans `hashCode` : le modifier déplace le hash. On retire et on rajoute, ou l'on fonde l'égalité sur
+      un champ qui ne change jamais.
+  - key: bug-record-liste
+    format: bug-fix
+    question: |-
+      Une clé de cache composée de critères devient introuvable quand l'appelant réutilise sa liste :
+      ```java
+      record CleRecherche(List<String> filtres) { }
+      ```
+    answer: |-
+      ```java
+      record CleRecherche(List<String> filtres) {
+          CleRecherche {
+              filtres = List.copyOf(filtres);
+          }
+      }
+      ```
+      Le record gardait la liste de l'appelant ; en la modifiant, celui-ci changeait le hash de la clé. Une copie immuable
+      fige la clé.
+  - key: bug-id-genere
+    format: bug-fix
+    question: |-
+      Une ligne de commande ajoutée à un `HashSet` avant d'être enregistrée n'y est plus retrouvée ensuite :
+      ```java
+      @Override public int hashCode() { return Objects.hashCode(id); }   // id généré par la base au persist
+      ```
+    answer: |-
+      ```java
+      private final UUID id = UUID.randomUUID();   // fixé à la création
+      @Override public int hashCode() { return id.hashCode(); }
+      ```
+      Le hash changeait au `persist`, quand l'id passait de `null` à une valeur. Un identifiant attribué à la création ne
+      change jamais.
+  - key: bug-cle-cache
+    format: bug-fix
+    question: |-
+      Le cache de tarifs grossit sans fin et ne retrouve jamais rien après une mise à jour du client :
+      ```java
+      Map<Client, Tarif> cache = new HashMap<>();   // Client mutable, equals/hashCode sur tous ses champs
+      ```
+    answer: |-
+      ```java
+      Map<IdClient, Tarif> cache = new HashMap<>();   // record IdClient(UUID valeur)
+      ```
+      Chaque modification du client change son hash : l'ancienne entrée est perdue et une nouvelle s'ajoute. Une clé
+      immuable (son identifiant) reste stable.
