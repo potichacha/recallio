@@ -51,6 +51,8 @@ function queuedCard(overrides: Partial<QueuedCard> = {}): QueuedCard {
     multipleAnswers: false,
     blankCount: 0,
     exercise: null,
+    notionTitle: null,
+    lesson: null,
     state: 'NEW',
     previews: [
       { rating: 'AGAIN', dueAt: inMs(MINUTE) },
@@ -339,6 +341,30 @@ describe('ReviewPage', () => {
     const body = await post?.json()
     expect(body.filledBlanks).toEqual(['hashCode', 'combine'])
     expect(body.rating).toBeUndefined()
+  })
+
+  it('shows the lesson of a notion before its first card, then the card', async () => {
+    stubApi({
+      ...PROFILE,
+      [QUEUE]: {
+        body: queue([
+          queuedCard({
+            notionTitle: 'La JVM',
+            lesson: 'La **JVM** exécute le bytecode.',
+          }),
+        ]),
+      },
+    })
+    renderAt('/review', signedIn())
+
+    const lesson = await screen.findByRole('article', { name: 'Leçon : La JVM' })
+    expect(within(lesson).getByText('JVM').tagName).toBe('STRONG')
+    expect(screen.queryByText("Qu'est-ce que la JVM ?")).not.toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Passer à la carte' }))
+
+    expect(screen.getByText("Qu'est-ce que la JVM ?")).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Voir la réponse' })).toBeInTheDocument()
   })
 
   it('runs an exercise against its tests, then submits it and shows the solution', async () => {

@@ -90,6 +90,8 @@ public interface CardDirectory {
      *
      * @param choices les choix d'un QCM, dans l'ordre de la source ; aucun pour les autres formats
      * @param blanks les trous d'un code à trous, dans l'ordre de la question ; aucun pour les autres formats
+     * @param notionTitle le titre de la notion de la carte ; {@code null} pour une carte d'un document Markdown
+     * @param lesson la leçon de cette notion, en Markdown ; {@code null} si elle n'en a pas encore
      */
     record CardSnapshot(
             UUID cardId,
@@ -103,7 +105,9 @@ public interface CardDirectory {
             String answer,
             List<CardChoice> choices,
             List<CardBlank> blanks,
-            @Nullable ExerciseFiles exercise) {
+            @Nullable ExerciseFiles exercise,
+            @Nullable String notionTitle,
+            @Nullable String lesson) {
 
         public CardSnapshot {
             choices = List.copyOf(choices);

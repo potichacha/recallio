@@ -78,27 +78,75 @@ public class ReviewQueueService {
     public ReviewQueue queue(UserRef user, QueueFilter filter, int size) {
         Instant now = clock.instant();
         Map<UUID, ReviewState> memory = states.findAllByUser(user.id());
+        Map<String, LearningTrack> tracks = filter.group() == null ? followedSubjects.tracksOf(user) : Map.of();
         List<Candidate> eligible = arranged(
                 user,
-                filter,
+                tracks,
                 cards.activeCards(cardFilter(user, filter)).stream()
                         .map(card -> new Candidate(card.cardId(), card.subjectSlug(), card.notionId()))
                         .toList(),
                 memory.keySet());
         QueuePlan plan = ReviewQueuePlanner.plan(
                 eligible, memory, reviewedToday(user, now), now, quota.remainingToday(user, now), size);
+        Lessons lessons = new Lessons(tracks, memory.keySet(), eligible);
         List<QueuedCard> queued = cards.currentVersions(plan.cardIds()).stream()
-                .map(card -> queuedCard(card, memory.getOrDefault(card.cardId(), ReviewState.newCard(now)), now))
+                .map(card -> queuedCard(
+                        card,
+                        memory.getOrDefault(card.cardId(), ReviewState.newCard(now)),
+                        lessons.lessonFor(card),
+                        now))
                 .toList();
         return new ReviewQueue(queued, plan.dueCount(), plan.newCount(), plan.nextDueAt());
+    }
+
+    /**
+     * Quand montrer la leçon d'une notion (ADR 0032) : en parcours « apprendre », avant la toute première carte qu'on en
+     * voit. La file ne propose qu'une carte par notion (ADR 0031) : la leçon n'apparaît qu'une fois.
+     */
+    private final class Lessons {
+
+        private final Map<String, LearningTrack> tracks;
+        private final Set<UUID> known;
+        private final Map<UUID, Candidate> candidates;
+        private @Nullable Set<UUID> startedNotions;
+
+        Lessons(Map<String, LearningTrack> tracks, Set<UUID> known, List<Candidate> eligible) {
+            this.tracks = tracks;
+            this.known = known;
+            this.candidates = eligible.stream().collect(Collectors.toMap(Candidate::cardId, Function.identity()));
+        }
+
+        @Nullable
+        String lessonFor(CardSnapshot card) {
+            Candidate candidate = candidates.get(card.cardId());
+            String lesson = card.lesson();
+            if (lesson == null
+                    || candidate == null
+                    || candidate.notionId() == null
+                    || known.contains(card.cardId())
+                    || tracks.get(card.subjectSlug()) != LearningTrack.LEARN) {
+                return null;
+            }
+            return startedNotions().contains(candidate.notionId()) ? null : lesson;
+        }
+
+        /** Les notions dont l'utilisateur a déjà vu au moins une carte ; calculées seulement si une leçon est possible. */
+        private Set<UUID> startedNotions() {
+            Set<UUID> started = startedNotions;
+            if (started == null) {
+                started = Set.copyOf(cards.notionsOf(known).values());
+                startedNotions = started;
+            }
+            return started;
+        }
     }
 
     /**
      * Les cartes rangées selon le parcours de leur sujet (ADR 0032). Avec un groupe, chaque sujet suit le parcours par
      * défaut : le groupe choisit ses cartes, pas le parcours de chacun.
      */
-    private List<Candidate> arranged(UserRef user, QueueFilter filter, List<Candidate> eligible, Set<UUID> known) {
-        Map<String, LearningTrack> tracks = filter.group() == null ? followedSubjects.tracksOf(user) : Map.of();
+    private List<Candidate> arranged(
+            UserRef user, Map<String, LearningTrack> tracks, List<Candidate> eligible, Set<UUID> known) {
         List<NotionInfo> notions =
                 cards.notions(eligible.stream().map(Candidate::subjectSlug).collect(Collectors.toSet()));
         Set<UUID> locked = tracks.containsValue(LearningTrack.LEARN)
@@ -162,12 +210,12 @@ public class ReviewQueueService {
                 type == null ? scope.cardTypes() : Set.of(type));
     }
 
-    private QueuedCard queuedCard(CardSnapshot card, ReviewState state, Instant now) {
+    private QueuedCard queuedCard(CardSnapshot card, ReviewState state, @Nullable String lesson, Instant now) {
         List<RatingPreview> previews = Arrays.stream(Rating.values())
                 .map(rating -> new RatingPreview(
                         rating, scheduler.review(state, rating, now).dueAt()))
                 .toList();
-        return new QueuedCard(card, state.state(), previews);
+        return new QueuedCard(card, state.state(), previews, lesson);
     }
 
     /**
@@ -200,7 +248,12 @@ public class ReviewQueueService {
             @Nullable Instant nextDueAt) {}
 
     /** Une carte à réviser, avec l'échéance que donnerait chaque note (affichée sur les boutons). */
-    public record QueuedCard(CardSnapshot card, LearningState state, List<RatingPreview> previews) {}
+    /** @param lesson la leçon de la notion, à lire avant la carte ; {@code null} le plus souvent */
+    public record QueuedCard(
+            CardSnapshot card,
+            LearningState state,
+            List<RatingPreview> previews,
+            @Nullable String lesson) {}
 
     public record RatingPreview(Rating rating, Instant dueAt) {}
 }

@@ -6,6 +6,7 @@ import { Markdown } from '../components/Markdown'
 import { CardHeader } from './CardHeader'
 import { ExerciseCard } from './ExerciseCard'
 import { FillInCard } from './FillInCard'
+import { LessonCard } from './LessonCard'
 import { formatDelay } from './formatDelay'
 import { MultipleChoiceCard } from './MultipleChoiceCard'
 
@@ -25,9 +26,13 @@ const RATING_STYLES: Record<Rating, string> = {
 
 /**
  * Une carte à réviser : un QCM, un vrai ou faux ou un code à trous est corrigé par le serveur, un exercice de code
- * jugé par ses tests ; les autres formats s'auto-évaluent.
+ * jugé par ses tests ; les autres formats s'auto-évaluent. La leçon de la notion, s'il faut la lire, passe avant.
  */
 export function ReviewCard({ card, onReviewed }: { card: QueuedCard; onReviewed: () => void }) {
+  const [lessonRead, setLessonRead] = useState(false)
+  if (card.lesson && !lessonRead) {
+    return <LessonCard card={card} onRead={() => setLessonRead(true)} />
+  }
   if (GRADED_BY_CHOICES.has(card.type)) {
     return <MultipleChoiceCard card={card} onReviewed={onReviewed} />
   }
