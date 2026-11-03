@@ -1,4 +1,63 @@
 notion: maven-transitives
+lesson: |-
+  Une dépendance a ses propres dépendances, qui deviennent les nôtres : ce sont les **dépendances transitives**. Si
+  plusieurs chemins mènent à une même bibliothèque en **versions différentes**, Maven en garde **une seule** :
+
+  - la plus **proche** dans l'arbre (*nearest wins*) ;
+  - à égalité de profondeur, la **première déclarée**.
+
+  ```
+  mon-service
+  ├── client-a ──► guava 32.1    (profondeur 2)
+  └── client-b ──► lib-x ──► guava 25.0   (profondeur 3)       → guava 32.1 est retenue
+  ```
+
+  Attention : Maven ne choisit **pas** la plus récente. La version retenue peut être plus ancienne que celle qu'une autre
+  bibliothèque attend, d'où des `NoSuchMethodError` à l'exécution.
+
+  Les outils :
+
+  ```xml
+  <dependencyManagement>                          <!-- fixe les versions, n'ajoute aucune dépendance -->
+    <dependencies>
+      <dependency>
+        <groupId>io.quarkus.platform</groupId>
+        <artifactId>quarkus-bom</artifactId>
+        <version>3.17.0</version>
+        <type>pom</type>
+        <scope>import</scope>                     <!-- un BOM : un ensemble cohérent de versions -->
+      </dependency>
+      <dependency>
+        <groupId>com.google.guava</groupId>
+        <artifactId>guava</artifactId>
+        <version>33.3.1-jre</version>             <!-- impose cette version partout, même en transitive -->
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+
+  <dependency>
+    <groupId>com.exemple</groupId>
+    <artifactId>client-b</artifactId>
+    <exclusions>
+      <exclusion>                                 <!-- retire une dépendance transitive -->
+        <groupId>commons-logging</groupId>
+        <artifactId>commons-logging</artifactId>
+      </exclusion>
+    </exclusions>
+  </dependency>
+  ```
+
+  - **`mvn dependency:tree`** montre l'arbre ; `-Dverbose` affiche aussi les versions écartées.
+  - **`dependencyManagement`** fixe une version **sans ajouter** la dépendance ; `dependencies` l'ajoute réellement.
+  - Un **BOM** (*Bill of Materials*) importe un ensemble de versions testées ensemble (Spring Boot, Quarkus, Jackson) ;
+    on peut en importer plusieurs, contrairement au **parent**, unique.
+  - Le plugin **enforcer** (`dependencyConvergence`, `requireUpperBoundDeps`) fait échouer le build en cas de conflit.
+
+  **Piège classique** : croire que Maven retient la version la plus récente. Il retient la plus proche, qui peut être
+  ancienne, et la bibliothèque qui attendait la version récente plante à l'exécution.
+
+  **En entretien** : « Nearest wins, pas la plus récente ; je lis `dependency:tree`, je fixe les versions par
+  `dependencyManagement` et les BOM, j'exclus les intrus, et l'enforcer fait échouer le build en cas de conflit. »
 cards:
   - key: maven-resout-conflit-versions
     format: course
@@ -20,7 +79,188 @@ cards:
     format: course
     question: Parent vs BOM ?
     answer: Héritage de configuration et versions (un seul parent) vs import de versions uniquement (plusieurs possibles).
+  - key: vf-plus-recente
+    format: true-false
+    question: En cas de conflit, Maven retient toujours la version la plus récente.
+    truth: false
+    answer: Il retient la plus proche dans l'arbre, puis la première déclarée.
+  - key: vf-dm-ajoute
+    format: true-false
+    question: Déclarer une dépendance dans `dependencyManagement` l'ajoute au projet.
+    truth: false
+    answer: Elle ne fait que fixer sa version si elle est utilisée.
+  - key: vf-plusieurs-bom
+    format: true-false
+    question: Un projet peut importer plusieurs BOM.
+    truth: true
+    answer: Contrairement au parent, unique.
+  - key: vf-gradle
+    format: true-false
+    question: Gradle et Maven résolvent les conflits de la même façon.
+    truth: false
+    answer: Gradle retient par défaut la version la plus haute.
+  - key: qcm-retenue
+    format: multiple-choice
+    question: "`A → guava 30` (profondeur 2) et `B → C → guava 33` (profondeur 3). Quelle version Maven retient-il ?"
+    choices:
+      - text: "guava 30, la plus proche"
+        correct: true
+      - text: "guava 33, la plus récente"
+        correct: false
+      - text: "Les deux"
+        correct: false
+      - text: "Aucune, le build échoue"
+        correct: false
+    answer: Sauf si une version est imposée par `dependencyManagement`.
+  - key: qcm-imposer
+    format: multiple-choice
+    question: Comment imposer une version d'une dépendance transitive dans tout le projet ?
+    choices:
+      - text: "La déclarer dans `dependencyManagement`"
+        correct: true
+      - text: "Importer un BOM qui la fixe"
+        correct: true
+      - text: "Copier son JAR dans `src/main/resources`"
+        correct: false
+      - text: "La déclarer en portée `test`"
+        correct: false
+    answer: '`dependencyManagement` s''applique aussi aux dépendances transitives.'
+  - key: qcm-exclure
+    format: multiple-choice
+    question: "Comment empêcher `client-b` d'apporter `commons-logging` ?"
+    choices:
+      - text: "Une `<exclusion>` dans la déclaration de `client-b`"
+        correct: true
+      - text: "Déclarer `commons-logging` en portée `test`"
+        correct: false
+      - text: "Supprimer le JAR de `~/.m2`"
+        correct: false
+      - text: "Ajouter `commons-logging` deux fois"
+        correct: false
+    answer: L'exclusion retire la dépendance transitive de l'arbre.
+  - key: qcm-enforcer
+    format: multiple-choice
+    question: Quelles règles du plugin enforcer détectent les conflits de versions ?
+    choices:
+      - text: "`dependencyConvergence`"
+        correct: true
+      - text: "`requireUpperBoundDeps`"
+        correct: true
+      - text: "`requireJavaVersion`"
+        correct: false
+      - text: "`requireMavenVersion`"
+        correct: false
+    answer: Les deux dernières vérifient l'environnement de build.
+  - key: bug-version-partout
+    format: bug-fix
+    question: |-
+      Chaque module déclare sa propre version de Jackson, et elles divergent :
+      ```xml
+      <!-- module-a -->  <artifactId>jackson-databind</artifactId> <version>2.15.0</version>
+      <!-- module-b -->  <artifactId>jackson-databind</artifactId> <version>2.18.2</version>
+      ```
+    answer: |-
+      ```xml
+      <!-- pom parent -->
+      <dependencyManagement>
+        <dependencies>
+          <dependency>
+            <groupId>com.fasterxml.jackson</groupId>
+            <artifactId>jackson-bom</artifactId>
+            <version>2.18.2</version>
+            <type>pom</type>
+            <scope>import</scope>
+          </dependency>
+        </dependencies>
+      </dependencyManagement>
+      <!-- modules : la dépendance sans version -->
+      ```
+      Les versions se fixent une fois, dans le parent (ici par le BOM de Jackson) ; les modules déclarent la dépendance
+      sans version.
+  - key: bug-ajout-manuel
+    format: bug-fix
+    question: |-
+      Pour corriger un `NoSuchMethodError` sur Guava, un développeur a ajouté une dépendance directe à une troisième
+      version, sans regarder l'arbre :
+      ```xml
+      <dependency><groupId>com.google.guava</groupId><artifactId>guava</artifactId><version>31.0-jre</version></dependency>
+      ```
+    answer: |-
+      ```
+      mvn dependency:tree -Dverbose -Dincludes=com.google.guava
+      ```
+      ```xml
+      <dependencyManagement>
+        <dependencies>
+          <dependency><groupId>com.google.guava</groupId><artifactId>guava</artifactId><version>33.3.1-jre</version></dependency>
+        </dependencies>
+      </dependencyManagement>
+      ```
+      On identifie d'abord quelles bibliothèques demandent quelles versions, puis on impose la version compatible avec
+      toutes (souvent la plus haute), une seule fois, dans `dependencyManagement`.
+  - key: bug-logging-double
+    format: bug-fix
+    question: |-
+      Au démarrage : « SLF4J: Class path contains multiple SLF4J providers ». Une dépendance apporte `slf4j-simple` :
+      ```xml
+      <dependency>
+        <groupId>com.exemple</groupId>
+        <artifactId>client-meteo</artifactId>
+      </dependency>
+      ```
+    answer: |-
+      ```xml
+      <dependency>
+        <groupId>com.exemple</groupId>
+        <artifactId>client-meteo</artifactId>
+        <exclusions>
+          <exclusion>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-simple</artifactId>
+          </exclusion>
+        </exclusions>
+      </dependency>
+      ```
+      Une bibliothèque ne devrait pas imposer d'implémentation de journalisation. L'exclusion la retire, et
+      l'application garde la sienne.
+  - key: bug-enforcer-absent
+    format: bug-fix
+    question: |-
+      Les conflits de versions ne sont découverts qu'en production. Ajoutez une protection au build.
+      ```xml
+      <build><plugins><!-- aucun contrôle des dépendances --></plugins></build>
+      ```
+    answer: |-
+      ```xml
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-enforcer-plugin</artifactId>
+        <executions>
+          <execution>
+            <goals><goal>enforce</goal></goals>
+            <configuration>
+              <rules>
+                <dependencyConvergence/>
+              </rules>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+      ```
+      La règle fait échouer le build dès que deux chemins mènent à des versions différentes d'une même dépendance.
   - key: definition-bom
     format: definition
     question: BOM
     answer: 'Bill of Materials : pom fixant un ensemble cohérent de versions'
+  - key: definition-transitive
+    format: definition
+    question: Dépendance transitive
+    answer: Une dépendance d'une de nos dépendances, ajoutée automatiquement au projet.
+  - key: definition-nearest-wins
+    format: definition
+    question: Nearest wins
+    answer: La règle de Maven qui retient, en cas de conflit, la version la plus proche du projet dans l'arbre des dépendances.
+  - key: definition-exclusion
+    format: definition
+    question: Exclusion (Maven)
+    answer: La déclaration qui retire une dépendance transitive apportée par une dépendance.
