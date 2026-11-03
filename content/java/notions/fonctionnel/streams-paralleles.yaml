@@ -1,9 +1,179 @@
 notion: streams-paralleles
+lesson: |-
+  `parallelStream()` (ou `.parallel()`) découpe la source en morceaux traités par plusieurs threads, puis fusionne les
+  résultats. Les threads viennent du **`ForkJoinPool` commun**, partagé par toute la JVM (cœurs − 1 threads, plus le
+  thread appelant).
+
+  ```java
+  long premiers = LongStream.rangeClosed(1, 10_000_000).parallel().filter(Maths::estPremier).count();
+  ```
+
+  Le parallélisme ne paie que si **tout** est réuni :
+  - un **gros volume** (au moins des dizaines de milliers d'éléments) ou un **calcul coûteux** par élément ;
+  - une source qui se **découpe bien** : tableaux, `ArrayList`, `IntStream.range` (pas `LinkedList`, `Stream.iterate`,
+    `Files.lines`) ;
+  - des opérations **indépendantes**, **sans effet de bord** ni état partagé ;
+  - des réductions **associatives** (`sum`, `collect`), et peu d'opérations liées à l'ordre (`findFirst`, `limit`,
+    `sorted` sur un stream ordonné coûtent cher en parallèle).
+
+  À éviter :
+  - les **entrées-sorties** (appels HTTP, base de données) : elles bloquent les threads du pool commun et ralentissent
+    toute l'application ; on utilise des threads virtuels ou un exécuteur dédié ;
+  - dans un serveur déjà chargé de requêtes concurrentes : les cœurs sont déjà occupés.
+
+  - L'ordre est conservé par `toList`, `collect` et `forEachOrdered`, mais pas par `forEach`.
+  - On **mesure** (JMH) avant de garder un `parallel()` : le découpage et la fusion ont un coût.
+
+  **Piège classique** : `ids.parallelStream().map(api::charger)`. Les appels réseau bloquent les quelques threads du pool
+  commun, que d'autres parties de l'application attendent aussi.
+
+  **En entretien** : « Le pool ForkJoin commun, partagé ; utile pour du calcul pur sur un gros volume bien découpable,
+  nuisible pour de l'I/O. Et je mesure avant de le garder. »
 cards:
   - key: pool-utilise-parallelstream
     format: course
     question: Quel pool utilise parallelStream ?
     answer: Le ForkJoinPool commun, dimensionné au nombre de cœurs moins un.
+  - key: conditions
+    format: course
+    question: Quand un stream parallèle a-t-il une chance d'être plus rapide ?
+    answer: Sur un gros volume ou un calcul coûteux par élément, une source qui se découpe bien (tableau, `ArrayList`, `range`), des opérations indépendantes sans effet de bord et des réductions associatives ; et seulement si une mesure le confirme.
+  - key: io
+    format: course
+    question: Pourquoi éviter un stream parallèle pour des appels réseau ?
+    answer: Les appels bloquent les threads du pool ForkJoin commun, partagé par toute la JVM, ce qui ralentit d'autres traitements ; on utilise des threads virtuels ou un exécuteur dédié.
+  - key: sources
+    format: course
+    question: Pourquoi une `LinkedList` se parallélise-t-elle mal ?
+    answer: Elle ne se découpe pas en morceaux équilibrés sans la parcourir ; un tableau ou une `ArrayList` se coupe en deux instantanément.
+  - key: vf-plus-rapide
+    format: true-false
+    question: Un stream parallèle est toujours plus rapide qu'un stream séquentiel.
+    truth: false
+    answer: Le découpage, la fusion et la coordination coûtent ; sur un petit volume, c'est plus lent.
+  - key: vf-pool-commun
+    format: true-false
+    question: Chaque `parallelStream()` crée son propre pool de threads.
+    truth: false
+    answer: Tous partagent le `ForkJoinPool` commun.
+  - key: vf-to-list-ordre
+    format: true-false
+    question: "`parallelStream().map(f).toList()` conserve l'ordre de la source."
+    truth: true
+    answer: Les résultats sont fusionnés dans l'ordre ; seul `forEach` ne le garantit pas.
+  - key: vf-find-any
+    format: true-false
+    question: En parallèle, `findAny` peut être plus rapide que `findFirst`.
+    truth: true
+    answer: '`findFirst` doit respecter l''ordre de rencontre.'
+  - key: qcm-adapte
+    format: multiple-choice
+    question: Quel traitement a le plus de chances de profiter d'un stream parallèle ?
+    choices:
+      - text: "Calculer un hachage coûteux pour chacun de 5 millions d'éléments d'un tableau"
+        correct: true
+      - text: "Appeler une API HTTP pour chaque identifiant"
+        correct: false
+      - text: "Filtrer une liste de 50 éléments"
+        correct: false
+      - text: "Lire les lignes d'un fichier avec `Files.lines` et les afficher dans l'ordre"
+        correct: false
+    answer: Du calcul pur, indépendant, sur un gros volume bien découpable.
+  - key: qcm-ordre
+    format: multiple-choice
+    question: Lesquelles conservent l'ordre de la source en parallèle ?
+    choices:
+      - text: "`toList()`"
+        correct: true
+      - text: "`forEachOrdered`"
+        correct: true
+      - text: "`forEach`"
+        correct: false
+      - text: "`findAny`"
+        correct: false
+    answer: '`forEach` et `findAny` laissent les threads aller dans n''importe quel ordre.'
+  - key: qcm-sources
+    format: multiple-choice
+    question: Quelles sources se découpent bien ?
+    choices:
+      - text: "Un tableau"
+        correct: true
+      - text: "`IntStream.range(0, n)`"
+        correct: true
+      - text: "`Stream.iterate(0, i -> i + 1).limit(n)`"
+        correct: false
+      - text: "Une `LinkedList`"
+        correct: false
+    answer: '`iterate` est intrinsèquement séquentiel : chaque élément dépend du précédent.'
+  - key: qcm-io
+    format: multiple-choice
+    question: Pour charger 1 000 profils depuis une API en parallèle, que choisir ?
+    choices:
+      - text: "Des threads virtuels (`Executors.newVirtualThreadPerTaskExecutor()`)"
+        correct: true
+      - text: "`Gatherers.mapConcurrent(20, api::charger)`, qui borne la concurrence"
+        correct: true
+      - text: "`ids.parallelStream().map(api::charger)`"
+        correct: false
+      - text: "Une boucle `for` séquentielle, pour aller plus vite"
+        correct: false
+    answer: Le pool commun n'est pas fait pour attendre des I/O.
+  - key: bug-io-parallele
+    format: bug-fix
+    question: |-
+      Depuis l'ajout de ce code, toute l'application ralentit pendant les imports :
+      ```java
+      List<Profil> profils = ids.parallelStream().map(apiProfils::charger).toList();
+      ```
+    answer: |-
+      ```java
+      List<Profil> profils = ids.stream()
+              .gather(Gatherers.mapConcurrent(20, apiProfils::charger))   // Java 24 : threads virtuels, 20 appels au plus
+              .toList();
+      ```
+      Les appels réseau bloquaient les threads du pool ForkJoin commun, partagé par tout le reste. Des threads virtuels,
+      avec une concurrence bornée, attendent sans bloquer de cœur.
+  - key: bug-foreach-ordre
+    format: bug-fix
+    question: |-
+      Les lignes du rapport sortent dans le désordre :
+      ```java
+      lignes.parallelStream().map(this::formater).forEach(writer::println);
+      ```
+    answer: |-
+      ```java
+      lignes.parallelStream().map(this::formater).forEachOrdered(writer::println);
+      // ou, plus simple : lignes.stream()... si le formatage n'est pas coûteux
+      ```
+      `forEach` en parallèle n'a pas d'ordre. `forEachOrdered` le rétablit (en sérialisant l'écriture), et souvent un
+      stream séquentiel suffit.
+  - key: bug-petit-volume
+    format: bug-fix
+    question: |-
+      Ce code, appelé à chaque requête HTTP, est plus lent que sa version séquentielle :
+      ```java
+      double total = panier.lignes().parallelStream().mapToDouble(Ligne::montant).sum();   // 5 à 20 lignes
+      ```
+    answer: |-
+      ```java
+      double total = panier.lignes().stream().mapToDouble(Ligne::montant).sum();
+      ```
+      Sur une vingtaine d'éléments, découper et fusionner coûte plus que le calcul. Dans un serveur, les cœurs sont déjà
+      occupés par les autres requêtes.
+  - key: bug-etat-partage
+    format: bug-fix
+    question: |-
+      Le nombre d'erreurs change d'une exécution à l'autre :
+      ```java
+      int[] erreurs = {0};
+      lignes.parallelStream().filter(this::invalide).forEach(l -> erreurs[0]++);
+      ```
+    answer: |-
+      ```java
+      long erreurs = lignes.parallelStream().filter(this::invalide).count();
+      ```
+      Plusieurs threads incrémentaient la même case sans synchronisation : des incréments se perdaient. `count` combine les
+      résultats partiels correctement.
   - key: collegue-veut-mettre-parallelstream-partout-lui
     format: scenario
     question: Un collègue veut mettre parallelStream() partout. Qu'est-ce que tu lui dis ?
@@ -12,3 +182,30 @@ cards:
       Sur une petite collection, le coût de découpage et de fusion dépasse le gain. Et c'est franchement nocif sur de l'**I/O** : les threads du ForkJoinPool commun se bloquent à attendre, et comme ce pool est partagé par toute l'application, ça ralentit des traitements sans aucun rapport. Pour de l'I/O concurrent, il faut un CompletableFuture avec un pool dédié, ou des virtual threads.
       Attention aussi aux opérations avec état ou effet de bord : accumuler dans une collection non concurrente depuis un stream parallèle produit des résultats corrompus.
       Et dans tous les cas : mesurer avant/après, sinon on ne fait que croire.
+  - key: scenario-mesurer
+    format: scenario
+    question: Comment prouves-tu qu'un `parallel()` apporte un gain ?
+    answer: |-
+      Avec un micro-benchmark JMH, pas un `System.currentTimeMillis()` autour d'un appel : JMH gère le préchauffage du JIT,
+      les itérations et l'élimination de code mort. Je compare séquentiel et parallèle sur des volumes réalistes (pas
+      seulement le cas favorable), sur une machine proche de la production en nombre de cœurs. Puis je vérifie en charge
+      réelle : un gain mesuré seul peut disparaître quand les autres requêtes occupent les cœurs. Sans gain net et stable,
+      je retire le `parallel()`.
+  - key: scenario-pool-dedie
+    format: scenario
+    question: Un calcul parallèle lourd et légitime ne doit pas monopoliser le pool commun. Que fais-tu ?
+    answer: |-
+      Je l'isole. L'astuce connue consiste à lancer le stream depuis une tâche soumise à un `ForkJoinPool` dédié
+      (`new ForkJoinPool(4).submit(() -> liste.parallelStream()...).get()`) : les tâches du stream s'exécutent alors dans ce
+      pool. Mais c'est un comportement d'implémentation, peu documenté. Plus proprement, je découpe moi-même le travail et
+      je le soumets à un `ExecutorService` dimensionné, ce qui rend le parallélisme explicite, borné et observable
+      (métriques du pool).
+  - key: scenario-ordre-couteux
+    format: scenario
+    question: Un pipeline parallèle avec `sorted()` puis `limit(10)` est décevant. Pourquoi, et que proposes-tu ?
+    answer: |-
+      `sorted` doit voir tous les éléments et fusionner des morceaux triés, et `limit` sur un stream ordonné oblige à
+      respecter l'ordre de rencontre entre threads : le parallélisme y gagne peu, voire perd. Pour « les 10 meilleurs », un
+      tas de taille 10 (une `PriorityQueue`) en un seul passage est en O(n log 10). Si l'ordre de la source ne compte pas,
+      `unordered()` relâche aussi certaines contraintes. Et si les données viennent d'une base, `ORDER BY ... LIMIT 10`
+      fait le travail là où il est le moins cher.

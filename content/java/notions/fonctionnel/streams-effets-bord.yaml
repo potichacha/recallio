@@ -1,6 +1,217 @@
 notion: streams-effets-bord
+lesson: |-
+  Les fonctions passées à un stream doivent être **sans effet de bord** et **sans état** : elles calculent un résultat à
+  partir de leur argument, sans modifier quoi que ce soit à l'extérieur.
+
+  ```java
+  // À éviter : un état extérieur modifié depuis le pipeline
+  List<String> resultat = new ArrayList<>();
+  clients.stream().filter(Client::actif).forEach(c -> resultat.add(c.nom()));
+
+  // Correct : le pipeline construit son résultat
+  List<String> resultat = clients.stream().filter(Client::actif).map(Client::nom).toList();
+  ```
+
+  Pourquoi :
+  - en **parallèle**, plusieurs threads modifient la même `ArrayList` ou le même compteur : éléments perdus, exceptions,
+    résultats faux ;
+  - l'ordre et même le **nombre** d'appels ne sont pas garantis : `peek` ou `map` peuvent être sautés (`count` sur une
+    taille connue), et un court-circuit arrête le pipeline tôt ;
+  - le code est plus difficile à lire et à tester.
+
+  Règles :
+  - **ne jamais modifier la source** pendant le stream (`ConcurrentModificationException`) ;
+  - accumuler avec `collect`, `reduce`, `sum`, `groupingBy`, pas avec une variable extérieure ;
+  - garder les effets voulus (écrire, envoyer, journaliser) dans l'opération **terminale** `forEach`, en fin de
+    pipeline ;
+  - une lambda **avec état** (un `Set` des déjà-vus dans un `filter`) est fragile : `distinct()` ou un collecteur font
+    mieux.
+
+  **Piège classique** : `liste.stream().forEach(x -> { if (...) liste.remove(x); })`. La source est modifiée pendant son
+  parcours : exception, ou éléments sautés. `liste.removeIf(...)` fait cela correctement.
+
+  **En entretien** : « Des fonctions pures dans le pipeline, le résultat construit par `collect` ou `reduce`, et les
+  effets de bord seulement dans le `forEach` final ; sinon c'est faux en parallèle et fragile en séquentiel. »
 cards:
   - key: effets-bord-sont-ils-dangereux-stream
     format: course
     question: Pourquoi les effets de bord sont-ils dangereux dans un stream ?
     answer: Ils rendent le résultat dépendant de l'ordre d'exécution et sont incorrects en parallèle.
+  - key: ou-mettre-effets
+    format: course
+    question: Où placer un effet de bord voulu (envoyer un e-mail, écrire un fichier) dans un pipeline ?
+    answer: Dans l'opération terminale `forEach`, après avoir calculé les éléments concernés par des fonctions pures.
+  - key: modifier-source
+    format: course
+    question: Que se passe-t-il si l'on modifie la collection source pendant son stream ?
+    answer: Le comportement est indéfini, en général une `ConcurrentModificationException` ; pour retirer des éléments, on utilise `removeIf`.
+  - key: nombre-appels
+    format: course
+    question: Pourquoi ne pas compter sur le nombre d'appels d'une lambda dans `map` ou `peek` ?
+    answer: Un court-circuit arrête le pipeline tôt, et une implémentation peut sauter des étapes (par exemple `count` sur une taille connue).
+  - key: vf-arraylist-parallele
+    format: true-false
+    question: Ajouter dans une `ArrayList` extérieure depuis un `parallelStream().forEach` est sûr.
+    truth: false
+    answer: '`ArrayList` n''est pas thread-safe : éléments perdus ou exceptions.'
+  - key: vf-collect-sur
+    format: true-false
+    question: "`collect(Collectors.toList())` est correct aussi en parallèle."
+    truth: true
+    answer: Chaque thread remplit son conteneur, puis les conteneurs sont fusionnés.
+  - key: vf-peek-garanti
+    format: true-false
+    question: Un `peek` est toujours exécuté pour chaque élément de la source.
+    truth: false
+    answer: Il peut être sauté, ou interrompu par un court-circuit.
+  - key: vf-remove-if
+    format: true-false
+    question: "`liste.removeIf(p)` est la bonne façon de retirer des éléments qui satisfont `p`."
+    truth: true
+    answer: Plutôt que de modifier la liste pendant son stream.
+  - key: qcm-correct
+    format: multiple-choice
+    question: Lesquelles calculent correctement le total, y compris en parallèle ?
+    choices:
+      - text: "`lignes.parallelStream().mapToInt(Ligne::montant).sum()`"
+        correct: true
+      - text: "`lignes.parallelStream().collect(Collectors.summingInt(Ligne::montant))`"
+        correct: true
+      - text: "`AtomicInteger t; lignes.parallelStream().forEach(l -> t.addAndGet(l.montant()))`, juste mais lent"
+        correct: false
+      - text: "`int[] t = {0}; lignes.parallelStream().forEach(l -> t[0] += l.montant())`"
+        correct: false
+    answer: L'`AtomicInteger` donne le bon total, mais sérialise les threads sur un compteur partagé ; le tableau perd des additions.
+  - key: qcm-dedoublonner
+    format: multiple-choice
+    question: Comment garder la première commande de chaque client, sans état extérieur ?
+    choices:
+      - text: "`collect(toMap(Commande::client, c -> c, (a, b) -> a, LinkedHashMap::new)).values()`"
+        correct: true
+      - text: "`Set<String> vus = new HashSet<>(); filter(c -> vus.add(c.client()))`"
+        correct: false
+      - text: "`distinct()`, qui compare les commandes entières"
+        correct: false
+      - text: "`peek(vus::add)`"
+        correct: false
+    answer: Le `Set` extérieur fonctionne en séquentiel, mais c'est un état partagé, faux en parallèle ; `distinct` compare les commandes, pas les clients.
+  - key: qcm-pures
+    format: multiple-choice
+    question: Lesquelles sont des fonctions sans effet de bord ?
+    choices:
+      - text: "`c -> c.total() * 1.2`"
+        correct: true
+      - text: "`String::toUpperCase`"
+        correct: true
+      - text: "`c -> { compteur++; return c; }`"
+        correct: false
+      - text: "`c -> { repo.save(c); return c; }`"
+        correct: false
+    answer: Les deux dernières modifient un état extérieur.
+  - key: qcm-for-each
+    format: multiple-choice
+    question: Quel usage de `forEach` est approprié ?
+    choices:
+      - text: "`clientsARelancer.forEach(mailer::envoyer)` en fin de pipeline"
+        correct: true
+      - text: "`stream.forEach(x -> resultat.add(f(x)))` pour construire une liste"
+        correct: false
+      - text: "`stream.forEach(x -> total += x)` pour sommer"
+        correct: false
+      - text: "`liste.stream().forEach(liste::remove)` pour vider la liste"
+        correct: false
+    answer: '`forEach` sert aux effets voulus, pas à construire un résultat.'
+  - key: bug-liste-exterieure
+    format: bug-fix
+    question: |-
+      Ce code perd parfois des éléments :
+      ```java
+      List<Facture> factures = new ArrayList<>();
+      commandes.parallelStream().filter(Commande::payee).forEach(c -> factures.add(facturer(c)));
+      ```
+    answer: |-
+      ```java
+      List<Facture> factures = commandes.parallelStream()
+              .filter(Commande::payee)
+              .map(this::facturer)
+              .toList();
+      ```
+      Plusieurs threads ajoutaient dans la même `ArrayList`, qui n'est pas thread-safe. Le pipeline construit sa liste
+      lui-même, correctement en parallèle.
+  - key: bug-modifier-source
+    format: bug-fix
+    question: |-
+      Ce code lève une `ConcurrentModificationException` :
+      ```java
+      sessions.stream().filter(Session::expiree).forEach(sessions::remove);
+      ```
+    answer: |-
+      ```java
+      sessions.removeIf(Session::expiree);
+      ```
+      On ne modifie pas une collection pendant son parcours. `removeIf` retire les éléments correctement, en un passage.
+  - key: bug-compteur-map
+    format: bug-fix
+    question: |-
+      Réécrivez sans état partagé :
+      ```java
+      Map<String, Integer> parVille = new HashMap<>();
+      clients.stream().forEach(c -> parVille.merge(c.ville(), 1, Integer::sum));
+      ```
+    answer: |-
+      ```java
+      Map<String, Long> parVille = clients.stream()
+              .collect(Collectors.groupingBy(Client::ville, Collectors.counting()));
+      ```
+      Le collecteur construit la map lui-même, et reste correct si le stream devient parallèle.
+  - key: bug-effet-dans-map
+    format: bug-fix
+    question: |-
+      Les commandes ne sont sauvegardées que partiellement :
+      ```java
+      boolean erreur = commandes.stream()
+              .map(c -> { repo.save(c); return c; })
+              .anyMatch(Commande::invalide);
+      ```
+    answer: |-
+      ```java
+      commandes.forEach(repo::save);
+      boolean erreur = commandes.stream().anyMatch(Commande::invalide);
+      ```
+      `anyMatch` court-circuite à la première commande invalide : les suivantes ne passent jamais par `map`. Un effet
+      voulu se fait à part, dans un `forEach`, pas caché dans une fonction de transformation.
+  - key: scenario-relecture
+    format: scenario
+    question: En revue de code, tu vois un pipeline dont le `map` appelle un service qui écrit en base. Que dis-tu ?
+    answer: |-
+      Que l'effet de bord est caché dans une transformation : le nombre d'appels dépend du reste du pipeline (un
+      `findFirst`, un `limit` ou un `anyMatch` plus loin peuvent l'interrompre), et si quelqu'un ajoute `parallel()`, les
+      écritures partent en parallèle hors de toute transaction maîtrisée. Je propose de séparer : un pipeline pur qui
+      calcule ce qu'il faut écrire, puis un `forEach` (ou une écriture par lot, plus efficace) qui écrit, clairement
+      visible. C'est aussi plus facile à tester.
+  - key: scenario-parallele-casse
+    format: scenario
+    question: Un collègue a ajouté `.parallel()` à un pipeline, et les résultats sont devenus aléatoires. Comment enquêtes-tu ?
+    answer: |-
+      Je cherche l'état partagé : une collection ou un compteur extérieur modifié dans `forEach`, `map` ou `peek`, un
+      `reduce` avec une identité non neutre ou une opération non associative, ou une dépendance à l'ordre (un `forEach` au
+      lieu de `forEachOrdered`, un `findAny`). Je remplace l'accumulation par `collect`, `sum` ou `groupingBy`, et je
+      vérifie avec un test qui compare les résultats séquentiel et parallèle sur un gros jeu de données. Puis je mesure si
+      le parallélisme apporte vraiment quelque chose ; souvent, je le retire.
+  - key: scenario-journalisation
+    format: scenario
+    question: Tu veux journaliser chaque élément rejeté par un `filter`. Comment faire proprement ?
+    answer: |-
+      Plutôt qu'un effet de bord dans le prédicat, je sépare les deux groupes avec
+      `Collectors.partitioningBy(this::valide)` : j'obtiens les valides et les rejetés, je traite les premiers et je
+      journalise les seconds dans un `forEach` explicite. Si le volume est grand et que je ne veux pas tout garder en
+      mémoire, une boucle classique avec un `if`/`else` est plus claire qu'un stream acrobatique. Un `peek` de débogage
+      temporaire reste acceptable, pas en production.
+  - key: scenario-etat-filtre
+    format: scenario
+    question: Tu dois ne garder que les événements dont l'horodatage est postérieur au précédent gardé. Les streams conviennent-ils ?
+    answer: |-
+      C'est un traitement **avec état** qui dépend de l'ordre : un `filter` avec une variable extérieure « dernier gardé »
+      marcherait en séquentiel, mais violerait le contrat des streams (et serait faux en parallèle). J'écris une boucle
+      simple, claire et correcte. Depuis Java 24, un `Gatherer` (par exemple construit avec `Gatherer.ofSequential` et un
+      état initialisé par élément de stream) exprime proprement ce genre d'opération à état dans un pipeline.
