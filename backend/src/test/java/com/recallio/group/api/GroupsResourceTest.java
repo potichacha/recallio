@@ -20,7 +20,7 @@ import io.restassured.http.ContentType;
 import io.restassured.response.ValidatableResponse;
 import jakarta.inject.Inject;
 import jakarta.persistence.EntityManager;
-import java.time.Instant;
+import java.time.Clock;
 import java.time.ZoneOffset;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -39,6 +39,10 @@ class GroupsResourceTest {
 
     @Inject
     EntityManager entityManager;
+
+    /** L'horloge de l'application (midi UTC en test) : les dates écrites en base doivent la suivre, pas l'horloge réelle. */
+    @Inject
+    Clock clock;
 
     @Test
     void shouldRequireAuthentication() {
@@ -160,7 +164,7 @@ class GroupsResourceTest {
                                 """)
                         .setParameter("groupId", groupId)
                         .setParameter("userId", userId)
-                        .setParameter("now", Instant.now())
+                        .setParameter("now", clock.instant())
                         .executeUpdate());
     }
 }

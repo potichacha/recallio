@@ -20,7 +20,7 @@ import io.quarkus.test.security.oidc.Claim;
 import io.quarkus.test.security.oidc.OidcSecurity;
 import jakarta.inject.Inject;
 import jakarta.persistence.EntityManager;
-import java.time.Instant;
+import java.time.Clock;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
@@ -46,6 +46,10 @@ class LeaderboardResourceTest {
 
     @Inject
     EntityManager entityManager;
+
+    /** L'horloge de l'application (midi UTC en test) : les dates écrites en base doivent la suivre, pas l'horloge réelle. */
+    @Inject
+    Clock clock;
 
     @Test
     void shouldRequireAuthentication() {
@@ -163,7 +167,7 @@ class LeaderboardResourceTest {
                                 """)
                         .setParameter("groupId", groupId)
                         .setParameter("userId", userId)
-                        .setParameter("now", Instant.now())
+                        .setParameter("now", clock.instant())
                         .executeUpdate());
     }
 
@@ -187,7 +191,7 @@ class LeaderboardResourceTest {
                         """)
                 .setParameter("userId", userId)
                 .setParameter("amount", amount)
-                .setParameter("now", Instant.now())
+                .setParameter("now", clock.instant())
                 .executeUpdate();
     }
 }

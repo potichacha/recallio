@@ -17,7 +17,7 @@ import io.quarkus.test.security.oidc.Claim;
 import io.quarkus.test.security.oidc.OidcSecurity;
 import jakarta.inject.Inject;
 import jakarta.persistence.EntityManager;
-import java.time.Instant;
+import java.time.Clock;
 import java.time.ZoneOffset;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -40,6 +40,10 @@ class GroupInvitationsResourceTest {
 
     @Inject
     EntityManager entityManager;
+
+    /** L'horloge de l'application (midi UTC en test) : les dates écrites en base doivent la suivre, pas l'horloge réelle. */
+    @Inject
+    Clock clock;
 
     @Test
     void shouldRequireAuthentication() {
@@ -148,7 +152,7 @@ class GroupInvitationsResourceTest {
         QuarkusTransaction.requiringNew()
                 .run(() -> entityManager
                         .createNativeQuery("update group_invitation set expires_at = :past where group_id = :groupId")
-                        .setParameter("past", Instant.now().minusSeconds(1))
+                        .setParameter("past", clock.instant().minusSeconds(1))
                         .setParameter("groupId", groupId)
                         .executeUpdate());
     }

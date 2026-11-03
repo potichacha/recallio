@@ -26,7 +26,7 @@ import jakarta.persistence.EntityManager;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
-import java.time.Instant;
+import java.time.Clock;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Objects;
@@ -54,6 +54,10 @@ class GroupSettingsResourceTest {
 
     @Inject
     EntityManager entityManager;
+
+    /** L'horloge de l'application (midi UTC en test) : les dates écrites en base doivent la suivre, pas l'horloge réelle. */
+    @Inject
+    Clock clock;
 
     @BeforeEach
     void importSubjects() throws IOException {
@@ -181,7 +185,7 @@ class GroupSettingsResourceTest {
                                 """)
                         .setParameter("groupId", groupId)
                         .setParameter("userId", userId)
-                        .setParameter("now", Instant.now())
+                        .setParameter("now", clock.instant())
                         .executeUpdate());
     }
 }
