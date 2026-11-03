@@ -1,6 +1,241 @@
 notion: journalisation
+lesson: |-
+  En Java, on écrit les journaux à travers une **façade**, **SLF4J** (ou JBoss Logging dans Quarkus), et une
+  implémentation (Logback, Log4j 2, celle du serveur) produit la sortie. Le code ne dépend que de la façade.
+
+  ```java
+  private static final Logger log = LoggerFactory.getLogger(CommandeService.class);
+
+  log.info("Commande {} validée pour le client {}", commande.id(), client.id());   // message paramétré
+  log.debug("Détail du calcul : {}", detail);                                     // pas de coût si DEBUG est désactivé
+  log.warn("Stock bas pour {} : {} unités", produit, stock);
+  log.error("Échec du paiement de la commande {}", commande.id(), exception);    // l'exception en dernier argument
+  ```
+
+  Les **niveaux**, du plus bavard au plus grave :
+  - `TRACE`, `DEBUG` : le détail pour le diagnostic, désactivés en production par défaut ;
+  - `INFO` : les événements métier significatifs (une commande validée, un import terminé) ;
+  - `WARN` : une situation anormale mais gérée (un réessai, une valeur par défaut appliquée) ;
+  - `ERROR` : un échec qui demande une action (une requête en erreur, un traitement abandonné).
+
+  Les règles :
+  - des **messages paramétrés** (`{}`), pas de concaténation : la chaîne n'est construite que si le niveau est actif, et
+    les outils regroupent les messages identiques ;
+  - l'**exception** se passe en **dernier argument**, pour avoir sa trace de pile ; on ne journalise une exception qu'**une
+    fois** (là où elle est traitée), pas à chaque couche ;
+  - **aucune donnée sensible** : mots de passe, jetons, numéros de carte, et le moins possible de données personnelles
+    (RGPD) ;
+  - un **contexte** de corrélation : un identifiant de requête dans le **MDC**, et des journaux **structurés** (JSON sur la
+    sortie standard en conteneur), exploitables par l'outil de centralisation ;
+  - pas de `System.out.println` ni de `e.printStackTrace()` dans une application.
+
+  **Piège classique** : `log.debug("Résultat : " + calculCouteux())`. Même si le niveau `DEBUG` est désactivé, la
+  concaténation et le calcul sont exécutés à chaque appel ; avec `{}`, la chaîne ne l'est pas (et un `Supplier`
+  différerait aussi le calcul).
+
+  **En entretien** : « SLF4J et des messages paramétrés, le bon niveau, l'exception en dernier argument et journalisée une
+  seule fois, jamais de données sensibles, et un identifiant de corrélation dans des journaux structurés. »
 cards:
+  - key: niveaux
+    format: course
+    question: À quoi sert chaque niveau de journalisation ?
+    answer: TRACE et DEBUG pour le diagnostic détaillé ; INFO pour les événements métier significatifs ; WARN pour une anomalie gérée ; ERROR pour un échec qui demande une action.
+  - key: parametres
+    format: course
+    question: Pourquoi des messages paramétrés (`{}`) plutôt qu'une concaténation ?
+    answer: La chaîne n'est construite que si le niveau est actif, et des messages identiques restent regroupables par les outils d'analyse.
+  - key: exception
+    format: course
+    question: Comment journaliser une exception ?
+    answer: En la passant en dernier argument (`log.error("Échec de {}", id, e)`) pour garder sa trace de pile, et une seule fois, là où elle est réellement traitée.
+  - key: facade
+    format: course
+    question: Pourquoi utiliser une façade comme SLF4J ?
+    answer: Le code dépend d'une API stable, et l'implémentation (Logback, Log4j 2, celle du serveur) se choisit au déploiement sans modifier le code.
+  - key: vf-concat
+    format: true-false
+    question: "`log.debug(\"x = \" + x)` ne coûte rien quand le niveau DEBUG est désactivé."
+    truth: false
+    answer: La concaténation est évaluée avant l'appel ; `log.debug("x = {}", x)` l'évite.
+  - key: vf-sensible
+    format: true-false
+    question: On peut journaliser un mot de passe au niveau DEBUG puisque ce niveau est désactivé en production.
+    truth: false
+    answer: Aucun secret ne va dans les journaux, quel que soit le niveau.
+  - key: vf-une-fois
+    format: true-false
+    question: Une exception doit être journalisée à chaque couche qu'elle traverse.
+    truth: false
+    answer: On la journalise une fois, là où elle est traitée ; sinon la même erreur apparaît plusieurs fois.
+  - key: vf-mdc
+    format: true-false
+    question: Le MDC permet d'ajouter un identifiant de requête à tous les journaux d'un traitement.
+    truth: true
+    answer: Il repose sur un `ThreadLocal`, à nettoyer et à propager aux tâches asynchrones.
+  - key: qcm-niveau
+    format: multiple-choice
+    question: Associez correctement l'événement et son niveau.
+    choices:
+      - text: "Un import nocturne terminé avec succès : INFO"
+        correct: true
+      - text: "Un appel externe réussi après un réessai : WARN"
+        correct: true
+      - text: "Le contenu de chaque ligne importée : INFO"
+        correct: false
+      - text: "Une requête rejetée pour une validation métier normale : ERROR"
+        correct: false
+    answer: Le détail va en DEBUG ; un refus de validation attendu n'est pas une erreur du système.
+  - key: qcm-ecriture
+    format: multiple-choice
+    question: Quelles écritures sont correctes ?
+    choices:
+      - text: "`log.error(\"Échec de l'export {}\", id, e);`"
+        correct: true
+      - text: "`log.info(\"Client {} inscrit\", client.id());`"
+        correct: true
+      - text: "`log.error(\"Échec : \" + e.getMessage());`"
+        correct: false
+      - text: "`e.printStackTrace();`"
+        correct: false
+    answer: Le message seul perd la trace de pile ; `printStackTrace` contourne la configuration des journaux.
+  - key: qcm-interdit
+    format: multiple-choice
+    question: Que ne faut-il jamais journaliser ?
+    choices:
+      - text: "Un jeton d'accès ou un mot de passe"
+        correct: true
+      - text: "Un numéro de carte bancaire"
+        correct: true
+      - text: "L'identifiant technique d'une commande"
+        correct: false
+      - text: "La durée d'un traitement"
+        correct: false
+    answer: Et le moins possible de données personnelles.
+  - key: qcm-conteneur
+    format: multiple-choice
+    question: Comment journaliser une application qui tourne dans des conteneurs ?
+    choices:
+      - text: "En JSON sur la sortie standard, collectés par la plateforme"
+        correct: true
+      - text: "Avec un identifiant de corrélation pour suivre une requête entre services"
+        correct: true
+      - text: "Dans un fichier à l'intérieur du conteneur"
+        correct: false
+      - text: "Avec `System.out.println` pour aller plus vite"
+        correct: false
+    answer: Le système de fichiers d'un conteneur disparaît avec lui.
+  - key: bug-concat
+    format: bug-fix
+    question: |-
+      Ce journal coûte cher même quand DEBUG est désactivé :
+      ```java
+      log.debug("Panier calculé : " + panier.toJson());
+      ```
+    answer: |-
+      ```java
+      log.debug("Panier calculé : {}", panier);
+      // ou, si le calcul est coûteux : log.atDebug().setMessage(() -> "Panier : " + panier.toJson()).log();
+      ```
+      La concaténation et `toJson()` étaient exécutés à chaque appel. Avec `{}`, la chaîne n'est construite que si le niveau
+      est actif ; l'API fluide de SLF4J 2 permet de différer un calcul.
+  - key: bug-trace-perdue
+    format: bug-fix
+    question: |-
+      Le journal n'indique pas où l'erreur s'est produite :
+      ```java
+      } catch (PaiementException e) {
+          log.error("Erreur paiement : " + e.getMessage());
+      }
+      ```
+    answer: |-
+      ```java
+      } catch (PaiementException e) {
+          log.error("Échec du paiement de la commande {}", commande.id(), e);
+      }
+      ```
+      L'exception passée en dernier argument donne sa trace de pile (et sa cause) ; le message dit sur quoi portait
+      l'échec.
+  - key: bug-donnees-sensibles
+    format: bug-fix
+    question: |-
+      Corrigez ce journal :
+      ```java
+      log.info("Connexion de {} avec le mot de passe {}", email, motDePasse);
+      ```
+    answer: |-
+      ```java
+      log.info("Connexion de l'utilisateur {}", utilisateur.id());
+      ```
+      Un mot de passe ne va jamais dans les journaux. On préfère aussi un identifiant technique à l'e-mail (une donnée
+      personnelle).
+  - key: bug-journal-repete
+    format: bug-fix
+    question: |-
+      La même erreur apparaît trois fois dans les journaux pour une seule requête :
+      ```java
+      // repository
+      catch (SQLException e) { log.error("Erreur SQL", e); throw new StockageException(e); }
+      // service
+      catch (StockageException e) { log.error("Erreur stockage", e); throw e; }
+      // ressource REST : le mapper d'exceptions journalise aussi
+      ```
+    answer: |-
+      ```java
+      // repository
+      catch (SQLException e) { throw new StockageException("lecture du stock " + ref, e); }
+      // service : laisse remonter
+      // mapper d'exceptions global : journalise une seule fois, avec la trace complète
+      ```
+      On enrichit l'exception de contexte en la relançant, et on la journalise une fois, là où elle est traitée (le mapper
+      global qui produit la réponse Problem Details).
+  - key: scenario-diagnostic
+    format: scenario
+    question: Une erreur en production est impossible à relier à la requête qui l'a provoquée. Que mets-tu en place ?
+    answer: |-
+      Un identifiant de corrélation : reçu dans un en-tête (`traceparent` ou `X-Request-Id`) ou généré à l'entrée, placé
+      dans le MDC par un filtre (et retiré à la fin), propagé aux appels sortants et aux tâches asynchrones. Des journaux
+      structurés en JSON incluent automatiquement cet identifiant, ainsi que le service et la version. Avec OpenTelemetry,
+      l'identifiant de trace relie aussi les journaux aux traces distribuées. On peut alors filtrer tous les journaux
+      d'une requête dans l'outil centralisé.
+  - key: scenario-niveaux-prod
+    format: scenario
+    question: Les journaux de production représentent 50 Go par jour et personne ne s'en sert. Comment les rendre utiles ?
+    answer: |-
+      Je revois les niveaux : le détail par élément traité passe en DEBUG, INFO ne garde que les événements métier
+      significatifs, les réessais réussis en WARN, les vrais échecs en ERROR. Je supprime les journaux en double (une
+      exception journalisée à chaque couche), je passe en JSON structuré pour pouvoir filtrer, et je déplace ce qui sert à
+      compter (requêtes, durées) vers des métriques, bien moins coûteuses. Les niveaux se changent à chaud pour un
+      diagnostic ponctuel.
+  - key: scenario-rgpd
+    format: scenario
+    question: Comment t'assures-tu que les journaux respectent le RGPD ?
+    answer: |-
+      Je journalise des identifiants techniques plutôt que des données personnelles (pas d'e-mail, de nom ni d'adresse),
+      jamais de secret (mots de passe, jetons, cartes). Je masque les champs sensibles dans les objets journalisés
+      (`toString` qui les exclut, ou un masquage dans l'encodeur), je limite la durée de conservation et l'accès aux
+      journaux, et j'ajoute une revue de ce point dans la relecture de code. Un test peut vérifier qu'un échantillon de
+      journaux ne contient pas de motifs sensibles.
+  - key: scenario-asynchrone
+    format: scenario
+    question: L'identifiant de corrélation disparaît des journaux dans les traitements asynchrones. Pourquoi, et que fais-tu ?
+    answer: |-
+      Le MDC repose sur un `ThreadLocal` : une tâche exécutée dans un autre thread ne voit pas le contexte du thread qui l'a
+      soumise. Je copie le contexte à la soumission (`MDC.getCopyOfContextMap()`) et je le restaure dans la tâche, puis je
+      le nettoie, idéalement dans un décorateur d'exécuteur réutilisable. Les frameworks et OpenTelemetry propagent ce
+      contexte automatiquement pour leurs propres exécuteurs ; pour les threads virtuels, `ScopedValue` est une alternative.
   - key: definition-mdc
     format: definition
     question: MDC
     answer: 'Mapped Diagnostic Context : contexte attaché aux logs (traceId)'
+  - key: definition-slf4j
+    format: definition
+    question: SLF4J
+    answer: Simple Logging Facade for Java, la façade de journalisation dont dépend le code, indépendante de l'implémentation.
+  - key: definition-message-parametre
+    format: definition
+    question: Message paramétré
+    answer: Un message de journal avec des emplacements `{}` remplis par les arguments, construit seulement si le niveau est actif.
+  - key: definition-correlation
+    format: definition
+    question: Identifiant de corrélation
+    answer: Un identifiant propre à une requête, ajouté à tous ses journaux (et propagé entre services) pour les relier entre eux.

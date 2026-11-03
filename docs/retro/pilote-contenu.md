@@ -72,3 +72,5 @@ de contenu au rythme de deux chapitres par PR.
 Faut-il garder 4 cartes par format pour les priorités 2 à 4 ? À ce rythme, Java complet dépasse 7 000 cartes. Une
 cible de 2 ou 3 cartes par format pour les notions avancées ou rares diviserait cet effort, au prix de révisions moins
 variées sur ces notions. La décision peut attendre la fin de la priorité 1.
+
+**Réponse** : 4 cartes par format partout ; voir `production-java.md`.
