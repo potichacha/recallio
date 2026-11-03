@@ -197,6 +197,25 @@ class ReviewsResourceTest {
                 .body("correction.explanation", equalTo("Non."));
     }
 
+    /** Les deux cartes de la notion « val » (ADR 0031) : une par jour, la seconde attend le lendemain. */
+    @Test
+    @TestSecurity(user = "alice")
+    @OidcSecurity(claims = @Claim(key = "sub", value = "review-siblings"))
+    void shouldOfferASingleCardOfANotionPerDay() {
+        importScala();
+        String cardId = given().queryParam("subject", "scala")
+                .get(QUEUE)
+                .then()
+                .statusCode(200)
+                .body("cards", hasSize(1))
+                .extract()
+                .path("cards[0].cardId");
+
+        answer(UUID.randomUUID(), cardId, "[1]").statusCode(201).body("rating", equalTo("GOOD"));
+
+        given().queryParam("subject", "scala").get(QUEUE).then().statusCode(200).body("cards", hasSize(0));
+    }
+
     @Test
     @TestSecurity(user = "alice")
     @OidcSecurity(claims = @Claim(key = "sub", value = "review-fill-in"))

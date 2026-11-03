@@ -9,6 +9,8 @@ import com.recallio.content.SubjectDirectory;
 import com.recallio.group.GroupReviewScopes.GroupReviewScope;
 import com.recallio.review.application.ReviewQueueService.QueueFilter;
 import com.recallio.review.domain.LearningState;
+import com.recallio.review.domain.ReviewLogEntry;
+import com.recallio.review.domain.ReviewLogRepository;
 import com.recallio.review.domain.ReviewState;
 import com.recallio.review.domain.ReviewStateRepository;
 import com.recallio.review.domain.fsrs.FsrsParameters;
@@ -129,6 +131,7 @@ class ReviewQueueServiceTest {
                 _ -> List.of(SUBJECT),
                 (_, _) -> groupScope,
                 states,
+                new NoReviewsToday(),
                 new FsrsScheduler(FsrsParameters.DEFAULT),
                 new NewCardQuota(states, new TestConfig()),
                 Clock.fixed(now, ZoneOffset.UTC));
@@ -159,6 +162,11 @@ class ReviewQueueServiceTest {
         }
 
         @Override
+        public Map<UUID, UUID> notionsOf(Collection<UUID> cardIds) {
+            return Map.of();
+        }
+
+        @Override
         public List<ThemeCards> activeCardsByTheme() {
             return List.of(new ThemeCards("java", "Java", "java-theme", "Thème", ids));
         }
@@ -180,6 +188,24 @@ class ReviewQueueServiceTest {
                             List.of(),
                             null))
                     .toList();
+        }
+    }
+
+    /** Un journal sans révision du jour : les cartes sœurs sont couvertes par ReviewQueuePlannerTest. */
+    private static final class NoReviewsToday implements ReviewLogRepository {
+        @Override
+        public boolean appendIfAbsent(ReviewLogEntry entry) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public Optional<ReviewLogEntry> findByRequestId(UUID requestId) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public Set<UUID> cardsReviewedSince(UUID userId, Instant since) {
+            return Set.of();
         }
     }
 

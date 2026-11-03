@@ -9,6 +9,7 @@ import com.recallio.group.GroupReviewScopes;
 import com.recallio.group.GroupReviewScopes.GroupReviewScope;
 import com.recallio.review.domain.LearningState;
 import com.recallio.review.domain.Rating;
+import com.recallio.review.domain.ReviewLogRepository;
 import com.recallio.review.domain.ReviewState;
 import com.recallio.review.domain.ReviewStateRepository;
 import com.recallio.review.domain.fsrs.FsrsScheduler;
@@ -26,6 +27,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import org.jspecify.annotations.Nullable;
 
 /**
@@ -42,6 +44,7 @@ public class ReviewQueueService {
     private final FollowedSubjects followedSubjects;
     private final GroupReviewScopes groupScopes;
     private final ReviewStateRepository states;
+    private final ReviewLogRepository log;
     private final FsrsScheduler scheduler;
     private final NewCardQuota quota;
     private final Clock clock;
@@ -52,6 +55,7 @@ public class ReviewQueueService {
             FollowedSubjects followedSubjects,
             GroupReviewScopes groupScopes,
             ReviewStateRepository states,
+            ReviewLogRepository log,
             FsrsScheduler scheduler,
             NewCardQuota quota,
             Clock clock) {
@@ -60,6 +64,7 @@ public class ReviewQueueService {
         this.followedSubjects = followedSubjects;
         this.groupScopes = groupScopes;
         this.states = states;
+        this.log = log;
         this.scheduler = scheduler;
         this.quota = quota;
         this.clock = clock;
@@ -69,13 +74,22 @@ public class ReviewQueueService {
         Instant now = clock.instant();
         Map<UUID, ReviewState> memory = states.findAllByUser(user.id());
         List<Candidate> eligible = cards.activeCards(cardFilter(user, filter)).stream()
-                .map(card -> new Candidate(card.cardId(), card.subjectSlug()))
+                .map(card -> new Candidate(card.cardId(), card.subjectSlug(), card.notionId()))
                 .toList();
-        QueuePlan plan = ReviewQueuePlanner.plan(eligible, memory, now, quota.remainingToday(user, now), size);
+        QueuePlan plan = ReviewQueuePlanner.plan(
+                eligible, memory, reviewedToday(user, now), now, quota.remainingToday(user, now), size);
         List<QueuedCard> queued = cards.currentVersions(plan.cardIds()).stream()
                 .map(card -> queuedCard(card, memory.getOrDefault(card.cardId(), ReviewState.newCard(now)), now))
                 .toList();
         return new ReviewQueue(queued, plan.dueCount(), plan.newCount(), plan.nextDueAt());
+    }
+
+    /** Les cartes révisées depuis minuit, dans le fuseau de l'utilisateur, par notion : leurs sœurs attendent demain. */
+    private Map<UUID, Set<UUID>> reviewedToday(UserRef user, Instant now) {
+        Set<UUID> reviewed = log.cardsReviewedSince(user.id(), NewCardQuota.startOfDay(now, user.timezone()));
+        return cards.notionsOf(reviewed).entrySet().stream()
+                .collect(Collectors.groupingBy(
+                        Map.Entry::getValue, Collectors.mapping(Map.Entry::getKey, Collectors.toSet())));
     }
 
     private CardFilter cardFilter(UserRef user, QueueFilter filter) {

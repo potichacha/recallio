@@ -284,6 +284,7 @@ Les sujets s'ajoutent un par un, au rythme de la rédaction, indépendamment des
 - Pour une carte en auto-évaluation : l'utilisateur voit la question, réfléchit (ou écrit sa réponse), révèle la réponse, puis note : **À revoir / Difficile / Bien / Facile** (les quatre notes de FSRS).
 - Les cartes proposées viennent des **sujets suivis** par l'utilisateur ; filtrage possible par sujet, par thème (chapitre) et par type de carte.
 - Le quota quotidien de nouvelles cartes est **global**, réparti entre les sujets suivis (un nouveau sujet ne noie pas les autres). Les cartes dues passent toujours en premier, quel que soit leur sujet.
+- Une seule carte d'une même notion par jour : ses sœurs attendent le lendemain, sans que leur état FSRS change (ADR 0031).
 - Arrêter de suivre un sujet ne supprime pas la progression : ses cartes ne sont plus proposées, et elles reviennent si on le suit de nouveau.
 
 ### 6.2 Répétition espacée : FSRS
@@ -418,7 +419,7 @@ Faire du contenu un référentiel complet, pour apprendre, préparer un entretie
 2. ✅ **Nouveaux formats texte** : vrai ou faux, bug à corriger, compléter le code (ADR 0027).
 3. ✅ **Contrôles du contenu en CI** : matrice par notion et couverture du référentiel par priorité, publiées dans le résumé du job `content` (non bloquantes jusqu'au pilote) ; exécution de chaque « qu'affiche ce code » avec JShell, comparée à sa vérification `check` (ADR 0028).
 4. ✅ **Exercices de code** : ✅ format en dossier (énoncé, fichiers de départ, solution, tests), import et consultation, auto-évalués en attendant le bac à sable (ADR 0029) ; ✅ **bac à sable d'exécution** (avancé depuis la phase 5 : service `runner` et conteneurs jetables, ADR 0030) et vérification de chaque exercice en CI ; ✅ correction par les tests en révision (essayer, puis rendre ; ADR 0030) ; ✅ éditeur multi-fichiers dans la PWA (CodeMirror 6, un onglet par fichier, chargé à la demande).
-5. **Parcours** : apprendre (prérequis, leçons, déblocage), préparer un entretien, entretenir son niveau ; deux cartes d'une même notion pas le même jour.
+5. **Parcours** : apprendre (prérequis, leçons, déblocage), préparer un entretien, entretenir son niveau ; ✅ deux cartes d'une même notion pas le même jour (ADR 0031).
 6. **Pilote** : deux ou trois chapitres Java complets en priorité 1, pour valider la matrice et la qualité des brouillons ; puis la production, priorité par priorité.
 - **Terminé quand** : un débutant suit le parcours Java de bout en bout sur les notions de priorité 1, en codant dans l'application.
 

@@ -2,6 +2,7 @@ package com.recallio.content;
 
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -25,6 +26,9 @@ public interface CardDirectory {
 
     /** La version courante des cartes actives demandées, dans l'ordre de {@code cardIds}. */
     List<CardSnapshot> currentVersions(Collection<UUID> cardIds);
+
+    /** La notion de chaque carte demandée qui en a une (ADR 0026) ; les cartes d'un document Markdown n'en ont pas. */
+    Map<UUID, UUID> notionsOf(Collection<UUID> cardIds);
 
     /** Tous les thèmes publiés, dans l'ordre du programme, avec les identifiants de leurs cartes actives. */
     List<ThemeCards> activeCardsByTheme();
@@ -61,7 +65,15 @@ public interface CardDirectory {
     }
 
     /** Une carte active et son sujet, pour répartir les nouvelles cartes entre les sujets. */
-    record ActiveCard(UUID cardId, String subjectSlug) {}
+    /** @param notionId la notion de la carte ; {@code null} pour une carte d'un document Markdown */
+    record ActiveCard(
+            UUID cardId, String subjectSlug, @Nullable UUID notionId) {
+
+        /** Une carte sans notion. */
+        public ActiveCard(UUID cardId, String subjectSlug) {
+            this(cardId, subjectSlug, null);
+        }
+    }
 
     record ThemeCards(String subjectSlug, String subjectTitle, String slug, String title, List<UUID> cardIds) {
 
