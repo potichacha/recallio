@@ -118,6 +118,10 @@ public class JpaCardDirectory implements CardDirectory {
         return new NotionInfo(
                 notion.id,
                 subject,
+                notion.slug,
+                notion.title,
+                notion.chapter,
+                notion.chapterTitle,
                 NotionInfo.Level.valueOf(notion.level.name()),
                 notion.priority,
                 Arrays.stream(notion.requires)
@@ -149,9 +153,10 @@ public class JpaCardDirectory implements CardDirectory {
         Map<UUID, CardSnapshot> found = entityManager
                 .createQuery("""
                         select c.id, v.id, c.type, s.slug, s.title, t.slug, t.title, v.prompt, v.answer, v.choices,
-                               v.blanks, v.exercise
+                               v.blanks, v.exercise, n.title, n.lesson
                         from CardEntity c
                         join CardVersionEntity v on v.cardId = c.id and v.version = c.currentVersion
+                        left join NotionEntity n on n.id = c.notionId
                         join ThemeEntity t on t.id = c.themeId
                         join SubjectEntity s on s.id = t.subjectId
                         where c.id in :ids and c.retiredAt is null and %s
@@ -171,7 +176,9 @@ public class JpaCardDirectory implements CardDirectory {
                         (String) row[8],
                         choices(row[9]),
                         blanks(row[10]),
-                        (ExerciseFiles) row[11]))
+                        (ExerciseFiles) row[11],
+                        (String) row[12],
+                        (String) row[13]))
                 .collect(Collectors.toMap(CardSnapshot::cardId, Function.identity()));
         return cardIds.stream()
                 .distinct()

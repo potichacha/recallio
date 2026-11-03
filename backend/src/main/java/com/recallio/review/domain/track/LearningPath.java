@@ -47,6 +47,40 @@ public final class LearningPath {
         return notion == null || notion.requires().stream().allMatch(this::acquired);
     }
 
+    /**
+     * L'état d'une notion sur la carte du parcours.
+     *
+     * @param seen les cartes de la notion déjà vues au moins une fois
+     * @param prerequisitesApply vrai en parcours « apprendre » : une notion aux prérequis non acquis y est verrouillée
+     */
+    public NotionStatus status(UUID notionId, int seen, boolean prerequisitesApply) {
+        NotionInfo notion = notions.get(notionId);
+        if (notion == null || notion.cardCount() == 0) {
+            return NotionStatus.NO_CARDS;
+        }
+        if (acquired(notionId)) {
+            return NotionStatus.ACQUIRED;
+        }
+        if (prerequisitesApply && !unlocked(notionId)) {
+            return NotionStatus.LOCKED;
+        }
+        return seen > 0 ? NotionStatus.IN_PROGRESS : NotionStatus.AVAILABLE;
+    }
+
+    /** L'état d'une notion pour l'utilisateur, du moins au plus avancé. */
+    public enum NotionStatus {
+        /** Pas encore de carte : la notion est à rédiger. */
+        NO_CARDS,
+        /** Un prérequis n'est pas encore acquis (parcours « apprendre »). */
+        LOCKED,
+        /** Aucune carte vue. */
+        AVAILABLE,
+        /** Des cartes vues, pas encore assez de réussies. */
+        IN_PROGRESS,
+        /** Assez de cartes réussies : la notion débloque celles qui en dépendent. */
+        ACQUIRED
+    }
+
     /** Les notions verrouillées : au moins un prérequis n'est pas encore acquis. */
     public Set<UUID> locked() {
         return notions.keySet().stream().filter(notion -> !unlocked(notion)).collect(Collectors.toUnmodifiableSet());

@@ -80,7 +80,18 @@ class NewCardOrderTest {
     }
 
     private static NotionInfo notion(Level level, int priority) {
-        return new NotionInfo(UUID.randomUUID(), "java", level, priority, List.of(), 0, 1);
+        return new NotionInfo(
+                UUID.randomUUID(),
+                "java",
+                "notion",
+                "Notion",
+                "chapitre",
+                "Chapitre",
+                level,
+                priority,
+                List.of(),
+                0,
+                1);
     }
 
     private static Map<UUID, NotionInfo> byId(NotionInfo... notions) {

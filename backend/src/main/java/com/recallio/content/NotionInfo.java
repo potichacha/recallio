@@ -7,13 +7,25 @@ import java.util.UUID;
  * Une notion du référentiel d'un sujet (ADR 0025), vue par les autres modules : ce qu'il faut pour ordonner les
  * nouvelles cartes selon un parcours et débloquer les notions (ADR 0032).
  *
+ * @param slug l'identifiant de la notion dans son sujet
+ * @param chapter l'identifiant de son chapitre dans le référentiel
  * @param priority 1 essentiel, 2 courant, 3 avancé, 4 rare
  * @param requires les notions prérequises du même sujet
  * @param position l'ordre de la notion dans le référentiel du sujet
  * @param cardCount les cartes actives de la notion
  */
 public record NotionInfo(
-        UUID id, String subjectSlug, Level level, int priority, List<UUID> requires, int position, int cardCount) {
+        UUID id,
+        String subjectSlug,
+        String slug,
+        String title,
+        String chapter,
+        String chapterTitle,
+        Level level,
+        int priority,
+        List<UUID> requires,
+        int position,
+        int cardCount) {
 
     public NotionInfo {
         requires = List.copyOf(requires);

@@ -8,6 +8,7 @@ import { LivePage } from './live/LivePage'
 import { ChallengePage } from './challenges/ChallengePage'
 import { AuthCallbackPage } from './pages/AuthCallbackPage'
 import { HomePage } from './pages/HomePage'
+import { LearningPathPage } from './pages/LearningPathPage'
 import { ProfilePage } from './pages/ProfilePage'
 import { SubjectPage } from './pages/SubjectPage'
 import { SubjectsPage } from './pages/SubjectsPage'
@@ -23,6 +24,14 @@ export const routes: RouteObject[] = [
       { index: true, element: <HomePage /> },
       { path: 'subjects', element: <SubjectsPage /> },
       { path: 'subjects/:slug', element: <SubjectPage /> },
+      {
+        path: 'subjects/:slug/path',
+        element: (
+          <RequireAuth>
+            <LearningPathPage />
+          </RequireAuth>
+        ),
+      },
       { path: 'themes/:slug', element: <ThemePage /> },
       {
         path: 'review',

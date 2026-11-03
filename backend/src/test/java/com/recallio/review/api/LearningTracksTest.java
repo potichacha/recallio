@@ -2,6 +2,8 @@ package com.recallio.review.api;
 
 import static io.restassured.RestAssured.given;
 import static org.hamcrest.Matchers.contains;
+import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.nullValue;
 
 import com.recallio.content.application.ContentImportService;
 import com.recallio.content.domain.source.SubjectFolder;
@@ -51,6 +53,7 @@ class LearningTracksTest {
                               - {id: avance, title: "L'avancé", level: expert, priority: 1, requires: [bases]}
                         """), Map.of("langage/bases.yaml", """
                         notion: bases
+                        lesson: Les bases se lisent avant tout.
                         cards:
                           - {key: q, format: course, question: "Les bases ?", answer: "Oui."}
                         """, "langage/avance.yaml", """
@@ -87,6 +90,47 @@ class LearningTracksTest {
                 .statusCode(201);
 
         prompts().body("cards.prompt", contains("L'avancé ?"));
+    }
+
+    @Test
+    @TestSecurity(user = "alice")
+    @OidcSecurity(claims = @Claim(key = "sub", value = "track-lesson"))
+    void shouldShowTheLessonOfANotionBeforeItsFirstCardOnlyToLearn() {
+        follow();
+        prompts().body("cards[0].lesson", nullValue()).body("cards[1].notionTitle", equalTo("Les bases"));
+
+        chooseLearning();
+
+        prompts()
+                .body("cards[0].prompt", equalTo("Les bases ?"))
+                .body("cards[0].lesson", equalTo("Les bases se lisent avant tout."));
+    }
+
+    @Test
+    @TestSecurity(user = "alice")
+    @OidcSecurity(claims = @Claim(key = "sub", value = "track-path"))
+    void shouldMapEachNotionWithItsStatusForTheUser() {
+        follow();
+        chooseLearning();
+        path().body("track", equalTo("LEARN"))
+                .body("chapters.title", contains("Tout"))
+                .body("chapters[0].notions.slug", contains("bases", "avance"))
+                .body("chapters[0].notions.status", contains("AVAILABLE", "LOCKED"));
+
+        String basics = prompts().extract().path("cards[0].cardId");
+        given().contentType(ContentType.JSON)
+                .body(Map.of("requestId", UUID.randomUUID(), "cardId", basics, "rating", "GOOD"))
+                .post("/api/v1/reviews")
+                .then()
+                .statusCode(201);
+
+        path().body("chapters[0].notions.status", contains("ACQUIRED", "AVAILABLE"))
+                .body("chapters[0].notions[0].seenCount", equalTo(1));
+        given().get("/api/v1/learning-paths/inconnu").then().statusCode(404);
+    }
+
+    private static ValidatableResponse path() {
+        return given().get("/api/v1/learning-paths/zig").then().statusCode(200);
     }
 
     private static void follow() {

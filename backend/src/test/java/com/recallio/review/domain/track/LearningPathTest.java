@@ -55,6 +55,18 @@ class LearningPathTest {
     }
 
     @Test
+    void shouldGiveEachNotionItsStatusOnTheMap() {
+        var path = new LearningPath(NOTIONS, Map.of(VARIABLES, 2));
+
+        assertThat(path.status(VARIABLES, 3, true)).isEqualTo(LearningPath.NotionStatus.IN_PROGRESS);
+        assertThat(path.status(TYPES, 0, true)).isEqualTo(LearningPath.NotionStatus.LOCKED);
+        assertThat(path.status(TYPES, 0, false)).isEqualTo(LearningPath.NotionStatus.AVAILABLE);
+        assertThat(path.status(EMPTY, 0, true)).isEqualTo(LearningPath.NotionStatus.NO_CARDS);
+        assertThat(new LearningPath(NOTIONS, Map.of(VARIABLES, 5)).status(VARIABLES, 5, true))
+                .isEqualTo(LearningPath.NotionStatus.ACQUIRED);
+    }
+
+    @Test
     void shouldNotLetAnUnknownPrerequisiteBlockANotion() {
         UUID retired = UUID.randomUUID();
         var path = new LearningPath(List.of(notion(TYPES, List.of(retired), 3)), Map.of());
@@ -63,6 +75,7 @@ class LearningPathTest {
     }
 
     private static NotionInfo notion(UUID id, List<UUID> requires, int cards) {
-        return new NotionInfo(id, "java", Level.BEGINNER, 1, requires, 0, cards);
+        return new NotionInfo(
+                id, "java", "notion", "Notion", "chapitre", "Chapitre", Level.BEGINNER, 1, requires, 0, cards);
     }
 }

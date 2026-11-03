@@ -93,6 +93,19 @@ final class ReviewDtos {
             @Nullable
             ExerciseToSolveDto exercise,
 
+            @Schema(
+                    description = "Le titre de la notion de la carte ; absent hors d'un dossier de sujet",
+                    nullable = true)
+            @Nullable
+            String notionTitle,
+
+            @Schema(
+                    description = "La leçon de la notion, en Markdown, à lire avant sa première carte en parcours"
+                            + " « apprendre » (ADR 0032) ; absente le plus souvent",
+                    nullable = true)
+            @Nullable
+            String lesson,
+
             LearningState state,
 
             @Schema(description = "Échéance obtenue pour chacune des quatre notes")
@@ -115,6 +128,8 @@ final class ReviewDtos {
                     card.correctChoices().size() > 1,
                     card.blanks().size(),
                     card.exercise() == null ? null : ExerciseToSolveDto.from(card.exercise()),
+                    card.notionTitle(),
+                    queued.lesson(),
                     queued.state(),
                     queued.previews().stream().map(RatingPreviewDto::from).toList());
         }

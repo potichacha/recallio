@@ -44,6 +44,18 @@ rien pour un sujet déjà suivi. Un sujet non suivi, ou révisé avec un groupe,
   et débloqué, `NewCardOrder` range les cartes. Elles s'appuient sur l'API publique de `content` (`NotionInfo` :
   niveau, priorité, prérequis, nombre de cartes) et sur celle de `user` (`LearningTrack`).
 
+**Les leçons et la carte du parcours :**
+- **La leçon d'une notion** s'affiche avant sa toute première carte, en parcours « apprendre » seulement. Elle ne
+  compte pas comme une révision, et la file ne propose qu'une carte par notion (ADR 0031) : la leçon n'apparaît qu'une
+  fois. Les autres parcours vont droit aux cartes.
+- **La carte du parcours** (`GET /api/v1/learning-paths/{sujet}`, page « Mon parcours » de la PWA) donne chaque notion
+  par chapitre avec son état :
+  - *à venir* : pas encore de carte ;
+  - *verrouillée* : un prérequis non acquis, en parcours « apprendre » seulement ;
+  - *disponible* ;
+  - *en cours* : des cartes vues ;
+  - *acquise*.
+
 ## Conséquences
 
 - Le même référentiel sert trois publics, sans dupliquer le contenu.
@@ -51,5 +63,5 @@ rien pour un sujet déjà suivi. Un sujet non suivi, ou révisé avec un groupe,
   remplacer, en tenant compte de la mémoire FSRS et de la diversité des formats.
 - Un débutant en parcours « Apprendre » ne voit, au départ, que les notions sans prérequis : la qualité des prérequis
   du référentiel devient importante (la CI vérifie déjà qu'ils existent et ne forment pas de cycle).
-- La carte du parcours (états des notions) et les leçons affichées avant la première carte d'une notion viennent
-  ensuite (phase 3 bis, étape 5).
+- Les leçons des notions restent à rédiger : c'est le pilote (phase 3 bis, étape 6). Une notion sans leçon passe
+  directement à ses cartes.

@@ -194,6 +194,8 @@ class ReviewQueueServiceTest {
                             "Réponse.",
                             List.of(),
                             List.of(),
+                            null,
+                            null,
                             null))
                     .toList();
         }

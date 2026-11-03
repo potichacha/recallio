@@ -244,7 +244,7 @@ dossier, jamais les deux.
 
 ```yaml
 notion: string-pool                 # un identifiant du référentiel
-lesson: |                           # facultative pour l'instant
+lesson: |                           # facultative ; lue avant la 1re carte en parcours « apprendre »
   Le **pool de chaînes** déduplique les littéraux...
 cards:
   - key: emplacement-du-pool        # définitive : la progression s'y rattache

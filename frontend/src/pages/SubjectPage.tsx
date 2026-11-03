@@ -38,12 +38,20 @@ export function SubjectPage() {
             {subject.data?.status === 'DRAFT' && <DraftBadge />}
           </h1>
         </div>
-        <Link
-          to={`/review?subject=${encodeURIComponent(slug)}`}
-          className="rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700"
-        >
-          Réviser ce sujet
-        </Link>
+        <div className="flex flex-wrap gap-2">
+          <Link
+            to={`/subjects/${encodeURIComponent(slug)}/path`}
+            className="rounded-lg border border-indigo-200 px-3 py-1.5 text-sm font-medium text-indigo-700 hover:bg-indigo-50"
+          >
+            Mon parcours
+          </Link>
+          <Link
+            to={`/review?subject=${encodeURIComponent(slug)}`}
+            className="rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700"
+          >
+            Réviser ce sujet
+          </Link>
+        </div>
       </div>
       {themes.isError && <p role="alert">Impossible de charger les thèmes.</p>}
       {themes.isSuccess && (
