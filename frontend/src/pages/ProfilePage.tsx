@@ -1,7 +1,16 @@
 import { useState, type FormEvent } from 'react'
 import { ApiError } from '../api/errors'
-import { useFollowSubjects, useProfile, useUpdateProfile, type Profile } from '../api/profile'
+import { useSubjects } from '../api/content'
+import {
+  useChooseTrack,
+  useFollowSubjects,
+  useProfile,
+  useUpdateProfile,
+  type LearningTrack,
+  type Profile,
+} from '../api/profile'
 import { SubjectPicker } from '../components/SubjectPicker'
+import { TRACKS } from '../components/trackLabels'
 
 function timezones(current: string): string[] {
   const all = Intl.supportedValuesOf('timeZone')
@@ -105,6 +114,58 @@ function FollowedSubjectsForm({ profile }: { profile: Profile }) {
   )
 }
 
+/** Le parcours de chaque sujet suivi (ADR 0032), enregistré dès qu'on le change. */
+function TracksForm({ profile }: { profile: Profile }) {
+  const subjects = useSubjects()
+  const choose = useChooseTrack()
+  const title = (slug: string) =>
+    subjects.data?.find((subject) => subject.slug === slug)?.title ?? slug
+
+  if (profile.followedSubjects.length === 0) return null
+  return (
+    <section aria-labelledby="tracks-title" className="flex max-w-md flex-col gap-4">
+      <h2 id="tracks-title" className="text-lg font-semibold">
+        Mes parcours
+      </h2>
+      <dl className="flex flex-col gap-1 text-sm text-slate-600">
+        {TRACKS.map(({ track, label, description }) => (
+          <div key={track}>
+            <dt className="inline font-medium text-slate-800">{label}</dt> :{' '}
+            <dd className="inline">{description}</dd>
+          </div>
+        ))}
+      </dl>
+      {profile.followedSubjects.map((slug) => (
+        <label key={slug} className="flex items-center justify-between gap-3">
+          <span className="font-medium">{title(slug)}</span>
+          <select
+            value={profile.tracks[slug] ?? 'PREPARE'}
+            disabled={choose.isPending}
+            onChange={(event) =>
+              choose.mutate({ subject: slug, track: event.target.value as LearningTrack })
+            }
+            className="rounded-lg border border-slate-300 px-3 py-2"
+          >
+            {TRACKS.map(({ track, label }) => (
+              <option key={track} value={track}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </label>
+      ))}
+      {choose.isSuccess && <p role="status">Parcours enregistré.</p>}
+      {choose.isError && (
+        <p role="alert">
+          {choose.error instanceof ApiError
+            ? choose.error.message
+            : "Le parcours n'a pas pu être enregistré."}
+        </p>
+      )}
+    </section>
+  )
+}
+
 export function ProfilePage() {
   const profile = useProfile()
 
@@ -120,6 +181,7 @@ export function ProfilePage() {
           )}
           <ProfileForm profile={profile.data} />
           <FollowedSubjectsForm profile={profile.data} />
+          <TracksForm profile={profile.data} />
         </>
       )}
     </section>

@@ -73,6 +73,17 @@ public class JpaReviewLogRepository implements ReviewLogRepository {
                 .getResultList());
     }
 
+    @Override
+    public Set<UUID> cardsRecalled(UUID userId) {
+        return Set.copyOf(entityManager
+                .createQuery(
+                        "select distinct l.cardId from ReviewLogEntity l where l.userId = :userId and l.rating >= :good",
+                        UUID.class)
+                .setParameter("userId", userId)
+                .setParameter("good", (short) Rating.GOOD.value())
+                .getResultList());
+    }
+
     private static ReviewLogEntry toDomain(ReviewLogEntity entity) {
         return new ReviewLogEntry(
                 entity.id,

@@ -5,12 +5,15 @@ import com.recallio.content.CardChoice;
 import com.recallio.content.CardDirectory;
 import com.recallio.content.CardType;
 import com.recallio.content.ExerciseFiles;
+import com.recallio.content.NotionInfo;
+import com.recallio.content.domain.CardIdentity;
 import com.recallio.content.domain.Subject;
 import com.recallio.content.domain.catalog.ThemeNotFoundException;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.persistence.EntityManager;
 import jakarta.transaction.Transactional;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
@@ -83,6 +86,45 @@ public class JpaCardDirectory implements CardDirectory {
         return query.getResultStream()
                 .map(row -> new ActiveCard((UUID) row[0], (String) row[1], (UUID) row[2]))
                 .toList();
+    }
+
+    @Override
+    public List<NotionInfo> notions(Collection<String> subjectSlugs) {
+        if (subjectSlugs.isEmpty()) {
+            return List.of();
+        }
+        Map<UUID, Long> cardCounts = new HashMap<>();
+        entityManager
+                .createQuery(
+                        "select c.notionId, count(c) from CardEntity c where c.notionId is not null and c.retiredAt is null"
+                                + " group by c.notionId",
+                        Object[].class)
+                .getResultStream()
+                .forEach(row -> cardCounts.put((UUID) row[0], (Long) row[1]));
+        return entityManager
+                .createQuery("""
+                        select n, s.slug from NotionEntity n join SubjectEntity s on s.id = n.subjectId
+                        where s.slug in :subjects and n.retiredAt is null and %s
+                        order by s.position, n.position
+                        """.formatted(PUBLISHED), Object[].class)
+                .setParameter("subjects", subjectSlugs)
+                .setParameter("published", Subject.Status.PUBLISHED)
+                .getResultStream()
+                .map(row -> notionInfo((NotionEntity) row[0], (String) row[1], cardCounts))
+                .toList();
+    }
+
+    private static NotionInfo notionInfo(NotionEntity notion, String subject, Map<UUID, Long> cardCounts) {
+        return new NotionInfo(
+                notion.id,
+                subject,
+                NotionInfo.Level.valueOf(notion.level.name()),
+                notion.priority,
+                Arrays.stream(notion.requires)
+                        .map(slug -> CardIdentity.notionId(subject, slug))
+                        .toList(),
+                notion.position,
+                cardCounts.getOrDefault(notion.id, 0L).intValue());
     }
 
     @Override

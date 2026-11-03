@@ -32,6 +32,7 @@ export const TEST_PROFILE = {
   timezone: 'Europe/Paris',
   roles: [],
   followedSubjects: ['java'],
+  tracks: { java: 'PREPARE' },
 }
 export const TEST_PROGRESS = {
   totalPoints: 120,

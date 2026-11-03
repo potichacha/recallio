@@ -1,6 +1,7 @@
 package com.recallio.user.api;
 
 import com.recallio.platform.api.ProblemDetail;
+import com.recallio.user.LearningTrack;
 import com.recallio.user.application.FollowedSubjectsService;
 import com.recallio.user.application.UserProfileService;
 import com.recallio.user.domain.DisplayName;
@@ -16,9 +17,11 @@ import jakarta.ws.rs.GET;
 import jakarta.ws.rs.HeaderParam;
 import jakarta.ws.rs.PUT;
 import jakarta.ws.rs.Path;
+import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import org.eclipse.microprofile.openapi.annotations.Operation;
@@ -118,6 +121,35 @@ public class MeResource {
         return toDto(profiles.currentProfile(identity.current(), Optional.empty()));
     }
 
+    @PUT
+    @Path("/followed-subjects/{slug}/track")
+    @Consumes(MediaType.APPLICATION_JSON)
+    @Operation(
+            operationId = "chooseTrack",
+            summary = "Choisit le parcours d'un sujet suivi : apprendre, préparer un entretien ou entretenir son niveau"
+                    + " (ADR 0032)")
+    @APIResponse(responseCode = "200", description = "Le profil, avec le parcours de chaque sujet suivi")
+    @APIResponse(
+            responseCode = "400",
+            description = "Requête invalide",
+            content =
+                    @Content(
+                            mediaType = ProblemDetail.MEDIA_TYPE,
+                            schema = @Schema(implementation = ProblemDetail.class)))
+    @APIResponse(
+            responseCode = "422",
+            description = "Sujet non suivi",
+            content =
+                    @Content(
+                            mediaType = ProblemDetail.MEDIA_TYPE,
+                            schema = @Schema(implementation = ProblemDetail.class)))
+    public ProfileDto chooseTrack(
+            @Parameter(description = "Slug du sujet suivi") @PathParam("slug") String slug,
+            @Valid @NotNull ChooseTrackRequest request) {
+        followedSubjects.chooseTrack(identity.current(), slug, request.track());
+        return toDto(profiles.currentProfile(identity.current(), Optional.empty()));
+    }
+
     private ProfileDto toDto(UserProfile profile) {
         List<String> roles = securityIdentity.getRoles().stream().sorted().toList();
         return new ProfileDto(
@@ -125,7 +157,8 @@ public class MeResource {
                 profile.displayName().value(),
                 profile.timezone().getId(),
                 roles,
-                followedSubjects.followed(profile.id()));
+                followedSubjects.followed(profile.id()),
+                followedSubjects.tracks(profile.id()));
     }
 
     @Schema(name = "Profile")
@@ -142,7 +175,13 @@ public class MeResource {
             @Schema(
                     description =
                             "Slugs des sujets suivis, dans l'ordre du catalogue ; vide tant qu'aucun n'est choisi")
-            List<String> followedSubjects) {}
+            List<String> followedSubjects,
+
+            @Schema(description = "Le parcours de chaque sujet suivi, par slug (ADR 0032)")
+            Map<String, LearningTrack> tracks) {}
+
+    @Schema(name = "ChooseTrackRequest")
+    public record ChooseTrackRequest(@NotNull LearningTrack track) {}
 
     @Schema(name = "UpdateProfileRequest")
     public record UpdateProfileRequest(
