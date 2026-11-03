@@ -41,6 +41,20 @@ class SubjectFolderTest {
         assertThat(parsed.cardCount()).isPositive();
     }
 
+    /**
+     * Une notion déclarée complète dans le référentiel (`complete: true`, ADR 0025) le reste : chacun de ses formats à la
+     * cible, sa leçon, et un exercice dans un chapitre dont les notions essentielles sont toutes complètes.
+     */
+    @ParameterizedTest(allowZeroInvocations = true)
+    @MethodSource("folders")
+    void shouldKeepTheNotionsDeclaredCompleteComplete(Path folder) {
+        assertThat(new YamlSubjectFolderParser()
+                        .coverage(SubjectFolders.read(folder))
+                        .completionProblems())
+                .as("notions déclarées complètes de %s", folder.getFileName())
+                .isEmpty();
+    }
+
     /** Un sujet a une seule source : sinon, chaque import retirerait les cartes de l'autre. */
     @ParameterizedTest(allowZeroInvocations = true)
     @MethodSource("folders")

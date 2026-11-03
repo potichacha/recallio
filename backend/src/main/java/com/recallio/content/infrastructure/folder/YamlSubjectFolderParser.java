@@ -28,6 +28,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.jspecify.annotations.Nullable;
 
@@ -89,10 +90,16 @@ public class YamlSubjectFolderParser implements SubjectFolderParser {
      */
     public ContentCoverage coverage(SubjectFolder folder) {
         ParsedContent parsed = parse(folder);
+        // Les notions lues, avec leur leçon ; le référentiel seul donne les formats et la déclaration « complète ».
+        Map<String, ParsedNotion> withLessons =
+                parsed.notions().stream().collect(Collectors.toMap(ParsedNotion::slug, Function.identity()));
         return ContentCoverage.of(
                 parsed.subject().slug(),
                 referential(folder).entries().stream()
-                        .map(entry -> new NotionTarget(entry.notion(), NotionCards.types(entry.formats())))
+                        .map(entry -> new NotionTarget(
+                                withLessons.getOrDefault(entry.notion().slug(), entry.notion()),
+                                NotionCards.types(entry.formats()),
+                                entry.complete()))
                         .toList(),
                 parsed.themes().stream()
                         .flatMap(theme -> theme.cards().stream())

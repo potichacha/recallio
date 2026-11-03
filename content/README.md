@@ -226,6 +226,7 @@ chapters:
 | `priority` | 1 essentiel, 2 courant, 3 avancé, 4 rare | l'ordre de production du contenu |
 | `requires` | des `id` de notions | les prérequis, pour le parcours « apprendre » |
 | `formats` | facultatif | les formats qui conviennent, quand tous ne conviennent pas (pas de bug à corriger sur l'histoire de Java) |
+| `complete` | facultatif | `true` quand la notion est terminée : la CI vérifie alors qu'elle le reste (4 cartes par format, une leçon, un exercice dans son chapitre) |
 
 Formats possibles : `course`, `true-false`, `multiple-choice`, `fill-in`, `code-output`, `bug-fix`, `scenario`,
 `definition`, `exercise`. La cible est de **4 à 5 cartes par format applicable** pour chaque notion.

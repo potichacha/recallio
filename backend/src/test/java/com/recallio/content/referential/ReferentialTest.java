@@ -181,7 +181,8 @@ class ReferentialTest {
             String level,
             int priority,
             @Nullable List<String> requires,
-            @Nullable List<String> formats) {
+            @Nullable List<String> formats,
+            @Nullable Boolean complete) {
 
         List<String> requiresOrEmpty() {
             return requires == null ? List.of() : requires;

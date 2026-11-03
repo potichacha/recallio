@@ -4,6 +4,7 @@ import com.recallio.content.CardType;
 import com.recallio.content.domain.source.ParsedContent.CardKey;
 import com.recallio.content.domain.source.ParsedContent.ParsedCard;
 import com.recallio.content.domain.source.ParsedContent.ParsedNotion;
+import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.List;
@@ -31,12 +32,19 @@ public record ContentCoverage(String subject, List<NotionCoverage> notions) {
 
     /**
      * Une notion du référentiel et les formats qu'il retient pour elle, parmi ceux que l'application sait présenter
-     * (les exercices de code, comptés par chapitre, n'en font pas encore partie).
+     * (les exercices de code, comptés par chapitre, n'en font pas partie).
+     *
+     * @param declaredComplete vrai si le référentiel déclare la notion complète : elle doit alors le rester
      */
-    public record NotionTarget(ParsedNotion notion, Set<CardType> formats) {
+    public record NotionTarget(ParsedNotion notion, Set<CardType> formats, boolean declaredComplete) {
 
         public NotionTarget {
             formats = Set.copyOf(formats);
+        }
+
+        /** Une notion que le référentiel ne déclare pas complète. */
+        public NotionTarget(ParsedNotion notion, Set<CardType> formats) {
+            this(notion, formats, false);
         }
     }
 
@@ -55,7 +63,8 @@ public record ContentCoverage(String subject, List<NotionCoverage> notions) {
                         .map(target -> new NotionCoverage(
                                 target.notion(),
                                 target.formats(),
-                                counts.getOrDefault(target.notion().slug(), Map.of())))
+                                counts.getOrDefault(target.notion().slug(), Map.of()),
+                                target.declaredComplete()))
                         .toList());
     }
 
@@ -91,6 +100,52 @@ public record ContentCoverage(String subject, List<NotionCoverage> notions) {
     }
 
     /**
+     * Ce qui manque aux notions déclarées complètes (ADR 0025), pour que la CI échoue si l'une d'elles régresse :
+     * chacun de ses formats à la cible, sa leçon, et un exercice dans un chapitre dont toutes les notions essentielles
+     * sont déclarées complètes. Vide si tout est en ordre.
+     */
+    public List<String> completionProblems() {
+        List<String> problems = new ArrayList<>();
+        for (NotionCoverage notion : notions) {
+            if (!notion.declaredComplete()) {
+                continue;
+            }
+            String slug = notion.notion().slug();
+            notion.formats().stream()
+                    .filter(format -> notion.count(format) < TARGET_PER_FORMAT)
+                    .sorted()
+                    .forEach(format -> problems.add("%s : %d carte(s) %s sur %d visées"
+                            .formatted(slug, notion.count(format), format, TARGET_PER_FORMAT)));
+            if (notion.notion().lesson() == null) {
+                problems.add(slug + " : pas de leçon");
+            }
+        }
+        chaptersCompleteWithoutExercise().forEach(chapter -> problems.add(chapter + " : pas d'exercice de code"));
+        return problems;
+    }
+
+    /** Les chapitres dont toutes les notions essentielles sont déclarées complètes, mais sans exercice de code. */
+    private List<String> chaptersCompleteWithoutExercise() {
+        Map<String, List<NotionCoverage>> byChapter = new TreeMap<>();
+        notions.forEach(notion -> byChapter
+                .computeIfAbsent(
+                        notion.notion().domain() + "/" + notion.notion().chapter(), _ -> new ArrayList<>())
+                .add(notion));
+        return byChapter.entrySet().stream()
+                .filter(chapter -> {
+                    List<NotionCoverage> essential = chapter.getValue().stream()
+                            .filter(notion -> notion.notion().priority() == 1)
+                            .toList();
+                    return !essential.isEmpty()
+                            && essential.stream().allMatch(NotionCoverage::declaredComplete)
+                            && chapter.getValue().stream()
+                                    .allMatch(notion -> notion.count(CardType.CODING_EXERCISE) == 0);
+                })
+                .map(Map.Entry::getKey)
+                .toList();
+    }
+
+    /**
      * @param chapters les chapitres du référentiel
      * @param chaptersWithExercise ceux qui ont au moins un exercice de code
      * @param exercises les exercices de code du sujet
@@ -99,8 +154,10 @@ public record ContentCoverage(String subject, List<NotionCoverage> notions) {
 
     /**
      * @param cards le nombre de cartes par format ; un format absent n'a aucune carte
+     * @param declaredComplete vrai si le référentiel la déclare complète
      */
-    public record NotionCoverage(ParsedNotion notion, Set<CardType> formats, Map<CardType, Integer> cards) {
+    public record NotionCoverage(
+            ParsedNotion notion, Set<CardType> formats, Map<CardType, Integer> cards, boolean declaredComplete) {
 
         public NotionCoverage {
             formats = Set.copyOf(formats);
