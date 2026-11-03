@@ -1,4 +1,40 @@
 notion: json-jackson
+lesson: |-
+  **Jackson** est la bibliothèque JSON de référence en Java (utilisée par Spring Boot et Quarkus). Son point d'entrée est
+  l'**`ObjectMapper`** (Jackson 2) ou le **`JsonMapper`** (Jackson 3, construit par un builder, immuable).
+
+  ```java
+  record Commande(String id, BigDecimal total, LocalDate date, List<String> articles) {}
+
+  ObjectMapper mapper = JsonMapper.builder()
+          .addModule(new JavaTimeModule())                      // dates java.time (intégré en Jackson 3)
+          .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS)
+          .disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
+          .build();
+
+  String json = mapper.writeValueAsString(commande);            // objet → JSON
+  Commande c = mapper.readValue(json, Commande.class);          // JSON → objet
+  List<Commande> liste = mapper.readValue(json, new TypeReference<List<Commande>>() {});
+  JsonNode arbre = mapper.readTree(json);                       // JSON sans classe
+  ```
+
+  - Les **records** sont pris en charge directement : les composants deviennent les propriétés, et le constructeur
+    canonique (avec ses validations) sert à la lecture.
+  - Pour une classe ordinaire, Jackson utilise les **getters** et un constructeur sans argument avec des **setters** (ou
+    un constructeur annoté `@JsonCreator`).
+  - Les annotations ajustent le format : `@JsonProperty("nom_complet")`, `@JsonIgnore`,
+    `@JsonInclude(NON_NULL)`, `@JsonFormat(pattern = "dd/MM/yyyy")`, `@JsonIgnoreProperties(ignoreUnknown = true)`.
+  - À cause de l'effacement des types, une `List<Commande>` se lit avec un **`TypeReference`**.
+  - L'`ObjectMapper` est **thread-safe** une fois configuré et **coûteux à créer** : un seul par application (un bean).
+  - Les montants en `BigDecimal`, les dates en ISO-8601 (`2026-03-15`), les instants en UTC : c'est le contrat de l'API.
+  - Jackson 3 (package `tools.jackson`) rend les exceptions non vérifiées et le mapper immuable ; c'est le défaut de
+    Spring Boot 4.
+
+  **Piège classique** : `new ObjectMapper()` à chaque requête. C'est lent (introspection des classes refaite à chaque
+  fois) et la configuration de l'application (modules, formats) est perdue.
+
+  **En entretien** : « Un `ObjectMapper` unique et configuré, des records ou des DTO dédiés, `TypeReference` pour les
+  génériques, et un contrat explicite : dates ISO, montants décimaux, champs inconnus tolérés. »
 cards:
   - key: objectmapper-thread-safe
     format: course
@@ -16,3 +52,170 @@ cards:
     format: course
     question: Qu'est-ce qui change avec Jackson 3 ?
     answer: Package tools.jackson, JsonMapper immuable par builder, exceptions unchecked, nouvelles valeurs par défaut ; défaut de Spring Boot 4.
+  - key: vf-records
+    format: true-false
+    question: Jackson sait sérialiser et désérialiser les records sans annotation.
+    truth: true
+    answer: Les composants sont les propriétés, le constructeur canonique sert à la lecture.
+  - key: vf-nouveau-mapper
+    format: true-false
+    question: Créer un `ObjectMapper` à chaque appel est une bonne pratique pour éviter les problèmes de concurrence.
+    truth: false
+    answer: Il est thread-safe une fois configuré, et coûteux à créer.
+  - key: vf-dates
+    format: true-false
+    question: Avec Jackson 2, un `LocalDate` se sérialise sans module supplémentaire.
+    truth: false
+    answer: Il faut le module `jackson-datatype-jsr310` (`JavaTimeModule`), intégré en Jackson 3.
+  - key: vf-type-reference
+    format: true-false
+    question: "`mapper.readValue(json, List.class)` renvoie une liste d'objets `Commande`."
+    truth: false
+    answer: Une liste de `LinkedHashMap` ; il faut un `TypeReference<List<Commande>>`.
+  - key: qcm-annotations
+    format: multiple-choice
+    question: Associez correctement annotation et effet.
+    choices:
+      - text: "`@JsonProperty(\"nom_complet\")` : renomme la propriété dans le JSON"
+        correct: true
+      - text: "`@JsonIgnore` : exclut la propriété"
+        correct: true
+      - text: "`@JsonInclude(NON_NULL)` : rend la propriété obligatoire"
+        correct: false
+      - text: "`@JsonFormat` : chiffre la valeur"
+        correct: false
+    answer: '`NON_NULL` omet les propriétés nulles ; `@JsonFormat` fixe un format (de date, par exemple).'
+  - key: qcm-dto
+    format: multiple-choice
+    question: Pourquoi exposer des DTO (ou records) dédiés plutôt que les entités JPA en JSON ?
+    choices:
+      - text: "Le contrat de l'API reste stable quand le modèle de persistance évolue"
+        correct: true
+      - text: "On évite d'exposer des champs internes et les relations chargées paresseusement"
+        correct: true
+      - text: "Jackson ne sait pas lire les entités"
+        correct: false
+      - text: "C'est plus rapide à écrire"
+        correct: false
+    answer: C'est aussi une règle du projet (pas d'entité exposée dans l'API).
+  - key: qcm-montant
+    format: multiple-choice
+    question: Comment représenter un montant dans un JSON d'API ?
+    choices:
+      - text: "Un `BigDecimal` côté Java, et un nombre décimal ou une chaîne dans le JSON, selon le contrat"
+        correct: true
+      - text: "Un `double`"
+        correct: false
+      - text: "Un `float`"
+        correct: false
+      - text: "Une chaîne libre avec le symbole monétaire"
+        correct: false
+    answer: Les flottants introduisent des erreurs d'arrondi.
+  - key: qcm-arbre
+    format: multiple-choice
+    question: Comment lire un champ d'un JSON dont on n'a pas la classe ?
+    choices:
+      - text: "`mapper.readTree(json).path(\"client\").path(\"email\").asText()`"
+        correct: true
+      - text: "`mapper.readValue(json, Object.class).email`"
+        correct: false
+      - text: "`json.split(\"email\")`"
+        correct: false
+      - text: "Ce n'est pas possible"
+        correct: false
+    answer: '`JsonNode` permet de naviguer dans l''arbre ; `path` ne renvoie jamais `null`.'
+  - key: bug-mapper-par-appel
+    format: bug-fix
+    question: |-
+      Le profilage montre beaucoup de temps passé dans la création de mappers, et les dates sortent mal formatées :
+      ```java
+      String json = new ObjectMapper().writeValueAsString(reponse);
+      ```
+    answer: |-
+      ```java
+      private final ObjectMapper mapper;     // injecté : le mapper configuré de l'application
+
+      String json = mapper.writeValueAsString(reponse);
+      ```
+      Un `ObjectMapper` est coûteux à créer et thread-safe une fois configuré. Le mapper de l'application porte aussi
+      les modules et formats (dates ISO) que le mapper neuf n'avait pas.
+  - key: bug-liste-brute
+    format: bug-fix
+    question: |-
+      Ce code lève `ClassCastException: LinkedHashMap cannot be cast to Commande` :
+      ```java
+      List<Commande> commandes = mapper.readValue(json, List.class);
+      Commande premiere = commandes.get(0);
+      ```
+    answer: |-
+      ```java
+      List<Commande> commandes = mapper.readValue(json, new TypeReference<List<Commande>>() {});
+      ```
+      Avec `List.class`, Jackson ne connaît pas le type des éléments (effacement) et crée des maps. Le `TypeReference`
+      conserve le type générique complet.
+  - key: bug-champ-inconnu
+    format: bug-fix
+    question: |-
+      Depuis que le partenaire a ajouté un champ à son API, toutes les lectures échouent avec
+      `UnrecognizedPropertyException` :
+      ```java
+      record Livraison(String id, String statut) {}
+      ```
+    answer: |-
+      ```java
+      @JsonIgnoreProperties(ignoreUnknown = true)
+      record Livraison(String id, String statut) {}
+      // ou, globalement : mapper.disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
+      ```
+      Un client doit tolérer les champs ajoutés par un fournisseur : c'est une évolution compatible de l'API.
+  - key: bug-entite
+    format: bug-fix
+    question: |-
+      Cet endpoint renvoie un JSON énorme (relations chargées en cascade), et parfois une boucle infinie :
+      ```java
+      @GET public Client client(@PathParam("id") long id) { return em.find(Client.class, id); }   // entité JPA
+      ```
+    answer: |-
+      ```java
+      record ClientDto(long id, String nom, String email) {
+          static ClientDto de(Client c) { return new ClientDto(c.getId(), c.getNom(), c.getEmail()); }
+      }
+
+      @GET public ClientDto client(@PathParam("id") long id) { return ClientDto.de(repository.trouver(id)); }
+      ```
+      Une entité exposée sérialise ses relations (chargements paresseux, références circulaires). Un DTO dédié fixe le
+      contrat de l'API.
+  - key: scenario-contrat
+    format: scenario
+    question: Tu conçois le format JSON d'une nouvelle API publique. Quelles règles fixes-tu ?
+    answer: |-
+      Des noms de propriétés stables et cohérents (camelCase), des dates en ISO-8601 (`2026-03-15`, et les instants en
+      UTC avec `Z`), des montants en décimal (ou en centimes entiers) avec la devise, des énumérations en chaînes, pas de
+      `null` superflus (`NON_NULL`), des listes vides plutôt que `null`. Les clients doivent ignorer les champs inconnus,
+      et moi ne jamais retirer ni renommer un champ sans nouvelle version (`/api/v2`). Les erreurs suivent RFC 9457
+      (Problem Details). Le tout est documenté dans la spécification OpenAPI et testé (tests de contrat).
+  - key: scenario-gros-json
+    format: scenario
+    question: Tu dois lire un fichier JSON de 5 Go contenant un tableau de millions d'objets. Comment, sans saturer la mémoire ?
+    answer: |-
+      Pas de `readValue` sur tout le fichier. J'utilise l'API de flux de Jackson : un `JsonParser` positionné sur le début
+      du tableau, puis `mapper.readValues(parser, Element.class)` (un `MappingIterator`), qui lit et construit les objets
+      un par un. Je traite chaque élément au fil de l'eau (par lots pour une insertion en base), et je ferme le parseur
+      dans un try-with-resources. La mémoire reste bornée par la taille d'un élément et d'un lot.
+  - key: scenario-polymorphisme
+    format: scenario
+    question: Un message JSON peut décrire plusieurs types d'événements. Comment le désérialiser proprement et sans risque ?
+    answer: |-
+      Avec un discriminant explicite et une liste fermée de types : une interface scellée `Evenement` dont chaque record
+      est déclaré avec `@JsonTypeInfo(use = Id.NAME, property = "type")` et `@JsonSubTypes` (`commande_creee`,
+      `paiement_recu`). Jackson n'instancie que les types listés, contrairement au typage polymorphe par défaut (qui
+      laisse le flux choisir une classe, une faille connue). Côté code, un `switch` exhaustif sur l'interface scellée
+      traite chaque type.
+  - key: scenario-evolution
+    format: scenario
+    question: Un champ `adresse` (une chaîne) doit devenir un objet structuré dans l'API. Comment faire évoluer le contrat sans casser les clients ?
+    answer: |-
+      J'ajoute un nouveau champ (`adresseDetaillee`, un objet) à côté de l'ancien, que je continue à remplir pendant une
+      période de transition annoncée, et je le marque comme déprécié dans la documentation OpenAPI. Les clients migrent à
+      leur rythme ; je mesure l'usage de l'ancien champ si possible. Une fois la période passée, je le retire dans une
+      nouvelle version majeure de l'API (`/api/v2`), jamais silencieusement dans la version en cours.

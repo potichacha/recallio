@@ -1,4 +1,33 @@
 notion: serialisation-dangers
+lesson: |-
+  La désérialisation native (`ObjectInputStream.readObject`) **instancie n'importe quelle classe sérialisable du
+  classpath** désignée par le flux, et appelle ses méthodes `readObject`, `readResolve`... Un attaquant qui contrôle les
+  octets peut enchaîner des classes existantes (des *gadget chains*, dans Commons Collections, Spring, etc.) pour
+  **exécuter du code** sur le serveur. Ces failles ont touché Jenkins, WebLogic, JBoss et bien d'autres.
+
+  Autres risques :
+  - un **déni de service** : un petit flux qui décrit un graphe énorme (des ensembles imbriqués) épuise la mémoire ou le
+    CPU ;
+  - des **invariants contournés** : le constructeur n'est pas appelé ;
+  - un **couplage** fort : le format dépend des classes Java et de leurs versions, les deux côtés doivent évoluer
+    ensemble, et seul Java peut le lire.
+
+  Les parades :
+  - **ne jamais désérialiser des données non fiables** (requêtes, fichiers téléversés, messages externes) ;
+  - si c'est inévitable, un **`ObjectInputFilter`** (Java 9, filtre global depuis Java 17 avec
+    `jdk.serialFilter`) avec une **liste blanche** des classes attendues et des limites (profondeur, taille) ;
+  - et surtout, des **formats de données** sans exécution de code :
+    - **JSON** (Jackson) : lisible, universel ; attention à ne pas activer le typage polymorphe par défaut, qui
+      réintroduit le même risque ;
+    - **Protobuf**, **Avro** : binaires, compacts, à **schéma** avec des règles d'évolution compatibles.
+
+  Même Oracle décrit la sérialisation comme une erreur de conception, et le projet Amber réfléchit à une alternative.
+
+  **Piège classique** : désérialiser un cookie, un paramètre ou un message Base64 « parce qu'il vient de notre propre
+  application ». Un attaquant peut le forger.
+
+  **En entretien** : « La désérialisation native peut exécuter du code via des gadget chains : jamais sur des données non
+  fiables ; sinon un `ObjectInputFilter` en liste blanche. Pour échanger, JSON ou Protobuf, avec un contrat explicite. »
 cards:
   - key: deserialisation-java-dangereuse
     format: course
@@ -8,9 +37,116 @@ cards:
     format: course
     question: Protobuf vs JSON ?
     answer: Binaire compact, rapide, à schéma et contrat fort vs texte lisible, universel, sans schéma imposé.
+  - key: gadget-chain
+    format: course
+    question: Qu'est-ce qu'une gadget chain ?
+    answer: Un enchaînement de classes déjà présentes sur le classpath, dont les méthodes appelées pendant la désérialisation finissent par exécuter une action dangereuse (commande système, chargement de classe).
+  - key: filtre
+    format: course
+    question: À quoi sert un `ObjectInputFilter` ?
+    answer: À n'accepter, pendant la désérialisation, que des classes autorisées (liste blanche) et à limiter la profondeur, le nombre d'objets et la taille des tableaux.
+  - key: vf-propre-appli
+    format: true-false
+    question: Désérialiser un cookie sans danger est possible s'il a été produit par notre propre application.
+    truth: false
+    answer: Le client peut le modifier ou le forger.
+  - key: vf-filtre-global
+    format: true-false
+    question: Un filtre de désérialisation global peut être configuré avec la propriété `jdk.serialFilter`.
+    truth: true
+    answer: Et par une fabrique de filtres depuis Java 17.
+  - key: vf-json-polymorphe
+    format: true-false
+    question: Activer le typage polymorphe par défaut de Jackson sur des données non fiables est sans risque.
+    truth: false
+    answer: Il permet d'instancier des classes choisies par le flux, comme la désérialisation native.
+  - key: vf-dos
+    format: true-false
+    question: Un petit flux sérialisé peut provoquer un déni de service à la désérialisation.
+    truth: true
+    answer: Par exemple des ensembles imbriqués dont le calcul des `hashCode` explose.
+  - key: qcm-parades
+    format: multiple-choice
+    question: Quelles mesures réduisent le risque ?
+    choices:
+      - text: "Ne pas désérialiser de données provenant de l'extérieur"
+        correct: true
+      - text: "Un `ObjectInputFilter` en liste blanche"
+        correct: true
+      - text: "Chiffrer les classes du classpath"
+        correct: false
+      - text: "Désérialiser dans un thread séparé"
+        correct: false
+    answer: Le mieux reste de ne pas utiliser ce format pour des échanges.
+  - key: qcm-formats
+    format: multiple-choice
+    question: Quels formats n'exécutent pas de code à la lecture ?
+    choices:
+      - text: "JSON lu en types déclarés (DTO, records)"
+        correct: true
+      - text: "Protobuf"
+        correct: true
+      - text: "La sérialisation Java native"
+        correct: false
+      - text: "JSON avec typage polymorphe par défaut activé"
+        correct: false
+    answer: Ce sont les types déclarés par le code, pas par le flux, qui sont instanciés.
+  - key: qcm-schema
+    format: multiple-choice
+    question: Qu'apportent Protobuf et Avro par rapport à JSON ?
+    choices:
+      - text: "Un schéma explicite avec des règles d'évolution compatibles"
+        correct: true
+      - text: "Un format binaire compact et rapide"
+        correct: true
+      - text: "Un format lisible par un humain"
+        correct: false
+      - text: "L'absence de tout contrat"
+        correct: false
+    answer: JSON reste plus lisible et universel.
+  - key: qcm-surface
+    format: multiple-choice
+    question: Pourquoi le risque dépend-il des bibliothèques présentes sur le classpath ?
+    choices:
+      - text: "Les gadget chains utilisent des classes existantes"
+        correct: true
+      - text: "Parce que les bibliothèques désactivent la sérialisation"
+        correct: false
+      - text: "Parce qu'elles chiffrent les flux"
+        correct: false
+      - text: "Il n'en dépend pas"
+        correct: false
+    answer: Plus le classpath est riche, plus il y a de gadgets potentiels.
   - key: service-historique-echange-objets-java
     format: scenario
     question: Un service historique échange des objets Java sérialisés avec un autre système. Qu'en penses-tu ?
     answer: |-
       Deux problèmes. **Sécurité** : si les données peuvent venir d'une source non maîtrisée, la désérialisation native est une porte d'entrée pour l'exécution de code à distance. **Couplage** : le format est lié aux classes Java et à leurs versions, donc les deux systèmes doivent évoluer ensemble.
       À court terme, je mettrais un `ObjectInputFilter` avec une liste blanche des classes attendues. À moyen terme, je migrerais vers un format à **contrat explicite** : JSON avec un schéma documenté, ou Protobuf/Avro si la performance compte, ce qui découple les deux systèmes et permet des évolutions compatibles.
+  - key: scenario-audit
+    format: scenario
+    question: Lors d'un audit, comment repères-tu les risques de désérialisation dans une base de code ?
+    answer: |-
+      Je cherche les `ObjectInputStream`, `readObject`, `XMLDecoder`, et les configurations de bibliothèques qui
+      désérialisent des types choisis par les données (typage polymorphe par défaut de Jackson, XStream, sérialiseurs de
+      cache ou de session, RMI, JMX). Pour chacun, je regarde d'où viennent les données (réseau, fichier téléversé,
+      cookie, file de messages). J'ajoute un filtre global `jdk.serialFilter` restrictif, j'utilise un analyseur de
+      dépendances pour les bibliothèques connues pour leurs gadgets, et je planifie le remplacement par JSON ou Protobuf.
+  - key: scenario-cache
+    format: scenario
+    question: Un cache distribué (Redis) stocke des objets en sérialisation Java. Que proposes-tu ?
+    answer: |-
+      De passer à un format de données, typiquement JSON avec des DTO ou des records dédiés au cache, ou un format
+      binaire à schéma. On y gagne : plus de risque d'exécution de code si Redis est compromis ou mal protégé, la
+      compatibilité entre versions (un champ ajouté ne casse rien), la lisibilité pour déboguer, et la possibilité de lire
+      le cache depuis un autre langage. Je versionne les clés (`profil:v2:42`) pour migrer sans casser les instances qui
+      tournent encore avec l'ancien format.
+  - key: scenario-session
+    format: scenario
+    question: Un framework stocke la session de l'utilisateur, sérialisée en Java et encodée en Base64, dans un cookie. Quel est le risque, et comment le traiter ?
+    answer: |-
+      Le cookie est sous le contrôle du client : un attaquant peut le remplacer par un flux forgé et obtenir une exécution
+      de code à la désérialisation. Je supprimerais ce mécanisme : la session reste côté serveur, et le cookie ne contient
+      qu'un identifiant aléatoire ; ou bien le cookie contient des données en JSON signées (un JWT, ou une signature HMAC
+      vérifiée avant toute lecture). Si la migration prend du temps, j'ajoute immédiatement une signature et un
+      `ObjectInputFilter` strict en liste blanche.

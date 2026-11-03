@@ -1,6 +1,243 @@
 notion: httpclient
+lesson: |-
+  Depuis Java 11, **`java.net.http.HttpClient`** est le client HTTP du JDK : HTTP/1.1 et HTTP/2, synchrone ou asynchrone,
+  sans dépendance.
+
+  ```java
+  HttpClient client = HttpClient.newBuilder()               // un client partagé par l'application
+          .connectTimeout(Duration.ofSeconds(2))
+          .followRedirects(HttpClient.Redirect.NORMAL)
+          .build();
+
+  HttpRequest requete = HttpRequest.newBuilder(URI.create("https://api.exemple.org/commandes/42"))
+          .timeout(Duration.ofSeconds(5))                    // délai de la requête
+          .header("Accept", "application/json")
+          .GET()
+          .build();
+
+  HttpResponse<String> reponse = client.send(requete, HttpResponse.BodyHandlers.ofString());   // synchrone
+  if (reponse.statusCode() == 200) {
+      Commande c = mapper.readValue(reponse.body(), Commande.class);
+  }
+
+  CompletableFuture<HttpResponse<String>> f =
+          client.sendAsync(requete, HttpResponse.BodyHandlers.ofString());                    // asynchrone
+
+  HttpRequest post = HttpRequest.newBuilder(uri)
+          .header("Content-Type", "application/json")
+          .POST(HttpRequest.BodyPublishers.ofString(json))
+          .build();
+  ```
+
+  - Le **`HttpClient`** est **immuable, thread-safe** et garde un pool de connexions : on en crée **un** et on le réutilise.
+    Depuis Java 21, il est `AutoCloseable`.
+  - Deux délais distincts : `connectTimeout` (établir la connexion) et `timeout` de la requête (attendre la réponse).
+    **Sans délai de requête, l'attente peut être infinie.**
+  - Un code **4xx ou 5xx ne lève pas d'exception** : on teste `statusCode()`. Les exceptions (`IOException`,
+    `HttpTimeoutException`) signalent des problèmes réseau.
+  - Les `BodyHandlers` choisissent la forme du corps : `ofString`, `ofByteArray`, `ofInputStream` (en flux), `ofFile`.
+  - Avec des **threads virtuels**, l'appel synchrone `send` suffit et reste lisible.
+  - En production, on ajoute réessais (requêtes idempotentes), coupe-circuit et métriques, souvent via le client du
+    framework (REST Client de Quarkus, `RestClient` de Spring).
+
+  **Piège classique** : créer un `HttpClient` par requête. On perd le pool de connexions (une nouvelle connexion TLS à
+  chaque appel), et on peut épuiser les ressources du système.
+
+  **En entretien** : « Un `HttpClient` unique et partagé, des délais de connexion et de requête, `send` ou `sendAsync`, et
+  le code de statut à vérifier soi-même : un 500 ne lève pas d'exception. »
 cards:
   - key: client-http-utiliser-jdk
     format: course
     question: Quel client HTTP utiliser dans le JDK ?
     answer: java.net.http.HttpClient (Java 11), synchrone ou asynchrone, HTTP/2 et HTTP/3 (Java 26).
+  - key: partage
+    format: course
+    question: Pourquoi réutiliser un seul `HttpClient` ?
+    answer: Il est immuable et thread-safe, et garde un pool de connexions (avec les sessions TLS) ; en créer un par requête recrée des connexions et gaspille des ressources.
+  - key: delais
+    format: course
+    question: Quels délais configurer sur un appel HTTP ?
+    answer: Le délai de connexion (`connectTimeout` du client) et le délai de la requête (`timeout` de `HttpRequest`) ; sans ce dernier, l'attente de la réponse peut être infinie.
+  - key: statut
+    format: course
+    question: Un appel qui renvoie un statut 500 lève-t-il une exception ?
+    answer: Non, `send` renvoie la réponse ; c'est au code de tester `statusCode()`. Les exceptions signalent des erreurs réseau ou des délais dépassés.
+  - key: vf-thread-safe
+    format: true-false
+    question: Un `HttpClient` peut être partagé par plusieurs threads.
+    truth: true
+    answer: Il est immuable et thread-safe.
+  - key: vf-404
+    format: true-false
+    question: "`client.send` lève une exception pour une réponse 404."
+    truth: false
+    answer: Il renvoie la réponse avec son statut.
+  - key: vf-timeout-defaut
+    format: true-false
+    question: Sans `timeout` sur la requête, `send` peut attendre une réponse indéfiniment.
+    truth: true
+    answer: D'où un délai explicite sur chaque requête.
+  - key: vf-async
+    format: true-false
+    question: "`sendAsync` renvoie un `CompletableFuture<HttpResponse<T>>`."
+    truth: true
+    answer: On le compose avec `thenApply`, `orTimeout`...
+  - key: qcm-delais
+    format: multiple-choice
+    question: Quels délais faut-il régler ?
+    choices:
+      - text: "`connectTimeout` sur le client"
+        correct: true
+      - text: "`timeout` sur chaque `HttpRequest`"
+        correct: true
+      - text: "Un `Thread.sleep` avant l'appel"
+        correct: false
+      - text: "La taille du tampon de `BodyHandlers`"
+        correct: false
+    answer: Connexion et réponse ont chacune leur délai.
+  - key: qcm-corps
+    format: multiple-choice
+    question: Comment télécharger un gros fichier sans le charger en mémoire ?
+    choices:
+      - text: "`BodyHandlers.ofFile(chemin)`"
+        correct: true
+      - text: "`BodyHandlers.ofInputStream()`, lu en flux"
+        correct: true
+      - text: "`BodyHandlers.ofString()`"
+        correct: false
+      - text: "`BodyHandlers.ofByteArray()`"
+        correct: false
+    answer: Les deux dernières gardent tout le corps en mémoire.
+  - key: qcm-post
+    format: multiple-choice
+    question: Comment envoyer un corps JSON en POST ?
+    choices:
+      - text: "`.header(\"Content-Type\", \"application/json\").POST(BodyPublishers.ofString(json))`"
+        correct: true
+      - text: "`.POST(json)`"
+        correct: false
+      - text: "`.GET().body(json)`"
+        correct: false
+      - text: "`.POST(BodyHandlers.ofString())`"
+        correct: false
+    answer: Les `BodyPublishers` fournissent le corps envoyé, les `BodyHandlers` traitent le corps reçu.
+  - key: qcm-reessai
+    format: multiple-choice
+    question: Quelles requêtes peut-on réessayer sans risque après un délai dépassé ?
+    choices:
+      - text: "Un `GET` de lecture"
+        correct: true
+      - text: "Un `PUT` qui remplace une ressource"
+        correct: true
+      - text: "Un `POST` qui crée un paiement, sans clé d'idempotence"
+        correct: false
+      - text: "Toutes, toujours"
+        correct: false
+    answer: Un réessai d'une requête non idempotente peut la faire exécuter deux fois.
+  - key: trous-send
+    format: fill-in
+    question: |-
+      Complétez l'appel synchrone :
+      ```java
+      HttpResponse<String> r = client.___(requete, HttpResponse.BodyHandlers.ofString());
+      ```
+    blanks: [[send]]
+    answer: '`sendAsync` pour la version asynchrone.'
+  - key: trous-timeout
+    format: fill-in
+    question: |-
+      Complétez pour borner l'attente de la réponse :
+      ```java
+      HttpRequest r = HttpRequest.newBuilder(uri).___(Duration.ofSeconds(3)).GET().build();
+      ```
+    blanks: [[timeout]]
+    answer: Sans lui, l'attente peut être infinie.
+  - key: trous-statut
+    format: fill-in
+    question: |-
+      Complétez pour vérifier la réussite :
+      ```java
+      if (reponse.___() != 200) {
+          throw new ServiceIndisponibleException(reponse.statusCode());
+      }
+      ```
+    blanks: [[statusCode]]
+    answer: Les erreurs HTTP ne lèvent pas d'exception.
+  - key: trous-builder
+    format: fill-in
+    question: |-
+      Complétez pour créer un client configuré :
+      ```java
+      HttpClient client = HttpClient.___().connectTimeout(Duration.ofSeconds(2)).build();
+      ```
+    blanks: [[newBuilder]]
+    answer: Un client unique, réutilisé.
+  - key: bug-client-par-appel
+    format: bug-fix
+    question: |-
+      Sous charge, les appels sont lents et le système manque de ports :
+      ```java
+      Prix prix(String ref) throws Exception {
+          HttpClient client = HttpClient.newHttpClient();
+          return lire(client.send(requete(ref), BodyHandlers.ofString()));
+      }
+      ```
+    answer: |-
+      ```java
+      private final HttpClient client = HttpClient.newBuilder()
+              .connectTimeout(Duration.ofSeconds(2))
+              .build();
+
+      Prix prix(String ref) throws Exception {
+          return lire(client.send(requete(ref), BodyHandlers.ofString()));
+      }
+      ```
+      Chaque client neuf ouvre de nouvelles connexions (et refait la négociation TLS). Un client partagé réutilise son
+      pool.
+  - key: bug-sans-timeout
+    format: bug-fix
+    question: |-
+      Quand le partenaire ne répond plus, les threads de l'application restent bloqués pour toujours :
+      ```java
+      HttpRequest r = HttpRequest.newBuilder(uri).GET().build();
+      client.send(r, BodyHandlers.ofString());
+      ```
+    answer: |-
+      ```java
+      HttpRequest r = HttpRequest.newBuilder(uri)
+              .timeout(Duration.ofSeconds(5))
+              .GET()
+              .build();
+      ```
+      Sans délai de requête, `send` attend indéfiniment une réponse. Avec `timeout`, une `HttpTimeoutException` libère
+      le thread.
+  - key: bug-statut-ignore
+    format: bug-fix
+    question: |-
+      Une panne du partenaire produit des objets vides au lieu d'une erreur :
+      ```java
+      HttpResponse<String> r = client.send(requete, BodyHandlers.ofString());
+      return mapper.readValue(r.body(), Stock.class);      // le corps d'une 503 est une page d'erreur
+      ```
+    answer: |-
+      ```java
+      HttpResponse<String> r = client.send(requete, BodyHandlers.ofString());
+      if (r.statusCode() != 200) {
+          throw new StockIndisponibleException(ref, r.statusCode());
+      }
+      return mapper.readValue(r.body(), Stock.class);
+      ```
+      Un statut d'erreur ne lève pas d'exception : il faut le vérifier avant de lire le corps.
+  - key: bug-gros-corps
+    format: bug-fix
+    question: |-
+      Le téléchargement d'un export de 2 Go finit en `OutOfMemoryError` :
+      ```java
+      HttpResponse<byte[]> r = client.send(requete, BodyHandlers.ofByteArray());
+      Files.write(cible, r.body());
+      ```
+    answer: |-
+      ```java
+      HttpResponse<Path> r = client.send(requete, BodyHandlers.ofFile(cible));
+      ```
+      `ofByteArray` garde tout le corps en mémoire. `ofFile` (ou `ofInputStream`) l'écrit au fil de la réception.

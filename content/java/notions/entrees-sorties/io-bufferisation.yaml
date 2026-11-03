@@ -1,6 +1,295 @@
 notion: io-bufferisation
+lesson: |-
+  Chaque `read()` ou `write()` sur un flux de fichier ou de socket peut provoquer un **appel système**, coûteux. Un flux
+  **bufferisé** lit ou écrit par **blocs** (8 Ko par défaut) dans un tampon en mémoire, et sert ensuite les petites
+  lectures depuis ce tampon.
+
+  ```java
+  try (BufferedReader r = Files.newBufferedReader(chemin, StandardCharsets.UTF_8)) {
+      String ligne;
+      while ((ligne = r.readLine()) != null) {         // null à la fin
+          traiter(ligne);
+      }
+  }
+
+  try (BufferedWriter w = Files.newBufferedWriter(chemin, StandardCharsets.UTF_8)) {
+      w.write("en-tête");
+      w.newLine();                                     // séparateur de ligne de la plateforme
+  }                                                    // close() vide le tampon (flush)
+
+  try (var in = new BufferedInputStream(Files.newInputStream(fichier))) { ... }
+  r.lines().filter(...).count();                       // un Stream<String> des lignes
+  ```
+
+  - **`BufferedReader.readLine()`** lit une ligne sans son séparateur, et renvoie **`null`** à la fin.
+  - Un **`BufferedWriter`** garde les données en mémoire : elles ne sont écrites qu'au remplissage du tampon, à
+    **`flush()`** ou à **`close()`**. Sans fermeture, les dernières lignes sont **perdues**.
+  - `Files.newBufferedReader` et `newBufferedWriter` donnent directement des flux bufferisés, avec un encodage (UTF-8 par
+    défaut).
+  - Bufferiser n'aide que les accès **petits et nombreux** : lire avec un grand tableau d'un coup est déjà efficace.
+  - `PrintWriter` (souvent sur un `BufferedWriter`) ajoute `println`/`printf`, mais **avale les exceptions** :
+    `checkError()` dit si une écriture a échoué.
+  - Pour du texte simple, `Files.readString`, `Files.lines`, `Files.writeString` évitent la boucle.
+
+  **Piège classique** : oublier de fermer (ou de vider) un `BufferedWriter`. Le fichier est vide ou tronqué, sans aucune
+  erreur.
+
+  **En entretien** : « Bufferiser évite un appel système par octet ; `readLine` renvoie `null` à la fin, et un
+  `BufferedWriter` ne vide son tampon qu'à `flush` ou `close`, d'où le try-with-resources. »
 cards:
   - key: bufferiser-flux
     format: course
     question: Pourquoi bufferiser les flux ?
     answer: Pour éviter un appel système par octet ou caractère lu.
+  - key: readline
+    format: course
+    question: Que renvoie `BufferedReader.readLine()` à la fin du fichier ?
+    answer: '`null` ; chaque ligne est renvoyée sans son séparateur.'
+  - key: flush
+    format: course
+    question: Quand un `BufferedWriter` écrit-il réellement sur le disque ?
+    answer: Quand son tampon est plein, à `flush()` ou à `close()` ; sans fermeture, les dernières données peuvent être perdues.
+  - key: printwriter
+    format: course
+    question: Quel piège présente `PrintWriter` ?
+    answer: "Il n'émet pas d'`IOException` : les erreurs d'écriture sont avalées, et il faut appeler `checkError()` pour les détecter."
+  - key: vf-flush-close
+    format: true-false
+    question: "`close()` sur un `BufferedWriter` vide d'abord son tampon."
+    truth: true
+    answer: Il appelle `flush()` puis ferme le flux sous-jacent.
+  - key: vf-readline-separateur
+    format: true-false
+    question: "`readLine()` inclut le caractère de fin de ligne dans la chaîne renvoyée."
+    truth: false
+    answer: Il le retire.
+  - key: vf-gros-tableau
+    format: true-false
+    question: Bufferiser apporte beaucoup quand on lit déjà par blocs de 64 Ko.
+    truth: false
+    answer: Le gain vient de la réduction des petites lectures ; de gros blocs sont déjà efficaces.
+  - key: vf-taille
+    format: true-false
+    question: La taille par défaut du tampon d'un `BufferedReader` est de 8 192 caractères.
+    truth: true
+    answer: Un second argument du constructeur permet de la changer.
+  - key: qcm-lire-lignes
+    format: multiple-choice
+    question: Comment lire un gros fichier texte ligne par ligne ?
+    choices:
+      - text: "`Files.newBufferedReader(p)` et une boucle sur `readLine()`"
+        correct: true
+      - text: "`Files.lines(p)` dans un try-with-resources"
+        correct: true
+      - text: "`Files.readAllLines(p)` pour un fichier de 20 Go"
+        correct: false
+      - text: "Un `FileReader` lu caractère par caractère sans tampon"
+        correct: false
+    answer: '`readAllLines` charge tout en mémoire.'
+  - key: qcm-perte
+    format: multiple-choice
+    question: Pourquoi un fichier écrit avec un `BufferedWriter` peut-il être vide ?
+    choices:
+      - text: "Le writer n'a été ni vidé ni fermé"
+        correct: true
+      - text: "Le tampon est trop grand"
+        correct: false
+      - text: "`newLine()` n'a pas été appelé"
+        correct: false
+      - text: "Le fichier est en UTF-8"
+        correct: false
+    answer: Les données restaient dans le tampon en mémoire.
+  - key: qcm-fabriques
+    format: multiple-choice
+    question: Que renvoient `Files.newBufferedReader` et `Files.newBufferedWriter` ?
+    choices:
+      - text: "Des flux de caractères bufferisés, en UTF-8 par défaut"
+        correct: true
+      - text: "Des flux d'octets non bufferisés"
+        correct: false
+      - text: "Des chaînes"
+        correct: false
+      - text: "Des `Stream<String>`"
+        correct: false
+    answer: '`Files.lines` renvoie un `Stream<String>`.'
+  - key: qcm-printwriter
+    format: multiple-choice
+    question: Comment savoir si les écritures d'un `PrintWriter` ont échoué ?
+    choices:
+      - text: "Appeler `checkError()`"
+        correct: true
+      - text: "Attraper `IOException` sur `println`"
+        correct: false
+      - text: "Vérifier la valeur renvoyée par `println`"
+        correct: false
+      - text: "Impossible"
+        correct: false
+    answer: '`println` ne lève pas d''`IOException`.'
+  - key: trous-readline
+    format: fill-in
+    question: |-
+      Complétez la boucle :
+      ```java
+      String ligne;
+      while ((ligne = reader.___()) != null) {
+          traiter(ligne);
+      }
+      ```
+    blanks: [[readLine]]
+    answer: '`readLine` renvoie `null` à la fin.'
+  - key: trous-newline
+    format: fill-in
+    question: |-
+      Complétez pour passer à la ligne :
+      ```java
+      writer.write("total : " + total);
+      writer.___();
+      ```
+    blanks: [[newLine]]
+    answer: Le séparateur de la plateforme.
+  - key: trous-fabrique
+    format: fill-in
+    question: |-
+      Complétez pour ouvrir un lecteur bufferisé UTF-8 :
+      ```java
+      try (BufferedReader r = Files.___(chemin, StandardCharsets.UTF_8)) { ... }
+      ```
+    blanks: [[newBufferedReader]]
+    answer: Un `BufferedReader` prêt à l'emploi.
+  - key: trous-flush
+    format: fill-in
+    question: |-
+      Complétez pour forcer l'écriture du tampon sans fermer le flux :
+      ```java
+      writer.write(ligne);
+      writer.___();
+      ```
+    blanks: [[flush]]
+    answer: Utile pour un journal qu'on veut voir immédiatement.
+  - key: code-readline
+    format: code-output
+    question: |-
+      ```java
+      BufferedReader r = new BufferedReader(new StringReader("un\ndeux\r\ntrois"));
+      String l;
+      int n = 0;
+      while ((l = r.readLine()) != null) n += l.length();
+      System.out.println(n);
+      ```
+    answer: '`11` : les séparateurs `\n` et `\r\n` sont retirés.'
+    check:
+      output: "11"
+  - key: code-lines
+    format: code-output
+    question: |-
+      ```java
+      BufferedReader r = new BufferedReader(new StringReader("a\n\nb\n"));
+      System.out.println(r.lines().toList());
+      ```
+    answer: '`[a, , b]` : la ligne vide est conservée, pas de ligne après le dernier `\n`.'
+    check:
+      output: "[a, , b]"
+  - key: code-sans-flush
+    format: code-output
+    question: |-
+      ```java
+      StringWriter cible = new StringWriter();
+      BufferedWriter w = new BufferedWriter(cible);
+      w.write("bonjour");
+      System.out.print("[" + cible + "] ");
+      w.flush();
+      System.out.println("[" + cible + "]");
+      ```
+    answer: '`[] [bonjour]` : rien n''est transmis avant `flush`.'
+    check:
+      output: "[] [bonjour]"
+  - key: code-printwriter
+    format: code-output
+    question: |-
+      ```java
+      StringWriter sw = new StringWriter();
+      try (PrintWriter pw = new PrintWriter(sw)) {
+          pw.printf("%s=%d", "x", 3);
+      }
+      System.out.println(sw);
+      ```
+    answer: '`x=3`.'
+    check:
+      output: "x=3"
+  - key: bug-writer-non-ferme
+    format: bug-fix
+    question: |-
+      Le rapport généré est souvent tronqué :
+      ```java
+      BufferedWriter w = Files.newBufferedWriter(rapport);
+      for (Ligne l : lignes) {
+          w.write(l.formater());
+          w.newLine();
+      }
+      ```
+    answer: |-
+      ```java
+      try (BufferedWriter w = Files.newBufferedWriter(rapport)) {
+          for (Ligne l : lignes) {
+              w.write(l.formater());
+              w.newLine();
+          }
+      }
+      ```
+      Le writer n'était jamais fermé : la fin du tampon restait en mémoire. Le try-with-resources vide et ferme le flux.
+  - key: bug-non-bufferise
+    format: bug-fix
+    question: |-
+      La lecture d'un fichier de 200 Mo caractère par caractère prend des minutes :
+      ```java
+      try (Reader r = new FileReader(fichier)) {
+          int c;
+          while ((c = r.read()) != -1) compter(c);
+      }
+      ```
+    answer: |-
+      ```java
+      try (Reader r = Files.newBufferedReader(fichier.toPath(), StandardCharsets.UTF_8)) {
+          int c;
+          while ((c = r.read()) != -1) compter(c);
+      }
+      ```
+      Sans tampon, chaque `read()` peut provoquer un accès au système. Un `BufferedReader` lit par blocs (et l'encodage
+      devient explicite).
+  - key: bug-read-all
+    format: bug-fix
+    question: |-
+      Ce traitement d'un journal de 30 Go finit en `OutOfMemoryError` :
+      ```java
+      for (String ligne : Files.readAllLines(journal)) {
+          if (ligne.contains("ERROR")) erreurs++;
+      }
+      ```
+    answer: |-
+      ```java
+      long erreurs;
+      try (Stream<String> lignes = Files.lines(journal)) {
+          erreurs = lignes.filter(l -> l.contains("ERROR")).count();
+      }
+      ```
+      `readAllLines` charge tout le fichier en mémoire. `Files.lines` lit à la demande (et doit être fermé).
+  - key: bug-printwriter-silencieux
+    format: bug-fix
+    question: |-
+      Un disque plein n'a déclenché aucune erreur, et l'export est incomplet :
+      ```java
+      try (PrintWriter out = new PrintWriter(Files.newBufferedWriter(export))) {
+          lignes.forEach(out::println);
+      }
+      ```
+    answer: |-
+      ```java
+      try (BufferedWriter out = Files.newBufferedWriter(export)) {
+          for (String l : lignes) {
+              out.write(l);
+              out.newLine();
+          }
+      }
+      // ou garder PrintWriter et vérifier out.checkError() avant de fermer
+      ```
+      `PrintWriter` avale les `IOException`. Un `BufferedWriter` les propage, et l'échec devient visible.

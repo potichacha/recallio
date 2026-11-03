@@ -1,0 +1,261 @@
+notion: files-parcours
+lesson: |-
+  `Files` propose plusieurs façons de parcourir des dossiers, toutes sous forme de **`Stream<Path>`** à **fermer** :
+
+  ```java
+  try (Stream<Path> enfants = Files.list(dossier)) {                      // un seul niveau
+      enfants.filter(Files::isRegularFile).forEach(this::traiter);
+  }
+
+  try (Stream<Path> tout = Files.walk(racine)) {                          // récursif, en profondeur
+      long taille = tout.filter(Files::isRegularFile).mapToLong(this::taille).sum();
+  }
+
+  try (Stream<Path> logs = Files.find(racine, 3,                          // profondeur maximale 3
+          (p, attributs) -> attributs.isRegularFile() && p.toString().endsWith(".log"))) {
+      ...
+  }
+
+  try (DirectoryStream<Path> ds = Files.newDirectoryStream(dossier, "*.csv")) {   // filtre glob
+      for (Path p : ds) importer(p);
+  }
+  ```
+
+  - `list` : les entrées **directes** d'un dossier ; `walk` : tout l'arbre (le dossier de départ compris), avec une
+    profondeur maximale facultative ; `find` : comme `walk`, avec un filtre qui reçoit aussi les **attributs** (évite un
+    second appel système par fichier).
+  - L'ordre n'est **pas garanti** : on trie si besoin (`sorted()`).
+  - `walk` ne suit pas les liens symboliques par défaut (`FileVisitOption.FOLLOW_LINKS` pour le faire, avec un risque de
+    cycle détecté par une `FileSystemLoopException`).
+  - Une erreur d'accès pendant le parcours est relancée en **`UncheckedIOException`** et interrompt le stream ; pour plus
+    de contrôle (ignorer les dossiers illisibles, agir avant et après chaque dossier), **`Files.walkFileTree`** avec un
+    `FileVisitor`.
+  - Supprimer un dossier non vide : parcourir en **ordre inverse** (les fichiers avant leur dossier) :
+    `walk(racine).sorted(Comparator.reverseOrder()).forEach(Files::delete)`.
+
+  **Piège classique** : `Files.walk(racine).forEach(...)` sans try-with-resources. Chaque dossier visité ouvre un
+  descripteur : sur un grand arbre, on épuise les descripteurs du processus.
+
+  **En entretien** : « `list` pour un niveau, `walk` et `find` pour un arbre, en `Stream` à fermer ; `walkFileTree` quand
+  il faut gérer finement les erreurs. »
+cards:
+  - key: list-walk
+    format: course
+    question: Quelle différence entre `Files.list` et `Files.walk` ?
+    answer: '`list` donne les entrées directes d''un dossier, `walk` parcourt tout l''arbre récursivement (dossier de départ compris).'
+  - key: find
+    format: course
+    question: Qu'apporte `Files.find` par rapport à `walk` suivi d'un `filter` ?
+    answer: Son filtre reçoit aussi les attributs du fichier (taille, type, dates), déjà lus pendant le parcours, ce qui évite un appel système supplémentaire par fichier.
+  - key: supprimer-arbre
+    format: course
+    question: Comment supprimer un dossier et tout son contenu ?
+    answer: Parcourir avec `Files.walk` en ordre inverse (`sorted(Comparator.reverseOrder())`), pour supprimer les fichiers avant leurs dossiers, avec `Files.delete`.
+  - key: walk-file-tree
+    format: course
+    question: Quand utiliser `Files.walkFileTree` plutôt que `walk` ?
+    answer: "Quand il faut gérer finement le parcours : ignorer un dossier illisible au lieu d'échouer, agir avant et après chaque dossier, ou sauter un sous-arbre."
+  - key: vf-fermer
+    format: true-false
+    question: Les streams renvoyés par `Files.list` et `Files.walk` doivent être fermés.
+    truth: true
+    answer: Ils gardent des descripteurs de dossiers ouverts.
+  - key: vf-ordre
+    format: true-false
+    question: "`Files.list` renvoie les entrées triées par nom."
+    truth: false
+    answer: L'ordre n'est pas garanti ; on trie avec `sorted()`.
+  - key: vf-walk-inclut
+    format: true-false
+    question: "`Files.walk(racine)` inclut `racine` elle-même dans le stream."
+    truth: true
+    answer: C'est le premier élément.
+  - key: vf-liens
+    format: true-false
+    question: "`Files.walk` suit les liens symboliques par défaut."
+    truth: false
+    answer: Il faut `FileVisitOption.FOLLOW_LINKS`.
+  - key: qcm-csv
+    format: multiple-choice
+    question: Comment lister les fichiers `.csv` d'un dossier, sans descendre dans les sous-dossiers ?
+    choices:
+      - text: "`Files.newDirectoryStream(dossier, \"*.csv\")`"
+        correct: true
+      - text: "`Files.list(dossier).filter(p -> p.toString().endsWith(\".csv\"))`, dans un try-with-resources"
+        correct: true
+      - text: "`Files.walk(dossier)` sans profondeur maximale"
+        correct: false
+      - text: "`new File(dossier).list()` puis un `contains(\"csv\")`"
+        correct: false
+    answer: '`walk` descend dans tout l''arbre.'
+  - key: qcm-erreur
+    format: multiple-choice
+    question: Que se passe-t-il si `Files.walk` rencontre un dossier illisible ?
+    choices:
+      - text: "Une `UncheckedIOException` interrompt le stream"
+        correct: true
+      - text: "Le dossier est ignoré silencieusement"
+        correct: false
+      - text: "Le stream renvoie `null`"
+        correct: false
+      - text: "Le programme s'arrête avec un code d'erreur"
+        correct: false
+    answer: '`walkFileTree` permet de continuer malgré l''erreur.'
+  - key: qcm-taille
+    format: multiple-choice
+    question: Comment calculer la taille totale des fichiers d'un arbre ?
+    choices:
+      - text: "`walk(racine).filter(Files::isRegularFile).mapToLong(p -> taille(p)).sum()`, dans un try-with-resources"
+        correct: true
+      - text: "`Files.size(racine)` sur le dossier"
+        correct: false
+      - text: "`Files.list(racine).count()`"
+        correct: false
+      - text: "`racine.toFile().length()`"
+        correct: false
+    answer: La taille d'un dossier n'est pas la somme de son contenu.
+  - key: qcm-profondeur
+    format: multiple-choice
+    question: "Que fait `Files.walk(racine, 1)` ?"
+    choices:
+      - text: "Il parcourt `racine` et ses entrées directes, comme `list` plus la racine"
+        correct: true
+      - text: "Il parcourt tout l'arbre"
+        correct: false
+      - text: "Il ne renvoie que la racine"
+        correct: false
+      - text: "Il lève une exception"
+        correct: false
+    answer: Le second argument est la profondeur maximale.
+  - key: code-walk
+    format: code-output
+    question: |-
+      ```java
+      Path racine = Files.createTempDirectory("arbre");
+      Files.createDirectories(racine.resolve("a/b"));
+      Files.writeString(racine.resolve("a/x.txt"), "x");
+      Files.writeString(racine.resolve("a/b/y.txt"), "y");
+      try (var tout = Files.walk(racine)) {
+          System.out.println(tout.filter(Files::isRegularFile).map(p -> p.getFileName().toString()).sorted().toList());
+      }
+      ```
+    answer: '`[x.txt, y.txt]`.'
+    check:
+      output: "[x.txt, y.txt]"
+  - key: code-list
+    format: code-output
+    question: |-
+      ```java
+      Path d = Files.createTempDirectory("plat");
+      Files.createDirectories(d.resolve("sous/dossier"));
+      Files.writeString(d.resolve("f.txt"), "");
+      try (var n1 = Files.list(d); var n2 = Files.walk(d)) {
+          System.out.println(n1.count() + " " + n2.count());
+      }
+      ```
+    answer: '`2 4` : `list` voit `sous` et `f.txt` ; `walk` y ajoute la racine et `sous/dossier`.'
+    check:
+      output: "2 4"
+  - key: code-supprimer
+    format: code-output
+    question: |-
+      ```java
+      Path d = Files.createTempDirectory("a-supprimer");
+      Files.createDirectories(d.resolve("x/y"));
+      Files.writeString(d.resolve("x/y/f.txt"), "f");
+      try (var s = Files.walk(d)) {
+          s.sorted(Comparator.reverseOrder()).forEach(p -> {
+              try { Files.delete(p); } catch (IOException e) { throw new UncheckedIOException(e); }
+          });
+      }
+      System.out.println(Files.exists(d));
+      ```
+    answer: '`false` : l''ordre inverse supprime les fichiers avant leurs dossiers.'
+    check:
+      output: "false"
+  - key: code-find
+    format: code-output
+    question: |-
+      ```java
+      Path d = Files.createTempDirectory("find");
+      Files.writeString(d.resolve("petit.log"), "a");
+      Files.writeString(d.resolve("gros.log"), "a".repeat(100));
+      try (var s = Files.find(d, 1, (p, attr) -> attr.isRegularFile() && attr.size() > 10)) {
+          System.out.println(s.map(p -> p.getFileName().toString()).toList());
+      }
+      ```
+    answer: '`[gros.log]` : le filtre utilise les attributs lus pendant le parcours.'
+    check:
+      output: "[gros.log]"
+  - key: bug-walk-ouvert
+    format: bug-fix
+    question: |-
+      Sur un grand arbre, l'indexation échoue avec « Too many open files » :
+      ```java
+      Files.walk(racine).filter(Files::isRegularFile).forEach(this::indexer);
+      ```
+    answer: |-
+      ```java
+      try (Stream<Path> fichiers = Files.walk(racine)) {
+          fichiers.filter(Files::isRegularFile).forEach(this::indexer);
+      }
+      ```
+      Le stream garde des descripteurs de dossiers ouverts jusqu'à sa fermeture.
+  - key: bug-ordre-suppression
+    format: bug-fix
+    question: |-
+      Ce nettoyage lève `DirectoryNotEmptyException` :
+      ```java
+      try (var s = Files.walk(dossierTemporaire)) {
+          s.forEach(p -> supprimer(p));
+      }
+      ```
+    answer: |-
+      ```java
+      try (var s = Files.walk(dossierTemporaire)) {
+          s.sorted(Comparator.reverseOrder()).forEach(p -> supprimer(p));
+      }
+      ```
+      `walk` donne les dossiers avant leur contenu : on tente de supprimer un dossier encore plein. L'ordre inverse
+      supprime d'abord les fichiers.
+  - key: bug-dossier-illisible
+    format: bug-fix
+    question: |-
+      Un seul dossier sans droit de lecture fait échouer tout l'inventaire :
+      ```java
+      try (var s = Files.walk(racine)) {
+          s.filter(Files::isRegularFile).forEach(inventaire::ajouter);
+      }
+      ```
+    answer: |-
+      ```java
+      Files.walkFileTree(racine, new SimpleFileVisitor<>() {
+          @Override public FileVisitResult visitFile(Path f, BasicFileAttributes a) {
+              inventaire.ajouter(f);
+              return FileVisitResult.CONTINUE;
+          }
+          @Override public FileVisitResult visitFileFailed(Path f, IOException e) {
+              log.warn("illisible : {}", f, e);
+              return FileVisitResult.CONTINUE;
+          }
+      });
+      ```
+      `walk` lève une `UncheckedIOException` à la première erreur. `walkFileTree` permet de journaliser et de continuer.
+  - key: bug-size-appels
+    format: bug-fix
+    question: |-
+      Ce filtre sur un arbre d'un million de fichiers est lent :
+      ```java
+      try (var s = Files.walk(racine)) {
+          gros = s.filter(p -> Files.isRegularFile(p) && taille(p) > SEUIL).toList();
+      }
+      ```
+    answer: |-
+      ```java
+      try (var s = Files.find(racine, Integer.MAX_VALUE,
+              (p, attr) -> attr.isRegularFile() && attr.size() > SEUIL)) {
+          gros = s.toList();
+      }
+      ```
+      `isRegularFile` et `size` refont un appel système par fichier. `Files.find` fournit les attributs déjà lus pendant
+      le parcours.
