@@ -1,6 +1,207 @@
 notion: finalize-cleaner
+lesson: |-
+  **`finalize()`** devait permettre de libérer une ressource juste avant que le GC récupère un objet. Elle est
+  **dépréciée** depuis Java 9, et **dépréciée pour suppression** depuis Java 18 (JEP 421) :
+
+  - rien ne garantit **quand** elle s'exécute, ni même **si** elle s'exécute ;
+  - elle ralentit la création et la récupération des objets ;
+  - un finaliseur peut « ressusciter » l'objet, et une exception qui s'y produit est ignorée ;
+  - elle ouvre des failles (attaques par finaliseur sur un objet partiellement construit).
+
+  Ce qu'on fait à la place :
+
+  ```java
+  class Connexion implements AutoCloseable {
+      @Override
+      public void close() { ... }              // libération explicite et immédiate
+  }
+
+  try (var connexion = new Connexion()) {      // fermée à la sortie du bloc, même en cas d'exception
+      ...
+  }
+  ```
+
+  - **`AutoCloseable` + `try-with-resources`** : la solution normale.
+  - **`java.lang.ref.Cleaner`** (Java 9) : un **filet de sécurité** si l'utilisateur oublie `close()`. On enregistre une
+    action de nettoyage, qui ne doit **pas** référencer l'objet surveillé (sinon il reste accessible et n'est jamais
+    récupéré) ; on l'écrit dans une classe `static` ou un record.
+  - La JVM peut désactiver toute finalisation avec `--finalization=disabled` (Java 18) pour vérifier qu'une application
+    n'en dépend pas.
+
+  **Piège classique** : une action de `Cleaner` écrite en lambda qui capture `this`. L'objet reste accessible depuis le
+  `Cleaner` : il n'est jamais nettoyé.
+
+  **En entretien** : « `finalize` est dépréciée et imprévisible ; on ferme les ressources avec `try-with-resources`, et
+  un `Cleaner` sert seulement de filet de sécurité. »
 cards:
   - key: remplacer-finalize
     format: course
     question: Par quoi remplacer finalize() ?
     answer: try-with-resources, et un Cleaner en dernier recours.
+  - key: defauts
+    format: course
+    question: Pourquoi `finalize()` est-elle dépréciée ?
+    answer: Son exécution n'est garantie ni dans le temps ni du tout, elle coûte en performance, ignore les exceptions, permet de ressusciter l'objet et ouvre des failles de sécurité.
+  - key: cleaner
+    format: course
+    question: À quoi sert `java.lang.ref.Cleaner` ?
+    answer: À enregistrer une action de nettoyage exécutée quand l'objet devient inaccessible ; c'est un filet de sécurité en cas d'oubli de `close()`, pas un mécanisme principal.
+  - key: action-sans-this
+    format: course
+    question: Pourquoi l'action d'un `Cleaner` ne doit-elle pas référencer l'objet surveillé ?
+    answer: "Sinon le `Cleaner` garde l'objet accessible : il ne devient jamais inaccessible, et l'action n'est jamais exécutée."
+  - key: vf-garantie
+    format: true-false
+    question: La JVM garantit l'exécution de `finalize()` avant la fin du programme.
+    truth: false
+    answer: Rien ne garantit qu'elle s'exécute.
+  - key: vf-suppression
+    format: true-false
+    question: "`finalize()` est dépréciée pour suppression depuis Java 18."
+    truth: true
+    answer: JEP 421 ; la finalisation peut même être désactivée par une option de la JVM.
+  - key: vf-cleaner-principal
+    format: true-false
+    question: Un `Cleaner` remplace `close()` comme moyen principal de libérer une ressource.
+    truth: false
+    answer: C'est un filet de sécurité ; on ferme explicitement avec `try-with-resources`.
+  - key: vf-twr
+    format: true-false
+    question: "`try-with-resources` ferme la ressource même si le bloc lève une exception."
+    truth: true
+    answer: '`close()` est appelée à la sortie du bloc, quelle qu''en soit la raison.'
+  - key: qcm-liberer
+    format: multiple-choice
+    question: Comment garantir la fermeture d'une connexion à une base ?
+    choices:
+      - text: "La déclarer dans un `try-with-resources`"
+        correct: true
+      - text: "Redéfinir `finalize()`"
+        correct: false
+      - text: "Appeler `System.gc()`"
+        correct: false
+      - text: "Mettre la variable à `null`"
+        correct: false
+    answer: Seule une fermeture explicite est immédiate et garantie.
+  - key: qcm-interface
+    format: multiple-choice
+    question: Quelle interface faut-il implémenter pour utiliser une classe dans un `try-with-resources` ?
+    choices:
+      - text: "`AutoCloseable`"
+        correct: true
+      - text: "`Cleaner`"
+        correct: false
+      - text: "`Serializable`"
+        correct: false
+      - text: "`Runnable`"
+        correct: false
+    answer: '`Closeable` (qui étend `AutoCloseable`) convient aussi.'
+  - key: qcm-action
+    format: multiple-choice
+    question: Comment écrire l'action de nettoyage d'un `Cleaner` ?
+    choices:
+      - text: "Dans une classe `static` (ou un record) qui ne contient que l'état à libérer"
+        correct: true
+      - text: "Dans une lambda qui appelle `this.fermer()`"
+        correct: false
+      - text: "Dans une classe interne non `static`"
+        correct: false
+      - text: "Dans `finalize()`"
+        correct: false
+    answer: Une lambda ou une classe interne qui capture l'objet le garderait accessible.
+  - key: qcm-desactiver
+    format: multiple-choice
+    question: Comment vérifier qu'une application ne dépend pas de la finalisation ?
+    choices:
+      - text: "La lancer avec `--finalization=disabled` (Java 18+)"
+        correct: true
+      - text: "Appeler `System.runFinalization()`"
+        correct: false
+      - text: "Ajouter `-XX:+UseG1GC`"
+        correct: false
+      - text: "C'est impossible"
+        correct: false
+    answer: Les finaliseurs ne sont alors plus jamais exécutés.
+  - key: bug-finalize-fichier
+    format: bug-fix
+    question: |-
+      Sous charge, l'application atteint `Too many open files` :
+      ```java
+      class Journal {
+          private final FileWriter fichier;
+          Journal(Path p) throws IOException { fichier = new FileWriter(p.toFile()); }
+          @Override protected void finalize() throws IOException { fichier.close(); }
+      }
+      ```
+    answer: |-
+      ```java
+      class Journal implements AutoCloseable {
+          private final FileWriter fichier;
+          Journal(Path p) throws IOException { fichier = new FileWriter(p.toFile()); }
+          @Override public void close() throws IOException { fichier.close(); }
+      }
+
+      try (var journal = new Journal(chemin)) { ... }
+      ```
+      Le finaliseur s'exécute quand le GC le décide, bien après que les fichiers sont devenus inutiles. Une fermeture
+      explicite libère le descripteur tout de suite.
+  - key: bug-cleaner-this
+    format: bug-fix
+    question: |-
+      Le nettoyage de secours de cette ressource ne s'exécute jamais :
+      ```java
+      class Tampon implements AutoCloseable {
+          private static final Cleaner CLEANER = Cleaner.create();
+          private final long adresse = allouer();
+          private final Cleaner.Cleanable nettoyage = CLEANER.register(this, () -> liberer(adresse));
+          public void close() { nettoyage.clean(); }
+      }
+      ```
+      `liberer` est une méthode d'instance.
+    answer: |-
+      ```java
+      class Tampon implements AutoCloseable {
+          private static final Cleaner CLEANER = Cleaner.create();
+          private record Liberation(long adresse) implements Runnable {
+              public void run() { Memoire.liberer(adresse); }
+          }
+          private final Cleaner.Cleanable nettoyage;
+          Tampon() { nettoyage = CLEANER.register(this, new Liberation(allouer())); }
+          public void close() { nettoyage.clean(); }
+      }
+      ```
+      La lambda appelait une méthode d'instance, donc capturait `this` : le `Cleaner` gardait le tampon accessible.
+      L'action ne doit contenir que l'état à libérer, ici dans un record `static`.
+  - key: bug-close-oublie
+    format: bug-fix
+    question: |-
+      La connexion n'est pas fermée quand `executer` lève une exception :
+      ```java
+      Connexion c = pool.obtenir();
+      c.executer(requete);
+      c.close();
+      ```
+    answer: |-
+      ```java
+      try (Connexion c = pool.obtenir()) {
+          c.executer(requete);
+      }
+      ```
+      `try-with-resources` appelle `close()` à la sortie du bloc, y compris en cas d'exception.
+  - key: bug-system-gc-finalisation
+    format: bug-fix
+    question: |-
+      Ce code « force » la libération des ressources à la fin d'un traitement :
+      ```java
+      traiterTout();
+      System.gc();
+      System.runFinalization();
+      ```
+    answer: |-
+      ```java
+      try (var ressources = ouvrirRessources()) {
+          traiterTout(ressources);
+      }
+      ```
+      Ni `System.gc()` ni `runFinalization()` (dépréciée elle aussi) ne garantissent quoi que ce soit. Chaque ressource
+      est fermée explicitement par son propriétaire.
