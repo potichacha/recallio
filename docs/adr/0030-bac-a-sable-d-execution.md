@@ -68,6 +68,9 @@ utilisateur sans droits, boucle infinie tuée, mémoire bornée. Il joue aussi *
 - **Une exécution à la fois par utilisateur** (429 sinon), verrou en mémoire, suffisant pour un backend unique.
 - **Une panne du runner** (injoignable, saturé, statut `ERROR`) répond 503 et **n'enregistre rien** : ce n'est jamais
   la faute du joueur. Une boucle infinie, elle, est un échec du joueur (`TIMEOUT`, À revoir).
+- **L'éditeur de la PWA** est CodeMirror 6 (`codemirror`, `@codemirror/lang-java`) plutôt que Monaco, trop lourd pour
+  une PWA mobile : un onglet par fichier, les tests en lecture seule, et un chunk à part chargé seulement sur un exercice
+  (environ 150 Ko compressés).
 - **Le port `CodeRunner`** (domaine) est implémenté par un client REST Quarkus (`quarkus-rest-client-jackson`) ; les
   tests du backend le remplacent par un faux, et le runner a ses propres tests avec Docker.
 

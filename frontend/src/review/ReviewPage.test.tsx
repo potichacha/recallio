@@ -1,7 +1,8 @@
 import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { QueuedCard, ReviewQueue } from '../api/review'
+import type { CodeEditorProps } from '../components/CodeEditor'
 import {
   fakeSession,
   renderAt,
@@ -13,6 +14,19 @@ import {
   TEST_PROGRESS,
   TEST_SUBJECTS,
 } from '../test/render'
+
+// CodeMirror s'affiche sous jsdom (voir CodeEditor.test.tsx), mais on n'y tape pas de façon fiable : la saisie du
+// parcours passe par une zone de texte de même nom. Playwright tape dans le vrai éditeur (e2e/tests/exercise.spec.ts).
+vi.mock('../components/CodeEditor', () => ({
+  default: ({ label, value, readOnly, onChange }: CodeEditorProps) => (
+    <textarea
+      aria-label={label}
+      defaultValue={value}
+      readOnly={readOnly}
+      onChange={(event) => onChange?.(event.target.value)}
+    />
+  ),
+}))
 
 const QUEUE = '/api/v1/review-queue'
 const REVIEWS = 'POST /api/v1/reviews'
@@ -382,6 +396,11 @@ describe('ReviewPage', () => {
     })
     renderAt('/review', signedIn())
 
+    await userEvent.click(await screen.findByRole('tab', { name: /DoublonsTest\.java/ }))
+    expect(await screen.findByRole('textbox', { name: 'DoublonsTest.java' })).toHaveAttribute(
+      'readonly',
+    )
+    await userEvent.click(screen.getByRole('tab', { name: 'Doublons.java' }))
     const editor = await screen.findByRole('textbox', { name: 'Doublons.java' })
     await userEvent.clear(editor)
     await userEvent.type(editor, 'class Doublons {{}')
