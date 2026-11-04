@@ -1,4 +1,31 @@
 notion: generics-implementation
+lesson: |-
+  Go ne génère **ni une copie par type** (comme les templates C++), **ni du code entièrement dynamique** (comme
+  l'effacement de types de Java). Il utilise une approche intermédiaire, le **GC shape stenciling** avec
+  **dictionnaires** :
+
+  - les types sont regroupés par **forme** (« GC shape ») : leur disposition mémoire vue par le ramasse-miettes. Tous
+    les **types pointeurs** partagent une même forme, un `int` et un `type Euros int` aussi ;
+  - le compilateur génère **une version du code par forme** ;
+  - un **dictionnaire**, passé en paramètre caché, fournit à chaque appel les informations propres au type exact
+    (méthodes, conversions, tailles).
+
+  Conséquences :
+  - les binaires restent **petits** et la compilation **rapide** (pas d'explosion du nombre d'instanciations) ;
+  - pour des **types de base** (`int`, `float64`), le code généré est spécialisé et efficace ;
+  - pour des **pointeurs ou des interfaces**, plusieurs types partagent le même code : un appel de méthode passe par le
+    dictionnaire, une **indirection** comparable à une interface, parfois un peu plus lente ;
+  - les détails peuvent évoluer d'une version à l'autre (c'est de l'implémentation).
+
+  En pratique, les generics sont rarement un problème de performance ; on mesure avec un benchmark avant de réécrire du
+  code générique en code concret.
+
+  **Piège classique** : supposer qu'une fonction générique est toujours aussi rapide qu'une version écrite à la main pour
+  chaque type. Pour des types pointeurs avec des appels de méthodes, ce n'est pas toujours le cas.
+
+  **En entretien** : « Ni monomorphisation complète ni effacement : une version par forme mémoire, avec un dictionnaire
+  pour les détails du type ; des binaires compacts, du code efficace pour les types de base, une indirection pour les
+  pointeurs. »
 cards:
   - key: compile-generics
     format: course
@@ -8,3 +35,119 @@ cards:
     format: course
     question: Les generics sont-ils gratuits en performance ?
     answer: 'Pas toujours : avec des pointeurs ou des interfaces, les appels via dictionnaire peuvent être plus lents qu''une version spécifique.'
+  - key: gc-shape
+    format: course
+    question: Qu'est-ce qu'une « GC shape » dans l'implémentation des generics ?
+    answer: Un regroupement de types qui ont la même disposition mémoire pour le ramasse-miettes ; par exemple tous les types pointeurs. Le compilateur génère une version du code par forme.
+  - key: dictionnaire
+    format: course
+    question: À quoi sert le dictionnaire passé aux fonctions génériques ?
+    answer: 'À fournir, pour le type exact de l''appel, les informations que la forme partagée ne connaît pas : méthodes, conversions, tailles.'
+  - key: comparaison
+    format: course
+    question: En quoi l'approche de Go diffère-t-elle de C++ et de Java ?
+    answer: C++ génère une copie par type (monomorphisation), Java efface les types (une seule version) ; Go génère une version par forme mémoire, complétée par un dictionnaire.
+  - key: vf-copie-par-type
+    format: true-false
+    question: Go génère une copie complète du code pour chaque type qui instancie une fonction générique.
+    truth: false
+    answer: Une version par forme mémoire ; les types pointeurs partagent le même code.
+  - key: vf-effacement
+    format: true-false
+    question: Les generics de Go fonctionnent par effacement de types, comme en Java.
+    truth: false
+    answer: Les types restent connus ; le code est partagé par forme avec un dictionnaire.
+  - key: vf-pointeurs
+    format: true-false
+    question: Deux instanciations avec deux types pointeurs différents peuvent partager le même code machine.
+    truth: true
+    answer: Ils ont la même forme pour le ramasse-miettes.
+  - key: vf-mesurer
+    format: true-false
+    question: Les détails de l'implémentation des generics peuvent changer d'une version de Go à l'autre.
+    truth: true
+    answer: Ce n'est pas couvert par la spécification ; on mesure plutôt que de supposer.
+  - key: qcm-consequences
+    format: multiple-choice
+    question: Quelles conséquences a l'approche par formes et dictionnaires ?
+    choices:
+      - text: Des binaires plus petits qu'avec une copie par type
+        correct: true
+      - text: Une indirection possible pour les appels de méthodes sur des types pointeurs
+        correct: true
+      - text: La perte des types à l'exécution
+        correct: false
+      - text: L'impossibilité d'utiliser des types de base
+        correct: false
+    answer: Les types restent connus grâce au dictionnaire.
+  - key: qcm-rapide
+    format: multiple-choice
+    question: Dans quel cas une fonction générique est-elle le plus susceptible d'être aussi rapide qu'une version écrite à la main ?
+    choices:
+      - text: Une somme sur un `[]int`
+        correct: true
+      - text: Des appels de méthodes sur des éléments pointeurs de types variés
+        correct: false
+      - text: Toujours, quel que soit le type
+        correct: false
+      - text: Jamais
+        correct: false
+    answer: Les types de base ont une forme propre et un code spécialisé.
+  - key: qcm-forme
+    format: multiple-choice
+    question: Lesquels partagent la même forme mémoire ?
+    choices:
+      - text: '`*Client` et `*Commande`'
+        correct: true
+      - text: '`int` et `type Euros int`'
+        correct: true
+      - text: '`int` et `string`'
+        correct: false
+      - text: '`int32` et `int64`'
+        correct: false
+    answer: La taille et la disposition des pointeurs comptent, pas le type nommé.
+  - key: scenario-perf
+    format: scenario
+    question: Un benchmark montre qu'une fonction générique de tri d'un `[]*Produit` est plus lente qu'une version concrète. Pourquoi, et que fais-tu ?
+    answer: |-
+      Pour un type pointeur, la fonction générique partage le code de tous les pointeurs et passe par un dictionnaire
+      pour appeler la comparaison : une indirection que la version concrète évite, et qui empêche certains inlinings. Si
+      ce tri est un vrai point chaud mesuré, je garde une version concrète (ou je trie un slice de valeurs plutôt que de
+      pointeurs) ; sinon, je garde le code générique, plus simple à maintenir. PGO peut aussi améliorer l'inlining.
+  - key: scenario-entretien
+    format: scenario
+    question: En entretien, on te demande comment Go compile les generics. Que réponds-tu ?
+    answer: |-
+      Par « GC shape stenciling » : le compilateur regroupe les types par forme mémoire et génère une version du code par
+      forme, à laquelle il passe un dictionnaire caché avec les informations du type exact. C'est un compromis entre la
+      monomorphisation de C++ (rapide mais lourde) et l'effacement de Java (compact mais avec des conversions) : des
+      binaires compacts, une compilation rapide, et des performances proches du code écrit à la main pour les types de
+      base.
+  - key: scenario-binaire
+    format: scenario
+    question: Pourquoi l'équipe Go n'a-t-elle pas simplement copié le code pour chaque type, comme C++ ?
+    answer: |-
+      Parce que la vitesse de compilation et la taille des binaires sont des priorités de Go. Une copie par type multiplie
+      le code compilé pour chaque instanciation, dans chaque package, et ralentit les builds de gros projets. Le partage
+      par forme limite ce coût, au prix d'une indirection dans certains cas, qu'on peut mesurer et contourner si besoin.
+  - key: scenario-choix
+    format: scenario
+    question: Faut-il éviter les generics dans un chemin critique à cause de leur implémentation ?
+    answer: |-
+      Non par principe : on les écrit pour la clarté, puis on mesure. Pour des types de base, le code généré est souvent
+      équivalent au code manuel. Si un benchmark ou un profil montre une perte réelle (typiquement des appels de
+      méthodes sur des types pointeurs dans une boucle très chaude), on spécialise ce chemin précis à la main, en
+      gardant la version générique ailleurs.
+  - key: qcm-objectifs
+    format: multiple-choice
+    question: Quels objectifs expliquent le choix de l'implémentation des generics en Go ?
+    choices:
+      - text: Garder une compilation rapide
+        correct: true
+      - text: Limiter la taille des binaires
+        correct: true
+      - text: Supprimer les types à l'exécution
+        correct: false
+      - text: Permettre la spécialisation par type
+        correct: false
+    answer: Le partage par forme mémoire limite le code généré.

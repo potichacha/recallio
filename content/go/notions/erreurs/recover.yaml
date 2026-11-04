@@ -1,4 +1,5 @@
 notion: recover
+lesson: "**`recover`** arrête une panique et renvoie la valeur passée à `panic`. Il ne fonctionne que **directement dans une\nfonction différée** de la goroutine qui panique :\n\n```go\nfunc executer(tache func()) (err error) {\n\tdefer func() {\n\t\tif r := recover(); r != nil {\n\t\t\terr = fmt.Errorf(\"panique : %v\", r)\n\t\t}\n\t}()\n\ttache()\n\treturn nil\n}\n```\n\n- Hors d'un `defer`, ou dans une fonction appelée **par** la fonction différée, `recover` renvoie **nil** et ne fait\n  rien.\n- Il ne rattrape que les paniques de **sa propre goroutine** : une goroutine lancée doit avoir son propre `defer` avec\n  `recover`.\n- Avec un **retour nommé**, la fonction différée peut transformer la panique en erreur.\n- Depuis Go 1.21, `panic(nil)` devient une `*runtime.PanicNilError` : `recover` ne renvoie plus nil pour une vraie\n  panique.\n- Certaines erreurs **ne se récupèrent pas** : les erreurs fatales du runtime (écritures concurrentes dans une map,\n  épuisement de la mémoire, interblocage de toutes les goroutines).\n\nOù l'utiliser : à une **frontière** (un serveur qui ne doit pas tomber pour une requête : `net/http` récupère déjà les\npaniques des handlers et journalise ; un worker qui traite des tâches indépendantes), pour journaliser avec la pile\n(`debug.Stack()`) et répondre une erreur. Pas pour masquer des bugs dans le code ordinaire.\n\n**Piège classique** : un `recover` dans `main` qui croit protéger les goroutines. Une panique dans une autre goroutine\narrête quand même tout le programme.\n\n**En entretien** : « recover dans une fonction différée de la même goroutine ; il renvoie la valeur de la panique et\npermet d'en faire une erreur ; il ne voit pas les autres goroutines ni les erreurs fatales ; à réserver aux\nfrontières. »"
 cards:
   - key: appeler-recover
     format: course
@@ -16,3 +17,190 @@ cards:
     format: course
     question: Que fait panic(nil) depuis Go 1.21 ?
     answer: Il lève un *runtime.PanicNilError, recover ne renvoie plus nil.
+  - key: vf-hors-defer
+    format: true-false
+    question: Appeler `recover()` directement dans le corps d'une fonction, hors defer, arrête une panique en cours.
+    truth: false
+    answer: Hors d'une fonction différée, `recover` renvoie nil et n'arrête rien.
+  - key: vf-autre-goroutine
+    format: true-false
+    question: Un recover dans `main` arrête les paniques des goroutines lancées par `main`.
+    truth: false
+    answer: Chaque goroutine doit récupérer ses propres paniques.
+  - key: vf-fatal
+    format: true-false
+    question: '« fatal error: concurrent map writes » peut être récupéré avec recover.'
+    truth: false
+    answer: C'est une erreur fatale du runtime, pas une panique.
+  - key: vf-http
+    format: true-false
+    question: Le serveur de `net/http` récupère les paniques des handlers et continue de servir les autres requêtes.
+    truth: true
+    answer: Il journalise la panique et ferme la connexion concernée.
+  - key: qcm-ou
+    format: multiple-choice
+    question: Où `recover` arrête-t-il une panique ?
+    choices:
+      - text: Appelé directement dans une fonction différée de la goroutine qui panique
+        correct: true
+      - text: Dans une fonction appelée par la fonction différée
+        correct: false
+      - text: Dans une autre goroutine
+        correct: false
+      - text: Dans le corps de main, n'importe où
+        correct: false
+    answer: Il doit être appelé directement par la fonction différée.
+  - key: qcm-frontieres
+    format: multiple-choice
+    question: Où un recover est-il justifié ?
+    choices:
+      - text: Dans un worker qui traite des tâches indépendantes, pour qu'une tâche boguée ne fasse pas tomber les autres
+        correct: true
+      - text: Dans un middleware qui journalise la panique avec sa pile et répond 500
+        correct: true
+      - text: Autour de chaque appel de fonction, par prudence
+        correct: false
+      - text: Pour remplacer la gestion des erreurs attendues
+        correct: false
+    answer: '`recover` sert aux frontières, pas au flux normal.'
+  - key: qcm-nil
+    format: multiple-choice
+    question: Que renvoie `recover` depuis Go 1.21 après `panic(nil)` ?
+    choices:
+      - text: Une `*runtime.PanicNilError`
+        correct: true
+      - text: nil
+        correct: false
+      - text: Une chaîne vide
+        correct: false
+      - text: La panique n'est pas récupérable
+        correct: false
+    answer: Pour distinguer une vraie panique de l'absence de panique.
+  - key: qcm-erreur
+    format: multiple-choice
+    question: Comment transformer une panique en erreur renvoyée ?
+    choices:
+      - text: Un retour nommé `err error` modifié par la fonction différée qui appelle recover
+        correct: true
+      - text: '`return recover()` à la fin de la fonction'
+        correct: false
+      - text: Un `try` autour de l'appel
+        correct: false
+      - text: Ce n'est pas possible
+        correct: false
+    answer: Seule une fonction différée voit la panique, et seul un retour nommé lui permet de changer le résultat.
+  - key: trous-defer
+    format: fill-in
+    question: "Complétez la récupération :\n```go\n___ func() {\n\tif r := recover(); r != nil {\n\t\tlog.Println(\"panique :\", r)\n\t}\n}()\n```"
+    blanks:
+      - - defer
+    answer: '`recover` ne marche que dans une fonction différée.'
+  - key: trous-recover
+    format: fill-in
+    question: "Complétez :\n```go\ndefer func() {\n\tif r := ___(); r != nil {\n\t\terr = fmt.Errorf(\"panique : %v\", r)\n\t}\n}()\n```"
+    blanks:
+      - - recover
+    answer: '`recover` renvoie la valeur passée à `panic`.'
+  - key: trous-nomme
+    format: fill-in
+    question: |-
+      Complétez la signature pour que le defer puisse renvoyer l'erreur :
+      ```go
+      func executer(t func()) (___ error) {
+      ```
+    blanks:
+      - - err
+    answer: Un retour nommé, modifié par la fonction différée.
+  - key: trous-pile
+    format: fill-in
+    question: |-
+      Complétez pour journaliser la pile d'appels de la panique :
+      ```go
+      log.Printf("panique : %v\n%s", r, debug.___())
+      ```
+    blanks:
+      - - Stack
+    answer: '`runtime/debug.Stack` renvoie la pile de la goroutine courante.'
+  - key: code-erreur
+    format: code-output
+    question: "```go\nexecuter := func(t func()) (err error) {\n\tdefer func() {\n\t\tif r := recover(); r != nil {\n\t\t\terr = fmt.Errorf(\"panique : %v\", r)\n\t\t}\n\t}()\n\tt()\n\treturn nil\n}\n\nfmt.Println(executer(func() {}))\nfmt.Println(executer(func() { panic(\"boum\") }))\n```"
+    answer: '`<nil>` puis `panique : boum` : la panique devient une erreur.'
+    check:
+      code: "package main\n\nimport \"fmt\"\n\nfunc main() {\n\texecuter := func(t func()) (err error) {\n\t\tdefer func() {\n\t\t\tif r := recover(); r != nil {\n\t\t\t\terr = fmt.Errorf(\"panique : %v\", r)\n\t\t\t}\n\t\t}()\n\t\tt()\n\t\treturn nil\n\t}\n\n\tfmt.Println(executer(func() {}))\n\tfmt.Println(executer(func() { panic(\"boum\") }))\n}\n"
+      output: |-
+        <nil>
+        panique : boum
+  - key: code-indirect
+    format: code-output
+    question: "```go\naide := func() {\n\tif r := recover(); r != nil {\n\t\tfmt.Println(\"récupéré\", r)\n\t}\n}\n\ndefer func() { aide() }()\npanic(\"boum\")\n```"
+    answer: 'Le programme panique quand même : `recover` appelé dans une fonction appelée par la fonction différée ne récupère rien.'
+    check:
+      code: "package main\n\nimport \"fmt\"\n\nfunc main() {\n\taide := func() {\n\t\tif r := recover(); r != nil {\n\t\t\tfmt.Println(\"récupéré\", r)\n\t\t}\n\t}\n\n\tdefer func() { aide() }()\n\tpanic(\"boum\")\n}\n"
+      panics: 'panic: boum'
+  - key: code-direct
+    format: code-output
+    question: "```go\naide := func() {\n\tif r := recover(); r != nil {\n\t\tfmt.Println(\"récupéré\", r)\n\t}\n}\n\ndefer aide()\npanic(\"boum\")\n```"
+    answer: '`récupéré boum` : ici `aide` est elle-même la fonction différée.'
+    check:
+      code: "package main\n\nimport \"fmt\"\n\nfunc main() {\n\taide := func() {\n\t\tif r := recover(); r != nil {\n\t\t\tfmt.Println(\"récupéré\", r)\n\t\t}\n\t}\n\n\tdefer aide()\n\tpanic(\"boum\")\n}\n"
+      output: récupéré boum
+  - key: code-panic-nil
+    format: code-output
+    question: "```go\ndefer func() {\n\tr := recover()\n\t_, estPanicNil := r.(*runtime.PanicNilError)\n\tfmt.Println(r != nil, estPanicNil)\n}()\npanic(nil)\n```"
+    answer: '`true true` : depuis Go 1.21, `panic(nil)` donne une `*runtime.PanicNilError`.'
+    check:
+      code: "package main\n\nimport (\n\t\"fmt\"\n\t\"runtime\"\n)\n\nfunc main() {\n\tdefer func() {\n\t\tr := recover()\n\t\t_, estPanicNil := r.(*runtime.PanicNilError)\n\t\tfmt.Println(r != nil, estPanicNil)\n\t}()\n\tpanic(nil)\n}\n"
+      output: true true
+  - key: bug-main
+    format: bug-fix
+    question: "Le recover de `main` n'empêche pas le service de tomber :\n```go\nfunc main() {\n\tdefer func() { recover() }()\n\tfor job := range jobs {\n\t\tgo traiter(job)\n\t}\n}\n```"
+    answer: "```go\nfor job := range jobs {\n\tgo func() {\n\t\tdefer func() {\n\t\t\tif r := recover(); r != nil {\n\t\t\t\tslog.Error(\"panique dans traiter\", \"job\", job.ID, \"valeur\", r)\n\t\t\t}\n\t\t}()\n\t\ttraiter(job)\n\t}()\n}\n```\n`recover` ne voit que les paniques de sa goroutine : chaque goroutine doit avoir le sien."
+  - key: bug-hors-defer
+    format: bug-fix
+    question: "Ce recover ne récupère jamais rien :\n```go\nfunc securise(f func()) {\n\tf()\n\tif r := recover(); r != nil {\n\t\tlog.Println(r)\n\t}\n}\n```"
+    answer: "```go\nfunc securise(f func()) {\n\tdefer func() {\n\t\tif r := recover(); r != nil {\n\t\t\tlog.Println(r)\n\t\t}\n\t}()\n\tf()\n}\n```\n`recover` doit être appelé dans une fonction différée, mise en place avant l'appel qui peut paniquer."
+  - key: bug-masquer
+    format: bug-fix
+    question: |-
+      En revue, une fonction utilitaire avale toutes les paniques sans rien dire :
+      ```go
+      defer func() { recover() }()
+      ```
+    answer: "```go\ndefer func() {\n\tif r := recover(); r != nil {\n\t\tslog.Error(\"panique récupérée\", \"valeur\", r, \"pile\", string(debug.Stack()))\n\t\terr = fmt.Errorf(\"erreur interne : %v\", r)\n\t}\n}()\n```\nUne panique est un bug : on la journalise avec sa pile et l'on renvoie une erreur, au lieu de la faire disparaître."
+  - key: bug-retour
+    format: bug-fix
+    question: "La fonction renvoie nil même après une panique récupérée :\n```go\nfunc executer(t func()) error {\n\tvar err error\n\tdefer func() {\n\t\tif r := recover(); r != nil {\n\t\t\terr = fmt.Errorf(\"panique : %v\", r)\n\t\t}\n\t}()\n\tt()\n\treturn err\n}\n```"
+    answer: "```go\nfunc executer(t func()) (err error) {\n\tdefer func() {\n\t\tif r := recover(); r != nil {\n\t\t\terr = fmt.Errorf(\"panique : %v\", r)\n\t\t}\n\t}()\n\tt()\n\treturn nil\n}\n```\nSans retour nommé, la modification de la variable locale arrive après la fixation du résultat."
+  - key: scenario-serveur
+    format: scenario
+    question: Ton serveur HTTP doit continuer à fonctionner si un handler panique, et tu veux une alerte. Que mets-tu en place ?
+    answer: |-
+      `net/http` récupère déjà les paniques des handlers, mais il se contente d'un log et ferme la connexion. J'ajoute
+      un middleware de récupération en tête de chaîne : il récupère la panique, la journalise avec la pile et
+      l'identifiant de requête, incrémente une métrique (pour l'alerte), envoie l'événement à Sentry et répond 500 au
+      client. Les goroutines lancées par les handlers ont chacune leur propre recover, puisque le middleware ne les voit
+      pas.
+  - key: scenario-worker
+    format: scenario
+    question: Un pool de workers traite des tâches indépendantes, et une tâche boguée fait tomber tout le processus. Comment l'isoler ?
+    answer: |-
+      Chaque worker exécute chaque tâche dans une fonction qui pose un `defer` avec `recover` : la panique est
+      transformée en erreur de cette tâche, journalisée avec sa pile, et la tâche passe en échec (ou en file d'erreurs)
+      pendant que le worker continue. Je garde une métrique des paniques pour être alerté : le recover n'est pas une
+      correction, juste une isolation.
+  - key: scenario-limites
+    format: scenario
+    question: 'Pourquoi un recover ne protège-t-il pas d''un « fatal error: concurrent map writes » ?'
+    answer: |-
+      Parce que ce n'est pas une panique mais une erreur fatale : le runtime arrête le programme immédiatement, sans
+      dérouler les defer, car l'état de la map (et peut-être de la mémoire) n'est plus fiable. Même chose pour
+      l'épuisement de la mémoire ou l'interblocage de toutes les goroutines. La seule protection est de corriger la
+      cause : un mutex autour de la map, détecté en amont par `go test -race`.
+  - key: scenario-bibliotheque
+    format: scenario
+    question: Une bibliothèque qui utilise panic en interne peut-elle laisser passer ces paniques vers ses appelants ?
+    answer: |-
+      Non : une panique qui traverse l'API publique transforme un problème interne en arrêt du programme de
+      l'appelant. Si la bibliothèque utilise panic pour se simplifier la vie (comme `encoding/json` pour sortir d'une
+      récursion profonde), elle récupère à sa frontière et renvoie une erreur. Les paniques qui restent sont réservées
+      aux mauvais usages évidents de l'API, documentés.
