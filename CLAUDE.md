@@ -473,7 +473,7 @@ Apprendre un langage pas à pas, comme sur le Go Tour, et valider chaque page, c
 1. ✅ **Le mode « programme » du runner** : compiler et lancer un programme, renvoyer ses sorties et son code de sortie, dans le même bac à sable ; en Go, tout paquet standard est permis (index des modules désactivé).
 2. ✅ **Le format des pages** : le bloc `tour` des notions (texte, exemple, « À toi »), leur import, et la CI qui joue chaque exemple et chaque « À toi » dans le bac à sable ; les pages du premier chapitre Go (6 pages, 3 « À toi »), pour éprouver le format.
 3. ✅ **L'API du Tour** : le sommaire et les pages d'un sujet, publics comme le catalogue, et `POST /api/v1/playground-runs`, une exécution à la fois par utilisateur, exercices compris.
-4. **Le Tour dans la PWA** : le sommaire et la page (texte, éditeur, « Exécuter », sortie, précédent et suivant), sur mobile aussi.
+4. ✅ **Le Tour dans la PWA** : le sommaire et la page (texte, éditeur, « Exécuter », sortie, précédent et suivant), sur mobile aussi ; lisible sans compte, « Exécuter » demande de se connecter.
 5. **Valider une page** : les questions de vérification, la progression (pages validées, reprise où l'on s'est arrêté) et « S'entraîner sur cette notion » (un filtre par notion dans la file de révision).
 6. **« À toi » et exercices** : la sortie de l'utilisateur comparée à celle attendue, et les exercices de fin de chapitre dans le Tour.
 7. **Le Tour Go** : une page par notion débutante, et les premières notions de concurrence (une centaine de pages).

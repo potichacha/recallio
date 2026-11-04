@@ -1,0 +1,90 @@
+import { Link, useParams } from 'react-router'
+import { ApiError } from '../api/errors'
+import { useTour } from '../api/tour'
+import { tourPath, tourSteps } from './tourSteps'
+
+/**
+ * Le sommaire du Tour d'un sujet (ADR 0037) : ses domaines, ses chapitres et ses notions, dans l'ordre où on les
+ * découvre. Public, comme le catalogue.
+ */
+export function TourOutlinePage() {
+  const { slug = '' } = useParams()
+  const tour = useTour(slug)
+
+  if (tour.error instanceof ApiError && tour.error.status === 404) {
+    return (
+      <section className="flex flex-col gap-3">
+        <h1 className="text-2xl font-bold">Sujet introuvable</h1>
+        <Link to="/subjects" className="text-indigo-600 hover:underline">
+          Retour aux sujets
+        </Link>
+      </section>
+    )
+  }
+  if (tour.isError) return <p role="alert">Impossible de charger le Tour.</p>
+  if (!tour.data) return <p className="text-slate-500">Chargement…</p>
+
+  const { subjectTitle, domains } = tour.data
+  const first = tourSteps(tour.data)[0]
+
+  return (
+    <section className="flex flex-col gap-6">
+      <Link
+        to={`/subjects/${encodeURIComponent(slug)}`}
+        className="text-sm text-indigo-600 hover:underline"
+      >
+        ← {subjectTitle}
+      </Link>
+      <div className="flex flex-col gap-3">
+        <h1 className="text-2xl font-bold">Le Tour de {subjectTitle}</h1>
+        {first ? (
+          <>
+            <p className="text-slate-600">
+              Apprends {subjectTitle} pas à pas. Chaque page explique une notion et propose un
+              programme à modifier et à exécuter.
+            </p>
+            <Link
+              to={tourPath(slug, first)}
+              className="self-start rounded-lg bg-indigo-600 px-4 py-2 font-medium text-white hover:bg-indigo-700"
+            >
+              Commencer le Tour
+            </Link>
+          </>
+        ) : (
+          <p className="text-slate-600">Ce sujet n’a pas encore de Tour.</p>
+        )}
+      </div>
+      {domains.map((domain) => (
+        <section
+          key={domain.id}
+          aria-labelledby={`tour-${domain.id}`}
+          className="flex flex-col gap-3"
+        >
+          <h2 id={`tour-${domain.id}`} className="text-lg font-semibold">
+            {domain.title}
+          </h2>
+          {domain.chapters.map((chapter) => (
+            <div key={chapter.id} className="flex flex-col gap-2 rounded-xl bg-white p-4 shadow-sm">
+              <h3 className="font-medium text-slate-700">{chapter.title}</h3>
+              <ol aria-label={chapter.title} className="flex flex-col gap-1">
+                {chapter.notions.map((notion) => (
+                  <li key={notion.slug}>
+                    <Link
+                      to={tourPath(slug, { notion: notion.slug, page: 1 })}
+                      className="text-indigo-700 hover:underline"
+                    >
+                      {notion.title}
+                    </Link>
+                    {notion.pageCount > 1 && (
+                      <span className="text-sm text-slate-500"> · {notion.pageCount} pages</span>
+                    )}
+                  </li>
+                ))}
+              </ol>
+            </div>
+          ))}
+        </section>
+      ))}
+    </section>
+  )
+}

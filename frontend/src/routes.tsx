@@ -15,6 +15,8 @@ import { SubjectsPage } from './pages/SubjectsPage'
 import { ThemePage } from './pages/ThemePage'
 import { WelcomePage } from './pages/WelcomePage'
 import { ReviewPage } from './review/ReviewPage'
+import { TourNotionPage } from './tour/TourNotionPage'
+import { TourOutlinePage } from './tour/TourOutlinePage'
 
 /** Routes de l'application, partagées par le routeur du navigateur et celui des tests. */
 export const routes: RouteObject[] = [
@@ -33,6 +35,9 @@ export const routes: RouteObject[] = [
         ),
       },
       { path: 'themes/:slug', element: <ThemePage /> },
+      // Le Tour se lit sans compte, comme le catalogue ; seul « Exécuter » demande de se connecter (ADR 0037).
+      { path: 'subjects/:slug/tour', element: <TourOutlinePage /> },
+      { path: 'subjects/:slug/tour/:notion', element: <TourNotionPage /> },
       {
         path: 'review',
         element: (

@@ -7,18 +7,22 @@ type Tab = { file: ExerciseFile; editable: boolean }
 
 /**
  * Les fichiers d'un exercice, un onglet chacun : ceux du code de départ se modifient, les tests se lisent. Chaque
- * éditeur reste monté quand on change d'onglet : le texte, le curseur et l'historique d'annulation sont gardés.
+ * éditeur reste monté quand on change d'onglet : le texte, le curseur et l'historique d'annulation sont gardés. Le Tour
+ * s'en sert aussi pour ses programmes, sans tests (ADR 0037).
  */
 export function ExerciseEditor({
   files,
   tests,
   readOnly,
   onEdit,
+  label = "Fichiers de l'exercice",
 }: {
   files: ExerciseFile[]
   tests: ExerciseFile[]
   readOnly: boolean
   onEdit: (path: string, content: string) => void
+  /** Le nom de la liste des onglets, pour les lecteurs d'écran. */
+  label?: string
 }) {
   const id = useId()
   const tabs: Tab[] = [
@@ -29,7 +33,7 @@ export function ExerciseEditor({
 
   return (
     <div className="flex flex-col gap-2">
-      <div role="tablist" aria-label="Fichiers de l'exercice" className="flex flex-wrap gap-1">
+      <div role="tablist" aria-label={label} className="flex flex-wrap gap-1">
         {tabs.map(({ file, editable }, index) => (
           <button
             key={file.path}

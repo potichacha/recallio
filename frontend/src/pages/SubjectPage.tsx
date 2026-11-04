@@ -1,14 +1,20 @@
 import { Link, useParams } from 'react-router'
 import { useSubject, useSubjectThemes } from '../api/content'
 import { ApiError } from '../api/errors'
+import { useTour } from '../api/tour'
 import { DraftBadge } from '../components/DraftBadge'
 import { categoryLabel } from '../components/subjectCategories'
 
-/** Un sujet : ses thèmes (les chapitres de son document), dans l'ordre du document. */
+/**
+ * Un sujet : ses thèmes (les chapitres de son document), dans l'ordre du document, et son Tour s'il en a un
+ * (ADR 0037).
+ */
 export function SubjectPage() {
   const { slug = '' } = useParams()
   const subject = useSubject(slug)
   const themes = useSubjectThemes(slug)
+  const tour = useTour(slug)
+  const hasTour = (tour.data?.domains.length ?? 0) > 0
 
   if (subject.error instanceof ApiError && subject.error.status === 404) {
     return (
@@ -39,6 +45,14 @@ export function SubjectPage() {
           </h1>
         </div>
         <div className="flex flex-wrap gap-2">
+          {hasTour && (
+            <Link
+              to={`/subjects/${encodeURIComponent(slug)}/tour`}
+              className="rounded-lg border border-indigo-200 px-3 py-1.5 text-sm font-medium text-indigo-700 hover:bg-indigo-50"
+            >
+              Le Tour
+            </Link>
+          )}
           <Link
             to={`/subjects/${encodeURIComponent(slug)}/path`}
             className="rounded-lg border border-indigo-200 px-3 py-1.5 text-sm font-medium text-indigo-700 hover:bg-indigo-50"
