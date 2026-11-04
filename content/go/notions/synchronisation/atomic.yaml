@@ -1,0 +1,222 @@
+notion: atomic
+lesson: "Le package **`sync/atomic`** fournit des opérations **indivisibles** sur des valeurs simples, sans verrou : aucune\ngoroutine ne voit une opération à moitié faite.\n\nDepuis Go 1.19, on utilise les **types** (plus sûrs que les fonctions `atomic.AddInt64(&x, 1)`, car on ne peut pas\naccéder à la valeur sans passer par eux, et ils sont bien alignés) :\n\n```go\nvar requetes atomic.Int64\nrequetes.Add(1)\nn := requetes.Load()\n\nvar pret atomic.Bool\npret.Store(true)\n\nvar config atomic.Pointer[Config] // publier une configuration immuable\nconfig.Store(&Config{Delai: time.Second})\ndelai := config.Load().Delai\n```\n\nLes opérations :\n- **`Load`**, **`Store`** : lire et écrire ;\n- **`Add`** : ajouter et renvoyer la nouvelle valeur ;\n- **`Swap`** : écrire et renvoyer l'ancienne valeur ;\n- **`CompareAndSwap(ancien, nouveau)`** (CAS) : écrire seulement si la valeur vaut toujours `ancien`, et dire si cela\n  a réussi. C'est la base des algorithmes sans verrou, en boucle :\n\n```go\nfor {\n\tancien := maximum.Load()\n\tif v <= ancien || maximum.CompareAndSwap(ancien, v) {\n\t\tbreak\n\t}\n}\n```\n\nTypes disponibles : `Int32`, `Int64`, `Uint32`, `Uint64`, `Uintptr`, `Bool`, `Pointer[T]`, `Value` (n'importe quel type,\nmais toujours le même).\n\nLa limite : une opération atomique protège **une** valeur. Deux atomiques modifiés « ensemble » ne le sont pas\nensemble : dès qu'un invariant porte sur plusieurs champs, il faut un mutex.\n\n**En entretien** : « Pour un compteur, un drapeau ou un pointeur publié : atomic.Int64, Bool, Pointer ; CAS en boucle\npour une mise à jour conditionnelle ; un mutex dès que plusieurs valeurs doivent rester cohérentes. »"
+cards:
+  - key: preferer-atomic-int64-atomic-addint64
+    format: course
+    question: Pourquoi préférer atomic.Int64 à atomic.AddInt64 ?
+    answer: Le type empêche les accès non atomiques accidentels et gère l'alignement.
+  - key: partager-configuration-rechargee-chaud
+    format: course
+    question: Comment partager une configuration rechargée à chaud ?
+    answer: atomic.Pointer[Config] vers une copie immuable remplacée en bloc.
+  - key: cas
+    format: course
+    question: Que fait `CompareAndSwap(ancien, nouveau)` ?
+    answer: Il écrit `nouveau` seulement si la valeur vaut encore `ancien`, de façon atomique, et renvoie true si l'écriture a eu lieu ; on le met dans une boucle qui recommence en cas d'échec.
+  - key: limite
+    format: course
+    question: Quand un atomique ne suffit-il plus ?
+    answer: 'Quand un invariant porte sur plusieurs valeurs (un total et un nombre d''éléments, deux champs liés) : chaque opération est atomique, mais pas leur combinaison ; il faut un mutex.'
+  - key: vf-types
+    format: true-false
+    question: Depuis Go 1.19, on préfère `atomic.Int64` aux fonctions comme `atomic.AddInt64`.
+    truth: true
+    answer: Le type empêche les accès non atomiques et garantit l'alignement.
+  - key: vf-deux
+    format: true-false
+    question: Deux opérations atomiques successives sur deux variables forment une opération atomique.
+    truth: false
+    answer: Une autre goroutine peut s'intercaler entre les deux.
+  - key: vf-add
+    format: true-false
+    question: '`Add` renvoie la nouvelle valeur.'
+    truth: true
+    answer: Ce qui évite un Load séparé, qui ne serait plus cohérent.
+  - key: vf-value
+    format: true-false
+    question: Un atomic.Value peut stocker un int puis une string.
+    truth: false
+    answer: Tous les Store doivent avoir le même type concret, sinon il panique.
+  - key: qcm-usages
+    format: multiple-choice
+    question: Pour quels besoins un atomique est-il adapté ?
+    choices:
+      - text: Un compteur de requêtes
+        correct: true
+      - text: Un drapeau « en cours d'arrêt »
+        correct: true
+      - text: Publier une configuration immuable rechargée à chaud
+        correct: true
+      - text: Mettre à jour un solde et un historique ensemble
+        correct: false
+    answer: Deux valeurs liées demandent un mutex.
+  - key: qcm-operations
+    format: multiple-choice
+    question: Quelles opérations offre `atomic.Int64` ?
+    choices:
+      - text: '`Load`, `Store`, `Add`'
+        correct: true
+      - text: '`Swap`, `CompareAndSwap`'
+        correct: true
+      - text: '`Lock`, `Unlock`'
+        correct: false
+      - text: '`Wait`'
+        correct: false
+    answer: Depuis Go 1.23, `And` et `Or` existent aussi sur les entiers.
+  - key: qcm-config
+    format: multiple-choice
+    question: Comment publier une nouvelle configuration lue par toutes les requêtes ?
+    choices:
+      - text: Construire une nouvelle Config, puis `config.Store(&nouvelle)` sur un atomic.Pointer[Config]
+        correct: true
+      - text: Modifier les champs de la Config publiée, un par un
+        correct: false
+      - text: Remplacer la Config sans synchronisation
+        correct: false
+      - text: Utiliser un atomic.Int64 par champ
+        correct: false
+    answer: 'La Config publiée ne doit plus être modifiée : les lecteurs voient toujours un état complet.'
+  - key: qcm-cas
+    format: multiple-choice
+    question: Pourquoi écrire CompareAndSwap dans une boucle ?
+    choices:
+      - text: Il échoue si une autre goroutine a modifié la valeur entre-temps, et il faut recommencer
+        correct: true
+      - text: Il échoue parfois sans raison et il faut réessayer
+        correct: false
+      - text: Pour attendre qu'un autre thread libère un verrou
+        correct: false
+      - text: Le compilateur l'exige
+        correct: false
+    answer: L'échec signale un conflit ; on relit la valeur et l'on recalcule.
+  - key: trous-add
+    format: fill-in
+    question: |-
+      Complétez pour compter une requête :
+      ```go
+      var requetes atomic.Int64
+      requetes.___(1)
+      ```
+    blanks:
+      - - Add
+    answer: Add ajoute de façon atomique.
+  - key: trous-load
+    format: fill-in
+    question: |-
+      Complétez pour lire la valeur :
+      ```go
+      n := requetes.___()
+      ```
+    blanks:
+      - - Load
+    answer: Load lit de façon atomique.
+  - key: trous-pointer
+    format: fill-in
+    question: |-
+      Complétez pour publier une configuration :
+      ```go
+      var config atomic.___[Config]
+      config.Store(&Config{Delai: time.Second})
+      ```
+    blanks:
+      - - Pointer
+    answer: atomic.Pointer, générique depuis Go 1.19.
+  - key: trous-cas
+    format: fill-in
+    question: "Complétez pour garder le maximum :\n```go\nfor {\n\tancien := max.Load()\n\tif v <= ancien || max.___(ancien, v) {\n\t\tbreak\n\t}\n}\n```"
+    blanks:
+      - - CompareAndSwap
+    answer: CAS dans une boucle.
+  - key: code-swap
+    format: code-output
+    question: |-
+      ```go
+      var x atomic.Int32
+      x.Store(5)
+      ancien := x.Swap(9)
+      fmt.Println(ancien, x.Load())
+      ```
+    answer: '`5 9` : Swap renvoie l''ancienne valeur.'
+    check:
+      code: "package main\n\nimport (\n\t\"fmt\"\n\t\"sync/atomic\"\n)\n\nfunc main() {\n\tvar x atomic.Int32\n\tx.Store(5)\n\tancien := x.Swap(9)\n\tfmt.Println(ancien, x.Load())\n}\n"
+      output: 5 9
+  - key: code-cas
+    format: code-output
+    question: |-
+      ```go
+      var x atomic.Int64
+      x.Store(10)
+      fmt.Println(x.CompareAndSwap(10, 20))
+      fmt.Println(x.CompareAndSwap(10, 30))
+      fmt.Println(x.Load())
+      ```
+    answer: '`true`, `false`, `20` : le second CAS échoue car la valeur n''est plus 10.'
+    check:
+      code: "package main\n\nimport (\n\t\"fmt\"\n\t\"sync/atomic\"\n)\n\nfunc main() {\n\tvar x atomic.Int64\n\tx.Store(10)\n\tfmt.Println(x.CompareAndSwap(10, 20))\n\tfmt.Println(x.CompareAndSwap(10, 30))\n\tfmt.Println(x.Load())\n}\n"
+      output: |-
+        true
+        false
+        20
+  - key: code-max
+    format: code-output
+    question: "```go\nvar max atomic.Int64\nvar wg sync.WaitGroup\nfor _, v := range []int64{3, 42, 7, 19, 8} {\n\twg.Go(func() {\n\t\tfor {\n\t\t\tancien := max.Load()\n\t\t\tif v <= ancien || max.CompareAndSwap(ancien, v) {\n\t\t\t\treturn\n\t\t\t}\n\t\t}\n\t})\n}\nwg.Wait()\nfmt.Println(max.Load())\n```"
+    answer: '`42` : la boucle CAS garde le plus grand, quel que soit l''ordre.'
+    check:
+      code: "package main\n\nimport (\n\t\"fmt\"\n\t\"sync\"\n\t\"sync/atomic\"\n)\n\nfunc main() {\n\tvar max atomic.Int64\n\tvar wg sync.WaitGroup\n\tfor _, v := range []int64{3, 42, 7, 19, 8} {\n\t\twg.Go(func() {\n\t\t\tfor {\n\t\t\t\tancien := max.Load()\n\t\t\t\tif v <= ancien || max.CompareAndSwap(ancien, v) {\n\t\t\t\t\treturn\n\t\t\t\t}\n\t\t\t}\n\t\t})\n\t}\n\twg.Wait()\n\tfmt.Println(max.Load())\n}\n"
+      output: '42'
+  - key: code-pointer
+    format: code-output
+    question: |-
+      ```go
+      type Config struct{ Version int }
+      var config atomic.Pointer[Config]
+      fmt.Println(config.Load() == nil)
+      config.Store(&Config{Version: 1})
+      ancienne := config.Swap(&Config{Version: 2})
+      fmt.Println(ancienne.Version, config.Load().Version)
+      ```
+    answer: '`true` puis `1 2` : la valeur zéro d''un atomic.Pointer est nil.'
+    check:
+      code: "package main\n\nimport (\n\t\"fmt\"\n\t\"sync/atomic\"\n)\n\ntype Config struct{ Version int }\n\nfunc main() {\n\tvar config atomic.Pointer[Config]\n\tfmt.Println(config.Load() == nil)\n\tconfig.Store(&Config{Version: 1})\n\tancienne := config.Swap(&Config{Version: 2})\n\tfmt.Println(ancienne.Version, config.Load().Version)\n}\n"
+      output: |-
+        true
+        1 2
+  - key: bug-load-add
+    format: bug-fix
+    question: "Le quota est parfois dépassé :\n```go\nif utilises.Load() < quota {\n\tutilises.Add(1)\n\ttraiter()\n}\n```"
+    answer: "```go\nif utilises.Add(1) <= quota {\n\ttraiter()\n} else {\n\tutilises.Add(-1)\n}\n```\nEntre Load et Add, d'autres goroutines passaient le test ; on réserve d'abord avec Add, dont le résultat dit si la\nplace existe (ou un CAS en boucle)."
+  - key: bug-deux-champs
+    format: bug-fix
+    question: "La moyenne affichée est parfois incohérente :\n```go\ntype Stats struct {\n\ttotal atomic.Int64\n\tnb    atomic.Int64\n}\n\nfunc (s *Stats) Ajouter(v int64) { s.total.Add(v); s.nb.Add(1) }\nfunc (s *Stats) Moyenne() int64  { return s.total.Load() / s.nb.Load() }\n```"
+    answer: "```go\ntype Stats struct {\n\tmu    sync.Mutex\n\ttotal int64\n\tnb    int64\n}\n\nfunc (s *Stats) Ajouter(v int64) {\n\ts.mu.Lock()\n\tdefer s.mu.Unlock()\n\ts.total += v\n\ts.nb++\n}\n\nfunc (s *Stats) Moyenne() int64 {\n\ts.mu.Lock()\n\tdefer s.mu.Unlock()\n\tif s.nb == 0 {\n\t\treturn 0\n\t}\n\treturn s.total / s.nb\n}\n```\nLes deux valeurs étaient atomiques séparément mais pas ensemble ; un mutex garde l'invariant (et la division par\nzéro est traitée)."
+  - key: bug-melange
+    format: bug-fix
+    question: |-
+      Le détecteur signale une course malgré l'atomique :
+      ```go
+      var n int64
+      go func() { atomic.AddInt64(&n, 1) }()
+      fmt.Println(n)
+      ```
+    answer: |-
+      ```go
+      var n atomic.Int64
+      go func() { n.Add(1) }()
+      fmt.Println(n.Load())
+      ```
+      La lecture directe de `n` n'était pas atomique ; le type `atomic.Int64` interdit ce mélange.
+  - key: bug-config
+    format: bug-fix
+    question: |-
+      Des requêtes voient une configuration à moitié rechargée :
+      ```go
+      c := config.Load()
+      c.Delai = nouveau.Delai
+      c.Hote = nouveau.Hote
+      ```
+    answer: |-
+      ```go
+      config.Store(&Config{Delai: nouveau.Delai, Hote: nouveau.Hote})
+      ```
+      On ne modifie jamais la valeur publiée : on en construit une nouvelle, complète, et on la publie d'un coup avec
+      Store.

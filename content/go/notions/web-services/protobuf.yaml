@@ -1,0 +1,180 @@
+notion: protobuf
+lesson: |-
+  **Protocol Buffers** (Protobuf) est un format binaire de sérialisation, décrit par un **schéma** `.proto` à partir
+  duquel on **génère** le code Go :
+
+  ```protobuf
+  syntax = "proto3";
+  package catalogue.v1;
+  option go_package = "exemple.fr/gen/catalogue/v1;cataloguev1";
+
+  message Produit {
+    string id = 1;
+    string nom = 2;
+    int64 prix_centimes = 3;
+    repeated string tags = 4;
+    optional string description = 5; // présence explicite
+    reserved 6;                        // ancien champ supprimé : numéro jamais réutilisé
+    reserved "ancien_nom";
+  }
+  ```
+
+  ```
+  protoc --go_out=. --go_opt=paths=source_relative catalogue.proto   # ou : buf generate
+  ```
+
+  Ce qui compte dans le binaire, ce sont les **numéros** de champ, pas leurs noms. D'où les règles de
+  **compatibilité** :
+  - on peut **ajouter** un champ avec un nouveau numéro : les anciens lecteurs l'ignorent, les nouveaux voient la
+    valeur zéro dans les anciens messages ;
+  - on peut **renommer** un champ (le binaire ne change pas, mais le JSON si) ;
+  - on ne doit **jamais réutiliser** ni changer le **numéro** ou le **type** d'un champ : on **réserve** les numéros
+    supprimés ;
+  - les numéros 1 à 15 tiennent sur un octet : on les garde pour les champs fréquents.
+
+  En **proto3**, un champ scalaire absent vaut sa **valeur zéro** : on ne distingue pas « absent » de « 0 », sauf avec
+  **`optional`** (qui génère un pointeur et une méthode `HasXxx`) ou les types enveloppes (`google.protobuf.Int64Value`).
+
+  En Go, les messages générés contiennent un état interne : on les manipule par **pointeur** (`*Produit`), on ne les copie
+  pas par valeur (go vet le signale), et l'on utilise `proto.Equal` et `proto.Clone`. **`buf`** (lint, `buf breaking`)
+  vérifie en CI qu'un changement de schéma reste compatible.
+
+  **En entretien** : « Schéma .proto, code généré, binaire compact identifié par les numéros de champ ; ajouter oui,
+  réutiliser un numéro jamais (reserved) ; optional pour la présence ; buf breaking en CI. »
+cards:
+  - key: evoluer-message-protobuf-sans-casse
+    format: course
+    question: Comment faire évoluer un message Protobuf sans casse ?
+    answer: Ajouter des champs avec de nouveaux numéros, ne jamais modifier les existants, réserver les numéros supprimés.
+  - key: distinguer-absent-zero-proto3
+    format: course
+    question: Comment distinguer absent et zéro en proto3 ?
+    answer: Avec le mot-clé optional ou des types wrappers.
+  - key: sert-buf-breaking
+    format: course
+    question: À quoi sert buf breaking ?
+    answer: À détecter automatiquement les changements incompatibles d'un schéma Protobuf.
+  - key: copier-message-protobuf-genere-valeur
+    format: course
+    question: Peut-on copier un message Protobuf généré par valeur ?
+    answer: Non, il contient un état interne ; on manipule des pointeurs.
+  - key: vf-numeros
+    format: true-false
+    question: Dans le format binaire Protobuf, les champs sont identifiés par leur numéro, pas par leur nom.
+    truth: true
+    answer: C'est pourquoi renommer est sans risque pour le binaire.
+  - key: vf-reutiliser
+    format: true-false
+    question: Après avoir supprimé un champ, on peut réutiliser son numéro pour un nouveau champ.
+    truth: false
+    answer: D'anciens messages ou clients seraient mal interprétés ; on réserve le numéro.
+  - key: vf-ajouter
+    format: true-false
+    question: Ajouter un champ avec un nouveau numéro reste compatible avec les anciens clients.
+    truth: true
+    answer: Ils ignorent le champ inconnu.
+  - key: vf-copie
+    format: true-false
+    question: On peut copier un message Protobuf généré par valeur sans risque.
+    truth: false
+    answer: Il contient un état interne ; on utilise des pointeurs et proto.Clone.
+  - key: qcm-compatible
+    format: multiple-choice
+    question: Quels changements de schéma restent compatibles ?
+    choices:
+      - text: Ajouter un champ avec un nouveau numéro
+        correct: true
+      - text: Supprimer un champ en réservant son numéro
+        correct: true
+      - text: Changer le type d'un champ de string à int64
+        correct: false
+      - text: Changer le numéro d'un champ existant
+        correct: false
+    answer: buf breaking détecte les changements incompatibles.
+  - key: qcm-presence
+    format: multiple-choice
+    question: En proto3, comment savoir si un champ entier a été envoyé à 0 ou absent ?
+    choices:
+      - text: Le déclarer `optional`, ce qui génère une méthode Has
+        correct: true
+      - text: Utiliser un type enveloppe comme google.protobuf.Int64Value
+        correct: true
+      - text: Tester si le champ vaut 0
+        correct: false
+      - text: C'est impossible
+        correct: false
+    answer: Sans optional, absent et zéro sont identiques.
+  - key: qcm-avantages
+    format: multiple-choice
+    question: Quels avantages Protobuf a-t-il sur JSON ?
+    choices:
+      - text: Des messages plus compacts et plus rapides à encoder
+        correct: true
+      - text: Un schéma qui génère du code typé pour plusieurs langages
+        correct: true
+      - text: Des règles d'évolution claires
+        correct: true
+      - text: Des messages lisibles directement par un humain
+        correct: false
+    answer: Le binaire n'est pas lisible ; on utilise protojson ou des outils comme grpcurl.
+  - key: qcm-outils
+    format: multiple-choice
+    question: À quoi servent ces outils ?
+    choices:
+      - text: '`protoc-gen-go` génère le code Go des messages'
+        correct: true
+      - text: '`buf breaking` détecte les changements incompatibles'
+        correct: true
+      - text: '`buf lint` vérifie les conventions du schéma'
+        correct: true
+      - text: '`go vet` génère les fichiers .pb.go'
+        correct: false
+    answer: buf generate peut remplacer protoc.
+  - key: scenario-evolution
+    format: scenario
+    question: Tu dois renommer un champ et en supprimer un autre dans un message utilisé par dix services. Comment procèdes-tu ?
+    answer: |-
+      Le renommage est sans danger pour le binaire (seul le numéro compte), mais il change le JSON et le code des
+      clients : je le fais si le nom actuel est vraiment trompeur. Pour la suppression, je marque d'abord le champ
+      `deprecated`, j'attends que plus aucun service ne le lise, puis je le supprime en réservant son numéro et son nom.
+      `buf breaking` en CI vérifie chaque étape, et chaque service se met à jour à son rythme.
+  - key: scenario-json-ou-proto
+    format: scenario
+    question: JSON ou Protobuf pour les échanges entre tes microservices ?
+    answer: |-
+      Protobuf (souvent avec gRPC) quand le volume ou la latence comptent, que plusieurs langages se partagent les
+      contrats, et que l'on veut un schéma versionné avec des règles d'évolution vérifiées. JSON pour les API publiques,
+      le débogage facile et les clients web. Dans les deux cas, ce qui compte est le contrat écrit et versionné : OpenAPI
+      d'un côté, .proto de l'autre.
+  - key: scenario-organisation
+    format: scenario
+    question: Comment organises-tu les fichiers .proto dans une entreprise avec plusieurs équipes ?
+    answer: |-
+      Un dépôt (ou un dossier) de schémas partagés, avec des packages versionnés (`catalogue.v1`), relus en pull request.
+      `buf lint` et `buf breaking` tournent en CI ; le code est généré par `buf generate`, puis publié comme module Go ou
+      généré dans chaque service. Une nouvelle version incompatible devient un nouveau package (`v2`), servi en parallèle
+      de l'ancien pendant la migration.
+  - key: scenario-numeros
+    format: scenario
+    question: Pourquoi les numéros de champ 1 à 15 sont-ils précieux ?
+    answer: |-
+      Dans l'encodage, chaque champ est précédé d'une étiquette qui combine son numéro et son type ; pour les numéros 1 à
+      15, elle tient sur un octet, au-delà sur deux ou plus. Sur des messages envoyés des millions de fois, garder 1 à 15
+      pour les champs les plus fréquents réduit la taille. Comme un numéro ne change jamais, il faut y penser dès la
+      création du message.
+  - key: definition-proto
+    format: definition
+    question: .proto
+    answer: Fichier de schéma qui décrit les messages et les services Protobuf, dont on génère le code
+  - key: definition-numero
+    format: definition
+    question: numéro de champ (Protobuf)
+    answer: Identifiant définitif d'un champ dans l'encodage binaire, jamais réutilisé
+  - key: definition-reserved
+    format: definition
+    question: reserved (Protobuf)
+    answer: Déclaration qui interdit de réutiliser le numéro ou le nom d'un champ supprimé
+  - key: definition-buf
+    format: definition
+    question: buf
+    answer: Outil qui génère le code, vérifie le style et détecte les changements incompatibles des schémas Protobuf

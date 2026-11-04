@@ -1,0 +1,182 @@
+notion: garbage-collector
+lesson: |-
+  Le **ramasse-miettes** (GC) de Go libère la mémoire du tas que plus rien ne référence. Ses choix de conception
+  privilégient des **pauses très courtes** plutôt que le débit maximal :
+
+  - **concurrent** : le marquage tourne **en même temps** que le programme, sur environ 25 % des P ; seules deux
+    pauses brèves (*stop-the-world*), en général bien en dessous de la milliseconde, encadrent chaque cycle ;
+  - **marquage tricolore** : les objets sont blancs (non vus), gris (vus, à explorer) ou noirs (vus et explorés) ; à
+    la fin, les blancs sont inaccessibles et libérés. Une **barrière d'écriture** active pendant le marquage
+    empêche le programme de cacher un objet au GC ;
+  - **non générationnel** et **non compactant** : il ne déplace pas les objets et ne distingue pas les jeunes des
+    vieux. L'analyse d'échappement garde déjà beaucoup d'objets éphémères sur la pile, et l'allocateur par classes de
+    taille limite la fragmentation.
+
+  Le **mark assist** : si une goroutine alloue plus vite que le GC ne marque, elle doit **aider** au marquage avant de
+  pouvoir allouer. C'est ce qui ralentit les requêtes quand le GC est sous pression.
+
+  Un cycle démarre quand le tas atteint une **cible** fixée par `GOGC` (par défaut, le double du tas vivant après le
+  cycle précédent) ou par `GOMEMLIMIT`.
+
+  Pour l'observer : `GODEBUG=gctrace=1` (une ligne par cycle), `runtime/metrics`, le profil d'allocations, et `go tool
+  trace` qui montre les cycles et les assists. Le nouveau GC **Green Tea**, qui parcourt la mémoire par pages pour
+  mieux utiliser les caches du processeur, est apparu en expérimentation dans Go 1.25.
+
+  **En entretien** : « Concurrent, tricolore avec barrière d'écriture, sans génération ni compactage ; pauses
+  sub-milliseconde ; le mark assist fait payer les goroutines qui allouent trop ; on le règle par GOGC et GOMEMLIMIT. »
+cards:
+  - key: fonctionne-gc
+    format: course
+    question: Comment fonctionne le GC de Go ?
+    answer: Mark and sweep tricolore, concurrent, non générationnel, non compactant, avec barrière d'écriture.
+  - key: gc-provoque-longues-pauses
+    format: course
+    question: Le GC de Go provoque-t-il de longues pauses ?
+    answer: Non, les pauses stop-the-world sont très courtes ; le coût principal est le CPU de marquage et le mark assist.
+  - key: mark-assist
+    format: course
+    question: C'est quoi le mark assist ?
+    answer: Une goroutine qui alloue pendant un cycle aide au marquage, ce qui la ralentit.
+  - key: green-tea
+    format: course
+    question: C'est quoi Green Tea ?
+    answer: Le nouvel algorithme de marquage par pages, par défaut depuis Go 1.26, qui réduit le surcoût du GC.
+  - key: gc-generationnel
+    format: course
+    question: Pourquoi le GC de Go n'est-il pas générationnel ?
+    answer: L'escape analysis place beaucoup d'objets courts sur la pile, et le GC concurrent garde des pauses faibles sans la complexité générationnelle.
+  - key: observer-gc
+    format: course
+    question: Comment observer le GC ?
+    answer: GODEBUG=gctrace=1, runtime/metrics, profils pprof, go tool trace.
+  - key: setfinalizer-vs-addcleanup
+    format: course
+    question: SetFinalizer vs AddCleanup ?
+    answer: AddCleanup (Go 1.24) remplace SetFinalizer avec moins de pièges.
+  - key: sert-package-weak
+    format: course
+    question: À quoi sert le package weak ?
+    answer: À créer des pointeurs faibles qui n'empêchent pas la collecte (Go 1.24).
+  - key: gc
+    format: course
+    question: Go a-t-il un GC ?
+    answer: Oui, concurrent et à faible latence.
+  - key: definition-gc
+    format: definition
+    question: GC
+    answer: Garbage collector concurrent, tricolore, non générationnel
+  - key: definition-green-tea
+    format: definition
+    question: Green Tea
+    answer: Algorithme de marquage du GC, par défaut depuis Go 1.26
+  - key: definition-mark-assist
+    format: definition
+    question: mark assist
+    answer: Contribution au marquage imposée aux goroutines qui allouent
+  - key: vf-concurrent
+    format: true-false
+    question: Le GC de Go marque les objets pendant que le programme continue de tourner.
+    truth: true
+    answer: Seules deux courtes pauses encadrent le cycle.
+  - key: vf-compacte
+    format: true-false
+    question: Le GC de Go déplace les objets pour compacter le tas.
+    truth: false
+    answer: Il ne déplace pas les objets ; les pointeurs restent stables.
+  - key: vf-generationnel
+    format: true-false
+    question: Le GC de Go est générationnel, comme celui de la JVM.
+    truth: false
+    answer: Il ne distingue pas les jeunes objets des vieux.
+  - key: vf-assist
+    format: true-false
+    question: Une goroutine qui alloue beaucoup pendant un cycle peut être obligée d'aider au marquage.
+    truth: true
+    answer: C'est le mark assist, qui ajoute de la latence à cette goroutine.
+  - key: qcm-caracteristiques
+    format: multiple-choice
+    question: Quelles caractéristiques décrivent le GC de Go ?
+    choices:
+      - text: Concurrent
+        correct: true
+      - text: Marquage tricolore avec barrière d'écriture
+        correct: true
+      - text: Non compactant
+        correct: true
+      - text: Comptage de références
+        correct: false
+    answer: Le comptage de références ne libère pas les cycles ; Go utilise un traçage.
+  - key: qcm-declencheur
+    format: multiple-choice
+    question: Qu'est-ce qui déclenche un cycle du GC ?
+    choices:
+      - text: Le tas atteint la cible fixée par GOGC
+        correct: true
+      - text: Le tas approche la limite de GOMEMLIMIT
+        correct: true
+      - text: Un appel explicite à runtime.GC()
+        correct: true
+      - text: Chaque appel de fonction
+        correct: false
+    answer: Un cycle forcé tourne aussi au moins toutes les deux minutes.
+  - key: qcm-observer
+    format: multiple-choice
+    question: Comment observer l'activité du GC ?
+    choices:
+      - text: '`GODEBUG=gctrace=1`'
+        correct: true
+      - text: Le package runtime/metrics
+        correct: true
+      - text: '`go tool trace`'
+        correct: true
+      - text: '`go vet`'
+        correct: false
+    answer: gctrace affiche une ligne par cycle avec les tailles et les durées.
+  - key: qcm-reduire
+    format: multiple-choice
+    question: Quelles actions réduisent le travail du GC ?
+    choices:
+      - text: Allouer moins sur les chemins chauds
+        correct: true
+      - text: Réduire le nombre de pointeurs dans les grosses structures vivantes
+        correct: true
+      - text: Augmenter GOGC si la mémoire le permet
+        correct: true
+      - text: Appeler runtime.GC() à chaque requête
+        correct: false
+    answer: Forcer un cycle à chaque requête multiplie le travail.
+  - key: scenario-latence
+    format: scenario
+    question: Les latences p99 de ton service montent pendant les pics, et la trace montre beaucoup de mark assist. Que fais-tu ?
+    answer: |-
+      Le mark assist signifie que les goroutines allouent plus vite que le GC ne marque. Je réduis d'abord les
+      allocations (profil d'allocations, préallocation, réutilisation de tampons), puis je donne plus de marge au GC :
+      GOGC plus élevé, ou un GOMEMLIMIT proche de la mémoire disponible avec GOGC plus haut, pour que les cycles soient
+      moins fréquents. Je vérifie l'effet avec gctrace et les p99.
+  - key: scenario-java
+    format: scenario
+    question: Compare le GC de Go à ceux de la JVM.
+    answer: |-
+      La JVM propose plusieurs GC générationnels et compactants (G1, ZGC, Shenandoah, Parallel), très réglables, qui
+      visent le débit ou la latence selon le choix. Go a un seul GC, concurrent et non compactant, avec deux réglages
+      (GOGC, GOMEMLIMIT), qui vise des pauses courtes. Il fait moins de travail grâce aux valeurs et à l'analyse
+      d'échappement, mais il peut consommer plus de CPU quand on alloue beaucoup d'objets éphémères.
+  - key: scenario-gros-tas
+    format: scenario
+    question: Ton service garde un cache de 20 Go de petits objets avec des pointeurs, et le GC coûte cher. Que proposes-tu ?
+    answer: |-
+      Le marquage parcourt tous les pointeurs du tas vivant : des millions de petits objets reliés coûtent cher à chaque
+      cycle. Je réduis les pointeurs : stocker les entrées dans de grands slices de valeurs sans pointeur, des clés
+      entières plutôt que des strings, ou une bibliothèque de cache qui sérialise dans des tampons d'octets (bigcache,
+      freecache). GOMEMLIMIT et GOGC espacent aussi les cycles.
+  - key: scenario-finaliseurs
+    format: scenario
+    question: Peut-on compter sur le GC pour fermer des fichiers ou des connexions ?
+    answer: |-
+      Non : on ne sait pas quand un objet sera ramassé, ni même s'il le sera avant la fin du programme. Les ressources se
+      libèrent explicitement (`defer f.Close()`). `runtime.AddCleanup` (Go 1.24, qui remplace SetFinalizer) sert seulement
+      de filet de sécurité, par exemple pour journaliser une ressource oubliée.
+  - key: definition-tricolore
+    format: definition
+    question: marquage tricolore
+    answer: Algorithme qui classe les objets en blancs, gris et noirs pour trouver ceux qui restent accessibles

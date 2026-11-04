@@ -1,0 +1,152 @@
+notion: pprof
+lesson: |-
+  **pprof** mesure où un programme passe son temps et alloue sa mémoire, à partir d'**échantillons**. Les profils
+  principaux :
+
+  | Profil | Ce qu'il montre |
+  |---|---|
+  | **CPU** | où le processeur passe son temps (échantillon toutes les 10 ms) |
+  | **heap** | la mémoire : `inuse_space` (vivante maintenant) ou `alloc_space` (allouée depuis le début) |
+  | **goroutine** | les piles de toutes les goroutines, pour trouver des fuites ou des blocages |
+  | **block**, **mutex** | où les goroutines attendent (channels, verrous) ; à activer |
+
+  Pour les obtenir :
+
+  ```go
+  import _ "net/http/pprof" // enregistre /debug/pprof/ sur http.DefaultServeMux
+
+  go http.ListenAndServe("localhost:6060", nil) // jamais exposé publiquement
+  ```
+
+  ```
+  go tool pprof -http=:8080 http://localhost:6060/debug/pprof/profile?seconds=30
+  go test -bench=. -cpuprofile=cpu.out -memprofile=mem.out
+  ```
+
+  Dans l'interface, la vue **flame graph** et la commande **`top`** montrent les fonctions les plus coûteuses : `flat`
+  (dans la fonction elle-même) et `cum` (avec ce qu'elle appelle). `list Fonction` affiche le coût ligne par ligne.
+
+  Les pièges : un profil CPU ne montre **pas** le temps passé à **attendre** (réseau, verrous) ; pour une latence élevée
+  avec un CPU bas, il faut les profils block et mutex ou une **trace**. Et pprof donne accès à l'intérieur du
+  programme : son port reste interne (ou protégé).
+
+  **En entretien** : « CPU, heap, goroutine, block, mutex ; net/http/pprof sur un port interne ; flat contre cum ; le
+  profil CPU ne voit pas l'attente. »
+cards:
+  - key: profils-fournit-pprof
+    format: course
+    question: Quels profils fournit pprof ?
+    answer: cpu, heap, allocs, goroutine, block, mutex, threadcreate, et goroutineleak en Go 1.27.
+  - key: inuse-space-vs-alloc-space
+    format: course
+    question: inuse_space vs alloc_space ?
+    answer: Mémoire vivante actuellement vs total alloué depuis le démarrage.
+  - key: exposer-pprof-service
+    format: course
+    question: Comment exposer pprof dans un service ?
+    answer: Importer net/http/pprof, sur un port d'administration non public.
+  - key: exposer-pprof-publiquement
+    format: course
+    question: Pourquoi ne pas exposer pprof publiquement ?
+    answer: Il révèle le code et l'état interne et peut être utilisé pour charger le service.
+  - key: service-latence-p99-elevee-alors-cpu
+    format: scenario
+    question: Le service a une latence p99 élevée alors que le CPU est à 20 %.
+    answer: |-
+      CPU bas et latence haute signifient que le programme **attend**. J'activerais les profils `block` et `mutex` pour voir si des goroutines attendent un verrou contendu ou un channel. Je prendrais un profil `goroutine` pour voir où elles sont bloquées en masse (souvent un pool de connexions de base épuisé, ou un appel réseau lent sans timeout). La trace d'exécution montrerait si le problème vient du GC (mark assist) ou du scheduler.
+      Les suspects habituels : `SetMaxOpenConns` trop bas, un mutex global autour d'une opération lente, des appels HTTP sans réutilisation de connexions, ou un service aval lent qu'on appelle en série au lieu de paralléliser.
+  - key: parle-moi-probleme-performance-as-resolu
+    format: scenario
+    question: Parle-moi d'un problème de performance que tu as résolu.
+    answer: '[**Situation** : le service, le symptôme mesuré (latence p99, CPU, mémoire).] [**Tâche** : ce qu''on attendait de moi.] [**Action** : la démarche : métriques, profil pprof ou trace, hypothèse, vérification par benchmark comparé avec benchstat, correction (allocations réduites, verrou supprimé, pool dimensionné...).] [**Résultat** : le gain mesuré en production et ce que j''en ai retenu, par exemple un tableau de bord ou un test de non-régression ajouté.]'
+  - key: terme-pprof
+    format: course
+    question: Que désigne « pprof » ?
+    answer: Outil et format de profils (CPU, heap, goroutines, blocages)
+  - key: vf-attente
+    format: true-false
+    question: Un profil CPU montre le temps qu'une requête passe à attendre une réponse réseau.
+    truth: false
+    answer: Il ne voit que le temps passé sur le processeur ; l'attente se voit dans une trace ou les profils block.
+  - key: vf-import
+    format: true-false
+    question: Importer `_ "net/http/pprof"` enregistre les routes /debug/pprof sur http.DefaultServeMux.
+    truth: true
+    answer: D'où l'intérêt de les servir sur un port interne séparé.
+  - key: vf-block
+    format: true-false
+    question: Les profils block et mutex sont actifs par défaut.
+    truth: false
+    answer: On les active avec runtime.SetBlockProfileRate et runtime.SetMutexProfileFraction.
+  - key: vf-flat
+    format: true-false
+    question: Dans pprof, « cum » inclut le temps passé dans les fonctions appelées.
+    truth: true
+    answer: « flat » ne compte que la fonction elle-même.
+  - key: qcm-fuite
+    format: multiple-choice
+    question: Quel profil pour trouver une fuite de goroutines ?
+    choices:
+      - text: Le profil goroutine
+        correct: true
+      - text: Le profil CPU
+        correct: false
+      - text: Le profil heap en alloc_space
+        correct: false
+      - text: Le profil mutex
+        correct: false
+    answer: Il regroupe les goroutines par pile, avec leur nombre.
+  - key: qcm-memoire
+    format: multiple-choice
+    question: Quelle vue du profil heap pour quel besoin ?
+    choices:
+      - text: inuse_space pour une mémoire qui ne redescend pas
+        correct: true
+      - text: alloc_space pour réduire la pression sur le GC
+        correct: true
+      - text: inuse_space pour trouver le code qui alloue le plus au total
+        correct: false
+      - text: alloc_space pour trouver une fuite de goroutines
+        correct: false
+    answer: alloc_space cumule tout ce qui a été alloué, même libéré depuis.
+  - key: qcm-securite
+    format: multiple-choice
+    question: Comment exposer pprof sans risque en production ?
+    choices:
+      - text: Sur un port séparé, accessible seulement en interne
+        correct: true
+      - text: Derrière une authentification
+        correct: true
+      - text: Sur le port public de l'API, sans protection
+        correct: false
+      - text: En le désactivant toujours en production
+        correct: false
+    answer: Les profils révèlent le code et des données, et un profil CPU coûte un peu de ressources.
+  - key: qcm-obtenir
+    format: multiple-choice
+    question: Comment obtenir un profil CPU ?
+    choices:
+      - text: '`go test -cpuprofile=cpu.out`'
+        correct: true
+      - text: '`/debug/pprof/profile?seconds=30` avec net/http/pprof'
+        correct: true
+      - text: '`pprof.StartCPUProfile(f)` dans le code'
+        correct: true
+      - text: '`go build -cpuprofile`'
+        correct: false
+    answer: Le profil se lit ensuite avec `go tool pprof`.
+  - key: scenario-cpu
+    format: scenario
+    question: Le CPU de ton service est à 90 %. Comment trouves-tu la cause ?
+    answer: |-
+      Je prends un profil CPU de 30 secondes sur une instance chargée (`/debug/pprof/profile?seconds=30`), puis je
+      l'ouvre avec `go tool pprof -http` : le flame graph montre les piles les plus larges. Je regarde `top` en `cum` pour
+      les chemins coûteux, puis `list` sur la fonction en cause. Si le GC apparaît en haut (`runtime.gcBgMarkWorker`,
+      `mallocgc`), le problème est la quantité d'allocations : je passe au profil heap en alloc_space.
+  - key: scenario-memoire
+    format: scenario
+    question: La mémoire de ton service monte sans redescendre. Comment cherches-tu ?
+    answer: |-
+      Deux profils heap en inuse_space à quelques heures d'écart, comparés avec `go tool pprof -base ancien.pb.gz
+      nouveau.pb.gz` : la différence montre ce qui s'accumule (souvent un cache sans éviction ou une map qui grossit). Je
+      vérifie aussi le nombre de goroutines (profil goroutine), car des goroutines bloquées retiennent leur mémoire.

@@ -1,0 +1,214 @@
+notion: gogc-gomemlimit
+lesson: |-
+  Deux réglages pilotent le ramasse-miettes.
+
+  **`GOGC`** (défaut **100**) : le tas peut grossir de `GOGC` % au-dessus du tas **vivant** avant le prochain cycle. Avec
+  100 Mo vivants et `GOGC=100`, le cycle suivant démarre vers 200 Mo.
+  - plus haut (200, 400) : cycles plus rares, moins de CPU pour le GC, mais plus de mémoire ;
+  - plus bas (50) : moins de mémoire, plus de CPU ;
+  - `GOGC=off` : désactive le déclenchement par GOGC.
+
+  **`GOMEMLIMIT`** (Go 1.19) : une **limite souple** sur la mémoire totale gérée par le runtime (`GOMEMLIMIT=900MiB`).
+  Quand on s'en approche, le GC tourne plus souvent pour rester dessous, quel que soit GOGC.
+
+  ```
+  # conteneur de 1 Gio : garder de la marge pour la mémoire hors runtime (cgo, piles du système, mmap)
+  GOMEMLIMIT=900MiB
+  ```
+
+  Les combinaisons courantes :
+  - **GOMEMLIMIT seul** (GOGC à 100) : comportement normal, mais le GC accélère avant de dépasser la mémoire du
+    conteneur, ce qui évite des OOMKilled ;
+  - **`GOGC=off` + GOMEMLIMIT** : aucun cycle tant que la limite est loin, beaucoup de mémoire utilisée, très peu de CPU
+    pour le GC. Efficace, mais risqué si le tas vivant approche la limite ;
+  - **les pièges** : une limite trop proche du tas **vivant** fait tourner le GC en continu (*death spiral*) ; le
+    runtime plafonne alors le GC à environ 50 % du CPU, et le programme finit par dépasser la limite. Ce n'est **pas**
+    une limite dure.
+
+  Ils se règlent aussi dans le code (`debug.SetGCPercent`, `debug.SetMemoryLimit`), par exemple à partir de la mémoire
+  du conteneur lue au démarrage.
+
+  **En entretien** : « GOGC fixe la croissance du tas entre deux cycles (CPU contre mémoire) ; GOMEMLIMIT est une limite
+  souple qui accélère le GC près du plafond ; en conteneur, GOMEMLIMIT un peu sous la limite mémoire. »
+cards:
+  - key: regle-gogc
+    format: course
+    question: Que règle GOGC ?
+    answer: La croissance du heap (en %) qui déclenche un cycle ; 100 par défaut.
+  - key: regle-gomemlimit
+    format: course
+    question: Que règle GOMEMLIMIT ?
+    answer: Une limite souple de mémoire totale ; le GC se déclenche plus souvent à son approche (Go 1.19).
+  - key: valeur-gomemlimit-conteneur
+    format: course
+    question: Quelle valeur de GOMEMLIMIT en conteneur ?
+    answer: Environ 90 % de la limite mémoire du conteneur.
+  - key: service-kubernetes-pics-latence-oomkilled
+    format: scenario
+    question: Ton service Go dans Kubernetes a des pics de latence et des OOMKilled occasionnels.
+    answer: |-
+      Deux réglages à vérifier d'abord. **GOMAXPROCS** : sur un Go antérieur à 1.25, il vaut le nombre de cœurs du nœud, pas la limite du pod ; avec 2 CPU de limite sur un nœud de 32 cœurs, le runtime lance trop de travail en parallèle, le noyau *throttle* le conteneur et la latence explose. Passer à Go 1.25+ ou utiliser automaxprocs.
+      **GOMEMLIMIT** : sans lui, le GC se déclenche selon GOGC, et le heap peut doubler entre deux cycles et dépasser la limite du pod. Je le fixerais à environ 90 % de la limite mémoire (via une variable d'environnement, alimentée par la Downward API de Kubernetes).
+      Ensuite, je mesurerais : `gctrace`, profil d'allocations, et je chercherais les allocations évitables. Si le heap vivant est simplement trop grand, il faut augmenter la limite ou réduire la mémoire retenue (caches).
+  - key: terme-gogc
+    format: course
+    question: Que désigne « GOGC » ?
+    answer: Croissance du heap déclenchant un cycle de GC (défaut 100)
+  - key: terme-gomemlimit
+    format: course
+    question: Que désigne « GOMEMLIMIT » ?
+    answer: Limite mémoire souple du runtime (Go 1.19)
+  - key: vf-defaut
+    format: true-false
+    question: La valeur par défaut de GOGC est 100.
+    truth: true
+    answer: Le tas peut doubler par rapport au tas vivant avant le prochain cycle.
+  - key: vf-dure
+    format: true-false
+    question: 'GOMEMLIMIT est une limite dure : le programme ne peut jamais la dépasser.'
+    truth: false
+    answer: C'est une limite souple ; si le tas vivant la dépasse, le programme la dépasse aussi.
+  - key: vf-off
+    format: true-false
+    question: Avec GOGC=off et sans GOMEMLIMIT, le tas peut grossir sans que le GC ne se déclenche de lui-même.
+    truth: true
+    answer: C'est dangereux pour un service ; on combine off avec une limite.
+  - key: vf-total
+    format: true-false
+    question: GOMEMLIMIT compte toute la mémoire du processus, y compris celle allouée par du code C.
+    truth: false
+    answer: Elle compte la mémoire gérée par le runtime Go ; d'où la marge à laisser.
+  - key: qcm-gogc
+    format: multiple-choice
+    question: Quels effets a le passage de GOGC de 100 à 400 ?
+    choices:
+      - text: Des cycles de GC plus rares
+        correct: true
+      - text: Moins de CPU consacré au GC
+        correct: true
+      - text: Un tas qui peut grossir davantage
+        correct: true
+      - text: Des pauses plus longues à chaque cycle
+        correct: false
+    answer: Les pauses restent courtes ; c'est la mémoire qui augmente.
+  - key: qcm-conteneur
+    format: multiple-choice
+    question: Un conteneur a une limite mémoire de 2 Gio. Quelle valeur de GOMEMLIMIT ?
+    choices:
+      - text: Environ 1800MiB, pour laisser de la marge à la mémoire hors runtime
+        correct: true
+      - text: 4GiB
+        correct: false
+      - text: Exactement la limite du conteneur, 2GiB
+        correct: false
+      - text: 100MiB
+        correct: false
+    answer: Une marge de 5 à 10 % couvre les piles des threads, cgo et les fichiers projetés en mémoire.
+  - key: qcm-spirale
+    format: multiple-choice
+    question: Que se passe-t-il quand le tas vivant approche GOMEMLIMIT ?
+    choices:
+      - text: Le GC tourne de plus en plus souvent
+        correct: true
+      - text: Le runtime plafonne le temps du GC à environ la moitié du CPU
+        correct: true
+      - text: Le programme s'arrête avec une erreur
+        correct: false
+      - text: Le GC libère des objets encore utilisés
+        correct: false
+    answer: Le plafond évite le blocage total, au prix d'un dépassement de la limite.
+  - key: qcm-code
+    format: multiple-choice
+    question: Comment régler ces paramètres depuis le programme ?
+    choices:
+      - text: '`debug.SetGCPercent(200)`'
+        correct: true
+      - text: '`debug.SetMemoryLimit(900 << 20)`'
+        correct: true
+      - text: '`runtime.GOGC = 200`'
+        correct: false
+      - text: '`os.Setenv("GOGC", "200")` en cours d''exécution'
+        correct: false
+    answer: La variable d'environnement n'est lue qu'au démarrage.
+  - key: bug-oom
+    format: bug-fix
+    question: Ton service est régulièrement tué par Kubernetes (OOMKilled) lors des pics, alors que son tas vivant reste à 600 Mo pour une limite de 1 Gio. Que proposes-tu ?
+    answer: |-
+      ```yaml
+      env:
+        - name: GOMEMLIMIT
+          value: "900MiB"
+      ```
+      Avec GOGC=100, le tas peut monter au double du tas vivant (1,2 Go) avant le cycle suivant ; GOMEMLIMIT fait
+      accélérer le GC à l'approche de la limite du conteneur, avec une marge pour la mémoire hors runtime.
+  - key: bug-spirale
+    format: bug-fix
+    question: Après avoir mis GOMEMLIMIT=500MiB sur un service dont le tas vivant fait 480 Mo, le CPU passe à 100 % et la latence explose. Que fais-tu ?
+    answer: |-
+      ```yaml
+      resources:
+        limits:
+          memory: 1Gi
+      env:
+        - name: GOMEMLIMIT
+          value: "900MiB"
+      ```
+      La limite était presque égale au tas vivant : le GC tournait sans arrêt pour rien libérer. Il faut une limite
+      nettement au-dessus du tas vivant (plus de mémoire pour le conteneur, ou un tas vivant réduit).
+  - key: bug-off-seul
+    format: bug-fix
+    question: |-
+      Pour économiser du CPU, un collègue a mis dans le déploiement :
+      ```yaml
+      env:
+        - name: GOGC
+          value: "off"
+      ```
+      Le service grossit jusqu'à être tué. Que proposes-tu ?
+    answer: |-
+      ```yaml
+      env:
+        - name: GOGC
+          value: "off"
+        - name: GOMEMLIMIT
+          value: "1800MiB"
+      ```
+      Sans limite, GOGC=off ne déclenche plus aucun cycle ; avec GOMEMLIMIT sous la mémoire du conteneur, le GC ne tourne
+      que lorsque c'est nécessaire.
+  - key: bug-gc-force
+    format: bug-fix
+    question: |-
+      Le service appelle runtime.GC() à la fin de chaque requête « pour libérer la mémoire », et le débit est mauvais :
+      ```go
+      defer runtime.GC()
+      ```
+    answer: |-
+      ```go
+      // supprimer l'appel ; si la mémoire doit rester sous un plafond :
+      debug.SetMemoryLimit(900 << 20)
+      ```
+      Chaque appel lance un cycle complet et bloque l'appelant jusqu'à sa fin. Le GC se déclenche tout seul ;
+      GOMEMLIMIT donne un plafond sans forcer de cycles inutiles.
+  - key: scenario-choisir
+    format: scenario
+    question: Comment règles-tu GOGC et GOMEMLIMIT pour un service en conteneur ?
+    answer: |-
+      Je commence par GOMEMLIMIT à environ 90 % de la limite mémoire du conteneur, GOGC laissé à 100 : protection contre
+      les OOM sans changer le reste. Si le GC pèse lourd en CPU (profil, gctrace) et que le tas vivant est bien en dessous
+      de la limite, j'augmente GOGC, voire GOGC=off avec la limite. Je surveille le tas vivant et le temps passé dans le
+      GC (`runtime/metrics`) pour garder de la marge.
+  - key: scenario-batch
+    format: scenario
+    question: Un traitement par lots court alloue beaucoup et le GC prend 40 % du temps. Que tentes-tu ?
+    answer: |-
+      Pour un traitement court sur une machine qui a de la mémoire, `GOGC=off` avec un GOMEMLIMIT confortable (ou un
+      GOGC très élevé) supprime presque tous les cycles : le programme utilise plus de mémoire mais finit plus vite. En
+      parallèle, je réduis les allocations les plus coûteuses. Je mesure le temps total et la mémoire maximale avant
+      de garder ce réglage.
+  - key: scenario-observer
+    format: scenario
+    question: Quelles métriques suis-tu pour savoir si le GC est bien réglé ?
+    answer: |-
+      La part du CPU passée dans le GC (`/cpu/classes/gc/total:cpu-seconds` dans runtime/metrics), le tas vivant et la
+      cible du tas, la fréquence des cycles, et les latences p99 de l'application (le mark assist s'y voit). Je compare
+      la mémoire totale du processus à la limite du conteneur pour garder une marge.

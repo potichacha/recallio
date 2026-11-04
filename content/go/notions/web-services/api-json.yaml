@@ -1,0 +1,217 @@
+notion: api-json
+lesson: "Un handler d'API JSON robuste suit toujours les mêmes étapes :\n\n```go\nfunc (s *Serveur) creerCommande(w http.ResponseWriter, r *http.Request) {\n\t// 1. borner et décoder\n\tvar entree CreerCommandeRequete\n\tdec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))\n\tdec.DisallowUnknownFields()\n\tif err := dec.Decode(&entree); err != nil {\n\t\trepondreErreur(w, http.StatusBadRequest, \"corps invalide\")\n\t\treturn\n\t}\n\t// 2. valider\n\tif err := entree.Valider(); err != nil {\n\t\trepondreErreur(w, http.StatusUnprocessableEntity, err.Error())\n\t\treturn\n\t}\n\t// 3. appeler le métier avec le contexte de la requête\n\tc, err := s.commandes.Creer(r.Context(), entree.versCommande())\n\tif errors.Is(err, ErrStockInsuffisant) {\n\t\trepondreErreur(w, http.StatusConflict, \"stock insuffisant\")\n\t\treturn\n\t}\n\tif err != nil {\n\t\ts.log.Error(\"création de commande\", \"err\", err)\n\t\trepondreErreur(w, http.StatusInternalServerError, \"erreur interne\") // ne pas exposer err\n\t\treturn\n\t}\n\t// 4. répondre\n\tw.Header().Set(\"Location\", \"/commandes/\"+c.ID)\n\trepondreJSON(w, http.StatusCreated, versReponse(c))\n}\n```\n\nLes codes à connaître : **200** OK, **201** Created (avec `Location`), **204** No Content, **400** requête mal formée,\n**401** non authentifié, **403** interdit, **404** introuvable, **409** conflit, **422** données invalides, **429** trop\nde requêtes, **500** erreur interne, **503** indisponible.\n\nLes principes :\n- des **types dédiés** pour les entrées et les sorties (DTO), distincts des entités ;\n- les **erreurs métier** (sentinelles, types) traduites en codes HTTP à un seul endroit ;\n- un format d'erreur **constant**, par exemple RFC 9457 (Problem Details, `application/problem+json`) ;\n- les **détails internes** (messages SQL, piles) journalisés, jamais renvoyés au client ;\n- un petit utilitaire `repondreJSON(w, code, v)` qui fixe `Content-Type`, le statut, puis encode.\n\n**En entretien** : « Borner, décoder, valider, appeler le métier avec r.Context(), traduire les erreurs en codes,\nrépondre en JSON ; des DTO ; un format d'erreur constant ; ne jamais exposer les erreurs internes. »"
+cards:
+  - key: ordre-ecrire-tetes-statut-corps
+    format: course
+    question: Dans quel ordre écrire en-têtes, statut et corps ?
+    answer: En-têtes, puis WriteHeader, puis Write ; le premier Write envoie un 200 implicite.
+  - key: limiter-taille-corps-requete
+    format: course
+    question: Comment limiter la taille du corps d'une requête ?
+    answer: http.MaxBytesReader.
+  - key: format-standard-erreurs-api
+    format: course
+    question: Quel format standard pour les erreurs d'API ?
+    answer: Problem Details, RFC 9457.
+  - key: ecris-handler-creation-utilisateur-robuste
+    format: scenario
+    question: Écris un handler de création d'utilisateur robuste.
+    answer: |-
+      ```go
+      func (h *Handler) createUser(w http.ResponseWriter, r *http.Request) {
+          r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+          var in struct {
+              Email string `json:"email"`
+              Nom   string `json:"nom"`
+          }
+          dec := json.NewDecoder(r.Body)
+          dec.DisallowUnknownFields()
+          if err := dec.Decode(&in); err != nil {
+              writeProblem(w, http.StatusBadRequest, "corps JSON invalide")
+              return
+          }
+          if !strings.Contains(in.Email, "@") || in.Nom == "" {
+              writeProblem(w, http.StatusUnprocessableEntity, "email ou nom invalide")
+              return
+          }
+          u, err := h.users.Create(r.Context(), in.Email, in.Nom)
+          switch {
+          case errors.Is(err, user.ErrDuplicate):
+              writeProblem(w, http.StatusConflict, "email déjà utilisé")
+              return
+          case err != nil:
+              h.log.ErrorContext(r.Context(), "création utilisateur", "err", err)
+              writeProblem(w, http.StatusInternalServerError, "erreur interne")
+              return
+          }
+          w.Header().Set("Location", "/users/"+u.ID)
+          writeJSON(w, http.StatusCreated, u)
+      }
+      ```
+      "Taille limitée, champs inconnus rejetés, validation avant tout appel, erreurs métier traduites en codes précis, détails techniques uniquement dans les logs, `Location` et 201 pour la création, et le contexte de la requête propagé au service pour que tout s'annule si le client part. L'unicité de l'email reste garantie par une contrainte en base."
+  - key: decoder-dto-plutot-entite
+    format: course
+    question: Pourquoi décoder dans un DTO plutôt que dans l'entité ?
+    answer: Pour empêcher le mass assignment de champs sensibles.
+  - key: bibliotheque-graphql
+    format: course
+    question: Quelle bibliothèque GraphQL en Go ?
+    answer: gqlgen, qui génère le code depuis le schéma.
+  - key: vf-422
+    format: true-false
+    question: Un corps JSON bien formé mais avec un email invalide se signale plutôt par 422 que par 500.
+    truth: true
+    answer: C'est une erreur du client ; 500 est réservé aux erreurs du serveur.
+  - key: vf-exposer
+    format: true-false
+    question: Renvoyer le message d'erreur SQL au client aide à déboguer et ne pose pas de problème.
+    truth: false
+    answer: Il révèle le schéma et la technologie ; on le journalise et l'on renvoie un message générique.
+  - key: vf-location
+    format: true-false
+    question: Une réponse 201 Created porte en général un en-tête Location vers la ressource créée.
+    truth: true
+    answer: Par exemple /commandes/42.
+  - key: vf-204
+    format: true-false
+    question: Une réponse 204 No Content peut contenir un corps JSON.
+    truth: false
+    answer: 204 signifie justement l'absence de corps.
+  - key: qcm-codes
+    format: multiple-choice
+    question: Quel code pour quelle situation ?
+    choices:
+      - text: 'Ressource inexistante : 404'
+        correct: true
+      - text: 'Commande déjà payée qu''on tente de repayer : 409'
+        correct: true
+      - text: 'Jeton absent : 401'
+        correct: true
+      - text: 'JSON mal formé : 500'
+        correct: false
+    answer: 'Un JSON mal formé est une erreur du client : 400.'
+  - key: qcm-401-403
+    format: multiple-choice
+    question: Quelle différence entre 401 et 403 ?
+    choices:
+      - text: 401 quand l'identité est absente ou invalide
+        correct: true
+      - text: 403 quand l'utilisateur est identifié mais n'a pas le droit
+        correct: true
+      - text: 401 quand la ressource n'existe pas
+        correct: false
+      - text: Ce sont des synonymes
+        correct: false
+    answer: Pour ne pas révéler l'existence d'une ressource, on peut aussi répondre 404.
+  - key: qcm-traduire
+    format: multiple-choice
+    question: Comment traduire les erreurs métier en codes HTTP ?
+    choices:
+      - text: Avec errors.Is et errors.As dans une fonction unique de traduction
+        correct: true
+      - text: Avec des erreurs sentinelles ou des types d'erreur exportés par le métier
+        correct: true
+      - text: En comparant les messages d'erreur
+        correct: false
+      - text: En renvoyant toujours 500
+        correct: false
+    answer: Les messages changent ; les sentinelles et les types sont des contrats.
+  - key: qcm-format
+    format: multiple-choice
+    question: Quel format d'erreur choisir pour une API ?
+    choices:
+      - text: Un format constant, par exemple Problem Details (RFC 9457)
+        correct: true
+      - text: Un code d'erreur stable que les clients peuvent tester
+        correct: true
+      - text: Un texte libre différent selon les handlers
+        correct: false
+      - text: La pile d'appels Go
+        correct: false
+    answer: Les clients s'appuient sur la structure, pas sur le texte.
+  - key: trous-maxbytes
+    format: fill-in
+    question: |-
+      Complétez pour borner le corps à 1 Mo :
+      ```go
+      dec := json.NewDecoder(http.___(w, r.Body, 1<<20))
+      ```
+    blanks:
+      - - MaxBytesReader
+    answer: http.MaxBytesReader.
+  - key: trous-created
+    format: fill-in
+    question: |-
+      Complétez le statut de création :
+      ```go
+      w.WriteHeader(http.Status___)
+      ```
+    blanks:
+      - - Created
+    answer: http.StatusCreated, 201.
+  - key: trous-content-type
+    format: fill-in
+    question: |-
+      Complétez l'en-tête d'une réponse JSON :
+      ```go
+      w.Header().Set("Content-Type", "application/___")
+      ```
+    blanks:
+      - - json
+    answer: application/json.
+  - key: trous-encode
+    format: fill-in
+    question: |-
+      Complétez l'écriture du corps :
+      ```go
+      json.NewEncoder(w).___(reponse)
+      ```
+    blanks:
+      - - Encode
+    answer: Encode écrit directement dans le ResponseWriter.
+  - key: bug-500
+    format: bug-fix
+    question: "Toutes les erreurs remontent en 500, y compris « commande introuvable » :\n```go\nc, err := s.commandes.Lire(r.Context(), id)\nif err != nil {\n\thttp.Error(w, err.Error(), http.StatusInternalServerError)\n\treturn\n}\n```"
+    answer: "```go\nc, err := s.commandes.Lire(r.Context(), id)\nswitch {\ncase errors.Is(err, ErrIntrouvable):\n\trepondreErreur(w, http.StatusNotFound, \"commande introuvable\")\n\treturn\ncase err != nil:\n\ts.log.Error(\"lecture de commande\", \"id\", id, \"err\", err)\n\trepondreErreur(w, http.StatusInternalServerError, \"erreur interne\")\n\treturn\n}\n```\nOn distingue les erreurs métier attendues, et l'on ne renvoie plus le message interne au client."
+  - key: bug-entite
+    format: bug-fix
+    question: |-
+      Un client devient administrateur en ajoutant `"role": "admin"` au corps de son inscription :
+      ```go
+      var u Utilisateur // l'entité, avec son champ Role
+      json.NewDecoder(r.Body).Decode(&u)
+      s.depot.Creer(r.Context(), u)
+      ```
+    answer: "```go\ntype InscriptionRequete struct {\n\tEmail string `json:\"email\"`\n\tNom   string `json:\"nom\"`\n}\n\nvar entree InscriptionRequete\ndec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))\ndec.DisallowUnknownFields()\nif err := dec.Decode(&entree); err != nil {\n\trepondreErreur(w, http.StatusBadRequest, \"corps invalide\")\n\treturn\n}\nu := Utilisateur{Email: entree.Email, Nom: entree.Nom, Role: RoleClient}\n```\nDécoder dans l'entité laissait le client choisir n'importe quel champ (mass assignment) ; un DTO limite les champs\nacceptés."
+  - key: bug-content-type
+    format: bug-fix
+    question: "Le client reçoit du JSON annoncé « text/plain » :\n```go\nfunc repondreJSON(w http.ResponseWriter, code int, v any) {\n\tw.WriteHeader(code)\n\tw.Header().Set(\"Content-Type\", \"application/json\")\n\tjson.NewEncoder(w).Encode(v)\n}\n```"
+    answer: "```go\nfunc repondreJSON(w http.ResponseWriter, code int, v any) {\n\tw.Header().Set(\"Content-Type\", \"application/json\")\n\tw.WriteHeader(code)\n\tjson.NewEncoder(w).Encode(v)\n}\n```\nLes en-têtes doivent être fixés avant WriteHeader."
+  - key: bug-validation
+    format: bug-fix
+    question: "Des commandes avec une quantité négative arrivent en base :\n```go\nvar entree CommandeRequete\nif err := dec.Decode(&entree); err != nil {\n\trepondreErreur(w, http.StatusBadRequest, \"corps invalide\")\n\treturn\n}\ns.commandes.Creer(r.Context(), entree.versCommande())\n```"
+    answer: "```go\nfunc (c CommandeRequete) Valider() error {\n\tvar errs []error\n\tif c.Quantite <= 0 {\n\t\terrs = append(errs, errors.New(\"quantite doit être positive\"))\n\t}\n\tif c.ProduitID == \"\" {\n\t\terrs = append(errs, errors.New(\"produit_id est obligatoire\"))\n\t}\n\treturn errors.Join(errs...)\n}\n\nif err := entree.Valider(); err != nil {\n\trepondreErreur(w, http.StatusUnprocessableEntity, err.Error())\n\treturn\n}\n```\nUn JSON bien formé n'est pas forcément valide : on valide explicitement, et l'on renvoie 422 avec toutes les\nerreurs."
+  - key: scenario-structure
+    format: scenario
+    question: Comment structures-tu une API REST en Go sans framework ?
+    answer: |-
+      Un type `Serveur` qui porte ses dépendances (services métier, logger) et une méthode `routes()` qui construit le
+      ServeMux (motifs Go 1.22) et applique les middlewares. Chaque handler est une méthode courte : décoder, valider,
+      appeler le service, traduire l'erreur, répondre, avec deux utilitaires `repondreJSON` et `repondreErreur`. Le métier
+      ne connaît pas HTTP. Les handlers se testent avec httptest et des faux services.
+  - key: scenario-erreurs
+    format: scenario
+    question: Comment organises-tu la traduction des erreurs métier en réponses HTTP ?
+    answer: |-
+      Le métier expose des erreurs sentinelles (`ErrIntrouvable`, `ErrConflit`) ou des types (`*ErreurValidation`). Une
+      seule fonction `ecrireErreur(w, err)` les traduit avec errors.Is et errors.As en code et en corps Problem Details,
+      et journalise les erreurs inattendues avec le contexte de la requête avant de répondre 500 sans détail. Les
+      handlers appellent cette fonction et rendent la main.
+  - key: scenario-pagination
+    format: scenario
+    question: Comment gères-tu la pagination d'une liste dans ton API ?
+    answer: |-
+      Une taille de page bornée côté serveur (défaut 20, maximum 100, quoi que demande le client), et de préférence une
+      pagination par curseur (`?apres=<id>`), stable quand des éléments sont ajoutés et efficace en SQL (`WHERE id > $1
+      ORDER BY id LIMIT $2`). La réponse contient les éléments et le curseur suivant. L'offset reste possible pour de
+      petites tables, mais il ralentit et saute des éléments quand les données changent.

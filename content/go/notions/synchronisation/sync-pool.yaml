@@ -1,0 +1,169 @@
+notion: sync-pool
+lesson: "**`sync.Pool`** garde des objets **temporaires** pour les réutiliser au lieu de les réallouer : moins d'allocations,\ndonc moins de travail pour le ramasse-miettes sur un chemin très sollicité.\n\n```go\nvar tampons = sync.Pool{\n\tNew: func() any { return new(bytes.Buffer) },\n}\n\nfunc encoder(v Valeur) []byte {\n\tb := tampons.Get().(*bytes.Buffer)\n\tb.Reset()                 // l'objet peut contenir les données d'un usage précédent\n\tdefer tampons.Put(b)\n\tecrire(b, v)\n\treturn bytes.Clone(b.Bytes()) // ne pas renvoyer la mémoire du pool\n}\n```\n\nCe qu'il faut savoir :\n- le pool **peut vider** ses objets à tout moment, en pratique à chaque cycle du ramasse-miettes : ce n'est **pas un\n  cache** ni un pool de connexions ;\n- `Get` renvoie un objet du pool, ou le résultat de `New` s'il est vide (ou `nil` sans `New`) ;\n- un objet rendu doit être **remis à zéro** (`Reset`) avant usage, et ne plus être utilisé après `Put` ;\n- on y met de préférence des **pointeurs** : un `Put` de valeur non pointeur alloue (l'interface `any` l'emballe) ;\n- éviter de rendre des objets **énormes** (un tampon qui a grossi à 50 Mo) : ils resteraient en mémoire, on les jette\n  au-delà d'une taille ;\n- le pool est sûr entre goroutines, et chaque processeur a son cache local : il passe bien à l'échelle.\n\nOn ne l'utilise **qu'après mesure** : un profil d'allocations (`go test -bench -benchmem`, pprof) qui montre un objet\nalloué en masse. Sinon il ajoute de la complexité et des bugs (données qui fuient d'une requête à l'autre).\n\n**En entretien** : « Un sac d'objets temporaires, vidé par le GC ; Get, Reset, Put ; pas un cache ni un pool de\nconnexions ; seulement sur un chemin chaud mesuré. »"
+cards:
+  - key: sync-pool-pool-connexions
+    format: course
+    question: sync.Pool est-il un pool de connexions ?
+    answer: Non, un cache d'objets temporaires que le GC peut vider à tout moment.
+  - key: avant-remettre-objet-sync-pool
+    format: course
+    question: Que faut-il faire avant de remettre un objet dans un sync.Pool ?
+    answer: Le réinitialiser (Reset).
+  - key: terme-sync-pool
+    format: course
+    question: Que désigne « sync.Pool » ?
+    answer: Cache d'objets temporaires réutilisables
+  - key: quand
+    format: course
+    question: Quand utiliser sync.Pool ?
+    answer: Sur un chemin très sollicité où un profil montre beaucoup d'allocations d'objets temporaires du même type (tampons, encodeurs), pour les réutiliser et soulager le ramasse-miettes.
+  - key: vf-gc
+    format: true-false
+    question: Les objets d'un sync.Pool peuvent disparaître à tout moment, notamment lors d'un cycle du ramasse-miettes.
+    truth: true
+    answer: C'est pourquoi ce n'est pas un cache.
+  - key: vf-reset
+    format: true-false
+    question: Un objet obtenu par `Get` est toujours dans son état initial.
+    truth: false
+    answer: 'Il peut contenir les données d''un usage précédent : on le remet à zéro.'
+  - key: vf-concurrent
+    format: true-false
+    question: sync.Pool peut être utilisé par plusieurs goroutines sans verrou supplémentaire.
+    truth: true
+    answer: Il est conçu pour, avec un cache local par processeur.
+  - key: vf-apres-put
+    format: true-false
+    question: On peut continuer à lire un tampon après l'avoir remis dans le pool, tant qu'on ne l'a pas modifié.
+    truth: false
+    answer: Une autre goroutine peut le récupérer et l'écraser aussitôt.
+  - key: qcm-bon-usage
+    format: multiple-choice
+    question: Quels usages de sync.Pool sont corrects ?
+    choices:
+      - text: Réutiliser des bytes.Buffer pour encoder des réponses JSON
+        correct: true
+      - text: Réutiliser de gros tableaux temporaires dans un traitement intensif
+        correct: true
+      - text: Garder des connexions à la base de données
+        correct: false
+      - text: Mettre en cache des résultats de calcul pour une heure
+        correct: false
+    answer: 'Le pool se vide sans prévenir : ni connexions, ni cache.'
+  - key: qcm-etapes
+    format: multiple-choice
+    question: Quelles étapes pour utiliser un objet du pool ?
+    choices:
+      - text: '`Get`, puis assertion de type'
+        correct: true
+      - text: Remettre l'objet à zéro avant de s'en servir
+        correct: true
+      - text: '`Put` quand on a fini, sans plus le toucher ensuite'
+        correct: true
+      - text: '`Close` sur le pool à la fin de la requête'
+        correct: false
+    answer: Le pool n'a pas de Close.
+  - key: qcm-pointeurs
+    format: multiple-choice
+    question: Pourquoi mettre des pointeurs dans un sync.Pool ?
+    choices:
+      - text: Mettre une valeur non pointeur dans un `any` alloue, ce qui annule le gain
+        correct: true
+      - text: Le pool refuse les valeurs non pointeurs
+        correct: false
+      - text: Les pointeurs ne sont pas ramassés par le GC
+        correct: false
+      - text: Pour que Get soit plus rapide que New
+        correct: false
+    answer: staticcheck signale d'ailleurs SA6002 pour un Put de slice.
+  - key: qcm-gros
+    format: multiple-choice
+    question: Un tampon du pool a grossi à 100 Mo pour une requête exceptionnelle. Que faire au moment du Put ?
+    choices:
+      - text: Ne pas le remettre dans le pool, au-delà d'une taille limite
+        correct: true
+      - text: Le remettre, le pool s'en occupera
+        correct: false
+      - text: Appeler runtime.GC
+        correct: false
+      - text: Le copier dans un tampon plus petit
+        correct: false
+    answer: Sinon toutes les requêtes suivantes gardent 100 Mo en mémoire.
+  - key: bug-reset
+    format: bug-fix
+    question: |-
+      Des réponses contiennent parfois des morceaux de la réponse précédente :
+      ```go
+      b := tampons.Get().(*bytes.Buffer)
+      defer tampons.Put(b)
+      json.NewEncoder(b).Encode(v)
+      w.Write(b.Bytes())
+      ```
+    answer: |-
+      ```go
+      b := tampons.Get().(*bytes.Buffer)
+      b.Reset()
+      defer tampons.Put(b)
+      json.NewEncoder(b).Encode(v)
+      w.Write(b.Bytes())
+      ```
+      Le tampon gardait le contenu de son usage précédent.
+  - key: bug-fuite-memoire
+    format: bug-fix
+    question: "La fonction renvoie des données qui changent toutes seules plus tard :\n```go\nfunc encoder(v Valeur) []byte {\n\tb := tampons.Get().(*bytes.Buffer)\n\tb.Reset()\n\tdefer tampons.Put(b)\n\tecrire(b, v)\n\treturn b.Bytes()\n}\n```"
+    answer: "```go\nfunc encoder(v Valeur) []byte {\n\tb := tampons.Get().(*bytes.Buffer)\n\tb.Reset()\n\tdefer tampons.Put(b)\n\tecrire(b, v)\n\treturn bytes.Clone(b.Bytes())\n}\n```\n`b.Bytes()` partageait la mémoire du tampon rendu au pool, réutilisé par d'autres appels ; on renvoie une copie."
+  - key: bug-connexions
+    format: bug-fix
+    question: Un collègue stocke les connexions TCP vers un service dans un sync.Pool, et des connexions se ferment sans jamais être rendues proprement. Que proposes-tu ?
+    answer: |-
+      ```go
+      // un pool de connexions fait pour cela, borné et fermé proprement
+      transport := &http.Transport{MaxIdleConnsPerHost: 20}
+      client := &http.Client{Transport: transport}
+      ```
+      sync.Pool lâche ses objets au GC sans les fermer : les connexions fuient. Il faut un vrai pool de connexions
+      (celui de `net/http`, de `database/sql`, ou un pool écrit avec un channel bufferisé et une fermeture explicite).
+  - key: bug-slice
+    format: bug-fix
+    question: |-
+      Le pool ne réduit pas les allocations, et staticcheck signale SA6002 :
+      ```go
+      var pool = sync.Pool{New: func() any { return make([]byte, 0, 4096) }}
+
+      b := pool.Get().([]byte)
+      // ...
+      pool.Put(b[:0])
+      ```
+    answer: "```go\nvar pool = sync.Pool{New: func() any {\n\tb := make([]byte, 0, 4096)\n\treturn &b\n}}\n\npb := pool.Get().(*[]byte)\nb := (*pb)[:0]\n// ...\n*pb = b[:0]\npool.Put(pb)\n```\nMettre un slice dans un `any` alloue son en-tête à chaque Put ; avec un pointeur vers le slice, plus d'allocation."
+  - key: scenario-mesurer
+    format: scenario
+    question: Comment décides-tu d'introduire un sync.Pool ?
+    answer: |-
+      Seulement sur preuve : un profil d'allocations en production ou un benchmark `-benchmem` qui montre qu'un type
+      d'objet temporaire est alloué en masse sur un chemin chaud, et que le GC pèse (pprof, `GODEBUG=gctrace=1`). Je
+      compare ensuite le benchmark avant et après ; si le gain est faible, je garde le code simple. Les cas typiques sont
+      des tampons d'encodage, de compression ou de lecture.
+  - key: scenario-vs-cache
+    format: scenario
+    question: Pourquoi sync.Pool n'est-il pas un cache, et que prendre si tu veux un cache ?
+    answer: |-
+      Le pool peut lâcher tous ses objets à chaque cycle du GC, sans prévenir, et rien ne permet d'y retrouver un objet
+      précis : on obtient « un objet du type », pas « le résultat pour cette clé ». Pour un cache, il faut une map protégée
+      avec une politique d'éviction (LRU, durée de vie), ou une bibliothèque dédiée (ristretto, groupcache), et
+      `singleflight` pour éviter les calculs en double.
+  - key: scenario-donnees-sensibles
+    format: scenario
+    question: Quels risques de sécurité un sync.Pool peut-il introduire, et comment les éviter ?
+    answer: |-
+      Des données d'une requête qui fuient dans la réponse d'une autre, si un objet n'est pas remis à zéro ou si une
+      référence à sa mémoire survit au Put. Je remets à zéro systématiquement (`Reset`, ou `clear` sur un tableau),
+      je ne renvoie jamais la mémoire du pool à l'appelant (une copie), je n'utilise plus l'objet après Put, et je teste
+      ces chemins avec des données distinctes et le détecteur de courses.
+  - key: scenario-gros-objets
+    format: scenario
+    question: La mémoire de ton service reste haute après un pic de trafic, et le profil montre des tampons de sync.Pool énormes. Que fais-tu ?
+    answer: |-
+      Les tampons agrandis par quelques requêtes géantes sont remis dans le pool et réutilisés pour de petites
+      requêtes. Je ne remets dans le pool que les tampons sous une taille limite (`if b.Cap() <= 64<<10 { pool.Put(b) }`),
+      les autres sont laissés au GC. Si les tailles varient beaucoup, plusieurs pools par classe de taille peuvent
+      aider.

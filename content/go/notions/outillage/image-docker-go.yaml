@@ -1,0 +1,246 @@
+notion: image-docker-go
+lesson: |-
+  Un binaire Go statique tient dans une image **minuscule**. Le Dockerfile type, en **plusieurs étapes** :
+
+  ```dockerfile
+  FROM golang:1.27 AS build
+  WORKDIR /src
+  COPY go.mod go.sum ./
+  RUN go mod download                      # couche mise en cache tant que les dépendances ne changent pas
+  COPY . .
+  RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /app ./cmd/app
+
+  FROM gcr.io/distroless/static-debian12:nonroot
+  COPY --from=build /app /app
+  USER nonroot:nonroot
+  ENTRYPOINT ["/app"]
+  ```
+
+  Les choix :
+  - l'étape de **build** contient toute la chaîne d'outils ; l'image **finale** ne contient que le binaire : quelques Mo,
+    une surface d'attaque minimale ;
+  - **`scratch`** : rien du tout, ni certificats, ni fuseaux horaires, ni utilisateur. Il faut copier les certificats
+    CA (`/etc/ssl/certs/ca-certificates.crt`) pour appeler des API en HTTPS, et embarquer les fuseaux avec
+    `import _ "time/tzdata"` ;
+  - **`distroless/static`** : presque aussi petit, avec les certificats, les fuseaux, un utilisateur `nonroot` et
+    `/etc/passwd` : le choix par défaut le plus simple ;
+  - **`alpine`** si l'on a besoin d'un shell ; attention, sa libc (musl) gêne les binaires cgo ;
+  - copier **go.mod et go.sum d'abord** pour profiter du cache des couches, ou utiliser les montages de cache BuildKit
+    (`--mount=type=cache,target=/root/.cache/go-build`) ;
+  - exécuter en **non-root**, et le binaire comme `ENTRYPOINT` sous forme de liste (exec), pour qu'il reçoive bien
+    **SIGTERM**.
+
+  Sans shell dans l'image, on débogue avec `kubectl debug` (conteneur éphémère) ou une variante `:debug` de distroless.
+  **ko** construit même l'image directement depuis le code Go, sans Dockerfile.
+
+  **En entretien** : « Build multi-étapes, CGO_ENABLED=0, image finale distroless/static ou scratch ; certificats et
+  fuseaux pour scratch ; go.mod copié d'abord pour le cache ; non-root ; ENTRYPOINT en forme exec. »
+cards:
+  - key: image-scratch-certificats
+    format: course
+    question: Pourquoi une image scratch n'a-t-elle pas de certificats CA ?
+    answer: Elle est vide ; il faut copier le fichier de certificats ou utiliser distroless.
+  - key: images-peuvent-elles-etre-si-petites
+    format: course
+    question: Pourquoi les images Go peuvent-elles être si petites ?
+    answer: Le binaire statique contient tout, runtime compris ; il tourne dans scratch ou distroless.
+  - key: role-joue-cgo-enabled-0-conteneurs
+    format: course
+    question: Quel rôle joue CGO_ENABLED=0 pour les conteneurs ?
+    answer: Il produit un binaire statique sans dépendance à la libc, exécutable dans scratch.
+  - key: manque-image-scratch
+    format: course
+    question: Que manque-t-il dans une image scratch ?
+    answer: Certificats CA, données de fuseaux horaires, utilisateurs, shell.
+  - key: embarquer-fuseaux-horaires-binaire
+    format: course
+    question: Comment embarquer les fuseaux horaires dans le binaire ?
+    answer: '`import _ "time/tzdata"`.'
+  - key: scratch-vs-distroless-static
+    format: course
+    question: scratch vs distroless/static ?
+    answer: Image vide vs image minimale avec certificats, tzdata et utilisateur nonroot.
+  - key: ko
+    format: course
+    question: C'est quoi ko ?
+    answer: Un outil qui construit et publie des images de services Go sans Dockerfile.
+  - key: copier-mod-sum-avant-sources-dockerfile
+    format: course
+    question: Pourquoi copier go.mod et go.sum avant les sources dans le Dockerfile ?
+    answer: Pour mettre en cache la couche de téléchargement des dépendances.
+  - key: deboguer-conteneur-sans-shell
+    format: course
+    question: Comment déboguer un conteneur sans shell ?
+    answer: kubectl debug avec un conteneur éphémère.
+  - key: conteneurise-service-production
+    format: scenario
+    question: Conteneurise un service Go pour la production.
+    answer: |-
+      Un Dockerfile multi-stage : une étape de build avec l'image `golang` officielle, `go mod download` en couche séparée avec cache BuildKit, compilation `CGO_ENABLED=0` avec `-trimpath` et `-ldflags "-s -w"` et la version injectée par `-X`. Une étape finale `distroless/static:nonroot` qui contient seulement le binaire, déjà dotée des certificats et de tzdata, exécutée en non-root, système de fichiers en lecture seule côté Kubernetes.
+      Image multi-architecture via buildx ou ko, scannée et signée en CI. Côté runtime : Go 1.25+ pour GOMAXPROCS, GOMEMLIMIT réglé sur la limite mémoire, arrêt propre sur SIGTERM avec passage de la readiness à faux avant le `Shutdown`.
+  - key: terme-distroless
+    format: course
+    question: Que désigne « distroless » ?
+    answer: Image de conteneur minimale sans shell
+  - key: terme-ko
+    format: course
+    question: Que désigne « ko » ?
+    answer: Outil de construction d'images de services Go sans Dockerfile
+  - key: vf-taille
+    format: true-false
+    question: L'image finale d'un service Go peut ne contenir que le binaire.
+    truth: true
+    answer: Avec scratch ou distroless/static, quelques Mo.
+  - key: vf-scratch-certs
+    format: true-false
+    question: Une image scratch contient les certificats racines nécessaires aux appels HTTPS.
+    truth: false
+    answer: Il faut les copier, ou utiliser distroless/static.
+  - key: vf-cache
+    format: true-false
+    question: Copier go.mod et go.sum avant les sources permet de garder en cache le téléchargement des dépendances.
+    truth: true
+    answer: La couche n'est reconstruite que si ces fichiers changent.
+  - key: vf-shell-form
+    format: true-false
+    question: '`ENTRYPOINT /app` (forme shell) transmet SIGTERM au binaire aussi bien que `ENTRYPOINT ["/app"]`.'
+    truth: false
+    answer: La forme shell lance un shell qui ne transmet pas toujours le signal ; on utilise la forme exec.
+  - key: qcm-bases
+    format: multiple-choice
+    question: Quelle image de base pour quel besoin ?
+    choices:
+      - text: 'Le plus simple et sûr : distroless/static, avec certificats et utilisateur nonroot'
+        correct: true
+      - text: 'Le plus petit possible : scratch, en ajoutant certificats et fuseaux'
+        correct: true
+      - text: 'Un shell pour déboguer : alpine'
+        correct: true
+      - text: Toujours golang:1.27 pour l'image finale
+        correct: false
+    answer: L'image golang contient toute la chaîne d'outils, inutile en production.
+  - key: qcm-scratch
+    format: multiple-choice
+    question: Que manque-t-il dans une image scratch ?
+    choices:
+      - text: Les certificats CA
+        correct: true
+      - text: La base des fuseaux horaires
+        correct: true
+      - text: Un utilisateur non root défini dans /etc/passwd
+        correct: true
+      - text: Le runtime Go
+        correct: false
+    answer: Le runtime est dans le binaire.
+  - key: qcm-securite
+    format: multiple-choice
+    question: Quelles pratiques renforcent la sécurité de l'image ?
+    choices:
+      - text: Exécuter en utilisateur non root
+        correct: true
+      - text: Une image finale minimale, sans shell ni gestionnaire de paquets
+        correct: true
+      - text: Scanner l'image en CI
+        correct: true
+      - text: Copier les sources dans l'image finale pour déboguer
+        correct: false
+    answer: Moins il y a de choses dans l'image, moins il y a à exploiter.
+  - key: qcm-debug
+    format: multiple-choice
+    question: Comment déboguer un conteneur distroless sans shell ?
+    choices:
+      - text: '`kubectl debug` avec un conteneur éphémère'
+        correct: true
+      - text: La variante :debug de l'image distroless, qui contient busybox
+        correct: true
+      - text: Installer un shell avec apt dans le conteneur en cours
+        correct: false
+      - text: Ce n'est pas possible
+        correct: false
+    answer: L'image finale n'a pas de gestionnaire de paquets.
+  - key: bug-tls
+    format: bug-fix
+    question: |-
+      Le service plante à chaque appel HTTPS avec « x509: certificate signed by unknown authority » :
+      ```dockerfile
+      FROM scratch
+      COPY --from=build /app /app
+      ENTRYPOINT ["/app"]
+      ```
+    answer: |-
+      ```dockerfile
+      FROM gcr.io/distroless/static-debian12:nonroot
+      COPY --from=build /app /app
+      ENTRYPOINT ["/app"]
+      ```
+      scratch ne contient pas les certificats racines ; distroless/static les fournit (ou l'on copie
+      /etc/ssl/certs/ca-certificates.crt depuis l'étape de build).
+  - key: bug-cgo
+    format: bug-fix
+    question: |-
+      Le conteneur démarre avec « exec /app: no such file or directory », alors que le fichier existe :
+      ```dockerfile
+      FROM golang:1.27 AS build
+      RUN go build -o /app ./cmd/app
+
+      FROM scratch
+      COPY --from=build /app /app
+      ```
+    answer: |-
+      ```dockerfile
+      FROM golang:1.27 AS build
+      RUN CGO_ENABLED=0 go build -o /app ./cmd/app
+
+      FROM scratch
+      COPY --from=build /app /app
+      ```
+      Avec cgo actif par défaut, le binaire était lié dynamiquement à la libc absente de scratch ; CGO_ENABLED=0 donne un
+      binaire statique.
+  - key: bug-cache
+    format: bug-fix
+    question: |-
+      Chaque modification d'un fichier .go retélécharge toutes les dépendances :
+      ```dockerfile
+      COPY . .
+      RUN go mod download
+      RUN go build -o /app ./cmd/app
+      ```
+    answer: |-
+      ```dockerfile
+      COPY go.mod go.sum ./
+      RUN go mod download
+      COPY . .
+      RUN go build -o /app ./cmd/app
+      ```
+      Les dépendances sont téléchargées dans une couche qui ne dépend que de go.mod et go.sum.
+  - key: bug-fuseaux
+    format: bug-fix
+    question: Dans le conteneur scratch, `time.LoadLocation("Europe/Paris")` échoue avec « unknown time zone ». Que proposes-tu ?
+    answer: |-
+      ```go
+      import _ "time/tzdata" // embarque la base des fuseaux dans le binaire (environ 450 Ko)
+      ```
+      scratch ne contient pas /usr/share/zoneinfo ; on embarque la base dans le binaire (ou `-tags timetzdata`), ou l'on
+      utilise distroless/static qui la fournit.
+  - key: scenario-dockerfile
+    format: scenario
+    question: Écris les grandes lignes du Dockerfile de production d'un service Go.
+    answer: |-
+      Une étape de build sur golang à version figée : copie de go.mod et go.sum, go mod download, copie des sources,
+      `CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X ...version=..."`, avec des montages de cache BuildKit. Une étape
+      finale distroless/static:nonroot qui copie le binaire, `USER nonroot`, `ENTRYPOINT ["/app"]`. Puis un scan de l'image
+      en CI et des images multi-architectures avec buildx.
+  - key: scenario-ko
+    format: scenario
+    question: Qu'apporte ko par rapport à un Dockerfile ?
+    answer: |-
+      ko compile le binaire Go sur la machine (ou la CI) et l'empile directement sur une image de base minimale, sans
+      Dockerfile ni démon Docker, en multi-architecture et avec une SBOM. C'est rapide et reproductible pour des services
+      en Go pur. Je garde un Dockerfile quand l'image doit contenir autre chose que le binaire.
+  - key: scenario-alpine
+    format: scenario
+    question: Un collègue veut alpine pour l'image finale « pour pouvoir déboguer ». Ton avis ?
+    answer: |-
+      alpine apporte un shell et un gestionnaire de paquets, donc une surface d'attaque et des vulnérabilités à suivre, et
+      sa libc musl pose problème si le binaire utilise cgo. Pour déboguer, `kubectl debug` avec un conteneur éphémère ou
+      la variante :debug de distroless suffisent, sans alourdir l'image de production. Je garde distroless/static.

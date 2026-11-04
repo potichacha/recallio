@@ -1,0 +1,220 @@
+notion: reduire-allocations
+lesson: |-
+  Chaque allocation sur le tas coûte deux fois : à l'allocation, puis au **ramasse-miettes** qui doit la retrouver.
+  Sur un chemin chaud, réduire les allocations est souvent l'optimisation la plus rentable. Les techniques
+  principales :
+
+  **Préallouer** quand on connaît la taille :
+
+  ```go
+  ids := make([]string, 0, len(commandes)) // une allocation au lieu d'une dizaine
+  index := make(map[string]Commande, len(commandes))
+  ```
+
+  **Réutiliser** un tampon plutôt que d'en créer un à chaque appel :
+
+  ```go
+  buf = buf[:0]                    // garde la capacité
+  buf = strconv.AppendInt(buf, n, 10)
+  ```
+
+  **Construire les chaînes** avec `strings.Builder` (avec `Grow` si la taille est connue) plutôt qu'avec `+=` dans une
+  boucle, et **éviter `fmt`** sur le chemin chaud : `strconv.Itoa` au lieu de `fmt.Sprintf("%d", n)`.
+
+  **Éviter les conversions** répétées entre `string` et `[]byte`, qui copient (le compilateur en évite certaines, comme
+  `m[string(b)]` pour une recherche dans une map).
+
+  **Préférer les valeurs** : un `[]Point` est un seul bloc, un `[]*Point` une allocation par élément et des pointeurs à
+  suivre pour le GC.
+
+  **sync.Pool** pour des objets temporaires coûteux, en dernier recours.
+
+  Toujours **mesurer** : `-benchmem` avant et après, un profil `alloc_space` pour trouver les points chauds, et
+  `-gcflags=-m` pour comprendre pourquoi une valeur s'échappe.
+
+  **En entretien** : « Préallouer, réutiliser, Builder et strconv plutôt que fmt, éviter les conversions string/[]byte,
+  des valeurs plutôt que des pointeurs ; mesurer avec -benchmem et le profil d'allocations. »
+cards:
+  - key: reduire-allocations
+    format: course
+    question: Comment réduire les allocations ?
+    answer: Préallouer, réutiliser les buffers, strings.Builder, strconv plutôt que fmt, éviter les échappements.
+  - key: fmt-sprintf-couteux
+    format: course
+    question: Pourquoi fmt.Sprintf est-il coûteux ?
+    answer: Il passe par la réflexion et convertit les arguments en interfaces, ce qui alloue.
+  - key: reduire-contention-map-partagee
+    format: course
+    question: Comment réduire la contention sur une map partagée ?
+    answer: La partitionner en plusieurs shards avec chacun son verrou, ou réduire la section critique.
+  - key: voir-decisions-inlining
+    format: course
+    question: Comment voir les décisions d'inlining ?
+    answer: '`go build -gcflags=-m`.'
+  - key: slice-structs-slice-pointeurs
+    format: course
+    question: Slice de structs ou slice de pointeurs ?
+    answer: De structs pour la localité mémoire et moins de travail pour le GC, sauf si les éléments sont gros ou partagés.
+  - key: endpoint-json-tres-sollicite-consomme-trop
+    format: scenario
+    question: Un endpoint JSON très sollicité consomme trop de CPU. Comment tu l'optimises ?
+    answer: |-
+      D'abord un profil CPU en production ou en test de charge, pour vérifier que l'encodage est vraiment le coût principal. Si oui, plusieurs pistes par ordre d'effort. Encoder directement dans le `ResponseWriter` avec un `json.Encoder` plutôt que `Marshal` puis `Write`. Réduire la taille de la réponse (pagination, champs inutiles). Réutiliser les buffers avec un `sync.Pool`. Passer à Go 1.27, dont l'implémentation JSON repose sur la v2, nettement plus rapide en décodage. Si c'est encore insuffisant, un encodeur généré par code (sans réflexion) ou un format binaire (Protobuf) pour les clients internes.
+      Chaque étape validée par un benchmark comparé avec `benchstat`, puis par la métrique CPU en production.
+  - key: vf-builder
+    format: true-false
+    question: Concaténer des chaînes avec += dans une boucle peut allouer une nouvelle chaîne à chaque tour.
+    truth: true
+    answer: Les chaînes sont immuables ; strings.Builder évite ces copies.
+  - key: vf-conversion
+    format: true-false
+    question: '`[]byte(s)` partage toujours la mémoire de la chaîne s, sans copie.'
+    truth: false
+    answer: Il copie en général, car la chaîne est immuable ; le compilateur évite la copie dans quelques cas.
+  - key: vf-map-taille
+    format: true-false
+    question: '`make(map[K]V, n)` réserve la place pour environ n éléments.'
+    truth: true
+    answer: Ce qui évite les agrandissements successifs.
+  - key: vf-pointeurs
+    format: true-false
+    question: Un `[]*Point` de 1 000 éléments demande en général plus d'allocations qu'un `[]Point`.
+    truth: true
+    answer: Une par élément, plus le tableau de pointeurs.
+  - key: qcm-techniques
+    format: multiple-choice
+    question: Quelles techniques réduisent les allocations ?
+    choices:
+      - text: '`make([]T, 0, n)` quand n est connu'
+        correct: true
+      - text: '`strconv.Itoa` au lieu de `fmt.Sprintf("%d", n)`'
+        correct: true
+      - text: '`buf = buf[:0]` pour réutiliser un tampon'
+        correct: true
+      - text: Remplacer les structs par des interfaces
+        correct: false
+    answer: La conversion vers une interface fait souvent allouer.
+  - key: qcm-mesurer
+    format: multiple-choice
+    question: Comment trouver les allocations à réduire ?
+    choices:
+      - text: Un profil heap en alloc_space ou alloc_objects
+        correct: true
+      - text: '`go test -bench . -benchmem`'
+        correct: true
+      - text: '`go build -gcflags=-m` pour comprendre les échappements'
+        correct: true
+      - text: '`go vet`'
+        correct: false
+    answer: vet ne mesure rien.
+  - key: qcm-fmt
+    format: multiple-choice
+    question: Pourquoi fmt.Sprintf est-il coûteux sur un chemin chaud ?
+    choices:
+      - text: Il analyse la chaîne de format à chaque appel
+        correct: true
+      - text: Ses arguments passent par des interfaces, ce qui les fait souvent allouer
+        correct: true
+      - text: Il fait un appel système
+        correct: false
+      - text: Il est interdit dans les handlers HTTP
+        correct: false
+    answer: strconv et strings.Builder évitent ces deux coûts.
+  - key: qcm-quand
+    format: multiple-choice
+    question: Quand faut-il optimiser les allocations ?
+    choices:
+      - text: Sur un chemin chaud identifié par un profil
+        correct: true
+      - text: Quand le GC prend une part importante du CPU
+        correct: true
+      - text: Partout, dès l'écriture du code
+        correct: false
+      - text: Jamais, le GC s'en charge
+        correct: false
+    answer: Ailleurs, la lisibilité passe avant.
+  - key: code-prealloc
+    format: code-output
+    question: "```go\nids := make([]int, 0, 100)\nfor i := range 100 {\n\tids = append(ids, i)\n}\nfmt.Println(len(ids), cap(ids))\n```"
+    answer: '`100 100` : la capacité suffisait, append n''a jamais réalloué.'
+    check:
+      code: "package main\n\nimport \"fmt\"\n\nfunc main() {\n\tids := make([]int, 0, 100)\n\tfor i := range 100 {\n\t\tids = append(ids, i)\n\t}\n\tfmt.Println(len(ids), cap(ids))\n}\n"
+      output: 100 100
+  - key: code-builder
+    format: code-output
+    question: "```go\nvar b strings.Builder\nb.Grow(16)\nfor range 3 {\n\tb.WriteString(\"go\")\n}\nb.WriteByte('!')\nfmt.Println(b.String(), b.Len())\n```"
+    answer: '`gogogo! 7`'
+    check:
+      code: "package main\n\nimport (\n\t\"fmt\"\n\t\"strings\"\n)\n\nfunc main() {\n\tvar b strings.Builder\n\tb.Grow(16)\n\tfor range 3 {\n\t\tb.WriteString(\"go\")\n\t}\n\tb.WriteByte('!')\n\tfmt.Println(b.String(), b.Len())\n}\n"
+      output: gogogo! 7
+  - key: code-reutiliser
+    format: code-output
+    question: |-
+      ```go
+      buf := make([]int, 0, 8)
+      buf = append(buf, 1, 2, 3)
+      avant := cap(buf)
+      buf = buf[:0]
+      buf = append(buf, 9)
+      fmt.Println(len(buf), buf[0], cap(buf) == avant)
+      ```
+    answer: '`1 9 true` : `buf[:0]` vide le slice mais garde son tableau et sa capacité.'
+    check:
+      code: "package main\n\nimport \"fmt\"\n\nfunc main() {\n\tbuf := make([]int, 0, 8)\n\tbuf = append(buf, 1, 2, 3)\n\tavant := cap(buf)\n\tbuf = buf[:0]\n\tbuf = append(buf, 9)\n\tfmt.Println(len(buf), buf[0], cap(buf) == avant)\n}\n"
+      output: 1 9 true
+  - key: code-append-int
+    format: code-output
+    question: "```go\nbuf := make([]byte, 0, 32)\nfor _, n := range []int64{7, 42, -3} {\n\tbuf = strconv.AppendInt(buf, n, 10)\n\tbuf = append(buf, ';')\n}\nfmt.Println(string(buf), cap(buf))\n```"
+    answer: '`7;42;-3; 32` : les nombres sont écrits dans le même tampon, sans chaîne intermédiaire.'
+    check:
+      code: "package main\n\nimport (\n\t\"fmt\"\n\t\"strconv\"\n)\n\nfunc main() {\n\tbuf := make([]byte, 0, 32)\n\tfor _, n := range []int64{7, 42, -3} {\n\t\tbuf = strconv.AppendInt(buf, n, 10)\n\t\tbuf = append(buf, ';')\n\t}\n\tfmt.Println(string(buf), cap(buf))\n}\n"
+      output: 7;42;-3; 32
+  - key: bug-concat
+    format: bug-fix
+    question: "La génération d'un CSV de 100 000 lignes prend plusieurs secondes :\n```go\nvar csv string\nfor _, l := range lignes {\n\tcsv += l.Nom + \";\" + strconv.Itoa(l.Age) + \"\\n\"\n}\n```"
+    answer: "```go\nvar b strings.Builder\nb.Grow(len(lignes) * 32)\nfor _, l := range lignes {\n\tb.WriteString(l.Nom)\n\tb.WriteByte(';')\n\tb.WriteString(strconv.Itoa(l.Age))\n\tb.WriteByte('\\n')\n}\ncsv := b.String()\n```\nChaque += recopiait toute la chaîne déjà construite : un coût quadratique. Le Builder écrit dans un seul tampon.\n(Pour un vrai fichier, `encoding/csv` sur un `bufio.Writer` serait encore mieux.)"
+  - key: bug-append
+    format: bug-fix
+    question: "Le profil montre de nombreuses réallocations dans cette conversion :\n```go\nvar dtos []CommandeDTO\nfor _, c := range commandes {\n\tdtos = append(dtos, versDTO(c))\n}\n```"
+    answer: "```go\ndtos := make([]CommandeDTO, 0, len(commandes))\nfor _, c := range commandes {\n\tdtos = append(dtos, versDTO(c))\n}\n```\nLa taille finale est connue : une seule allocation au lieu d'une série d'agrandissements."
+  - key: bug-sprintf
+    format: bug-fix
+    question: |-
+      La clé de cache est construite à chaque requête et apparaît en haut du profil d'allocations :
+      ```go
+      cle := fmt.Sprintf("%s:%d", utilisateur, page)
+      ```
+    answer: |-
+      ```go
+      cle := utilisateur + ":" + strconv.Itoa(page)
+      ```
+      La concaténation d'un petit nombre de morceaux et strconv évitent l'analyse du format et le passage par des
+      interfaces. (Une struct comparable comme clé de map éviterait même la chaîne.)
+  - key: bug-conversion
+    format: bug-fix
+    question: "Le parseur convertit chaque ligne en string pour la tester, et alloue énormément :\n```go\nfor sc.Scan() {\n\tligne := string(sc.Bytes())\n\tif strings.HasPrefix(ligne, \"#\") {\n\t\tcontinue\n\t}\n\ttraiter(sc.Bytes())\n}\n```"
+    answer: "```go\nfor sc.Scan() {\n\tligne := sc.Bytes()\n\tif bytes.HasPrefix(ligne, []byte(\"#\")) {\n\t\tcontinue\n\t}\n\ttraiter(ligne)\n}\n```\nLe package bytes offre les mêmes fonctions que strings : plus besoin de copier chaque ligne dans une string."
+  - key: scenario-json
+    format: scenario
+    question: Ton endpoint qui renvoie du JSON alloue beaucoup. Quelles pistes explores-tu ?
+    answer: |-
+      Je mesure d'abord avec un benchmark `-benchmem` et un profil alloc_space. Pistes : encoder directement dans le
+      `ResponseWriter` avec `json.NewEncoder(w)` plutôt que `json.Marshal` puis Write, réutiliser des tampons, éviter les
+      `map[string]any` au profit de structs, préallouer les slices de la réponse. Si l'encodage reste dominant, une
+      bibliothèque plus rapide ou un encodage généré peut aider, après mesure.
+  - key: scenario-equilibre
+    format: scenario
+    question: Comment arbitres-tu entre lisibilité et réduction des allocations ?
+    answer: |-
+      Par défaut, j'écris le code le plus clair, avec les bonnes habitudes qui ne coûtent rien (préallouer quand la
+      taille est connue, strings.Builder dans les boucles). J'optimise davantage seulement là où un profil montre un coût,
+      en isolant l'astuce dans une fonction commentée et couverte par un benchmark, pour que la prochaine personne
+      comprenne pourquoi et puisse vérifier que c'est toujours utile.
+  - key: scenario-gc
+    format: scenario
+    question: Pourquoi réduire les allocations fait-il gagner plus que le temps de l'allocation elle-même ?
+    answer: |-
+      Chaque octet alloué rapproche le tas de la cible du GC : moins d'allocations, c'est moins de cycles, moins de
+      CPU pour le marquage, et moins de mark assist qui ralentit les requêtes. Les objets alloués en moins améliorent
+      aussi la localité des caches. Sur un service très sollicité, diviser les allocations par deux peut réduire
+      nettement la latence p99, pas seulement le temps moyen.

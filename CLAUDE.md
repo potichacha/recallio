@@ -184,7 +184,7 @@ Si une règle devient gênante, on en discute et on consigne l'exception dans un
 ## 5. Contenu : des documents de référence aux cartes
 
 ### 5.1 Format de la source
-Chaque sujet a son document de référence, `content/source/<sujet>-entretien-reference.md` (par exemple `go-entretien-reference.md`), tant que le sujet n'est pas migré vers son dossier de notions (5.5, ADR 0026). Tous suivent le même format :
+Chaque sujet a son document de référence, `content/source/<sujet>-entretien-reference.md` (par exemple `docker-entretien-reference.md`), tant que le sujet n'est pas migré vers son dossier de notions (5.5, ADR 0026). Tous suivent le même format :
 - Titre du document : `# <Sujet> : le document de référence pour les entretiens techniques`, suivi d'une introduction (ignorée par l'import).
 - Chapitres : un titre `# N. TITRE` encadré de lignes de séparation `═══...`.
 - Dans chaque chapitre, des sections `### Vue d'ensemble`, `### Cours`, `### En situation`, `### Questions techniques`, `### Questions de situation`, et facultativement `### QCM`.
@@ -266,7 +266,7 @@ Les sujets s'ajoutent un par un, au rythme de la rédaction, indépendamment des
 | Sujet | Catégorie | État |
 |---|---|---|
 | Java | Langages | ✅ rédigé, migré vers son dossier de notions (ADR 0026), complet : 347 notions, 7 072 cartes, 39 exercices |
-| Go | Langages | ✅ rédigé, importé |
+| Go | Langages | ✅ rédigé, migré vers son dossier de notions (ADR 0026), complet : 223 notions, 4 893 cartes, 21 exercices jugés dans le bac à sable Go (ADR 0033) |
 | Spring Boot, Quarkus, Jakarta EE, JPA & Hibernate | Frameworks | ✅ sortis du document Java (ADR 0025), à enrichir |
 | SQL, Kafka, Cache | Données | ✅ sortis du document Java, à enrichir |
 | Docker, Kubernetes, CI/CD, Observabilité, Cloud, Git | Cloud & DevOps | ✅ sortis du document Java, à enrichir |

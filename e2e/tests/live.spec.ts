@@ -47,7 +47,8 @@ test.describe('Mode live', () => {
     const players = alice.getByRole('region', { name: /Joueurs/ })
     await expect(players).toContainText(USERS.bob.displayName)
 
-    // Alice démarre : les trois QCM de Go, posés aux deux joueurs en même temps.
+    // Alice démarre : trois QCM de Go (la pile e2e limite la partie à trois questions), posés aux deux joueurs en même
+    // temps.
     await alice.getByRole('button', { name: 'Démarrer la partie' }).click()
     for (const question of [1, 2, 3]) {
       for (const page of [alice, bob]) {

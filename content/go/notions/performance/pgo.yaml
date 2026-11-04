@@ -1,0 +1,154 @@
+notion: pgo
+lesson: |-
+  L'**optimisation guidée par le profil** (*Profile-Guided Optimization*, **PGO**, stable depuis **Go 1.21**) donne au
+  compilateur un **profil CPU** de production, pour qu'il optimise davantage les chemins vraiment chauds.
+
+  ```
+  # 1. récupérer un profil CPU représentatif de la production
+  curl -o cpu.pprof "http://service:6060/debug/pprof/profile?seconds=30"
+
+  # 2. le placer dans le dossier du package main, sous ce nom
+  mv cpu.pprof cmd/serveur/default.pgo
+
+  # 3. compiler comme d'habitude : -pgo=auto (le défaut) prend default.pgo
+  go build ./cmd/serveur
+  ```
+
+  Ce que le compilateur en fait :
+  - il **inline** davantage les fonctions appelées souvent ;
+  - il **dévirtualise** les appels d'interface les plus fréquents (un test de type rapide vers l'implémentation la plus
+    courante) ;
+  - d'autres optimisations s'y ajoutent au fil des versions.
+
+  Les gains typiques sont de **2 à 14 %** de CPU, sans changer le code. Le binaire grossit un peu, et la compilation
+  est plus lente.
+
+  Les bonnes pratiques :
+  - un profil **représentatif** de la production (pas d'un benchmark isolé), fusionné depuis plusieurs instances
+    (`go tool pprof -proto a.pprof b.pprof > default.pgo`) ;
+  - **versionner** `default.pgo` et le **rafraîchir** de temps en temps ; un profil un peu ancien reste utile (le
+    compilateur tolère le code qui a changé) ;
+  - mesurer le gain, comme toute optimisation.
+
+  **En entretien** : « Un profil CPU de production nommé default.pgo dans le package main ; inlining et dévirtualisation
+  des chemins chauds ; 2 à 14 % de CPU en moins sans toucher au code. »
+cards:
+  - key: pgo
+    format: course
+    question: C'est quoi le PGO ?
+    answer: L'optimisation guidée par un profil CPU de production (default.pgo), pour mieux inliner et dévirtualiser.
+  - key: terme-pgo
+    format: course
+    question: Que désigne « PGO » ?
+    answer: Profile-Guided Optimization (default.pgo)
+  - key: optimisations
+    format: course
+    question: Quelles optimisations le compilateur fait-il grâce au PGO ?
+    answer: Il inline davantage les fonctions chaudes et dévirtualise les appels d'interface les plus fréquents (un test de type rapide vers l'implémentation la plus courante), entre autres.
+  - key: default
+    format: course
+    question: Où placer le profil pour que go build l'utilise automatiquement ?
+    answer: 'Dans le dossier du package main, sous le nom `default.pgo` : l''option `-pgo=auto`, active par défaut, le prend en compte.'
+  - key: vf-121
+    format: true-false
+    question: Le PGO est disponible de façon stable depuis Go 1.21.
+    truth: true
+    answer: Il était en aperçu dans Go 1.20.
+  - key: vf-ancien
+    format: true-false
+    question: Un profil devient inutilisable dès que le code change.
+    truth: false
+    answer: Le compilateur tolère les changements ; on rafraîchit le profil de temps en temps.
+  - key: vf-benchmark
+    format: true-false
+    question: Le meilleur profil pour le PGO vient d'un micro-benchmark isolé.
+    truth: false
+    answer: Il doit représenter la charge réelle de production.
+  - key: vf-code
+    format: true-false
+    question: Le PGO demande de modifier le code source.
+    truth: false
+    answer: Il suffit d'ajouter le profil au build.
+  - key: qcm-etapes
+    format: multiple-choice
+    question: Quelles étapes pour activer le PGO ?
+    choices:
+      - text: Récupérer un profil CPU de production
+        correct: true
+      - text: Le placer en default.pgo dans le dossier du package main
+        correct: true
+      - text: Compiler normalement avec go build
+        correct: true
+      - text: Ajouter des annotations //go:pgo dans le code
+        correct: false
+    answer: Aucune annotation n'existe pour cela.
+  - key: qcm-gains
+    format: multiple-choice
+    question: Quels effets attendre du PGO ?
+    choices:
+      - text: Quelques pourcents de CPU en moins sur les chemins chauds
+        correct: true
+      - text: Un binaire un peu plus gros
+        correct: true
+      - text: Une compilation un peu plus lente
+        correct: true
+      - text: Une division par deux de la mémoire
+        correct: false
+    answer: Les gains typiques sont de 2 à 14 % de CPU.
+  - key: qcm-profil
+    format: multiple-choice
+    question: Comment obtenir un bon profil pour le PGO ?
+    choices:
+      - text: Fusionner des profils de plusieurs instances de production
+        correct: true
+      - text: Capturer pendant une période de charge représentative
+        correct: true
+      - text: Un profil heap
+        correct: false
+      - text: Un profil de goroutines
+        correct: false
+    answer: Le PGO utilise un profil CPU.
+  - key: qcm-desactiver
+    format: multiple-choice
+    question: Comment compiler sans le PGO alors qu'un default.pgo est présent ?
+    choices:
+      - text: '`go build -pgo=off`'
+        correct: true
+      - text: Supprimer default.pgo
+        correct: true
+      - text: '`GOGC=off`'
+        correct: false
+      - text: '`go build -gcflags=-N`'
+        correct: false
+    answer: '`-pgo=fichier.pprof` permet aussi de choisir un autre profil.'
+  - key: scenario-mise-en-place
+    format: scenario
+    question: Comment mets-tu en place le PGO sur un service en production ?
+    answer: |-
+      Je collecte des profils CPU de 30 secondes sur plusieurs instances pendant des périodes de charge typiques, je les
+      fusionne avec `go tool pprof -proto`, et je versionne le résultat en `cmd/serveur/default.pgo`. Je compare ensuite
+      le CPU par requête avant et après le déploiement. Un job planifié rafraîchit le profil chaque mois par une pull
+      request, relue comme le reste.
+  - key: scenario-pertinence
+    format: scenario
+    question: Le PGO vaut-il le coup pour tous les programmes ?
+    answer: |-
+      Il vaut le coup pour des services qui tournent longtemps et consomment beaucoup de CPU, où quelques pourcents se
+      traduisent en machines économisées. Pour un outil en ligne de commande lancé rarement, ou un service limité par les
+      entrées-sorties, le gain est négligeable face au coût de collecte et de mise à jour du profil.
+  - key: scenario-devirtualisation
+    format: scenario
+    question: Explique la dévirtualisation guidée par le profil.
+    answer: |-
+      Un appel de méthode sur une interface passe normalement par une table de méthodes, sans possibilité d'inliner.
+      Si le profil montre qu'un appel `r.Read(...)` vise presque toujours `*os.File`, le compilateur génère « si r est un
+      *os.File, appelle directement (*os.File).Read, éventuellement inliné ; sinon, appel normal ». Le cas courant
+      devient plus rapide sans changer le comportement.
+  - key: scenario-entretien
+    format: scenario
+    question: En entretien, on te demande ce qu'est le PGO en Go et comment tu l'utiliserais.
+    answer: |-
+      C'est la compilation guidée par un profil CPU de production : le compilateur sait quels chemins sont chauds et les
+      optimise davantage (inlining, dévirtualisation). Je collecte un profil représentatif, je le nomme default.pgo dans
+      le package main, et le build normal l'utilise. J'en attends quelques pourcents de CPU, que je mesure, et je le
+      rafraîchis régulièrement.

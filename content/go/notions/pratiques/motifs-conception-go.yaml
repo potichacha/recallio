@@ -1,0 +1,203 @@
+notion: motifs-conception-go
+lesson: "Les motifs de conception classiques existent en Go, mais sous une forme plus **légère**, grâce aux fonctions de\npremière classe, aux interfaces implicites et à la composition :\n\n**Stratégie** : une interface (ou simplement une **fonction**) passée en paramètre.\n\n```go\ntype Tarification func(c Commande) int64\n\nfunc Facturer(c Commande, tarif Tarification) Facture { ... }\n```\n\n**Décorateur** : un type qui enveloppe une interface et ajoute un comportement ; c'est le principe des middlewares\nHTTP et de `bufio.NewReader(gzip.NewReader(f))`.\n\n```go\ntype depotJournalise struct {\n\tsuivant Depot\n\tlog     *slog.Logger\n}\n\nfunc (d depotJournalise) Trouver(ctx context.Context, id string) (Commande, error) {\n\tc, err := d.suivant.Trouver(ctx, id)\n\td.log.DebugContext(ctx, \"trouver\", \"id\", id, \"err\", err)\n\treturn c, err\n}\n```\n\n**Adaptateur** : un type qui fait correspondre une API à une interface attendue (`http.HandlerFunc` adapte une\nfonction en Handler).\n\n**Observateur** : une liste de fonctions de rappel, ou des **channels** auxquels on envoie les événements.\n\n**Singleton** : `sync.OnceValue` pour une initialisation paresseuse unique ; mais une dépendance **injectée** est\npresque toujours préférable à un singleton global.\n\n**Fabrique** : une fonction `New...` qui renvoie une interface selon un paramètre.\n\n**Builder** : remplacé le plus souvent par les **options fonctionnelles** ou une struct d'options.\n\n**Template method** : sans héritage, on passe les étapes variables en fonctions ou en interface (comme\n`sort.Interface`).\n\n**En entretien** : « Stratégie par une fonction ou une interface, décorateur par enveloppement (middlewares),\nadaptateur (HandlerFunc), observateur par rappels ou channels ; singleton avec OnceValue, mais l'injection vaut mieux ;\nbuilder remplacé par les options fonctionnelles. »"
+cards:
+  - key: implementer-singleton
+    format: course
+    question: Comment implémenter un Singleton en Go ?
+    answer: Une variable de package initialisée par sync.Once ou sync.OnceValue ; mieux vaut souvent injecter une instance.
+  - key: pattern-illustre-http-handlerfunc
+    format: course
+    question: Quel pattern illustre http.HandlerFunc ?
+    answer: 'Adapter : il adapte une fonction à l''interface http.Handler.'
+  - key: ecrit-strategy
+    format: course
+    question: Comment s'écrit une Strategy en Go ?
+    answer: Un type fonction ou une interface d'une méthode, passés en paramètre.
+  - key: pattern-illustre-sort-interface
+    format: course
+    question: Quel pattern illustre sort.Interface ?
+    answer: 'Template method : l''algorithme est fixe, les étapes Len/Less/Swap sont fournies.'
+  - key: pattern-illustrent-bufio-newreader-gzip
+    format: course
+    question: Quel pattern illustrent bufio.NewReader et gzip.NewReader ?
+    answer: Decorator autour d'un io.Reader.
+  - key: pattern-fonctions-etat
+    format: course
+    question: C'est quoi le pattern des fonctions d'état ?
+    answer: Chaque état est une fonction qui renvoie la fonction de l'état suivant.
+  - key: sticky-error-pattern
+    format: course
+    question: C'est quoi le sticky error pattern ?
+    answer: Mémoriser la première erreur et ignorer les opérations suivantes, pour vérifier l'erreur une seule fois à la fin.
+  - key: ecris-decorateur-ajoute-retries-importe-client
+    format: scenario
+    question: Écris un décorateur qui ajoute des retries à n'importe quel client qui implémente une interface `Fetcher`.
+    answer: |-
+      ```go
+      type Fetcher interface {
+          Fetch(ctx context.Context, id string) ([]byte, error)
+      }
+
+      type retryFetcher struct {
+          next       Fetcher
+          tentatives int
+          attente    time.Duration
+      }
+
+      func WithRetry(next Fetcher, n int, attente time.Duration) Fetcher {
+          return &retryFetcher{next: next, tentatives: n, attente: attente}
+      }
+
+      func (r *retryFetcher) Fetch(ctx context.Context, id string) ([]byte, error) {
+          var err error
+          for i := range r.tentatives {
+              var b []byte
+              if b, err = r.next.Fetch(ctx, id); err == nil {
+                  return b, nil
+              }
+              select {
+              case <-time.After(r.attente << i):   // backoff exponentiel
+              case <-ctx.Done():
+                  return nil, ctx.Err()
+              }
+          }
+          return nil, fmt.Errorf("après %d tentatives: %w", r.tentatives, err)
+      }
+      ```
+      "Le décorateur implémente la même interface, donc il se compose avec d'autres (cache, métriques) sans que l'appelant le sache. Il respecte le contexte pendant l'attente. En production j'ajouterais du *jitter* et je ne réessaierais que les erreurs temporaires, pas un 404."
+  - key: vf-decorateur
+    format: true-false
+    question: Un middleware HTTP est un exemple du motif décorateur.
+    truth: true
+    answer: Il enveloppe un Handler et ajoute un comportement.
+  - key: vf-strategie
+    format: true-false
+    question: En Go, une simple fonction passée en paramètre peut jouer le rôle d'une stratégie.
+    truth: true
+    answer: Les fonctions sont des valeurs de première classe.
+  - key: vf-singleton
+    format: true-false
+    question: Un singleton global est la meilleure façon de partager une connexion à la base dans un service Go.
+    truth: false
+    answer: On l'injecte depuis main ; un singleton cache la dépendance.
+  - key: vf-template
+    format: true-false
+    question: Le motif template method s'écrit en Go par héritage d'une classe abstraite.
+    truth: false
+    answer: Go n'a pas d'héritage ; on passe les étapes variables en fonctions ou en interface.
+  - key: qcm-exemples
+    format: multiple-choice
+    question: Quel motif illustre chaque élément de la bibliothèque standard ?
+    choices:
+      - text: '`http.HandlerFunc` : adaptateur'
+        correct: true
+      - text: '`bufio.NewReader(gzip.NewReader(f))` : décorateur'
+        correct: true
+      - text: '`sort.Interface` : stratégie (ou template method)'
+        correct: true
+      - text: '`fmt.Println` : singleton'
+        correct: false
+    answer: fmt.Println n'illustre aucun motif particulier.
+  - key: qcm-builder
+    format: multiple-choice
+    question: Par quoi remplace-t-on le plus souvent le builder en Go ?
+    choices:
+      - text: Les options fonctionnelles
+        correct: true
+      - text: Une struct d'options
+        correct: true
+      - text: Un constructeur avec quinze paramètres
+        correct: false
+      - text: L'héritage
+        correct: false
+    answer: Les deux évitent une classe de construction séparée.
+  - key: qcm-observateur
+    format: multiple-choice
+    question: Comment implémenter un observateur en Go ?
+    choices:
+      - text: Une liste de fonctions de rappel appelées à chaque événement
+        correct: true
+      - text: Un channel par abonné, alimenté par l'émetteur
+        correct: true
+      - text: Une interface avec une méthode Notifier pour chaque abonné
+        correct: true
+      - text: Des variables globales relues en boucle
+        correct: false
+    answer: Avec des channels, attention aux abonnés lents qui bloquent l'émetteur.
+  - key: qcm-singleton
+    format: multiple-choice
+    question: Si un singleton est vraiment nécessaire, comment l'écrire de façon sûre ?
+    choices:
+      - text: '`var instance = sync.OnceValue(func() *Client { return nouveauClient() })`'
+        correct: true
+      - text: Une initialisation dans une variable de package, si elle ne peut pas échouer
+        correct: true
+      - text: Un test `if instance == nil` sans synchronisation
+        correct: false
+      - text: Une fonction init qui ouvre une connexion réseau
+        correct: false
+    answer: Le test nil non synchronisé est une course.
+  - key: bug-heritage
+    format: bug-fix
+    question: |-
+      Un collègue venu de Java simule une classe abstraite :
+      ```go
+      type ExportBase struct{}
+      func (e ExportBase) Exporter() { e.Entete(); e.Lignes(); e.Pied() }
+      func (e ExportBase) Entete() {}
+
+      type ExportCSV struct{ ExportBase }
+      func (e ExportCSV) Entete() { fmt.Println("nom;prix") } // jamais appelée par Exporter
+      ```
+    answer: "```go\ntype Format interface {\n\tEntete(w io.Writer)\n\tLigne(w io.Writer, p Produit)\n\tPied(w io.Writer)\n}\n\nfunc Exporter(w io.Writer, f Format, produits []Produit) {\n\tf.Entete(w)\n\tfor _, p := range produits {\n\t\tf.Ligne(w, p)\n\t}\n\tf.Pied(w)\n}\n```\nL'incorporation n'est pas un héritage : ExportBase appelait ses propres méthodes. Les étapes variables passent par\nune interface."
+  - key: bug-singleton
+    format: bug-fix
+    question: "Le détecteur de courses signale ce singleton :\n```go\nvar instance *Client\n\nfunc Instance() *Client {\n\tif instance == nil {\n\t\tinstance = nouveauClient()\n\t}\n\treturn instance\n}\n```"
+    answer: "```go\nvar Instance = sync.OnceValue(func() *Client {\n\treturn nouveauClient()\n})\n```\nOnceValue initialise une seule fois, de façon sûre entre goroutines ; mieux encore, on injecte le client."
+  - key: bug-strategie-interface
+    format: bug-fix
+    question: |-
+      Que proposes-tu pour simplifier ce code ?
+      ```go
+      type CalculateurRemise interface{ Calculer(c Commande) int64 }
+      type RemiseNoel struct{}
+      func (RemiseNoel) Calculer(c Commande) int64 { return c.Total / 10 }
+      type RemiseAucune struct{}
+      func (RemiseAucune) Calculer(c Commande) int64 { return 0 }
+      ```
+    answer: |-
+      ```go
+      type Remise func(c Commande) int64
+
+      func RemiseNoel(c Commande) int64   { return c.Total / 10 }
+      func RemiseAucune(c Commande) int64 { return 0 }
+      ```
+      Pour une stratégie d'une seule méthode sans état, un type fonction suffit, sans struct vide par variante.
+  - key: bug-observateur
+    format: bug-fix
+    question: "Un abonné lent bloque la publication de tous les événements :\n```go\nfor _, ch := range abonnes {\n\tch <- evenement\n}\n```"
+    answer: "```go\nfor _, ch := range abonnes {\n\tselect {\n\tcase ch <- evenement:\n\tdefault:\n\t\tevenementsPerdus.Add(1) // abonné trop lent : on ne bloque pas les autres\n\t}\n}\n```\nAvec des channels bufferisés et un envoi non bloquant, un abonné lent ne retient plus l'émetteur ; la perte est\nmesurée (ou l'abonné est déconnecté)."
+  - key: scenario-retry
+    format: scenario
+    question: Comment ajouterais-tu des réessais à un client sans modifier son code ?
+    answer: |-
+      Avec un décorateur : un type qui implémente la même interface que le client (`Envoyer(ctx, m) error`), contient le
+      client réel, et appelle sa méthode dans une boucle de réessais avec un délai croissant et le respect du contexte.
+      main construit `nouveauAvecReessais(clientReel, 3)` et le passe au service, qui ne voit qu'une interface. Pour HTTP,
+      on peut aussi décorer le `http.RoundTripper` du transport.
+  - key: scenario-gof
+    format: scenario
+    question: En entretien, on te demande si les motifs du Gang of Four s'appliquent en Go.
+    answer: |-
+      Leurs idées oui, leurs formes rarement. Beaucoup existent pour contourner les limites des langages à classes : en Go,
+      une fonction remplace une stratégie ou une commande, les interfaces implicites rendent l'adaptateur trivial, la
+      composition et l'enveloppement remplacent l'héritage, les options fonctionnelles le builder. Je cite des exemples
+      de la bibliothèque standard (HandlerFunc, io.Reader décorés, sort.Interface) plutôt que des diagrammes de classes.
+  - key: scenario-plugin
+    format: scenario
+    question: Comment rendrais-tu extensible un système d'export (CSV, JSON, PDF) ?
+    answer: |-
+      Une interface `Exporteur` avec une méthode `Exporter(w io.Writer, donnees []Ligne) error`, une implémentation par
+      format, et un registre `map[string]Exporteur` rempli dans main (ou par des fonctions d'enregistrement), choisi par le
+      nom du format demandé. Ajouter un format, c'est ajouter un type et une ligne d'enregistrement. Pas de plugins
+      dynamiques : le package plugin de Go est rarement une bonne idée.

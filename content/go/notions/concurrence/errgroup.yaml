@@ -1,0 +1,192 @@
+notion: errgroup
+lesson: "Le paquet **`golang.org/x/sync/errgroup`** (hors bibliothèque standard, mais maintenu par l'équipe Go) combine trois\nbesoins courants : lancer des goroutines, **attendre** leur fin, et récupérer la **première erreur**.\n\n```go\ng, ctx := errgroup.WithContext(ctx)\ng.SetLimit(8) // facultatif : au plus 8 goroutines à la fois\n\nvar profil Profil\nvar commandes []Commande\ng.Go(func() error {\n\tvar err error\n\tprofil, err = clientProfils.Lire(ctx, id)\n\treturn err\n})\ng.Go(func() error {\n\tvar err error\n\tcommandes, err = clientCommandes.Lister(ctx, id)\n\treturn err\n})\nif err := g.Wait(); err != nil {\n\treturn Page{}, err // la première erreur renvoyée\n}\n```\n\nCe qu'il faut savoir :\n- `g.Wait()` attend **toutes** les goroutines, puis renvoie la **première** erreur non nil (les suivantes sont\n  perdues) ;\n- avec **`WithContext`**, le contexte dérivé est **annulé** dès la première erreur : les autres tâches doivent le\n  surveiller pour s'arrêter tôt ;\n- **`SetLimit(n)`** borne le nombre de goroutines actives : `g.Go` **bloque** tant que la limite est atteinte\n  (`TryGo` essaie sans bloquer) ;\n- chaque goroutine écrit dans **sa propre variable** : `Wait` rend ces écritures visibles ensuite ;\n- errgroup **ne récupère pas les paniques** : une panique dans une tâche arrête le programme.\n\nLe contexte renvoyé par `WithContext` est aussi annulé quand `Wait` rend la main : il ne faut pas le réutiliser\naprès.\n\n**En entretien** : « errgroup = WaitGroup + première erreur + annulation du contexte ; SetLimit pour borner ; chaque\ntâche écrit son résultat dans sa variable. »"
+cards:
+  - key: errgroup
+    format: course
+    question: C'est quoi errgroup ?
+    answer: Un groupe de goroutines qui renvoie la première erreur, annule le contexte et peut limiter la concurrence.
+  - key: appelle-trois-services-parallele-renvoie-erreur
+    format: scenario
+    question: Appelle trois services en parallèle et renvoie une erreur si l'un échoue, avec un timeout global de 2 secondes.
+    answer: |-
+      ```go
+      func agreger(ctx context.Context) (Resultat, error) {
+          ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+          defer cancel()
+
+          var r Resultat
+          g, ctx := errgroup.WithContext(ctx)
+          g.Go(func() (err error) { r.Profil, err = profil(ctx); return })
+          g.Go(func() (err error) { r.Commandes, err = commandes(ctx); return })
+          g.Go(func() (err error) { r.Reco, err = recommandations(ctx); return })
+          if err := g.Wait(); err != nil {
+              return Resultat{}, err
+          }
+          return r, nil
+      }
+      ```
+      "Chaque goroutine écrit dans un champ distinct de `r`, donc pas de course de données, et `Wait` établit la synchronisation avant que je lise `r`. Au premier échec, `errgroup` annule le contexte, ce qui interrompt les autres appels s'ils respectent `ctx`. Si une réponse partielle est acceptable (les recommandations sont optionnelles), je ne renverrais pas son erreur et je la loggerais à la place."
+  - key: paralleliser-avec-limite-arret-premier-echec
+    format: course
+    question: Comment paralléliser avec limite et arrêt au premier échec ?
+    answer: errgroup.WithContext et SetLimit.
+  - key: terme-errgroup
+    format: course
+    question: Que désigne « errgroup » ?
+    answer: Groupe de goroutines avec première erreur et annulation (x/sync)
+  - key: wait
+    format: course
+    question: Que renvoie `g.Wait()` d'un errgroup ?
+    answer: Il attend la fin de toutes les goroutines lancées par `g.Go`, puis renvoie la première erreur non nil (ou nil si toutes ont réussi).
+  - key: with-context
+    format: course
+    question: Que fait `errgroup.WithContext` ?
+    answer: 'Il renvoie un groupe et un contexte dérivé, annulé dès qu''une tâche renvoie une erreur (ou quand `Wait` rend la main) : les autres tâches qui le surveillent s''arrêtent tôt.'
+  - key: panique
+    format: course
+    question: errgroup récupère-t-il les paniques des tâches ?
+    answer: 'Non : une panique dans une tâche arrête le programme, comme dans toute goroutine ; il faut un recover dans la tâche si on veut la convertir en erreur.'
+  - key: scenario-flux
+    format: scenario
+    question: Quand préfères-tu un WaitGroup simple à errgroup ?
+    answer: |-
+      Quand les tâches ne peuvent pas échouer, ou quand chaque erreur doit être collectée plutôt que d'arrêter le
+      groupe : un `sync.WaitGroup` (avec `wg.Go`) et des résultats qui portent leur erreur suffisent, sans dépendance
+      à `golang.org/x/sync`. errgroup sert dès qu'on veut « la première erreur arrête tout », éventuellement avec une
+      limite.
+  - key: vf-premiere
+    format: true-false
+    question: '`g.Wait()` d''un errgroup renvoie toutes les erreurs des tâches, jointes.'
+    truth: false
+    answer: Seulement la première ; les suivantes sont perdues (on les collecte soi-même avec errors.Join si besoin).
+  - key: vf-annule
+    format: true-false
+    question: Avec errgroup.WithContext, le contexte dérivé est annulé dès qu'une tâche renvoie une erreur.
+    truth: true
+    answer: Les tâches qui le surveillent s'arrêtent tôt.
+  - key: vf-attend-tout
+    format: true-false
+    question: '`g.Wait()` rend la main dès la première erreur, sans attendre les autres tâches.'
+    truth: false
+    answer: Il attend toujours la fin de toutes les goroutines ; c'est l'annulation du contexte qui les fait finir plus vite.
+  - key: vf-stdlib
+    format: true-false
+    question: errgroup fait partie de la bibliothèque standard.
+    truth: false
+    answer: Il est dans golang.org/x/sync, un module maintenu par l'équipe Go mais à ajouter au go.mod.
+  - key: qcm-setlimit
+    format: multiple-choice
+    question: Que fait `g.SetLimit(4)` ?
+    choices:
+      - text: Au plus 4 goroutines du groupe tournent à la fois
+        correct: true
+      - text: '`g.Go` bloque tant que 4 tâches sont actives'
+        correct: true
+      - text: Le groupe refuse plus de 4 tâches au total
+        correct: false
+      - text: Il fixe GOMAXPROCS à 4
+        correct: false
+    answer: '`TryGo` existe pour essayer sans bloquer.'
+  - key: qcm-resultats
+    format: multiple-choice
+    question: Comment récupérer les résultats de tâches lancées avec errgroup ?
+    choices:
+      - text: Chaque tâche écrit dans sa propre variable, lue après `Wait`
+        correct: true
+      - text: Chaque tâche écrit à son indice dans un slice préalloué
+        correct: true
+      - text: '`g.Wait()` renvoie les valeurs des tâches'
+        correct: false
+      - text: Toutes les tâches font append sur le même slice sans verrou
+        correct: false
+    answer: '`Wait` ne renvoie qu''une erreur ; l''append concurrent est une course.'
+  - key: qcm-apres-wait
+    format: multiple-choice
+    question: Que vaut le contexte de `errgroup.WithContext` après `g.Wait()` ?
+    choices:
+      - text: Il est annulé, même si aucune tâche n'a échoué
+        correct: true
+      - text: Il est toujours actif et réutilisable
+        correct: false
+      - text: Il est annulé seulement en cas d'erreur
+        correct: false
+      - text: Il est remplacé par context.Background
+        correct: false
+    answer: Il ne faut pas le passer à des appels faits après Wait.
+  - key: qcm-quand
+    format: multiple-choice
+    question: Dans quels cas errgroup convient-il ?
+    choices:
+      - text: Appeler plusieurs services en parallèle et échouer si l'un échoue
+        correct: true
+      - text: Traiter une liste de fichiers avec au plus 8 traitements simultanés
+        correct: true
+      - text: Collecter toutes les erreurs de mille validations indépendantes
+        correct: false
+      - text: Récupérer les paniques des goroutines
+        correct: false
+    answer: Il garde seulement la première erreur et ne récupère pas les paniques.
+  - key: trous-go
+    format: fill-in
+    question: "Complétez pour lancer une tâche dans le groupe :\n```go\ng, ctx := errgroup.WithContext(ctx)\ng.___(func() error {\n\treturn appeler(ctx)\n})\n```"
+    blanks:
+      - - Go
+    answer: '`g.Go` lance la fonction dans une goroutine.'
+  - key: trous-wait
+    format: fill-in
+    question: "Complétez pour attendre et récupérer la première erreur :\n```go\nif err := g.___(); err != nil {\n\treturn err\n}\n```"
+    blanks:
+      - - Wait
+    answer: '`Wait` attend toutes les tâches.'
+  - key: trous-with-context
+    format: fill-in
+    question: |-
+      Complétez pour que la première erreur annule les autres tâches :
+      ```go
+      g, ctx := errgroup.___(ctx)
+      ```
+    blanks:
+      - - WithContext
+    answer: Le contexte dérivé est annulé à la première erreur.
+  - key: trous-limite
+    format: fill-in
+    question: |-
+      Complétez pour limiter à 10 tâches simultanées :
+      ```go
+      g.___(10)
+      ```
+    blanks:
+      - - SetLimit
+    answer: '`g.Go` bloque alors tant que 10 tâches tournent.'
+  - key: bug-ctx-ignore
+    format: bug-fix
+    question: "Quand le premier appel échoue, les autres continuent jusqu'au bout et la requête met 30 secondes à échouer :\n```go\ng, ctx := errgroup.WithContext(ctx)\nfor _, s := range services {\n\tg.Go(func() error {\n\t\treturn s.Appeler(context.Background())\n\t})\n}\nreturn g.Wait()\n```"
+    answer: "```go\ng.Go(func() error {\n\treturn s.Appeler(ctx)\n})\n```\nLes tâches doivent utiliser le contexte du groupe, annulé à la première erreur ; avec `context.Background()`,\nrien ne les arrête."
+  - key: bug-race
+    format: bug-fix
+    question: "Le détecteur de courses signale `noms` :\n```go\nvar noms []string\nfor _, id := range ids {\n\tg.Go(func() error {\n\t\tn, err := lireNom(ctx, id)\n\t\tnoms = append(noms, n)\n\t\treturn err\n\t})\n}\n```"
+    answer: "```go\nnoms := make([]string, len(ids))\nfor i, id := range ids {\n\tg.Go(func() error {\n\t\tn, err := lireNom(ctx, id)\n\t\tnoms[i] = n\n\t\treturn err\n\t})\n}\n```\nChaque tâche écrit à son indice ; `Wait` rend les écritures visibles."
+  - key: bug-ctx-apres
+    format: bug-fix
+    question: "L'enregistrement final échoue toujours avec « context canceled » :\n```go\ng, ctx := errgroup.WithContext(ctx)\ng.Go(func() error { return charger(ctx, &a) })\ng.Go(func() error { return charger(ctx, &b) })\nif err := g.Wait(); err != nil {\n\treturn err\n}\nreturn enregistrer(ctx, a, b)\n```"
+    answer: "```go\ng, gctx := errgroup.WithContext(ctx)\ng.Go(func() error { return charger(gctx, &a) })\ng.Go(func() error { return charger(gctx, &b) })\nif err := g.Wait(); err != nil {\n\treturn err\n}\nreturn enregistrer(ctx, a, b)\n```\nLe contexte du groupe est annulé quand `Wait` rend la main ; on le nomme autrement pour garder le contexte\nd'origine après."
+  - key: bug-panique
+    format: bug-fix
+    question: Une tâche errgroup panique sur une donnée corrompue et fait tomber tout le service. Comment la convertir en erreur ?
+    answer: "```go\ng.Go(func() (err error) {\n\tdefer func() {\n\t\tif r := recover(); r != nil {\n\t\t\terr = fmt.Errorf(\"panique dans la tâche : %v\", r)\n\t\t}\n\t}()\n\treturn traiter(ctx, donnee)\n})\n```\nerrgroup ne récupère pas les paniques : le recover se fait dans la tâche, avec un retour nommé pour transformer la\npanique en erreur."
+  - key: scenario-page
+    format: scenario
+    question: Une page agrège le profil, les commandes et les recommandations d'un client. Comment la construis-tu avec errgroup ?
+    answer: |-
+      `errgroup.WithContext` sur le contexte de la requête, avec un délai global ; trois `g.Go`, chacun écrit dans sa
+      variable. Le profil et les commandes sont indispensables : leur erreur est renvoyée et annule le reste. Les
+      recommandations sont accessoires : leur tâche journalise l'erreur et renvoie nil, et la page s'affiche sans elles.
+      Après `Wait`, j'assemble la réponse.
+  - key: scenario-mille
+    format: scenario
+    question: Tu dois appeler une API pour 10 000 identifiants, au plus 20 à la fois, et t'arrêter à la première erreur. Comment ?
+    answer: |-
+      `g, ctx := errgroup.WithContext(ctx)` puis `g.SetLimit(20)` ; une boucle sur les identifiants appelle `g.Go`, qui
+      bloque quand 20 tâches tournent ; chaque tâche écrit son résultat à son indice et utilise `ctx`. Avant chaque
+      `g.Go`, je teste `ctx.Err()` pour arrêter de lancer de nouvelles tâches après une erreur. Si l'API impose aussi un
+      débit, j'ajoute un `rate.Limiter`.

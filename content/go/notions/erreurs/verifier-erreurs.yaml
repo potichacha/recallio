@@ -1,0 +1,172 @@
+notion: verifier-erreurs
+lesson: "Chaque erreur se **teste**, juste après l'appel :\n\n```go\nf, err := os.Open(chemin)\nif err != nil {\n\treturn fmt.Errorf(\"ouverture de %s : %w\", chemin, err)\n}\ndefer f.Close()\n```\n\nCe qu'on peut faire d'une erreur, au choix :\n- la **remonter**, en ajoutant du contexte (`%w`) ;\n- la **traiter** : réessayer, prendre une valeur par défaut, répondre une erreur HTTP ;\n- l'**ignorer explicitement**, quand c'est vraiment sans conséquence, avec `_` et un commentaire qui dit pourquoi.\n\nCe qu'on ne fait jamais : l'ignorer **en silence** (`f.Close()` sans regarder le résultat d'une écriture, `x, _ :=\nf()` par paresse). Les linters `errcheck` et `staticcheck` signalent les erreurs non vérifiées.\n\nLa répétition de `if err != nil` est le prix d'un chemin d'erreur visible. On l'allège en gardant le **chemin heureux à\ngauche** (retour anticipé, pas de `else`), et en regroupant des étapes dans une fonction qui renvoie une seule erreur.\n\nPour signaler « pas trouvé », deux idiomes : une valeur et un booléen (`v, ok := cache.Get(k)`), quand l'absence est\nnormale ; une erreur sentinelle (`ErrNotFound`), quand c'est un échec à remonter.\n\n**Piège classique** : `defer f.Close()` sur un fichier **écrit**. L'erreur de fermeture, qui peut signaler une\nécriture ratée, est perdue.\n\n**En entretien** : « Chaque erreur est testée tout de suite, remontée avec du contexte, traitée ou ignorée\nexplicitement ; jamais en silence ; errcheck en CI. »"
+cards:
+  - key: developpeurs-plaignent-verbosite-if-err-nil
+    format: scenario
+    question: Les développeurs se plaignent de la verbosité de `if err != nil`. Qu'en penses-tu ?
+    answer: |-
+      La verbosité est réelle, mais c'est un compromis assumé : chaque appel qui peut échouer est visible, et la revue de code voit immédiatement si une erreur est ignorée ou mal traitée. L'équipe Go a d'ailleurs renoncé en 2025 à changer la syntaxe après des années de propositions.
+      Pour réduire le bruit sans perdre en clarté : ajouter du **contexte utile** à chaque wrapping plutôt que propager nu, regrouper les opérations d'une même étape dans une fonction qui retourne une seule erreur, utiliser `errors.Join` pour les validations, et le pattern *sticky error* pour une suite d'écritures (un type qui mémorise la première erreur et ignore les opérations suivantes, comme `bufio.Writer`).
+  - key: renvoyer-trouve-idiomatique
+    format: course
+    question: Comment renvoyer "pas trouvé" en Go idiomatique ?
+    answer: Un second résultat booléen (valeur, ok) ou une erreur sentinelle.
+  - key: trois-choix
+    format: course
+    question: Que peut-on faire d'une erreur reçue ?
+    answer: La remonter avec du contexte, la traiter (réessayer, valeur par défaut, réponse HTTP), ou l'ignorer explicitement avec une justification ; jamais en silence.
+  - key: errcheck
+    format: course
+    question: Quel outil signale les erreurs non vérifiées ?
+    answer: '`errcheck` (inclus dans golangci-lint), ainsi que certaines vérifications de staticcheck.'
+  - key: vf-ignorer
+    format: true-false
+    question: Ignorer une erreur avec `_` est acceptable quand c'est justifié et commenté.
+    truth: true
+    answer: Par exemple l'erreur d'un `Close` sur un fichier ouvert en lecture.
+  - key: vf-compilateur
+    format: true-false
+    question: Le compilateur Go refuse un appel dont on n'utilise pas l'erreur renvoyée.
+    truth: false
+    answer: Appeler `f()` sans lire ses résultats compile ; ce sont les linters qui le signalent.
+  - key: vf-else
+    format: true-false
+    question: Après `if err != nil { return err }`, la suite du code s'écrit dans un `else`.
+    truth: false
+    answer: Le chemin heureux reste à gauche, sans `else`.
+  - key: vf-ok
+    format: true-false
+    question: Pour une absence normale (une clé de cache absente), une forme `v, ok` est souvent préférable à une erreur.
+    truth: true
+    answer: 'L''absence n''est pas un échec : un booléen suffit.'
+  - key: qcm-silence
+    format: multiple-choice
+    question: Lesquelles ignorent une erreur en silence ?
+    choices:
+      - text: '`json.Unmarshal(data, &v)` sans lire le résultat'
+        correct: true
+      - text: '`n, _ := strconv.Atoi(s)` sur une saisie utilisateur'
+        correct: true
+      - text: '`if err := f(); err != nil { return err }`'
+        correct: false
+      - text: '`_ = r.Body.Close() // lecture terminée, rien à perdre`'
+        correct: false
+    answer: La dernière ignore explicitement, avec une raison.
+  - key: qcm-traiter
+    format: multiple-choice
+    question: Quelles réactions à une erreur sont raisonnables dans un handler HTTP ?
+    choices:
+      - text: Répondre 400 pour une entrée invalide
+        correct: true
+      - text: Journaliser et répondre 500 pour une panne interne
+        correct: true
+      - text: Ignorer l'erreur et répondre 200
+        correct: false
+      - text: Appeler `log.Fatal`
+        correct: false
+    answer: '`log.Fatal` arrêterait le serveur entier.'
+  - key: qcm-absent
+    format: multiple-choice
+    question: Comment signaler « produit introuvable » depuis un dépôt ?
+    choices:
+      - text: Une erreur sentinelle `ErrProduitIntrouvable` que l'appelant teste avec `errors.Is`
+        correct: true
+      - text: Une forme `(Produit, bool)` si l'absence est un cas normal pour l'appelant
+        correct: true
+      - text: Une panique
+        correct: false
+      - text: Un produit vide sans erreur
+        correct: false
+    answer: Un produit vide se confondrait avec un vrai produit.
+  - key: qcm-alleger
+    format: multiple-choice
+    question: Comment alléger la répétition de `if err != nil` ?
+    choices:
+      - text: Retours anticipés, chemin heureux à gauche
+        correct: true
+      - text: Regrouper des étapes dans une fonction qui renvoie une seule erreur
+        correct: true
+      - text: Remplacer les erreurs par des paniques et un recover global
+        correct: false
+      - text: Ignorer les erreurs peu probables
+        correct: false
+    answer: La répétition est le prix d'un chemin d'erreur visible.
+  - key: trous-retour
+    format: fill-in
+    question: "Complétez le retour avec contexte :\n```go\nif err != nil {\n\treturn fmt.Errorf(\"lecture de %s : ___\", chemin, err)\n}\n```"
+    blanks:
+      - - '%w'
+    answer: '`%w` enveloppe l''erreur d''origine.'
+  - key: trous-explicite
+    format: fill-in
+    question: |-
+      Complétez pour ignorer explicitement l'erreur :
+      ```go
+      ___ = conn.Close() // la connexion est déjà en erreur, rien à faire de plus
+      ```
+    blanks:
+      - - _
+    answer: Le blanc et le commentaire disent que c'est voulu.
+  - key: trous-ok
+    format: fill-in
+    question: "Complétez la recherche dans le cache :\n```go\nif v, ___ := cache.Get(cle); ok {\n\treturn v, nil\n}\n```"
+    blanks:
+      - - ok
+    answer: Une absence normale se signale par un booléen.
+  - key: trous-init
+    format: fill-in
+    question: "Complétez la forme courte du test :\n```go\nif err := envoyer(m)___ err != nil {\n\treturn err\n}\n```"
+    blanks:
+      - - ;
+    answer: L'initialisation dans le `if` limite la portée de `err`.
+  - key: bug-close-ecriture
+    format: bug-fix
+    question: "Un export semble réussi, mais le fichier est parfois incomplet :\n```go\nf, err := os.Create(chemin)\nif err != nil {\n\treturn err\n}\ndefer f.Close()\n_, err = f.Write(donnees)\nreturn err\n```"
+    answer: "```go\nf, err := os.Create(chemin)\nif err != nil {\n\treturn err\n}\nif _, err := f.Write(donnees); err != nil {\n\tf.Close()\n\treturn err\n}\nreturn f.Close()\n```\nL'erreur de `Close`, qui peut signaler une écriture ratée, était perdue dans le `defer`."
+  - key: bug-unmarshal
+    format: bug-fix
+    question: |-
+      Une requête mal formée crée une commande vide :
+      ```go
+      var c Commande
+      json.NewDecoder(r.Body).Decode(&c)
+      enregistrer(c)
+      ```
+    answer: "```go\nvar c Commande\nif err := json.NewDecoder(r.Body).Decode(&c); err != nil {\n\thttp.Error(w, \"commande invalide\", http.StatusBadRequest)\n\treturn\n}\nenregistrer(c)\n```\nL'erreur de décodage était ignorée en silence."
+  - key: bug-else
+    format: bug-fix
+    question: "Rendez ce code idiomatique :\n```go\ncfg, err := charger()\nif err == nil {\n\tsrv, err := demarrer(cfg)\n\tif err == nil {\n\t\treturn srv.Attendre()\n\t} else {\n\t\treturn err\n\t}\n} else {\n\treturn err\n}\n```"
+    answer: "```go\ncfg, err := charger()\nif err != nil {\n\treturn err\n}\nsrv, err := demarrer(cfg)\nif err != nil {\n\treturn err\n}\nreturn srv.Attendre()\n```\nRetours anticipés et chemin heureux à gauche."
+  - key: bug-zero
+    format: bug-fix
+    question: "Une recherche qui ne trouve rien renvoie un client vide, confondu avec un vrai client :\n```go\nfunc (d *Depot) Trouver(id int) Client {\n\tc, ok := d.clients[id]\n\tif !ok {\n\t\treturn Client{}\n\t}\n\treturn c\n}\n```"
+    answer: "```go\nvar ErrIntrouvable = errors.New(\"client introuvable\")\n\nfunc (d *Depot) Trouver(id int) (Client, error) {\n\tc, ok := d.clients[id]\n\tif !ok {\n\t\treturn Client{}, ErrIntrouvable\n\t}\n\treturn c, nil\n}\n```\nL'appelant peut maintenant distinguer l'absence (`errors.Is(err, ErrIntrouvable)`)."
+  - key: scenario-verbosite
+    format: scenario
+    question: Un nouveau venu trouve `if err != nil` trop verbeux et propose un helper qui panique. Que lui réponds-tu ?
+    answer: |-
+      Que ce helper transforme chaque erreur attendue en panique, donc en arrêt du programme, et cache les chemins
+      d'échec. La répétition est le prix d'un code où chaque échec est visible et traité au bon endroit, avec son
+      contexte. On l'allège par des retours anticipés, des fonctions plus petites qui renvoient une seule erreur, ou un
+      type « sticky error » pour une séquence d'écritures (comme `bufio.Writer`). Les helpers `Must` restent réservés à
+      l'initialisation, avec des valeurs connues à l'avance.
+  - key: scenario-strategie
+    format: scenario
+    question: Comment décides-tu de remonter ou de traiter une erreur à un niveau donné ?
+    answer: |-
+      Je la traite là où j'ai l'information pour agir : une couche qui sait réessayer, une valeur par défaut connue, ou
+      la frontière HTTP qui choisit le code de réponse. Ailleurs, je la remonte en ajoutant ce que ce niveau sait (le
+      fichier, l'identifiant). Je ne journalise qu'à l'endroit où je la traite, pour ne pas avoir la même erreur cinq
+      fois dans les logs.
+  - key: scenario-revue
+    format: scenario
+    question: En revue, comment repères-tu une erreur mal gérée ?
+    answer: |-
+      Je cherche les appels dont le résultat d'erreur n'est pas lu, les `_` sans commentaire, les erreurs journalisées
+      puis remontées (en double), les messages sans contexte (« erreur »), les `panic` dans du code de bibliothèque, et
+      les `defer Close()` sur des écritures. En CI, golangci-lint avec `errcheck`, `errorlint` et `wrapcheck` en attrape
+      beaucoup automatiquement.
+  - key: absent-normal
+    format: course
+    question: Faut-il renvoyer une erreur quand une clé est absente d'un cache ?
+    answer: 'Pas forcément : si l''absence est un cas normal, une forme `(valeur, bool)` suffit ; une erreur est réservée à un vrai échec à remonter.'

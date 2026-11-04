@@ -275,6 +275,14 @@ cards:
   ```
   - La clé est le nom du dossier : définitive, et distincte des clés des cartes de la notion.
   - Des fichiers `.java` seulement, de 1 à 10 par partie ; des packages sont permis (`starter/fr/recallio/Panier.java`).
+  - **En Go** (ADR 0033), la même forme avec des fichiers `.go` : `starter/` et `solution/` à plat, dans un seul
+    package (pas de `package main`), et `tests/*_test.go` dans ce même package, avec le package `testing` seul (pas de
+    bibliothèque d'assertions). Le bac à sable n'a pas de réseau et son cache de compilation est en lecture seule : un
+    exercice n'importe que les paquets standard précompilés dans `sandbox/go/warm/warm.go` (un autre paquet, comme
+    `testing/iotest`, échoue à la compilation). Le code de départ compile (une fonction qui renvoie la valeur zéro, ou
+    une version séquentielle) et échoue aux tests. Un test de concurrence ne repose pas sur une durée : il attend que
+    les goroutines se rejoignent, avec un délai de garde court (quelques centaines de millisecondes) pour échouer
+    vite.
   - La solution doit passer tous les tests, et le code de départ compiler mais en échouer au moins un : le job CI
     `runner` joue chaque exercice dans le bac à sable (ADR 0030). En local : `cd runner && ./mvnw test
     -Dtest=ExercisesTest` (Docker requis).
@@ -316,6 +324,12 @@ cards:
   - JShell appelle `toString` sur les valeurs qu'il affiche, et son thread principal gère lui-même les interruptions :
     une carte sur l'interruption exécute son code dans un nouveau thread.
   - Une sortie non déterministe (threads, `hashCode` d'identité) remplace `check` par `unverifiable: <raison>`.
+  - **En Go** (ADR 0033), `check.code` est un programme complet (`package main`, ses imports, `func main`), compilé et
+    lancé par la chaîne d'outils `go` ; `panics` remplace `throws` et attend un extrait du message d'arrêt, qu'il
+    s'agisse d'une panique (`index out of range`) ou d'une erreur fatale du runtime (`all goroutines are asleep`).
+    La question montre seulement le fragment utile : les déclarations (types, fonctions) au-dessus, puis le corps de
+    `main`. Une sortie concurrente reste déterministe (résultats rangés par indice, sommes, `WaitGroup`) ; l'ordre
+    d'une `map` affichée par `fmt` est trié, mais pas celui d'un `range`.
   - `./mvnw test -Dtest='CodeOutputTest'` exécute toutes ces cartes, comme la CI.
 - En YAML, une valeur qui contient « : » (la typographie française en met partout) doit être entre guillemets, ou
   écrite en bloc `|-`.

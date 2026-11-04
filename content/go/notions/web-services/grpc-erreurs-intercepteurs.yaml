@@ -1,0 +1,151 @@
+notion: grpc-erreurs-intercepteurs
+lesson: "**Les erreurs** : un serveur gRPC renvoie une erreur construite avec un **code** standard, que le client lit :\n\n```go\nreturn nil, status.Error(codes.NotFound, \"commande introuvable\")\nreturn nil, status.Errorf(codes.InvalidArgument, \"quantité %d invalide\", q)\n\n// côté client\nif status.Code(err) == codes.NotFound { ... }\nst, ok := status.FromError(err) // code, message et détails\n```\n\nLes codes les plus utiles : `InvalidArgument`, `NotFound`, `AlreadyExists`, `PermissionDenied`, `Unauthenticated`,\n`FailedPrecondition`, `ResourceExhausted` (quota), `DeadlineExceeded`, `Canceled`, `Unavailable` (temporaire :\n**réessayable**), `Internal`, `Unimplemented`. Une erreur Go ordinaire renvoyée par un handler devient\n**`Unknown`** : on traduit toujours les erreurs métier en codes, à un seul endroit.\n\n**Les délais** : le contexte du client porte l'échéance, transmise au serveur ; un appel trop long échoue en\n`DeadlineExceeded`, et le serveur voit son contexte annulé.\n\n**Les intercepteurs** sont les middlewares de gRPC, côté serveur ou client :\n\n```go\nfunc journaliser(log *slog.Logger) grpc.UnaryServerInterceptor {\n\treturn func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {\n\t\tdebut := time.Now()\n\t\tresp, err := handler(ctx, req)\n\t\tlog.Info(\"appel\", \"methode\", info.FullMethod, \"code\", status.Code(err), \"duree\", time.Since(debut))\n\t\treturn resp, err\n\t}\n}\n\nsrv := grpc.NewServer(grpc.ChainUnaryInterceptor(recuperer, journaliser(log), authentifier))\n```\n\nIls servent à l'authentification, la journalisation, les métriques et les traces (OpenTelemetry), la récupération des\npaniques, la validation. Les flux ont leurs propres intercepteurs (`StreamServerInterceptor`).\n\nLes **métadonnées** (`google.golang.org/grpc/metadata`) sont les en-têtes de gRPC : `metadata.AppendToOutgoingContext`\ncôté client, `metadata.FromIncomingContext` côté serveur, par exemple pour un jeton.\n\n**En entretien** : « status.Error avec un code ; une erreur ordinaire devient Unknown ; Unavailable est réessayable ;\nles délais passent par le contexte ; les intercepteurs sont les middlewares, chaînés avec ChainUnaryInterceptor ;\nles métadonnées portent les en-têtes. »"
+cards:
+  - key: fixer-timeout-appel-grpc
+    format: course
+    question: Comment fixer un timeout sur un appel gRPC ?
+    answer: Par une deadline dans le contexte, propagée au serveur.
+  - key: renvoyer-erreur-grpc
+    format: course
+    question: Comment renvoyer une erreur gRPC ?
+    answer: status.Error(codes.X, message), lue côté client par status.Code.
+  - key: code-erreur-temporaire-reessayable
+    format: course
+    question: Quel code pour une erreur temporaire réessayable ?
+    answer: Unavailable.
+  - key: intercepteur
+    format: course
+    question: C'est quoi un intercepteur ?
+    answer: Un middleware gRPC (unaire ou streaming, serveur ou client).
+  - key: servent-metadonnees
+    format: course
+    question: À quoi servent les métadonnées ?
+    answer: À transmettre des informations comme les en-têtes HTTP (auth, trace, request ID).
+  - key: taille-maximale-message-recu-defaut
+    format: course
+    question: Quelle est la taille maximale de message reçu par défaut ?
+    answer: 4 Mo.
+  - key: vf-unknown
+    format: true-false
+    question: Un handler gRPC qui renvoie `errors.New("introuvable")` produit le code NotFound côté client.
+    truth: false
+    answer: Une erreur ordinaire devient Unknown ; il faut status.Error(codes.NotFound, ...).
+  - key: vf-unavailable
+    format: true-false
+    question: Le code Unavailable signale en général une erreur temporaire qu'on peut réessayer.
+    truth: true
+    answer: Avec un délai croissant et pour des appels idempotents.
+  - key: vf-chain
+    format: true-false
+    question: '`grpc.ChainUnaryInterceptor` permet d''enchaîner plusieurs intercepteurs unaires.'
+    truth: true
+    answer: Ils s'exécutent dans l'ordre donné.
+  - key: vf-flux
+    format: true-false
+    question: Un intercepteur unaire s'applique aussi aux méthodes de flux.
+    truth: false
+    answer: Les flux ont leurs propres intercepteurs (StreamServerInterceptor).
+  - key: qcm-codes
+    format: multiple-choice
+    question: Quel code pour quelle situation ?
+    choices:
+      - text: 'Champ obligatoire manquant : InvalidArgument'
+        correct: true
+      - text: 'Jeton absent ou invalide : Unauthenticated'
+        correct: true
+      - text: 'Quota de l''utilisateur épuisé : ResourceExhausted'
+        correct: true
+      - text: 'Base de données en panne : NotFound'
+        correct: false
+    answer: Une panne de dépendance est Unavailable ou Internal.
+  - key: qcm-intercepteurs
+    format: multiple-choice
+    question: Pour quoi utiliser des intercepteurs ?
+    choices:
+      - text: L'authentification de chaque appel
+        correct: true
+      - text: Les métriques et les traces
+        correct: true
+      - text: La récupération des paniques
+        correct: true
+      - text: Le calcul métier de la méthode
+        correct: false
+    answer: Le métier reste dans l'implémentation du service.
+  - key: qcm-metadonnees
+    format: multiple-choice
+    question: Comment transmettre un jeton d'authentification dans un appel gRPC ?
+    choices:
+      - text: '`metadata.AppendToOutgoingContext(ctx, "authorization", "Bearer "+jeton)` côté client'
+        correct: true
+      - text: '`metadata.FromIncomingContext(ctx)` côté serveur, dans un intercepteur'
+        correct: true
+      - text: Un champ jeton dans chaque message de requête
+        correct: false
+      - text: Une variable globale partagée
+        correct: false
+    answer: Les identifiants par appel (PerRPCCredentials) automatisent l'envoi côté client.
+  - key: qcm-lire-code
+    format: multiple-choice
+    question: Comment le client lit-il le code d'une erreur gRPC ?
+    choices:
+      - text: '`status.Code(err)`'
+        correct: true
+      - text: '`st, ok := status.FromError(err); st.Code()`'
+        correct: true
+      - text: '`err.Error() == "NotFound"`'
+        correct: false
+      - text: '`errors.Is(err, codes.NotFound)`'
+        correct: false
+    answer: codes.NotFound n'est pas une erreur ; on compare des codes.
+  - key: bug-unknown
+    format: bug-fix
+    question: "Les clients reçoivent « Unknown » pour un produit inexistant et réessaient en boucle :\n```go\nfunc (s *serveur) LireProduit(ctx context.Context, req *pb.LireProduitRequete) (*pb.Produit, error) {\n\tp, err := s.depot.Trouver(ctx, req.GetId())\n\tif err != nil {\n\t\treturn nil, err\n\t}\n\treturn versProto(p), nil\n}\n```"
+    answer: "```go\nfunc (s *serveur) LireProduit(ctx context.Context, req *pb.LireProduitRequete) (*pb.Produit, error) {\n\tp, err := s.depot.Trouver(ctx, req.GetId())\n\tswitch {\n\tcase errors.Is(err, ErrIntrouvable):\n\t\treturn nil, status.Error(codes.NotFound, \"produit introuvable\")\n\tcase err != nil:\n\t\ts.log.ErrorContext(ctx, \"lecture du produit\", \"err\", err)\n\t\treturn nil, status.Error(codes.Internal, \"erreur interne\")\n\t}\n\treturn versProto(p), nil\n}\n```\nUne erreur ordinaire devenait Unknown ; on la traduit en code précis, sans exposer le détail interne."
+  - key: bug-sans-delai
+    format: bug-fix
+    question: |-
+      Quand le service de stock ralentit, toutes les requêtes s'empilent :
+      ```go
+      stock, err := s.stock.Disponible(context.Background(), &pb.StockRequete{ProduitId: id})
+      ```
+    answer: "```go\nctx, cancel := context.WithTimeout(ctx, 300*time.Millisecond)\ndefer cancel()\nstock, err := s.stock.Disponible(ctx, &pb.StockRequete{ProduitId: id})\nif status.Code(err) == codes.DeadlineExceeded {\n\treturn nil, status.Error(codes.Unavailable, \"stock indisponible\")\n}\n```\nL'appel n'avait ni délai ni annulation ; un contexte dérivé de la requête, avec un délai court, le borne, et le\nserveur de stock voit la même échéance."
+  - key: bug-reessai
+    format: bug-fix
+    question: "Le client réessaie aussi les erreurs InvalidArgument, et multiplie la charge pour rien :\n```go\nfor essai := 0; essai < 5; essai++ {\n\tresp, err = client.Creer(ctx, req)\n\tif err == nil {\n\t\tbreak\n\t}\n\ttime.Sleep(time.Second)\n}\n```"
+    answer: "```go\ndelai := 100 * time.Millisecond\nfor essai := 0; essai < 5; essai++ {\n\tresp, err = client.Creer(ctx, req)\n\tif status.Code(err) != codes.Unavailable {\n\t\tbreak // succès, ou erreur qu'un réessai ne corrigera pas\n\t}\n\tselect {\n\tcase <-time.After(delai):\n\t\tdelai *= 2\n\tcase <-ctx.Done():\n\t\treturn nil, ctx.Err()\n\t}\n}\n```\nOn ne réessaie que les erreurs temporaires, avec un délai croissant et en respectant le contexte. (La politique de\nréessai de la configuration de service gRPC peut le faire automatiquement.)"
+  - key: bug-panique
+    format: bug-fix
+    question: Une panique dans une méthode gRPC fait tomber tout le serveur. Que proposes-tu ?
+    answer: "```go\nfunc recuperer(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (resp any, err error) {\n\tdefer func() {\n\t\tif v := recover(); v != nil {\n\t\t\tslog.ErrorContext(ctx, \"panique\", \"methode\", info.FullMethod, \"valeur\", v, \"pile\", string(debug.Stack()))\n\t\t\terr = status.Error(codes.Internal, \"erreur interne\")\n\t\t}\n\t}()\n\treturn handler(ctx, req)\n}\n\nsrv := grpc.NewServer(grpc.ChainUnaryInterceptor(recuperer, journaliser, authentifier))\n```\nContrairement à net/http, gRPC ne récupère pas les paniques : un intercepteur placé en premier les convertit en\nInternal."
+  - key: scenario-erreurs
+    format: scenario
+    question: Comment organises-tu la traduction des erreurs dans un service gRPC ?
+    answer: |-
+      Le métier renvoie des erreurs sentinelles ou typées ; une fonction `versStatus(err)` les traduit avec errors.Is et
+      errors.As (NotFound, InvalidArgument avec des détails `errdetails.BadRequest`, FailedPrecondition...), et tout le
+      reste devient Internal après journalisation. Chaque méthode l'appelle en sortie, ou un intercepteur le fait pour
+      toutes. Côté client, je ne réessaie que Unavailable, et parfois DeadlineExceeded pour les appels idempotents.
+  - key: scenario-intercepteurs
+    format: scenario
+    question: Quels intercepteurs mets-tu sur un serveur gRPC de production, et dans quel ordre ?
+    answer: |-
+      Récupération des paniques en premier, puis traces et métriques (OpenTelemetry), journalisation, authentification
+      (lecture du jeton dans les métadonnées, Unauthenticated sinon), limitation de débit, puis validation des requêtes.
+      Les mêmes en version flux. Côté client : traces, métriques, et une politique de réessai dans la configuration du
+      service plutôt qu'écrite à la main.
+  - key: scenario-deadline-propagation
+    format: scenario
+    question: Le service A appelle B, qui appelle C. Comment les délais se propagent-ils en gRPC ?
+    answer: |-
+      A appelle B avec un contexte qui a une échéance ; gRPC la transmet (en-tête grpc-timeout), et B reçoit un contexte
+      qui expire au même moment. Si B passe ce contexte à son appel vers C, l'échéance suit toute la chaîne : quand A
+      abandonne, B et C arrêtent aussi. B peut raccourcir le délai pour son propre appel, jamais l'allonger. C'est l'un
+      des grands avantages de gRPC sur des appels HTTP sans convention.
+  - key: scenario-quota
+    format: scenario
+    question: Ton serveur gRPC doit limiter chaque client à 100 appels par seconde. Comment fais-tu ?
+    answer: |-
+      Un intercepteur identifie le client (identité du jeton ou du certificat, dans les métadonnées) et consulte son
+      `rate.Limiter` dans une map protégée ; au-delà, il renvoie `codes.ResourceExhausted` avec un message clair, que
+      le client sait ne pas réessayer immédiatement. Avec plusieurs instances, le compteur partagé passe par Redis ou par
+      la passerelle devant le service.

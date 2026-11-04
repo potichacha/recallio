@@ -1,0 +1,185 @@
+notion: data-races
+lesson: "Une **data race** (course de données) se produit quand deux goroutines accèdent **à la même variable** en même temps,\nqu'**au moins un** des accès est une **écriture**, et que rien ne les **synchronise** (ni verrou, ni channel, ni\natomique).\n\n```go\ntotal := 0\nvar wg sync.WaitGroup\nfor range 1000 {\n\twg.Go(func() {\n\t\ttotal++ // lire, ajouter, écrire : trois étapes que deux goroutines peuvent entrelacer\n\t})\n}\nwg.Wait()\nfmt.Println(total) // souvent moins de 1000, et le comportement est indéfini\n```\n\nPourquoi c'est grave :\n- le résultat est **faux** et **non reproductible** (incréments perdus, valeurs incohérentes) ;\n- en Go, une course sur une **map** fait planter le programme (« concurrent map writes ») ; sur une **interface**,\n  un **slice** ou une **string** (valeurs de plusieurs mots), elle peut produire une valeur à moitié écrite et un\n  crash mémoire ;\n- le compilateur et le processeur **réordonnent** les accès : sans synchronisation, une goroutine peut ne jamais voir\n  une écriture.\n\nLe **détecteur de courses** les trouve à l'exécution : `go test -race ./...` (ou `go run -race`, `go build -race`). Il\ninstrumente chaque accès mémoire, ne signale **que des courses réelles** (pas de faux positif), mais seulement sur les\nchemins **exécutés** : il faut des tests qui exercent la concurrence. Il ralentit le programme (2 à 20 fois) et\nmultiplie la mémoire : on l'active en CI, pas en production.\n\nUne **race condition** est plus large : un résultat qui dépend de l'ordre des événements, même sans data race (deux\nrequêtes qui lisent puis écrivent un solde sous verrou, mais en deux temps).\n\n**En entretien** : « Deux accès concurrents, dont une écriture, sans synchronisation ; comportement indéfini ; go test\n-race en CI, qui ne voit que les chemins exécutés. »"
+cards:
+  - key: data-race-vs-race-condition
+    format: course
+    question: Data race vs race condition ?
+    answer: Accès concurrent non synchronisé vs défaut logique dépendant de l'ordre d'exécution.
+  - key: detecter-data-race
+    format: course
+    question: Comment détecter une data race ?
+    answer: 'Avec le détecteur de courses : go test -race.'
+  - key: detecteur-courses-faux-positifs
+    format: course
+    question: Le détecteur de courses a-t-il des faux positifs ?
+    answer: Non, mais il ne détecte que les courses effectivement exécutées.
+  - key: activer-race-production
+    format: course
+    question: Pourquoi ne pas activer -race en production ?
+    answer: Surcoût important en CPU et mémoire.
+  - key: ci-passe-mais-production-valeurs-incoherentes
+    format: scenario
+    question: La CI passe, mais en production des valeurs incohérentes apparaissent sous charge.
+    answer: |-
+      Je soupçonnerais une **data race** que les tests ne déclenchent pas. Je lancerais la suite avec `-race`, en ajoutant des tests qui exercent vraiment la concurrence (plusieurs goroutines appelant la même méthode en boucle). Si les tests ne suffisent pas, je ferais tourner un build `-race` dans un environnement de charge ou sur une instance canary : le détecteur donnera les deux piles en conflit.
+      En relisant le code, je chercherais les suspects classiques : une map partagée, un slice auquel plusieurs goroutines ajoutent des éléments, un champ de struct modifié par un handler HTTP (les handlers s'exécutent en parallèle), une variable de boucle capturée sur une version de Go antérieure à 1.22.
+  - key: eviter-course-donnees-collectant-resultats
+    format: course
+    question: Comment éviter la course de données en collectant des résultats parallèles ?
+    answer: Écrire chaque résultat à un indice distinct d'un slice préalloué, ou protéger par un mutex.
+  - key: definition-data-race
+    format: definition
+    question: data race
+    answer: Accès concurrent non synchronisé dont au moins une écriture
+  - key: vf-lectures
+    format: true-false
+    question: Deux goroutines qui lisent la même variable en même temps, sans aucune écriture, provoquent une data race.
+    truth: false
+    answer: Il faut au moins une écriture.
+  - key: vf-chemins
+    format: true-false
+    question: Le détecteur de courses trouve toutes les courses du programme, même dans le code jamais exécuté par les tests.
+    truth: false
+    answer: Il ne voit que les accès réellement exécutés.
+  - key: vf-map
+    format: true-false
+    question: Des écritures concurrentes sur une map peuvent arrêter le programme avec une erreur fatale.
+    truth: true
+    answer: « concurrent map writes », que recover ne rattrape pas.
+  - key: vf-increment
+    format: true-false
+    question: '`n++` sur un int partagé est atomique.'
+    truth: false
+    answer: Lire, ajouter et écrire sont trois étapes qui peuvent s'entrelacer.
+  - key: qcm-race
+    format: multiple-choice
+    question: Lesquels de ces codes contiennent une data race ?
+    choices:
+      - text: Deux goroutines qui font `compteur++` sans verrou
+        correct: true
+      - text: Une goroutine qui écrit une variable pendant qu'une autre la lit, sans synchronisation
+        correct: true
+      - text: Dix goroutines qui lisent une configuration jamais modifiée après leur lancement
+        correct: false
+      - text: Des goroutines qui écrivent chacune à leur indice d'un slice préalloué, lu après wg.Wait
+        correct: false
+    answer: Des indices distincts sont des variables distinctes, et Wait synchronise.
+  - key: qcm-detecter
+    format: multiple-choice
+    question: Comment détecter les data races ?
+    choices:
+      - text: '`go test -race ./...` en CI'
+        correct: true
+      - text: Des tests qui exercent vraiment les chemins concurrents
+        correct: true
+      - text: '`go vet`, qui les trouve à la compilation'
+        correct: false
+      - text: '`go build`, qui refuse le code concerné'
+        correct: false
+    answer: vet ne voit que quelques motifs (copie de verrou) ; les courses se voient à l'exécution.
+  - key: qcm-corriger
+    format: multiple-choice
+    question: Quelles corrections suppriment la course sur un compteur partagé ?
+    choices:
+      - text: Un sync.Mutex autour de l'incrément
+        correct: true
+      - text: Un atomic.Int64
+        correct: true
+      - text: Un compteur par goroutine, additionnés après Wait
+        correct: true
+      - text: Déclarer le compteur avec `volatile`
+        correct: false
+    answer: Go n'a pas de mot-clé volatile.
+  - key: qcm-race-condition
+    format: multiple-choice
+    question: Quelle affirmation sur race condition et data race est juste ?
+    choices:
+      - text: Un code peut avoir une race condition sans data race, par exemple une vérification puis une action en deux sections verrouillées
+        correct: true
+      - text: Toute race condition est détectée par -race
+        correct: false
+      - text: Une data race est toujours sans conséquence si le résultat semble correct
+        correct: false
+      - text: Les deux termes sont synonymes
+        correct: false
+    answer: Le détecteur ne voit que les accès mémoire non synchronisés.
+  - key: code-mutex
+    format: code-output
+    question: "```go\ntotal := 0\nvar mu sync.Mutex\nvar wg sync.WaitGroup\nfor range 1000 {\n\twg.Go(func() {\n\t\tmu.Lock()\n\t\ttotal++\n\t\tmu.Unlock()\n\t})\n}\nwg.Wait()\nfmt.Println(total)\n```"
+    answer: '`1000` : le verrou rend chaque incrément exclusif.'
+    check:
+      code: "package main\n\nimport (\n\t\"fmt\"\n\t\"sync\"\n)\n\nfunc main() {\n\ttotal := 0\n\tvar mu sync.Mutex\n\tvar wg sync.WaitGroup\n\tfor range 1000 {\n\t\twg.Go(func() {\n\t\t\tmu.Lock()\n\t\t\ttotal++\n\t\t\tmu.Unlock()\n\t\t})\n\t}\n\twg.Wait()\n\tfmt.Println(total)\n}\n"
+      output: '1000'
+  - key: code-atomic
+    format: code-output
+    question: "```go\nvar total atomic.Int64\nvar wg sync.WaitGroup\nfor range 50 {\n\twg.Go(func() {\n\t\tfor range 100 {\n\t\t\ttotal.Add(1)\n\t\t}\n\t})\n}\nwg.Wait()\nfmt.Println(total.Load())\n```"
+    answer: '`5000` : chaque Add est atomique.'
+    check:
+      code: "package main\n\nimport (\n\t\"fmt\"\n\t\"sync\"\n\t\"sync/atomic\"\n)\n\nfunc main() {\n\tvar total atomic.Int64\n\tvar wg sync.WaitGroup\n\tfor range 50 {\n\t\twg.Go(func() {\n\t\t\tfor range 100 {\n\t\t\t\ttotal.Add(1)\n\t\t\t}\n\t\t})\n\t}\n\twg.Wait()\n\tfmt.Println(total.Load())\n}\n"
+      output: '5000'
+  - key: code-locaux
+    format: code-output
+    question: "```go\nparts := make([]int, 4)\nvar wg sync.WaitGroup\nfor i := range 4 {\n\twg.Go(func() {\n\t\tfor j := range 10 {\n\t\t\tparts[i] += j\n\t\t}\n\t})\n}\nwg.Wait()\ntotal := 0\nfor _, p := range parts {\n\ttotal += p\n}\nfmt.Println(total)\n```"
+    answer: '`180` : chaque goroutine a sa case (45 chacune), additionnées après Wait.'
+    check:
+      code: "package main\n\nimport (\n\t\"fmt\"\n\t\"sync\"\n)\n\nfunc main() {\n\tparts := make([]int, 4)\n\tvar wg sync.WaitGroup\n\tfor i := range 4 {\n\t\twg.Go(func() {\n\t\t\tfor j := range 10 {\n\t\t\t\tparts[i] += j\n\t\t\t}\n\t\t})\n\t}\n\twg.Wait()\n\ttotal := 0\n\tfor _, p := range parts {\n\t\ttotal += p\n\t}\n\tfmt.Println(total)\n}\n"
+      output: '180'
+  - key: code-channel
+    format: code-output
+    question: "```go\nres := make(chan int)\nfor i := 1; i <= 3; i++ {\n\tgo func() { res <- i * i }()\n}\ntotal := 0\nfor range 3 {\n\ttotal += <-res\n}\nfmt.Println(total)\n```"
+    answer: '`14` : les résultats passent par un channel, sans état partagé (1 + 4 + 9).'
+    check:
+      code: "package main\n\nimport \"fmt\"\n\nfunc main() {\n\tres := make(chan int)\n\tfor i := 1; i <= 3; i++ {\n\t\tgo func() { res <- i * i }()\n\t}\n\ttotal := 0\n\tfor range 3 {\n\t\ttotal += <-res\n\t}\n\tfmt.Println(total)\n}\n"
+      output: '14'
+  - key: bug-compteur
+    format: bug-fix
+    question: "Le nombre de requêtes affiché est toujours trop bas sous charge :\n```go\nvar requetes int\n\nfunc compter(next http.Handler) http.Handler {\n\treturn http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n\t\trequetes++\n\t\tnext.ServeHTTP(w, r)\n\t})\n}\n```"
+    answer: "```go\nvar requetes atomic.Int64\n\nfunc compter(next http.Handler) http.Handler {\n\treturn http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n\t\trequetes.Add(1)\n\t\tnext.ServeHTTP(w, r)\n\t})\n}\n```\nChaque requête est une goroutine : l'incrément non synchronisé perdait des valeurs."
+  - key: bug-append
+    format: bug-fix
+    question: "Le détecteur signale une course et il manque des résultats :\n```go\nvar resultats []string\nfor _, u := range urls {\n\twg.Go(func() {\n\t\tresultats = append(resultats, lire(u))\n\t})\n}\nwg.Wait()\n```"
+    answer: "```go\nresultats := make([]string, len(urls))\nfor i, u := range urls {\n\twg.Go(func() {\n\t\tresultats[i] = lire(u)\n\t})\n}\nwg.Wait()\n```\nappend lit et réécrit l'en-tête du slice partagé ; un indice par goroutine supprime l'état partagé."
+  - key: bug-drapeau
+    format: bug-fix
+    question: "La goroutine ne s'arrête parfois jamais :\n```go\nvar arret bool\ngo func() {\n\tfor !arret {\n\t\ttravailler()\n\t}\n}()\ntime.Sleep(time.Second)\narret = true\n```"
+    answer: "```go\nvar arret atomic.Bool\ngo func() {\n\tfor !arret.Load() {\n\t\ttravailler()\n\t}\n}()\ntime.Sleep(time.Second)\narret.Store(true)\n```\nSans synchronisation, rien ne garantit que la goroutine voie l'écriture (le compilateur peut même sortir la lecture\nde la boucle). Un atomique, ou mieux un contexte annulé, publie l'arrêt."
+  - key: bug-map
+    format: bug-fix
+    question: "Le service s'arrête avec « fatal error: concurrent map writes » :\n```go\nvar sessions = map[string]*Session{}\n\nfunc ouvrir(id string, s *Session) {\n\tsessions[id] = s\n}\n```"
+    answer: "```go\nvar (\n\tmu       sync.Mutex\n\tsessions = map[string]*Session{}\n)\n\nfunc ouvrir(id string, s *Session) {\n\tmu.Lock()\n\tdefer mu.Unlock()\n\tsessions[id] = s\n}\n```\nUne map n'est pas sûre entre goroutines ; toutes ses lectures et écritures passent par le verrou."
+  - key: scenario-ci
+    format: scenario
+    question: Comment intègres-tu le détecteur de courses dans ton projet ?
+    answer: |-
+      `go test -race ./...` dans la CI à chaque pull request, avec des tests qui exercent vraiment la concurrence
+      (plusieurs goroutines sur les mêmes objets, `t.Parallel()`, des tests d'intégration du serveur). Je le lance aussi
+      sur les tests de charge en préproduction, avec une instance compilée en `-race` si besoin. Pas en production : il
+      ralentit beaucoup et consomme de la mémoire. Une course signalée bloque le merge.
+  - key: scenario-intermittent
+    format: scenario
+    question: Un test échoue une fois sur cinquante en CI. Comment vérifies-tu qu'il s'agit d'une course ?
+    answer: |-
+      Je le relance en boucle avec le détecteur : `go test -race -run TestX -count=200`, éventuellement avec
+      `-cpu=1,4,8` pour varier l'ordonnancement. Le rapport de `-race` donne les deux accès en conflit avec leurs piles.
+      Si rien n'apparaît, je cherche une race condition logique (un ordre supposé entre goroutines, un temps d'attente
+      trop court) ou une dépendance à l'heure ou au réseau.
+  - key: scenario-rapport
+    format: scenario
+    question: 'Comment lis-tu un rapport « WARNING: DATA RACE » ?'
+    answer: |-
+      Il donne deux accès : l'un (« Write at » ou « Read at ») avec sa pile d'appels, l'autre (« Previous write/read
+      at ») avec la sienne, puis les piles de création des deux goroutines. Je repère la variable commune (souvent un
+      champ ou une variable capturée), je regarde quelle synchronisation manque entre les deux chemins, et je corrige à
+      la source (verrou, channel, atomique ou suppression du partage), plutôt qu'en ajoutant des délais.
+  - key: definition-race-detector
+    format: definition
+    question: détecteur de courses (-race)
+    answer: Instrumentation activée par -race qui signale à l'exécution les accès concurrents non synchronisés
+  - key: definition-race-condition
+    format: definition
+    question: race condition
+    answer: Résultat qui dépend de l'ordre d'exécution des goroutines, avec ou sans data race
+  - key: definition-section-critique
+    format: definition
+    question: section critique
+    answer: Portion de code qui accède à un état partagé et ne doit être exécutée que par une goroutine à la fois

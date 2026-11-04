@@ -1,0 +1,199 @@
+notion: interfaces-internes
+lesson: |-
+  À l'exécution, une valeur d'interface occupe **deux mots** :
+
+  - un pointeur vers les **informations de type** : pour une interface avec méthodes (`iface`), une table `itab` qui
+    contient le type concret et les pointeurs vers ses méthodes ; pour l'interface vide (`eface`, `any`), le type seul ;
+  - un pointeur vers la **donnée** (ou, pour de très petites valeurs, une optimisation selon l'implémentation).
+
+  Conséquences :
+  - **affecter** une valeur à une interface peut **allouer** sur le tas : la valeur est copiée là où pointe l'interface
+    (le compilateur évite l'allocation pour certaines valeurs, comme les petits entiers ou les pointeurs) ;
+  - un **appel de méthode** par interface est un **appel indirect** via l'itab : un peu plus coûteux qu'un appel direct,
+    et le compilateur ne peut pas l'inliner (sauf dévirtualisation, notamment avec PGO) ;
+  - **comparer** deux interfaces compare type puis valeur, et **panique** si la valeur dynamique n'est pas comparable ;
+  - une interface est nil seulement si le mot de type est nil (d'où le piège du pointeur nil typé).
+
+  Dans la plupart des programmes, ce coût est négligeable. Il compte dans les boucles très chaudes, où l'on peut garder
+  le type concret ou utiliser des generics.
+
+  **Piège classique** : stocker des millions de petits entiers dans un `[]any`. Chaque élément devient une interface de
+  deux mots, avec souvent une allocation : bien plus de mémoire qu'un `[]int`.
+
+  **En entretien** : « Deux mots, un pointeur de type (itab) et un pointeur de donnée ; l'affectation peut allouer,
+  l'appel est indirect ; la comparaison peut paniquer ; négligeable sauf en boucle chaude. »
+cards:
+  - key: representee-valeur-interface
+    format: course
+    question: Comment est représentée une valeur d'interface ?
+    answer: Une paire (type dynamique, valeur dynamique), deux mots en mémoire.
+  - key: comparer-deux-interfaces-paniquer
+    format: course
+    question: Comparer deux interfaces peut-il paniquer ?
+    answer: Oui si le type dynamique n'est pas comparable (slice, map).
+  - key: dispatch-interface-cout
+    format: course
+    question: Le dispatch par interface a-t-il un coût ?
+    answer: Un appel indirect qui empêche souvent l'inlining ; négligeable hors boucles critiques.
+  - key: itab
+    format: course
+    question: Qu'est-ce que l'itab d'une interface ?
+    answer: 'La table qui associe un type concret à une interface : le type et les pointeurs vers les méthodes que l''interface demande.'
+  - key: vf-deux-mots
+    format: true-false
+    question: Une valeur d'interface occupe deux mots machine.
+    truth: true
+    answer: Un pour le type (itab ou type), un pour la donnée.
+  - key: vf-allocation
+    format: true-false
+    question: Affecter une struct à une variable `any` peut provoquer une allocation sur le tas.
+    truth: true
+    answer: La valeur est copiée dans une zone pointée par l'interface ; l'analyse d'échappement le décide.
+  - key: vf-inline
+    format: true-false
+    question: Un appel de méthode par interface est toujours inliné par le compilateur.
+    truth: false
+    answer: C'est un appel indirect ; seule une dévirtualisation (par exemple avec PGO) permet parfois l'inlining.
+  - key: vf-comparaison
+    format: true-false
+    question: Comparer deux interfaces avec `==` ne peut jamais paniquer.
+    truth: false
+    answer: Si les deux contiennent le même type non comparable (un slice), la comparaison panique.
+  - key: qcm-contenu
+    format: multiple-choice
+    question: Que contient une valeur d'interface non vide ?
+    choices:
+      - text: Un pointeur vers l'itab (type concret et méthodes)
+        correct: true
+      - text: Un pointeur vers la donnée
+        correct: true
+      - text: Une copie de toutes les méthodes
+        correct: false
+      - text: Le nom de l'interface en texte
+        correct: false
+    answer: Deux mots seulement.
+  - key: qcm-cout
+    format: multiple-choice
+    question: Quels coûts une interface peut-elle ajouter ?
+    choices:
+      - text: Une allocation à l'affectation
+        correct: true
+      - text: Un appel indirect, non inliné
+        correct: true
+      - text: Une copie de l'interface à chaque appel de méthode
+        correct: false
+      - text: Un verrou pour chaque appel
+        correct: false
+    answer: Dans la plupart des programmes, ces coûts sont négligeables.
+  - key: qcm-memoire
+    format: multiple-choice
+    question: Pourquoi un `[]any` de 10 millions d'entiers consomme-t-il bien plus qu'un `[]int` ?
+    choices:
+      - text: Chaque élément occupe deux mots au lieu d'un
+        correct: true
+      - text: Les valeurs peuvent être allouées séparément sur le tas
+        correct: true
+      - text: Go stocke le type en texte pour chaque élément
+        correct: false
+      - text: Un any fait toujours 1 Ko
+        correct: false
+    answer: Le double de place au minimum, plus d'éventuelles allocations et du travail pour le GC.
+  - key: qcm-eviter
+    format: multiple-choice
+    question: Comment éviter le coût des interfaces dans une boucle très chaude ?
+    choices:
+      - text: Travailler sur le type concret
+        correct: true
+      - text: Utiliser des generics, qui gardent les types
+        correct: true
+      - text: Remplacer les interfaces par `any`
+        correct: false
+      - text: Ajouter des verrous
+        correct: false
+    answer: '`any` est lui-même une interface, avec les mêmes coûts.'
+  - key: code-comparaison
+    format: code-output
+    question: |-
+      ```go
+      var a, b any = 3, 3
+      var c any = int64(3)
+      fmt.Println(a == b, a == c)
+      ```
+    answer: '`true false` : deux interfaces sont égales si leurs types et leurs valeurs le sont ; int et int64 diffèrent.'
+    check:
+      code: "package main\n\nimport \"fmt\"\n\nfunc main() {\n\tvar a, b any = 3, 3\n\tvar c any = int64(3)\n\tfmt.Println(a == b, a == c)\n}\n"
+      output: true false
+  - key: code-taille
+    format: code-output
+    question: |-
+      ```go
+      var x any
+      var e error
+      var i int
+      fmt.Println(unsafe.Sizeof(x), unsafe.Sizeof(e), unsafe.Sizeof(i))
+      ```
+    answer: '`16 16 8` sur une plateforme 64 bits : une interface fait deux mots.'
+    check:
+      code: "package main\n\nimport (\n\t\"fmt\"\n\t\"unsafe\"\n)\n\nfunc main() {\n\tvar x any\n\tvar e error\n\tvar i int\n\tfmt.Println(unsafe.Sizeof(x), unsafe.Sizeof(e), unsafe.Sizeof(i))\n}\n"
+      output: 16 16 8
+  - key: code-type-dynamique
+    format: code-output
+    question: |-
+      ```go
+      var w io.Writer = os.Stdout
+      fmt.Printf("%T\n", w)
+      w = &bytes.Buffer{}
+      fmt.Printf("%T\n", w)
+      ```
+    answer: '`*os.File` puis `*bytes.Buffer` : le type concret change avec la valeur affectée.'
+    check:
+      code: "package main\n\nimport (\n\t\"bytes\"\n\t\"fmt\"\n\t\"io\"\n\t\"os\"\n)\n\nfunc main() {\n\tvar w io.Writer = os.Stdout\n\tfmt.Printf(\"%T\\n\", w)\n\tw = &bytes.Buffer{}\n\tfmt.Printf(\"%T\\n\", w)\n}\n"
+      output: |-
+        *os.File
+        *bytes.Buffer
+  - key: code-panique
+    format: code-output
+    question: |-
+      ```go
+      var a any = map[string]int{}
+      var b any = 1
+      fmt.Println(a == b)
+      var c any = map[string]int{}
+      fmt.Println(a == c)
+      ```
+    answer: '`false`, puis une panique : des types différents sont simplement inégaux, mais deux maps se comparent et paniquent.'
+    check:
+      code: "package main\n\nimport \"fmt\"\n\nfunc main() {\n\tvar a any = map[string]int{}\n\tvar b any = 1\n\tfmt.Println(a == b)\n\tvar c any = map[string]int{}\n\tfmt.Println(a == c)\n}\n"
+      output: 'false'
+      panics: comparing uncomparable type map[string]int
+  - key: scenario-perf
+    format: scenario
+    question: Le profileur montre beaucoup d'allocations dans une boucle qui appelle une méthode d'interface sur des millions de petits objets. Que fais-tu ?
+    answer: |-
+      Je regarde d'abord où les valeurs sont converties en interface : chaque conversion d'une valeur non pointeur peut
+      allouer. Si la boucle ne traite qu'un type concret, je l'appelle directement ; si plusieurs types partagent un
+      algorithme, une fonction générique garde les types concrets sans boîte. Je vérifie avec un benchmark `-benchmem`
+      et `-gcflags=-m`. Le PGO peut aussi dévirtualiser l'appel le plus fréquent.
+  - key: scenario-entretien
+    format: scenario
+    question: En entretien, on te demande comment Go appelle une méthode sur une interface. Que réponds-tu ?
+    answer: |-
+      L'interface contient un pointeur vers une itab, calculée une fois par couple (type concret, interface) et mise en
+      cache, et un pointeur vers la donnée. L'appel lit le pointeur de fonction dans l'itab et l'appelle avec la donnée
+      comme receveur : c'est un appel indirect, comme une méthode virtuelle. Il coûte un peu plus qu'un appel direct et
+      empêche l'inlining, sauf dévirtualisation par le compilateur.
+  - key: scenario-any-slice
+    format: scenario
+    question: Un collègue stocke des mesures dans un `[]any` « pour être générique ». Quels problèmes vois-tu ?
+    answer: |-
+      La mémoire au moins double (deux mots par élément), avec des allocations possibles et plus de travail pour le GC ;
+      chaque lecture demande une assertion de type, qui peut échouer à l'exécution ; et l'on perd la lisibilité. Je
+      propose un `[]float64` si les mesures sont homogènes, ou une fonction générique `[T cmp.Ordered]` si le code doit
+      servir à plusieurs types numériques.
+  - key: scenario-nil
+    format: scenario
+    question: Comment la représentation interne explique-t-elle le piège de l'erreur nil typée ?
+    answer: |-
+      Une interface vaut nil seulement si son mot de type est nil. En y plaçant un `*MonErreur` nil, le mot de type
+      pointe sur `*MonErreur` et seul le mot de donnée est nil : la comparaison `err == nil`, qui teste les deux mots,
+      est donc fausse. C'est pourquoi on renvoie le littéral nil, qui laisse les deux mots vides.

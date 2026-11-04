@@ -1,0 +1,151 @@
+notion: grpc-bases
+lesson: "**gRPC** est un cadre d'appels de procédure à distance : on décrit un **service** dans le `.proto`, on génère le code\nclient et serveur, et l'on appelle des méthodes distantes comme des fonctions. Il s'appuie sur **HTTP/2** et\nProtobuf.\n\n```protobuf\nservice Catalogue {\n  rpc LireProduit(LireProduitRequete) returns (Produit);\n}\n```\n\nCôté serveur, on implémente l'interface générée, en **incorporant** `UnimplementedCatalogueServer` (compatibilité\nquand de nouvelles méthodes sont ajoutées au service) :\n\n```go\ntype serveurCatalogue struct {\n\tcataloguev1.UnimplementedCatalogueServer\n\tdepot Depot\n}\n\nfunc (s *serveurCatalogue) LireProduit(ctx context.Context, req *cataloguev1.LireProduitRequete) (*cataloguev1.Produit, error) {\n\tp, err := s.depot.Trouver(ctx, req.GetId())\n\tif errors.Is(err, ErrIntrouvable) {\n\t\treturn nil, status.Error(codes.NotFound, \"produit introuvable\")\n\t}\n\tif err != nil {\n\t\treturn nil, status.Error(codes.Internal, \"erreur interne\")\n\t}\n\treturn versProto(p), nil\n}\n\nsrv := grpc.NewServer()\ncataloguev1.RegisterCatalogueServer(srv, &serveurCatalogue{depot: d})\nsrv.Serve(ecouteur)\n```\n\nCôté client :\n\n```go\nconn, err := grpc.NewClient(\"dns:///catalogue:50051\",\n\tgrpc.WithTransportCredentials(credentials.NewTLS(cfgTLS)))\ndefer conn.Close()\nclient := cataloguev1.NewCatalogueClient(conn) // partagé, sûr entre goroutines\nctx, cancel := context.WithTimeout(ctx, time.Second)\ndefer cancel()\np, err := client.LireProduit(ctx, &cataloguev1.LireProduitRequete{Id: \"42\"})\n```\n\nCe qu'il faut savoir :\n- **une connexion** (`*grpc.ClientConn`) se crée **une fois** et se partage : elle multiplexe les appels sur HTTP/2 ;\n- `grpc.NewClient` remplace `grpc.Dial` (déprécié) et ne se connecte qu'au premier appel ;\n- HTTP/2 garde une connexion longue : derrière un Service Kubernetes classique, tout le trafic d'un client va vers\n  **un seul pod** ; il faut un équilibrage côté client (`round_robin` avec un service headless) ou un maillage ;\n- les getters générés (`req.GetId()`) gèrent un message nil sans paniquer.\n\n**En entretien** : « Service décrit en .proto, code généré ; serveur avec Unimplemented incorporé ; une ClientConn\npartagée, NewClient ; délai par appel via le contexte ; HTTP/2, donc attention à l'équilibrage. »"
+cards:
+  - key: repose-grpc
+    format: course
+    question: Sur quoi repose gRPC ?
+    answer: Sur Protocol Buffers pour la sérialisation et HTTP/2 pour le transport.
+  - key: generer-code-depuis-proto
+    format: course
+    question: Comment générer le code Go depuis un .proto ?
+    answer: protoc avec protoc-gen-go et protoc-gen-go-grpc, ou buf generate.
+  - key: sert-unimplementedxxxserver
+    format: course
+    question: À quoi sert UnimplementedXxxServer ?
+    answer: À rester compatible quand de nouvelles méthodes sont ajoutées au service.
+  - key: grpc-dial-grpc-newclient
+    format: course
+    question: grpc.Dial ou grpc.NewClient ?
+    answer: grpc.NewClient ; Dial est déprécié.
+  - key: creer-connexion-appel
+    format: course
+    question: Faut-il créer une connexion par appel ?
+    answer: Non, une connexion gRPC est multiplexée et doit être partagée.
+  - key: trafic-grpc-concentre-pod-derriere-service
+    format: course
+    question: Pourquoi le trafic gRPC se concentre-t-il sur un pod derrière un Service Kubernetes ?
+    answer: L'équilibrage se fait par connexion, et la connexion HTTP/2 est longue et multiplexée.
+  - key: connect
+    format: course
+    question: C'est quoi Connect ?
+    answer: Une implémentation compatible gRPC, gRPC-Web et HTTP/JSON simple, construite sur net/http.
+  - key: sert-grpc-gateway
+    format: course
+    question: À quoi sert grpc-gateway ?
+    answer: Exposer une API REST/JSON générée devant un service gRPC.
+  - key: passer-communications-internes-rest-grpc
+    format: scenario
+    question: Faut-il passer les communications internes de REST à gRPC ?
+    answer: |-
+      Ça dépend de la douleur actuelle. gRPC apporte un **contrat strict** généré pour tous les langages, de meilleures performances (binaire, HTTP/2 multiplexé), le streaming et la propagation des deadlines. En contrepartie : un outillage de génération à maintenir, un débogage moins direct (pas de `curl`, il faut `grpcurl` et la reflection), un équilibrage de charge à revoir en Kubernetes, et des clients navigateur qui ont besoin de gRPC-Web ou de Connect.
+      Si les problèmes sont des contrats d'API qui dérivent entre équipes ou des latences inter-services, gRPC (ou Connect, qui garde une compatibilité HTTP simple) est un bon choix. Pour quelques appels peu fréquents, REST avec OpenAPI et génération de clients suffit.
+  - key: definition-connect
+    format: definition
+    question: Connect
+    answer: Protocole et bibliothèques compatibles gRPC sur net/http (Buf)
+  - key: definition-grpc
+    format: definition
+    question: gRPC
+    answer: RPC sur HTTP/2 et Protobuf
+  - key: vf-http2
+    format: true-false
+    question: gRPC repose sur HTTP/2.
+    truth: true
+    answer: Ce qui permet le multiplexage et les flux.
+  - key: vf-conn-par-appel
+    format: true-false
+    question: Il faut créer une ClientConn par appel gRPC.
+    truth: false
+    answer: On la crée une fois et on la partage ; elle multiplexe les appels.
+  - key: vf-newclient
+    format: true-false
+    question: '`grpc.NewClient` établit la connexion immédiatement et échoue si le serveur est injoignable.'
+    truth: false
+    answer: Il se connecte paresseusement, au premier appel ; c'est l'appel qui échoue alors.
+  - key: vf-unimplemented
+    format: true-false
+    question: Incorporer UnimplementedXxxServer permet au serveur de compiler quand une méthode est ajoutée au service.
+    truth: true
+    answer: La nouvelle méthode renvoie Unimplemented en attendant son implémentation.
+  - key: qcm-etapes
+    format: multiple-choice
+    question: Quelles étapes pour exposer un service gRPC en Go ?
+    choices:
+      - text: Décrire le service et ses messages dans un .proto
+        correct: true
+      - text: Générer le code avec protoc-gen-go et protoc-gen-go-grpc (ou buf)
+        correct: true
+      - text: Implémenter l'interface générée et l'enregistrer sur un grpc.Server
+        correct: true
+      - text: Écrire à la main la sérialisation des messages
+        correct: false
+    answer: La sérialisation est générée.
+  - key: qcm-equilibrage
+    format: multiple-choice
+    question: Pourquoi le trafic gRPC d'un client se concentre-t-il sur un pod derrière un Service Kubernetes ?
+    choices:
+      - text: HTTP/2 garde une connexion longue, équilibrée une seule fois à l'ouverture
+        correct: true
+      - text: Le Service équilibre les connexions, pas les requêtes
+        correct: true
+      - text: gRPC n'accepte qu'un serveur à la fois
+        correct: false
+      - text: Kubernetes interdit HTTP/2
+        correct: false
+    answer: 'Remèdes : équilibrage côté client (service headless et round_robin) ou un maillage de services.'
+  - key: qcm-delai
+    format: multiple-choice
+    question: Comment fixer un délai sur un appel gRPC ?
+    choices:
+      - text: Passer un contexte avec WithTimeout à la méthode du client
+        correct: true
+      - text: Le délai est transmis au serveur, qui reçoit un contexte avec la même échéance
+        correct: true
+      - text: Avec une option grpc.Timeout sur le serveur uniquement
+        correct: false
+      - text: Il n'y a pas de délai en gRPC
+        correct: false
+    answer: L'échéance voyage dans l'en-tête grpc-timeout.
+  - key: qcm-vs-rest
+    format: multiple-choice
+    question: Quels avantages gRPC a-t-il sur REST/JSON entre services internes ?
+    choices:
+      - text: Un contrat typé et du code client généré
+        correct: true
+      - text: Des messages binaires compacts et des connexions multiplexées
+        correct: true
+      - text: Les flux dans les deux sens
+        correct: true
+      - text: Un débogage plus simple avec curl
+        correct: false
+    answer: Il faut grpcurl ou la réflexion du serveur pour déboguer.
+  - key: scenario-client
+    format: scenario
+    question: Comment intègres-tu un client gRPC dans ton service ?
+    answer: |-
+      Au démarrage, `grpc.NewClient` avec l'adresse (`dns:///catalogue:50051`), les identifiants TLS, une configuration
+      d'équilibrage `round_robin` et des intercepteurs (traces, métriques, réessais). La ClientConn est fermée à l'arrêt.
+      Le client généré est injecté dans les composants qui en ont besoin, derrière une petite interface à moi pour les
+      tester. Chaque appel prend le contexte de la requête et un délai propre.
+  - key: scenario-tester
+    format: scenario
+    question: Comment testes-tu un serveur gRPC sans ouvrir de port réseau ?
+    answer: |-
+      Avec `google.golang.org/grpc/test/bufconn` : un écouteur en mémoire, sur lequel je démarre le vrai grpc.Server avec
+      mon implémentation, et un client créé avec un dialer qui utilise ce bufconn. Je vérifie les réponses et les codes
+      d'erreur (`status.Code(err)`) de chaque cas, y compris les délais, sans réseau ni port à gérer.
+  - key: scenario-exposer-rest
+    format: scenario
+    question: Ton service est en gRPC, mais un client web doit l'appeler en JSON. Quelles options ?
+    answer: |-
+      grpc-gateway génère un proxy REST/JSON à partir d'annotations HTTP dans le .proto ; Connect (connectrpc.com) sert
+      un même service en gRPC, gRPC-Web et en JSON sur HTTP/1.1, appelable avec fetch ; ou un handler HTTP écrit à la main
+      pour une ou deux routes. Je choisis Connect pour un nouveau service, grpc-gateway si l'existant l'utilise déjà.
+  - key: definition-clientconn
+    format: definition
+    question: ClientConn (gRPC)
+    answer: Connexion client gRPC, partagée entre les appels qu'elle multiplexe sur HTTP/2
+  - key: definition-unaire
+    format: definition
+    question: appel unaire (gRPC)
+    answer: Appel gRPC avec une requête et une réponse, comme un appel de fonction

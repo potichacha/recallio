@@ -1,0 +1,188 @@
+notion: database-sql-bases
+lesson: "Le package **`database/sql`** fournit une interface commune aux bases de données ; un **pilote** (driver) l'implémente\npour chaque base (`github.com/jackc/pgx/v5/stdlib` pour PostgreSQL, `modernc.org/sqlite`...).\n\n```go\ndb, err := sql.Open(\"pgx\", os.Getenv(\"DATABASE_URL\")) // ne se connecte pas encore\nif err != nil {\n\treturn err\n}\ndefer db.Close()\nif err := db.PingContext(ctx); err != nil { // vérifie vraiment la connexion\n\treturn err\n}\n```\n\nUn **`*sql.DB`** n'est pas une connexion mais un **pool** de connexions, sûr entre goroutines : on l'ouvre **une fois**\nau démarrage et on le partage.\n\nLes trois façons d'interroger :\n\n```go\n// une ligne\nvar nom string\nerr := db.QueryRowContext(ctx, \"SELECT nom FROM clients WHERE id = $1\", id).Scan(&nom)\nif errors.Is(err, sql.ErrNoRows) { /* introuvable */ }\n\n// plusieurs lignes\nrows, err := db.QueryContext(ctx, \"SELECT id, nom FROM clients WHERE ville = $1\", ville)\nif err != nil {\n\treturn nil, err\n}\ndefer rows.Close()                // rend la connexion au pool\nfor rows.Next() {\n\tvar c Client\n\tif err := rows.Scan(&c.ID, &c.Nom); err != nil {\n\t\treturn nil, err\n\t}\n\tclients = append(clients, c)\n}\nif err := rows.Err(); err != nil { // une erreur pendant le parcours\n\treturn nil, err\n}\n\n// sans résultat\nres, err := db.ExecContext(ctx, \"UPDATE clients SET nom = $1 WHERE id = $2\", nom, id)\nn, _ := res.RowsAffected()\n```\n\nLes règles :\n- toujours les variantes **`...Context`**, pour que l'annulation de la requête arrête la requête SQL ;\n- **`defer rows.Close()`** juste après l'erreur, et **`rows.Err()`** après la boucle ;\n- `QueryRow` sans résultat renvoie **`sql.ErrNoRows`** au moment du `Scan` ;\n- des paramètres (`$1`, ou `?` selon le pilote), jamais de concaténation ;\n- le nombre et l'ordre des destinations de `Scan` doivent correspondre aux colonnes.\n\n**En entretien** : « sql.DB est un pool partagé ; QueryRowContext, QueryContext, ExecContext ; defer rows.Close et\nrows.Err ; sql.ErrNoRows ; paramètres plutôt que concaténation. »"
+cards:
+  - key: db-query-vs-db-querycontext
+    format: course
+    question: db.Query vs db.QueryContext ?
+    answer: La seconde est annulable par le contexte.
+  - key: sql-db
+    format: course
+    question: Qu'est-ce qu'un *sql.DB ?
+    answer: Un pool de connexions sûr en concurrence, à créer une fois et partager.
+  - key: sql-open-connecte-base
+    format: course
+    question: sql.Open se connecte-t-il à la base ?
+    answer: Non, il valide les arguments ; Ping teste la connexion.
+  - key: passe-si-oublie-rows-close
+    format: course
+    question: Que se passe-t-il si on oublie rows.Close() ?
+    answer: La connexion reste empruntée, et le pool finit par s'épuiser.
+  - key: verifier-rows-err
+    format: course
+    question: Pourquoi vérifier rows.Err() ?
+    answer: Pour détecter une erreur survenue pendant l'itération, que Next masque en renvoyant false.
+  - key: renvoie-queryrow-sans-resultat
+    format: course
+    question: Que renvoie QueryRow sans résultat ?
+    answer: sql.ErrNoRows au moment du Scan.
+  - key: utiliser-methodes-context
+    format: course
+    question: Pourquoi utiliser les méthodes Context ?
+    answer: Pour annuler les requêtes sur timeout ou déconnexion du client.
+  - key: vf-pool
+    format: true-false
+    question: Un *sql.DB représente une seule connexion à la base.
+    truth: false
+    answer: C'est un pool de connexions, sûr entre goroutines.
+  - key: vf-open
+    format: true-false
+    question: '`sql.Open` vérifie que la base est joignable.'
+    truth: false
+    answer: Il ne se connecte pas ; PingContext le vérifie.
+  - key: vf-errnorows
+    format: true-false
+    question: '`QueryRowContext(...).Scan(...)` renvoie sql.ErrNoRows si aucune ligne ne correspond.'
+    truth: true
+    answer: L'erreur arrive au Scan.
+  - key: vf-rows-close
+    format: true-false
+    question: Oublier rows.Close() peut épuiser le pool de connexions.
+    truth: true
+    answer: La connexion reste occupée tant que les lignes ne sont pas fermées ou entièrement lues.
+  - key: qcm-methodes
+    format: multiple-choice
+    question: Quelle méthode pour quel besoin ?
+    choices:
+      - text: '`QueryRowContext` pour une seule ligne'
+        correct: true
+      - text: '`QueryContext` pour plusieurs lignes'
+        correct: true
+      - text: '`ExecContext` pour un INSERT, UPDATE ou DELETE sans résultat'
+        correct: true
+      - text: '`ExecContext` pour lire une liste de clients'
+        correct: false
+    answer: Exec ne renvoie que le nombre de lignes touchées et, selon le pilote, le dernier identifiant.
+  - key: qcm-boucle
+    format: multiple-choice
+    question: Que faut-il faire autour d'un parcours de rows ?
+    choices:
+      - text: '`defer rows.Close()` après avoir vérifié l''erreur de QueryContext'
+        correct: true
+      - text: Vérifier `rows.Err()` après la boucle `for rows.Next()`
+        correct: true
+      - text: Vérifier l'erreur de chaque Scan
+        correct: true
+      - text: Appeler db.Close() à la fin de la fonction
+        correct: false
+    answer: Le pool reste ouvert pour toute la vie du programme.
+  - key: qcm-partage
+    format: multiple-choice
+    question: Comment gérer le *sql.DB dans un service ?
+    choices:
+      - text: L'ouvrir une fois au démarrage et le passer aux dépôts
+        correct: true
+      - text: Le fermer à l'arrêt du service
+        correct: true
+      - text: L'ouvrir et le fermer à chaque requête HTTP
+        correct: false
+      - text: En créer un par goroutine
+        correct: false
+    answer: Rouvrir le pool à chaque requête supprime toute réutilisation des connexions.
+  - key: qcm-context
+    format: multiple-choice
+    question: Pourquoi utiliser QueryContext plutôt que Query ?
+    choices:
+      - text: La requête SQL s'arrête quand le contexte est annulé
+        correct: true
+      - text: Elle respecte l'échéance de la requête HTTP
+        correct: true
+      - text: Elle est plus rapide
+        correct: false
+      - text: Elle évite l'injection SQL
+        correct: false
+    answer: Ce sont les paramètres qui évitent l'injection.
+  - key: trous-queryrow
+    format: fill-in
+    question: |-
+      Complétez :
+      ```go
+      err := db.___(ctx, "SELECT email FROM clients WHERE id = $1", id).Scan(&email)
+      ```
+    blanks:
+      - - QueryRowContext
+    answer: QueryRowContext pour une ligne.
+  - key: trous-errnorows
+    format: fill-in
+    question: "Complétez pour un client introuvable :\n```go\nif errors.Is(err, sql.___) {\n\treturn Client{}, ErrIntrouvable\n}\n```"
+    blanks:
+      - - ErrNoRows
+    answer: sql.ErrNoRows.
+  - key: trous-close
+    format: fill-in
+    question: "Complétez :\n```go\nrows, err := db.QueryContext(ctx, q, ville)\nif err != nil {\n\treturn nil, err\n}\n___ rows.Close()\n```"
+    blanks:
+      - - defer
+    answer: defer rows.Close().
+  - key: trous-err
+    format: fill-in
+    question: "Complétez après la boucle :\n```go\nfor rows.Next() {\n\t// ...\n}\nif err := rows.___(); err != nil {\n\treturn nil, err\n}\n```"
+    blanks:
+      - - Err
+    answer: rows.Err().
+  - key: bug-close
+    format: bug-fix
+    question: "Sous charge, toutes les requêtes finissent par attendre une connexion libre :\n```go\nrows, err := db.QueryContext(ctx, \"SELECT id FROM commandes WHERE client = $1\", c)\nif err != nil {\n\treturn nil, err\n}\nfor rows.Next() {\n\tvar id string\n\tif err := rows.Scan(&id); err != nil {\n\t\treturn nil, err\n\t}\n\tids = append(ids, id)\n}\nreturn ids, nil\n```"
+    answer: "```go\nrows, err := db.QueryContext(ctx, \"SELECT id FROM commandes WHERE client = $1\", c)\nif err != nil {\n\treturn nil, err\n}\ndefer rows.Close()\nfor rows.Next() {\n\tvar id string\n\tif err := rows.Scan(&id); err != nil {\n\t\treturn nil, err\n\t}\n\tids = append(ids, id)\n}\nreturn ids, rows.Err()\n```\nUn retour en erreur au milieu du parcours laissait la connexion occupée ; defer rows.Close() la rend dans tous les\ncas, et rows.Err() signale une erreur de parcours."
+  - key: bug-errnorows
+    format: bug-fix
+    question: "L'API renvoie 500 pour un client inexistant :\n```go\nerr := db.QueryRowContext(ctx, q, id).Scan(&c.Nom, &c.Email)\nif err != nil {\n\treturn Client{}, fmt.Errorf(\"lecture du client : %w\", err)\n}\n```"
+    answer: "```go\nerr := db.QueryRowContext(ctx, q, id).Scan(&c.Nom, &c.Email)\nif errors.Is(err, sql.ErrNoRows) {\n\treturn Client{}, ErrIntrouvable\n}\nif err != nil {\n\treturn Client{}, fmt.Errorf(\"lecture du client %s : %w\", id, err)\n}\n```\nsql.ErrNoRows est un cas normal, traduit en erreur métier (puis en 404), distinct d'une vraie panne."
+  - key: bug-open-par-requete
+    format: bug-fix
+    question: "La base refuse des connexions (« too many clients ») alors que le trafic est modeste :\n```go\nfunc (s *Serveur) lister(w http.ResponseWriter, r *http.Request) {\n\tdb, _ := sql.Open(\"pgx\", s.dsn)\n\tdefer db.Close()\n\t// ...\n}\n```"
+    answer: "```go\ntype Serveur struct {\n\tdb *sql.DB // ouvert une fois dans main, partagé\n}\n\nfunc (s *Serveur) lister(w http.ResponseWriter, r *http.Request) {\n\trows, err := s.db.QueryContext(r.Context(), \"SELECT ...\")\n\t// ...\n}\n```\nChaque requête créait un pool et une nouvelle connexion ; un seul sql.DB partagé réutilise ses connexions."
+  - key: bug-sans-context
+    format: bug-fix
+    question: |-
+      Une requête de rapport continue de tourner en base des minutes après que l'utilisateur a fermé la page :
+      ```go
+      rows, err := s.db.Query("SELECT ... FROM ventes WHERE annee = $1", annee)
+      ```
+    answer: |-
+      ```go
+      rows, err := s.db.QueryContext(r.Context(), "SELECT ... FROM ventes WHERE annee = $1", annee)
+      ```
+      Avec le contexte de la requête, le pilote annule la requête SQL quand le client part.
+  - key: scenario-depot
+    format: scenario
+    question: Comment structures-tu l'accès à la base dans un service Go ?
+    answer: |-
+      Un type `DepotCommandes` qui reçoit le `*sql.DB` à sa construction et expose des méthodes métier
+      (`Trouver(ctx, id)`, `Lister(ctx, filtre)`) qui renvoient des types du domaine et des erreurs métier
+      (`ErrIntrouvable`). Le SQL reste dans le dépôt, avec des paramètres, les variantes Context, et rows fermés.
+      Les services dépendent d'une interface étroite, pour les tester avec un faux ; le dépôt se teste contre une vraie
+      base (Testcontainers).
+  - key: scenario-tests
+    format: scenario
+    question: Comment testes-tu le code d'accès à la base ?
+    answer: |-
+      Contre une vraie base du même moteur, lancée par Testcontainers ou docker compose en CI, avec les migrations
+      appliquées au démarrage des tests. Chaque test travaille dans une transaction annulée à la fin, ou sur des données
+      créées pour lui. Les simulations de base (sqlmock) vérifient le texte des requêtes mais pas leur comportement réel :
+      je les réserve aux cas d'erreur difficiles à provoquer.
+  - key: scenario-migrations
+    format: scenario
+    question: Comment gères-tu les migrations du schéma d'un service Go ?
+    answer: |-
+      Des fichiers SQL versionnés dans le dépôt (souvent embarqués avec //go:embed), appliqués par un outil comme
+      golang-migrate, goose ou Atlas, au démarrage ou par une tâche dédiée du déploiement. Chaque migration reste
+      compatible avec la version précédente du code (ajouter avant de supprimer), pour que les deux versions tournent
+      ensemble pendant le déploiement.
+  - key: scenario-entretien
+    format: scenario
+    question: En entretien, on te demande les erreurs les plus courantes avec database/sql.
+    answer: |-
+      Oublier `rows.Close()` (connexions épuisées), ne pas vérifier `rows.Err()`, ouvrir un `sql.DB` par requête, traiter
+      `sql.ErrNoRows` comme une panne, utiliser `Query` sans contexte, construire les requêtes par concaténation
+      (injection), et oublier le Rollback d'une transaction. Chacune a son remède simple : defer, Context, paramètres,
+      un pool partagé.

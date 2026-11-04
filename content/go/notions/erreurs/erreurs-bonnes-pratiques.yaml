@@ -1,0 +1,183 @@
+notion: erreurs-bonnes-pratiques
+lesson: |-
+  Quelques règles qui rendent la gestion d'erreurs lisible et efficace :
+
+  1. **Traiter une erreur une seule fois.** Soit on la remonte, soit on la traite (et on la journalise). Journaliser puis
+     remonter produit la même erreur plusieurs fois dans les logs.
+  2. **Ajouter du contexte en remontant**, avec ce que ce niveau sait : `réservation de la commande 42 : %w`.
+  3. **Messages en minuscules**, sans ponctuation finale, sans « erreur » ou « échec » répétés : ils s'enchaînent.
+  4. **Ne pas exposer les détails internes** à l'extérieur : la frontière (HTTP, CLI) traduit en message sûr et en code
+     adapté, et journalise l'erreur complète.
+  5. **Des erreurs du domaine** (sentinelles, types) pour les cas que les appelants doivent distinguer ; l'infrastructure
+     traduit ses erreurs techniques vers elles.
+  6. **Tester l'identité, pas le texte** : `errors.Is` et `errors.As`, jamais `strings.Contains(err.Error(), ...)`.
+  7. **Garder les erreurs pour l'attendu**, et `panic` pour les bugs.
+
+  Go n'ajoute pas de pile d'appels aux erreurs ; un contexte riche à chaque niveau, et une journalisation structurée à
+  la frontière (`slog` avec l'erreur et les identifiants de requête) suffisent presque toujours.
+
+  **Piège classique** : un `log.Println(err)` à chaque niveau, puis `return err`. Une seule panne remplit les logs de
+  cinq lignes, et personne ne sait où elle a été traitée.
+
+  **En entretien** : « Une erreur se traite une fois : on remonte avec du contexte ou l'on traite et journalise ; erreurs
+  du domaine testées par Is et As ; messages chaînables ; détails internes cachés à la frontière. »
+cards:
+  - key: messages-erreur-sont-ils-minuscules
+    format: course
+    question: Pourquoi les messages d'erreur sont-ils en minuscules ?
+    answer: Ils sont concaténés avec d'autres contextes.
+  - key: logger-erreur-retourner
+    format: course
+    question: Faut-il logger une erreur et la retourner ?
+    answer: 'Non, on la traite une fois : soit on la gère, soit on la propage.'
+  - key: erreurs-ont-elles-stack-trace
+    format: course
+    question: Les erreurs Go ont-elles une stack trace ?
+    answer: Non par défaut ; le contexte vient du wrapping.
+  - key: structures-gestion-erreurs-couche-base-donnees
+    format: scenario
+    question: Comment tu structures la gestion d'erreurs entre la couche base de données, la couche métier et l'API HTTP ?
+    answer: |-
+      Chaque couche parle son propre langage d'erreurs. La couche de **données** traduit les erreurs techniques en erreurs du domaine : `sql.ErrNoRows` devient `ErrNotFound` ; une violation de contrainte d'unicité devient `ErrDuplicate`. Le reste est enveloppé avec du contexte (`fmt.Errorf("insérer commande: %w", err)`).
+      La couche **métier** ajoute ses propres erreurs (`ErrStockInsuffisant`, ou un `*ValidationError` avec les champs) et propage les autres en ajoutant du contexte.
+      La couche **HTTP** est le seul endroit où l'on décide du code de statut et où l'on **logge** : un mapping avec `errors.Is` et `errors.As` (404, 409, 422), et tout le reste en 500 avec un message générique au client et l'erreur complète dans les logs avec l'identifiant de requête.
+      Ainsi les erreurs ne sont loggées qu'une fois, le client ne voit jamais de détail interne, et la couche métier ignore tout de HTTP.
+  - key: une-fois
+    format: course
+    question: Que signifie « traiter une erreur une seule fois » ?
+    answer: 'À chaque niveau, soit on la remonte (avec du contexte), soit on la traite et on la journalise, mais pas les deux : sinon la même erreur apparaît plusieurs fois dans les logs.'
+  - key: frontiere
+    format: course
+    question: Que fait la frontière HTTP d'une erreur interne ?
+    answer: Elle choisit le code de réponse selon l'erreur du domaine, renvoie au client un message sûr sans détails internes, et journalise l'erreur complète une seule fois.
+  - key: domaine
+    format: course
+    question: Pourquoi traduire les erreurs techniques en erreurs du domaine ?
+    answer: Pour que les couches supérieures ne dépendent pas de la technologie (le pilote SQL, le client HTTP) et testent des cas métier stables comme `ErrIntrouvable`.
+  - key: vf-log-retour
+    format: true-false
+    question: Journaliser une erreur puis la remonter est une bonne pratique.
+    truth: false
+    answer: On fait l'un ou l'autre ; sinon les logs se remplissent de doublons.
+  - key: vf-texte
+    format: true-false
+    question: Tester `strings.Contains(err.Error(), "introuvable")` est un moyen fiable de reconnaître une erreur.
+    truth: false
+    answer: Le texte change ; on teste l'identité avec `errors.Is` ou le type avec `errors.As`.
+  - key: vf-client
+    format: true-false
+    question: Une API publique peut renvoyer le message brut d'une erreur SQL au client.
+    truth: false
+    answer: Elle révélerait des détails internes (schéma, requête) ; on renvoie un message sûr et l'on journalise le détail.
+  - key: vf-contexte
+    format: true-false
+    question: Un bon contexte d'erreur nomme ce que faisait le niveau et les données utiles.
+    truth: true
+    answer: '`envoi de la facture 2026-0042 à ada@ex.fr : %w`.'
+  - key: qcm-pratiques
+    format: multiple-choice
+    question: Quelles pratiques sont recommandées ?
+    choices:
+      - text: 'Remonter avec `fmt.Errorf("...: %w", err)` en ajoutant le contexte de ce niveau'
+        correct: true
+      - text: Journaliser l'erreur à l'endroit où elle est traitée
+        correct: true
+      - text: 'Préfixer chaque message par « Erreur : »'
+        correct: false
+      - text: Journaliser à chaque niveau par sécurité
+        correct: false
+    answer: Un message chaînable, une seule journalisation.
+  - key: qcm-frontiere
+    format: multiple-choice
+    question: Que renvoyer au client quand la base de données est injoignable ?
+    choices:
+      - text: Un 503 ou 500 avec un message générique, l'erreur complète étant journalisée
+        correct: true
+      - text: 'Le message du pilote : « dial tcp 10.0.0.5:5432: connection refused »'
+        correct: false
+      - text: Un 200 avec une liste vide
+        correct: false
+      - text: Rien, fermer la connexion
+        correct: false
+    answer: Le client n'a pas à connaître l'infrastructure.
+  - key: qcm-messages
+    format: multiple-choice
+    question: Quels messages d'erreur suivent les conventions ?
+    choices:
+      - text: '`lecture de la configuration : fichier introuvable`'
+        correct: true
+      - text: '`envoi du courriel à ada@ex.fr : délai dépassé`'
+        correct: true
+      - text: '`Erreur ! Impossible de lire la configuration.`'
+        correct: false
+      - text: '`ERROR: something went wrong`'
+        correct: false
+    answer: Minuscules, contexte précis, pas de ponctuation finale.
+  - key: qcm-domaine
+    format: multiple-choice
+    question: Comment le dépôt PostgreSQL d'un service doit-il signaler une violation d'unicité sur l'email ?
+    choices:
+      - text: Traduire le code 23505 en `ErrEmailDejaUtilise`, une erreur du domaine
+        correct: true
+      - text: Remonter l'erreur `*pgconn.PgError` pour que le handler teste son code
+        correct: false
+      - text: Paniquer
+        correct: false
+      - text: Renvoyer nil et ignorer l'insertion
+        correct: false
+    answer: Le handler teste une erreur du domaine, indépendante du pilote.
+  - key: bug-double-log
+    format: bug-fix
+    question: "Chaque panne apparaît quatre fois dans les logs :\n```go\nif err != nil {\n\tlog.Printf(\"erreur lors de la sauvegarde : %v\", err)\n\treturn err\n}\n```"
+    answer: "```go\nif err != nil {\n\treturn fmt.Errorf(\"sauvegarde de la commande %d : %w\", c.ID, err)\n}\n```\nChaque niveau ajoute son contexte sans journaliser ; seule la frontière (le handler) journalise, une fois."
+  - key: bug-fuite-client
+    format: bug-fix
+    question: "Le client reçoit le message brut de la base :\n```go\nif err != nil {\n\thttp.Error(w, err.Error(), http.StatusInternalServerError)\n\treturn\n}\n```"
+    answer: "```go\nif err != nil {\n\tslog.ErrorContext(r.Context(), \"création de commande\", \"err\", err)\n\thttp.Error(w, \"erreur interne\", http.StatusInternalServerError)\n\treturn\n}\n```\nLe détail va dans les logs ; le client reçoit un message générique (avec, idéalement, un identifiant de requête)."
+  - key: bug-texte
+    format: bug-fix
+    question: "La détection d'un doublon casse quand on change de langue des messages de la base :\n```go\nif strings.Contains(err.Error(), \"duplicate key\") {\n\treturn ErrDejaExistant\n}\n```"
+    answer: "```go\nvar pgErr *pgconn.PgError\nif errors.As(err, &pgErr) && pgErr.Code == \"23505\" {\n\treturn ErrDejaExistant\n}\n```\nLe code d'erreur SQL est stable ; le texte ne l'est pas."
+  - key: bug-contexte
+    format: bug-fix
+    question: |-
+      Un message d'erreur ne dit rien d'utile : « échec : échec : EOF ». Corrigez les deux niveaux :
+      ```go
+      // niveau 1
+      return fmt.Errorf("échec : %w", err)
+      // niveau 2
+      return fmt.Errorf("échec : %w", err)
+      ```
+    answer: |-
+      ```go
+      // niveau 1 (lecture)
+      return fmt.Errorf("lecture de l'en-tête du fichier %s : %w", nom, err)
+      // niveau 2 (import)
+      return fmt.Errorf("import du catalogue : %w", err)
+      ```
+      Chaque niveau dit ce qu'il faisait : « import du catalogue : lecture de l'en-tête du fichier x.csv : EOF ».
+  - key: scenario-couches
+    format: scenario
+    question: Comment structures-tu la gestion d'erreurs d'un service HTTP en trois couches ?
+    answer: |-
+      L'infrastructure traduit les erreurs techniques qui ont un sens métier (aucune ligne, doublon, délai) en erreurs du
+      domaine et enveloppe les autres. Le métier remonte en ajoutant son contexte et déclare ses propres erreurs
+      (`ErrStockInsuffisant`, `*ErrValidation`). Le handler est le seul à traiter : un `switch` avec `errors.Is` et
+      `errors.As` choisit 400, 404, 409 ou 500, il journalise l'erreur complète avec `slog` et l'identifiant de requête,
+      et renvoie au client un corps Problem Details sans détails internes.
+  - key: scenario-observabilite
+    format: scenario
+    question: Comment rendre les erreurs exploitables en production sans pile d'appels ?
+    answer: |-
+      Par un contexte riche à chaque niveau, une journalisation structurée à la frontière (`slog` avec l'erreur, la
+      route, l'identifiant de requête et de trace), et des métriques par type d'erreur (compteur des 5xx, des délais
+      dépassés). Pour les erreurs inattendues, un outil comme Sentry capture la panique et la pile. La trace distribuée
+      (OpenTelemetry) relie l'erreur aux appels des autres services.
+  - key: scenario-revue
+    format: scenario
+    question: Quelle liste de vérification utilises-tu pour relire la gestion d'erreurs d'une PR Go ?
+    answer: |-
+      Toutes les erreurs sont lues (pas d'appel ignoré, pas de `_` sans raison) ; chaque remontée ajoute un contexte
+      utile ; aucune erreur n'est journalisée et remontée à la fois ; les cas métier ont des sentinelles ou des types,
+      testés avec Is et As, jamais par le texte ; la frontière ne fait pas fuiter de détails ; pas de `panic` pour un cas
+      attendu ; et pas de type d'erreur concret renvoyé dans une signature.

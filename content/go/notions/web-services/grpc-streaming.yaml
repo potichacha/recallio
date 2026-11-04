@@ -1,0 +1,124 @@
+notion: grpc-streaming
+lesson: "En plus des appels **unaires** (une requête, une réponse), gRPC propose trois sortes de **flux**, grâce à HTTP/2 :\n\n```protobuf\nservice Suivi {\n  rpc Positions(SuiviRequete) returns (stream Position);       // flux serveur\n  rpc Envoyer(stream Mesure) returns (Resume);                  // flux client\n  rpc Discussion(stream Message) returns (stream Message);      // bidirectionnel\n}\n```\n\n**Flux serveur** : le serveur envoie plusieurs messages, puis rend la main :\n\n```go\nfunc (s *serveur) Positions(req *suiviv1.SuiviRequete, flux suiviv1.Suivi_PositionsServer) error {\n\tfor {\n\t\tselect {\n\t\tcase p := <-s.positions(req.GetColisId()):\n\t\t\tif err := flux.Send(p); err != nil {\n\t\t\t\treturn err // le client est parti\n\t\t\t}\n\t\tcase <-flux.Context().Done():\n\t\t\treturn flux.Context().Err()\n\t\t}\n\t}\n}\n```\n\nCôté client, on lit avec **`Recv()`** jusqu'à **`io.EOF`** :\n\n```go\nflux, err := client.Positions(ctx, &suiviv1.SuiviRequete{ColisId: id})\nfor {\n\tp, err := flux.Recv()\n\tif errors.Is(err, io.EOF) {\n\t\tbreak // le serveur a terminé\n\t}\n\tif err != nil {\n\t\treturn err\n\t}\n\tafficher(p)\n}\n```\n\n**Flux client** : le client appelle `Send` plusieurs fois, puis `CloseAndRecv()` pour obtenir la réponse.\n**Bidirectionnel** : les deux côtés envoient et reçoivent indépendamment, souvent dans deux goroutines ; le client\nsignale la fin de ses envois par `CloseSend()`.\n\nLes règles :\n- un flux a le **contexte** de l'appel : annuler le contexte côté client ferme le flux ;\n- `Send` et `Recv` ne doivent pas être appelés par **plusieurs goroutines à la fois** sur le même côté (une goroutine\n  pour envoyer, une pour recevoir, c'est permis) ;\n- un flux très long doit prévoir la **reconnexion** et la reprise (un curseur ou un numéro de séquence) ;\n- un client qui ne lit pas assez vite ralentit le serveur (contrôle de flux de HTTP/2).\n\n**En entretien** : « Unaire, flux serveur, flux client, bidirectionnel ; Send, Recv jusqu'à io.EOF, CloseSend ; le\ncontexte ferme le flux ; une goroutine par sens au plus. »"
+cards:
+  - key: quatre-types-appel-grpc
+    format: course
+    question: Les quatre types d'appel gRPC ?
+    answer: Unaire, streaming serveur, streaming client, bidirectionnel.
+  - key: eof
+    format: course
+    question: Comment un client sait-il qu'un flux serveur est terminé ?
+    answer: Recv renvoie io.EOF quand le serveur a rendu la main sans erreur ; toute autre erreur est un échec, avec un code gRPC.
+  - key: closesend
+    format: course
+    question: À quoi sert CloseSend dans un flux bidirectionnel ?
+    answer: Le client signale qu'il n'enverra plus de message ; le serveur voit io.EOF sur son Recv, tout en pouvant continuer d'envoyer ses réponses.
+  - key: concurrence
+    format: course
+    question: Peut-on appeler Send depuis plusieurs goroutines sur le même flux ?
+    answer: 'Non, pas en même temps : Send n''est pas sûr entre goroutines (Recv non plus). On réserve une goroutine à l''envoi, ou l''on protège par un mutex ; une goroutine qui envoie et une autre qui reçoit, c''est permis.'
+  - key: vf-quatre
+    format: true-false
+    question: 'gRPC propose quatre sortes d''appels : unaire, flux serveur, flux client et bidirectionnel.'
+    truth: true
+    answer: Déclarées avec le mot-clé stream dans le .proto.
+  - key: vf-annulation
+    format: true-false
+    question: Annuler le contexte côté client ferme le flux et le serveur voit son contexte annulé.
+    truth: true
+    answer: Le serveur doit surveiller flux.Context().
+  - key: vf-closeandrecv
+    format: true-false
+    question: Dans un flux client, on obtient la réponse unique du serveur avec CloseAndRecv.
+    truth: true
+    answer: Après avoir envoyé tous les messages.
+  - key: vf-ordre
+    format: true-false
+    question: Les messages d'un même flux peuvent arriver dans le désordre.
+    truth: false
+    answer: Ils arrivent dans l'ordre d'envoi, sur un même flux HTTP/2.
+  - key: qcm-usages
+    format: multiple-choice
+    question: Quel type d'appel pour quel besoin ?
+    choices:
+      - text: 'Suivre les positions d''un colis en direct : flux serveur'
+        correct: true
+      - text: 'Téléverser des mesures puis recevoir un résumé : flux client'
+        correct: true
+      - text: 'Une discussion en temps réel : bidirectionnel'
+        correct: true
+      - text: 'Lire un produit par son identifiant : flux bidirectionnel'
+        correct: false
+    answer: Une lecture simple reste un appel unaire.
+  - key: qcm-serveur
+    format: multiple-choice
+    question: Que doit faire un serveur qui envoie un flux sans fin ?
+    choices:
+      - text: Surveiller flux.Context().Done() et rendre la main à l'annulation
+        correct: true
+      - text: Traiter l'erreur de Send, qui signale un client parti
+        correct: true
+      - text: Ignorer les erreurs de Send
+        correct: false
+      - text: Envoyer depuis plusieurs goroutines en parallèle pour aller plus vite
+        correct: false
+    answer: Sinon la goroutine du flux fuit.
+  - key: qcm-reprise
+    format: multiple-choice
+    question: Comment reprendre un flux de notifications coupé par une coupure réseau ?
+    choices:
+      - text: Chaque message porte un numéro de séquence
+        correct: true
+      - text: Le client se reconnecte en demandant la suite après le dernier numéro reçu
+        correct: true
+      - text: gRPC rejoue automatiquement les messages manqués
+        correct: false
+      - text: Recommencer le flux depuis le début sans rien dire
+        correct: false
+    answer: La reprise est à concevoir dans le protocole de l'application.
+  - key: qcm-lent
+    format: multiple-choice
+    question: Que se passe-t-il quand un client lit un flux serveur trop lentement ?
+    choices:
+      - text: Le contrôle de flux HTTP/2 finit par bloquer les Send du serveur
+        correct: true
+      - text: Le serveur doit prévoir un délai ou abandonner les clients trop lents
+        correct: true
+      - text: Les messages en trop sont perdus silencieusement
+        correct: false
+      - text: Le serveur accélère
+        correct: false
+    answer: Un Send bloqué retient la goroutine du serveur.
+  - key: scenario-choix
+    format: scenario
+    question: 'Flux gRPC, WebSocket ou appels répétés : comment choisis-tu pour pousser des mises à jour à un client ?'
+    answer: |-
+      Entre services, un flux serveur gRPC est naturel : typé, avec le contexte et les délais, et le contrôle de flux.
+      Vers un navigateur, gRPC demande gRPC-Web ou Connect ; les Server-Sent Events suffisent souvent pour un flux du
+      serveur vers le client, et WebSocket pour un vrai dialogue. Des appels répétés (polling) restent acceptables pour des
+      mises à jour rares. Dans tous les cas, je prévois la reconnexion et la reprise.
+  - key: scenario-bidirectionnel
+    format: scenario
+    question: Comment structures-tu un client de flux bidirectionnel en Go ?
+    answer: |-
+      Une goroutine envoie les messages d'un channel avec Send, puis appelle CloseSend quand il n'y a plus rien ; la
+      goroutine principale lit avec Recv jusqu'à io.EOF ou une erreur. Les deux partagent le contexte de l'appel : une
+      erreur d'un côté annule le contexte et arrête l'autre (errgroup.WithContext convient bien). Ainsi, Send et Recv ne
+      sont chacun appelés que par une goroutine.
+  - key: scenario-longs
+    format: scenario
+    question: Quels problèmes posent les flux gRPC qui restent ouverts des heures, et comment les gères-tu ?
+    answer: |-
+      Les répartiteurs et pare-feu coupent les connexions inactives : des keepalives gRPC (côté client et serveur,
+      compatibles) les gardent vivantes. Les déploiements ferment les flux : le client se reconnecte avec un délai
+      croissant et reprend après le dernier numéro reçu. Côté serveur, chaque flux est une goroutine : je limite leur
+      nombre et je surveille les clients lents. Un arrêt gracieux (`GracefulStop` avec un délai, puis `Stop`) termine les
+      flux proprement.
+  - key: scenario-test
+    format: scenario
+    question: Comment testes-tu un service avec un flux serveur ?
+    answer: |-
+      Avec bufconn, je démarre le serveur réel et j'appelle la méthode de flux depuis un client de test : je lis avec Recv
+      les messages attendus, puis je vérifie io.EOF. Un second test annule le contexte au milieu et vérifie que le
+      serveur s'arrête (goroutine terminée, ressources libérées). Les sources de données du serveur sont des faux
+      contrôlés par le test, pour un ordre déterministe.

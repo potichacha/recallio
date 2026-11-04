@@ -1,0 +1,151 @@
+notion: injection-dependances
+lesson: "En Go, l'**injection de dépendances** se fait **à la main**, sans framework : chaque composant reçoit ses dépendances\n**en paramètres** de son constructeur, et le **`main`** assemble tout (*composition root*).\n\n```go\n// un service dépend d'interfaces petites, déclarées chez lui\ntype Service struct {\n\tdepot      Depot\n\tpaiements  Paiements\n\thorloge    func() time.Time\n\tlog        *slog.Logger\n}\n\nfunc NewService(d Depot, p Paiements, h func() time.Time, l *slog.Logger) *Service {\n\treturn &Service{depot: d, paiements: p, horloge: h, log: l}\n}\n\n// main : le seul endroit qui connaît les implémentations concrètes\nfunc run(ctx context.Context) error {\n\tcfg, err := config.Charger()\n\tif err != nil {\n\t\treturn err\n\t}\n\tdb, err := sql.Open(\"pgx\", cfg.BaseURL)\n\tif err != nil {\n\t\treturn err\n\t}\n\tdefer db.Close()\n\tlog := slog.New(slog.NewJSONHandler(os.Stdout, nil))\n\tservice := commande.NewService(postgres.NewDepot(db), stripe.NewClient(cfg.CleStripe), time.Now, log)\n\tsrv := api.NewServeur(service, log)\n\treturn srv.Demarrer(ctx)\n}\n```\n\nPourquoi à la main :\n- le câblage est du **code ordinaire** : lisible, vérifié par le compilateur, navigable dans l'éditeur ;\n- pas de **réflexion** ni de conteneur magique ;\n- les tests construisent le service avec des **faux**, sans configuration.\n\nLes pièges à éviter : les **variables globales** et `init()` qui créent des dépendances cachées, les singletons\naccessibles partout, et les constructeurs qui créent eux-mêmes leurs dépendances (`NewService()` qui ouvre la base).\n\nQuand le graphe devient très gros, **wire** (génération de code) ou **fx** (réflexion à l'exécution) automatisent le\ncâblage, mais beaucoup d'équipes s'en passent.\n\n**En entretien** : « Des dépendances en paramètres du constructeur, des interfaces petites chez l'utilisateur ; le\nmain comme composition root ; pas de globales ; wire ou fx seulement si le câblage devient vraiment lourd. »"
+cards:
+  - key: applique-dip
+    format: course
+    question: Comment s'applique le DIP en Go ?
+    answer: Le consommateur déclare l'interface, la dépendance est injectée par le constructeur, sans framework.
+  - key: injection-dependances
+    format: course
+    question: Comment faire de l'injection de dépendances en Go ?
+    answer: Manuellement dans main (composition root), ou avec Wire (compilation) ou Fx (exécution).
+  - key: composition-root
+    format: course
+    question: C'est quoi le composition root ?
+    answer: L'endroit unique (main) où toutes les dépendances sont construites et injectées.
+  - key: globales
+    format: course
+    question: Pourquoi éviter les variables globales pour les dépendances (base, journal, clients) ?
+    answer: Elles cachent les dépendances des fonctions, empêchent de tester avec des faux sans modifier un état partagé, rendent l'ordre d'initialisation fragile et interdisent les tests parallèles.
+  - key: vf-framework
+    format: true-false
+    question: En Go, un framework d'injection de dépendances est indispensable dans un projet de taille moyenne.
+    truth: false
+    answer: Le câblage à la main dans main suffit le plus souvent.
+  - key: vf-main
+    format: true-false
+    question: Le main est l'endroit où l'on assemble les implémentations concrètes.
+    truth: true
+    answer: C'est la composition root.
+  - key: vf-wire
+    format: true-false
+    question: wire génère le code de câblage à la compilation, sans réflexion à l'exécution.
+    truth: true
+    answer: fx, lui, câble par réflexion au démarrage.
+  - key: vf-creer
+    format: true-false
+    question: Un service qui ouvre lui-même sa connexion à la base dans son constructeur est facile à tester.
+    truth: false
+    answer: Il faut lui passer la dépendance pour pouvoir la remplacer.
+  - key: qcm-pratiques
+    format: multiple-choice
+    question: Quelles pratiques relèvent de l'injection de dépendances à la main ?
+    choices:
+      - text: Passer les dépendances au constructeur
+        correct: true
+      - text: Dépendre de petites interfaces déclarées chez l'utilisateur
+        correct: true
+      - text: Assembler les composants dans main
+        correct: true
+      - text: Créer les dépendances dans des fonctions init
+        correct: false
+    answer: init cache les dépendances et s'exécute dans un ordre implicite.
+  - key: qcm-heure
+    format: multiple-choice
+    question: Comment injecter l'heure dans un service ?
+    choices:
+      - text: Un champ `horloge func() time.Time`, time.Now en production
+        correct: true
+      - text: Une petite interface Horloge avec une méthode Now
+        correct: true
+      - text: Appeler time.Now() partout
+        correct: false
+      - text: Une variable globale modifiée par les tests
+        correct: false
+    answer: Une globale empêche les tests parallèles.
+  - key: qcm-outils
+    format: multiple-choice
+    question: Que proposent wire et fx ?
+    choices:
+      - text: wire génère le code de câblage à partir de fournisseurs déclarés
+        correct: true
+      - text: fx câble les composants et gère leur cycle de vie à l'exécution
+        correct: true
+      - text: Les deux sont obligatoires pour utiliser des interfaces
+        correct: false
+      - text: Les deux remplacent les tests
+        correct: false
+    answer: Ils automatisent ce que l'on peut écrire à la main.
+  - key: qcm-tests
+    format: multiple-choice
+    question: Qu'apporte l'injection de dépendances aux tests ?
+    choices:
+      - text: Construire un service avec des faux, sans base ni réseau
+        correct: true
+      - text: Des tests indépendants, parallélisables
+        correct: true
+      - text: Des tests sans assertions
+        correct: false
+      - text: La suppression des tests d'intégration
+        correct: false
+    answer: Les adaptateurs réels restent testés en intégration.
+  - key: bug-global
+    format: bug-fix
+    question: "Les tests du service dépendent d'une vraie base et ne peuvent pas tourner en parallèle :\n```go\nvar DB *sql.DB\n\nfunc init() {\n\tDB, _ = sql.Open(\"pgx\", os.Getenv(\"DATABASE_URL\"))\n}\n\nfunc TrouverCommande(id string) (Commande, error) {\n\treturn lire(DB, id)\n}\n```"
+    answer: "```go\ntype Depot struct{ db *sql.DB }\n\nfunc NewDepot(db *sql.DB) *Depot { return &Depot{db: db} }\n\nfunc (d *Depot) Trouver(ctx context.Context, id string) (Commande, error) {\n\treturn lire(ctx, d.db, id)\n}\n```\nLa connexion est passée au constructeur par main ; les services qui utilisent le dépôt dépendent d'une interface et\nse testent avec un faux."
+  - key: bug-constructeur
+    format: bug-fix
+    question: "Impossible de tester le service sans appeler l'API de paiement :\n```go\nfunc NewService() *Service {\n\treturn &Service{paiements: stripe.NewClient(os.Getenv(\"STRIPE_KEY\"))}\n}\n```"
+    answer: "```go\ntype Paiements interface {\n\tDebiter(ctx context.Context, client string, montant int64) (string, error)\n}\n\nfunc NewService(p Paiements) *Service {\n\treturn &Service{paiements: p}\n}\n\n// main : commande.NewService(stripe.NewClient(cfg.CleStripe))\n```\nLe service reçoit sa dépendance au lieu de la créer, et lit encore moins la configuration lui-même."
+  - key: bug-singleton
+    format: bug-fix
+    question: "Le journal est configuré par un singleton global, et les tests ne peuvent pas vérifier ce qui est écrit :\n```go\nfunc (s *Service) Payer(ctx context.Context, id string) error {\n\tjournal.Instance().Info(\"paiement\", \"id\", id)\n\t// ...\n}\n```"
+    answer: "```go\ntype Service struct {\n\tlog *slog.Logger\n}\n\nfunc (s *Service) Payer(ctx context.Context, id string) error {\n\ts.log.InfoContext(ctx, \"paiement\", \"id\", id)\n\t// ...\n}\n```\nLe journal est injecté comme les autres dépendances ; un test peut lui passer un logger qui écrit dans un tampon."
+  - key: bug-contexte
+    format: bug-fix
+    question: |-
+      Le service récupère sa base dans le contexte de la requête :
+      ```go
+      db := ctx.Value(cleDB{}).(*sql.DB)
+      ```
+      Que proposes-tu ?
+    answer: |-
+      ```go
+      type Service struct{ db *sql.DB }
+
+      func NewService(db *sql.DB) *Service { return &Service{db: db} }
+      ```
+      Une dépendance passe par le constructeur, pas par le contexte : elle devient visible, vérifiée par le compilateur,
+      et facile à remplacer dans les tests.
+  - key: scenario-assemblage
+    format: scenario
+    question: Comment organises-tu l'assemblage d'un service qui a une base, un cache, deux clients d'API et un serveur HTTP ?
+    answer: |-
+      Une fonction `run(ctx) error` appelée par main : chargement et validation de la configuration, création du journal,
+      ouverture de la base et du cache (avec leurs fermetures en defer), construction des clients, des dépôts, des
+      services, puis du serveur HTTP qui reçoit les services. Chaque étape renvoie une erreur claire. Le tout reste
+      lisible de haut en bas ; si le fichier devient trop long, je le découpe en fonctions par couche, pas en framework.
+  - key: scenario-wire
+    format: scenario
+    question: Quand envisagerais-tu wire ou fx plutôt que le câblage à la main ?
+    answer: |-
+      Quand le graphe compte des dizaines de composants assemblés de plusieurs façons (plusieurs binaires, variantes de
+      tests) et que le code de câblage devient une source d'erreurs. wire garde l'avantage du code généré, lisible et
+      vérifié ; fx apporte aussi la gestion du cycle de vie (démarrage, arrêt), au prix de la réflexion. Pour un service
+      typique, le câblage à la main reste plus simple.
+  - key: scenario-java
+    format: scenario
+    question: Comment expliques-tu l'absence de Spring à un développeur Java qui arrive en Go ?
+    answer: |-
+      Go préfère l'explicite : au lieu d'annotations et d'un conteneur qui instancie les beans par réflexion, on écrit les
+      constructeurs et on les appelle dans main. Les interfaces implicites, déclarées chez l'utilisateur, jouent le rôle
+      des abstractions injectées. On perd un peu de concision mais on gagne un démarrage instantané, des erreurs de
+      câblage détectées à la compilation, et un code que l'on suit sans connaître le framework.
+  - key: scenario-tests
+    format: scenario
+    question: Comment l'injection de dépendances simplifie-t-elle tes tests ?
+    answer: |-
+      Chaque test construit le composant avec exactement ce qu'il faut : un faux dépôt en mémoire, un faux client de
+      paiement qui échoue sur demande, une horloge fixe, un logger vers un tampon. Pas de configuration globale à
+      préparer ni à restaurer, donc des tests indépendants qui tournent en parallèle. Les vraies implémentations sont
+      testées à part, en intégration.

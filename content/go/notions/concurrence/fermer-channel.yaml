@@ -1,0 +1,212 @@
+notion: fermer-channel
+lesson: |-
+  **`close(ch)`** signale qu'aucune valeur ne sera plus **envoyée** sur le channel. Les règles :
+
+  | Opération | Channel ouvert | Channel **fermé** |
+  |---|---|---|
+  | `ch <- v` | envoie (ou bloque) | **panique** (« send on closed channel ») |
+  | `v := <-ch` | reçoit (ou bloque) | reçoit les valeurs restantes, puis la **valeur zéro** immédiatement |
+  | `v, ok := <-ch` | `ok` vaut true | `ok` vaut **false** une fois le tampon vide |
+  | `close(ch)` | ferme | **panique** (« close of closed channel ») |
+  | `range ch` | continue | se termine après les valeurs restantes |
+
+  Les principes :
+  - **c'est l'émetteur qui ferme**, jamais le récepteur : seul l'émetteur sait qu'il n'enverra plus rien ;
+  - avec **plusieurs émetteurs**, aucun ne ferme seul : on attend leur fin (un `WaitGroup`) dans une goroutine qui ferme
+    ensuite ;
+  - **il n'est pas obligatoire de fermer** un channel : le ramasse-miettes le libère quand plus personne ne le
+    référence. On ferme pour **signaler la fin** à un récepteur (`range`, `v, ok`) ;
+  - fermer un `chan struct{}` est le moyen de **diffuser un signal** à tous les récepteurs à la fois (c'est ce que fait
+    `ctx.Done()`).
+
+  **Piège classique** : un récepteur qui ferme le channel « pour arrêter l'émetteur ». L'émetteur panique au prochain
+  envoi ; on arrête un émetteur par un contexte ou un channel de signal séparé.
+
+  **En entretien** : « L'émetteur ferme ; envoyer ou refermer panique ; recevoir sur un channel fermé donne la valeur zéro
+  avec ok à false ; fermer n'est pas obligatoire mais sert à signaler la fin ou à diffuser un arrêt. »
+cards:
+  - key: passe-envoyant-channel-ferme
+    format: course
+    question: Que se passe-t-il en envoyant sur un channel fermé ?
+    answer: Un panic.
+  - key: recevant-depuis-channel-ferme
+    format: course
+    question: En recevant depuis un channel fermé ?
+    answer: Les valeurs restantes, puis la valeur zéro immédiatement (ok = false).
+  - key: doit-fermer-channel
+    format: course
+    question: Qui doit fermer un channel ?
+    answer: L'émetteur, jamais le récepteur.
+  - key: toujours-fermer-channel
+    format: course
+    question: Faut-il toujours fermer un channel ?
+    answer: Non, seulement pour signaler la fin des valeurs (range, récepteurs en attente).
+  - key: fermer-channel-avec-plusieurs-emetteurs
+    format: course
+    question: Comment fermer un channel avec plusieurs émetteurs ?
+    answer: Attendre tous les émetteurs (WaitGroup) puis fermer depuis une seule goroutine.
+  - key: code-close-ch-channel-deja-ferme
+    format: code-output
+    question: Que fait `close(ch)` sur un channel déjà fermé ?
+    answer: 'Panic : `close of closed channel`. Envoyer sur un channel fermé panique aussi.'
+    check:
+      code: "package main\n\nfunc main() {\n\tch := make(chan int)\n\tclose(ch)\n\tclose(ch)\n}\n"
+      panics: close of closed channel
+  - key: vf-envoi-ferme
+    format: true-false
+    question: Envoyer sur un channel fermé provoque une panique.
+    truth: true
+    answer: « send on closed channel ».
+  - key: vf-reception-fermee
+    format: true-false
+    question: Recevoir sur un channel fermé et vide bloque indéfiniment.
+    truth: false
+    answer: La réception renvoie immédiatement la valeur zéro, avec `ok` à false.
+  - key: vf-recepteur-ferme
+    format: true-false
+    question: C'est au récepteur de fermer un channel quand il n'en veut plus.
+    truth: false
+    answer: C'est l'émetteur qui ferme ; un récepteur qui ferme fait paniquer l'émetteur.
+  - key: vf-obligatoire
+    format: true-false
+    question: Un channel doit toujours être fermé, sinon il fuit.
+    truth: false
+    answer: Le GC libère un channel inaccessible ; on ferme pour signaler la fin aux récepteurs.
+  - key: qcm-paniques
+    format: multiple-choice
+    question: Quelles opérations paniquent sur un channel fermé ?
+    choices:
+      - text: '`ch <- 1`'
+        correct: true
+      - text: '`close(ch)`'
+        correct: true
+      - text: '`v := <-ch`'
+        correct: false
+      - text: '`for v := range ch`'
+        correct: false
+    answer: Recevoir est permis et ne bloque plus.
+  - key: qcm-plusieurs
+    format: multiple-choice
+    question: Plusieurs goroutines envoient sur le même channel. Comment le fermer correctement ?
+    choices:
+      - text: Une goroutine attend la fin des émetteurs (WaitGroup) puis ferme
+        correct: true
+      - text: Le dernier émetteur à finir ferme, déterminé par un compteur atomique
+        correct: false
+      - text: Chaque émetteur ferme à la fin de son travail
+        correct: false
+      - text: Le récepteur ferme quand il a reçu assez de valeurs
+        correct: false
+    answer: Le compteur atomique est fragile ; le WaitGroup dédié est l'idiome.
+  - key: qcm-ok
+    format: multiple-choice
+    question: Que valent `v` et `ok` dans `v, ok := <-ch` avec `ch` un `chan int` fermé et vide ?
+    choices:
+      - text: '`0` et `false`'
+        correct: true
+      - text: '`0` et `true`'
+        correct: false
+      - text: Une panique
+        correct: false
+      - text: La dernière valeur envoyée et `false`
+        correct: false
+    answer: La valeur zéro du type, et false.
+  - key: qcm-diffuser
+    format: multiple-choice
+    question: Comment prévenir dix goroutines en même temps qu'elles doivent s'arrêter ?
+    choices:
+      - text: Fermer un `chan struct{}` qu'elles écoutent toutes
+        correct: true
+      - text: Annuler un contexte partagé
+        correct: true
+      - text: Envoyer une seule valeur sur un channel commun
+        correct: false
+      - text: Fermer le channel sur lequel elles envoient leurs résultats
+        correct: false
+    answer: Un envoi n'est reçu que par une goroutine ; une fermeture par toutes.
+  - key: trous-close
+    format: fill-in
+    question: "Complétez pour signaler la fin des envois :\n```go\ngo func() {\n\tdefer ___(sortie)\n\tfor _, l := range lignes {\n\t\tsortie <- l\n\t}\n}()\n```"
+    blanks:
+      - - close
+    answer: L'émetteur ferme quand il a fini.
+  - key: trous-ok
+    format: fill-in
+    question: "Complétez pour savoir si le channel est fermé :\n```go\nv, ___ := <-ch\nif !ok {\n\treturn\n}\n```"
+    blanks:
+      - - ok
+    answer: '`ok` vaut false quand le channel est fermé et vide.'
+  - key: trous-plusieurs
+    format: fill-in
+    question: "Complétez la fermeture après plusieurs émetteurs :\n```go\ngo func() {\n\twg.___()\n\tclose(resultats)\n}()\n```"
+    blanks:
+      - - Wait
+    answer: On ferme une fois que tous les émetteurs ont terminé.
+  - key: trous-signal
+    format: fill-in
+    question: |-
+      Complétez pour diffuser l'arrêt à tous les workers :
+      ```go
+      stop := make(chan struct{})
+      // ...
+      ___(stop)
+      ```
+    blanks:
+      - - close
+    answer: Tous les récepteurs voient la fermeture.
+  - key: code-zero
+    format: code-output
+    question: |-
+      ```go
+      ch := make(chan int, 2)
+      ch <- 7
+      close(ch)
+      a, ok1 := <-ch
+      b, ok2 := <-ch
+      fmt.Println(a, ok1, b, ok2)
+      ```
+    answer: '`7 true 0 false` : la valeur restante d''abord, puis la valeur zéro avec ok à false.'
+    check:
+      code: "package main\n\nimport \"fmt\"\n\nfunc main() {\n\tch := make(chan int, 2)\n\tch <- 7\n\tclose(ch)\n\ta, ok1 := <-ch\n\tb, ok2 := <-ch\n\tfmt.Println(a, ok1, b, ok2)\n}\n"
+      output: 7 true 0 false
+  - key: code-envoi-ferme
+    format: code-output
+    question: |-
+      ```go
+      ch := make(chan int, 1)
+      close(ch)
+      fmt.Println("fermé")
+      ch <- 1
+      ```
+    answer: '`fermé`, puis une panique « send on closed channel ».'
+    check:
+      code: "package main\n\nimport \"fmt\"\n\nfunc main() {\n\tch := make(chan int, 1)\n\tclose(ch)\n\tfmt.Println(\"fermé\")\n\tch <- 1\n}\n"
+      output: fermé
+      panics: send on closed channel
+  - key: code-diffusion
+    format: code-output
+    question: "```go\nstop := make(chan struct{})\nvar wg sync.WaitGroup\nvar arretes atomic.Int32\nfor range 5 {\n\twg.Go(func() {\n\t\t<-stop\n\t\tarretes.Add(1)\n\t})\n}\nclose(stop)\nwg.Wait()\nfmt.Println(arretes.Load())\n```"
+    answer: '`5` : une seule fermeture réveille tous les récepteurs.'
+    check:
+      code: "package main\n\nimport (\n\t\"fmt\"\n\t\"sync\"\n\t\"sync/atomic\"\n)\n\nfunc main() {\n\tstop := make(chan struct{})\n\tvar wg sync.WaitGroup\n\tvar arretes atomic.Int32\n\tfor range 5 {\n\t\twg.Go(func() {\n\t\t\t<-stop\n\t\t\tarretes.Add(1)\n\t\t})\n\t}\n\tclose(stop)\n\twg.Wait()\n\tfmt.Println(arretes.Load())\n}\n"
+      output: '5'
+  - key: bug-recepteur
+    format: bug-fix
+    question: "Le producteur panique avec « send on closed channel » :\n```go\nfor v := range donnees {\n\tif v.Fin {\n\t\tclose(donnees) // le consommateur veut arrêter le producteur\n\t\tbreak\n\t}\n\ttraiter(v)\n}\n```"
+    answer: "```go\nctx, cancel := context.WithCancel(ctx)\ndefer cancel()\n// le producteur surveille ctx.Done() et ferme lui-même donnees\nfor v := range donnees {\n\tif v.Fin {\n\t\tcancel()\n\t\tbreak\n\t}\n\ttraiter(v)\n}\n```\nSeul l'émetteur ferme son channel ; le consommateur l'arrête par un contexte (ou un channel de signal séparé)."
+  - key: bug-double-close
+    format: bug-fix
+    question: |-
+      Le service panique avec « close of closed channel » quand `Arreter` est appelé deux fois :
+      ```go
+      func (s *Service) Arreter() { close(s.stop) }
+      ```
+    answer: "```go\ntype Service struct {\n\tstop     chan struct{}\n\tstopOnce sync.Once\n}\n\nfunc (s *Service) Arreter() { s.stopOnce.Do(func() { close(s.stop) }) }\n```\n`sync.Once` garantit une seule fermeture, même avec des appels concurrents."
+  - key: bug-plusieurs
+    format: bug-fix
+    question: "Le programme panique de temps en temps avec « send on closed channel » :\n```go\nfor _, u := range urls {\n\tgo func() {\n\t\tresultats <- telecharger(u)\n\t\tclose(resultats)\n\t}()\n}\n```"
+    answer: "```go\nvar wg sync.WaitGroup\nfor _, u := range urls {\n\twg.Go(func() { resultats <- telecharger(u) })\n}\ngo func() {\n\twg.Wait()\n\tclose(resultats)\n}()\n```\nLe premier émetteur à finir fermait le channel des autres ; on ferme une seule fois, après tous les émetteurs."
+  - key: bug-ok
+    format: bug-fix
+    question: "La boucle tourne sans fin en traitant des zéros après la fin du producteur :\n```go\nfor {\n\tv := <-mesures\n\tenregistrer(v)\n}\n```"
+    answer: "```go\nfor v := range mesures {\n\tenregistrer(v)\n}\n```\nSur un channel fermé, la réception renvoie la valeur zéro immédiatement : `range` (ou la forme `v, ok`) détecte\nla fermeture."

@@ -1,0 +1,204 @@
+notion: context-annulation
+lesson: "**`context.WithCancel(parent)`** renvoie un contexte enfant et une fonction **`cancel`**. Appeler `cancel()` ferme le\nchannel `ctx.Done()` de l'enfant et de tous ses descendants ; `ctx.Err()` vaut alors **`context.Canceled`**.\n\n```go\nctx, cancel := context.WithCancel(ctx)\ndefer cancel() // toujours : libère les ressources du contexte\n\ngo producteur(ctx, sortie)\n// ... quand on n'a plus besoin du producteur :\ncancel()\n```\n\nUne fonction **réagit** à l'annulation de trois façons :\n- en **passant** le contexte aux appels qui le gèrent (`QueryContext`, requêtes HTTP) ;\n- dans un **select**, avec un cas `<-ctx.Done()` à côté de chaque envoi ou réception qui peut bloquer ;\n- dans une **boucle de calcul**, en testant `ctx.Err()` de temps en temps.\n\n```go\nfunc producteur(ctx context.Context, sortie chan<- int) error {\n\tfor i := 0; ; i++ {\n\t\tselect {\n\t\tcase sortie <- i:\n\t\tcase <-ctx.Done():\n\t\t\treturn ctx.Err() // context.Canceled\n\t\t}\n\t}\n}\n```\n\nCe qu'il faut savoir :\n- `cancel` est **idempotent** et sûr entre goroutines : l'appeler plusieurs fois ne fait rien de plus ;\n- l'annulation est **coopérative** : elle ne tue rien, elle demande. Une fonction qui ignore `ctx` continue ;\n- `ctx.Done()` d'un `Background` vaut `nil` : un select sur lui n'est jamais choisi, ce qui est le comportement\n  voulu.\n\n**En entretien** : « WithCancel renvoie ctx et cancel ; defer cancel ; on réagit par select sur Done, ou ctx.Err dans\nles boucles ; l'annulation est coopérative et descend l'arbre. »"
+cards:
+  - key: renvoie-done
+    format: course
+    question: Que renvoie Done() ?
+    answer: Un channel fermé quand le contexte est annulé ou expiré.
+  - key: valeurs-possibles-err
+    format: course
+    question: Valeurs possibles de Err() ?
+    answer: nil, context.Canceled ou context.DeadlineExceeded.
+  - key: annuler-enfant-annule-parent
+    format: course
+    question: Annuler un enfant annule-t-il le parent ?
+    answer: Non, seulement l'inverse.
+  - key: cooperative
+    format: course
+    question: L'annulation d'un contexte arrête-t-elle de force les goroutines qui l'utilisent ?
+    answer: 'Non, elle est coopérative : elle ferme Done et chaque fonction doit le surveiller (select, ctx.Err, appels qui prennent ctx) et rendre la main d''elle-même.'
+  - key: vf-idempotent
+    format: true-false
+    question: Appeler `cancel()` deux fois provoque une panique.
+    truth: false
+    answer: cancel est idempotent.
+  - key: vf-err
+    format: true-false
+    question: Après `cancel()`, `ctx.Err()` renvoie `context.Canceled`.
+    truth: true
+    answer: Et Done est fermé.
+  - key: vf-defer
+    format: true-false
+    question: Si l'on annule explicitement plus tard, le `defer cancel()` est inutile.
+    truth: false
+    answer: Le defer couvre aussi les retours anticipés et les erreurs ; sans lui, le contexte reste attaché à son parent.
+  - key: vf-ignore
+    format: true-false
+    question: Une fonction qui reçoit ctx mais ne le consulte jamais s'arrête quand même à l'annulation.
+    truth: false
+    answer: L'annulation ne fait que fermer un channel.
+  - key: qcm-reagir
+    format: multiple-choice
+    question: Comment une fonction réagit-elle à l'annulation de son contexte ?
+    choices:
+      - text: Un cas `<-ctx.Done()` dans chaque select bloquant
+        correct: true
+      - text: Un test de `ctx.Err()` régulier dans une longue boucle de calcul
+        correct: true
+      - text: Le passage de ctx aux appels qui l'acceptent
+        correct: true
+      - text: Un recover qui attrape l'annulation
+        correct: false
+    answer: L'annulation n'est pas une panique.
+  - key: qcm-done-background
+    format: multiple-choice
+    question: Que renvoie `context.Background().Done()` ?
+    choices:
+      - text: nil, donc un select sur lui n'est jamais choisi
+        correct: true
+      - text: Un channel déjà fermé
+        correct: false
+      - text: Une panique
+        correct: false
+      - text: Un channel fermé au bout d'une minute
+        correct: false
+    answer: Background n'est jamais annulé.
+  - key: qcm-enfants
+    format: multiple-choice
+    question: '`a, cancelA := context.WithCancel(bg)`, puis `b, cancelB := context.WithCancel(a)`. Que se passe-t-il après `cancelA()` ?'
+    choices:
+      - text: a et b sont annulés
+        correct: true
+      - text: Seul a est annulé
+        correct: false
+      - text: Seul b est annulé
+        correct: false
+      - text: Rien tant que cancelB n'est pas appelé
+        correct: false
+    answer: L'annulation descend vers les enfants.
+  - key: qcm-premier
+    format: multiple-choice
+    question: Trois goroutines cherchent le même résultat ; on veut arrêter les autres dès le premier trouvé. Comment ?
+    choices:
+      - text: Un contexte WithCancel partagé, annulé à la réception du premier résultat
+        correct: true
+      - text: Un channel de résultats bufferisé de taille 3, pour que les perdantes ne bloquent pas
+        correct: true
+      - text: Fermer le channel de résultats après le premier
+        correct: false
+      - text: os.Exit après le premier résultat
+        correct: false
+    answer: Fermer le channel ferait paniquer les autres émetteurs.
+  - key: trous-withcancel
+    format: fill-in
+    question: |-
+      Complétez :
+      ```go
+      ctx, cancel := context.___(parent)
+      ___ cancel()
+      ```
+    blanks:
+      - - WithCancel
+      - - defer
+    answer: WithCancel puis defer cancel.
+  - key: trous-select
+    format: fill-in
+    question: "Complétez l'envoi annulable :\n```go\nselect {\ncase sortie <- v:\ncase <-ctx.Done():\n\treturn ctx.___()\n}\n```"
+    blanks:
+      - - Err
+    answer: On renvoie l'erreur du contexte.
+  - key: trous-boucle
+    format: fill-in
+    question: "Complétez le test d'annulation dans une boucle de calcul :\n```go\nfor i, ligne := range lignes {\n\tif i%1000 == 0 {\n\t\tif err := ctx.Err(); err ___ nil {\n\t\t\treturn err\n\t\t}\n\t}\n\ttraiter(ligne)\n}\n```"
+    blanks:
+      - - '!='
+    answer: Err est non nil une fois le contexte annulé.
+  - key: trous-canceled
+    format: fill-in
+    question: "Complétez pour reconnaître une annulation :\n```go\nif errors.Is(err, context.___) {\n\treturn // le client est parti\n}\n```"
+    blanks:
+      - - Canceled
+    answer: context.Canceled.
+  - key: code-err
+    format: code-output
+    question: |-
+      ```go
+      ctx, cancel := context.WithCancel(context.Background())
+      fmt.Println(ctx.Err())
+      cancel()
+      <-ctx.Done()
+      fmt.Println(ctx.Err())
+      ```
+    answer: '`<nil>` puis `context canceled`.'
+    check:
+      code: "package main\n\nimport (\n\t\"context\"\n\t\"fmt\"\n)\n\nfunc main() {\n\tctx, cancel := context.WithCancel(context.Background())\n\tfmt.Println(ctx.Err())\n\tcancel()\n\t<-ctx.Done()\n\tfmt.Println(ctx.Err())\n}\n"
+      output: |-
+        <nil>
+        context canceled
+  - key: code-enfant
+    format: code-output
+    question: |-
+      ```go
+      parent, annulerParent := context.WithCancel(context.Background())
+      enfant, annulerEnfant := context.WithCancel(parent)
+      defer annulerParent()
+      annulerEnfant()
+      fmt.Println(parent.Err(), enfant.Err())
+      ```
+    answer: '`<nil> context canceled` : annuler l''enfant ne touche pas le parent.'
+    check:
+      code: "package main\n\nimport (\n\t\"context\"\n\t\"fmt\"\n)\n\nfunc main() {\n\tparent, annulerParent := context.WithCancel(context.Background())\n\tenfant, annulerEnfant := context.WithCancel(parent)\n\tdefer annulerParent()\n\tannulerEnfant()\n\tfmt.Println(parent.Err(), enfant.Err())\n}\n"
+      output: <nil> context canceled
+  - key: code-parent
+    format: code-output
+    question: |-
+      ```go
+      parent, annulerParent := context.WithCancel(context.Background())
+      enfant, annulerEnfant := context.WithCancel(parent)
+      defer annulerEnfant()
+      annulerParent()
+      <-enfant.Done()
+      fmt.Println(errors.Is(enfant.Err(), context.Canceled))
+      ```
+    answer: '`true` : l''annulation du parent descend vers l''enfant.'
+    check:
+      code: "package main\n\nimport (\n\t\"context\"\n\t\"errors\"\n\t\"fmt\"\n)\n\nfunc main() {\n\tparent, annulerParent := context.WithCancel(context.Background())\n\tenfant, annulerEnfant := context.WithCancel(parent)\n\tdefer annulerEnfant()\n\tannulerParent()\n\t<-enfant.Done()\n\tfmt.Println(errors.Is(enfant.Err(), context.Canceled))\n}\n"
+      output: 'true'
+  - key: code-producteur
+    format: code-output
+    question: "```go\nctx, cancel := context.WithCancel(context.Background())\nsortie := make(chan int)\nfini := make(chan error)\ngo func() {\n\tfor i := 0; ; i++ {\n\t\tselect {\n\t\tcase sortie <- i:\n\t\tcase <-ctx.Done():\n\t\t\tfini <- ctx.Err()\n\t\t\treturn\n\t\t}\n\t}\n}()\nfmt.Println(<-sortie, <-sortie)\ncancel()\nfmt.Println(<-fini)\n```"
+    answer: '`0 1` puis `context canceled` : le producteur s''arrête à l''annulation.'
+    check:
+      code: "package main\n\nimport (\n\t\"context\"\n\t\"fmt\"\n)\n\nfunc main() {\n\tctx, cancel := context.WithCancel(context.Background())\n\tsortie := make(chan int)\n\tfini := make(chan error)\n\tgo func() {\n\t\tfor i := 0; ; i++ {\n\t\t\tselect {\n\t\t\tcase sortie <- i:\n\t\t\tcase <-ctx.Done():\n\t\t\t\tfini <- ctx.Err()\n\t\t\t\treturn\n\t\t\t}\n\t\t}\n\t}()\n\tfmt.Println(<-sortie, <-sortie)\n\tcancel()\n\tfmt.Println(<-fini)\n}\n"
+      output: |-
+        0 1
+        context canceled
+  - key: bug-pas-de-cancel
+    format: bug-fix
+    question: |-
+      `go vet` signale « the cancel function returned by context.WithCancel should be called, not discarded » :
+      ```go
+      ctx, _ := context.WithCancel(ctx)
+      go surveiller(ctx)
+      return traiter(ctx)
+      ```
+    answer: |-
+      ```go
+      ctx, cancel := context.WithCancel(ctx)
+      defer cancel()
+      go surveiller(ctx)
+      return traiter(ctx)
+      ```
+      Sans cancel, la goroutine `surveiller` ne s'arrête jamais et le contexte reste attaché à son parent : fuite.
+  - key: bug-envoi
+    format: bug-fix
+    question: "Après l'annulation, la goroutine reste bloquée sur son envoi :\n```go\nfor _, l := range lignes {\n\tif ctx.Err() != nil {\n\t\treturn ctx.Err()\n\t}\n\tsortie <- l\n}\n```"
+    answer: "```go\nfor _, l := range lignes {\n\tselect {\n\tcase sortie <- l:\n\tcase <-ctx.Done():\n\t\treturn ctx.Err()\n\t}\n}\n```\nLe test avant l'envoi ne protège pas l'envoi lui-même ; le select surveille les deux."
+  - key: bug-boucle-calcul
+    format: bug-fix
+    question: "L'export d'un million de lignes continue de tourner longtemps après que le client a annulé :\n```go\nfunc exporter(ctx context.Context, lignes []Ligne, w io.Writer) error {\n\tfor _, l := range lignes {\n\t\tecrireCSV(w, l)\n\t}\n\treturn nil\n}\n```"
+    answer: "```go\nfunc exporter(ctx context.Context, lignes []Ligne, w io.Writer) error {\n\tfor i, l := range lignes {\n\t\tif i%1000 == 0 {\n\t\t\tif err := ctx.Err(); err != nil {\n\t\t\t\treturn err\n\t\t\t}\n\t\t}\n\t\tecrireCSV(w, l)\n\t}\n\treturn nil\n}\n```\nLa boucle ne consultait jamais le contexte ; un test régulier de `ctx.Err()` la rend annulable sans coût notable."
+  - key: bug-erreur-loggee
+    format: bug-fix
+    question: "Les journaux sont remplis d'erreurs « context canceled » à chaque client qui ferme son onglet :\n```go\nif err := service.Charger(r.Context()); err != nil {\n\tlog.Printf(\"ERREUR chargement : %v\", err)\n\thttp.Error(w, \"erreur\", 500)\n}\n```"
+    answer: "```go\nif err := service.Charger(r.Context()); err != nil {\n\tif errors.Is(err, context.Canceled) {\n\t\treturn // le client est parti : rien à signaler ni à répondre\n\t}\n\tlog.Printf(\"ERREUR chargement : %v\", err)\n\thttp.Error(w, \"erreur\", 500)\n}\n```\nUne annulation par le client est normale ; on la distingue avec errors.Is pour ne garder que les vraies erreurs."

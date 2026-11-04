@@ -1,0 +1,166 @@
+notion: ci-go
+lesson: |-
+  Une CI Go solide tient en quelques étapes, rapides grâce aux caches :
+
+  ```yaml
+  - uses: actions/setup-go@v6
+    with:
+      go-version-file: go.mod   # la même version que le module ; cache des modules et du build activé
+  - run: go mod tidy && git diff --exit-code go.mod go.sum
+  - run: go generate ./... && git diff --exit-code
+  - run: go vet ./...
+  - uses: golangci/golangci-lint-action@v8
+  - run: go test -race -shuffle=on -coverprofile=couverture.out ./...
+  - run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+  - run: go build ./...
+  ```
+
+  Chaque étape a son rôle :
+  - **tidy** et **generate** vérifiés : le dépôt reflète exactement les dépendances et le code généré ;
+  - **vet** et **golangci-lint** : les erreurs probables et le style ;
+  - **tests avec `-race`** : les courses de données ; `-shuffle=on` révèle les dépendances entre tests ;
+  - **couverture** publiée comme indicateur (pas comme seuil bloquant rigide) ;
+  - **govulncheck** : les vulnérabilités atteintes, aussi dans une tâche **planifiée** ;
+  - **build** de toutes les cibles nécessaires (`GOOS=windows`...) si le projet est multi-plateforme.
+
+  Les réglages utiles : `GOFLAGS=-mod=readonly` (la CI ne modifie jamais go.mod), `GOTOOLCHAIN=local` (pas de
+  téléchargement surprise d'une autre chaîne d'outils), le cache de `go build` et des modules (setup-go le fait), des
+  tests d'intégration dans un job séparé (`-tags integration`, Testcontainers).
+
+  Pour publier, **GoReleaser** construit, signe et publie binaires, archives et images à partir d'un tag.
+
+  **En entretien** : « tidy et generate vérifiés, vet, golangci-lint, tests avec -race, couverture, govulncheck, build ;
+  caches de modules et de build ; -mod=readonly ; GoReleaser pour publier. »
+cards:
+  - key: configuration-qualite-mets-place-nouveau-projet
+    format: scenario
+    question: Quelle configuration de qualité mets-tu en place sur un nouveau projet Go ?
+    answer: |-
+      En local : gopls dans l'éditeur, gofumpt et goimports à l'enregistrement. En CI, sur chaque pull request : vérification du formatage, `go vet`, golangci-lint avec un ensemble ciblé (staticcheck, errcheck, errorlint, gosec, bodyclose, sqlclosecheck, noctx, revive, exhaustive, et nilaway si l'équipe l'accepte), `go test -race -shuffle=on ./...` avec couverture, et `govulncheck`.
+      Je garderais la configuration versionnée et modérée : un linter qui produit trop de faux positifs finit désactivé ou contourné par des commentaires `//nolint` partout. Et périodiquement, `go fix` après une montée de version de Go.
+  - key: etapes-minimales-ci
+    format: course
+    question: Quelles étapes minimales dans une CI Go ?
+    answer: mod tidy vérifié, vet, golangci-lint, tests avec -race, govulncheck, build.
+  - key: accelerer-builds-ci
+    format: course
+    question: Comment accélérer les builds en CI ?
+    answer: Conserver GOMODCACHE et GOCACHE entre exécutions.
+  - key: verifier-mod-tidy-change-rien
+    format: course
+    question: Pourquoi vérifier que go mod tidy ne change rien ?
+    answer: Pour s'assurer que go.mod et go.sum commités sont cohérents avec le code.
+  - key: verifier-code-genere-jour
+    format: course
+    question: Comment vérifier que le code généré est à jour ?
+    answer: Lancer go generate en CI puis vérifier qu'aucun fichier n'a changé.
+  - key: sert-goreleaser
+    format: course
+    question: À quoi sert GoReleaser ?
+    answer: 'Publier un projet Go : binaires multi-plateformes, archives, checksums, changelog, images, paquets, signatures.'
+  - key: gotoolchain-local-ci
+    format: course
+    question: Pourquoi GOTOOLCHAIN=local en CI ?
+    answer: Pour éviter un téléchargement automatique d'une autre version de Go et maîtriser la version utilisée.
+  - key: mod-readonly
+    format: course
+    question: Que fait -mod=readonly ?
+    answer: Interdit à la commande go de modifier go.mod pendant le build (comportement par défaut).
+  - key: resultats-test-sont-ils-mis-cache
+    format: course
+    question: Les résultats de go test sont-ils mis en cache ?
+    answer: Oui pour les tests réussis dont les entrées n'ont pas changé ; -count=1 désactive ce cache.
+  - key: concois-pipeline-publication-cli-open-source
+    format: scenario
+    question: Conçois le pipeline de publication d'une CLI Go open source.
+    answer: |-
+      Sur chaque pull request : tidy vérifié, vet, golangci-lint, tests `-race` sur une matrice de versions de Go supportées et d'OS (Linux, macOS, Windows), govulncheck.
+      Sur un tag `v*` : GoReleaser compile pour toutes les plateformes cibles avec `-trimpath` et la version injectée, produit les archives et le fichier de sommes de contrôle, signe avec cosign, génère le SBOM, publie la release GitHub avec le changelog dérivé des Conventional Commits, et met à jour un tap Homebrew et une image Docker multi-architecture. La commande `version` de la CLI affiche la version, le commit et la date issus du build.
+  - key: vf-race
+    format: true-false
+    question: Les tests de la CI devraient tourner avec -race.
+    truth: true
+    answer: C'est là qu'on attrape les courses de données.
+  - key: vf-readonly
+    format: true-false
+    question: '`-mod=readonly` empêche la commande go de modifier go.mod pendant le build.'
+    truth: true
+    answer: Une dépendance manquante fait échouer au lieu d'être ajoutée en silence.
+  - key: vf-cache
+    format: true-false
+    question: actions/setup-go peut mettre en cache les modules et le cache de build entre deux exécutions.
+    truth: true
+    answer: C'est activé par défaut dans les versions récentes.
+  - key: vf-tidy
+    format: true-false
+    question: Vérifier que go mod tidy ne change rien est inutile en CI.
+    truth: false
+    answer: Cela garantit que go.mod et go.sum reflètent exactement le code.
+  - key: qcm-etapes
+    format: multiple-choice
+    question: Quelles étapes font partie d'une CI Go complète ?
+    choices:
+      - text: go vet et golangci-lint
+        correct: true
+      - text: go test -race
+        correct: true
+      - text: govulncheck
+        correct: true
+      - text: go install de chaque dépendance
+        correct: false
+    answer: Les dépendances sont téléchargées par le build lui-même.
+  - key: qcm-vitesse
+    format: multiple-choice
+    question: Comment accélérer la CI d'un projet Go ?
+    choices:
+      - text: Mettre en cache les modules et le cache de go build
+        correct: true
+      - text: Séparer les tests d'intégration dans un job parallèle
+        correct: true
+      - text: Désactiver -race
+        correct: false
+      - text: Lancer go clean -cache au début
+        correct: false
+    answer: Vider le cache annule tout le gain.
+  - key: qcm-toolchain
+    format: multiple-choice
+    question: Pourquoi fixer GOTOOLCHAIN=local en CI ?
+    choices:
+      - text: Pour que la CI utilise la version de Go installée, sans en télécharger une autre en silence
+        correct: true
+      - text: Pour que la version de Go soit choisie explicitement par la configuration de la CI
+        correct: true
+      - text: Pour accélérer les tests
+        correct: false
+      - text: Pour désactiver les modules
+        correct: false
+    answer: Sinon une directive toolchain du go.mod peut déclencher un téléchargement.
+  - key: qcm-publication
+    format: multiple-choice
+    question: Que fait GoReleaser ?
+    choices:
+      - text: Compile pour plusieurs plateformes à partir d'un tag
+        correct: true
+      - text: Publie archives, sommes de contrôle et images
+        correct: true
+      - text: Remplace les tests
+        correct: false
+      - text: Choisit les versions des dépendances
+        correct: false
+    answer: Il s'ajoute à la fin du pipeline.
+  - key: scenario-pipeline
+    format: scenario
+    question: Décris la CI que tu mettrais sur un service Go d'équipe.
+    answer: |-
+      Sur chaque pull request : setup-go avec la version du go.mod et les caches, vérification de tidy et du code généré,
+      go vet, golangci-lint (configuration versionnée), `go test -race -shuffle=on` avec couverture publiée, govulncheck,
+      build de l'image Docker. Un job séparé pour les tests d'intégration avec Testcontainers. Sur la branche principale :
+      publication de l'image avec la version injectée. Une tâche planifiée relance govulncheck chaque nuit.
+  - key: scenario-lente
+    format: scenario
+    question: La CI d'un gros monorepo Go prend 25 minutes. Comment la raccourcis-tu ?
+    answer: |-
+      Je vérifie d'abord les caches (modules, build, golangci-lint) : leur absence explique souvent l'essentiel. Puis je
+      parallélise : jobs séparés pour lint, tests unitaires et intégration, et tests découpés par packages. Les tests lents
+      passent en parallèle (t.Parallel) ou derrière -short pour les pull requests. Enfin, je ne teste que les packages
+      touchés et leurs dépendants quand l'outillage le permet.

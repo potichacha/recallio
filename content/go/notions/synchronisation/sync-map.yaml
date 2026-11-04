@@ -1,0 +1,150 @@
+notion: sync-map
+lesson: "**`sync.Map`** est une map sûre entre goroutines, sans verrou à écrire soi-même. Elle n'est **pas** un remplacement\ngénéral de `map` + `Mutex` : la documentation la réserve à **deux cas** :\n- des clés **écrites une fois, lues très souvent** (un cache qui ne fait que grandir) ;\n- des goroutines qui travaillent sur des **ensembles de clés disjoints**.\n\n```go\nvar sessions sync.Map // map[string]*Session\n\nsessions.Store(id, s)\nif v, ok := sessions.Load(id); ok {\n\ts := v.(*Session)                       // valeurs de type any : assertion à chaque lecture\n\t_ = s\n}\nactuelle, dejaLa := sessions.LoadOrStore(id, nouvelle) // insérer si absent, en une opération\nsessions.Delete(id)\nsessions.Range(func(k, v any) bool {\n\treturn true                             // false pour arrêter le parcours\n})\n```\n\nCe qu'il faut savoir :\n- les clés et valeurs sont des **`any`** : pas de typage, une assertion à chaque lecture (on l'enveloppe souvent dans\n  un type générique) ;\n- **pas de `Len`** : il faut compter avec `Range` ;\n- `Range` ne donne **pas d'instantané** cohérent : des écritures concurrentes peuvent apparaître ou non ;\n- les opérations combinées (`LoadOrStore`, `LoadAndDelete`, `CompareAndSwap`, `Swap`) sont **atomiques** ; une suite\n  `Load` puis `Store` ne l'est pas ;\n- dans les autres cas (écritures fréquentes, besoin de la taille, de plusieurs maps cohérentes), une `map` avec un\n  `Mutex` est plus claire et souvent plus rapide.\n\n**En entretien** : « sync.Map pour des clés écrites une fois et lues souvent, ou des ensembles disjoints ; sinon map +\nMutex, typée et plus lisible ; LoadOrStore pour une insertion atomique. »"
+cards:
+  - key: quand-utiliser-sync-map
+    format: course
+    question: Quand utiliser sync.Map ?
+    answer: Pour des clés écrites une fois et lues souvent, ou des ensembles de clés disjoints par goroutine ; sinon map + mutex.
+  - key: singleflight
+    format: course
+    question: C'est quoi singleflight ?
+    answer: 'Un mécanisme qui déduplique des appels concurrents pour une même clé : un seul s''exécute, les autres partagent le résultat.'
+  - key: caches-memoire
+    format: course
+    question: Quels caches en mémoire en Go ?
+    answer: ristretto, otter, golang-lru v2, bigcache, freecache.
+  - key: bigcache-freecache
+    format: course
+    question: Pourquoi bigcache ou freecache ?
+    answer: Pour de très gros caches sans multiplier les pointeurs que le GC doit scanner.
+  - key: terme-singleflight
+    format: course
+    question: Que désigne « singleflight » ?
+    answer: Déduplication d'appels concurrents identiques (x/sync)
+  - key: vf-remplace
+    format: true-false
+    question: sync.Map est le remplacement recommandé de map + Mutex dans tous les cas.
+    truth: false
+    answer: La documentation la réserve à deux cas précis ; ailleurs, map + Mutex est préférable.
+  - key: vf-len
+    format: true-false
+    question: sync.Map a une méthode Len.
+    truth: false
+    answer: Il faut compter avec Range.
+  - key: vf-load-or-store
+    format: true-false
+    question: '`LoadOrStore` insère la valeur seulement si la clé est absente, de façon atomique.'
+    truth: true
+    answer: Et indique si la clé était déjà là.
+  - key: vf-range
+    format: true-false
+    question: '`Range` parcourt un instantané cohérent de la map.'
+    truth: false
+    answer: Des écritures concurrentes peuvent être vues ou non pendant le parcours.
+  - key: qcm-cas
+    format: multiple-choice
+    question: Dans quels cas sync.Map est-elle adaptée ?
+    choices:
+      - text: Un cache dont les entrées sont écrites une fois puis lues très souvent
+        correct: true
+      - text: Des goroutines qui écrivent chacune sur leurs propres clés
+        correct: true
+      - text: Un compteur par clé mis à jour à chaque requête
+        correct: false
+      - text: Deux maps qui doivent rester cohérentes entre elles
+        correct: false
+    answer: Des écritures fréquentes ou une cohérence entre structures demandent un mutex.
+  - key: qcm-atomiques
+    format: multiple-choice
+    question: Quelles opérations de sync.Map sont atomiques ?
+    choices:
+      - text: '`LoadOrStore`'
+        correct: true
+      - text: '`LoadAndDelete`'
+        correct: true
+      - text: '`CompareAndSwap`'
+        correct: true
+      - text: Un `Load` suivi d'un `Store`
+        correct: false
+    answer: Entre Load et Store, une autre goroutine peut écrire.
+  - key: qcm-inconvenients
+    format: multiple-choice
+    question: Quels inconvénients a sync.Map ?
+    choices:
+      - text: Clés et valeurs de type any, avec une assertion à chaque lecture
+        correct: true
+      - text: Pas de taille directe
+        correct: true
+      - text: Elle n'est pas sûre entre goroutines
+        correct: false
+      - text: Elle interdit les clés de type string
+        correct: false
+    answer: Un type générique qui l'enveloppe rend l'API typée.
+  - key: qcm-arret
+    format: multiple-choice
+    question: Comment arrêter un parcours `Range` ?
+    choices:
+      - text: Renvoyer false depuis la fonction
+        correct: true
+      - text: Appeler break
+        correct: false
+      - text: Paniquer
+        correct: false
+      - text: Appeler Delete sur la clé courante
+        correct: false
+    answer: break n'est pas possible dans une fonction passée en argument.
+  - key: bug-load-store
+    format: bug-fix
+    question: "Deux connexions sont parfois créées pour le même hôte :\n```go\nif v, ok := connexions.Load(hote); ok {\n\treturn v.(*Conn)\n}\nc := ouvrir(hote)\nconnexions.Store(hote, c)\nreturn c\n```"
+    answer: "```go\nif v, ok := connexions.Load(hote); ok {\n\treturn v.(*Conn)\n}\nc := ouvrir(hote)\nv, deja := connexions.LoadOrStore(hote, c)\nif deja {\n\tc.Close() // une autre goroutine a gagné\n}\nreturn v.(*Conn)\n```\nLoad puis Store n'est pas atomique ; LoadOrStore garde une seule valeur, et l'on ferme la connexion perdante.\n(`singleflight` éviterait même d'en ouvrir deux.)"
+  - key: bug-compteurs
+    format: bug-fix
+    question: |-
+      Les compteurs par page perdent des incréments :
+      ```go
+      v, _ := vues.LoadOrStore(page, 0)
+      vues.Store(page, v.(int)+1)
+      ```
+    answer: "```go\ntype Vues struct {\n\tmu sync.Mutex\n\tn  map[string]int\n}\n\nfunc (v *Vues) Ajouter(page string) {\n\tv.mu.Lock()\n\tdefer v.mu.Unlock()\n\tv.n[page]++\n}\n```\nLa lecture puis l'écriture n'étaient pas atomiques. Pour des mises à jour fréquentes, une map et un mutex sont\nplus simples (ou des `*atomic.Int64` stockés dans la sync.Map)."
+  - key: bug-len
+    format: bug-fix
+    question: "La taille affichée par le tableau de bord est incohérente, et le parcours coûte cher à chaque appel :\n```go\nfunc (c *Cache) Taille() int {\n\tn := 0\n\tc.m.Range(func(_, _ any) bool { n++; return true })\n\treturn n\n}\n```"
+    answer: "```go\ntype Cache struct {\n\tmu sync.Mutex\n\tm  map[string]Entree\n}\n\nfunc (c *Cache) Taille() int {\n\tc.mu.Lock()\n\tdefer c.mu.Unlock()\n\treturn len(c.m)\n}\n```\nQuand on a besoin de la taille, d'un parcours cohérent ou d'écritures fréquentes, sync.Map est le mauvais outil ;\nune map protégée donne len en temps constant."
+  - key: bug-assertion
+    format: bug-fix
+    question: |-
+      Le service panique avec « interface conversion: interface {} is string, not *main.Session » :
+      ```go
+      sessions.Store(id, s.Jeton) // une string
+      // ailleurs
+      s := v.(*Session)
+      ```
+    answer: "```go\ntype Map[K comparable, V any] struct{ m sync.Map }\n\nfunc (m *Map[K, V]) Store(k K, v V) { m.m.Store(k, v) }\n\nfunc (m *Map[K, V]) Load(k K) (V, bool) {\n\tv, ok := m.m.Load(k)\n\tif !ok {\n\t\tvar zero V\n\t\treturn zero, false\n\t}\n\treturn v.(V), true\n}\n\nvar sessions Map[string, *Session]\n```\nLes valeurs `any` acceptaient n'importe quoi ; un type générique qui enveloppe sync.Map rend l'erreur visible à la\ncompilation."
+  - key: scenario-choix
+    format: scenario
+    question: Un collègue propose sync.Map pour le cache des profils utilisateur, mis à jour à chaque connexion. Ton avis ?
+    answer: |-
+      Ce n'est pas un des deux cas prévus : les écritures sont fréquentes et les clés réécrites. Une map protégée par un
+      Mutex (ou un RWMutex si les lectures dominent nettement) est typée, donne la taille et une éviction facile. Je
+      proposerais de mesurer les deux avec un benchmark parallèle réaliste si la performance est en jeu.
+  - key: scenario-cache-croissant
+    format: scenario
+    question: Donne un exemple où sync.Map est le bon choix.
+    answer: |-
+      Un cache de métadonnées calculées une fois par type (comme le cache des champs de structs d'`encoding/json`) : chaque
+      clé est écrite une seule fois puis lue des millions de fois par toutes les goroutines. sync.Map évite alors la
+      contention d'un verrou partagé en lecture, et `LoadOrStore` règle le cas où deux goroutines calculent la même entrée.
+  - key: scenario-typage
+    format: scenario
+    question: Comment rends-tu l'usage de sync.Map plus sûr dans une base de code ?
+    answer: |-
+      En l'enveloppant dans un type générique `Map[K, V]` qui expose Load, Store, LoadOrStore et Range typés : plus
+      d'assertion dispersée ni de valeur du mauvais type. Je documente pourquoi sync.Map plutôt qu'une map et un mutex, et
+      je garde ce type dans un package interne pour éviter qu'il serve partout par défaut.
+  - key: scenario-shards
+    format: scenario
+    question: Une map protégée par un seul mutex est très contendue sous des écritures fréquentes. sync.Map ou autre chose ?
+    answer: |-
+      sync.Map n'est pas faite pour des écritures fréquentes sur des clés partagées. Je découpe plutôt la map en
+      segments : N maps, chacune avec son mutex, choisies par un hash de la clé ; la contention est divisée par N. Je
+      mesure avant et après avec le profil de contention et un benchmark parallèle.

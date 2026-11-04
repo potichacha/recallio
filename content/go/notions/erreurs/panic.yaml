@@ -1,0 +1,179 @@
+notion: panic
+lesson: |-
+  **`panic`** arrête le déroulement normal de la goroutine : les fonctions remontent l'une après l'autre en exécutant
+  leurs **`defer`**, et si rien ne récupère la panique (`recover`), le **programme entier s'arrête** avec le message et
+  la pile d'appels de chaque goroutine, et le code de sortie 2.
+
+  ```go
+  panic("état impossible : solde négatif")
+  panic(fmt.Sprintf("format inconnu %q", f))
+  ```
+
+  Le runtime panique aussi sur les **erreurs de programmation** : indice hors limites, déréférence d'un pointeur nil,
+  écriture dans une map nil, division entière par zéro, assertion de type ratée, envoi sur un channel fermé.
+
+  Quand utiliser `panic` soi-même :
+  - un **bug** : un invariant violé, un cas « impossible » d'un switch ;
+  - une **initialisation** qui ne peut pas échouer en fonctionnement normal (`regexp.MustCompile` sur un motif
+    constant, un template embarqué) ;
+  - jamais pour une **erreur attendue** (fichier absent, entrée invalide, réseau en panne) : ce sont des erreurs.
+
+  Une panique dans une **goroutine** sans `recover` arrête tout le programme, même si la goroutine principale va bien.
+
+  **Piège classique** : utiliser `panic` comme une exception pour remonter une erreur de validation, avec un `recover`
+  plus haut. Le flux devient invisible, et la moindre goroutine oubliée fait tomber le service.
+
+  **En entretien** : « panic pour les bugs et l'irrécupérable ; elle déroule la pile en exécutant les defer, et arrête le
+  programme si personne ne la récupère ; les erreurs attendues sont des valeurs error. »
+cards:
+  - key: quand-utiliser-panic
+    format: course
+    question: Quand utiliser panic ?
+    answer: Pour des bugs et invariants violés, ou des initialisations Must au démarrage ; jamais pour des erreurs attendues.
+  - key: declenche-panic-niveau-runtime
+    format: course
+    question: Que déclenche un panic au niveau du runtime ?
+    answer: Index hors limites, nil pointer, division entière par zéro, écriture dans une map nil, assertion échouée, fermeture double d'un channel.
+  - key: deroulement
+    format: course
+    question: Que se passe-t-il quand une fonction panique ?
+    answer: Elle s'arrête, ses `defer` s'exécutent, puis l'appelant fait de même, et ainsi de suite ; si aucun `recover` n'arrête la panique, le programme s'arrête avec le message et les piles d'appels.
+  - key: runtime
+    format: course
+    question: Citez des erreurs qui font paniquer le runtime.
+    answer: Indice hors limites, déréférence de pointeur nil, écriture dans une map nil, division entière par zéro, assertion de type ratée, envoi sur un channel fermé.
+  - key: vf-defer
+    format: true-false
+    question: Les fonctions différées s'exécutent pendant qu'une panique remonte la pile.
+    truth: true
+    answer: C'est ce qui permet de libérer les ressources et de récupérer la panique.
+  - key: vf-code
+    format: true-false
+    question: Un programme arrêté par une panique non récupérée se termine avec le code de sortie 2.
+    truth: true
+    answer: Après avoir affiché le message et les piles d'appels.
+  - key: vf-attendue
+    format: true-false
+    question: Un fichier de configuration absent justifie une panique dans une bibliothèque.
+    truth: false
+    answer: 'C''est une erreur attendue : la bibliothèque la renvoie, l''appelant décide.'
+  - key: vf-goroutine
+    format: true-false
+    question: Une panique non récupérée dans une goroutine secondaire n'arrête que cette goroutine.
+    truth: false
+    answer: Elle arrête tout le programme.
+  - key: qcm-legitimes
+    format: multiple-choice
+    question: Quels usages de `panic` sont légitimes ?
+    choices:
+      - text: Un cas « impossible » dans un switch exhaustif, signe d'un bug
+        correct: true
+      - text: '`regexp.MustCompile` sur une expression constante du programme'
+        correct: true
+      - text: Un utilisateur qui saisit une date invalide
+        correct: false
+      - text: Une API distante qui répond 503
+        correct: false
+    answer: Les deux derniers sont des cas attendus, à traiter comme des erreurs.
+  - key: qcm-runtime
+    format: multiple-choice
+    question: Lesquelles provoquent une panique ?
+    choices:
+      - text: '`var m map[string]int; m["a"] = 1`'
+        correct: true
+      - text: '`var s []int; _ = s[0]`'
+        correct: true
+      - text: '`var s []int; s = append(s, 1)`'
+        correct: false
+      - text: '`var m map[string]int; _ = m["a"]`'
+        correct: false
+    answer: Lire une map nil et ajouter à un slice nil sont permis.
+  - key: qcm-valeur
+    format: multiple-choice
+    question: Que peut-on passer à `panic` ?
+    choices:
+      - text: Une chaîne
+        correct: true
+      - text: Une erreur
+        correct: true
+      - text: N'importe quelle valeur (le paramètre est un any)
+        correct: true
+      - text: Seulement un code entier
+        correct: false
+    answer: '`recover` renverra la même valeur.'
+  - key: qcm-must
+    format: multiple-choice
+    question: Que fait `template.Must(template.New("x").Parse(src))` si `src` est invalide ?
+    choices:
+      - text: Il panique
+        correct: true
+      - text: Il renvoie un template vide
+        correct: false
+      - text: Il renvoie une erreur
+        correct: false
+      - text: Il ignore l'erreur
+        correct: false
+    answer: Les fonctions `Must` transforment une erreur en panique, pour l'initialisation.
+  - key: code-defer
+    format: code-output
+    question: "```go\nfunc etape(n int) {\n\tdefer fmt.Println(\"fin de l'étape\", n)\n\tif n == 2 {\n\t\tpanic(\"boum\")\n\t}\n\tetape(n + 1)\n}\n\netape(1)\n```"
+    answer: '`fin de l''étape 2` puis `fin de l''étape 1`, puis le programme s''arrête sur `panic: boum`.'
+    check:
+      code: "package main\n\nimport \"fmt\"\n\nfunc etape(n int) {\n\tdefer fmt.Println(\"fin de l'étape\", n)\n\tif n == 2 {\n\t\tpanic(\"boum\")\n\t}\n\tetape(n + 1)\n}\n\nfunc main() {\n\tetape(1)\n}\n"
+      output: |-
+        fin de l'étape 2
+        fin de l'étape 1
+      panics: 'panic: boum'
+  - key: code-indice
+    format: code-output
+    question: |-
+      ```go
+      notes := []int{12, 15}
+      i := 2
+      fmt.Println("avant")
+      fmt.Println(notes[i])
+      ```
+    answer: '`avant`, puis `panic: runtime error: index out of range [2] with length 2`.'
+    check:
+      code: "package main\n\nimport \"fmt\"\n\nfunc main() {\n\tnotes := []int{12, 15}\n\ti := 2\n\tfmt.Println(\"avant\")\n\tfmt.Println(notes[i])\n}\n"
+      output: avant
+      panics: index out of range [2] with length 2
+  - key: code-assertion
+    format: code-output
+    question: |-
+      ```go
+      var v any = "texte"
+      n := v.(int)
+      fmt.Println(n)
+      ```
+    answer: 'Une panique « interface conversion: interface {} is string, not int ».'
+    check:
+      code: "package main\n\nimport \"fmt\"\n\nfunc main() {\n\tvar v any = \"texte\"\n\tn := v.(int)\n\tfmt.Println(n)\n}\n"
+      panics: interface conversion
+  - key: code-erreur-valeur
+    format: code-output
+    question: "```go\ndefer func() {\n\tr := recover()\n\terr, estErreur := r.(error)\n\tfmt.Println(estErreur, err)\n}()\npanic(fs.ErrNotExist)\n```"
+    answer: '`true file does not exist` : la valeur passée à `panic` peut être une erreur, retrouvée par `recover`.'
+    check:
+      code: "package main\n\nimport (\n\t\"fmt\"\n\t\"io/fs\"\n)\n\nfunc main() {\n\tdefer func() {\n\t\tr := recover()\n\t\terr, estErreur := r.(error)\n\t\tfmt.Println(estErreur, err)\n\t}()\n\tpanic(fs.ErrNotExist)\n}\n"
+      output: true file does not exist
+  - key: bug-validation
+    format: bug-fix
+    question: "Une saisie invalide fait tomber tout le service :\n```go\nfunc analyserAge(s string) int {\n\tn, err := strconv.Atoi(s)\n\tif err != nil {\n\t\tpanic(err)\n\t}\n\treturn n\n}\n```"
+    answer: "```go\nfunc analyserAge(s string) (int, error) {\n\tn, err := strconv.Atoi(s)\n\tif err != nil {\n\t\treturn 0, fmt.Errorf(\"âge %q invalide : %w\", s, err)\n\t}\n\treturn n, nil\n}\n```\nUne entrée invalide est attendue : on renvoie une erreur."
+  - key: bug-switch
+    format: bug-fix
+    question: "Un nouveau statut ajouté à l'énumération est silencieusement traité comme « brouillon » :\n```go\nswitch s {\ncase Publie:\n\treturn \"publié\"\ndefault:\n\treturn \"brouillon\"\n}\n```"
+    answer: "```go\nswitch s {\ncase Brouillon:\n\treturn \"brouillon\"\ncase Publie:\n\treturn \"publié\"\ndefault:\n\tpanic(fmt.Sprintf(\"statut inconnu : %d\", s))\n}\n```\nUn cas impossible est un bug : le signaler bruyamment vaut mieux qu'un mauvais résultat silencieux (le linter\n`exhaustive` aide aussi)."
+  - key: bug-goroutine
+    format: bug-fix
+    question: "Une tâche d'arrière-plan qui panique arrête tout le serveur :\n```go\ngo func() {\n\tenvoyerStatistiques()\n}()\n```"
+    answer: "```go\ngo func() {\n\tdefer func() {\n\t\tif r := recover(); r != nil {\n\t\t\tslog.Error(\"panique dans envoyerStatistiques\", \"valeur\", r, \"pile\", string(debug.Stack()))\n\t\t}\n\t}()\n\tenvoyerStatistiques()\n}()\n```\nUne panique non récupérée dans une goroutine arrête le programme ; la goroutine récupère, journalise, et l'on\ncorrige la cause."
+  - key: bug-must
+    format: bug-fix
+    question: |-
+      Le service panique dès qu'un utilisateur saisit un motif de recherche mal formé :
+      ```go
+      re := regexp.MustCompile(r.URL.Query().Get("motif"))
+      ```
+    answer: "```go\nre, err := regexp.Compile(r.URL.Query().Get(\"motif\"))\nif err != nil {\n\thttp.Error(w, \"motif invalide\", http.StatusBadRequest)\n\treturn\n}\n```\n`MustCompile` est réservé aux motifs constants du programme ; une entrée utilisateur passe par `Compile` et son\nerreur."

@@ -1,0 +1,155 @@
+notion: context-conventions
+lesson: "Les conventions autour du contexte sont suivies par toute la bibliothèque standard et par les linters :\n\n1. **Premier paramètre, nommé `ctx`** : `func (s *Service) Trouver(ctx context.Context, id string) (Produit, error)`.\n2. **Jamais dans une struct** : on le passe à chaque appel. Une struct qui garde un contexte mélange la durée de vie\n   de l'objet et celle d'une requête (exception admise : une struct qui représente elle-même une opération, comme\n   `http.Request`).\n3. **Jamais nil** : si l'on n'a pas de contexte, `context.TODO()` (ou `Background()` à la racine). Beaucoup de\n   fonctions paniquent sur un contexte nil.\n4. **On transmet celui qu'on a reçu** (ou un enfant), on n'en recrée pas un avec `Background()` au milieu du code :\n   cela couperait l'annulation et l'échéance de l'appelant.\n5. **Une fonction qui reçoit `ctx` le respecte** : elle le passe à ses appels bloquants et renvoie `ctx.Err()` si\n   elle s'arrête à cause de lui.\n6. **`cancel` appelé par celui qui a créé le contexte**, en `defer`.\n\n```go\n// bien\nfunc (c *Client) Envoyer(ctx context.Context, m Message) error\n\n// mal\ntype Client struct {\n\tctx context.Context // durée de vie confuse\n}\nfunc (c *Client) Envoyer(m Message, ctx context.Context) error // pas en premier\n```\n\nDans un serveur HTTP : `r.Context()` ; dans un test : `t.Context()` (Go 1.24), annulé à la fin du test.\n\n**En entretien** : « ctx en premier paramètre, jamais dans une struct, jamais nil, on propage celui qu'on reçoit, et\ncelui qui crée appelle cancel. »"
+cards:
+  - key: stocker-contexte-struct
+    format: course
+    question: Peut-on stocker un contexte dans une struct ?
+    answer: 'C''est déconseillé : on le passe en premier paramètre à chaque appel.'
+  - key: passer-contexte-nil
+    format: course
+    question: Peut-on passer un contexte nil ?
+    answer: Non, utiliser context.TODO().
+  - key: contexte-thread-safe
+    format: course
+    question: Un contexte est-il thread-safe ?
+    answer: Oui, il est immuable et utilisable par plusieurs goroutines.
+  - key: contexte-utiliser-handler-http
+    format: course
+    question: Quel contexte utiliser dans un handler HTTP ?
+    answer: r.Context(), annulé quand le client se déconnecte.
+  - key: vf-premier
+    format: true-false
+    question: Par convention, le contexte est le premier paramètre d'une fonction.
+    truth: true
+    answer: Et il se nomme ctx.
+  - key: vf-nil
+    format: true-false
+    question: On peut passer nil à une fonction qui attend un contexte si l'on n'en a pas.
+    truth: false
+    answer: On passe context.TODO() ; nil fait paniquer beaucoup de fonctions.
+  - key: vf-t-context
+    format: true-false
+    question: Depuis Go 1.24, `t.Context()` fournit dans un test un contexte annulé à la fin du test.
+    truth: true
+    answer: Juste avant les fonctions de nettoyage enregistrées par t.Cleanup.
+  - key: vf-recreer
+    format: true-false
+    question: Une fonction de bas niveau peut remplacer le contexte reçu par context.Background() pour être sûre de finir.
+    truth: false
+    answer: Elle couperait l'annulation et l'échéance de l'appelant ; WithoutCancel existe pour les rares cas voulus.
+  - key: qcm-signatures
+    format: multiple-choice
+    question: Quelles signatures respectent les conventions ?
+    choices:
+      - text: '`func Trouver(ctx context.Context, id string) (Produit, error)`'
+        correct: true
+      - text: '`func (s *Service) Lister(ctx context.Context, filtre Filtre) ([]Produit, error)`'
+        correct: true
+      - text: '`func Trouver(id string, ctx context.Context) (Produit, error)`'
+        correct: false
+      - text: '`func Trouver(c context.Context, ctx2 context.Context, id string)`'
+        correct: false
+    answer: Un seul contexte, en premier.
+  - key: qcm-struct
+    format: multiple-choice
+    question: Pourquoi ne pas stocker un contexte dans une struct ?
+    choices:
+      - text: La durée de vie de l'objet et celle de la requête se mélangent
+        correct: true
+      - text: Les appelants ne peuvent plus donner un contexte par appel
+        correct: true
+      - text: Le compilateur l'interdit
+        correct: false
+      - text: Le contexte devient mutable
+        correct: false
+    answer: C'est permis par le compilateur, déconseillé par la documentation.
+  - key: qcm-test
+    format: multiple-choice
+    question: Quel contexte utiliser dans un test ?
+    choices:
+      - text: '`t.Context()` (Go 1.24), annulé à la fin du test'
+        correct: true
+      - text: '`context.Background()`, avec un `WithTimeout` si besoin'
+        correct: true
+      - text: nil
+        correct: false
+      - text: '`r.Context()`'
+        correct: false
+    answer: t.Context permet aussi de vérifier que les goroutines s'arrêtent avec le test.
+  - key: qcm-cancel
+    format: multiple-choice
+    question: Qui doit appeler la fonction cancel d'un contexte ?
+    choices:
+      - text: La fonction qui a créé le contexte, en defer
+        correct: true
+      - text: N'importe quelle fonction appelée qui reçoit le contexte
+        correct: false
+      - text: Le ramasse-miettes
+        correct: false
+      - text: Personne si le contexte a un délai
+        correct: false
+    answer: Celui qui crée gère la durée de vie.
+  - key: bug-struct
+    format: bug-fix
+    question: "Après la première requête, toutes les suivantes échouent avec « context canceled » :\n```go\ntype Depot struct {\n\tdb  *sql.DB\n\tctx context.Context\n}\n\nfunc (d *Depot) Trouver(id string) (Produit, error) {\n\treturn d.lire(d.ctx, id)\n}\n```"
+    answer: "```go\ntype Depot struct {\n\tdb *sql.DB\n}\n\nfunc (d *Depot) Trouver(ctx context.Context, id string) (Produit, error) {\n\treturn d.lire(ctx, id)\n}\n```\nLe dépôt gardait le contexte d'une requête terminée ; chaque appel reçoit désormais le sien."
+  - key: bug-nil
+    format: bug-fix
+    question: |-
+      Le test panique dans `QueryContext` :
+      ```go
+      produits, err := depot.Lister(nil, filtre)
+      ```
+    answer: |-
+      ```go
+      produits, err := depot.Lister(t.Context(), filtre)
+      ```
+      Un contexte n'est jamais nil ; dans un test, `t.Context()` (ou `context.Background()`).
+  - key: bug-ordre
+    format: bug-fix
+    question: |-
+      Le linter signale « context.Context should be the first parameter of a function » :
+      ```go
+      func Exporter(format string, w io.Writer, ctx context.Context) error
+      ```
+    answer: |-
+      ```go
+      func Exporter(ctx context.Context, format string, w io.Writer) error
+      ```
+      Le contexte vient en premier, nommé ctx.
+  - key: bug-ignore
+    format: bug-fix
+    question: "La fonction reçoit un contexte mais n'arrête jamais l'appel quand il est annulé :\n```go\nfunc (c *Client) Telecharger(ctx context.Context, url string) ([]byte, error) {\n\tresp, err := http.Get(url)\n\tif err != nil {\n\t\treturn nil, err\n\t}\n\tdefer resp.Body.Close()\n\treturn io.ReadAll(resp.Body)\n}\n```"
+    answer: "```go\nfunc (c *Client) Telecharger(ctx context.Context, url string) ([]byte, error) {\n\treq, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)\n\tif err != nil {\n\t\treturn nil, err\n\t}\n\tresp, err := c.http.Do(req)\n\tif err != nil {\n\t\treturn nil, err\n\t}\n\tdefer resp.Body.Close()\n\treturn io.ReadAll(resp.Body)\n}\n```\nRecevoir ctx engage à le respecter : on le passe à la requête, qui s'interrompt à l'annulation."
+  - key: scenario-revue
+    format: scenario
+    question: En revue de code, quels points vérifies-tu sur l'usage du contexte ?
+    answer: |-
+      ctx en premier paramètre ; pas de contexte dans une struct ; jamais nil ni Background au milieu du code ; chaque
+      appel bloquant reçoit ctx (`QueryContext`, `NewRequestWithContext`, select sur Done) ; chaque WithCancel ou
+      WithTimeout suivi de `defer cancel()` ; les erreurs `context.Canceled` traitées comme normales ; et WithValue
+      réservé aux données de requête.
+  - key: scenario-struct-exception
+    format: scenario
+    question: http.Request contient un contexte. N'est-ce pas contraire à la convention ?
+    answer: |-
+      C'est l'exception admise : une Request représente elle-même une opération, dont la durée de vie est celle du
+      contexte. Il a été ajouté après coup (Go 1.7) pour ne pas casser l'API, avec `WithContext` pour en dériver une
+      copie. Pour un objet qui vit plus longtemps qu'une opération (un client, un dépôt, un service), on passe le contexte
+      à chaque appel.
+  - key: scenario-bibliotheque
+    format: scenario
+    question: Tu écris une bibliothèque cliente pour une API. Comment gères-tu le contexte dans son API publique ?
+    answer: |-
+      Chaque méthode qui fait un appel réseau prend `ctx context.Context` en premier paramètre et le passe à la requête ;
+      le client ne garde aucun contexte. Il a son propre délai par défaut (sur le `http.Client`), que le contexte de
+      l'appelant peut raccourcir. Les erreurs d'annulation sont renvoyées enveloppées, reconnaissables par `errors.Is`,
+      et aucune goroutine ne survit à l'appel.
+  - key: scenario-arret-service
+    format: scenario
+    question: Comment organises-tu les contextes d'un service, de main jusqu'aux requêtes ?
+    answer: |-
+      Dans main, `signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)` donne un contexte annulé à
+      l'arrêt, passé aux composants de fond (consommateurs, tâches planifiées). Le serveur HTTP crée un contexte par
+      requête (`r.Context()`), transmis à chaque couche et borné par des délais. À l'arrêt, `srv.Shutdown(ctx)` avec un
+      délai laisse finir les requêtes en cours.

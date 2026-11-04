@@ -1,0 +1,123 @@
+notion: cond
+lesson: "**`sync.Cond`** permet à des goroutines d'**attendre qu'une condition devienne vraie**, et à une autre de les\n**réveiller** quand l'état change. Elle s'utilise toujours avec un verrou.\n\n```go\ntype File struct {\n\tmu       sync.Mutex\n\tnonVide  *sync.Cond\n\telements []int\n}\n\nfunc NouvelleFile() *File {\n\tf := &File{}\n\tf.nonVide = sync.NewCond(&f.mu)\n\treturn f\n}\n\nfunc (f *File) Retirer() int {\n\tf.mu.Lock()\n\tdefer f.mu.Unlock()\n\tfor len(f.elements) == 0 { // une boucle, pas un if\n\t\tf.nonVide.Wait()          // relâche le verrou, dort, le reprend au réveil\n\t}\n\te := f.elements[0]\n\tf.elements = f.elements[1:]\n\treturn e\n}\n\nfunc (f *File) Ajouter(e int) {\n\tf.mu.Lock()\n\tf.elements = append(f.elements, e)\n\tf.mu.Unlock()\n\tf.nonVide.Signal() // réveille une goroutine en attente\n}\n```\n\nLes règles :\n- `Wait` **relâche** le verrou pendant l'attente et le **reprend** avant de rendre la main ;\n- on attend **toujours dans une boucle** `for !condition { c.Wait() }` : au réveil, une autre goroutine a pu\n  consommer l'état, et la condition peut être fausse de nouveau ;\n- **`Signal`** réveille une goroutine, **`Broadcast`** les réveille toutes (quand l'état intéresse tout le monde,\n  comme un arrêt) ;\n- `Wait` **ne connaît pas les contextes** : pas d'attente avec délai ni d'annulation, c'est sa grande limite.\n\nEn pratique, un **channel** exprime presque toujours mieux l'attente (avec `select`, délai et annulation). sync.Cond\nreste utile pour réveiller **de nombreuses goroutines plusieurs fois** sur un état partagé.\n\n**En entretien** : « Wait dans une boucle sous verrou ; Signal pour un, Broadcast pour tous ; pas de contexte ; un\nchannel convient mieux dans la plupart des cas. »"
+cards:
+  - key: wait
+    format: course
+    question: Que fait `c.Wait()` d'une sync.Cond ?
+    answer: Il relâche le verrou associé, endort la goroutine jusqu'à un Signal ou un Broadcast, puis reprend le verrou avant de rendre la main.
+  - key: boucle
+    format: course
+    question: Pourquoi attendre une sync.Cond dans une boucle `for` plutôt qu'avec un `if` ?
+    answer: 'Au réveil, une autre goroutine a pu consommer l''état ou le modifier : la condition peut être fausse de nouveau, il faut la revérifier avant d''agir.'
+  - key: signal-broadcast
+    format: course
+    question: Quelle différence entre Signal et Broadcast ?
+    answer: Signal réveille une seule goroutine en attente ; Broadcast les réveille toutes, par exemple quand l'état intéresse tout le monde (un arrêt, une ressource libérée en grande quantité).
+  - key: limite
+    format: course
+    question: Quelle est la principale limite de sync.Cond ?
+    answer: 'Wait ne prend pas de contexte : impossible d''attendre avec un délai ou d''être annulé. Un channel avec select est presque toujours préférable pour cette raison.'
+  - key: vf-verrou
+    format: true-false
+    question: Il faut détenir le verrou de la Cond avant d'appeler Wait.
+    truth: true
+    answer: Wait le relâche pendant l'attente et le reprend au réveil.
+  - key: vf-signal-verrou
+    format: true-false
+    question: Signal et Broadcast doivent obligatoirement être appelés en détenant le verrou.
+    truth: false
+    answer: C'est permis mais pas obligatoire ; seul l'état doit être modifié sous verrou.
+  - key: vf-contexte
+    format: true-false
+    question: '`c.Wait()` rend la main quand le contexte de la requête est annulé.'
+    truth: false
+    answer: Il ne connaît pas les contextes.
+  - key: vf-memoire
+    format: true-false
+    question: Un Signal envoyé quand personne n'attend est mémorisé pour la prochaine goroutine qui appellera Wait.
+    truth: false
+    answer: Il est perdu ; c'est l'état protégé, revérifié dans la boucle, qui porte l'information.
+  - key: qcm-usage
+    format: multiple-choice
+    question: Quelles écritures sont correctes avec une sync.Cond ?
+    choices:
+      - text: '`for !pret { c.Wait() }` sous verrou'
+        correct: true
+      - text: Modifier l'état sous verrou puis appeler Broadcast
+        correct: true
+      - text: '`if !pret { c.Wait() }` sous verrou'
+        correct: false
+      - text: Appeler Wait sans détenir le verrou
+        correct: false
+    answer: Wait sans verrou panique au moment de le relâcher.
+  - key: qcm-alternative
+    format: multiple-choice
+    question: Par quoi remplace-t-on le plus souvent une sync.Cond ?
+    choices:
+      - text: Un channel, avec select pour le délai et l'annulation
+        correct: true
+      - text: La fermeture d'un channel pour réveiller tout le monde une fois
+        correct: true
+      - text: Une boucle active qui teste l'état
+        correct: false
+      - text: Un time.Sleep entre deux vérifications
+        correct: false
+    answer: Une boucle active ou des sommeils gaspillent le processeur et ajoutent de la latence.
+  - key: qcm-broadcast
+    format: multiple-choice
+    question: Quand préférer Broadcast à Signal ?
+    choices:
+      - text: Quand toutes les goroutines en attente doivent voir le changement (un arrêt)
+        correct: true
+      - text: Quand les goroutines attendent des conditions différentes sur la même Cond
+        correct: true
+      - text: Quand on veut réveiller exactement une goroutine
+        correct: false
+      - text: Jamais, Signal suffit toujours
+        correct: false
+    answer: Avec des conditions différentes, Signal pourrait réveiller la mauvaise goroutine.
+  - key: qcm-newcond
+    format: multiple-choice
+    question: Comment crée-t-on une sync.Cond ?
+    choices:
+      - text: '`sync.NewCond(&mu)`, avec le verrou qui protège l''état'
+        correct: true
+      - text: '`sync.Cond{}` sans verrou'
+        correct: false
+      - text: '`make(sync.Cond)`'
+        correct: false
+      - text: '`new(sync.Cond).Lock()`'
+        correct: false
+    answer: La Cond garde le verrou dans son champ L.
+  - key: scenario-remplacer
+    format: scenario
+    question: En revue, tu trouves une file bloquante écrite avec sync.Cond. Que proposes-tu ?
+    answer: |-
+      Si la file a une capacité connue, un channel bufferisé fait la même chose en une ligne, avec `select` pour un délai
+      ou l'annulation par contexte, ce que Cond ne permet pas. Je garde Cond seulement si elle apporte quelque chose
+      de précis (réveiller souvent de nombreuses goroutines sur un état complexe), et je vérifie alors l'attente en boucle
+      et l'état modifié sous verrou.
+  - key: scenario-arret
+    format: scenario
+    question: Des goroutines attendent une Cond, et le service doit s'arrêter. Comment les réveilles-tu ?
+    answer: |-
+      Je positionne un état `ferme = true` sous verrou puis j'appelle `Broadcast` : toutes se réveillent, voient `ferme`
+      dans leur boucle d'attente (`for len(f.elements) == 0 && !f.ferme`) et sortent. Sans ce drapeau dans la
+      condition, elles se rendormiraient. Si l'arrêt doit suivre un contexte, une goroutine qui attend `ctx.Done()` peut
+      faire ce Broadcast.
+  - key: scenario-signal-perdu
+    format: scenario
+    question: Une goroutine reste bloquée sur Wait alors que le producteur a bien appelé Signal. Que vérifies-tu ?
+    answer: |-
+      Que l'état est modifié sous le verrou et vérifié dans la condition de la boucle : un Signal envoyé avant que la
+      goroutine n'attende est perdu, et seul l'état peut la faire passer. Ensuite, si plusieurs conditions partagent la
+      même Cond, Signal a pu réveiller une autre goroutine que celle concernée : il faut Broadcast ou une Cond par
+      condition.
+  - key: scenario-entretien
+    format: scenario
+    question: En entretien, on te demande d'expliquer sync.Cond et quand tu l'utiliserais.
+    answer: |-
+      C'est une variable de condition : on attend sous verrou, dans une boucle, qu'un état devienne vrai ; Wait relâche
+      le verrou pendant l'attente ; Signal réveille une goroutine, Broadcast toutes. Je l'utilise rarement : un channel
+      exprime mieux la plupart des attentes et accepte un délai ou un contexte. Cond garde un intérêt pour réveiller
+      plusieurs fois de nombreuses goroutines sur un état partagé.

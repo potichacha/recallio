@@ -1,0 +1,121 @@
+notion: piles-goroutines
+lesson: "Chaque goroutine a sa **propre pile**, mais bien plus petite que celle d'un thread du système :\n- elle démarre à **quelques Ko** (2 Ko historiquement ; depuis Go 1.19, le runtime ajuste la taille initiale d'après\n  la moyenne observée) ;\n- elle **grandit à la demande** : le compilateur ajoute au début de chaque fonction un test qui vérifie la place\n  restante ; s'il n'y en a pas assez, le runtime alloue une pile **deux fois plus grande** et y **copie** l'ancienne\n  (les pointeurs vers la pile sont mis à jour) ;\n- elle peut **rétrécir** lors du GC si elle n'utilise plus qu'une petite partie de sa taille ;\n- sa taille maximale est de **1 Go** sur 64 bits (`debug.SetMaxStack`) : une récursion infinie se termine par\n  « goroutine stack exceeds 1000000000-byte limit », une **erreur fatale** que `recover` ne rattrape pas.\n\nÀ comparer avec un thread du système, dont la pile est réservée d'avance (souvent 1 à 8 Mo) : on peut lancer des\n**centaines de milliers** de goroutines, pas autant de threads.\n\n```go\nfunc profondeur(n int) int {\n\tif n == 0 {\n\t\treturn 0\n\t}\n\treturn 1 + profondeur(n-1)\n}\n// profondeur(1_000_000) fonctionne : la pile grandit à quelques dizaines de Mo\n```\n\nLe revers : une goroutine **bloquée** pour toujours garde sa pile (et ce qu'elle référence). Les fuites de goroutines\nsont donc des fuites de mémoire.\n\n**En entretien** : « Quelques Ko au départ, une pile contiguë qui double et se copie à la demande, qui peut rétrécir,\nplafonnée à 1 Go ; d'où des centaines de milliers de goroutines possibles. »"
+cards:
+  - key: taille-initiale-pile-goroutine
+    format: course
+    question: Taille initiale de la pile d'une goroutine ?
+    answer: Environ 2 Ko, extensible dynamiquement.
+  - key: grandit-pile-goroutine
+    format: course
+    question: Comment grandit la pile d'une goroutine ?
+    answer: Le runtime alloue une pile deux fois plus grande et copie l'ancienne.
+  - key: explique-avoir-100-000-goroutines-mais
+    format: scenario
+    question: Explique pourquoi on peut avoir 100 000 goroutines mais pas 100 000 threads.
+    answer: |-
+      Un thread de l'OS réserve une pile de l'ordre du mégaoctet, demande au noyau de le créer et de le détruire, et son changement de contexte passe par le noyau. Une goroutine démarre avec une pile de 2 Ko qui grandit à la demande, et elle est ordonnancée en espace utilisateur par le runtime Go, qui la fait tourner sur un petit nombre de threads (GOMAXPROCS, plus ceux bloqués en appel système).
+      Surtout, une goroutine qui attend le réseau ne consomme aucun thread : le netpoller la gare et la réveille quand les données arrivent. 100 000 connexions inactives, c'est 100 000 petites piles en mémoire, pas 100 000 threads. Les virtual threads de Java 21 reprennent exactement cette idée.
+  - key: recursion-profonde-risquee
+    format: course
+    question: Une récursion profonde est-elle risquée en Go ?
+    answer: Moins qu'en Java (piles extensibles jusqu'à 1 Go), mais un stack overflow est fatal et non récupérable.
+  - key: depassement
+    format: course
+    question: Que se passe-t-il quand une récursion infinie dépasse la taille maximale de la pile ?
+    answer: Le runtime arrête le programme avec « goroutine stack exceeds 1000000000-byte limit » ; c'est une erreur fatale que recover ne peut pas rattraper.
+  - key: vf-copie
+    format: true-false
+    question: Quand une pile de goroutine grandit, le runtime alloue une pile plus grande et y copie l'ancienne.
+    truth: true
+    answer: Les piles sont contiguës, d'où la copie.
+  - key: vf-taille
+    format: true-false
+    question: Une goroutine réserve 8 Mo de pile dès sa création, comme un thread.
+    truth: false
+    answer: Elle démarre à quelques Ko.
+  - key: vf-retrecir
+    format: true-false
+    question: La pile d'une goroutine peut rétrécir.
+    truth: true
+    answer: Pendant le GC, si elle n'en utilise plus qu'une petite partie.
+  - key: vf-recover
+    format: true-false
+    question: Un recover attrape un dépassement de pile.
+    truth: false
+    answer: C'est une erreur fatale, pas une panique.
+  - key: qcm-croissance
+    format: multiple-choice
+    question: Comment la pile d'une goroutine grandit-elle ?
+    choices:
+      - text: Un test au début de chaque fonction vérifie la place restante
+        correct: true
+      - text: Le runtime alloue une pile deux fois plus grande et y copie l'ancienne
+        correct: true
+      - text: Le système d'exploitation l'agrandit à la demande
+        correct: false
+      - text: Elle ne grandit pas, elle est fixe
+        correct: false
+    answer: Les anciennes piles segmentées ont été abandonnées en Go 1.4 pour des piles contiguës copiées.
+  - key: qcm-consequences
+    format: multiple-choice
+    question: Quelles conséquences ont ces piles petites et extensibles ?
+    choices:
+      - text: On peut lancer des centaines de milliers de goroutines
+        correct: true
+      - text: Une récursion profonde est possible, jusqu'à 1 Go de pile
+        correct: true
+      - text: Une goroutine bloquée pour toujours ne coûte rien
+        correct: false
+      - text: Les goroutines n'ont pas de pile
+        correct: false
+    answer: Une goroutine bloquée garde sa pile et tout ce qu'elle référence.
+  - key: qcm-maximum
+    format: multiple-choice
+    question: Comment modifier la taille maximale de la pile d'une goroutine ?
+    choices:
+      - text: '`debug.SetMaxStack`'
+        correct: true
+      - text: '`ulimit -s`'
+        correct: false
+      - text: '`GOMAXPROCS`'
+        correct: false
+      - text: '`go build -stack`'
+        correct: false
+    answer: ulimit concerne les piles des threads du système, pas celles des goroutines.
+  - key: qcm-fuite
+    format: multiple-choice
+    question: Pourquoi une fuite de goroutines est-elle aussi une fuite de mémoire ?
+    choices:
+      - text: Chaque goroutine bloquée garde sa pile
+        correct: true
+      - text: Elle garde aussi en vie tout ce que sa pile référence
+        correct: true
+      - text: Le GC libère les goroutines bloquées
+        correct: false
+      - text: Ce n'en est pas une
+        correct: false
+    answer: Le GC ne ramasse jamais une goroutine, même bloquée pour toujours.
+  - key: scenario-recursion
+    format: scenario
+    question: Ton parcours récursif d'un arbre très profond (données utilisateur) fait planter le service. Que fais-tu ?
+    answer: |-
+      Un arbre fourni par l'utilisateur peut être arbitrairement profond : une récursion non bornée peut atteindre la
+      limite de 1 Go et provoquer une erreur fatale qui arrête tout le service. Je réécris le parcours en itératif, avec
+      une pile explicite (un slice), ou je limite la profondeur acceptée et je renvoie une erreur au-delà. Les
+      décodeurs de la bibliothèque standard (JSON) font de même avec une profondeur maximale.
+  - key: scenario-memoire
+    format: scenario
+    question: Le nombre de goroutines de ton service monte de 1 000 par heure. Quel impact, et comment le confirmes-tu ?
+    answer: |-
+      Chaque goroutine bloquée garde sa pile (quelques Ko au moins) et tout ce qu'elle référence : la mémoire monte avec
+      elles, jusqu'à l'OOM. Je suis la métrique `go_goroutines`, puis je prends un profil `goroutine` (`/debug/pprof/
+      goroutine?debug=1`) pour voir où elles sont bloquées : souvent un envoi sur un channel que personne ne lit, ou un
+      appel sans délai. Je corrige la cause (contexte, délai, channel bufferisé) et j'ajoute goleak aux tests.
+  - key: scenario-java
+    format: scenario
+    question: Compare les piles des goroutines à celles des threads Java, plateforme et virtuels.
+    answer: |-
+      Un thread plateforme Java a une pile native réservée d'avance (environ 1 Mo par défaut, réglée par `-Xss`), ce qui
+      limite leur nombre à quelques milliers. Les threads virtuels stockent leur pile sur le tas et la font grandir à la
+      demande, comme les goroutines, qui démarrent à quelques Ko et se copient en doublant. Les deux permettent des
+      centaines de milliers de fils d'exécution.
