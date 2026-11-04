@@ -1,5 +1,6 @@
 package com.recallio.content.infrastructure.persistence;
 
+import com.recallio.content.TourPage;
 import com.recallio.content.domain.NotionLevel;
 import com.recallio.content.domain.source.ParsedContent.ParsedNotion;
 import jakarta.persistence.Column;
@@ -11,6 +12,8 @@ import jakarta.persistence.Table;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 import org.jspecify.annotations.Nullable;
 
 /** Une notion du référentiel d'un sujet (ADR 0026), mappée directement : le module content reste simple. */
@@ -57,6 +60,11 @@ public class NotionEntity {
     @Nullable
     String lesson;
 
+    /** Les pages de la notion dans le Tour (ADR 0037), en JSON ; aucune pour une notion hors du Tour. */
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(nullable = false)
+    List<TourPage> tour;
+
     @Column(name = "created_at", nullable = false)
     Instant createdAt;
 
@@ -88,12 +96,13 @@ public class NotionEntity {
         this.requires = notion.requires().toArray(String[]::new);
         this.position = notion.position();
         this.lesson = notion.lesson();
+        this.tour = notion.tour();
         this.updatedAt = now;
         this.retiredAt = null;
     }
 
     ParsedNotion toParsed() {
         return new ParsedNotion(
-                slug, domain, chapter, chapterTitle, title, level, priority, List.of(requires), position, lesson);
+                slug, domain, chapter, chapterTitle, title, level, priority, List.of(requires), position, lesson, tour);
     }
 }

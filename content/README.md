@@ -340,6 +340,51 @@ cards:
   formats a au moins 4 cartes. C'est une mesure, pas un blocage, jusqu'au pilote (étape 6 de la phase 3 bis). En local,
   `./mvnw test -Dtest='ContentCoverageReportTest'` l'écrit dans `backend/target/content-coverage.md`.
 
+### Les pages du Tour (ADR 0037)
+
+Une notion du Tour a, dans son fichier, un bloc `tour` entre sa leçon et ses cartes : une ou plusieurs pages, dans
+l'ordre où on les lit. Le Tour d'un sujet suit l'ordre du référentiel.
+
+```yaml
+tour:
+  - title: Le premier programme   # facultatif : le titre de la notion par défaut ; 80 caractères au plus
+    text: |-
+      L'explication, en Markdown, pour quelqu'un qui découvre le langage.
+    example:
+      files:
+        main.go: |-                # Main.java en Java ; plusieurs fichiers sont permis
+          package main
+          ...
+      output: |-
+        La sortie exacte du programme.
+    task:                          # facultatif : un « À toi »
+      instructions: |-
+        La consigne.
+      starter:                     # compile et s'exécute, sans donner la sortie attendue
+        main.go: |-
+          ...
+      solution:                    # les mêmes fichiers que le code de départ
+        main.go: |-
+          ...
+      output: La sortie attendue.
+```
+
+- **Le public** : quelqu'un qui programme déjà dans un autre langage. Le texte n'est pas la leçon, qui est la fiche de
+  révision : il explique en phrases courtes, et invite à essayer (« Essaie : remplace `Println` par `Print` »).
+- **Un exemple par page** : un programme complet, qui s'exécute sans entrée et sort avec le code 0. En Go,
+  `package main` et `func main` ; en Java, un `Main.java`, éventuellement en fichier source compact
+  (`void main() { IO.println("Bonjour"); }`). Sa sortie est déterministe : ni heure, ni hasard, ni ordre d'une `map`
+  parcourue par `range`, ni architecture de la machine (`runtime.GOARCH`).
+- **Le code est formaté** comme le ferait l'outil du langage : des tabulations en Go (gofmt), quatre espaces en Java.
+  En YAML, une tabulation est permise dans un bloc `|-`, après l'indentation.
+- **Un « À toi »** demande une petite modification, vérifiable par la sortie seule. Le code de départ compile et
+  s'exécute, car l'utilisateur le lance d'abord, mais il ne donne pas la sortie attendue.
+- **Les prérequis** d'une notion qui sont dans le Tour ont leur page plus tôt, et toutes les pages d'un sujet sont dans
+  un seul langage : le parseur le vérifie (`SubjectFolderTest`).
+- **La CI joue chaque exemple et chaque « À toi »** dans le bac à sable (job `runner`) : `cd runner && ./mvnw test
+  -Dtest=TourTest` (Docker requis). Le job `content` compte les pages du Tour dans son résumé.
+- En Go, tout paquet standard est permis ; ceux de `sandbox/go/warm/warm.go` s'exécutent plus vite.
+
 ## 9. Liste de contrôle avant la pull request
 
 - [ ] Le fichier s'appelle `source/<subject>-entretien-reference.md`.
@@ -350,5 +395,7 @@ cards:
 - [ ] Chaque QCM a de 2 à 8 choix, au moins une bonne réponse et une explication.
 - [ ] Chaque bloc de code indique son langage ; le code des questions pièges a été exécuté.
 - [ ] Dans un dossier de sujet, chaque « qu'affiche ce code ? » a sa vérification `check` (ou `unverifiable`).
+- [ ] Chaque page du Tour s'exécute dans le bac à sable avec la sortie annoncée (`TourTest`), et chaque « À toi » part
+      d'un code qui s'exécute sans donner la sortie attendue.
 - [ ] `./mvnw test -Dtest=ReferenceDocumentTest` est vert.
 - [ ] Le rapport d'import ne liste ni anomalie ni retrait inattendu.
