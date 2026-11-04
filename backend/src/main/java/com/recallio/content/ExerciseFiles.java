@@ -11,7 +11,7 @@ import java.util.stream.Collectors;
  * solution modèle, et les tests qui jugent l'un et l'autre.
  *
  * <p>La solution a exactement les fichiers du code de départ : le joueur rend les mêmes fichiers, et les tests
- * s'exécutent sur eux.
+ * s'exécutent sur eux. Tous les fichiers sont d'un même langage ({@link #language()}, ADR 0033).
  */
 public record ExerciseFiles(List<SourceFile> starter, List<SourceFile> solution, List<SourceFile> tests) {
 
@@ -34,6 +34,37 @@ public record ExerciseFiles(List<SourceFile> starter, List<SourceFile> solution,
             throw new IllegalArgumentException(
                     "Un test ne peut pas remplacer un fichier du code de départ : " + shared);
         }
+        requireOneLanguage(starter, tests);
+    }
+
+    /** Le langage de l'exercice : celui de tous ses fichiers. */
+    public CodeLanguage language() {
+        return language(tests.getFirst());
+    }
+
+    private static void requireOneLanguage(List<SourceFile> code, List<SourceFile> tests) {
+        CodeLanguage language = language(tests.getFirst());
+        for (SourceFile file : code) {
+            requirePath(language, file, false);
+        }
+        for (SourceFile file : tests) {
+            requirePath(language, file, true);
+        }
+    }
+
+    private static void requirePath(CodeLanguage language, SourceFile file, boolean test) {
+        if (language(file) != language) {
+            throw new IllegalArgumentException("Un exercice est écrit dans un seul langage : %s n'est pas un fichier %s"
+                    .formatted(file.path(), language));
+        }
+        language.pathProblem(file.path(), test).ifPresent(problem -> {
+            throw new IllegalArgumentException("Exercice " + language + " : " + problem);
+        });
+    }
+
+    /** Le chemin d'un fichier a déjà été vérifié ({@link SourceFile#PATH_PATTERN}) : son extension est connue. */
+    private static CodeLanguage language(SourceFile file) {
+        return CodeLanguage.of(file.path()).orElseThrow();
     }
 
     private static void requireFiles(String part, List<SourceFile> files) {
@@ -53,21 +84,24 @@ public record ExerciseFiles(List<SourceFile> starter, List<SourceFile> solution,
     /**
      * Un fichier source d'un exercice.
      *
-     * @param path chemin relatif, avec des {@code /} : {@code fr/recallio/Panier.java}
+     * @param path chemin relatif, avec des {@code /} : {@code fr/recallio/Panier.java}, {@code panier.go}
      */
     public record SourceFile(String path, String content) {
 
         public static final int MAX_LENGTH = 20_000;
 
-        /** Des segments de lettres, chiffres, {@code _} ou {@code -}, et un fichier {@code .java}. */
-        public static final String PATH_PATTERN = "([A-Za-z0-9_-]+/)*[A-Za-z0-9_-]+\\.java";
+        /**
+         * Des segments de lettres, chiffres, {@code _} ou {@code -}, et un fichier {@code .java} ou {@code .go}. Chaque
+         * langage restreint encore ({@link CodeLanguage}).
+         */
+        public static final String PATH_PATTERN = "([A-Za-z0-9_-]+/)*[A-Za-z0-9_-]+\\.(java|go)";
 
         private static final Pattern PATH = Pattern.compile(PATH_PATTERN);
 
         public SourceFile {
             if (!PATH.matcher(path).matches()) {
                 throw new IllegalArgumentException(
-                        "Chemin de fichier invalide (un fichier .java, sans « .. ») : " + path);
+                        "Chemin de fichier invalide (un fichier .java ou .go, sans « .. ») : " + path);
             }
             if (content.isBlank() || content.length() > MAX_LENGTH) {
                 throw new IllegalArgumentException(

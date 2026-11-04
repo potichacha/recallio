@@ -1,6 +1,7 @@
 package com.recallio.runner.sandbox;
 
 import com.recallio.runner.sandbox.RunResult.Status;
+import com.recallio.runner.sandbox.RunResult.TestOutcome;
 import com.recallio.runner.sandbox.Submission.SourceFile;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -12,6 +13,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ExecutionException;
@@ -45,26 +47,35 @@ public class DockerSandbox {
     private static final Duration KILL_TIMEOUT = Duration.ofSeconds(10);
     private static final int FILE_MODE = 0644;
 
-    private final String image;
+    private final Map<Language, String> images;
     private final Duration timeout;
     private final Optional<String> runtime;
 
     @Inject
     DockerSandbox(SandboxConfig config) {
-        this(config.image(), config.timeout(), config.dockerRuntime());
+        this(
+                Map.of(Language.JAVA, config.image(Language.JAVA), Language.GO, config.image(Language.GO)),
+                config.timeout(),
+                config.dockerRuntime());
     }
 
-    public DockerSandbox(String image, Duration timeout, Optional<String> runtime) {
-        this.image = image;
+    /** @param images l'image de chaque langage accepté ; une soumission d'un autre langage est une erreur du runner */
+    public DockerSandbox(Map<Language, String> images, Duration timeout, Optional<String> runtime) {
+        this.images = Map.copyOf(images);
         this.timeout = timeout;
         this.runtime = runtime;
     }
 
     public RunResult run(Submission submission) {
+        String image = images.get(submission.language());
+        if (image == null) {
+            LOG.errorf("Aucune image pour le langage %s", submission.language());
+            return RunResult.failure(Status.ERROR, "Le bac à sable est indisponible.");
+        }
         String name = "recallio-run-" + UUID.randomUUID();
         Process process;
         try {
-            process = new ProcessBuilder(command(name)).start();
+            process = new ProcessBuilder(command(name, image)).start();
         } catch (IOException e) {
             LOG.errorf(e, "Impossible de lancer docker");
             return RunResult.failure(Status.ERROR, "Le bac à sable est indisponible.");
@@ -78,7 +89,7 @@ public class DockerSandbox {
                 return RunResult.failure(
                         Status.TIMEOUT, "L'exécution a dépassé %d secondes.".formatted(timeout.toSeconds()));
             }
-            RunResult result = interpret(stdout.get());
+            RunResult result = interpret(submission.language(), stdout.get());
             if (result.status() == Status.ERROR) {
                 LOG.warnf("Exécution %s en erreur (code %d) : %s", name, process.exitValue(), stderr.get());
             }
@@ -94,7 +105,7 @@ public class DockerSandbox {
     }
 
     /** La ligne de commande, isolation comprise ; chaque option compte (ADR 0030). */
-    List<String> command(String name) {
+    List<String> command(String name, String image) {
         List<String> command = new ArrayList<>(List.of(
                 "docker",
                 "run",
@@ -131,10 +142,11 @@ public class DockerSandbox {
     }
 
     /**
-     * Lit la sortie du conteneur. Une sortie qui commence par le marqueur du rapport donne le résultat de chaque test ;
-     * un rapport vide veut dire que les tests ne sont pas allés au bout.
+     * Lit la sortie du conteneur. Une sortie qui commence par le marqueur du rapport donne le résultat de chaque test,
+     * dans le format du langage (JUnit en XML, {@code test2json} pour Go) ; un rapport sans test veut dire que les tests
+     * ne sont pas allés au bout.
      */
-    static RunResult interpret(String stdout) {
+    static RunResult interpret(Language language, String stdout) {
         int newline = stdout.indexOf('\n');
         String marker = (newline < 0 ? stdout : stdout.substring(0, newline)).strip();
         String rest = newline < 0 ? "" : stdout.substring(newline + 1);
@@ -144,17 +156,26 @@ public class DockerSandbox {
         if (!marker.equals(REPORT)) {
             return RunResult.failure(Status.ERROR, "Le bac à sable n'a pas répondu comme prévu.");
         }
-        if (rest.isBlank()) {
-            return RunResult.failure(
-                    Status.FAILED,
-                    "Les tests ne sont pas allés au bout : le programme s'est arrêté (System.exit ?) ou a manqué de"
-                            + " mémoire.");
-        }
+        List<TestOutcome> tests;
         try {
-            return RunResult.of(JunitReport.parse(rest));
+            tests = rest.isBlank() ? List.of() : report(language, rest);
         } catch (IllegalArgumentException e) {
             return RunResult.failure(Status.ERROR, "Le rapport des tests est illisible.");
         }
+        if (tests.isEmpty()) {
+            return RunResult.failure(
+                    Status.FAILED,
+                    "Les tests ne sont pas allés au bout : le programme s'est arrêté (%s ?) ou a manqué de mémoire."
+                            .formatted(language == Language.GO ? "os.Exit" : "System.exit"));
+        }
+        return RunResult.of(tests);
+    }
+
+    private static List<TestOutcome> report(Language language, String report) {
+        return switch (language) {
+            case JAVA -> JunitReport.parse(report);
+            case GO -> GoTestReport.parse(report);
+        };
     }
 
     /** Envoie les fichiers en archive tar : le code dans {@code src/}, les tests dans {@code tests/}. */

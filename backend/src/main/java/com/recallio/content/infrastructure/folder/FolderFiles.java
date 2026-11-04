@@ -83,18 +83,21 @@ final class FolderFiles {
             @Nullable String unverifiable) {}
 
     /**
-     * La vérification d'un « qu'affiche ce code ? » par la CI (ADR 0028) : soit le code ne compile pas, soit il affiche
-     * {@code output} (rien si absent) puis lève éventuellement l'exception {@code throws}.
+     * La vérification d'un « qu'affiche ce code ? » par la CI (ADR 0028, 0033) : soit le code ne compile pas, soit il
+     * affiche {@code output} (rien si absent) puis s'arrête éventuellement sur l'exception {@code throws} (Java) ou la
+     * {@code panic} attendue (Go).
      *
-     * @param code le code exécuté, quand la question n'est pas exécutable telle quelle ; sinon son bloc {@code java}
+     * @param code le code exécuté, quand la question n'est pas exécutable telle quelle ; sinon son bloc de code
      * @param output la sortie standard attendue, exacte aux fins de ligne près
-     * @param throwsName le nom simple de l'exception attendue ({@code NullPointerException})
+     * @param throwsName le nom simple de l'exception Java attendue ({@code NullPointerException})
+     * @param panics un extrait du message d'arrêt Go attendu ({@code index out of range}, {@code deadlock})
      * @param compiles {@code false} si le code ne doit pas compiler
      */
     record CheckEntry(
             @Nullable String code,
             @Nullable String output,
             @JsonProperty("throws") @Nullable String throwsName,
+            @Nullable String panics,
             @Nullable Boolean compiles) {}
 
     record ChoiceEntry(

@@ -1,5 +1,6 @@
 package com.recallio.review.infrastructure.runner;
 
+import com.recallio.content.CodeLanguage;
 import com.recallio.content.ExerciseFiles.SourceFile;
 import com.recallio.review.domain.exercise.CodeRunner;
 import com.recallio.review.domain.exercise.ExerciseRun;
@@ -32,10 +33,10 @@ public class HttpCodeRunner implements CodeRunner {
     }
 
     @Override
-    public ExerciseRun run(List<SourceFile> code, List<SourceFile> tests) {
+    public ExerciseRun run(CodeLanguage language, List<SourceFile> code, List<SourceFile> tests) {
         RunResponse response;
         try {
-            response = client.run(new RunRequest(files(code), files(tests)));
+            response = client.run(new RunRequest(language.name(), files(code), files(tests)));
         } catch (WebApplicationException e) {
             LOG.warnf("Le runner a répondu %d", e.getResponse().getStatus());
             throw new RunnerUnavailableException();

@@ -23,7 +23,8 @@ interface RunnerClient {
     @Produces(MediaType.APPLICATION_JSON)
     RunResponse run(RunRequest request);
 
-    record RunRequest(List<FileDto> code, List<FileDto> tests) {}
+    /** @param language {@code JAVA} ou {@code GO} (ADR 0033) */
+    record RunRequest(String language, List<FileDto> code, List<FileDto> tests) {}
 
     record FileDto(String path, String content) {}
 

@@ -132,9 +132,12 @@ final class NotionCards {
         if (check == null) {
             return null;
         }
-        boolean expectsResult = check.output() != null || check.throwsName() != null;
+        if (check.throwsName() != null && check.panics() != null) {
+            return "une vérification attend une exception Java (throws) ou une panic Go (panics), pas les deux";
+        }
+        boolean expectsResult = check.output() != null || check.throwsName() != null || check.panics() != null;
         if (Boolean.FALSE.equals(check.compiles()) == expectsResult) {
-            return "une vérification attend soit une sortie ou une exception (output, throws), soit compiles: false";
+            return "une vérification attend soit une sortie ou un arrêt (output, throws, panics), soit compiles: false";
         }
         return null;
     }

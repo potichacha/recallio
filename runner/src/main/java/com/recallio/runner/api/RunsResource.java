@@ -4,6 +4,7 @@ import com.recallio.runner.api.RunDtos.RunRequest;
 import com.recallio.runner.api.RunDtos.RunResultDto;
 import com.recallio.runner.sandbox.DockerSandbox;
 import com.recallio.runner.sandbox.SandboxConfig;
+import com.recallio.runner.sandbox.Submission;
 import io.smallrye.common.annotation.RunOnVirtualThread;
 import jakarta.inject.Singleton;
 import jakarta.validation.Valid;
@@ -38,12 +39,21 @@ public class RunsResource {
     @Produces(MediaType.APPLICATION_JSON)
     @RunOnVirtualThread
     public Response run(@NotNull @Valid RunRequest request) {
+        Submission submission;
+        try {
+            submission = request.toSubmission();
+        } catch (IllegalArgumentException e) {
+            // Des fichiers qui ne sont pas ceux du langage annoncé, ou un test qui remplacerait un fichier du code.
+            return Response.status(Response.Status.BAD_REQUEST)
+                    .entity(e.getMessage())
+                    .type(MediaType.TEXT_PLAIN)
+                    .build();
+        }
         if (!slots.tryAcquire()) {
             return Response.status(Response.Status.SERVICE_UNAVAILABLE).build();
         }
         try {
-            return Response.ok(RunResultDto.from(sandbox.run(request.toSubmission())))
-                    .build();
+            return Response.ok(RunResultDto.from(sandbox.run(submission))).build();
         } finally {
             slots.release();
         }

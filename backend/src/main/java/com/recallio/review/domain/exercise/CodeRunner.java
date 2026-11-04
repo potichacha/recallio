@@ -1,5 +1,6 @@
 package com.recallio.review.domain.exercise;
 
+import com.recallio.content.CodeLanguage;
 import com.recallio.content.ExerciseFiles.SourceFile;
 import java.util.List;
 
@@ -9,6 +10,9 @@ import java.util.List;
  */
 public interface CodeRunner {
 
-    /** @throws RunnerUnavailableException si le runner ne répond pas, est saturé ou n'a pas pu exécuter le code */
-    ExerciseRun run(List<SourceFile> code, List<SourceFile> tests);
+    /**
+     * @param language le langage de l'exercice, qui choisit le bac à sable (ADR 0033)
+     * @throws RunnerUnavailableException si le runner ne répond pas, est saturé ou n'a pas pu exécuter le code
+     */
+    ExerciseRun run(CodeLanguage language, List<SourceFile> code, List<SourceFile> tests);
 }
