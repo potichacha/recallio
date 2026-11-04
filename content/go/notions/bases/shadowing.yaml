@@ -1,0 +1,151 @@
+notion: shadowing
+lesson: "Le **masquage** (shadowing) : une déclaration dans un bloc interne crée une **nouvelle** variable du même nom, qui\ncache celle du bloc externe jusqu'à la fin du bloc.\n\n```go\nvar err error\nif cond {\n\tresultat, err := calculer() // NOUVEAU err, local au if\n\t_ = resultat\n}\nreturn err // toujours nil : l'erreur de calculer() est perdue\n```\n\nC'est `:=` qui piège : dans un nouveau bloc (`if`, `for`, `switch`, une fonction anonyme), il déclare de nouvelles\nvariables pour **tous** les noms de gauche, même si un nom existe dans le bloc externe. Dans un **même** bloc, en\nrevanche, `:=` réutilise les variables existantes (il suffit qu'une seule soit nouvelle).\n\nLes endroits typiques : `if v, err := f(); err != nil` (le `err` est local au `if`, c'est souvent voulu), les blocs\n`if`/`else` qui affectent un résultat déclaré avant, les retours nommés masqués dans un bloc.\n\nOn s'en protège avec `=` quand on veut affecter la variable externe, et avec des outils : `go vet` avec l'analyseur\n`shadow`, ou des linters (`govet` dans golangci-lint).\n\n**Piège classique** : un retour nommé `err` masqué par `x, err := ...` dans un bloc, puis un `return` nu. Le\ncompilateur refuse parfois (« err is shadowed during return »), mais pas dans tous les cas.\n\n**En entretien** : « `:=` dans un bloc interne crée une nouvelle variable qui masque l'externe ; on utilise `=` pour\naffecter, et l'analyseur shadow pour le détecter. »"
+cards:
+  - key: shadowing
+    format: course
+    question: C'est quoi le shadowing ?
+    answer: Une variable déclarée dans un bloc interne avec le même nom qui masque la variable externe.
+  - key: qcm-vet
+    format: multiple-choice
+    question: Quel outil signale les masquages de variables ?
+    choices:
+      - text: L'analyseur `shadow` de go vet (activable dans golangci-lint)
+        correct: true
+      - text: '`gofmt -s`'
+        correct: false
+      - text: Le compilateur, par défaut
+        correct: false
+      - text: '`go mod tidy`'
+        correct: false
+    answer: '`shadow` n''est pas actif par défaut dans `go vet` ; on l''active explicitement.'
+  - key: meme-bloc
+    format: course
+    question: Dans un même bloc, `a, err := f()` puis `b, err := g()` crée-t-il deux variables `err` ?
+    answer: 'Non : dans le même bloc, `err` est réutilisée (seul `b` est nouveau). Le masquage n''arrive que dans un bloc interne.'
+  - key: detecter
+    format: course
+    question: Comment détecter les masquages dangereux ?
+    answer: Avec l'analyseur `shadow` de `go vet` (ou via golangci-lint), et en relisant les `:=` dans les blocs `if`, `for` et les fonctions anonymes.
+  - key: if-init
+    format: course
+    question: Le `err` de `if v, err := f(); err != nil { ... }` existe-t-il après le `if` ?
+    answer: 'Non : les variables de l''instruction d''initialisation sont locales au `if` et à ses `else`, ce qui est souvent voulu.'
+  - key: vf-interne
+    format: true-false
+    question: Dans un bloc `if`, `x := 2` modifie la variable `x` déclarée avant le `if`.
+    truth: false
+    answer: Il déclare un nouveau `x` local au bloc ; l'externe ne change pas.
+  - key: vf-egal
+    format: true-false
+    question: Utiliser `=` au lieu de `:=` dans le bloc interne évite le masquage.
+    truth: true
+    answer: '`=` affecte la variable existante ; il faut alors déclarer avant les autres noms nouveaux.'
+  - key: vf-compilateur
+    format: true-false
+    question: Le compilateur refuse toujours le code qui masque une variable.
+    truth: false
+    answer: Le masquage est légal ; seuls quelques cas (retour nu avec un retour nommé masqué) sont refusés.
+  - key: vf-package
+    format: true-false
+    question: Une variable locale peut masquer un nom de package importé, comme `strings`.
+    truth: true
+    answer: C'est légal, et le package devient inaccessible dans ce bloc ; on évite de nommer ses variables comme ses imports.
+  - key: qcm-perdu
+    format: multiple-choice
+    question: Pourquoi cette fonction renvoie-t-elle toujours nil ? `var err error` / `if ok { _, err := f() }` / `return err`
+    choices:
+      - text: Le `err` du bloc `if` est une nouvelle variable
+        correct: true
+      - text: '`f` ne renvoie jamais d''erreur'
+        correct: false
+      - text: '`var err error` n''est pas initialisé'
+        correct: false
+      - text: '`return` ignore les variables d''erreur'
+        correct: false
+    answer: On remplace `:=` par `=` dans le bloc.
+  - key: qcm-endroits
+    format: multiple-choice
+    question: Où le masquage par `:=` survient-il ?
+    choices:
+      - text: Dans le corps d'un `if` ou d'un `for`
+        correct: true
+      - text: Dans une fonction anonyme (closure)
+        correct: true
+      - text: Dans le même bloc que la déclaration d'origine
+        correct: false
+      - text: Au niveau du package
+        correct: false
+    answer: Il faut un bloc plus interne que celui de la variable masquée.
+  - key: qcm-corriger
+    format: multiple-choice
+    question: Comment affecter le résultat à `client` déclaré avant le `if` ? `var client *Client` / `if cache { client, err := charger() ... }`
+    choices:
+      - text: Déclarer `var err error` avant, puis écrire `client, err = charger()`
+        correct: true
+      - text: Écrire `client, err := charger()` deux fois
+        correct: false
+      - text: Renommer `client` en `Client`
+        correct: false
+      - text: Ce n'est pas possible
+        correct: false
+    answer: Avec `=`, les deux noms doivent exister ; on déclare `err` d'abord.
+  - key: code-masque
+    format: code-output
+    question: "```go\nx := 1\nif true {\n\tx := 2\n\tfmt.Println(x)\n}\nfmt.Println(x)\n```"
+    answer: '`2` puis `1` : le `x` du bloc est une nouvelle variable.'
+    check:
+      code: "package main\n\nimport \"fmt\"\n\nfunc main() {\n\tx := 1\n\tif true {\n\t\tx := 2\n\t\tfmt.Println(x)\n\t}\n\tfmt.Println(x)\n}\n"
+      output: |-
+        2
+        1
+  - key: code-for
+    format: code-output
+    question: "```go\ntotal := 0\nfor i := 1; i <= 3; i++ {\n\ttotal := total + i\n\t_ = total\n}\nfmt.Println(total)\n```"
+    answer: '`0` : chaque itération déclare un nouveau `total` local, l''externe ne change jamais.'
+    check:
+      code: "package main\n\nimport \"fmt\"\n\nfunc main() {\n\ttotal := 0\n\tfor i := 1; i <= 3; i++ {\n\t\ttotal := total + i\n\t\t_ = total\n\t}\n\tfmt.Println(total)\n}\n"
+      output: '0'
+  - key: code-erreur-perdue
+    format: code-output
+    question: "```go\nfunc f() (int, error) { return 0, errors.New(\"échec\") }\n\nvar err error\nif true {\n\t_, err := f()\n\t_ = err\n}\nfmt.Println(err)\n```"
+    answer: '`<nil>` : l''erreur a été affectée au `err` local du bloc.'
+    check:
+      code: "package main\n\nimport (\n\t\"errors\"\n\t\"fmt\"\n)\n\nfunc f() (int, error) { return 0, errors.New(\"échec\") }\n\nfunc main() {\n\tvar err error\n\tif true {\n\t\t_, err := f()\n\t\t_ = err\n\t}\n\tfmt.Println(err)\n}\n"
+      output: <nil>
+  - key: code-package
+    format: code-output
+    question: |-
+      ```go
+      strings := []string{"a", "b"}
+      fmt.Println(strings.Join(strings, ","))
+      ```
+    answer: 'Rien : le code ne compile pas, la variable `strings` masque le package (« strings.Join undefined »).'
+    check:
+      code: "package main\n\nimport (\n\t\"fmt\"\n\t\"strings\"\n)\n\nfunc main() {\n\tstrings := []string{\"a\", \"b\"}\n\tfmt.Println(strings.Join(strings, \",\"))\n}\n"
+      compiles: false
+  - key: bug-erreur-perdue
+    format: bug-fix
+    question: "Les erreurs de chargement ne remontent jamais :\n```go\nfunc charger(cache bool) (*Config, error) {\n\tvar cfg *Config\n\tvar err error\n\tif !cache {\n\t\tcfg, err := lireFichier()\n\t\t_ = cfg\n\t}\n\treturn cfg, err\n}\n```"
+    answer: "```go\nif !cache {\n\tcfg, err = lireFichier()\n}\nreturn cfg, err\n```\nLe `:=` du bloc déclarait de nouvelles variables `cfg` et `err` ; `=` affecte celles de la fonction."
+  - key: bug-closure
+    format: bug-fix
+    question: "Le compteur reste à 0 :\n```go\ncompte := 0\ntraiter := func(n int) {\n\tcompte := compte + n\n\t_ = compte\n}\ntraiter(5)\n```"
+    answer: "```go\ntraiter := func(n int) {\n\tcompte += n\n}\n```\nDans la closure, `:=` créait une variable locale au lieu de modifier `compte` capturée."
+  - key: bug-retour-nomme
+    format: bug-fix
+    question: "Le compilateur signale « err is shadowed during return » :\n```go\nfunc sauver() (err error) {\n\tif ok {\n\t\tn, err := ecrire()\n\t\t_ = n\n\t\treturn\n\t}\n\treturn nil\n}\n```"
+    answer: "```go\nfunc sauver() (err error) {\n\tif ok {\n\t\t_, err = ecrire()\n\t\treturn err\n\t}\n\treturn nil\n}\n```\nLe `err` du bloc masquait le retour nommé ; on affecte celui de la fonction et l'on préfère un `return` explicite."
+  - key: bug-import
+    format: bug-fix
+    question: |-
+      Le compilateur signale « url.Parse undefined (type string has no field or method Parse) » :
+      ```go
+      url := "https://exemple.fr"
+      u, err := url.Parse(url)
+      ```
+    answer: |-
+      ```go
+      adresse := "https://exemple.fr"
+      u, err := url.Parse(adresse)
+      ```
+      La variable `url` masquait le package `net/url` : on la renomme.

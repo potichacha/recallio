@@ -1,0 +1,82 @@
+notion: mutex
+cards:
+  - key: cache-memoire-partage-plusieurs-goroutines
+    format: scenario
+    question: Un cache en mémoire est partagé entre plusieurs goroutines et le service plante avec 'concurrent map writes'.
+    answer: |-
+      Les maps Go ne sont pas protégées, et le runtime détecte certains accès concurrents et arrête le programme, ce qui n'est pas récupérable. Je protégerais la map par un `sync.RWMutex` encapsulé dans une struct avec des méthodes `Get`/`Set`, pour que personne ne puisse accéder à la map sans verrou. Le `RWMutex` laisse plusieurs lectures simultanées.
+      `sync.Map` est une alternative pour des cas précis : clés écrites une fois puis lues souvent, ou goroutines qui manipulent des ensembles de clés disjoints. Pour un cache avec expiration et taille maximale, j'utiliserais une bibliothèque éprouvée (ristretto, otter) plutôt que de la réinventer.
+      Et je lancerais les tests avec `-race` pour trouver les autres accès non protégés.
+  - key: sync-mutex-reentrant
+    format: course
+    question: sync.Mutex est-il réentrant ?
+    answer: Non ; reverrouiller un mutex détenu bloque la goroutine.
+  - key: defer-mu-unlock
+    format: course
+    question: Pourquoi `defer mu.Unlock()` ?
+    answer: Pour garantir la libération sur tous les chemins de sortie, y compris les panics.
+  - key: i-o-sous-verrou
+    format: course
+    question: Pourquoi ne pas faire d'I/O sous verrou ?
+    answer: La section critique s'allonge et toutes les goroutines en attente sont bloquées.
+  - key: eviter-deadlock-avec-plusieurs-mutex
+    format: course
+    question: Comment éviter un deadlock avec plusieurs mutex ?
+    answer: Les acquérir toujours dans le même ordre, et ne jamais appeler de code externe sous verrou.
+  - key: implemente-cache-thread-safe-avec-expiration
+    format: scenario
+    question: Implémente un cache thread-safe avec expiration simple.
+    answer: |-
+      ```go
+      type entree[V any] struct {
+          val    V
+          expire time.Time
+      }
+
+      type Cache[K comparable, V any] struct {
+          mu   sync.RWMutex
+          data map[K]entree[V]
+          ttl  time.Duration
+          now  func() time.Time      // injectable pour les tests
+      }
+
+      func NewCache[K comparable, V any](ttl time.Duration) *Cache[K, V] {
+          return &Cache[K, V]{data: make(map[K]entree[V]), ttl: ttl, now: time.Now}
+      }
+
+      func (c *Cache[K, V]) Get(k K) (V, bool) {
+          c.mu.RLock()
+          e, ok := c.data[k]
+          c.mu.RUnlock()
+          if !ok || c.now().After(e.expire) {
+              var zero V
+              return zero, false
+          }
+          return e.val, true
+      }
+
+      func (c *Cache[K, V]) Set(k K, v V) {
+          c.mu.Lock()
+          c.data[k] = entree[V]{val: v, expire: c.now().Add(c.ttl)}
+          c.mu.Unlock()
+      }
+      ```
+      "RWMutex parce que les lectures dominent. L'horloge est injectable pour tester l'expiration sans attendre. Il manque une purge des entrées expirées (une goroutine périodique arrêtée par un contexte, ou une purge lors des écritures) et une taille maximale ; en production j'utiliserais une bibliothèque éprouvée. Et pour éviter que 100 requêtes rechargent la même clé expirée, j'ajouterais `singleflight` autour du chargement."
+  - key: code-var-wg-sync-waitgroup-var
+    format: code-output
+    question: |-
+      ```go
+      var wg sync.WaitGroup
+      var mu sync.Mutex
+      total := 0
+      for i := 1; i <= 100; i++ {
+          wg.Add(1)
+          go func() { defer wg.Done(); mu.Lock(); total += i; mu.Unlock() }()
+      }
+      wg.Wait()
+      fmt.Println(total)
+      ```
+    answer: '`5050` en Go 1.22+ (chaque goroutine capture sa propre variable `i`). En Go 1.21, le résultat serait imprévisible (les goroutines liraient une variable partagée qui change) et le détecteur de courses signalerait une data race.'
+    check:
+      code: "package main\n\nimport (\n\t\"fmt\"\n\t\"sync\"\n)\n\nfunc main() {\n\tvar wg sync.WaitGroup\n\tvar mu sync.Mutex\n\ttotal := 0\n\tfor i := 1; i <= 100; i++ {\n\t    wg.Add(1)\n\t    go func() {\n\t        defer wg.Done()\n\t        mu.Lock()\n\t        total += i\n\t        mu.Unlock()\n\t    }()\n\t}\n\twg.Wait()\n\tfmt.Println(total)\n}\n"
+      output: '5050'
