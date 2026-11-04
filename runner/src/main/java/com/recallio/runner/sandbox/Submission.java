@@ -26,7 +26,11 @@ public record Submission(Language language, List<SourceFile> code, List<SourceFi
         }
     }
 
-    private static void requireFiles(Language language, String part, List<SourceFile> files, boolean tests) {
+    /**
+     * Les fichiers d'une partie ({@code part}) : de 1 à {@value #MAX_FILES_PER_PART}, aux chemins distincts et valides
+     * pour le langage. Les programmes du Tour s'en servent aussi ({@link Program}).
+     */
+    static void requireFiles(Language language, String part, List<SourceFile> files, boolean tests) {
         if (files.isEmpty() || files.size() > MAX_FILES_PER_PART) {
             throw new IllegalArgumentException(
                     "De 1 à %d fichier(s) de %s, pas %d".formatted(MAX_FILES_PER_PART, part, files.size()));

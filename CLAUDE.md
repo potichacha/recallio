@@ -36,6 +36,7 @@ Une application web (PWA, utilisable sur mobile) pour **réviser les entretiens 
 - des cartes déjà rédigées, orientées questions d'entretien, réparties en **sujets** : langages, frameworks, cloud, fondamentaux, IA... (Java et Go pour commencer, d'autres ajoutés petit à petit, voir 2.5) ;
 - plusieurs formats de questions (flashcard, QCM, "qu'affiche ce code ?", question de situation ouverte) ;
 - une **répétition espacée** pour mémoriser durablement ;
+- un **Tour** par langage pour l'apprendre pas à pas, comme le Go Tour : des pages courtes, un programme à modifier et à exécuter sur chacune, et quelques questions pour la valider, comme sur Ornikar (ADR 0037) ; un Tour « Programmer de zéro » pour qui n'a jamais programmé ;
 - de la **gamification** (XP par sujet, streak quotidien) ;
 - plus tard, des **groupes** avec classement et un **mode live** chronométré entre membres ;
 - à terme, une offre pour les entreprises (ESN qui préparent leurs consultants aux entretiens clients, équipes qui entretiennent leur niveau).
@@ -100,7 +101,7 @@ Recallio n'est pas une application « Java » : c'est un **catalogue de sujets d
 | Conteneurs | Docker, `docker compose` pour le local | une image backend, une image frontend (fichiers statiques servis par un serveur web) |
 | Hébergement | PaaS ou VPS européen (Clever Cloud, Scaleway ou OVHcloud), PostgreSQL managé | décision à prendre en phase 1, consignée en ADR |
 | Observabilité | logs JSON sur stdout, métriques Micrometer, Sentry pour les erreurs (plus tard OpenTelemetry) | |
-| Exécution du code | service **`runner`** (Quarkus) et images **`sandbox/java`**, **`sandbox/go`** : un conteneur jetable par exécution (ADR 0030, 0033) | seul composant à accéder à Docker ; joint par le seul backend |
+| Exécution du code | service **`runner`** (Quarkus) et images **`sandbox/java`**, **`sandbox/go`** : un conteneur jetable par exécution, pour juger un exercice par ses tests (ADR 0030, 0033) ou lancer un programme du Tour (ADR 0037) | seul composant à accéder à Docker ; joint par le seul backend |
 | Phase 2+ | **Valkey/Redis** (classements, temps réel), WebSockets Next (mode live) | ne pas l'introduire avant la phase concernée |
 
 Toute nouvelle dépendance doit être justifiée et, si elle est structurante, faire l'objet d'un ADR.
@@ -252,7 +253,7 @@ Les commentaires ci-dessus sont là pour l'explication : un vrai en-tête n'a qu
 ### 5.5 Refonte du contenu : référentiel, notions, niveaux (phase 3 bis, ADR 0025)
 L'application doit servir trois publics avec le même contenu : **apprendre** un langage sans le connaître, **préparer** un entretien, **entretenir** un niveau d'expert. Les documents d'entretien actuels ne servent bien que le deuxième. La refonte change l'unité de contenu :
 - **Un référentiel par sujet** (`content/<sujet>/referentiel/*.yaml`) : l'inventaire de **toutes** les notions du sujet, en domaines → chapitres → notions. Chaque notion a un identifiant définitif, un **niveau** (`beginner`, `intermediate`, `expert`), une **priorité** (1 essentiel, 2 courant, 3 avancé, 4 rare) et ses **prérequis**. La CI vérifie le référentiel (identifiants uniques, prérequis existants, sans cycle) et mesure la couverture du contenu par priorité.
-- **Une notion = une courte leçon + des cartes de formats variés** : cours, vrai ou faux, QCM, compléter le code, qu'affiche ce code, bug à corriger, mise en situation, définition, et des **exercices de code** (un ou plusieurs fichiers, jugés par des tests).
+- **Une notion = une courte leçon + des cartes de formats variés** : cours, vrai ou faux, QCM, compléter le code, qu'affiche ce code, bug à corriger, mise en situation, définition, et des **exercices de code** (un ou plusieurs fichiers, jugés par des tests). Une notion du Tour a en plus ses pages, écrites pour découvrir (ADR 0037).
 - **Matrice** : **4 à 5 cartes par format** pour chaque notion, sur les formats qui ont du sens pour elle (pas de « bug à corriger » sur l'histoire du langage), et au moins un exercice de code par chapitre.
 - **Production par priorité** : toutes les notions de priorité 1, puis 2, etc. Claude rédige les brouillons (référentiel, cartes, exercices) à partir des documents existants ; **chaque PR de contenu est relue par le propriétaire du projet avant le merge** (ADR 0025).
 - **Le code est vérifié** : la CI exécute chaque « qu'affiche ce code » et compare la sortie à la réponse ; la solution modèle de chaque exercice doit passer ses tests, et le code de départ y échouer.
@@ -309,6 +310,13 @@ Les sujets s'ajoutent un par un, au rythme de la rédaction, indépendamment des
 ### 6.5 Mode live (phase 3)
 - Partie synchronisée façon quiz, sur un sujet choisi par l'hôte : un hôte lance, les membres rejoignent, chaque question a un chrono court, points selon la justesse et la rapidité, classement en direct.
 - Uniquement des cartes à correction automatique (`MULTIPLE_CHOICE`, `CODE_OUTPUT` en QCM).
+
+### 6.6 Le Tour (phase 3 quater, ADR 0037)
+- Deux publics : quelqu'un qui programme déjà dans un autre langage suit le Tour de ce langage, au niveau du Go Tour ; quelqu'un qui n'a jamais programmé suit « Programmer de zéro ».
+- Une page appartient à une notion : un texte pour découvrir, un exemple à modifier et à exécuter, et parfois un « À toi » dont le serveur compare la sortie à celle attendue. L'ordre est celui du référentiel.
+- Une page se valide en répondant juste à 2 ou 3 questions de sa notion, corrigées par le serveur. Elles ne sont pas enregistrées comme des révisions : FSRS ne voit que les vraies révisions, espacées.
+- En fin de chapitre, ses exercices ; depuis chaque page, « S'entraîner » ouvre les cartes de la notion.
+- Chaque langage a son Tour, fait de contenu seulement ; un nouveau langage demande aussi son image de bac à sable.
 
 ---
 
@@ -425,29 +433,54 @@ Faire du contenu un référentiel complet, pour apprendre, préparer un entretie
 - **Terminé quand** : un débutant suit le parcours Java de bout en bout sur les notions de priorité 1, en codant dans l'application.
 
 ### Phase 3 ter : gamification v2, partage, classé (ADR 0025)
-Carte des compétences, maîtrise par notion, XP, quêtes, succès, gel de streak ; cartes de partage et profil public (privé par défaut) ; classé par sujet : duels asynchrones, rangs, placement, cotes des cartes, puis saisons et classé en direct.
+Carte des compétences, maîtrise par notion, XP, quêtes, succès, gel de streak ; indice de préparation, examen blanc, signalement des erreurs, rappels ; cartes de partage et profil public (privé par défaut) ; classé par sujet : duels asynchrones, rangs, placement, cotes des cartes, puis saisons et classé en direct.
 
 **Gamification v2, en révision personnelle**
 1. ✅ **Maîtrise par notion** : nouvelle, découverte, acquise, maîtrisée, experte, d'après la mémoire FSRS et les formats réussis ; donnée par la carte du parcours, avec ce qui mène au niveau suivant (ADR 0034).
 2. ✅ **Carte des compétences** (PWA) : la page du parcours range les notions par domaine, chacun avec la barre de maîtrise de ses notions, et le domaine où l'on en est se déplie d'emblée ; chaque notion dit ce qui mène au niveau suivant ; un résumé par sujet sur le tableau de bord.
 3. ✅ **XP par sujet** (ADR 0035) : l'XP remplace les points ; une XP de base à chaque révision, quelle que soit la note, et un bonus pour une réussite corrigée par le serveur, plus fort pour les formats exigeants ; jamais liée au temps. Un niveau par sujet, sur le tableau de bord.
 4. ✅ **Gel de streak** (ADR 0036) : gagné avec le streak, consommé automatiquement un jour manqué.
+
+**Le Tour** (phase 3 quater, ci-dessous) **s'intercale ici** : les quêtes et les succès pourront le récompenser (« lire 3 pages », « finir le chapitre Concurrence »).
+
 5. **Quêtes du jour et de la semaine**, qui font varier les formats.
 6. **Succès**, débloqués une seule fois.
 
+**Préparation et qualité**
+
+7. **Indice de préparation** par sujet : la part des notions essentielles (priorité 1) acquises et maîtrisées, comme le « prêt pour l'examen » d'Ornikar.
+8. **Examen blanc** : une simulation d'entretien chronométrée, sur des formats corrigés par le serveur, avec une note et le corrigé à la fin.
+9. **Signaler une erreur** sur chaque carte et chaque page du Tour : le contenu rédigé par Claude aura des erreurs, les utilisateurs doivent pouvoir les remonter.
+10. **Rappels** : des notifications de la PWA, sur acceptation, pour garder l'habitude (« Ta série de 12 jours t'attend »).
+
 **Partage**
 
-7. **Profil public de compétences**, privé par défaut ; le vérifié séparé du déclaré.
-8. **Cartes de partage** : chapitre maîtrisé, podium, promotion.
+11. **Profil public de compétences**, privé par défaut ; le vérifié séparé du déclaré.
+12. **Cartes de partage** : chapitre maîtrisé, podium, promotion.
 
 **Classé** (ADR à venir)
 
-9. **Cote de difficulté des cartes**, sur les réponses corrigées par le serveur.
-10. **Cote et rang par sujet, duels asynchrones** (backend) : cote Glicko-2 cachée, rangs en divisions, matchs de placement.
-11. **Duels dans la PWA**.
-12. **Saisons**.
-13. **Classé en direct**.
-- **Terminé quand** : un utilisateur suit sa maîtrise notion par notion, gagne de l'XP et des succès, partage un profil de compétences, et monte de rang en duel sur un sujet.
+13. **Cote de difficulté des cartes**, sur les réponses corrigées par le serveur.
+14. **Cote et rang par sujet, duels asynchrones** (backend) : cote Glicko-2 cachée, rangs en divisions, matchs de placement.
+15. **Duels dans la PWA**.
+16. **Saisons**.
+17. **Classé en direct**.
+- **Terminé quand** : un utilisateur suit sa maîtrise notion par notion, gagne de l'XP et des succès, sait s'il est prêt pour son entretien, partage un profil de compétences, et monte de rang en duel sur un sujet.
+
+### Phase 3 quater : le Tour, apprendre un langage (ADR 0037)
+Apprendre un langage pas à pas, comme sur le Go Tour, et valider chaque page, comme sur Ornikar (6.6). Elle passe entre les étapes 4 et 5 de la phase 3 ter.
+
+1. ✅ **Le mode « programme » du runner** : compiler et lancer un programme, renvoyer ses sorties et son code de sortie, dans le même bac à sable ; en Go, tout paquet standard est permis (index des modules désactivé).
+2. **Le format des pages** : le bloc `tour` des notions (texte, exemple, « À toi »), leur import, et la CI qui joue chaque exemple et chaque « À toi » dans le bac à sable ; les pages du premier chapitre Go, pour éprouver le format.
+3. **L'API du Tour** : les pages d'un sujet dans l'ordre, et `POST /api/v1/playground-runs`, limité par utilisateur.
+4. **Le Tour dans la PWA** : le sommaire et la page (texte, éditeur, « Exécuter », sortie, précédent et suivant), sur mobile aussi.
+5. **Valider une page** : les questions de vérification, la progression (pages validées, reprise où l'on s'est arrêté) et « S'entraîner sur cette notion » (un filtre par notion dans la file de révision).
+6. **« À toi » et exercices** : la sortie de l'utilisateur comparée à celle attendue, et les exercices de fin de chapitre dans le Tour.
+7. **Le Tour Go** : une page par notion débutante, et les premières notions de concurrence (une centaine de pages).
+8. **Le Tour Java** : de même (un peu plus d'une centaine de pages).
+9. **Programmer de zéro** : le sujet, son référentiel et son Tour, dans un langage à choisir à cette étape.
+10. **Parcours de bout en bout et rétrospective.**
+- **Terminé quand** : quelqu'un qui programme dans un autre langage apprend Go ou Java dans le Tour, en exécutant chaque exemple et en validant chaque page, et quelqu'un qui n'a jamais programmé suit « Programmer de zéro ».
 
 Le **déploiement** (phase 1, étape 7) vient après ces phases.
 
@@ -473,6 +506,7 @@ Correction des réponses ouvertes par IA, paiement. L'exécution de code en bac 
 9. ~~Répartition du quota de nouvelles cartes entre sujets suivis : parts égales, ou pondération choisie par l'utilisateur (phase 1 bis, étape 3).~~ **Tranché** : parts égales, en alternant les sujets (ADR 0014).
 10. ~~Bac à sable d'exécution du code des joueurs : service existant (Judge0, Piston) ou exécuteur maison à conteneurs jetables (phase 3 bis, étape 4).~~ **Tranché** : exécuteur maison à conteneurs jetables, un service `runner` séparé (ADR 0030).
 11. ~~Rédaction du contenu à l'échelle.~~ **Tranché** : brouillons rédigés par Claude, chaque PR de contenu relue par le propriétaire avant le merge (ADR 0025).
+12. Le langage du Tour « Programmer de zéro » (phase 3 quater, étape 9) : Python est le choix classique, mais il demande son contenu et son image de bac à sable ; Go ou Java sont déjà prêts.
 
 ---
 

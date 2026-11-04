@@ -277,9 +277,9 @@ cards:
   - Des fichiers `.java` seulement, de 1 à 10 par partie ; des packages sont permis (`starter/fr/recallio/Panier.java`).
   - **En Go** (ADR 0033), la même forme avec des fichiers `.go` : `starter/` et `solution/` à plat, dans un seul
     package (pas de `package main`), et `tests/*_test.go` dans ce même package, avec le package `testing` seul (pas de
-    bibliothèque d'assertions). Le bac à sable n'a pas de réseau et son cache de compilation est en lecture seule : un
-    exercice n'importe que les paquets standard précompilés dans `sandbox/go/warm/warm.go` (un autre paquet, comme
-    `testing/iotest`, échoue à la compilation). Le code de départ compile (une fonction qui renvoie la valeur zéro, ou
+    bibliothèque d'assertions). Le bac à sable n'a pas de réseau et son cache de compilation est en lecture seule :
+    les paquets standard précompilés dans `sandbox/go/warm/warm.go` sont rapides, un autre paquet standard se compile à
+    chaque exécution (ADR 0037) ; s'il sert souvent, on l'ajoute à `warm.go`. Le code de départ compile (une fonction qui renvoie la valeur zéro, ou
     une version séquentielle) et échoue aux tests. Un test de concurrence ne repose pas sur une durée : il attend que
     les goroutines se rejoignent, avec un délai de garde court (quelques centaines de millisecondes) pour échouer
     vite.

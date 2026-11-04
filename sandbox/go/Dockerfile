@@ -8,12 +8,15 @@ FROM golang:1.27-bookworm
 
 # Rien ne se télécharge à l'exécution : ni module, ni autre chaîne d'outils. Le cache de compilation est celui de
 # l'image, lu en lecture seule ; GOPATH et les fichiers temporaires vont dans le tmpfs /tmp.
+# Sans l'index des modules (goindex=0) : Go le range dans ce cache, et un paquet standard qui n'y est pas échouerait
+# (« is not in std »). Sans index, ce paquet se compile à chaque exécution ; cela coûte 0,1 seconde à toutes (ADR 0037).
 ENV GOCACHE=/opt/recallio/gocache \
     GOPATH=/tmp/gopath \
     GOTMPDIR=/tmp \
     GOPROXY=off \
     GOTOOLCHAIN=local \
     GOTELEMETRY=off \
+    GODEBUG=goindex=0 \
     CGO_ENABLED=0
 
 # Précompile la bibliothèque standard dont se servent les exercices : sans ce cache, chaque exécution la recompilerait

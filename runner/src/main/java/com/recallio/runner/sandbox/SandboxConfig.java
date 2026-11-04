@@ -21,7 +21,17 @@ public interface SandboxConfig {
     @WithDefault("20s")
     Duration timeout();
 
-    /** Exécutions simultanées au plus : au-delà, le runner répond 503 plutôt que d'épuiser la machine. */
+    /**
+     * Le délai d'un programme du Tour une fois compilé (ADR 0037), en secondes entières : plus court que celui du
+     * conteneur, pour qu'il reste le temps de compiler et de rendre ce que le programme a écrit.
+     */
+    @WithDefault("10s")
+    Duration programTimeout();
+
+    /**
+     * Exécutions simultanées au plus, soumissions et programmes confondus ({@link RunSlots}) : au-delà, le runner répond
+     * 503 plutôt que d'épuiser la machine.
+     */
     @WithDefault("4")
     int maxConcurrentRuns();
 
