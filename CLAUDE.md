@@ -429,7 +429,7 @@ Carte des compétences, maîtrise par notion, XP, quêtes, succès, gel de strea
 
 **Gamification v2, en révision personnelle**
 1. ✅ **Maîtrise par notion** : nouvelle, découverte, acquise, maîtrisée, experte, d'après la mémoire FSRS et les formats réussis ; donnée par la carte du parcours, avec ce qui mène au niveau suivant (ADR 0034).
-2. **Carte des compétences** (PWA) : domaines, chapitres et notions colorées par maîtrise sur la page du parcours ; un résumé par sujet sur le tableau de bord.
+2. ✅ **Carte des compétences** (PWA) : la page du parcours range les notions par domaine, chacun avec la barre de maîtrise de ses notions, et le domaine où l'on en est se déplie d'emblée ; chaque notion dit ce qui mène au niveau suivant ; un résumé par sujet sur le tableau de bord.
 3. **XP par sujet** (ADR à venir) : l'XP remplace les points ; une XP de base à chaque révision, quelle que soit la note, et un bonus pour une réussite corrigée par le serveur, plus fort pour les formats exigeants ; jamais liée au temps.
 4. **Gel de streak** : gagné avec le streak, consommé automatiquement un jour manqué.
 5. **Quêtes du jour et de la semaine**, qui font varier les formats.

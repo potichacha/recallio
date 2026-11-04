@@ -5,6 +5,8 @@ import com.recallio.content.NotionInfo;
 import com.recallio.platform.api.ProblemDetail;
 import com.recallio.review.application.LearningPathService;
 import com.recallio.review.application.LearningPathService.NotionStep;
+import com.recallio.review.application.LearningPathService.PathChapter;
+import com.recallio.review.application.LearningPathService.PathDomain;
 import com.recallio.review.application.LearningPathService.SubjectPath;
 import com.recallio.review.domain.track.LearningPath.NotionStatus;
 import com.recallio.review.domain.track.MasteryLevel;
@@ -18,10 +20,7 @@ import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import org.eclipse.microprofile.openapi.annotations.Operation;
 import org.eclipse.microprofile.openapi.annotations.media.Content;
 import org.eclipse.microprofile.openapi.annotations.media.Schema;
@@ -74,25 +73,50 @@ public class LearningPathsResource {
                             "Le parcours de l'utilisateur pour ce sujet ; le parcours par défaut s'il ne le suit pas")
             LearningTrack track,
 
-            @Schema(description = "Les chapitres du référentiel, dans l'ordre ; vide pour un sujet sans référentiel")
-            List<PathChapterDto> chapters) {
+            @Schema(description = "Les notions du sujet par niveau de maîtrise")
+            MasteryCountsDto counts,
+
+            @Schema(description = "Les domaines du référentiel, dans l'ordre ; vide pour un sujet sans référentiel")
+            List<PathDomainDto> domains) {
 
         static LearningPathDto from(SubjectPath path) {
-            Map<String, PathChapterDto> chapters = new LinkedHashMap<>();
-            for (NotionStep step : path.notions()) {
-                NotionInfo notion = step.notion();
-                chapters.computeIfAbsent(
-                                notion.chapter(),
-                                _ -> new PathChapterDto(notion.chapter(), notion.chapterTitle(), new ArrayList<>()))
-                        .notions()
-                        .add(PathNotionDto.from(step));
-            }
-            return new LearningPathDto(path.subjectSlug(), path.track(), List.copyOf(chapters.values()));
+            return new LearningPathDto(
+                    path.subjectSlug(),
+                    path.track(),
+                    MasteryCountsDto.from(path.counts()),
+                    path.domains().stream().map(PathDomainDto::from).toList());
+        }
+    }
+
+    @Schema(name = "PathDomain")
+    record PathDomainDto(
+            String id,
+            String title,
+
+            @Schema(description = "Les notions du domaine par niveau de maîtrise")
+            MasteryCountsDto counts,
+
+            List<PathChapterDto> chapters) {
+
+        static PathDomainDto from(PathDomain domain) {
+            return new PathDomainDto(
+                    domain.id(),
+                    domain.title(),
+                    MasteryCountsDto.from(domain.counts()),
+                    domain.chapters().stream().map(PathChapterDto::from).toList());
         }
     }
 
     @Schema(name = "PathChapter")
-    record PathChapterDto(String id, String title, List<PathNotionDto> notions) {}
+    record PathChapterDto(String id, String title, List<PathNotionDto> notions) {
+
+        static PathChapterDto from(PathChapter chapter) {
+            return new PathChapterDto(
+                    chapter.id(),
+                    chapter.title(),
+                    chapter.notions().stream().map(PathNotionDto::from).toList());
+        }
+    }
 
     @Schema(name = "PathNotion")
     record PathNotionDto(

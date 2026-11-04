@@ -28,6 +28,7 @@ import org.junit.jupiter.api.Test;
 class LearningTracksTest {
 
     private static final String QUEUE = "/api/v1/review-queue";
+    private static final String NOTIONS = "domains[0].chapters[0].notions";
 
     @Inject
     ContentImportService contentImport;
@@ -113,10 +114,13 @@ class LearningTracksTest {
         follow();
         chooseLearning();
         path().body("track", equalTo("LEARN"))
-                .body("chapters.title", contains("Tout"))
-                .body("chapters[0].notions.slug", contains("bases", "avance"))
-                .body("chapters[0].notions.status", contains("AVAILABLE", "LOCKED"))
-                .body("chapters[0].notions.mastery", contains("NEW", "NEW"));
+                .body("domains.title", contains("Le langage"))
+                .body("domains[0].chapters.title", contains("Tout"))
+                .body(NOTIONS + ".slug", contains("bases", "avance"))
+                .body(NOTIONS + ".status", contains("AVAILABLE", "LOCKED"))
+                .body(NOTIONS + ".mastery", contains("NEW", "NEW"))
+                .body("counts.total", equalTo(2))
+                .body("counts.discovered", equalTo(0));
 
         String basics = prompts().extract().path("cards[0].cardId");
         given().contentType(ContentType.JSON)
@@ -126,14 +130,18 @@ class LearningTracksTest {
                 .statusCode(201);
 
         // Une notion d'une seule carte : la réussir l'acquiert, et la maîtriser demande cette carte stable.
-        path().body("chapters[0].notions.status", contains("ACQUIRED", "AVAILABLE"))
-                .body("chapters[0].notions[0].seenCount", equalTo(1))
-                .body("chapters[0].notions.mastery", contains("ACQUIRED", "NEW"))
-                .body("chapters[0].notions[0].nextLevel.level", equalTo("MASTERED"))
-                .body("chapters[0].notions[0].nextLevel.cards", equalTo(0))
-                .body("chapters[0].notions[0].nextLevel.cardsNeeded", equalTo(1))
-                .body("chapters[0].notions[0].nextLevel.formatsNeeded", equalTo(1))
-                .body("chapters[0].notions[1].nextLevel.level", equalTo("DISCOVERED"));
+        path().body(NOTIONS + ".status", contains("ACQUIRED", "AVAILABLE"))
+                .body(NOTIONS + "[0].seenCount", equalTo(1))
+                .body(NOTIONS + ".mastery", contains("ACQUIRED", "NEW"))
+                .body(NOTIONS + "[0].nextLevel.level", equalTo("MASTERED"))
+                .body(NOTIONS + "[0].nextLevel.cards", equalTo(0))
+                .body(NOTIONS + "[0].nextLevel.cardsNeeded", equalTo(1))
+                .body(NOTIONS + "[0].nextLevel.formatsNeeded", equalTo(1))
+                .body(NOTIONS + "[1].nextLevel.level", equalTo("DISCOVERED"))
+                .body("counts.discovered", equalTo(1))
+                .body("counts.acquired", equalTo(1))
+                .body("domains[0].counts.acquired", equalTo(1))
+                .body("domains[0].counts.mastered", equalTo(0));
         given().get("/api/v1/learning-paths/inconnu").then().statusCode(404);
     }
 

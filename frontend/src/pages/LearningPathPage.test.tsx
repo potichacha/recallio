@@ -5,50 +5,136 @@ import { fakeSession, renderAt, SIGNED_IN_API, stubApi, TEST_SUBJECTS } from '..
 const SIGNED_IN = fakeSession({ status: 'authenticated', userName: 'Alice' })
 const JAVA = { '/api/v1/subjects/java': { body: TEST_SUBJECTS[0] } }
 
-function notion(slug: string, title: string, status: string, seenCount = 0) {
-  return { slug, title, level: 'BEGINNER', priority: 1, status, cardCount: 6, seenCount }
+const counts = (overrides = {}) => ({
+  total: 0,
+  discovered: 0,
+  acquired: 0,
+  mastered: 0,
+  expert: 0,
+  ...overrides,
+})
+
+const toDiscover = { level: 'DISCOVERED', cards: 0, cardsNeeded: 1, formats: 0, formatsNeeded: 0 }
+
+function notion(slug: string, title: string, status: string, mastery: string, extra = {}) {
+  return {
+    slug,
+    title,
+    level: 'BEGINNER',
+    priority: 1,
+    status,
+    cardCount: 6,
+    seenCount: 0,
+    mastery,
+    nextLevel: { ...toDiscover, missingFormats: [] },
+    ...extra,
+  }
+}
+
+/** Deux domaines : « Les bases », où l'on en est, puis « Les collections », pas encore commencé. */
+const PATH = {
+  subjectSlug: 'java',
+  track: 'LEARN',
+  counts: counts({ total: 4, discovered: 2, acquired: 1, mastered: 1 }),
+  domains: [
+    {
+      id: 'bases',
+      title: 'Les bases',
+      counts: counts({ total: 3, discovered: 2, acquired: 1, mastered: 1 }),
+      chapters: [
+        {
+          id: 'premiers-pas',
+          title: 'Premiers pas',
+          notions: [
+            notion('hello-world', 'Le premier programme', 'ACQUIRED', 'MASTERED', {
+              seenCount: 6,
+              nextLevel: {
+                level: 'EXPERT',
+                cards: 2,
+                cardsNeeded: 5,
+                formats: 2,
+                formatsNeeded: 3,
+                missingFormats: ['CODING_EXERCISE'],
+              },
+            }),
+            notion('types-primitifs', 'Les types primitifs', 'IN_PROGRESS', 'DISCOVERED', {
+              seenCount: 2,
+              nextLevel: {
+                level: 'ACQUIRED',
+                cards: 1,
+                cardsNeeded: 5,
+                formats: 0,
+                formatsNeeded: 0,
+                missingFormats: [],
+              },
+            }),
+          ],
+        },
+        {
+          id: 'objet',
+          title: 'Objet',
+          notions: [notion('heritage', 'L’héritage', 'LOCKED', 'NEW')],
+        },
+      ],
+    },
+    {
+      id: 'collections',
+      title: 'Les collections',
+      counts: counts({ total: 1 }),
+      chapters: [
+        {
+          id: 'listes',
+          title: 'Listes',
+          notions: [notion('arraylist', 'ArrayList', 'AVAILABLE', 'NEW')],
+        },
+      ],
+    },
+  ],
 }
 
 describe('LearningPathPage', () => {
-  it('shows each notion of each chapter with its status and the notions acquired', async () => {
-    stubApi({
-      ...SIGNED_IN_API,
-      ...JAVA,
-      '/api/v1/learning-paths/java': {
-        body: {
-          subjectSlug: 'java',
-          track: 'LEARN',
-          chapters: [
-            {
-              id: 'premiers-pas',
-              title: 'Premiers pas',
-              notions: [
-                notion('hello-world', 'Le premier programme', 'ACQUIRED', 6),
-                notion('types-primitifs', 'Les types primitifs', 'IN_PROGRESS', 2),
-              ],
-            },
-            {
-              id: 'objet',
-              title: 'Objet',
-              notions: [notion('heritage', 'L’héritage', 'LOCKED')],
-            },
-          ],
-        },
-      },
-    })
+  it('maps the mastery of the subject, then of each domain and each notion', async () => {
+    stubApi({ ...SIGNED_IN_API, ...JAVA, '/api/v1/learning-paths/java': { body: PATH } })
 
     renderAt('/subjects/java/path', SIGNED_IN)
 
-    expect(await screen.findByText(/1 \/ 3 notions acquises/)).toBeInTheDocument()
+    expect(
+      await screen.findByRole('img', {
+        name: 'Java : 1 / 4 notions acquises · 1 maîtrisée · 0 experte',
+      }),
+    ).toBeInTheDocument()
     expect(screen.getByText('Apprendre')).toBeInTheDocument()
-    const firstSteps = screen.getByRole('region', { name: 'Premiers pas' })
-    expect(within(firstSteps).getByText('Les types primitifs').closest('li')).toHaveTextContent(
-      'En cours',
+    const basics = screen.getByRole('region', { name: 'Les bases' })
+    expect(basics).toHaveTextContent('1 / 3 notions acquises · 1 maîtrisée · 0 experte')
+
+    const firstSteps = within(basics).getByRole('region', { name: 'Premiers pas' })
+    const primitives = within(firstSteps).getByText('Les types primitifs').closest('li')
+    expect(primitives).toHaveTextContent('Découverte')
+    expect(primitives).toHaveTextContent('2 / 6 cartes vues')
+    expect(primitives).toHaveTextContent('Pour l’acquérir : 1 / 5 cartes réussies')
+    expect(within(firstSteps).getByText('Le premier programme').closest('li')).toHaveTextContent(
+      'Maîtrisée',
     )
-    expect(within(firstSteps).getByText('Les types primitifs').closest('li')).toHaveTextContent(
-      '2 / 6 cartes vues',
+    expect(within(firstSteps).getByText('Le premier programme').closest('li')).toHaveTextContent(
+      'à réussir : l’exercice de code',
     )
-    expect(screen.getByRole('region', { name: 'Objet' })).toHaveTextContent('Verrouillée')
+
+    const object = within(basics).getByRole('region', { name: 'Objet' })
+    expect(object).toHaveTextContent('Verrouillée')
+    expect(object).not.toHaveTextContent('Pour la découvrir')
+  })
+
+  it('unfolds the domain where the user stands, and folds the others', async () => {
+    stubApi({ ...SIGNED_IN_API, ...JAVA, '/api/v1/learning-paths/java': { body: PATH } })
+
+    renderAt('/subjects/java/path', SIGNED_IN)
+
+    expect(await screen.findByRole('region', { name: 'Premiers pas' })).toBeVisible()
+    const collections = screen.getByRole('region', { name: 'Les collections' })
+    expect(collections).toHaveTextContent('1 chapitre · 1 notion')
+    expect(
+      within(collections).getByRole('region', { name: 'Listes', hidden: true }),
+    ).not.toBeVisible()
   })
 
   it('explains that a subject without referential has no path yet', async () => {
@@ -56,7 +142,7 @@ describe('LearningPathPage', () => {
       ...SIGNED_IN_API,
       ...JAVA,
       '/api/v1/learning-paths/java': {
-        body: { subjectSlug: 'java', track: 'PREPARE', chapters: [] },
+        body: { subjectSlug: 'java', track: 'PREPARE', counts: counts(), domains: [] },
       },
     })
 

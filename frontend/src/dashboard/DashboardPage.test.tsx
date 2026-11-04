@@ -14,6 +14,15 @@ const counts = (overrides: Partial<ReviewStats['overall']> = {}) => ({
   ...overrides,
 })
 
+const notions = (overrides: Partial<ReviewStats['subjects'][number]['notions']> = {}) => ({
+  total: 0,
+  discovered: 0,
+  acquired: 0,
+  mastered: 0,
+  expert: 0,
+  ...overrides,
+})
+
 function stats(overrides: Partial<ReviewStats> = {}): ReviewStats {
   return {
     overall: counts({ total: 30, seen: 12, mastered: 4, dueNow: 5, dueToday: 7 }),
@@ -23,6 +32,7 @@ function stats(overrides: Partial<ReviewStats> = {}): ReviewStats {
         slug: 'java',
         title: 'Java',
         counts: counts({ total: 30, seen: 12, mastered: 4, dueNow: 5 }),
+        notions: notions({ total: 12, discovered: 5, acquired: 3, mastered: 1 }),
         themes: [
           { slug: 'collections', title: 'Collections', counts: counts({ total: 10, seen: 0 }) },
           {
@@ -110,6 +120,7 @@ describe('DashboardPage', () => {
       slug: 'go',
       title: 'Go',
       counts: counts({ total: 40, seen: 2 }),
+      notions: notions(),
       themes: [
         {
           slug: 'go-fondamentaux',
@@ -148,5 +159,31 @@ describe('DashboardPage', () => {
       '/review?theme=java-fondamentaux',
     )
     expect(themes[1]).toHaveTextContent('Collections')
+  })
+
+  it('sums up the mastery of the notions of a subject, with a link to its skill map', async () => {
+    stubDashboard()
+    renderAt('/', signedIn())
+
+    const section = await screen.findByRole('region', { name: 'Progression par sujet' })
+    const java = within(section).getByRole('link', { name: 'Java' }).closest('li') as HTMLElement
+    expect(within(java).getByRole('img', { name: /^Notions Java/ })).toHaveAccessibleName(
+      'Notions Java : 3 / 12 notions acquises · 1 maîtrisée · 0 experte',
+    )
+    expect(within(java).getByRole('link', { name: 'Carte des compétences' })).toHaveAttribute(
+      'href',
+      '/subjects/java/path',
+    )
+  })
+
+  it('shows no skill map for a subject without referential', async () => {
+    stubDashboard(stats({ subjects: [{ ...stats().subjects[0], notions: notions() }] }))
+    renderAt('/', signedIn())
+
+    const section = await screen.findByRole('region', { name: 'Progression par sujet' })
+    const java = within(section).getByRole('link', { name: 'Java' }).closest('li') as HTMLElement
+    expect(
+      within(java).queryByRole('link', { name: 'Carte des compétences' }),
+    ).not.toBeInTheDocument()
   })
 })
