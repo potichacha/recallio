@@ -7,6 +7,7 @@ import com.recallio.content.CardBlank;
 import com.recallio.content.CardChoice;
 import com.recallio.content.CardType;
 import com.recallio.content.ExerciseFiles.SourceFile;
+import com.recallio.content.TourPage;
 import com.recallio.content.domain.CardContent;
 import com.recallio.content.domain.NotionLevel;
 import com.recallio.content.domain.Subject;
@@ -79,7 +80,163 @@ class YamlSubjectFolderParserTest {
                 answer: Avec equals.
             """;
 
+    private static final String POOL_WITH_TOUR = """
+            notion: string-pool
+            tour:
+              - title: Le pool
+                text: |-
+                  Deux littéraux identiques sont **le même objet**.
+                example:
+                  files:
+                    Main.java: |-
+                      void main() {
+                          IO.println("Ja" + "va" == "Java");
+                      }
+                  output: "true"
+                task:
+                  instructions: Compare avec une chaîne créée par `new String`.
+                  starter:
+                    Main.java: |-
+                      void main() {
+                          IO.println("?");
+                      }
+                  solution:
+                    Main.java: |-
+                      void main() {
+                          IO.println(new String("Java") == "Java");
+                      }
+                  output: "false"
+              - text: Une seconde page, sans titre ni « À toi ».
+                example:
+                  files:
+                    Main.java: |-
+                      void main() {
+                          IO.println("Java".intern() == "Java");
+                      }
+                  output: "true"
+            cards:
+              - key: emplacement-du-pool
+                format: course
+                question: Où se trouve le pool de chaînes ?
+                answer: Dans le tas depuis Java 7.
+            """;
+
     private final YamlSubjectFolderParser parser = new YamlSubjectFolderParser();
+
+    @Test
+    void shouldReadTheTourPagesOfANotionInTheOrderOfItsFile() {
+        ParsedContent parsed = parse(Map.of("api-de-base/string-pool.yaml", POOL_WITH_TOUR));
+
+        assertThat(parsed.issues()).isEmpty();
+        List<TourPage> tour = parsed.notions().get(2).tour();
+        assertThat(tour).extracting(TourPage::title).containsExactly("Le pool", null);
+        assertThat(tour.getFirst().text()).isEqualTo("Deux littéraux identiques sont **le même objet**.");
+        assertThat(tour.getFirst().example())
+                .isEqualTo(new TourPage.Program(
+                        List.of(new SourceFile(
+                                "Main.java", "void main() {\n    IO.println(\"Ja\" + \"va\" == \"Java\");\n}\n")),
+                        "true"));
+        assertThat(tour.getFirst().task()).satisfies(task -> {
+            assertThat(task).isNotNull();
+            assertThat(task.output()).isEqualTo("false");
+            assertThat(task.solution().getFirst().content()).contains("new String(\"Java\")");
+        });
+        assertThat(tour.get(1).task()).isNull();
+        assertThat(parsed.notions().get(1).tour()).isEmpty();
+    }
+
+    @Test
+    void shouldReportAnInvalidTourPageAndKeepTheOthers() {
+        ParsedContent parsed = parse(Map.of("api-de-base/string-pool.yaml", """
+                notion: string-pool
+                tour:
+                  - text: Une page valide.
+                    example:
+                      files:
+                        Main.java: |-
+                          void main() {
+                              IO.println("ok");
+                          }
+                      output: ok
+                  - text: Un programme Java sans Main.java.
+                    example:
+                      files:
+                        Pool.java: |-
+                          class Pool {}
+                      output: rien
+                cards: []
+                """));
+
+        assertThat(parsed.notions().get(2).tour()).hasSize(1);
+        assertThat(parsed.issues())
+                .extracting(SourceIssue::reason)
+                .containsExactly("notions/api-de-base/string-pool.yaml : page 2 du Tour : "
+                        + "L'exemple Java a un fichier Main.java, qui contient main");
+    }
+
+    @Test
+    void shouldRefuseATourWhereANotionComesBeforeItsPrerequisite() {
+        String referential = """
+                domain: bases
+                title: Les bases
+                position: 10
+                chapters:
+                  - id: objets
+                    title: Les objets
+                    notions:
+                      - {id: methodes, title: "Les méthodes", level: beginner, priority: 1, requires: [classes]}
+                      - {id: classes, title: "Les classes", level: beginner, priority: 1}
+                """;
+
+        ParsedContent parsed = parser.parse(new SubjectFolder(
+                SUBJECT,
+                Map.of("01-bases.yaml", referential),
+                Map.of("bases/methodes.yaml", javaPage("methodes"), "bases/classes.yaml", javaPage("classes"))));
+
+        assertThat(parsed.issues())
+                .extracting(SourceIssue::reason)
+                .containsExactly(
+                        "Tour : la notion « methodes » vient avant son prérequis « classes » dans le référentiel");
+    }
+
+    @Test
+    void shouldRefuseATourInTwoLanguages() {
+        ParsedContent parsed =
+                parse(Map.of("api-de-base/string-bases.yaml", """
+                notion: string-bases
+                tour:
+                  - text: Une page en Go, dans un sujet dont les autres pages sont en Java.
+                    example:
+                      files:
+                        main.go: |-
+                          package main
+
+                          func main() {}
+                      output: rien
+                cards: []
+                """, "api-de-base/string-pool.yaml", POOL_WITH_TOUR));
+
+        assertThat(parsed.issues())
+                .extracting(SourceIssue::reason)
+                .containsExactly("Tour : les pages d'un sujet sont dans un seul langage, pas [JAVA, GO]");
+    }
+
+    /** Un fichier de notion sans carte, avec une page du Tour en Java. */
+    private static String javaPage(String notion) {
+        return """
+                notion: %s
+                tour:
+                  - text: Une page.
+                    example:
+                      files:
+                        Main.java: |-
+                          void main() {
+                              IO.println("ok");
+                          }
+                      output: ok
+                cards: []
+                """.formatted(notion);
+    }
 
     @Test
     void shouldReadTheSubjectItsNotionsAndTheCardsOfEachNotion() {

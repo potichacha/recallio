@@ -1,5 +1,6 @@
 package com.recallio.content.domain.source;
 
+import com.recallio.content.TourPage;
 import com.recallio.content.domain.CardContent;
 import com.recallio.content.domain.NotionLevel;
 import com.recallio.content.domain.Subject;
@@ -71,6 +72,7 @@ public record ParsedContent(
      * @param domain identifiant du domaine, qui est aussi la clé de son thème
      * @param position ordre dans le référentiel du sujet
      * @param lesson la courte leçon de la notion, en Markdown ; facultative tant que la matrice n'est pas contrôlée
+     * @param tour les pages de la notion dans le Tour (ADR 0037) ; aucune pour une notion hors du Tour
      */
     public record ParsedNotion(
             String slug,
@@ -82,10 +84,27 @@ public record ParsedContent(
             int priority,
             List<String> requires,
             int position,
-            @Nullable String lesson) {
+            @Nullable String lesson,
+            List<TourPage> tour) {
 
         public ParsedNotion {
             requires = List.copyOf(requires);
+            tour = List.copyOf(tour);
+        }
+
+        /** Une notion hors du Tour. */
+        public ParsedNotion(
+                String slug,
+                String domain,
+                String chapter,
+                String chapterTitle,
+                String title,
+                NotionLevel level,
+                int priority,
+                List<String> requires,
+                int position,
+                @Nullable String lesson) {
+            this(slug, domain, chapter, chapterTitle, title, level, priority, requires, position, lesson, List.of());
         }
     }
 

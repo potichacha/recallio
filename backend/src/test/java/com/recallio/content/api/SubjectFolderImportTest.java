@@ -11,9 +11,12 @@ import static org.hamcrest.Matchers.nullValue;
 import com.recallio.content.application.ContentImportService;
 import com.recallio.content.domain.importing.ImportReport;
 import com.recallio.content.domain.source.SubjectFolder;
+import io.quarkus.narayana.jta.QuarkusTransaction;
 import io.quarkus.test.junit.QuarkusTest;
 import io.quarkus.test.security.TestSecurity;
 import jakarta.inject.Inject;
+import jakarta.persistence.EntityManager;
+import java.time.Instant;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
@@ -56,6 +59,9 @@ class SubjectFolderImportTest {
 
     @Inject
     ContentImportService importService;
+
+    @Inject
+    EntityManager entityManager;
 
     @Test
     void shouldImportAFolderAsOneThemePerDomain() {
@@ -123,6 +129,34 @@ class SubjectFolderImportTest {
     }
 
     @Test
+    void shouldStoreTheTourPagesOfANotionAndLeaveThemAloneWhenUnchanged() {
+        String withTour = VAL_VAR.replace("cards:", """
+                tour:
+                  - title: Une valeur
+                    text: Une valeur ne change plus.
+                    example:
+                      files:
+                        Main.java: |-
+                          void main() {
+                              IO.println("val");
+                          }
+                      output: val
+                cards:""");
+        importFolder(withTour);
+        Instant firstImport = notionUpdatedAt();
+
+        importFolder(withTour);
+
+        assertThat(notionUpdatedAt())
+                .as("une notion inchangée n'est pas réécrite")
+                .isEqualTo(firstImport);
+        assertThat(QuarkusTransaction.requiringNew().call(() -> (String) entityManager
+                        .createNativeQuery("select cast(tour as text) from notion where slug = 'val-var'")
+                        .getSingleResult()))
+                .contains("Une valeur", "Main.java", "IO.println");
+    }
+
+    @Test
     void shouldStopListingAThemeThatDisappearedFromItsDocument() {
         importService.importContent(rustDocument("# 1. LES BASES", "# 2. LA POSSESSION"));
         importService.importContent(rustDocument("# 2. LA POSSESSION"));
@@ -136,6 +170,12 @@ class SubjectFolderImportTest {
                 .then()
                 .body("slug", contains("rust-les-bases", "rust-la-possession"))
                 .body("[0].cardCount", is(1));
+    }
+
+    private Instant notionUpdatedAt() {
+        return QuarkusTransaction.requiringNew().call(() -> (Instant) entityManager
+                .createNativeQuery("select updated_at from notion where slug = 'val-var'", Instant.class)
+                .getSingleResult());
     }
 
     private ImportReport importFolder(String valVar) {

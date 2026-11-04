@@ -3,10 +3,12 @@ package com.recallio.content.infrastructure.folder;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.recallio.content.CardType;
+import com.recallio.content.domain.NotionLevel;
 import com.recallio.content.domain.source.ContentCoverage;
 import com.recallio.content.domain.source.ContentCoverage.ChapterExercises;
 import com.recallio.content.domain.source.ContentCoverage.NotionCoverage;
 import com.recallio.content.domain.source.ContentCoverage.PriorityCoverage;
+import com.recallio.content.domain.source.ParsedContent.ParsedNotion;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -77,9 +79,29 @@ class ContentCoverageReportTest {
                         exercises.exercises(),
                         share(exercises.chaptersWithExercise(), exercises.chapters()),
                         exercises.chapters()));
+        appendTour(report, coverage);
         appendUncovered(report, coverage);
         appendMatrix(report, coverage);
         return report.toString();
+    }
+
+    /** Les pages du Tour (ADR 0037), et les notions débutantes qui y sont déjà : le Tour d'un langage les vise toutes. */
+    private static void appendTour(StringBuilder report, ContentCoverage coverage) {
+        List<ParsedNotion> notions =
+                coverage.notions().stream().map(NotionCoverage::notion).toList();
+        int pages = notions.stream().mapToInt(notion -> notion.tour().size()).sum();
+        long tasks = notions.stream()
+                .flatMap(notion -> notion.tour().stream())
+                .filter(page -> page.task() != null)
+                .count();
+        List<ParsedNotion> beginners = notions.stream()
+                .filter(notion -> notion.level() == NotionLevel.BEGINNER)
+                .toList();
+        long beginnersInTour =
+                beginners.stream().filter(notion -> !notion.tour().isEmpty()).count();
+        report.append(
+                "\n**Tour** (ADR 0037) : %d page(s), dont %d avec un « À toi ». Notions débutantes dans le Tour : %s sur %d.\n"
+                        .formatted(pages, tasks, share((int) beginnersInTour, beginners.size()), beginners.size()));
     }
 
     private static void appendFormats(StringBuilder report, ContentCoverage coverage) {

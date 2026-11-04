@@ -471,7 +471,7 @@ Carte des compétences, maîtrise par notion, XP, quêtes, succès, gel de strea
 Apprendre un langage pas à pas, comme sur le Go Tour, et valider chaque page, comme sur Ornikar (6.6). Elle passe entre les étapes 4 et 5 de la phase 3 ter.
 
 1. ✅ **Le mode « programme » du runner** : compiler et lancer un programme, renvoyer ses sorties et son code de sortie, dans le même bac à sable ; en Go, tout paquet standard est permis (index des modules désactivé).
-2. **Le format des pages** : le bloc `tour` des notions (texte, exemple, « À toi »), leur import, et la CI qui joue chaque exemple et chaque « À toi » dans le bac à sable ; les pages du premier chapitre Go, pour éprouver le format.
+2. ✅ **Le format des pages** : le bloc `tour` des notions (texte, exemple, « À toi »), leur import, et la CI qui joue chaque exemple et chaque « À toi » dans le bac à sable ; les pages du premier chapitre Go (6 pages, 3 « À toi »), pour éprouver le format.
 3. **L'API du Tour** : les pages d'un sujet dans l'ordre, et `POST /api/v1/playground-runs`, limité par utilisateur.
 4. **Le Tour dans la PWA** : le sommaire et la page (texte, éditeur, « Exécuter », sortie, précédent et suivant), sur mobile aussi.
 5. **Valider une page** : les questions de vérification, la progression (pages validées, reprise où l'on s'est arrêté) et « S'entraîner sur cette notion » (un filtre par notion dans la file de révision).

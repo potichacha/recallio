@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JacksonException;
 import com.fasterxml.jackson.core.JsonLocation;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
+import com.recallio.content.TourPage;
 import com.recallio.content.domain.Subject;
 import com.recallio.content.domain.source.ContentCoverage;
 import com.recallio.content.domain.source.ContentCoverage.NotionTarget;
@@ -62,7 +63,7 @@ public class YamlSubjectFolderParser implements SubjectFolderParser {
         Map<String, ThemeCards> themes = new LinkedHashMap<>();
         for (Referential.Entry entry : referential.entries()) {
             NotionFile file = files.get(entry.notion().slug());
-            notions.add(withLesson(entry.notion(), file));
+            notions.add(withSource(entry, file, issues));
             List<ParsedCard> cards = new ArrayList<>();
             if (file != null) {
                 cards.addAll(new NotionCards(entry, path(entry), issues).read(file));
@@ -74,6 +75,7 @@ public class YamlSubjectFolderParser implements SubjectFolderParser {
                         .addAll(cards);
             }
         }
+        NotionTour.check(notions, issues);
         return new ParsedContent(
                 subject,
                 themes.values().stream()
@@ -164,10 +166,14 @@ public class YamlSubjectFolderParser implements SubjectFolderParser {
         return entry.notion().domain() + "/" + entry.notion().slug() + ".yaml";
     }
 
-    private static ParsedNotion withLesson(ParsedNotion notion, @Nullable NotionFile file) {
+    /** La notion du référentiel, avec ce qu'en dit son fichier : sa leçon et ses pages du Tour. */
+    private static ParsedNotion withSource(
+            Referential.Entry entry, @Nullable NotionFile file, List<SourceIssue> issues) {
+        ParsedNotion notion = entry.notion();
         String lesson = file == null || file.lesson() == null || file.lesson().isBlank()
                 ? null
                 : file.lesson().strip();
+        List<TourPage> tour = file == null ? List.of() : NotionTour.read(path(entry), file.tour(), issues);
         return new ParsedNotion(
                 notion.slug(),
                 notion.domain(),
@@ -178,7 +184,8 @@ public class YamlSubjectFolderParser implements SubjectFolderParser {
                 notion.priority(),
                 notion.requires(),
                 notion.position(),
-                lesson);
+                lesson,
+                tour);
     }
 
     private static Subject subject(SubjectFile file) {

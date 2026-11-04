@@ -2,6 +2,7 @@ package com.recallio.content.infrastructure.folder;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import java.util.List;
+import java.util.Map;
 import org.jspecify.annotations.Nullable;
 
 /**
@@ -45,11 +46,39 @@ final class FolderFiles {
             @Nullable List<String> formats,
             @Nullable Boolean complete) {}
 
-    /** Un fichier de notion : sa leçon et ses cartes. */
+    /** Un fichier de notion : sa leçon, ses pages du Tour (ADR 0037) et ses cartes. */
     record NotionFile(
             @JsonProperty(required = true) String notion,
             @Nullable String lesson,
+            @Nullable List<TourPageEntry> tour,
             @JsonProperty(required = true) List<CardEntry> cards) {}
+
+    /**
+     * Une page du Tour.
+     *
+     * @param title un titre court ; celui de la notion s'il est absent
+     * @param task un « À toi », facultatif
+     */
+    record TourPageEntry(
+            @Nullable String title,
+            @JsonProperty(required = true) String text,
+            @JsonProperty(required = true) ProgramEntry example,
+            @Nullable TaskEntry task) {}
+
+    /**
+     * @param files les fichiers du programme, par chemin ({@code main.go}, {@code Main.java}), dans l'ordre du fichier
+     * @param output la sortie standard qu'il donne
+     */
+    record ProgramEntry(
+            @JsonProperty(required = true) Map<String, String> files,
+            @JsonProperty(required = true) String output) {}
+
+    /** Un « À toi » : la consigne, le code de départ, la solution et la sortie attendue. */
+    record TaskEntry(
+            @JsonProperty(required = true) String instructions,
+            @JsonProperty(required = true) Map<String, String> starter,
+            @JsonProperty(required = true) Map<String, String> solution,
+            @JsonProperty(required = true) String output) {}
 
     /**
      * Le fichier {@code exercise.yaml} d'un exercice de code (ADR 0029) ; ses fichiers sont à côté de lui.
