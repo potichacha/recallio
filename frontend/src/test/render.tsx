@@ -37,6 +37,9 @@ export const TEST_PROFILE = {
 export const TEST_PROGRESS = {
   totalXp: 120,
   streak: 3,
+  streakFreezes: 1,
+  daysToNextFreeze: 4,
+  freezeEarnedToday: false,
   cardsToday: 4,
   dailyGoal: 10,
   goalReachedToday: false,

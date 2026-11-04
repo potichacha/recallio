@@ -7,6 +7,7 @@ import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
 
 import com.recallio.content.application.ContentImportService;
+import io.quarkus.narayana.jta.QuarkusTransaction;
 import io.quarkus.test.junit.QuarkusTest;
 import io.quarkus.test.security.TestSecurity;
 import io.quarkus.test.security.oidc.Claim;
@@ -14,10 +15,13 @@ import io.quarkus.test.security.oidc.OidcSecurity;
 import io.restassured.http.ContentType;
 import io.restassured.response.ValidatableResponse;
 import jakarta.inject.Inject;
+import jakarta.persistence.EntityManager;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.time.Clock;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Objects;
@@ -34,9 +38,17 @@ class ProgressResourceTest {
 
     private static final String PROGRESS = "/api/v1/me/progress";
     private static final String QUEUE = "/api/v1/review-queue";
+    private static final int DAILY_GOAL = 2;
 
     @Inject
     ContentImportService contentImport;
+
+    @Inject
+    EntityManager entityManager;
+
+    /** L'horloge de l'application (midi UTC en test) : les jours écrits en base doivent la suivre. */
+    @Inject
+    Clock clock;
 
     /** Deux sujets publiés : Java (l'exemple de référence) et un petit document Go, qui a un QCM. */
     @BeforeEach
@@ -65,7 +77,7 @@ class ProgressResourceTest {
                 .body("subjects", empty())
                 .body("streak", is(0))
                 .body("cardsToday", is(0))
-                .body("dailyGoal", is(2))
+                .body("dailyGoal", is(DAILY_GOAL))
                 .body("goalReachedToday", is(false));
     }
 
@@ -120,6 +132,42 @@ class ProgressResourceTest {
 
     @Test
     @TestSecurity(user = "alice")
+    @OidcSecurity(claims = @Claim(key = "sub", value = "progress-freeze-earned"))
+    void shouldEarnAStreakFreezeWhenTheGoalIsReachedTheSeventhDayInARow() {
+        LocalDate today = LocalDate.now(clock.withZone(myTimezone()));
+        goalReached(today.minusDays(6), today.minusDays(1));
+        List<String> cards = flashcardIds();
+
+        review(UUID.randomUUID(), cards.get(0));
+        progress().body("streak", is(6)).body("streakFreezes", is(0)).body("daysToNextFreeze", is(1));
+
+        review(UUID.randomUUID(), cards.get(1));
+        progress()
+                .body("streak", is(7))
+                .body("streakFreezes", is(1))
+                .body("freezeEarnedToday", is(true))
+                .body("daysToNextFreeze", is(7));
+    }
+
+    @Test
+    @TestSecurity(user = "alice")
+    @OidcSecurity(claims = @Claim(key = "sub", value = "progress-freeze-used"))
+    void shouldCoverAMissedDayWithAStreakFreeze() {
+        // L'objectif atteint les sept jours qui finissent avant-hier, puis hier manqué : le gel gagné le couvre.
+        LocalDate today = LocalDate.now(clock.withZone(myTimezone()));
+        goalReached(today.minusDays(8), today.minusDays(2));
+
+        progress().body("streak", is(7)).body("streakFreezes", is(0)).body("freezeEarnedToday", is(false));
+        given().queryParam("days", 3)
+                .get(PROGRESS + "/activity")
+                .then()
+                .statusCode(200)
+                .body("goalReached", contains(true, false, false))
+                .body("frozen", contains(false, true, false));
+    }
+
+    @Test
+    @TestSecurity(user = "alice")
     @OidcSecurity(claims = @Claim(key = "sub", value = "progress-activity"))
     void shouldListTheRecentDaysIncludingThoseWithoutReviews() {
         review(UUID.randomUUID(), flashcardIds().getFirst());
@@ -140,6 +188,26 @@ class ProgressResourceTest {
     @OidcSecurity(claims = @Claim(key = "sub", value = "progress-activity-bounds"))
     void shouldBoundTheNumberOfDays() {
         given().queryParam("days", 365).get(PROGRESS + "/activity").then().statusCode(400);
+    }
+
+    /** L'objectif atteint chaque jour de {@code from} à {@code to} inclus, écrit directement en base. */
+    private void goalReached(LocalDate from, LocalDate to) {
+        UUID userId = UUID.fromString(given().get("/api/v1/me").then().extract().path("id"));
+        QuarkusTransaction.requiringNew()
+                .run(() -> from.datesUntil(to.plusDays(1))
+                        .forEach(day -> entityManager
+                                .createNativeQuery("""
+                                        insert into daily_activity (user_id, local_date, cards_reviewed, goal_reached)
+                                        values (:userId, :day, :cards, true)
+                                        """)
+                                .setParameter("userId", userId)
+                                .setParameter("day", day)
+                                .setParameter("cards", DAILY_GOAL)
+                                .executeUpdate()));
+    }
+
+    private static ZoneId myTimezone() {
+        return ZoneId.of(given().get("/api/v1/me").then().extract().path("timezone"));
     }
 
     private static ValidatableResponse progress() {
