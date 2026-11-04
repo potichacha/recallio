@@ -18,13 +18,16 @@ class RunsResourceTest {
     private static final String TOKEN = "Bearer dev-token-du-runner-a-ne-jamais-deployer";
 
     private static final Map<String, Object> PASSING = Map.of(
+            "language",
+            "JAVA",
             "code",
-                    List.of(Map.of(
-                            "path",
-                            "Bonjour.java",
-                            "content",
-                            "public class Bonjour { static String dire() { return \"bonjour\"; } }")),
-            "tests", List.of(Map.of("path", "BonjourTest.java", "content", """
+            List.of(Map.of(
+                    "path",
+                    "Bonjour.java",
+                    "content",
+                    "public class Bonjour { static String dire() { return \"bonjour\"; } }")),
+            "tests",
+            List.of(Map.of("path", "BonjourTest.java", "content", """
                     import static org.junit.jupiter.api.Assertions.assertEquals;
                     import org.junit.jupiter.api.Test;
                     class BonjourTest {
@@ -73,8 +76,42 @@ class RunsResourceTest {
         given().header("Authorization", TOKEN)
                 .contentType(ContentType.JSON)
                 .body(Map.of(
-                        "code", List.of(Map.of("path", "../../etc/Evasion.java", "content", "class Evasion {}")),
-                        "tests", List.of(Map.of("path", "T.java", "content", "class T {}"))))
+                        "language",
+                        "JAVA",
+                        "code",
+                        List.of(Map.of("path", "../../etc/Evasion.java", "content", "class Evasion {}")),
+                        "tests",
+                        List.of(Map.of("path", "T.java", "content", "class T {}"))))
+                .post("/api/v1/runs")
+                .then()
+                .statusCode(400);
+    }
+
+    @Test
+    void shouldRefuseFilesThatAreNotOfTheAnnouncedLanguage() {
+        given().header("Authorization", TOKEN)
+                .contentType(ContentType.JSON)
+                .body(Map.of(
+                        "language",
+                        "JAVA",
+                        "code",
+                        List.of(Map.of("path", "somme.go", "content", "package somme")),
+                        "tests",
+                        List.of(Map.of("path", "somme_test.go", "content", "package somme"))))
+                .post("/api/v1/runs")
+                .then()
+                .statusCode(400);
+    }
+
+    @Test
+    void shouldRefuseARequestWithoutALanguage() {
+        given().header("Authorization", TOKEN)
+                .contentType(ContentType.JSON)
+                .body(Map.of(
+                        "code",
+                        List.of(Map.of("path", "A.java", "content", "class A {}")),
+                        "tests",
+                        List.of(Map.of("path", "T.java", "content", "class T {}"))))
                 .post("/api/v1/runs")
                 .then()
                 .statusCode(400);

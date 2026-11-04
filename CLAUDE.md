@@ -100,7 +100,7 @@ Recallio n'est pas une application « Java » : c'est un **catalogue de sujets d
 | Conteneurs | Docker, `docker compose` pour le local | une image backend, une image frontend (fichiers statiques servis par un serveur web) |
 | Hébergement | PaaS ou VPS européen (Clever Cloud, Scaleway ou OVHcloud), PostgreSQL managé | décision à prendre en phase 1, consignée en ADR |
 | Observabilité | logs JSON sur stdout, métriques Micrometer, Sentry pour les erreurs (plus tard OpenTelemetry) | |
-| Exécution du code | service **`runner`** (Quarkus) et image **`sandbox/java`** : un conteneur jetable par exécution (ADR 0030) | seul composant à accéder à Docker ; joint par le seul backend |
+| Exécution du code | service **`runner`** (Quarkus) et images **`sandbox/java`**, **`sandbox/go`** : un conteneur jetable par exécution (ADR 0030, 0033) | seul composant à accéder à Docker ; joint par le seul backend |
 | Phase 2+ | **Valkey/Redis** (classements, temps réel), WebSockets Next (mode live) | ne pas l'introduire avant la phase concernée |
 
 Toute nouvelle dépendance doit être justifiée et, si elle est structurante, faire l'objet d'un ADR.

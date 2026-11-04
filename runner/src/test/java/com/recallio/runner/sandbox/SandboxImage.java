@@ -2,35 +2,51 @@ package com.recallio.runner.sandbox;
 
 import java.io.IOException;
 import java.time.Duration;
+import java.util.EnumMap;
+import java.util.EnumSet;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 /**
- * L'image du bac à sable, construite depuis {@code sandbox/java} avant les tests qui exécutent du code : le cache de
- * Docker rend la construction instantanée quand rien n'a changé.
+ * Les images du bac à sable, une par langage, construites depuis {@code sandbox/<langage>} avant les tests qui exécutent
+ * du code : le cache de Docker rend la construction instantanée quand rien n'a changé.
  */
 public final class SandboxImage {
 
-    public static final String NAME = "recallio-sandbox-java";
-    private static final String CONTEXT = "../sandbox/java";
     private static final Duration BUILD_TIMEOUT = Duration.ofMinutes(10);
 
-    private static boolean built;
+    private static final Set<Language> BUILT = EnumSet.noneOf(Language.class);
 
     private SandboxImage() {}
 
+    /** Le nom de l'image d'un langage : {@code recallio-sandbox-java}, {@code recallio-sandbox-go}. */
+    public static String name(Language language) {
+        return "recallio-sandbox-" + language.name().toLowerCase(Locale.ROOT);
+    }
+
+    /** Construit l'image de chaque langage. */
     public static synchronized void ensureBuilt() {
-        if (built) {
+        for (Language language : Language.values()) {
+            ensureBuilt(language);
+        }
+    }
+
+    private static void ensureBuilt(Language language) {
+        if (BUILT.contains(language)) {
             return;
         }
+        String context = "../sandbox/" + language.name().toLowerCase(Locale.ROOT);
         try {
-            Process build = new ProcessBuilder("docker", "build", "--quiet", "--tag", NAME, CONTEXT)
+            Process build = new ProcessBuilder("docker", "build", "--quiet", "--tag", name(language), context)
                     .inheritIO()
                     .start();
             if (!build.waitFor(BUILD_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS) || build.exitValue() != 0) {
-                throw new IllegalStateException("La construction de l'image " + NAME + " a échoué");
+                throw new IllegalStateException("La construction de l'image " + name(language) + " a échoué");
             }
-            built = true;
+            BUILT.add(language);
         } catch (IOException e) {
             throw new IllegalStateException("Docker est nécessaire pour exécuter le bac à sable", e);
         } catch (InterruptedException e) {
@@ -39,9 +55,13 @@ public final class SandboxImage {
         }
     }
 
-    /** Un bac à sable sur cette image, avec ce délai. */
+    /** Un bac à sable sur les images de tous les langages, avec ce délai. */
     public static DockerSandbox sandbox(Duration timeout) {
         ensureBuilt();
-        return new DockerSandbox(NAME, timeout, Optional.empty());
+        Map<Language, String> images = new EnumMap<>(Language.class);
+        for (Language language : Language.values()) {
+            images.put(language, name(language));
+        }
+        return new DockerSandbox(images, timeout, Optional.empty());
     }
 }

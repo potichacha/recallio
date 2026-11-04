@@ -60,7 +60,7 @@ public class ExerciseRunService {
             throw new ExerciseRunInProgressException();
         }
         try {
-            return runner.run(files, exercise.tests());
+            return runner.run(exercise.language(), files, exercise.tests());
         } finally {
             running.remove(user.id());
         }

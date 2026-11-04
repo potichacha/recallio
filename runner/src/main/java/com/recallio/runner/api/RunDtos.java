@@ -1,5 +1,6 @@
 package com.recallio.runner.api;
 
+import com.recallio.runner.sandbox.Language;
 import com.recallio.runner.sandbox.RunResult;
 import com.recallio.runner.sandbox.RunResult.Status;
 import com.recallio.runner.sandbox.Submission;
@@ -18,10 +19,13 @@ final class RunDtos {
     /**
      * Une exécution demandée.
      *
+     * @param language le langage du code et des tests (ADR 0033), qui choisit l'image du bac à sable
      * @param code les fichiers du joueur (ou d'une solution), placés dans {@code src/}
      * @param tests les tests qui les jugent, placés dans {@code tests/}
      */
     record RunRequest(
+            @NotNull Language language,
+
             @NotNull @Size(min = 1, max = Submission.MAX_FILES_PER_PART)
             List<@NotNull @Valid SourceFileDto> code,
 
@@ -30,6 +34,7 @@ final class RunDtos {
 
         Submission toSubmission() {
             return new Submission(
+                    language,
                     code.stream().map(SourceFileDto::toSourceFile).toList(),
                     tests.stream().map(SourceFileDto::toSourceFile).toList());
         }

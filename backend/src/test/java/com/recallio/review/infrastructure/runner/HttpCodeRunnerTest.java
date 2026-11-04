@@ -3,6 +3,7 @@ package com.recallio.review.infrastructure.runner;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.recallio.content.CodeLanguage;
 import com.recallio.content.ExerciseFiles.SourceFile;
 import com.recallio.review.domain.exercise.ExerciseRun;
 import com.recallio.review.domain.exercise.ExerciseRun.Status;
@@ -32,10 +33,11 @@ class HttpCodeRunnerTest {
             return new RunResponse("FAILED", List.of(new TestDto("DoublonsTest", "retire", false, "attendu 2")), "");
         });
 
-        ExerciseRun run = runner.run(CODE, TESTS);
+        ExerciseRun run = runner.run(CodeLanguage.JAVA, CODE, TESTS);
 
         assertThat(sent.get())
                 .isEqualTo(new RunRequest(
+                        "JAVA",
                         List.of(new FileDto("Doublons.java", "class Doublons {}")),
                         List.of(new FileDto("DoublonsTest.java", "class DoublonsTest {}"))));
         assertThat(run)
@@ -46,18 +48,19 @@ class HttpCodeRunnerTest {
     /** Une panne du runner n'est jamais la faute du joueur : sa réponse n'est pas jugée. */
     @Test
     void shouldTreatEveryFailureOfTheRunnerAsUnavailable() {
-        assertThatThrownBy(() -> new HttpCodeRunner(_ -> new RunResponse("ERROR", List.of(), "panne")).run(CODE, TESTS))
+        assertThatThrownBy(() -> new HttpCodeRunner(_ -> new RunResponse("ERROR", List.of(), "panne"))
+                        .run(CodeLanguage.JAVA, CODE, TESTS))
                 .isInstanceOf(RunnerUnavailableException.class);
         assertThatThrownBy(() -> new HttpCodeRunner(_ -> {
                             throw new WebApplicationException(
                                     Response.status(503).build());
                         })
-                        .run(CODE, TESTS))
+                        .run(CodeLanguage.JAVA, CODE, TESTS))
                 .isInstanceOf(RunnerUnavailableException.class);
         assertThatThrownBy(() -> new HttpCodeRunner(_ -> {
                             throw new ProcessingException("connexion refusée");
                         })
-                        .run(CODE, TESTS))
+                        .run(CodeLanguage.JAVA, CODE, TESTS))
                 .isInstanceOf(RunnerUnavailableException.class);
     }
 }

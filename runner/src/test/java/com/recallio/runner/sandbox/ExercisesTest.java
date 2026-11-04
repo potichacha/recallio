@@ -42,7 +42,7 @@ class ExercisesTest {
     @ParameterizedTest(name = "{0}")
     @MethodSource("exercises")
     void shouldBeSolvedByItsSolution(Path exercise) {
-        RunResult result = SANDBOX.run(new Submission(files(exercise, "solution"), files(exercise, "tests")));
+        RunResult result = SANDBOX.run(submission(exercise, "solution"));
 
         assertThat(result.status()).as("solution de %s : %s", exercise, result).isEqualTo(Status.PASSED);
     }
@@ -50,12 +50,19 @@ class ExercisesTest {
     @ParameterizedTest(name = "{0}")
     @MethodSource("exercises")
     void shouldStartFromCodeThatCompilesButFails(Path exercise) {
-        RunResult result = SANDBOX.run(new Submission(files(exercise, "starter"), files(exercise, "tests")));
+        RunResult result = SANDBOX.run(submission(exercise, "starter"));
 
         assertThat(result.status())
                 .as("code de départ de %s : %s", exercise, result)
                 .isEqualTo(Status.FAILED);
         assertThat(result.tests()).as("tests de %s", exercise).isNotEmpty();
+    }
+
+    /** Une partie de l'exercice et ses tests, dans le langage de ses fichiers (ADR 0033). */
+    private static Submission submission(Path exercise, String part) {
+        List<SourceFile> tests = files(exercise, "tests");
+        Language language = tests.getFirst().path().endsWith(".go") ? Language.GO : Language.JAVA;
+        return new Submission(language, files(exercise, part), tests);
     }
 
     /** Les fichiers d'une partie de l'exercice, par chemin relatif à elle. */

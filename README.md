@@ -11,7 +11,7 @@ Application web (PWA) de révision des entretiens techniques par répétition es
 | [`backend/`](backend/) | API Quarkus (Java 25), monolithe modulaire |
 | [`frontend/`](frontend/) | PWA React + TypeScript + Vite |
 | [`runner/`](runner/) | Service Quarkus qui exécute le code des exercices dans des conteneurs jetables (ADR 0030) |
-| [`sandbox/java/`](sandbox/java/) | Image du bac à sable : JDK 25 et JUnit, lancée par le runner |
+| [`sandbox/java/`](sandbox/java/), [`sandbox/go/`](sandbox/go/) | Images du bac à sable, une par langage (JDK 25 et JUnit ; Go 1.27), lancées par le runner |
 | [`content/`](content/) | Contenu : documents Markdown (`source/`) et dossiers de sujet (`java/` : référentiel, notions, exercices) |
 | [`infra/`](infra/) | `compose.yaml` et royaume Keycloak pour lancer l'ensemble avec Docker |
 | [`e2e/`](e2e/) | Parcours de bout en bout (Playwright) contre la pile Docker |
@@ -52,7 +52,8 @@ Exercices de code : ils s'exécutent dans le runner (ADR 0030), à lancer dans u
 essayer en dev (sans lui, les essayer ou les rendre répond 503) :
 
 ```shell
-docker build -t recallio-sandbox-java sandbox/java   # l'image du bac à sable, une fois
+docker build -t recallio-sandbox-java sandbox/java   # les images du bac à sable, une fois
+docker build -t recallio-sandbox-go sandbox/go
 cd runner
 ./mvnw quarkus:dev
 ```

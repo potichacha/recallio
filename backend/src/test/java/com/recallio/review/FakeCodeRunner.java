@@ -1,5 +1,6 @@
 package com.recallio.review;
 
+import com.recallio.content.CodeLanguage;
 import com.recallio.content.ExerciseFiles.SourceFile;
 import com.recallio.review.domain.exercise.CodeRunner;
 import com.recallio.review.domain.exercise.ExerciseRun;
@@ -29,11 +30,13 @@ public class FakeCodeRunner implements CodeRunner {
 
     private volatile ExerciseRun next = PASSED;
     private volatile boolean unavailable;
+    private volatile CodeLanguage lastLanguage = CodeLanguage.JAVA;
     private volatile List<SourceFile> lastCode = List.of();
     private volatile List<SourceFile> lastTests = List.of();
 
     @Override
-    public ExerciseRun run(List<SourceFile> code, List<SourceFile> tests) {
+    public ExerciseRun run(CodeLanguage language, List<SourceFile> code, List<SourceFile> tests) {
+        lastLanguage = language;
         lastCode = List.copyOf(code);
         lastTests = List.copyOf(tests);
         if (unavailable) {
@@ -49,6 +52,10 @@ public class FakeCodeRunner implements CodeRunner {
 
     public void willBeUnavailable() {
         unavailable = true;
+    }
+
+    public CodeLanguage lastLanguage() {
+        return lastLanguage;
     }
 
     public List<SourceFile> lastCode() {

@@ -7,12 +7,14 @@ import com.recallio.runner.sandbox.RunResult.TestOutcome;
 import com.recallio.runner.sandbox.Submission.SourceFile;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 
 /**
  * Le bac à sable de bout en bout, avec Docker et l'image {@code sandbox/java} : les résultats d'une exécution, et
- * l'isolation qu'il promet (ADR 0030). Chaque test lance un conteneur, en deux secondes environ.
+ * l'isolation qu'il promet (ADR 0030). Chaque test lance un conteneur, en deux secondes environ. Go a les siens
+ * ({@link GoSandboxTest}).
  */
 class DockerSandboxTest {
 
@@ -111,20 +113,24 @@ class DockerSandboxTest {
 
     @Test
     void shouldInterpretTheOutputOfTheContainer() {
-        assertThat(DockerSandbox.interpret("@@recallio:compilation-error\nA.java:1: error\n"))
+        assertThat(DockerSandbox.interpret(Language.JAVA, "@@recallio:compilation-error\nA.java:1: error\n"))
                 .isEqualTo(RunResult.failure(Status.COMPILATION_ERROR, "A.java:1: error"));
-        assertThat(DockerSandbox.interpret("@@recallio:report\n").status()).isEqualTo(Status.FAILED);
-        assertThat(DockerSandbox.interpret("@@recallio:invalid\n").status()).isEqualTo(Status.ERROR);
-        assertThat(DockerSandbox.interpret("").status()).isEqualTo(Status.ERROR);
-        assertThat(DockerSandbox.interpret("@@recallio:report\n<pas du xml").status())
+        assertThat(DockerSandbox.interpret(Language.JAVA, "@@recallio:report\n").status())
+                .isEqualTo(Status.FAILED);
+        assertThat(DockerSandbox.interpret(Language.JAVA, "@@recallio:invalid\n")
+                        .status())
+                .isEqualTo(Status.ERROR);
+        assertThat(DockerSandbox.interpret(Language.JAVA, "").status()).isEqualTo(Status.ERROR);
+        assertThat(DockerSandbox.interpret(Language.JAVA, "@@recallio:report\n<pas du xml")
+                        .status())
                 .isEqualTo(Status.ERROR);
     }
 
     @Test
     void shouldAddTheIsolatingRuntimeWhenOneIsConfigured() {
-        var sandbox = new DockerSandbox("image", TIMEOUT, Optional.of("runsc"));
+        var sandbox = new DockerSandbox(Map.of(Language.JAVA, "image"), TIMEOUT, Optional.of("runsc"));
 
-        assertThat(sandbox.command("run"))
+        assertThat(sandbox.command("run", "image"))
                 .containsSequence("--network", "none")
                 .containsSequence("--cap-drop", "ALL")
                 .containsSequence("--user", "65534:65534")
@@ -138,7 +144,9 @@ class DockerSandboxTest {
 
     private static Submission submission(String code, String test) {
         return new Submission(
-                List.of(new SourceFile("Addition.java", code)), List.of(new SourceFile("AdditionTest.java", test)));
+                Language.JAVA,
+                List.of(new SourceFile("Addition.java", code)),
+                List.of(new SourceFile("AdditionTest.java", test)));
     }
 
     /** Une classe de test JUnit d'un seul test, {@code verifie}, avec ces instructions. */
