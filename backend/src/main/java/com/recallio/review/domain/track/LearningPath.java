@@ -39,7 +39,16 @@ public final class LearningPath {
             // Une notion retirée ou inconnue ne bloque rien.
             return true;
         }
-        return recalled.getOrDefault(notionId, 0) >= Math.min(RECALLED_TO_ACQUIRE, notion.cardCount());
+        return isAcquired(recalled.getOrDefault(notionId, 0), notion.cardCount());
+    }
+
+    /** La règle « acquise », partagée avec la maîtrise (ADR 0034) : assez de cartes réussies, ou toutes. */
+    static boolean isAcquired(int recalledCards, int cardCount) {
+        return recalledCards >= cardsToAcquire(cardCount);
+    }
+
+    static int cardsToAcquire(int cardCount) {
+        return Math.min(RECALLED_TO_ACQUIRE, cardCount);
     }
 
     public boolean unlocked(UUID notionId) {

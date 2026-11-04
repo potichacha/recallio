@@ -29,4 +29,9 @@ public record ReviewState(
     public boolean isDue(Instant now) {
         return !dueAt.isAfter(now);
     }
+
+    /** En révision, avec une stabilité d'au moins {@code days} jours : une carte dont on se souvient durablement. */
+    public boolean isStable(double days) {
+        return state == LearningState.REVIEW && stability >= days;
+    }
 }

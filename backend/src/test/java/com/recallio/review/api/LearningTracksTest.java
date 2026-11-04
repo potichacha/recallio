@@ -115,7 +115,8 @@ class LearningTracksTest {
         path().body("track", equalTo("LEARN"))
                 .body("chapters.title", contains("Tout"))
                 .body("chapters[0].notions.slug", contains("bases", "avance"))
-                .body("chapters[0].notions.status", contains("AVAILABLE", "LOCKED"));
+                .body("chapters[0].notions.status", contains("AVAILABLE", "LOCKED"))
+                .body("chapters[0].notions.mastery", contains("NEW", "NEW"));
 
         String basics = prompts().extract().path("cards[0].cardId");
         given().contentType(ContentType.JSON)
@@ -124,8 +125,15 @@ class LearningTracksTest {
                 .then()
                 .statusCode(201);
 
+        // Une notion d'une seule carte : la réussir l'acquiert, et la maîtriser demande cette carte stable.
         path().body("chapters[0].notions.status", contains("ACQUIRED", "AVAILABLE"))
-                .body("chapters[0].notions[0].seenCount", equalTo(1));
+                .body("chapters[0].notions[0].seenCount", equalTo(1))
+                .body("chapters[0].notions.mastery", contains("ACQUIRED", "NEW"))
+                .body("chapters[0].notions[0].nextLevel.level", equalTo("MASTERED"))
+                .body("chapters[0].notions[0].nextLevel.cards", equalTo(0))
+                .body("chapters[0].notions[0].nextLevel.cardsNeeded", equalTo(1))
+                .body("chapters[0].notions[0].nextLevel.formatsNeeded", equalTo(1))
+                .body("chapters[0].notions[1].nextLevel.level", equalTo("DISCOVERED"));
         given().get("/api/v1/learning-paths/inconnu").then().statusCode(404);
     }
 

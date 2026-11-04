@@ -1,6 +1,5 @@
 package com.recallio.review.domain.stats;
 
-import com.recallio.review.domain.LearningState;
 import com.recallio.review.domain.ReviewState;
 import java.time.Instant;
 import java.util.Collection;
@@ -45,6 +44,6 @@ public record CardCounts(int total, int seen, int mastered, int dueNow, int dueT
     }
 
     private static boolean isMastered(ReviewState state) {
-        return state.state() == LearningState.REVIEW && state.stability() >= MASTERED_STABILITY_DAYS;
+        return state.isStable(MASTERED_STABILITY_DAYS);
     }
 }
