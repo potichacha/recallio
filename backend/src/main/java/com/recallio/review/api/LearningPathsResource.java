@@ -1,11 +1,15 @@
 package com.recallio.review.api;
 
+import com.recallio.content.CardType;
 import com.recallio.content.NotionInfo;
 import com.recallio.platform.api.ProblemDetail;
 import com.recallio.review.application.LearningPathService;
 import com.recallio.review.application.LearningPathService.NotionStep;
 import com.recallio.review.application.LearningPathService.SubjectPath;
 import com.recallio.review.domain.track.LearningPath.NotionStatus;
+import com.recallio.review.domain.track.MasteryLevel;
+import com.recallio.review.domain.track.NotionMastery;
+import com.recallio.review.domain.track.NotionMastery.NextLevel;
 import com.recallio.user.CurrentUser;
 import com.recallio.user.LearningTrack;
 import io.quarkus.security.Authenticated;
@@ -25,6 +29,7 @@ import org.eclipse.microprofile.openapi.annotations.parameters.Parameter;
 import org.eclipse.microprofile.openapi.annotations.responses.APIResponse;
 import org.eclipse.microprofile.openapi.annotations.security.SecurityRequirement;
 import org.eclipse.microprofile.openapi.annotations.tags.Tag;
+import org.jspecify.annotations.Nullable;
 
 /** La carte du parcours d'un sujet (ADR 0032) : chacun ne voit que sa propre progression (CLAUDE.md, 4.5). */
 @Path("/api/v1/learning-paths")
@@ -103,10 +108,18 @@ public class LearningPathsResource {
             @Schema(description = "Les cartes de la notion") int cardCount,
 
             @Schema(description = "Les cartes de la notion déjà vues")
-            int seenCount) {
+            int seenCount,
+
+            @Schema(description = "Le niveau de maîtrise de la notion (ADR 0034)")
+            MasteryLevel mastery,
+
+            @Schema(description = "Ce qui mène au niveau suivant ; absent au niveau le plus haut", nullable = true)
+            @Nullable
+            NextLevelDto nextLevel) {
 
         static PathNotionDto from(NotionStep step) {
             NotionInfo notion = step.notion();
+            NotionMastery mastery = step.mastery();
             return new PathNotionDto(
                     notion.slug(),
                     notion.title(),
@@ -114,7 +127,43 @@ public class LearningPathsResource {
                     notion.priority(),
                     step.status(),
                     notion.cardCount(),
-                    step.seen());
+                    mastery.seen(),
+                    mastery.level(),
+                    mastery.nextLevel().map(NextLevelDto::from).orElse(null));
+        }
+    }
+
+    @Schema(
+            name = "NextMasteryLevel",
+            description = "Ce que demande le niveau de maîtrise suivant, et où en est l'utilisateur")
+    record NextLevelDto(
+            MasteryLevel level,
+
+            @Schema(
+                    description = "Les cartes qui comptent déjà : vues pour « découverte », réussies pour « acquise »,"
+                            + " maîtrisées pour « maîtrisée », retenues sur la durée pour « experte »")
+            int cards,
+
+            @Schema(description = "Les cartes que ce niveau demande")
+            int cardsNeeded,
+
+            @Schema(description = "Les formats différents parmi ces cartes ; 0 si le niveau n'en demande pas")
+            int formats,
+
+            @Schema(description = "Les formats différents que ce niveau demande ; 0 s'il n'en demande pas")
+            int formatsNeeded,
+
+            @Schema(description = "Les formats de la notion encore jamais réussis, que le niveau « experte » demande")
+            List<CardType> missingFormats) {
+
+        static NextLevelDto from(NextLevel next) {
+            return new NextLevelDto(
+                    next.level(),
+                    next.cards(),
+                    next.cardsNeeded(),
+                    next.formats(),
+                    next.formatsNeeded(),
+                    next.missingFormats().stream().sorted().toList());
         }
     }
 }

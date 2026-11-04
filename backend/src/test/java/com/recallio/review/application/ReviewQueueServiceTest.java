@@ -161,7 +161,9 @@ class ReviewQueueServiceTest {
             if (subjects != null && subjects.isEmpty()) {
                 return List.of();
             }
-            return ids.stream().map(id -> new ActiveCard(id, SUBJECT)).toList();
+            return ids.stream()
+                    .map(id -> new ActiveCard(id, SUBJECT, null, CardType.FLASHCARD))
+                    .toList();
         }
 
         @Override

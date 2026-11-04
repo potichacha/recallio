@@ -67,16 +67,14 @@ public interface CardDirectory {
         }
     }
 
-    /** Une carte active et son sujet, pour répartir les nouvelles cartes entre les sujets. */
-    /** @param notionId la notion de la carte ; {@code null} pour une carte d'un document Markdown */
+    /**
+     * Une carte active, son sujet, sa notion et son format : de quoi répartir les nouvelles cartes et mesurer la
+     * maîtrise (ADR 0034) sans charger le texte des cartes.
+     *
+     * @param notionId la notion de la carte ; {@code null} pour une carte d'un document Markdown
+     */
     record ActiveCard(
-            UUID cardId, String subjectSlug, @Nullable UUID notionId) {
-
-        /** Une carte sans notion. */
-        public ActiveCard(UUID cardId, String subjectSlug) {
-            this(cardId, subjectSlug, null);
-        }
-    }
+            UUID cardId, String subjectSlug, @Nullable UUID notionId, CardType type) {}
 
     record ThemeCards(String subjectSlug, String subjectTitle, String slug, String title, List<UUID> cardIds) {
 

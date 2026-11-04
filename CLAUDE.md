@@ -427,6 +427,28 @@ Faire du contenu un référentiel complet, pour apprendre, préparer un entretie
 ### Phase 3 ter : gamification v2, partage, classé (ADR 0025)
 Carte des compétences, maîtrise par notion, XP, quêtes, succès, gel de streak ; cartes de partage et profil public (privé par défaut) ; classé par sujet : duels asynchrones, rangs, placement, cotes des cartes, puis saisons et classé en direct.
 
+**Gamification v2, en révision personnelle**
+1. ✅ **Maîtrise par notion** : nouvelle, découverte, acquise, maîtrisée, experte, d'après la mémoire FSRS et les formats réussis ; donnée par la carte du parcours, avec ce qui mène au niveau suivant (ADR 0034).
+2. **Carte des compétences** (PWA) : domaines, chapitres et notions colorées par maîtrise sur la page du parcours ; un résumé par sujet sur le tableau de bord.
+3. **XP par sujet** (ADR à venir) : l'XP remplace les points ; une XP de base à chaque révision, quelle que soit la note, et un bonus pour une réussite corrigée par le serveur, plus fort pour les formats exigeants ; jamais liée au temps.
+4. **Gel de streak** : gagné avec le streak, consommé automatiquement un jour manqué.
+5. **Quêtes du jour et de la semaine**, qui font varier les formats.
+6. **Succès**, débloqués une seule fois.
+
+**Partage**
+
+7. **Profil public de compétences**, privé par défaut ; le vérifié séparé du déclaré.
+8. **Cartes de partage** : chapitre maîtrisé, podium, promotion.
+
+**Classé** (ADR à venir)
+
+9. **Cote de difficulté des cartes**, sur les réponses corrigées par le serveur.
+10. **Cote et rang par sujet, duels asynchrones** (backend) : cote Glicko-2 cachée, rangs en divisions, matchs de placement.
+11. **Duels dans la PWA**.
+12. **Saisons**.
+13. **Classé en direct**.
+- **Terminé quand** : un utilisateur suit sa maîtrise notion par notion, gagne de l'XP et des succès, partage un profil de compétences, et monte de rang en duel sur un sujet.
+
 Le **déploiement** (phase 1, étape 7) vient après ces phases.
 
 ### Phase 4 : offre entreprise

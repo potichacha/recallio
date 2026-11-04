@@ -76,7 +76,7 @@ public class JpaCardDirectory implements CardDirectory {
             parameters.put("types", filter.types());
         }
         var query = entityManager.createQuery("""
-                select c.id, s.slug, c.notionId from CardEntity c
+                select c.id, s.slug, c.notionId, c.type from CardEntity c
                 join ThemeEntity t on t.id = c.themeId
                 join SubjectEntity s on s.id = t.subjectId
                 where %s
@@ -84,7 +84,7 @@ public class JpaCardDirectory implements CardDirectory {
                 """.formatted(String.join(" and ", conditions)), Object[].class);
         parameters.forEach(query::setParameter);
         return query.getResultStream()
-                .map(row -> new ActiveCard((UUID) row[0], (String) row[1], (UUID) row[2]))
+                .map(row -> new ActiveCard((UUID) row[0], (String) row[1], (UUID) row[2], (CardType) row[3]))
                 .toList();
     }
 
