@@ -381,6 +381,9 @@ tour:
   s'exécute, car l'utilisateur le lance d'abord, mais il ne donne pas la sortie attendue.
 - **Les prérequis** d'une notion qui sont dans le Tour ont leur page plus tôt, et toutes les pages d'un sujet sont dans
   un seul langage : le parseur le vérifie (`SubjectFolderTest`).
+- **Les questions de validation** : à la fin de sa dernière page, une notion se valide par 2 ou 3 de ses cartes
+  corrigées par le serveur (vrai ou faux, QCM, code à compléter), prises dans l'ordre du fichier, une par format
+  d'abord. Une notion du Tour en a donc au moins deux, et le parseur le vérifie.
 - **La CI joue chaque exemple et chaque « À toi »** dans le bac à sable (job `runner`) : `cd runner && ./mvnw test
   -Dtest=TourTest` (Docker requis). Le job `content` compte les pages du Tour dans son résumé.
 - En Go, tout paquet standard est permis ; ceux de `sandbox/go/warm/warm.go` s'exécutent plus vite.
@@ -396,6 +399,7 @@ tour:
 - [ ] Chaque bloc de code indique son langage ; le code des questions pièges a été exécuté.
 - [ ] Dans un dossier de sujet, chaque « qu'affiche ce code ? » a sa vérification `check` (ou `unverifiable`).
 - [ ] Chaque page du Tour s'exécute dans le bac à sable avec la sortie annoncée (`TourTest`), et chaque « À toi » part
-      d'un code qui s'exécute sans donner la sortie attendue.
+      d'un code qui s'exécute sans donner la sortie attendue ; chaque notion du Tour a au moins deux cartes corrigées par
+      le serveur.
 - [ ] `./mvnw test -Dtest=ReferenceDocumentTest` est vert.
 - [ ] Le rapport d'import ne liste ni anomalie ni retrait inattendu.

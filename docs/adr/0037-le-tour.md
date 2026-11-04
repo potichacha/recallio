@@ -38,7 +38,7 @@ Le Tour vise deux publics :
 **Les questions de vérification comptent-elles comme des révisions ?**
 - Oui, enregistrées dans le journal et dans FSRS. Mais une carte réussie juste après la leçon n'est pas retrouvée de
   mémoire : FSRS l'espacerait trop vite. Trois cartes d'une même notion le même jour contredisent aussi l'ADR 0031.
-- **Non : corrigées par le serveur, sans être enregistrées** (retenu). Elles valident la page ; les cartes entrent
+- **Non : corrigées par le serveur, sans être enregistrées** (retenu). Elles valident la notion ; les cartes entrent
   ensuite dans les révisions comme les autres, espacées.
 
 **Où vérifier les exemples ?**
@@ -62,11 +62,14 @@ Une notion sans bloc `tour` n'est pas dans le Tour.
 **L'ordre** est celui du référentiel : domaines, chapitres, puis notions. La CI vérifie que les prérequis d'une notion
 qui sont dans le Tour ont leur page plus tôt.
 
-**Valider une page** :
-- on répond à 2 ou 3 questions de la notion, corrigées par le serveur (vrai ou faux, QCM, code à compléter) ;
-- elles sont prises dans l'ordre du fichier, une par format quand c'est possible ;
-- elles ne sont pas enregistrées comme des révisions, et on peut réessayer ;
-- la progression garde, par utilisateur, les pages validées et la dernière page ouverte.
+**Valider une notion**, à la fin de sa dernière page :
+- on répond à 2 ou 3 de ses questions, corrigées par le serveur (vrai ou faux, QCM, code à compléter). Ce sont les
+  questions de la notion, pas d'une page : une notion de deux pages ne les pose qu'une fois ;
+- elles sont prises dans l'ordre du fichier, une par format quand c'est possible. Le parseur exige au moins deux cartes
+  de ces formats dans chaque notion du Tour ;
+- la notion est validée quand toutes sont justes. On peut réessayer, et une notion validée le reste ;
+- ces réponses ne sont pas enregistrées comme des révisions ;
+- la progression garde, par utilisateur, les notions validées et la dernière page ouverte.
 
 **À la fin d'un chapitre**, on trouve ses exercices (ADR 0029), jugés par leurs tests. **Depuis chaque page**,
 « S'entraîner » ouvre les cartes de la notion.

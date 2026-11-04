@@ -1,6 +1,6 @@
 import { screen, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
-import { renderAt, stubApi } from '../test/render'
+import { fakeSession, renderAt, SIGNED_IN_API, stubApi } from '../test/render'
 import { TEST_TOUR } from './tourFixtures'
 
 describe('TourOutlinePage', () => {
@@ -25,6 +25,24 @@ describe('TourOutlinePage', () => {
       'href',
       '/subjects/go/tour/valeur-zero',
     )
+  })
+
+  it('marks the notions that a signed-in user has validated', async () => {
+    stubApi({
+      ...SIGNED_IN_API,
+      '/api/v1/subjects/go/tour': { body: TEST_TOUR },
+      // « ancienne » : validée, puis sortie du Tour.
+      '/api/v1/me/tour/go': { body: { validatedNotions: ['hello-world', 'ancienne'] } },
+    })
+
+    renderAt('/subjects/go/tour', fakeSession({ status: 'authenticated', userName: 'Alice' }))
+
+    expect(await screen.findByText('1 / 3 notions validées')).toBeInTheDocument()
+    const firstSteps = screen.getByRole('list', { name: 'Premiers pas' })
+    expect(within(firstSteps).getAllByRole('listitem')[0]).toHaveTextContent(
+      'Le premier programme · validée',
+    )
+    expect(within(firstSteps).getAllByRole('listitem')[1]).not.toHaveTextContent('validée')
   })
 
   it('says when a subject has no Tour yet', async () => {

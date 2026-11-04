@@ -182,6 +182,11 @@ class ReviewQueueServiceTest {
         }
 
         @Override
+        public List<CardSnapshot> tourQuestions(String subjectSlug, String notionSlug) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
         public List<CardSnapshot> currentVersions(Collection<UUID> cardIds) {
             return cardIds.stream()
                     .map(id -> new CardSnapshot(

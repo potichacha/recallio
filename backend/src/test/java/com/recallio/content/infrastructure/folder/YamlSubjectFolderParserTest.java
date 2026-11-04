@@ -119,6 +119,14 @@ class YamlSubjectFolderParserTest {
                 format: course
                 question: Où se trouve le pool de chaînes ?
                 answer: Dans le tas depuis Java 7.
+              - {key: vrai-faux, format: true-false, question: "Une affirmation vraie.", truth: true, answer: Oui.}
+              - key: choix
+                format: multiple-choice
+                question: Quel choix est le bon ?
+                choices:
+                  - {text: Le bon, correct: true}
+                  - {text: Le mauvais, correct: false}
+                answer: Le bon.
             """;
 
     private final YamlSubjectFolderParser parser = new YamlSubjectFolderParser();
@@ -164,7 +172,15 @@ class YamlSubjectFolderParserTest {
                         Pool.java: |-
                           class Pool {}
                       output: rien
-                cards: []
+                cards:
+                  - {key: vrai-faux, format: true-false, question: "Une affirmation vraie.", truth: true, answer: Oui.}
+                  - key: choix
+                    format: multiple-choice
+                    question: Quel choix est le bon ?
+                    choices:
+                      - {text: Le bon, correct: true}
+                      - {text: Le mauvais, correct: false}
+                    answer: Le bon.
                 """));
 
         assertThat(parsed.notions().get(2).tour()).hasSize(1);
@@ -213,7 +229,9 @@ class YamlSubjectFolderParserTest {
 
                           func main() {}
                       output: rien
-                cards: []
+                cards:
+                  - {key: vrai-faux, format: true-false, question: "Une affirmation vraie.", truth: true, answer: Oui.}
+                  - {key: faux, format: true-false, question: "Une affirmation fausse.", truth: false, answer: Non.}
                 """, "api-de-base/string-pool.yaml", POOL_WITH_TOUR));
 
         assertThat(parsed.issues())
@@ -221,7 +239,31 @@ class YamlSubjectFolderParserTest {
                 .containsExactly("Tour : les pages d'un sujet sont dans un seul langage, pas [JAVA, GO]");
     }
 
-    /** Un fichier de notion sans carte, avec une page du Tour en Java. */
+    @Test
+    void shouldRequireTwoCardsGradedByTheServerInANotionOfTheTour() {
+        ParsedContent parsed = parse(Map.of("api-de-base/string-pool.yaml", """
+                notion: string-pool
+                tour:
+                  - text: Une page.
+                    example:
+                      files:
+                        Main.java: |-
+                          void main() {
+                              IO.println("ok");
+                          }
+                      output: ok
+                cards:
+                  - {key: cours, format: course, question: "Une question ?", answer: Une réponse.}
+                  - {key: vrai-faux, format: true-false, question: "Une affirmation vraie.", truth: true, answer: Oui.}
+                """));
+
+        assertThat(parsed.issues())
+                .extracting(SourceIssue::reason)
+                .containsExactly("Tour : la notion « string-pool » a 1 carte(s) corrigée(s) par le serveur (vrai ou "
+                        + "faux, QCM, code à compléter) ; il en faut au moins 2 pour la valider");
+    }
+
+    /** Un fichier de notion avec une page du Tour en Java, et les deux cartes corrigées qui la valident. */
     private static String javaPage(String notion) {
         return """
                 notion: %s
@@ -234,7 +276,15 @@ class YamlSubjectFolderParserTest {
                               IO.println("ok");
                           }
                       output: ok
-                cards: []
+                cards:
+                  - {key: vrai-faux, format: true-false, question: "Une affirmation vraie.", truth: true, answer: Oui.}
+                  - key: choix
+                    format: multiple-choice
+                    question: Quel choix est le bon ?
+                    choices:
+                      - {text: Le bon, correct: true}
+                      - {text: Le mauvais, correct: false}
+                    answer: Le bon.
                 """.formatted(notion);
     }
 

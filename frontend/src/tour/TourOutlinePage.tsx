@@ -1,6 +1,7 @@
 import { Link, useParams } from 'react-router'
 import { ApiError } from '../api/errors'
-import { useTour } from '../api/tour'
+import { useTour, useTourProgress } from '../api/tour'
+import { useSession } from '../auth/session'
 import { tourPath, tourSteps } from './tourSteps'
 
 /**
@@ -10,6 +11,9 @@ import { tourPath, tourSteps } from './tourSteps'
 export function TourOutlinePage() {
   const { slug = '' } = useParams()
   const tour = useTour(slug)
+  const session = useSession()
+  const progress = useTourProgress(slug, session.status === 'authenticated')
+  const validated = new Set(progress.data?.validatedNotions)
 
   if (tour.error instanceof ApiError && tour.error.status === 404) {
     return (
@@ -26,6 +30,9 @@ export function TourOutlinePage() {
 
   const { subjectTitle, domains } = tour.data
   const first = tourSteps(tour.data)[0]
+  const notions = domains.flatMap((domain) => domain.chapters).flatMap((chapter) => chapter.notions)
+  // Une notion validée puis sortie du Tour ne compte plus.
+  const validatedCount = notions.filter((notion) => validated.has(notion.slug)).length
 
   return (
     <section className="flex flex-col gap-6">
@@ -49,6 +56,12 @@ export function TourOutlinePage() {
             >
               Commencer le Tour
             </Link>
+            {progress.data && (
+              <p className="text-sm text-slate-600">
+                {validatedCount} / {notions.length} notion{notions.length > 1 ? 's' : ''} validée
+                {notions.length > 1 ? 's' : ''}
+              </p>
+            )}
           </>
         ) : (
           <p className="text-slate-600">Ce sujet n’a pas encore de Tour.</p>
@@ -77,6 +90,9 @@ export function TourOutlinePage() {
                     </Link>
                     {notion.pageCount > 1 && (
                       <span className="text-sm text-slate-500"> · {notion.pageCount} pages</span>
+                    )}
+                    {validated.has(notion.slug) && (
+                      <span className="text-sm font-medium text-emerald-700"> · validée</span>
                     )}
                   </li>
                 ))}

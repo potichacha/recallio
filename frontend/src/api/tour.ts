@@ -1,4 +1,4 @@
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from './client'
 import { ApiError } from './errors'
 import type { components } from './schema'
@@ -8,6 +8,9 @@ export type TourNotion = components['schemas']['TourNotion']
 export type TourPage = components['schemas']['TourPage']
 export type ProgramRun = components['schemas']['ProgramRun']
 export type ProgramFile = components['schemas']['ExerciseFile']
+export type TourQuestion = components['schemas']['TourQuestion']
+export type TourAnswer = components['schemas']['TourAnswer']
+export type TourCheck = components['schemas']['TourCheck']
 
 /** Le sommaire du Tour d'un sujet (ADR 0037) : public, comme le catalogue. */
 export function useTour(subject: string) {
@@ -46,6 +49,58 @@ export function useRunProgram() {
       })
       if (data === undefined) throw ApiError.from(response, error)
       return data
+    },
+  })
+}
+
+/** Les notions du Tour d'un sujet que l'utilisateur a validées ; seulement pour un utilisateur connecté. */
+export function useTourProgress(subject: string, enabled: boolean) {
+  return useQuery({
+    queryKey: ['tour-progress', subject],
+    enabled,
+    queryFn: async () => {
+      const { data, error, response } = await api.GET('/api/v1/me/tour/{subject}', {
+        params: { path: { subject } },
+      })
+      if (data === undefined) throw ApiError.from(response, error)
+      return data
+    },
+  })
+}
+
+/** Les questions qui valident une notion, et si l'utilisateur l'a déjà validée. */
+export function useTourCheckpoint(subject: string, notion: string) {
+  return useQuery({
+    queryKey: ['tour-progress', subject, notion],
+    queryFn: async () => {
+      const { data, error, response } = await api.GET('/api/v1/me/tour/{subject}/{notion}', {
+        params: { path: { subject, notion } },
+      })
+      if (data === undefined) throw ApiError.from(response, error)
+      return data
+    },
+  })
+}
+
+/** Corrige les réponses aux questions d'une notion ; toutes justes, la progression du sujet change. */
+export function useCheckTourNotion(subject: string, notion: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (answers: TourAnswer[]) => {
+      const { data, error, response } = await api.POST(
+        '/api/v1/me/tour/{subject}/{notion}/checks',
+        {
+          params: { path: { subject, notion } },
+          body: { answers },
+        },
+      )
+      if (data === undefined) throw ApiError.from(response, error)
+      return data
+    },
+    onSuccess: async (check) => {
+      if (check.validated) {
+        await queryClient.invalidateQueries({ queryKey: ['tour-progress', subject] })
+      }
     },
   })
 }

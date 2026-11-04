@@ -253,5 +253,10 @@ class LiveGameServiceTest {
         public List<ThemeCards> activeCardsByTheme() {
             throw new UnsupportedOperationException();
         }
+
+        @Override
+        public List<CardSnapshot> tourQuestions(String subjectSlug, String notionSlug) {
+            throw new UnsupportedOperationException();
+        }
     }
 }

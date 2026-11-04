@@ -36,6 +36,13 @@ public interface CardDirectory {
     /** Tous les thèmes publiés, dans l'ordre du programme, avec les identifiants de leurs cartes actives. */
     List<ThemeCards> activeCardsByTheme();
 
+    /**
+     * Les questions qui valident une notion du Tour (ADR 0037) : au plus trois de ses cartes corrigées par le serveur
+     * (vrai ou faux, QCM, code à compléter), dans l'ordre de son fichier. Vide pour une notion inconnue, retirée, hors du
+     * Tour, ou d'un sujet non publié.
+     */
+    List<CardSnapshot> tourQuestions(String subjectSlug, String notionSlug);
+
     default Optional<CardSnapshot> activeCard(UUID cardId) {
         return currentVersions(List.of(cardId)).stream().findFirst();
     }

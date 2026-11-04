@@ -39,6 +39,11 @@ public class AnswerMismatchException extends DomainException {
         return new AnswerMismatchException("Seul un exercice de code s'exécute.");
     }
 
+    public static AnswerMismatchException tourAnswersExpected() {
+        return new AnswerMismatchException(
+                "Une notion du Tour se valide en répondant à chacune de ses questions, une fois chacune.");
+    }
+
     public static AnswerMismatchException ratingExpected() {
         return new AnswerMismatchException("Cette carte se note par auto-évaluation, sans choix cochés.");
     }
