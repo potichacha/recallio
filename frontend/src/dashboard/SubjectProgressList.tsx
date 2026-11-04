@@ -1,11 +1,13 @@
 import { Link } from 'react-router'
 import type { CardCounts, SubjectStats, ThemeStats } from '../api/stats'
+import { MasteryBar } from '../components/MasteryBar'
+import { masterySummary } from '../components/mastery'
 
 const plural = (count: number, word: string) => `${count} ${word}${count > 1 ? 's' : ''}`
 
 /**
- * Progression par sujet suivi, dans l'ordre du catalogue, puis par thème dans chaque sujet (dépliable). Avec un seul
- * sujet, ses thèmes sont dépliés d'emblée.
+ * Progression par sujet suivi, dans l'ordre du catalogue : ses cartes, la maîtrise de ses notions quand il a un
+ * référentiel (ADR 0034), puis ses thèmes (dépliables). Avec un seul sujet, ses thèmes sont dépliés d'emblée.
  */
 export function SubjectProgressList({ subjects }: { subjects: SubjectStats[] }) {
   return (
@@ -44,6 +46,20 @@ function SubjectRow({ subject, expanded }: { subject: SubjectStats; expanded: bo
         />
       </div>
       <Progress label={subject.title} counts={subject.counts} />
+      {subject.notions.total > 0 && (
+        <div className="flex flex-col gap-1">
+          <MasteryBar counts={subject.notions} label={`Notions ${subject.title}`} />
+          <p className="text-xs text-slate-500">
+            {masterySummary(subject.notions)} ·{' '}
+            <Link
+              to={`/subjects/${subject.slug}/path`}
+              className="font-medium text-indigo-700 hover:underline"
+            >
+              Carte des compétences
+            </Link>
+          </p>
+        </div>
+      )}
       <details open={expanded} className="group">
         <summary className="cursor-pointer text-sm font-medium text-indigo-700">
           {plural(subject.themes.length, 'thème')}

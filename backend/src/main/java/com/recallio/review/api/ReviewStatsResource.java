@@ -68,6 +68,11 @@ public class ReviewStatsResource {
             String title,
             CardCountsDto counts,
 
+            @Schema(
+                    description = "Les notions du sujet par niveau de maîtrise (ADR 0034) ; aucune pour un sujet sans"
+                            + " référentiel")
+            MasteryCountsDto notions,
+
             @Schema(description = "Les thèmes du sujet, dans l'ordre du document")
             List<ThemeStatsDto> themes) {
         static SubjectStatsDto from(SubjectStats subject) {
@@ -75,6 +80,7 @@ public class ReviewStatsResource {
                     subject.slug(),
                     subject.title(),
                     CardCountsDto.from(subject.counts()),
+                    MasteryCountsDto.from(subject.notions()),
                     subject.themes().stream().map(ThemeStatsDto::from).toList());
         }
     }

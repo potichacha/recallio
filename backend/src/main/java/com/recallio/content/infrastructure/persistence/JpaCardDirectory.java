@@ -101,6 +101,7 @@ public class JpaCardDirectory implements CardDirectory {
                         Object[].class)
                 .getResultStream()
                 .forEach(row -> cardCounts.put((UUID) row[0], (Long) row[1]));
+        Map<UUID, String> themeTitles = themeTitles(subjectSlugs);
         return entityManager
                 .createQuery("""
                         select n, s.slug from NotionEntity n join SubjectEntity s on s.id = n.subjectId
@@ -110,16 +111,32 @@ public class JpaCardDirectory implements CardDirectory {
                 .setParameter("subjects", subjectSlugs)
                 .setParameter("published", Subject.Status.PUBLISHED)
                 .getResultStream()
-                .map(row -> notionInfo((NotionEntity) row[0], (String) row[1], cardCounts))
+                .map(row -> notionInfo((NotionEntity) row[0], (String) row[1], cardCounts, themeTitles))
                 .toList();
     }
 
-    private static NotionInfo notionInfo(NotionEntity notion, String subject, Map<UUID, Long> cardCounts) {
+    /** Le titre des thèmes de ces sujets : le domaine d'un référentiel est importé comme un thème (ADR 0026). */
+    private Map<UUID, String> themeTitles(Collection<String> subjectSlugs) {
+        return entityManager
+                .createQuery(
+                        "select t.id, t.title from ThemeEntity t join SubjectEntity s on s.id = t.subjectId"
+                                + " where s.slug in :subjects",
+                        Object[].class)
+                .setParameter("subjects", subjectSlugs)
+                .getResultStream()
+                .collect(Collectors.toMap(row -> (UUID) row[0], row -> (String) row[1]));
+    }
+
+    /** Un domaine sans carte n'a pas de thème : son identifiant tient lieu de titre. */
+    private static NotionInfo notionInfo(
+            NotionEntity notion, String subject, Map<UUID, Long> cardCounts, Map<UUID, String> themeTitles) {
         return new NotionInfo(
                 notion.id,
                 subject,
                 notion.slug,
                 notion.title,
+                notion.domain,
+                themeTitles.getOrDefault(CardIdentity.themeId(subject, notion.domain), notion.domain),
                 notion.chapter,
                 notion.chapterTitle,
                 NotionInfo.Level.valueOf(notion.level.name()),

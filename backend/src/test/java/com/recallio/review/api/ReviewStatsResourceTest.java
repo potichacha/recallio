@@ -8,6 +8,7 @@ import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
 
 import com.recallio.content.application.ContentImportService;
+import com.recallio.content.domain.source.SubjectFolder;
 import io.quarkus.test.junit.QuarkusTest;
 import io.quarkus.test.security.TestSecurity;
 import io.quarkus.test.security.oidc.Claim;
@@ -17,6 +18,7 @@ import jakarta.inject.Inject;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
@@ -78,7 +80,60 @@ class ReviewStatsResourceTest {
                 .body("subjects.slug", contains("java"))
                 .body(JAVA + ".title", equalTo("Java"))
                 .body(JAVA_THEME + ".counts.total", is(4))
-                .body(JAVA_THEME + ".title", equalTo("JAVA : FONDAMENTAUX"));
+                .body(JAVA_THEME + ".title", equalTo("JAVA : FONDAMENTAUX"))
+                // Un sujet décrit par un document Markdown n'a pas de notions.
+                .body(JAVA + ".notions.total", is(0));
+    }
+
+    /** Un sujet en dossier (ADR 0026) : deux notions d'une carte chacune ; la carte réussie acquiert sa notion. */
+    @Test
+    @TestSecurity(user = "alice")
+    @OidcSecurity(claims = @Claim(key = "sub", value = "stats-notions"))
+    void shouldCountTheNotionsOfASubjectByMasteryLevel() {
+        contentImport.importFolder(new SubjectFolder(
+                """
+                subject: odin
+                title: Odin
+                category: languages
+                position: 950
+                status: published
+                """, Map.of("01-langage.yaml", """
+                        domain: langage
+                        title: Le langage
+                        position: 10
+                        chapters:
+                          - id: tout
+                            title: Tout
+                            notions:
+                              - {id: bases, title: "Les bases", level: beginner, priority: 1}
+                              - {id: avance, title: "L'avancé", level: expert, priority: 2}
+                        """), Map.of("langage/bases.yaml", """
+                        notion: bases
+                        cards:
+                          - {key: q, format: course, question: "Les bases d'Odin ?", answer: "Oui."}
+                        """, "langage/avance.yaml", """
+                        notion: avance
+                        cards:
+                          - {key: q, format: course, question: "L'avancé d'Odin ?", answer: "Oui."}
+                        """)));
+        follow("odin");
+        String cardId = given().get("/api/v1/review-queue").then().extract().path("cards[0].cardId");
+        given().contentType(ContentType.JSON)
+                .body("{\"requestId\": \"%s\", \"cardId\": \"%s\", \"rating\": \"GOOD\"}"
+                        .formatted(UUID.randomUUID(), cardId))
+                .post("/api/v1/reviews")
+                .then()
+                .statusCode(201);
+
+        String odin = "subjects.find { it.slug == 'odin' }";
+        given().get(STATS)
+                .then()
+                .statusCode(200)
+                .body(odin + ".notions.total", is(2))
+                .body(odin + ".notions.discovered", is(1))
+                .body(odin + ".notions.acquired", is(1))
+                .body(odin + ".notions.mastered", is(0))
+                .body(odin + ".notions.expert", is(0));
     }
 
     @Test

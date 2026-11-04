@@ -1,24 +1,19 @@
 package com.recallio.review.application;
 
-import com.recallio.content.CardDirectory;
-import com.recallio.content.CardDirectory.ActiveCard;
-import com.recallio.content.CardDirectory.CardFilter;
-import com.recallio.content.CardType;
 import com.recallio.content.NotionInfo;
 import com.recallio.content.SubjectDirectory;
-import com.recallio.review.domain.ReviewLogRepository;
-import com.recallio.review.domain.ReviewState;
 import com.recallio.review.domain.ReviewStateRepository;
 import com.recallio.review.domain.track.LearningPath;
 import com.recallio.review.domain.track.LearningPath.NotionStatus;
+import com.recallio.review.domain.track.MasteryCounts;
 import com.recallio.review.domain.track.NotionMastery;
 import com.recallio.user.FollowedSubjects;
 import com.recallio.user.LearningTrack;
 import com.recallio.user.UserRef;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.transaction.Transactional;
+import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -26,87 +21,103 @@ import java.util.Set;
 import java.util.UUID;
 
 /**
- * Cas d'usage : la carte du parcours d'un sujet (ADR 0032), pour l'utilisateur connecté. Chaque notion, dans l'ordre du
- * référentiel, avec son état (à rédiger, verrouillée, disponible, en cours ou acquise) et sa maîtrise (ADR 0034).
+ * Cas d'usage : la carte du parcours d'un sujet (ADR 0032), pour l'utilisateur connecté. Ses domaines et leurs
+ * chapitres, dans l'ordre du référentiel ; chaque notion avec son état (à rédiger, verrouillée, disponible, en cours ou
+ * acquise) et sa maîtrise (ADR 0034).
  */
 @ApplicationScoped
 @Transactional(Transactional.TxType.SUPPORTS)
 public class LearningPathService {
 
-    private final CardDirectory cards;
     private final SubjectDirectory subjects;
     private final FollowedSubjects followedSubjects;
     private final ReviewStateRepository states;
-    private final ReviewLogRepository log;
+    private final NotionMasteries masteries;
 
     public LearningPathService(
-            CardDirectory cards,
             SubjectDirectory subjects,
             FollowedSubjects followedSubjects,
             ReviewStateRepository states,
-            ReviewLogRepository log) {
-        this.cards = cards;
+            NotionMasteries masteries) {
         this.subjects = subjects;
         this.followedSubjects = followedSubjects;
         this.states = states;
-        this.log = log;
+        this.masteries = masteries;
     }
 
     /** @throws com.recallio.platform.domain.ResourceNotFoundException si aucun sujet publié ne porte ce slug */
     public SubjectPath path(UserRef user, String subjectSlug) {
         subjects.requirePublished(subjectSlug);
-        List<NotionInfo> notions = cards.notions(Set.of(subjectSlug));
-        Map<NotionInfo, NotionMastery> mastery = mastery(user, subjectSlug, notions);
+        Map<NotionInfo, NotionMastery> mastery =
+                masteries.of(user.id(), Set.of(subjectSlug), states.findAllByUser(user.id()));
         Map<UUID, Integer> recalled = new HashMap<>();
         mastery.forEach((notion, notionMastery) -> recalled.put(notion.id(), notionMastery.recalled()));
-        var path = new LearningPath(notions, recalled);
+        var path = new LearningPath(mastery.keySet(), recalled);
         LearningTrack track = followedSubjects.tracksOf(user).getOrDefault(subjectSlug, LearningTrack.DEFAULT);
         boolean prerequisitesApply = track == LearningTrack.LEARN;
-        List<NotionStep> steps = mastery.entrySet().stream()
-                .map(entry -> {
-                    NotionInfo notion = entry.getKey();
-                    NotionMastery notionMastery = entry.getValue();
-                    NotionStatus status = path.status(notion.id(), notionMastery.seen(), prerequisitesApply);
-                    return new NotionStep(notion, status, notionMastery);
-                })
-                .toList();
-        return new SubjectPath(subjectSlug, track, steps);
+
+        var domains = new Grouping();
+        mastery.forEach((notion, notionMastery) -> domains.add(new NotionStep(
+                notion, path.status(notion.id(), notionMastery.seen(), prerequisitesApply), notionMastery)));
+        return new SubjectPath(subjectSlug, track, MasteryCounts.of(mastery.values()), domains.result());
+    }
+
+    /** Range les notions, déjà dans l'ordre du référentiel, par domaine puis par chapitre. */
+    private static final class Grouping {
+
+        private final Map<String, List<NotionStep>> stepsOfDomain = new LinkedHashMap<>();
+
+        void add(NotionStep step) {
+            stepsOfDomain
+                    .computeIfAbsent(step.notion().domain(), _ -> new ArrayList<>())
+                    .add(step);
+        }
+
+        List<PathDomain> result() {
+            return stepsOfDomain.values().stream().map(Grouping::domain).toList();
+        }
+
+        private static PathDomain domain(List<NotionStep> steps) {
+            Map<String, List<NotionStep>> stepsOfChapter = new LinkedHashMap<>();
+            steps.forEach(step -> stepsOfChapter
+                    .computeIfAbsent(step.notion().chapter(), _ -> new ArrayList<>())
+                    .add(step));
+            NotionInfo first = steps.getFirst().notion();
+            return new PathDomain(
+                    first.domain(),
+                    first.domainTitle(),
+                    MasteryCounts.of(steps.stream().map(NotionStep::mastery).toList()),
+                    stepsOfChapter.values().stream()
+                            .map(chapterSteps -> {
+                                NotionInfo notion = chapterSteps.getFirst().notion();
+                                return new PathChapter(notion.chapter(), notion.chapterTitle(), chapterSteps);
+                            })
+                            .toList());
+        }
     }
 
     /**
-     * La maîtrise de chaque notion du sujet, dans l'ordre du référentiel. Les réussites comptent les cartes retirées
-     * depuis, comme la file de révision le fait pour débloquer les notions : la notion acquise est la même partout.
+     * @param counts les notions du sujet par niveau de maîtrise
+     * @param domains les domaines du référentiel, dans l'ordre ; vide pour un sujet sans référentiel
      */
-    private Map<NotionInfo, NotionMastery> mastery(UserRef user, String subjectSlug, List<NotionInfo> notions) {
-        Map<UUID, Map<UUID, CardType>> cardsOfNotion = new HashMap<>();
-        for (ActiveCard card : cards.activeCards(new CardFilter(Set.of(subjectSlug), null, Set.of(), Set.of()))) {
-            UUID notion = card.notionId();
-            if (notion != null) {
-                cardsOfNotion.computeIfAbsent(notion, _ -> new HashMap<>()).put(card.cardId(), card.type());
-            }
-        }
-        Map<UUID, Set<UUID>> recalledOfNotion = new HashMap<>();
-        cards.notionsOf(log.cardsRecalled(user.id()))
-                .forEach((card, notion) -> recalledOfNotion
-                        .computeIfAbsent(notion, _ -> new HashSet<>())
-                        .add(card));
-        Map<UUID, ReviewState> memory = states.findAllByUser(user.id());
-        Map<NotionInfo, NotionMastery> mastery = new LinkedHashMap<>();
-        for (NotionInfo notion : notions) {
-            mastery.put(
-                    notion,
-                    NotionMastery.of(
-                            cardsOfNotion.getOrDefault(notion.id(), Map.of()),
-                            memory,
-                            recalledOfNotion.getOrDefault(notion.id(), Set.of())));
-        }
-        return mastery;
-    }
-
-    /** @param notions les notions du sujet, dans l'ordre du référentiel */
-    public record SubjectPath(String subjectSlug, LearningTrack track, List<NotionStep> notions) {
+    public record SubjectPath(String subjectSlug, LearningTrack track, MasteryCounts counts, List<PathDomain> domains) {
 
         public SubjectPath {
+            domains = List.copyOf(domains);
+        }
+    }
+
+    /** @param counts les notions du domaine par niveau de maîtrise */
+    public record PathDomain(String id, String title, MasteryCounts counts, List<PathChapter> chapters) {
+
+        public PathDomain {
+            chapters = List.copyOf(chapters);
+        }
+    }
+
+    public record PathChapter(String id, String title, List<NotionStep> notions) {
+
+        public PathChapter {
             notions = List.copyOf(notions);
         }
     }

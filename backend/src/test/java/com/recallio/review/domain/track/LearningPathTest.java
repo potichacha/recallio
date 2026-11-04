@@ -76,6 +76,18 @@ class LearningPathTest {
 
     private static NotionInfo notion(UUID id, List<UUID> requires, int cards) {
         return new NotionInfo(
-                id, "java", "notion", "Notion", "chapitre", "Chapitre", Level.BEGINNER, 1, requires, 0, cards);
+                id,
+                "java",
+                "notion",
+                "Notion",
+                "domaine",
+                "Domaine",
+                "chapitre",
+                "Chapitre",
+                Level.BEGINNER,
+                1,
+                requires,
+                0,
+                cards);
     }
 }

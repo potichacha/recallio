@@ -85,6 +85,8 @@ class NewCardOrderTest {
                 "java",
                 "notion",
                 "Notion",
+                "domaine",
+                "Domaine",
                 "chapitre",
                 "Chapitre",
                 level,

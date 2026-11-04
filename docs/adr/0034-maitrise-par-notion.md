@@ -53,7 +53,10 @@ quand il oublie, et se calculer à partir des données existantes.
 - **L'API** : la carte du parcours (`GET /api/v1/learning-paths/{sujet}`) donne pour chaque notion son niveau
   (`mastery`) et ce qui mène au suivant (`nextLevel`) : les cartes qui comptent déjà et celles qu'il demande, les
   formats réunis et ceux qu'il demande, et pour « experte » les formats encore jamais réussis. La PWA dit ainsi ce qui
-  manque sans connaître aucun seuil.
+  manque sans connaître aucun seuil. Elle range les notions par domaine puis par chapitre, et compte les notions de
+  chaque niveau (`counts`, des comptes cumulatifs : une notion experte compte aussi comme maîtrisée), pour le sujet et
+  pour chaque domaine. Le tableau de bord (`GET /api/v1/me/review-stats`) donne les mêmes comptes pour chaque sujet
+  suivi. La PWA en fait la carte des compétences.
 - **L'API publique de `content`** donne le format de chaque carte active (`ActiveCard.type`), pour compter les formats
   sans charger le texte des cartes.
 

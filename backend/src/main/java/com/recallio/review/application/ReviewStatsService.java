@@ -5,6 +5,7 @@ import com.recallio.content.CardDirectory.ThemeCards;
 import com.recallio.review.domain.ReviewState;
 import com.recallio.review.domain.ReviewStateRepository;
 import com.recallio.review.domain.stats.CardCounts;
+import com.recallio.review.domain.track.MasteryCounts;
 import com.recallio.user.FollowedSubjects;
 import com.recallio.user.UserRef;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -14,12 +15,13 @@ import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
 /**
- * Cas d'usage : le tableau de bord de révision (cartes dues, progression par sujet puis par thème), sur les sujets
- * suivis : les mêmes cartes que la file de révision sans filtre.
+ * Cas d'usage : le tableau de bord de révision (cartes dues, progression par sujet puis par thème, maîtrise des notions
+ * de chaque sujet), sur les sujets suivis : les mêmes cartes que la file de révision sans filtre.
  */
 @ApplicationScoped
 @Transactional(Transactional.TxType.SUPPORTS)
@@ -29,6 +31,7 @@ public class ReviewStatsService {
     private final FollowedSubjects followedSubjects;
     private final ReviewStateRepository states;
     private final NewCardQuota quota;
+    private final NotionMasteries masteries;
     private final Clock clock;
 
     public ReviewStatsService(
@@ -36,11 +39,13 @@ public class ReviewStatsService {
             FollowedSubjects followedSubjects,
             ReviewStateRepository states,
             NewCardQuota quota,
+            NotionMasteries masteries,
             Clock clock) {
         this.cards = cards;
         this.followedSubjects = followedSubjects;
         this.states = states;
         this.quota = quota;
+        this.masteries = masteries;
         this.clock = clock;
     }
 
@@ -56,8 +61,9 @@ public class ReviewStatsService {
         // Les thèmes arrivent groupés par sujet, dans l'ordre du catalogue : le regroupement garde cet ordre.
         Map<String, List<ThemeCards>> bySubject = themes.stream()
                 .collect(Collectors.groupingBy(ThemeCards::subjectSlug, LinkedHashMap::new, Collectors.toList()));
+        Map<String, MasteryCounts> notions = notionsBySubject(user, Set.copyOf(followed), memory);
         List<SubjectStats> perSubject = bySubject.values().stream()
-                .map(subjectThemes -> subjectStats(subjectThemes, memory, now, endOfDay))
+                .map(subjectThemes -> subjectStats(subjectThemes, memory, now, endOfDay, notions))
                 .toList();
         CardCounts overall = CardCounts.of(cardIds(themes), memory, now, endOfDay);
         int newToday = Math.min(quota.remainingToday(user, now), overall.total() - overall.seen());
@@ -65,7 +71,11 @@ public class ReviewStatsService {
     }
 
     private static SubjectStats subjectStats(
-            List<ThemeCards> themes, Map<UUID, ReviewState> memory, Instant now, Instant endOfDay) {
+            List<ThemeCards> themes,
+            Map<UUID, ReviewState> memory,
+            Instant now,
+            Instant endOfDay,
+            Map<String, MasteryCounts> notions) {
         List<ThemeStats> perTheme = themes.stream()
                 .map(theme -> new ThemeStats(
                         theme.slug(), theme.title(), CardCounts.of(theme.cardIds(), memory, now, endOfDay)))
@@ -75,7 +85,18 @@ public class ReviewStatsService {
                 first.subjectSlug(),
                 first.subjectTitle(),
                 CardCounts.of(cardIds(themes), memory, now, endOfDay),
+                notions.getOrDefault(first.subjectSlug(), MasteryCounts.NONE),
                 perTheme);
+    }
+
+    /** La maîtrise des notions de chaque sujet (ADR 0034) ; un sujet décrit par un document Markdown n'en a pas. */
+    private Map<String, MasteryCounts> notionsBySubject(
+            UserRef user, Set<String> subjectSlugs, Map<UUID, ReviewState> memory) {
+        return masteries.of(user.id(), subjectSlugs, memory).entrySet().stream()
+                .collect(Collectors.groupingBy(
+                        entry -> entry.getKey().subjectSlug(),
+                        Collectors.collectingAndThen(
+                                Collectors.mapping(Map.Entry::getValue, Collectors.toList()), MasteryCounts::of)));
     }
 
     private static List<UUID> cardIds(List<ThemeCards> themes) {
@@ -88,8 +109,12 @@ public class ReviewStatsService {
      */
     public record ReviewStats(CardCounts overall, int newToday, List<SubjectStats> subjects) {}
 
-    /** @param themes les thèmes du sujet, dans l'ordre du document */
-    public record SubjectStats(String slug, String title, CardCounts counts, List<ThemeStats> themes) {}
+    /**
+     * @param notions les notions du sujet par niveau de maîtrise ; aucune pour un sujet sans référentiel
+     * @param themes les thèmes du sujet, dans l'ordre du document
+     */
+    public record SubjectStats(
+            String slug, String title, CardCounts counts, MasteryCounts notions, List<ThemeStats> themes) {}
 
     public record ThemeStats(String slug, String title, CardCounts counts) {}
 }
