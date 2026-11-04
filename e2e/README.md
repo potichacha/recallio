@@ -16,7 +16,7 @@ Prérequis : Docker, Node.js (voir `frontend/.nvmrc`). Les ports 3000 et 8180 do
 `quarkus:dev` et le compose habituel).
 
 ```powershell
-# 1. La pile de test : base neuve (projet « recallio-e2e »), objectif quotidien de 3 cartes
+# 1. La pile de test : base neuve (projet « recallio-e2e »), objectif quotidien de 3 cartes, parties live de 3 questions
 docker compose -p recallio-e2e -f infra/compose.yaml -f infra/compose.e2e.yaml up --build --wait
 
 # 2. Les parcours

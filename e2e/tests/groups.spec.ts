@@ -26,8 +26,9 @@ test.describe('Groupes', () => {
     await expect(settings).toContainText('Anonymisé')
     await settings.getByRole('link', { name: 'Réviser avec le groupe' }).click()
     await expect(page.getByRole('heading', { name: `Réviser avec « ${name} »` })).toBeVisible()
-    // Le groupe ne révise que des QCM : on coche, le serveur corrige.
-    await page.getByRole('radio').first().check()
+    // Le groupe ne révise que des QCM : on coche, le serveur corrige. Radio ou case à cocher, selon le nombre de
+    // bonnes réponses du QCM proposé.
+    await page.locator('input[name="choice"]').first().check()
     await page.getByRole('button', { name: 'Valider' }).click()
     await expect(page.getByRole('status')).toContainText(/Bonne réponse|Pas tout à fait/)
     await page.getByRole('button', { name: 'Carte suivante' }).click()
@@ -98,7 +99,7 @@ test.describe('Groupes', () => {
     await settings.getByRole('button', { name: 'Enregistrer les réglages' }).click()
     await expect(settings.getByRole('button', { name: 'Modifier les réglages' })).toBeVisible()
 
-    // Le chapitre 1 de Go compte trois QCM : la série les reprend tous.
+    // Une série courte : trois QCM de Go.
     const launch = alice.getByRole('form', { name: 'Lancer un défi' })
     await launch.getByLabel('Titre du défi').fill('Défi du lundi')
     await launch.getByLabel('Nombre de QCM').fill('3')
@@ -118,7 +119,7 @@ test.describe('Groupes', () => {
     for (const position of [1, 2, 3]) {
       await expect(bob.getByText(`Carte ${position} / 3`)).toBeVisible()
       await expect(bob.getByRole('timer', { name: 'Temps restant' })).toHaveText(/\d+ s/)
-      // Radio ou case à cocher selon le QCM (l'un d'eux a plusieurs bonnes réponses).
+      // Radio ou case à cocher, selon le nombre de bonnes réponses du QCM.
       await bob.locator('input[name="choice"]').first().check()
       await bob.getByRole('button', { name: 'Valider' }).click()
       await bob
