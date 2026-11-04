@@ -95,13 +95,13 @@ describe('DashboardPage', () => {
     expect(screen.queryByRole('link', { name: 'Réviser maintenant' })).not.toBeInTheDocument()
   })
 
-  it('shows the streak, the points and the mastered cards', async () => {
+  it('shows the streak, the XP and the mastered cards', async () => {
     stubDashboard()
     renderAt('/', signedIn())
 
     const streak = await screen.findByText('Série')
     expect(streak.nextElementSibling).toHaveTextContent('🔥 3 jours')
-    expect(screen.getByText('Points').nextElementSibling).toHaveTextContent('120')
+    expect(screen.getByText('XP').nextElementSibling).toHaveTextContent('120')
     expect(screen.getByText('Maîtrisées').nextElementSibling).toHaveTextContent('4 / 30')
   })
 
@@ -159,6 +159,19 @@ describe('DashboardPage', () => {
       '/review?theme=java-fondamentaux',
     )
     expect(themes[1]).toHaveTextContent('Collections')
+  })
+
+  it('shows the level of each followed subject and the XP towards the next one', async () => {
+    stubDashboard()
+    renderAt('/', signedIn())
+
+    const section = await screen.findByRole('region', { name: 'Progression par sujet' })
+    const java = within(section).getByRole('link', { name: 'Java' }).closest('li') as HTMLElement
+    expect(await within(java).findByText('Niveau 3')).toBeInTheDocument()
+    expect(
+      within(java).getByRole('progressbar', { name: 'Java : 40 / 300 XP vers le niveau 4' }),
+    ).toBeInTheDocument()
+    expect(java).toHaveTextContent('40 / 300 XP')
   })
 
   it('sums up the mastery of the notions of a subject, with a link to its skill map', async () => {

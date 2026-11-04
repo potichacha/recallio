@@ -1,6 +1,6 @@
 import type { Progress } from '../api/progress'
 
-/** Streak et points, affichés dans l'en-tête quand on est connecté. */
+/** Streak et XP, affichés dans l'en-tête quand on est connecté. */
 export function ProgressBadge({ progress }: { progress: Progress }) {
   const days = `${progress.streak} jour${progress.streak > 1 ? 's' : ''}`
   return (
@@ -8,7 +8,7 @@ export function ProgressBadge({ progress }: { progress: Progress }) {
       <span title="Jours consécutifs avec l'objectif atteint" aria-label={`Série : ${days}`}>
         <span aria-hidden="true">🔥</span> {progress.streak}
       </span>
-      <span title="Points gagnés">{progress.totalPoints} pts</span>
+      <span title="XP gagnée">{progress.totalXp} XP</span>
     </span>
   )
 }

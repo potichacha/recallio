@@ -106,7 +106,8 @@ public class ReviewRecordingService {
         }
         states.save(user.id(), card.cardId(), next);
         // Seulement pour une réponse nouvelle : une requête rejouée ne rapporte rien une seconde fois.
-        cardReviewed.fire(new CardReviewed(user, entry.id(), card.cardId(), now));
+        cardReviewed.fire(new CardReviewed(
+                user, entry.id(), card.cardId(), card.subjectSlug(), card.type(), rating.isRecalled(), now));
         return ReviewOutcome.of(entry, false, correction);
     }
 

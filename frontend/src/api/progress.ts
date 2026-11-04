@@ -4,11 +4,12 @@ import { ApiError } from './errors'
 import type { components } from './schema'
 
 export type Progress = components['schemas']['Progress']
+export type SubjectXp = components['schemas']['SubjectXp']
 
 /** Clé partagée : une révision enregistrée invalide la progression (voir useRecordReview). */
 export const PROGRESS_KEY = ['progress']
 
-/** Points, streak et objectif du jour de l'utilisateur connecté. */
+/** XP (totale et par sujet suivi, ADR 0035), streak et objectif du jour de l'utilisateur connecté. */
 export function useProgress(enabled = true) {
   return useQuery({
     queryKey: PROGRESS_KEY,

@@ -20,10 +20,7 @@ public enum CardType {
     BUG_FIX,
     /** Du code à trous, chaque trou corrigé par le serveur (ADR 0027). */
     FILL_IN,
-    /**
-     * Un exercice de code en plusieurs fichiers, jugé par ses tests (ADR 0029) : auto-évalué tant que le code n'est pas
-     * exécuté.
-     */
+    /** Un exercice de code en plusieurs fichiers (ADR 0029), jugé par ses tests dans le bac à sable (ADR 0030). */
     CODING_EXERCISE;
 
     /**
@@ -32,7 +29,17 @@ public enum CardType {
      */
     public static final Set<CardType> GRADED_BY_CHOICES = Set.of(MULTIPLE_CHOICE, TRUE_FALSE);
 
+    /**
+     * Les formats que le serveur corrige lui-même (les choix cochés, les trous, les tests d'un exercice) : leur réussite
+     * est vérifiée, et non déclarée par l'utilisateur. Elle rapporte un bonus d'XP (ADR 0035).
+     */
+    public static final Set<CardType> GRADED_BY_SERVER = Set.of(MULTIPLE_CHOICE, TRUE_FALSE, FILL_IN, CODING_EXERCISE);
+
     public boolean isGradedByChoices() {
         return GRADED_BY_CHOICES.contains(this);
+    }
+
+    public boolean isGradedByServer() {
+        return GRADED_BY_SERVER.contains(this);
     }
 }

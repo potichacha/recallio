@@ -32,6 +32,11 @@ public enum Rating {
         return correct ? GOOD : AGAIN;
     }
 
+    /** La carte est réussie : notée au moins « Bien », ou juste pour une réponse corrigée par le serveur. */
+    public boolean isRecalled() {
+        return value >= GOOD.value;
+    }
+
     public static Rating fromValue(int value) {
         for (Rating rating : values()) {
             if (rating.value == value) {

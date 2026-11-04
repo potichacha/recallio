@@ -24,8 +24,8 @@ import org.eclipse.microprofile.openapi.annotations.tags.Tag;
 import org.jspecify.annotations.Nullable;
 
 /**
- * Le classement de la semaine d'un groupe (CLAUDE.md, section 6.4 ; ADR 0018). Il vit dans ce module, qui détient les
- * points et l'activité ; son adresse le range sous le groupe.
+ * Le classement de la semaine d'un groupe (CLAUDE.md, section 6.4 ; ADR 0018). Il vit dans ce module, qui détient l'XP
+ * et l'activité ; son adresse le range sous le groupe.
  */
 @Path("/api/v1/groups/{groupId}/leaderboard")
 @Authenticated
@@ -45,7 +45,7 @@ public class LeaderboardResource {
     @GET
     @Operation(
             operationId = "getGroupLeaderboard",
-            summary = "Le classement de la semaine en cours : la régularité d'abord, puis les points")
+            summary = "Le classement de la semaine en cours : la régularité d'abord, puis l'XP")
     @APIResponse(responseCode = "200", description = "Le classement ; aucune ligne s'il est désactivé")
     @APIResponse(
             responseCode = "404",
@@ -98,7 +98,9 @@ public class LeaderboardResource {
             @Schema(description = "Jours de la semaine où l'objectif du groupe est atteint")
             int regularDays,
 
-            long points,
+            @Schema(description = "XP gagnée dans la semaine (ADR 0035)")
+            long xp,
+
             int cardsReviewed) {
 
         static LeaderboardEntryDto from(Entry entry) {
@@ -107,7 +109,7 @@ public class LeaderboardResource {
                     entry.displayName(),
                     entry.me(),
                     entry.regularDays(),
-                    entry.points(),
+                    entry.xp(),
                     entry.cardsReviewed());
         }
     }

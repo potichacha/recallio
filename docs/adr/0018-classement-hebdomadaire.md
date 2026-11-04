@@ -1,6 +1,6 @@
 # 0018. Classement hebdomadaire : calculé par gamification, la régularité avant les points
 
-- Statut : accepté
+- Statut : accepté (les points sont devenus l'XP : voir ADR 0035)
 - Date : 2026-11-01
 
 ## Contexte

@@ -36,7 +36,7 @@ Une application web (PWA, utilisable sur mobile) pour **réviser les entretiens 
 - des cartes déjà rédigées, orientées questions d'entretien, réparties en **sujets** : langages, frameworks, cloud, fondamentaux, IA... (Java et Go pour commencer, d'autres ajoutés petit à petit, voir 2.5) ;
 - plusieurs formats de questions (flashcard, QCM, "qu'affiche ce code ?", question de situation ouverte) ;
 - une **répétition espacée** pour mémoriser durablement ;
-- de la **gamification** (points, streak quotidien) ;
+- de la **gamification** (XP par sujet, streak quotidien) ;
 - plus tard, des **groupes** avec classement et un **mode live** chronométré entre membres ;
 - à terme, une offre pour les entreprises (ESN qui préparent leurs consultants aux entretiens clients, équipes qui entretiennent leur niveau).
 
@@ -120,7 +120,7 @@ Modules prévus (créés au fur et à mesure des phases, pas tous dès le dépar
 | `content` | catégories, sujets, thèmes, cartes, versions de cartes, import du contenu | 1 |
 | `review` | sessions de révision, planification par répétition espacée (FSRS), historique | 1 |
 | `user` | profil utilisateur lié à l'identité OIDC, préférences (fuseau horaire) | 1 |
-| `gamification` | points, streaks, succès | 1 |
+| `gamification` | XP, streaks, succès | 1 |
 | `group` | groupes, membres, invitations, réglages, classements | 2 |
 | `live` | parties synchronisées en temps réel | 3 |
 | `organization` | multi-entreprise, administration, statistiques agrégées | 4 |
@@ -294,16 +294,16 @@ Les sujets s'ajoutent un par un, au rythme de la rédaction, indépendamment des
 - Chaque réponse est enregistrée dans un **journal de révision** append-only (permettra de réentraîner les paramètres FSRS et de produire des statistiques).
 
 ### 6.3 Gamification
-- **Points** : attribués à chaque révision (barème simple, configurable, défini en phase 1). Stockés comme des **événements** dans un registre append-only (`points_ledger`) ; le total est une somme ou une projection, jamais un compteur modifié en place.
+- **XP** (ADR 0035, elle a remplacé les points de la phase 1) : attribuée à chaque révision, quelle que soit la note, selon l'effort du format (un exercice de code vaut quatre questions de cours), avec un bonus pour une réussite corrigée par le serveur. Chaque sujet a son XP et son niveau. Stockée comme des **événements** dans un registre append-only (`points_ledger`, qui a gardé son nom) ; un total est une somme ou une projection, jamais un compteur modifié en place.
 - **Streak** : un jour compte si l'utilisateur a terminé au moins un objectif minimal (par exemple 10 cartes) **dans son fuseau horaire**. Un jour manqué remet le streak à zéro. Plus tard : "gel de streak" à gagner.
-- La gamification ne doit jamais pousser à bâcler : pas de points pour aller plus vite en révision personnelle.
+- La gamification ne doit jamais pousser à bâcler : pas d'XP pour aller plus vite en révision personnelle.
 - **Gamification v2** (phase 3 ter, ADR 0025) : carte des compétences par sujet, **maîtrise par notion** (mémoire FSRS et diversité des formats réussis), XP par sujet (plus pour les formats exigeants, jamais pour la vitesse), quêtes du jour et de la semaine qui font varier les formats, succès, gel de streak.
 - **Partage** : cartes de partage (chapitre maîtrisé, podium, promotion) et **profil public de compétences**, **privé par défaut** (RGPD, protection des données dès la conception), que chacun rend public ou privé à tout moment. Le profil distingue le **vérifié** (classé, live, défis, exercices jugés par le serveur) du **déclaré** (maîtrise en révision personnelle, auto-évaluée).
 - **Classé** : un **rang par sujet** (Bronze → Argent → Or → Platine → Diamant → Maître, en divisions), cote Glicko-2 cachée, matchs de placement, saisons aux récompenses cosmétiques ; duels asynchrones d'abord, classé en direct ensuite ; uniquement des formats corrigés par le serveur, questions adaptées au niveau (cote de difficulté des cartes).
 
 ### 6.4 Groupes (phase 2)
 - Un créateur crée un groupe, génère un lien d'invitation (expirant), définit : sujets et thèmes inclus, types de cartes, objectif quotidien, visibilité du classement (nominatif, anonymisé, désactivé).
-- Classement hebdomadaire basé sur la régularité et les points.
+- Classement hebdomadaire basé sur la régularité et l'XP.
 - Défis de groupe : une série de cartes commune, avec un délai de réponse par carte.
 
 ### 6.5 Mode live (phase 3)
@@ -323,7 +323,7 @@ Tables principales de la V1 (noms en anglais, `snake_case`, identifiants UUID v7
 - `followed_subject` (user_id, subject_slug, followed_at) : les sujets suivis, qui alimentent les révisions (ADR 0014)
 - `review_state` (user_id, card_id, stability, difficulty, due_at, reps, lapses, state, last_review_at) : clé primaire (user_id, card_id)
 - `review_log` (id, user_id, card_id, card_version_id, rating, reviewed_at, elapsed_ms, request_id unique)
-- `points_ledger` (id, user_id, amount, reason, source_id, occurred_at)
+- `points_ledger` (id, user_id, amount, reason, subject_slug, source_id, occurred_at) : le registre de l'XP (ADR 0035)
 - `daily_activity` (user_id, local_date, cards_reviewed, goal_reached) : base du calcul du streak
 
 Phases suivantes : `study_group`, `group_member`, `group_settings`, `group_invitation`, `challenge`, `live_session`, `organization`.
@@ -336,7 +336,7 @@ Toute évolution du schéma passe par une migration Flyway versionnée, rétroco
 
 | Niveau | Ce qu'on teste | Outils |
 |---|---|---|
-| Unitaire (le plus nombreux) | domaine : FSRS, calcul des streaks, points, parseur Markdown (sur des extraits de chaque document de référence) | JUnit, AssertJ |
+| Unitaire (le plus nombreux) | domaine : FSRS, calcul des streaks, XP, parseur Markdown (sur des extraits de chaque document de référence) | JUnit, AssertJ |
 | Intégration | repositories, migrations, endpoints REST, sécurité (accès refusé aux ressources d'autrui) | `@QuarkusTest`, REST Assured, PostgreSQL réel via Dev Services/Testcontainers |
 | Architecture | règles de dépendances entre couches et modules | ArchUnit |
 | Frontend | composants et hooks | Vitest, Testing Library |
@@ -430,7 +430,7 @@ Carte des compétences, maîtrise par notion, XP, quêtes, succès, gel de strea
 **Gamification v2, en révision personnelle**
 1. ✅ **Maîtrise par notion** : nouvelle, découverte, acquise, maîtrisée, experte, d'après la mémoire FSRS et les formats réussis ; donnée par la carte du parcours, avec ce qui mène au niveau suivant (ADR 0034).
 2. ✅ **Carte des compétences** (PWA) : la page du parcours range les notions par domaine, chacun avec la barre de maîtrise de ses notions, et le domaine où l'on en est se déplie d'emblée ; chaque notion dit ce qui mène au niveau suivant ; un résumé par sujet sur le tableau de bord.
-3. **XP par sujet** (ADR à venir) : l'XP remplace les points ; une XP de base à chaque révision, quelle que soit la note, et un bonus pour une réussite corrigée par le serveur, plus fort pour les formats exigeants ; jamais liée au temps.
+3. ✅ **XP par sujet** (ADR 0035) : l'XP remplace les points ; une XP de base à chaque révision, quelle que soit la note, et un bonus pour une réussite corrigée par le serveur, plus fort pour les formats exigeants ; jamais liée au temps. Un niveau par sujet, sur le tableau de bord.
 4. **Gel de streak** : gagné avec le streak, consommé automatiquement un jour manqué.
 5. **Quêtes du jour et de la semaine**, qui font varier les formats.
 6. **Succès**, débloqués une seule fois.

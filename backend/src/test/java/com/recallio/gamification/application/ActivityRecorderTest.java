@@ -1,10 +1,12 @@
 package com.recallio.gamification.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.tuple;
 
+import com.recallio.content.CardType;
 import com.recallio.gamification.domain.ActivityRepository;
-import com.recallio.gamification.domain.PointsLedger;
-import com.recallio.gamification.domain.PointsReason;
+import com.recallio.gamification.domain.XpLedger;
+import com.recallio.gamification.domain.XpReason;
 import com.recallio.review.CardReviewed;
 import com.recallio.user.UserRef;
 import java.time.Instant;
@@ -52,7 +54,7 @@ class ActivityRecorderTest {
     }
 
     @Test
-    void shouldAwardPointsForEachReviewAndTheBonusWhenTheGoalIsReached() {
+    void shouldAwardXpToTheSubjectOfTheCardAndTheDailyBonusToNoSubject() {
         var user = new UserRef(UUID.randomUUID(), ZoneId.of("UTC"));
 
         recorder.onCardReviewed(reviewed(user, "2026-10-29T08:00:00Z"));
@@ -60,19 +62,42 @@ class ActivityRecorderTest {
         recorder.onCardReviewed(reviewed(user, "2026-10-29T08:02:00Z"));
 
         assertThat(ledger.entries)
-                .extracting(PointsLedger.PointsEntry::reason)
+                .extracting(XpLedger.XpEntry::reason, XpLedger.XpEntry::subjectSlug)
                 .containsExactly(
-                        PointsReason.REVIEW, PointsReason.REVIEW, PointsReason.DAILY_GOAL, PointsReason.REVIEW);
-        assertThat(ledger.total(user.id())).isEqualTo(10 + 10 + 50 + 10);
+                        tuple(XpReason.REVIEW, "java"),
+                        tuple(XpReason.REVIEW, "java"),
+                        tuple(XpReason.DAILY_GOAL, null),
+                        tuple(XpReason.REVIEW, "java"));
+        assertThat(ledger.totals(user.id())).isEqualTo(new XpLedger.XpTotals(10 + 10 + 50 + 10, Map.of("java", 30L)));
+    }
+
+    @Test
+    void shouldAwardTheBonusOfASuccessGradedByTheServer() {
+        var user = new UserRef(UUID.randomUUID(), ZoneId.of("UTC"));
+        UUID reviewId = UUID.randomUUID();
+
+        recorder.onCardReviewed(new CardReviewed(
+                user,
+                reviewId,
+                UUID.randomUUID(),
+                "go",
+                CardType.CODING_EXERCISE,
+                true,
+                Instant.parse("2026-10-29T08:00:00Z")));
+
+        assertThat(ledger.entries)
+                .extracting(XpLedger.XpEntry::reason, XpLedger.XpEntry::amount, XpLedger.XpEntry::sourceId)
+                .containsExactly(tuple(XpReason.REVIEW, 40, reviewId), tuple(XpReason.VERIFIED_SUCCESS, 20, reviewId));
     }
 
     private static CardReviewed reviewed(UserRef user, String at) {
-        return new CardReviewed(user, UUID.randomUUID(), UUID.randomUUID(), Instant.parse(at));
+        return new CardReviewed(
+                user, UUID.randomUUID(), UUID.randomUUID(), "java", CardType.FLASHCARD, true, Instant.parse(at));
     }
 
     private record TestConfig() implements GamificationConfig {
         @Override
-        public int pointsPerReview() {
+        public int xpPerReview() {
             return 10;
         }
 
@@ -115,18 +140,27 @@ class ActivityRecorderTest {
         }
     }
 
-    private static final class InMemoryLedger implements PointsLedger {
+    private static final class InMemoryLedger implements XpLedger {
 
-        final List<PointsEntry> entries = new ArrayList<>();
+        final List<XpEntry> entries = new ArrayList<>();
 
         @Override
-        public void append(PointsEntry entry) {
+        public void append(XpEntry entry) {
             entries.add(entry);
         }
 
         @Override
-        public long total(UUID userId) {
-            return entries.stream().mapToLong(PointsEntry::amount).sum();
+        public XpTotals totals(UUID userId) {
+            long total = 0;
+            Map<String, Long> bySubject = new HashMap<>();
+            for (XpEntry entry : entries) {
+                total += entry.amount();
+                String subjectSlug = entry.subjectSlug();
+                if (subjectSlug != null) {
+                    bySubject.merge(subjectSlug, (long) entry.amount(), Long::sum);
+                }
+            }
+            return new XpTotals(total, bySubject);
         }
     }
 }

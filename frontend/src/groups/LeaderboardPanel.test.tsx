@@ -25,7 +25,7 @@ const entry = (rank: number, displayName: string | null, overrides: object = {})
   displayName,
   me: false,
   regularDays: 0,
-  points: 0,
+  xp: 0,
   cardsReviewed: 0,
   ...overrides,
 })
@@ -45,8 +45,8 @@ describe('LeaderboardPanel', () => {
   it('ranks the members of the week, regularity first', async () => {
     const panel = await renderLeaderboard({
       entries: [
-        entry(1, 'Alice', { regularDays: 3, points: 30 }),
-        entry(2, 'Bob', { me: true, regularDays: 1, points: 500 }),
+        entry(1, 'Alice', { regularDays: 3, xp: 30 }),
+        entry(2, 'Bob', { me: true, regularDays: 1, xp: 500 }),
         entry(3, 'Carol'),
       ],
     })
@@ -56,9 +56,9 @@ describe('LeaderboardPanel', () => {
     )
     const rows = within(panel).getAllByRole('listitem')
     expect(rows.map((row) => row.textContent)).toEqual([
-      '1Alice3 jours réguliers · 30 pts',
-      '2Bob (vous)1 jour régulier · 500 pts',
-      '3Carol0 jour régulier · 0 pts',
+      '1Alice3 jours réguliers · 30 XP',
+      '2Bob (vous)1 jour régulier · 500 XP',
+      '3Carol0 jour régulier · 0 XP',
     ])
   })
 

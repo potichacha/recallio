@@ -1,6 +1,8 @@
 package com.recallio.gamification.api;
 
 import static io.restassured.RestAssured.given;
+import static org.hamcrest.Matchers.contains;
+import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
 
@@ -23,19 +25,28 @@ import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-/** En test : 10 points par carte, objectif de 2 cartes, bonus de 50 points (application.properties). */
+/**
+ * En test : 10 XP pour une question de cours, objectif de 2 cartes, bonus de 50 XP (application.properties ;
+ * ADR 0035).
+ */
 @QuarkusTest
 class ProgressResourceTest {
 
     private static final String PROGRESS = "/api/v1/me/progress";
+    private static final String QUEUE = "/api/v1/review-queue";
 
     @Inject
     ContentImportService contentImport;
 
+    /** Deux sujets publiés : Java (l'exemple de référence) et un petit document Go, qui a un QCM. */
     @BeforeEach
-    void importSample() throws IOException {
-        try (InputStream input =
-                Objects.requireNonNull(getClass().getResourceAsStream("/content/reference-sample.md"))) {
+    void importSubjects() throws IOException {
+        importDocument("/content/reference-sample.md");
+        importDocument("/content/go-sample.md");
+    }
+
+    private void importDocument(String resource) throws IOException {
+        try (InputStream input = Objects.requireNonNull(getClass().getResourceAsStream(resource))) {
             contentImport.importContent(new String(input.readAllBytes(), StandardCharsets.UTF_8));
         }
     }
@@ -50,7 +61,8 @@ class ProgressResourceTest {
     @OidcSecurity(claims = @Claim(key = "sub", value = "progress-new-user"))
     void shouldStartFromZero() {
         progress()
-                .body("totalPoints", is(0))
+                .body("totalXp", is(0))
+                .body("subjects", empty())
                 .body("streak", is(0))
                 .body("cardsToday", is(0))
                 .body("dailyGoal", is(2))
@@ -60,15 +72,15 @@ class ProgressResourceTest {
     @Test
     @TestSecurity(user = "alice")
     @OidcSecurity(claims = @Claim(key = "sub", value = "progress-goal"))
-    void shouldAwardPointsAndStartTheStreakWhenTheDailyGoalIsReached() {
-        List<String> cards = cardIds();
+    void shouldAwardXpAndStartTheStreakWhenTheDailyGoalIsReached() {
+        List<String> cards = flashcardIds();
 
         review(UUID.randomUUID(), cards.get(0));
-        progress().body("totalPoints", is(10)).body("cardsToday", is(1)).body("streak", is(0));
+        progress().body("totalXp", is(10)).body("cardsToday", is(1)).body("streak", is(0));
 
         review(UUID.randomUUID(), cards.get(1));
         progress()
-                .body("totalPoints", is(10 + 10 + 50))
+                .body("totalXp", is(10 + 10 + 50))
                 .body("cardsToday", is(2))
                 .body("goalReachedToday", is(true))
                 .body("streak", is(1));
@@ -77,21 +89,40 @@ class ProgressResourceTest {
     @Test
     @TestSecurity(user = "alice")
     @OidcSecurity(claims = @Claim(key = "sub", value = "progress-replay"))
-    void shouldNotAwardPointsTwiceForAReplayedReview() {
+    void shouldNotAwardXpTwiceForAReplayedReview() {
         UUID requestId = UUID.randomUUID();
-        String card = cardIds().getFirst();
+        String card = flashcardIds().getFirst();
 
         review(requestId, card).statusCode(201);
         review(requestId, card).statusCode(200);
 
-        progress().body("totalPoints", is(10)).body("cardsToday", is(1));
+        progress().body("totalXp", is(10)).body("cardsToday", is(1));
+    }
+
+    @Test
+    @TestSecurity(user = "alice")
+    @OidcSecurity(claims = @Claim(key = "sub", value = "progress-subjects"))
+    void shouldGiveTheXpAndTheLevelOfEachFollowedSubject() {
+        follow("java", "go");
+
+        review(UUID.randomUUID(), flashcardIds().getFirst());
+        // Le QCM de Go, juste : son XP de base et un bonus, puis celui de l'objectif du jour, qui n'a pas de sujet.
+        answer(goMultipleChoiceId(), "[1]").statusCode(201).body("rating", equalTo("GOOD"));
+
+        progress()
+                .body("totalXp", is(10 + (10 + 5) + 50))
+                .body("subjects.slug", contains("java", "go"))
+                .body("subjects.xp", contains(10, 15))
+                .body("subjects.level", contains(1, 1))
+                .body("subjects.levelXp", contains(0, 0))
+                .body("subjects.nextLevelXp", contains(100, 100));
     }
 
     @Test
     @TestSecurity(user = "alice")
     @OidcSecurity(claims = @Claim(key = "sub", value = "progress-activity"))
     void shouldListTheRecentDaysIncludingThoseWithoutReviews() {
-        review(UUID.randomUUID(), cardIds().getFirst());
+        review(UUID.randomUUID(), flashcardIds().getFirst());
 
         given().queryParam("days", 3)
                 .get(PROGRESS + "/activity")
@@ -115,19 +146,49 @@ class ProgressResourceTest {
         return given().get(PROGRESS).then().statusCode(200);
     }
 
-    private static List<String> cardIds() {
+    /** Les deux questions de cours du thème Java de l'exemple : 10 XP chacune. */
+    private static List<String> flashcardIds() {
         return given().queryParam("theme", "java-fondamentaux")
-                .get("/api/v1/review-queue")
+                .queryParam("type", "FLASHCARD")
+                .get(QUEUE)
                 .then()
                 .statusCode(200)
-                .body("cards.size()", equalTo(3))
+                .body("cards.size()", equalTo(2))
                 .extract()
                 .path("cards.cardId");
+    }
+
+    /** Le QCM du document Go de test : sa bonne réponse est la deuxième. */
+    private static String goMultipleChoiceId() {
+        return given().queryParam("subject", "go")
+                .queryParam("type", "MULTIPLE_CHOICE")
+                .get(QUEUE)
+                .then()
+                .statusCode(200)
+                .extract()
+                .path("cards[0].cardId");
+    }
+
+    private static void follow(String... subjects) {
+        String list = String.join("\", \"", subjects);
+        given().contentType(ContentType.JSON)
+                .body("{\"subjects\": [\"%s\"]}".formatted(list))
+                .put("/api/v1/me/followed-subjects")
+                .then()
+                .statusCode(200);
     }
 
     private static ValidatableResponse review(UUID requestId, String cardId) {
         return given().contentType(ContentType.JSON)
                 .body("{\"requestId\": \"%s\", \"cardId\": \"%s\", \"rating\": \"GOOD\"}".formatted(requestId, cardId))
+                .post("/api/v1/reviews")
+                .then();
+    }
+
+    private static ValidatableResponse answer(String cardId, String selectedChoices) {
+        return given().contentType(ContentType.JSON)
+                .body("{\"requestId\": \"%s\", \"cardId\": \"%s\", \"selectedChoices\": %s}"
+                        .formatted(UUID.randomUUID(), cardId, selectedChoices))
                 .post("/api/v1/reviews")
                 .then();
     }
