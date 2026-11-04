@@ -20,6 +20,7 @@ import java.util.stream.Stream;
 import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assumptions;
+import org.junit.jupiter.api.parallel.ExecutionMode;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -53,21 +54,44 @@ class CodeOutputTest {
         RUNNER.close();
     }
 
-    static Stream<Arguments> cards() {
+    /** Les cartes Java : une seule JVM JShell pour toutes, qui ne se partage pas entre deux threads. */
+    static Stream<Arguments> javaCards() {
+        return cards(false);
+    }
+
+    /** Les cartes Go : chacune se compile dans son propre dossier, et le cache de {@code go} se partage sans risque. */
+    static Stream<Arguments> goCards() {
+        return cards(true);
+    }
+
+    private static Stream<Arguments> cards(boolean go) {
         return SubjectFolders.in(CONTENT).stream().flatMap(folder -> {
             Map<String, String> notions = SubjectFolders.read(folder).notions();
             return notions.entrySet().stream()
                     .sorted(Map.Entry.comparingByKey())
                     .flatMap(file -> read(file.getValue()).cards().stream()
-                            .filter(card -> card.format().equals(CODE_OUTPUT))
+                            .filter(card -> card.format().equals(CODE_OUTPUT) && isGo(card) == go)
                             .map(card ->
                                     Arguments.of(folder.getFileName() + "/" + file.getKey() + "#" + card.key(), card)));
         });
     }
 
     @ParameterizedTest(name = "{0}")
-    @MethodSource("cards")
+    @MethodSource("javaCards")
     void shouldBehaveAsItsAnswerSays(String name, CardEntry card) {
+        verify(name, card);
+    }
+
+    /** En parallèle (voir {@code junit-platform.properties}) : compiler chaque carte une à une prenait des minutes. */
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("goCards")
+    // Le nom complet : SnippetRunner.Execution, le résultat d'une carte Java, porte déjà ce nom ici.
+    @org.junit.jupiter.api.parallel.Execution(ExecutionMode.CONCURRENT)
+    void shouldBehaveAsItsAnswerSaysInGo(String name, CardEntry card) {
+        verify(name, card);
+    }
+
+    private static void verify(String name, CardEntry card) {
         String unverifiable = card.unverifiable();
         if (unverifiable != null) {
             assertThat(unverifiable).as("raison de ne pas vérifier %s", name).isNotBlank();
@@ -135,6 +159,20 @@ class CodeOutputTest {
 
     /** Le code à exécuter, et s'il est en Go. */
     private record Snippet(String code, boolean go) {}
+
+    /**
+     * Si une carte est en Go, comme le décide {@link #snippet} : son code de vérification est un programme Go, ou le
+     * premier bloc de sa question est en Go. Une carte sans code se range avec Java, où son test échoue et dit pourquoi.
+     */
+    private static boolean isGo(CardEntry card) {
+        CheckEntry check = card.check();
+        String code = check == null ? null : check.code();
+        if (code != null && code.strip().startsWith("package ")) {
+            return true;
+        }
+        Matcher block = CODE_BLOCK.matcher(card.question());
+        return block.find() && block.group(1).equals(GO);
+    }
 
     private static Snippet snippet(CheckEntry check, String question, String name) {
         Matcher block = CODE_BLOCK.matcher(question);

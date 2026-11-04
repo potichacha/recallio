@@ -12,6 +12,8 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
 import java.util.stream.Stream;
+import org.junit.jupiter.api.parallel.Execution;
+import org.junit.jupiter.api.parallel.ExecutionMode;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 
@@ -19,7 +21,10 @@ import org.junit.jupiter.params.provider.MethodSource;
  * Le contrôle des exercices de code du contenu (ADR 0029, 0030), dans le bac à sable où ils seront joués : la solution
  * passe tous ses tests, et le code de départ compile mais en échoue au moins un. Un exercice impossible ou déjà résolu
  * se voit avant le merge. Un nouvel exercice est vérifié sans modifier ce test.
+ *
+ * <p>Chaque exécution a son propre conteneur : elles se jouent en parallèle (voir {@code junit-platform.properties}).
  */
+@Execution(ExecutionMode.CONCURRENT)
 class ExercisesTest {
 
     private static final Path CONTENT = Path.of("..", "content");

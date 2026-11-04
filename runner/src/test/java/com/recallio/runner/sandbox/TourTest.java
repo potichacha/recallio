@@ -18,6 +18,8 @@ import java.util.Objects;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
 import org.jspecify.annotations.Nullable;
+import org.junit.jupiter.api.parallel.Execution;
+import org.junit.jupiter.api.parallel.ExecutionMode;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 
@@ -31,8 +33,10 @@ import org.junit.jupiter.params.provider.MethodSource;
  * </ul>
  *
  * <p>Le reste d'une page (texte, titre, fichiers permis) est vérifié par le backend, dans le job {@code content}. Une
- * nouvelle page est vérifiée sans modifier ce test.
+ * nouvelle page est vérifiée sans modifier ce test. Chaque programme a son propre conteneur : ils se jouent en
+ * parallèle (voir {@code junit-platform.properties}).
  */
+@Execution(ExecutionMode.CONCURRENT)
 class TourTest {
 
     private static final Path CONTENT = Path.of("..", "content");
