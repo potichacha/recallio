@@ -20,7 +20,7 @@ import org.jspecify.annotations.Nullable;
 
 /**
  * Le classement de la semaine d'un groupe (CLAUDE.md, section 6.4 ; ADR 0018). Le module group dit qui en est membre et
- * comment l'afficher ; ce module apporte l'activité et les points de chacun.
+ * comment l'afficher ; ce module apporte l'activité et l'XP de chacun.
  */
 @ApplicationScoped
 @Transactional(Transactional.TxType.SUPPORTS)
@@ -66,7 +66,7 @@ public class GroupLeaderboardService {
                 me || !anonymous ? names.get(member.userId()) : null,
                 me,
                 member.regularDays(),
-                member.points(),
+                member.xp(),
                 member.cardsReviewed());
     }
 
@@ -76,5 +76,5 @@ public class GroupLeaderboardService {
      * @param displayName le nom du membre ; absent dans un classement anonymisé, sauf pour soi-même ({@code me})
      */
     public record Entry(
-            int rank, @Nullable String displayName, boolean me, int regularDays, long points, int cardsReviewed) {}
+            int rank, @Nullable String displayName, boolean me, int regularDays, long xp, int cardsReviewed) {}
 }

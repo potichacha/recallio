@@ -15,7 +15,7 @@ import org.junit.jupiter.api.Test;
 class WeeklyRankingTest {
 
     @Test
-    void shouldRankRegularityAbovePoints() {
+    void shouldRankRegularityAboveXp() {
         var steady = week(5, 100, 50);
         var burst = week(1, 900, 450);
 
@@ -24,14 +24,14 @@ class WeeklyRankingTest {
     }
 
     @Test
-    void shouldBreakTiesWithPointsThenCards() {
-        var morePoints = week(3, 60, 20);
+    void shouldBreakTiesWithXpThenCards() {
+        var moreXp = week(3, 60, 20);
         var moreCards = week(3, 50, 40);
         var fewerCards = week(3, 50, 30);
 
-        assertThat(WeeklyRanking.rank(List.of(fewerCards, moreCards, morePoints)))
+        assertThat(WeeklyRanking.rank(List.of(fewerCards, moreCards, moreXp)))
                 .extracting(standing -> standing.member())
-                .containsExactly(morePoints, moreCards, fewerCards);
+                .containsExactly(moreXp, moreCards, fewerCards);
     }
 
     @Test
@@ -59,7 +59,7 @@ class WeeklyRankingTest {
         assertThatThrownBy(() -> new Week(LocalDate.parse("2026-10-27"))).isInstanceOf(IllegalArgumentException.class);
     }
 
-    private static MemberWeek week(int regularDays, long points, int cards) {
-        return new MemberWeek(UUID.randomUUID(), regularDays, points, cards);
+    private static MemberWeek week(int regularDays, long xp, int cards) {
+        return new MemberWeek(UUID.randomUUID(), regularDays, xp, cards);
     }
 }

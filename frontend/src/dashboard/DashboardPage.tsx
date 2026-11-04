@@ -32,7 +32,7 @@ export function DashboardPage() {
       {progress.data && stats.data && (
         <dl className="grid grid-cols-3 gap-3 text-center">
           <Tile label="Série" value={`🔥 ${plural(progress.data.streak, 'jour')}`} />
-          <Tile label="Points" value={String(progress.data.totalPoints)} />
+          <Tile label="XP" value={String(progress.data.totalXp)} />
           <Tile
             label="Maîtrisées"
             value={`${stats.data.overall.mastered} / ${stats.data.overall.total}`}
@@ -41,7 +41,12 @@ export function DashboardPage() {
       )}
 
       {activity.data && <WeekActivity days={activity.data} />}
-      {stats.data && <SubjectProgressList subjects={stats.data.subjects} />}
+      {stats.data && (
+        <SubjectProgressList
+          subjects={stats.data.subjects}
+          levels={progress.data?.subjects ?? []}
+        />
+      )}
     </section>
   )
 }

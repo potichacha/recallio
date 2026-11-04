@@ -156,23 +156,26 @@ première fois.
 ```mermaid
 flowchart LR
     rec["review.ReviewRecordingService"] -- "CardReviewed<br/>(événement CDI synchrone)" --> obs["ActivityRecorder"]
-    obs --> rules["ScoringRules<br/>(domaine pur)"]
+    obs --> rules["XpRules<br/>(domaine pur)"]
     obs --> act[("daily_activity")]
     obs --> ledger[("points_ledger<br/>append-only")]
-    pwa["PWA (en-tête, /review)"] -- "GET /api/v1/me/progress" --> prog["ProgressService"]
-    prog --> streaks["Streaks<br/>(domaine pur)"]
+    pwa["PWA (en-tête, tableau de bord)"] -- "GET /api/v1/me/progress" --> prog["ProgressService"]
+    prog --> streaks["Streaks, SubjectLevel<br/>(domaine pur)"]
     prog --> act
     prog --> ledger
+    prog -- "user.FollowedSubjects" --> user["module user"]
 ```
 
 | Élément | Rôle |
 |---|---|
-| `domain.ScoringRules` | Barème : mêmes points pour chaque révision, bonus une fois par jour à l'objectif atteint. |
+| `domain.XpRules` | Barème de l'XP (ADR 0035) : une base à chaque révision selon l'effort du format (`Effort`), un bonus pour une réussite corrigée par le serveur, celui de l'objectif du jour une fois par jour. |
+| `domain.SubjectLevel` | Le niveau d'un sujet d'après son XP : passer du niveau n au niveau n + 1 demande 100 × n XP. |
 | `domain.Streaks` | Jours consécutifs avec l'objectif atteint ; un jour manqué remet à zéro. |
-| `application.ActivityRecorder` | Observe `CardReviewed` dans la transaction de la révision (ADR 0012). |
-| `application.ProgressService` | Points, streak et objectif du jour, dans le fuseau de l'utilisateur. |
+| `domain.XpLedger` | Le registre append-only de l'XP, dans la table `points_ledger` ; chaque entrée garde le sujet de la carte révisée. |
+| `application.ActivityRecorder` | Observe `CardReviewed` (sujet, format, réussite) dans la transaction de la révision (ADR 0012). |
+| `application.ProgressService` | XP et niveau de chaque sujet suivi, streak et objectif du jour, dans le fuseau de l'utilisateur. |
 | `api.ProgressResource` | `GET /api/v1/me/progress`, et `/activity` : cartes révisées chacun des derniers jours. |
-| `domain.leaderboard.WeeklyRanking` | Le rang de la semaine : jours réguliers, puis points, puis cartes ; ex æquo au même rang (ADR 0018). |
+| `domain.leaderboard.WeeklyRanking` | Le rang de la semaine : jours réguliers, puis XP, puis cartes ; ex æquo au même rang (ADR 0018). |
 | `application.GroupLeaderboardService` | Le classement d'un groupe : membres et réglages par `group.GroupLeaderboards`, activité par `WeeklyActivity`. |
 | `api.LeaderboardResource` | `GET /api/v1/groups/{id}/leaderboard`, rangé sous le groupe mais servi par ce module. |
 

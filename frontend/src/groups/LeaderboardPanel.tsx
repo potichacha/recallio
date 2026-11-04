@@ -4,7 +4,7 @@ import { useLeaderboard, type Leaderboard, type LeaderboardEntry } from '../api/
 const DAY = new Intl.DateTimeFormat('fr-FR', { day: 'numeric', month: 'long', timeZone: 'UTC' })
 const formatDay = (isoDate: string) => DAY.format(new Date(`${isoDate}T00:00:00Z`))
 
-/** Le classement de la semaine : la régularité d'abord (CLAUDE.md, section 2.4), puis les points. */
+/** Le classement de la semaine : la régularité d'abord (CLAUDE.md, section 2.4), puis l'XP (ADR 0035). */
 export function LeaderboardPanel({ groupId }: { groupId: string }) {
   const leaderboard = useLeaderboard(groupId)
 
@@ -58,7 +58,7 @@ function LeaderboardRow({ entry }: { entry: LeaderboardEntry }) {
         </span>
       </span>
       <span className="text-sm text-slate-600">
-        {days} jour{days > 1 ? 's' : ''} régulier{days > 1 ? 's' : ''} · {entry.points} pts
+        {days} jour{days > 1 ? 's' : ''} régulier{days > 1 ? 's' : ''} · {entry.xp} XP
       </span>
     </li>
   )

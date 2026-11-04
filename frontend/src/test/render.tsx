@@ -35,11 +35,12 @@ export const TEST_PROFILE = {
   tracks: { java: 'PREPARE' },
 }
 export const TEST_PROGRESS = {
-  totalPoints: 120,
+  totalXp: 120,
   streak: 3,
   cardsToday: 4,
   dailyGoal: 10,
   goalReachedToday: false,
+  subjects: [{ slug: 'java', xp: 340, level: 3, levelXp: 300, nextLevelXp: 600 }],
 }
 
 function testSubject(slug: string, title: string, overrides: Record<string, unknown> = {}) {

@@ -1,6 +1,6 @@
 # 0012. Gamification : registre de points, streak et événements entre modules
 
-- Statut : accepté
+- Statut : accepté (les points sont devenus l'XP : voir ADR 0035)
 - Date : 2026-10-29
 
 ## Contexte

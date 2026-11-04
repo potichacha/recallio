@@ -30,7 +30,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
 /**
- * Un groupe à trois : son créateur (régulier), l'utilisateur connecté (beaucoup de points en un jour) et un membre
+ * Un groupe à trois : son créateur (régulier), l'utilisateur connecté (beaucoup d'XP en un jour) et un membre
  * inactif. L'activité est écrite directement en base, dans la semaine en cours du fuseau de l'utilisateur.
  */
 @QuarkusTest
@@ -59,7 +59,7 @@ class LeaderboardResourceTest {
     @Test
     @TestSecurity(user = "bob")
     @OidcSecurity(claims = {@Claim(key = "sub", value = "leaderboard-named"), @Claim(key = "name", value = "Bob")})
-    void shouldRankRegularityBeforePoints() {
+    void shouldRankRegularityBeforeXp() {
         Group group = groupOfThree();
 
         given().get(leaderboard(group.id()))
@@ -70,7 +70,7 @@ class LeaderboardResourceTest {
                 .body("weekStart", equalTo(group.week().monday().toString()))
                 .body("entries.rank", contains(1, 2, 3))
                 .body("entries.regularDays", contains(3, 1, 0))
-                .body("entries.points", contains(30, 500, 0))
+                .body("entries.xp", contains(30, 500, 0))
                 .body("entries.cardsReviewed", contains(3 * GOAL, 2 * GOAL, 0))
                 .body("entries.me", contains(false, true, false))
                 .body("entries[1].displayName", equalTo("Bob"))
@@ -119,7 +119,7 @@ class LeaderboardResourceTest {
 
     private record Group(UUID id, UserRef owner, Week week) {}
 
-    /** Le créateur atteint l'objectif 3 jours ; l'utilisateur, 1 jour avec beaucoup de points ; le troisième, rien. */
+    /** Le créateur atteint l'objectif 3 jours ; l'utilisateur, 1 jour avec beaucoup d'XP ; le troisième, rien. */
     private Group groupOfThree() {
         var owner = new UserRef(UUID.randomUUID(), ZoneOffset.UTC);
         UUID groupId = groupService.create(owner, "Classement").id();
@@ -135,8 +135,8 @@ class LeaderboardResourceTest {
             activity(owner.id(), week.monday().minusDays(1), 5 * GOAL); // la semaine précédente ne compte pas
             activity(me, week.monday(), GOAL - 1);
             activity(me, week.monday().plusDays(1), GOAL + 1);
-            points(owner.id(), 30);
-            points(me, 500);
+            xp(owner.id(), 30);
+            xp(me, 500);
         });
         return new Group(groupId, owner, week);
     }
@@ -183,7 +183,7 @@ class LeaderboardResourceTest {
                 .executeUpdate();
     }
 
-    private void points(UUID userId, int amount) {
+    private void xp(UUID userId, int amount) {
         entityManager
                 .createNativeQuery("""
                         insert into points_ledger (id, user_id, amount, reason, source_id, occurred_at)

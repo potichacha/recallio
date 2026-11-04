@@ -2,7 +2,9 @@ package com.recallio.gamification.api;
 
 import com.recallio.gamification.application.ProgressService;
 import com.recallio.gamification.application.ProgressService.Progress;
+import com.recallio.gamification.application.ProgressService.SubjectXp;
 import com.recallio.gamification.domain.ActivityRepository.DailyActivity;
+import com.recallio.gamification.domain.SubjectLevel;
 import com.recallio.platform.api.ProblemDetail;
 import com.recallio.user.CurrentUser;
 import io.quarkus.security.Authenticated;
@@ -23,7 +25,7 @@ import org.eclipse.microprofile.openapi.annotations.responses.APIResponse;
 import org.eclipse.microprofile.openapi.annotations.security.SecurityRequirement;
 import org.eclipse.microprofile.openapi.annotations.tags.Tag;
 
-/** Progression de l'utilisateur connecté : points, streak et objectif du jour (CLAUDE.md, section 6.3). */
+/** Progression de l'utilisateur connecté : XP, streak et objectif du jour (CLAUDE.md, section 6.3 ; ADR 0035). */
 @Path("/api/v1/me/progress")
 @Authenticated
 @Produces(MediaType.APPLICATION_JSON)
@@ -42,7 +44,9 @@ public class ProgressResource {
     }
 
     @GET
-    @Operation(operationId = "getMyProgress", summary = "Points, streak et objectif du jour de l'utilisateur connecté")
+    @Operation(
+            operationId = "getMyProgress",
+            summary = "XP et niveau de chaque sujet suivi, streak et objectif du jour de l'utilisateur connecté")
     @APIResponse(responseCode = "200", description = "La progression")
     @APIResponse(responseCode = "401", description = "Non authentifié")
     public ProgressDto getMyProgress() {
@@ -78,7 +82,8 @@ public class ProgressResource {
 
     @Schema(name = "Progress")
     public record ProgressDto(
-            @Schema(description = "Total des points gagnés") long totalPoints,
+            @Schema(description = "Toute l'XP gagnée, bonus de l'objectif du jour compris")
+            long totalXp,
 
             @Schema(description = "Jours consécutifs avec l'objectif atteint")
             int streak,
@@ -89,15 +94,40 @@ public class ProgressResource {
             @Schema(description = "Cartes à réviser chaque jour pour entretenir le streak")
             int dailyGoal,
 
-            boolean goalReachedToday) {
+            boolean goalReachedToday,
+
+            @Schema(description = "L'XP et le niveau de chaque sujet suivi, dans l'ordre du catalogue (ADR 0035)")
+            List<SubjectXpDto> subjects) {
 
         static ProgressDto from(Progress progress) {
             return new ProgressDto(
-                    progress.totalPoints(),
+                    progress.totalXp(),
                     progress.streak(),
                     progress.cardsToday(),
                     progress.dailyGoal(),
-                    progress.goalReachedToday());
+                    progress.goalReachedToday(),
+                    progress.subjects().stream().map(SubjectXpDto::from).toList());
+        }
+    }
+
+    @Schema(name = "SubjectXp")
+    public record SubjectXpDto(
+            String slug,
+            long xp,
+
+            @Schema(description = "Le niveau du sujet, à partir de 1")
+            int level,
+
+            @Schema(description = "L'XP à laquelle ce niveau commence")
+            long levelXp,
+
+            @Schema(description = "L'XP à laquelle commence le niveau suivant")
+            long nextLevelXp) {
+
+        static SubjectXpDto from(SubjectXp subject) {
+            SubjectLevel level = subject.level();
+            return new SubjectXpDto(
+                    subject.subjectSlug(), level.xp(), level.level(), level.levelXp(), level.nextLevelXp());
         }
     }
 }

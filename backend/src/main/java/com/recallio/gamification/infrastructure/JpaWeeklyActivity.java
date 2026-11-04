@@ -11,8 +11,8 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * Une requête pour tout le groupe : chaque membre demandé (même inactif) avec ses jours réguliers, ses cartes et ses
- * points de la semaine. Les deux agrégats sont calculés séparément puis joints, pour ne pas multiplier les lignes.
+ * Une requête pour tout le groupe : chaque membre demandé (même inactif) avec ses jours réguliers, ses cartes et son XP
+ * de la semaine. Les deux agrégats sont calculés séparément puis joints, pour ne pas multiplier les lignes.
  */
 @ApplicationScoped
 public class JpaWeeklyActivity implements WeeklyActivity {
@@ -38,18 +38,18 @@ public class JpaWeeklyActivity implements WeeklyActivity {
                             from daily_activity
                             where user_id in (select user_id from member) and local_date between :monday and :sunday
                             group by user_id),
-                        points as (
-                            select user_id, sum(amount) as points
+                        xp as (
+                            select user_id, sum(amount) as xp
                             from points_ledger
                             where user_id in (select user_id from member) and occurred_at >= :start and occurred_at < :end
                             group by user_id)
                         select member.user_id,
                                coalesce(days.regular_days, 0),
-                               coalesce(points.points, 0),
+                               coalesce(xp.xp, 0),
                                coalesce(days.cards, 0)
                         from member
                         left join days on days.user_id = member.user_id
-                        left join points on points.user_id = member.user_id
+                        left join xp on xp.user_id = member.user_id
                         """)
                 .setParameter("userIds", userIds.toArray(UUID[]::new))
                 .setParameter("goal", dailyGoal)

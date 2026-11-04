@@ -1,5 +1,6 @@
 package com.recallio.review;
 
+import com.recallio.content.CardType;
 import com.recallio.user.UserRef;
 import java.time.Instant;
 import java.util.UUID;
@@ -10,5 +11,15 @@ import java.util.UUID;
  * synchrones (gamification) réussissent ou échouent avec elle.
  *
  * @param reviewId identifiant de l'entrée du journal de révision, unique par réponse
+ * @param subjectSlug le sujet de la carte, qui gagne l'XP de la révision (ADR 0035)
+ * @param cardType le format de la carte : l'XP en dépend
+ * @param recalled si la carte est réussie : notée au moins « Bien », ou juste pour un format corrigé par le serveur
  */
-public record CardReviewed(UserRef user, UUID reviewId, UUID cardId, Instant reviewedAt) {}
+public record CardReviewed(
+        UserRef user,
+        UUID reviewId,
+        UUID cardId,
+        String subjectSlug,
+        CardType cardType,
+        boolean recalled,
+        Instant reviewedAt) {}
