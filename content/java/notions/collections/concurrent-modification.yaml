@@ -1,4 +1,35 @@
 notion: concurrent-modification
+lesson: |-
+  Les itérateurs des collections classiques (`ArrayList`, `HashMap`...) sont **fail-fast** : si la collection est
+  modifiée pendant le parcours **autrement que par l'itérateur**, le prochain `next()` lève une
+  **`ConcurrentModificationException`**. Un seul thread suffit :
+
+  ```java
+  for (String nom : noms) {
+      if (nom.isBlank()) {
+          noms.remove(nom);            // ConcurrentModificationException au tour suivant
+      }
+  }
+
+  noms.removeIf(String::isBlank);      // la bonne façon
+  ```
+
+  - Le mécanisme : la collection compte ses modifications structurelles (`modCount`) ; l'itérateur mémorise ce compte et
+    le vérifie à chaque `next()`.
+  - La détection est faite **au mieux** : supprimer l'avant-dernier élément peut passer sans exception (la boucle
+    s'arrête avant la vérification). On ne s'appuie donc jamais sur l'exception pour être correct.
+  - Pour supprimer en parcourant : **`removeIf`**, `Iterator.remove()`, ou pour une `Map`
+    `map.entrySet().removeIf(...)` (ou `values().removeIf`).
+  - Pour ajouter en parcourant : collecter les ajouts dans une autre liste, puis `addAll` après la boucle.
+  - Les collections concurrentes (`CopyOnWriteArrayList`, `ConcurrentHashMap`) ont des itérateurs **faiblement
+    cohérents** (*weakly consistent*) ou sur un **instantané** : pas d'exception, mais on ne voit pas forcément les
+    modifications.
+
+  **Piège classique** : supprimer par indice dans une boucle `for (int i = 0; ...)`. Il n'y a pas d'exception, mais
+  l'élément qui suit chaque suppression est sauté.
+
+  **En entretien** : « Modifier une collection pendant un for-each lève une `ConcurrentModificationException`, même sans
+  threads ; on utilise `removeIf` ou `Iterator.remove()`. »
 cards:
   - key: supprimer-pendant-iteration
     format: course
@@ -12,6 +43,82 @@ cards:
     format: course
     question: Fail-fast vs fail-safe ?
     answer: Fail-fast lève une exception si la collection change ; fail-safe/faiblement cohérent travaille sur un instantané ou tolère la modification.
+  - key: mod-count
+    format: course
+    question: Comment un itérateur détecte-t-il une modification concurrente ?
+    answer: La collection incrémente un compteur (`modCount`) à chaque modification structurelle ; l'itérateur garde la valeur attendue et la compare à chaque `next()`.
+  - key: cme-seulement-multithread
+    format: true-false
+    question: Une `ConcurrentModificationException` ne peut se produire qu'avec plusieurs threads.
+    truth: false
+    answer: "Un seul thread suffit : modifier une collection pendant qu'on la parcourt avec un for-each la déclenche."
+  - key: vf-garantie
+    format: true-false
+    question: La `ConcurrentModificationException` est garantie dès qu'on modifie une collection pendant un for-each.
+    truth: false
+    answer: La détection se fait au mieux ; certaines suppressions (l'avant-dernier élément) passent sans exception.
+  - key: vf-remove-if
+    format: true-false
+    question: "`liste.removeIf(...)` supprime sans risque de `ConcurrentModificationException`."
+    truth: true
+    answer: La méthode gère elle-même le parcours et les suppressions.
+  - key: vf-cow
+    format: true-false
+    question: "Ajouter à une `CopyOnWriteArrayList` pendant qu'on la parcourt lève une `ConcurrentModificationException`."
+    truth: false
+    answer: "Son itérateur parcourt un instantané : pas d'exception, et les ajouts n'y apparaissent pas."
+  - key: qcm-supprimer
+    format: multiple-choice
+    question: Quelles façons de supprimer les commandes annulées sont correctes ?
+    choices:
+      - text: "`commandes.removeIf(Commande::estAnnulee)`"
+        correct: true
+      - text: "Un `Iterator` explicite et `it.remove()`"
+        correct: true
+      - text: "Un for-each et `commandes.remove(c)`"
+        correct: false
+      - text: "Une boucle `for (int i...)` et `commandes.remove(i)` sans ajuster `i`"
+        correct: false
+    answer: La boucle sur indice saute l'élément qui suit chaque suppression.
+  - key: qcm-map
+    format: multiple-choice
+    question: Comment supprimer d'une `Map` les entrées dont la valeur vaut 0 ?
+    choices:
+      - text: "`map.values().removeIf(v -> v == 0)`"
+        correct: true
+      - text: "`map.entrySet().removeIf(e -> e.getValue() == 0)`"
+        correct: true
+      - text: "Un for-each sur `map.keySet()` et `map.remove(cle)`"
+        correct: false
+      - text: "`map.forEach((k, v) -> map.remove(k))`"
+        correct: false
+    answer: Les vues d'une `Map` suppriment dans la map elle-même.
+  - key: qcm-ajouter
+    format: multiple-choice
+    question: Comment ajouter des éléments trouvés pendant le parcours d'une liste ?
+    choices:
+      - text: "Les collecter dans une autre liste, puis `addAll` après la boucle"
+        correct: true
+      - text: "Les ajouter directement dans un for-each"
+        correct: false
+      - text: "Attraper la `ConcurrentModificationException`"
+        correct: false
+      - text: "Utiliser `List.of`"
+        correct: false
+    answer: On ne modifie pas la collection qu'on est en train de parcourir.
+  - key: qcm-faiblement
+    format: multiple-choice
+    question: Quelles collections ont des itérateurs qui ne lèvent pas de `ConcurrentModificationException` ?
+    choices:
+      - text: "`CopyOnWriteArrayList`"
+        correct: true
+      - text: "`ConcurrentHashMap`"
+        correct: true
+      - text: "`ArrayList`"
+        correct: false
+      - text: "`HashMap`"
+        correct: false
+    answer: Les collections concurrentes tolèrent les modifications pendant le parcours.
   - key: code-list-string-new-arraylist-list
     format: code-output
     question: |-
@@ -23,11 +130,42 @@ cards:
     answer: '`[a, c]` **sans exception** : en supprimant l''avant-dernier élément, `hasNext()` renvoie false et la vérification n''a pas lieu. Avec `"a"`, on obtient une ConcurrentModificationException. Le comportement correct est de toujours utiliser `removeIf` ou `iterator.remove()`.'
     check:
       output: "[a, c]"
-  - key: cme-seulement-multithread
-    format: true-false
-    question: Une `ConcurrentModificationException` ne peut se produire qu'avec plusieurs threads.
-    truth: false
-    answer: "Un seul thread suffit : modifier une collection pendant qu'on la parcourt avec un for-each la déclenche."
+  - key: code-cme
+    format: code-output
+    question: |-
+      ```java
+      List<String> l = new ArrayList<>(List.of("a", "b", "c"));
+      for (String x : l) {
+          if (x.equals("a")) l.remove(x);
+      }
+      ```
+    answer: Une `ConcurrentModificationException` au tour suivant.
+    check:
+      throws: ConcurrentModificationException
+  - key: code-remove-if
+    format: code-output
+    question: |-
+      ```java
+      List<Integer> l = new ArrayList<>(List.of(1, 2, 3, 4));
+      l.removeIf(n -> n % 2 == 0);
+      System.out.println(l);
+      ```
+    answer: '`[1, 3]`.'
+    check:
+      output: "[1, 3]"
+  - key: code-cow
+    format: code-output
+    question: |-
+      ```java
+      List<String> l = new CopyOnWriteArrayList<>(List.of("a", "b"));
+      for (String x : l) {
+          l.add("c");
+      }
+      System.out.println(l.size());
+      ```
+    answer: '`4` : l''itérateur parcourt un instantané de deux éléments, et chaque tour ajoute un `c`.'
+    check:
+      output: "4"
   - key: supprimer-pendant-for-each
     format: bug-fix
     question: |-
@@ -44,3 +182,60 @@ cards:
       noms.removeIf(String::isBlank);
       ```
       Le for-each utilise un itérateur qui détecte la modification de la liste. `removeIf` (ou `iterator.remove()` dans une boucle explicite) supprime sans casser le parcours.
+  - key: bug-map-keyset
+    format: bug-fix
+    question: |-
+      Ce nettoyage du cache lève une `ConcurrentModificationException` :
+      ```java
+      for (String cle : cache.keySet()) {
+          if (cache.get(cle).estExpire()) {
+              cache.remove(cle);
+          }
+      }
+      ```
+    answer: |-
+      ```java
+      cache.values().removeIf(Entree::estExpire);
+      ```
+      Supprimer dans la map pendant qu'on parcourt sa vue lève l'exception. Les vues offrent `removeIf`, qui supprime
+      dans la map sans casser le parcours.
+  - key: bug-indice-saute
+    format: bug-fix
+    question: |-
+      Il reste parfois des lignes vides après ce nettoyage :
+      ```java
+      for (int i = 0; i < lignes.size(); i++) {
+          if (lignes.get(i).isBlank()) {
+              lignes.remove(i);
+          }
+      }
+      ```
+    answer: |-
+      ```java
+      lignes.removeIf(String::isBlank);
+      ```
+      Après `remove(i)`, l'élément suivant prend l'indice `i`, que la boucle saute. Deux lignes vides consécutives en
+      laissent une. `removeIf` traite chaque élément.
+  - key: bug-ajout-pendant
+    format: bug-fix
+    question: |-
+      Ce code lève une `ConcurrentModificationException` :
+      ```java
+      for (Tache t : taches) {
+          if (t.aDesSousTaches()) {
+              taches.addAll(t.sousTaches());
+          }
+      }
+      ```
+    answer: |-
+      ```java
+      List<Tache> aAjouter = new ArrayList<>();
+      for (Tache t : taches) {
+          if (t.aDesSousTaches()) {
+              aAjouter.addAll(t.sousTaches());
+          }
+      }
+      taches.addAll(aAjouter);
+      ```
+      On collecte les ajouts à part, et on les applique après le parcours. (Si l'on doit aussi traiter les sous-tâches
+      ajoutées, une `Deque` utilisée comme file de travail est plus adaptée.)

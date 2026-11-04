@@ -1,6 +1,164 @@
 notion: threads-daemon
+lesson: |-
+  La JVM s'arrête quand il ne reste **plus aucun thread non démon** en vie. Un **thread démon** est un thread de service
+  qui ne retient pas la JVM : à l'arrêt, il est **tué brutalement**, sans exécuter ses blocs `finally`.
+
+  ```java
+  Thread t = new Thread(this::surveillerCache);
+  t.setDaemon(true);         // avant start(), sinon IllegalThreadStateException
+  t.start();
+  ```
+
+  - Un thread hérite du statut démon de son créateur ; `main` n'est pas démon.
+  - Les threads **virtuels** sont **toujours** démons.
+  - Les threads du ramasse-miettes et du compilateur JIT sont des démons.
+  - Usage : des tâches de fond sans importance à l'arrêt (rafraîchir un cache, collecter des statistiques). Jamais pour
+    écrire un fichier ou valider une transaction : le travail peut être coupé au milieu.
+
+  **Priorités** : `setPriority(1..10)` (`MIN_PRIORITY`, `NORM_PRIORITY` = 5, `MAX_PRIORITY`) n'est qu'une **indication** à
+  l'ordonnanceur du système, souvent ignorée. On ne s'appuie jamais dessus pour la justesse d'un programme. Les threads
+  virtuels ont une priorité fixe.
+
+  - Pour un arrêt propre, on préfère un **crochet d'arrêt** (`Runtime.getRuntime().addShutdownHook(...)`) et l'arrêt
+    ordonné des pools (`shutdown`, `awaitTermination`).
+
+  **Piège classique** : un programme dont le `main` lance un thread démon puis se termine. Le travail du thread est coupé
+  net, souvent avant d'avoir commencé.
+
+  **En entretien** : « Un thread démon ne retient pas la JVM et est tué sans `finally` à l'arrêt ; les priorités ne sont
+  qu'une indication. Pour un arrêt propre : crochet d'arrêt et arrêt ordonné des pools. »
 cards:
   - key: thread-demon
     format: course
     question: C'est quoi un thread démon ?
     answer: Un thread qui n'empêche pas l'arrêt de la JVM ; il est tué sans exécuter ses finally.
+  - key: quand-jvm-arrete
+    format: course
+    question: Quand la JVM s'arrête-t-elle normalement ?
+    answer: Quand le dernier thread non démon se termine (ou sur `System.exit`).
+  - key: priorites
+    format: course
+    question: Peut-on compter sur `setPriority` pour ordonner l'exécution des threads ?
+    answer: Non, c'est une simple indication à l'ordonnanceur du système, souvent ignorée ; la justesse du programme ne doit pas en dépendre.
+  - key: arret-propre
+    format: course
+    question: Comment exécuter un nettoyage à l'arrêt de la JVM ?
+    answer: Avec un crochet d'arrêt (`Runtime.getRuntime().addShutdownHook(thread)`), et en arrêtant les pools avec `shutdown` puis `awaitTermination`.
+  - key: vf-virtuels
+    format: true-false
+    question: Les threads virtuels sont toujours des démons.
+    truth: true
+    answer: Ils ne retiennent pas la JVM.
+  - key: vf-apres-start
+    format: true-false
+    question: On peut appeler `setDaemon(true)` après `start()`.
+    truth: false
+    answer: Il lève `IllegalThreadStateException`.
+  - key: vf-finally
+    format: true-false
+    question: Un thread démon exécute ses blocs `finally` à l'arrêt de la JVM.
+    truth: false
+    answer: Il est arrêté brutalement.
+  - key: vf-main
+    format: true-false
+    question: Le thread `main` est un thread démon.
+    truth: false
+    answer: C'est pourquoi la JVM attend sa fin.
+  - key: qcm-usage
+    format: multiple-choice
+    question: Pour quelle tâche un thread démon convient-il ?
+    choices:
+      - text: "Rafraîchir périodiquement un cache en mémoire"
+        correct: true
+      - text: "Écrire un fichier d'export"
+        correct: false
+      - text: "Valider une transaction en base"
+        correct: false
+      - text: "Envoyer les e-mails en attente"
+        correct: false
+    answer: Une tâche qui peut être coupée sans conséquence.
+  - key: qcm-arret
+    format: multiple-choice
+    question: Qu'est-ce qui empêche la JVM de s'arrêter ?
+    choices:
+      - text: "Un thread non démon encore en vie"
+        correct: true
+      - text: "Un pool de threads non arrêté (ses threads sont non démons par défaut)"
+        correct: true
+      - text: "Un thread démon en cours d'exécution"
+        correct: false
+      - text: "Un thread virtuel en cours d'exécution"
+        correct: false
+    answer: D'où l'importance d'arrêter les pools.
+  - key: qcm-priorite
+    format: multiple-choice
+    question: Que vaut `Thread.NORM_PRIORITY` ?
+    choices:
+      - text: "5"
+        correct: true
+      - text: "1"
+        correct: false
+      - text: "10"
+        correct: false
+      - text: "0"
+        correct: false
+    answer: Entre `MIN_PRIORITY` (1) et `MAX_PRIORITY` (10).
+  - key: qcm-heritage
+    format: multiple-choice
+    question: Un thread créé par un thread démon est-il démon ?
+    choices:
+      - text: "Oui, par défaut il hérite du statut de son créateur"
+        correct: true
+      - text: "Non, jamais"
+        correct: false
+      - text: "Seulement s'il est virtuel"
+        correct: false
+      - text: "Seulement s'il a une priorité basse"
+        correct: false
+    answer: On peut changer ce statut avant `start()`.
+  - key: code-daemon
+    format: code-output
+    question: |-
+      ```java
+      Thread t = new Thread(() -> {});
+      System.out.print(t.isDaemon() + " ");
+      t.setDaemon(true);
+      System.out.println(t.isDaemon() + " " + Thread.ofVirtual().unstarted(() -> {}).isDaemon());
+      ```
+    answer: '`false true true`.'
+    check:
+      output: "false true true"
+  - key: code-apres-start
+    format: code-output
+    question: |-
+      ```java
+      Thread t = new Thread(() -> {
+          try { Thread.sleep(2000); } catch (InterruptedException e) { }
+      });
+      t.start();
+      t.setDaemon(true);
+      ```
+    answer: 'Une `IllegalThreadStateException` : le statut se fixe avant `start()`, tant que le thread n''est pas vivant.'
+    check:
+      throws: IllegalThreadStateException
+  - key: code-priorite
+    format: code-output
+    question: |-
+      ```java
+      System.out.println(Thread.currentThread().getPriority() + " " + Thread.MIN_PRIORITY + " " + Thread.MAX_PRIORITY);
+      ```
+    answer: '`5 1 10`.'
+    check:
+      output: "5 1 10"
+  - key: code-heritage
+    format: code-output
+    question: |-
+      ```java
+      Thread parent = new Thread(() -> System.out.println(new Thread(() -> {}).isDaemon()));
+      parent.setDaemon(true);
+      parent.start();
+      parent.join();
+      ```
+    answer: '`true` : le thread créé hérite du statut démon de son créateur.'
+    check:
+      output: "true"

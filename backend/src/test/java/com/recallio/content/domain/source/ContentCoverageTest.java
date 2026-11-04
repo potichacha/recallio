@@ -113,7 +113,7 @@ class ContentCoverageTest {
 
     @Test
     void shouldReportWhatADeclaredCompleteNotionLacks() {
-        NotionTarget declared = new NotionTarget(notion("hashset", 1, null), Set.of(CardType.FLASHCARD), true);
+        NotionTarget declared = new NotionTarget(notion("hashset", 1, null), Set.of(CardType.FLASHCARD), true, true);
         List<ParsedCard> cards = atTarget("hashset", CardType.FLASHCARD).subList(1, ContentCoverage.TARGET_PER_FORMAT);
 
         ContentCoverage coverage = ContentCoverage.of("java", List.of(declared), cards);
@@ -127,12 +127,23 @@ class ContentCoverageTest {
 
     @Test
     void shouldFindNothingToReportForACompleteNotionWithItsExercise() {
-        NotionTarget declared =
-                new NotionTarget(notion("hashset", 1, "Un ensemble sans doublon."), Set.of(CardType.FLASHCARD), true);
+        NotionTarget declared = new NotionTarget(
+                notion("hashset", 1, "Un ensemble sans doublon."), Set.of(CardType.FLASHCARD), true, true);
         List<ParsedCard> cards = new ArrayList<>(atTarget("hashset", CardType.FLASHCARD));
         cards.add(exercise("hashset"));
 
         assertThat(ContentCoverage.of("java", List.of(declared, TREESET), cards).completionProblems())
+                .isEmpty();
+    }
+
+    /** Un chapitre purement théorique, dont aucune notion ne retient le format « exercice », n'en exige pas. */
+    @Test
+    void shouldNotRequireAnExerciseInAChapterThatRetainsNone() {
+        NotionTarget theory =
+                new NotionTarget(notion("hashset", 1, "Une leçon."), Set.of(CardType.FLASHCARD), true, false);
+
+        assertThat(ContentCoverage.of("java", List.of(theory), atTarget("hashset", CardType.FLASHCARD))
+                        .completionProblems())
                 .isEmpty();
     }
 

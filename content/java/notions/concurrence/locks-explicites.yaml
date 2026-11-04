@@ -1,4 +1,45 @@
 notion: locks-explicites
+lesson: |-
+  `java.util.concurrent.locks` offre des verrous plus souples que `synchronized`, au prix d'un déverrouillage **manuel**.
+
+  ```java
+  private final ReentrantLock verrou = new ReentrantLock();
+
+  void deposer(long m) {
+      verrou.lock();
+      try {
+          solde += m;
+      } finally {
+          verrou.unlock();             // toujours dans un finally
+      }
+  }
+
+  if (verrou.tryLock(200, TimeUnit.MILLISECONDS)) { try { ... } finally { verrou.unlock(); } }
+  ```
+
+  | Verrou | Apport |
+  |---|---|
+  | **`ReentrantLock`** | `tryLock` (avec ou sans délai), `lockInterruptibly`, mode **équitable** (`new ReentrantLock(true)`), plusieurs **`Condition`** |
+  | **`ReentrantReadWriteLock`** | plusieurs **lecteurs** simultanés, un seul **écrivain** : utile si les lectures dominent |
+  | **`StampedLock`** | lecture **optimiste** sans verrou (`tryOptimisticRead` puis `validate`) ; **non réentrant** |
+
+  ```java
+  private final Condition nonVide = verrou.newCondition();
+  // consommateur : while (file.isEmpty()) nonVide.await();
+  // producteur   : file.add(x); nonVide.signal();
+  ```
+
+  - Une `Condition` remplace `wait`/`notify`, avec **une condition par motif d'attente** (non plein, non vide).
+  - Le mode équitable évite la famine mais réduit le débit.
+  - `synchronized` reste le **choix par défaut** : plus simple, impossible d'oublier de déverrouiller, et optimisé par la
+    JVM. On passe à `ReentrantLock` pour `tryLock`, l'interruptibilité, l'équité ou plusieurs conditions.
+  - Avant Java 24, `ReentrantLock` évitait l'épinglage des threads virtuels que provoquait `synchronized`.
+
+  **Piège classique** : `verrou.lock(); traiter(); verrou.unlock();` sans `try/finally`. Si `traiter()` lève une exception,
+  le verrou n'est jamais rendu et tous les autres threads se bloquent.
+
+  **En entretien** : « `ReentrantLock` apporte `tryLock`, équité, interruptibilité et `Condition`, mais impose
+  `unlock()` dans un `finally` ; `ReadWriteLock` pour beaucoup de lectures ; `synchronized` par défaut. »
 cards:
   - key: reentrantlock-vs-synchronized
     format: course
@@ -8,3 +49,231 @@ cards:
     format: course
     question: C'est quoi StampedLock ?
     answer: Un verrou avec un mode de lecture optimiste sans blocage, validé a posteriori ; non réentrant.
+  - key: finally
+    format: course
+    question: Pourquoi `unlock()` doit-il être dans un `finally` ?
+    answer: Sinon une exception entre `lock()` et `unlock()` laisse le verrou pris pour toujours, et tous les autres threads se bloquent.
+  - key: read-write
+    format: course
+    question: Quand utiliser un `ReentrantReadWriteLock` ?
+    answer: "Quand les lectures dominent largement les écritures : plusieurs lecteurs peuvent lire en même temps, un écrivain a l'exclusivité."
+  - key: vf-defaut
+    format: true-false
+    question: "`ReentrantLock` est toujours préférable à `synchronized`."
+    truth: false
+    answer: '`synchronized` reste le choix par défaut ; `ReentrantLock` sert quand on a besoin de ses fonctions.'
+  - key: vf-stamped-reentrant
+    format: true-false
+    question: "`StampedLock` est réentrant."
+    truth: false
+    answer: Reprendre un verrou qu'on détient bloque le thread.
+  - key: vf-equitable
+    format: true-false
+    question: Un `ReentrantLock` équitable sert les threads dans l'ordre d'arrivée, au prix du débit.
+    truth: true
+    answer: Il évite la famine.
+  - key: vf-condition
+    format: true-false
+    question: Un `ReentrantLock` peut avoir plusieurs `Condition`.
+    truth: true
+    answer: Par exemple « non plein » et « non vide », contrairement au moniteur unique de `wait`/`notify`.
+  - key: qcm-fonctions
+    format: multiple-choice
+    question: Qu'offre `ReentrantLock` que `synchronized` n'offre pas ?
+    choices:
+      - text: "`tryLock` avec délai"
+        correct: true
+      - text: "Plusieurs conditions d'attente"
+        correct: true
+      - text: "L'exclusion mutuelle"
+        correct: false
+      - text: "La garantie de visibilité"
+        correct: false
+    answer: Exclusion et visibilité sont communes aux deux.
+  - key: qcm-usage-forme
+    format: multiple-choice
+    question: Quelle utilisation est correcte ?
+    choices:
+      - text: "`verrou.lock(); try { traiter(); } finally { verrou.unlock(); }`"
+        correct: true
+      - text: "`verrou.lock(); traiter(); verrou.unlock();`"
+        correct: false
+      - text: "`try { verrou.lock(); traiter(); } finally { }`"
+        correct: false
+      - text: "`synchronized (verrou) { traiter(); }`, équivalent"
+        correct: false
+    answer: Le dernier utilise le moniteur de l'objet, pas le `ReentrantLock`.
+  - key: qcm-cache
+    format: multiple-choice
+    question: Un cache est lu des milliers de fois par seconde et rechargé une fois par heure. Quel verrou ?
+    choices:
+      - text: "Un `ReentrantReadWriteLock`, ou une référence `volatile` vers une map immuable"
+        correct: true
+      - text: "`synchronized` sur toutes les lectures"
+        correct: false
+      - text: "Un `ReentrantLock` équitable"
+        correct: false
+      - text: "Aucun verrou sur une `HashMap` modifiée"
+        correct: false
+    answer: Les lectures ne doivent pas s'exclure entre elles.
+  - key: qcm-stamped
+    format: multiple-choice
+    question: "Comment s'utilise la lecture optimiste d'un `StampedLock` ?"
+    choices:
+      - text: "`long s = tryOptimisticRead();` lire, puis `validate(s)` ; si invalide, relire sous verrou de lecture"
+        correct: true
+      - text: "`lock()` puis `unlock()` comme un `ReentrantLock`"
+        correct: false
+      - text: "Lire sans rien vérifier"
+        correct: false
+      - text: "`readLock()` sans jamais `unlock`"
+        correct: false
+    answer: La lecture optimiste ne bloque pas, mais doit être validée.
+  - key: code-trylock
+    format: code-output
+    question: |-
+      ```java
+      import java.util.concurrent.locks.*;
+      ReentrantLock verrou = new ReentrantLock();
+      verrou.lock();
+      Thread t = Thread.ofPlatform().start(() -> System.out.println("autre : " + verrou.tryLock()));
+      t.join();
+      System.out.println("moi : " + verrou.tryLock() + " " + verrou.getHoldCount());
+      ```
+    answer: '`autre : false`, puis `moi : true 2` : le verrou est réentrant pour son détenteur.'
+    check:
+      output: "autre : false\nmoi : true 2"
+  - key: code-read-write
+    format: code-output
+    question: |-
+      ```java
+      import java.util.concurrent.locks.*;
+      ReentrantReadWriteLock rw = new ReentrantReadWriteLock();
+      rw.readLock().lock();
+      Thread t = Thread.ofPlatform().start(() ->
+              System.out.println(rw.readLock().tryLock() + " " + rw.writeLock().tryLock()));
+      t.join();
+      ```
+    answer: '`true false` : plusieurs lecteurs, mais pas d''écrivain pendant une lecture.'
+    check:
+      output: "true false"
+  - key: code-unlock-sans-lock
+    format: code-output
+    question: |-
+      ```java
+      import java.util.concurrent.locks.*;
+      new ReentrantLock().unlock();
+      ```
+    answer: "Une `IllegalMonitorStateException` : on ne peut rendre qu'un verrou qu'on détient."
+    check:
+      throws: IllegalMonitorStateException
+  - key: code-finally
+    format: code-output
+    question: |-
+      ```java
+      import java.util.concurrent.locks.*;
+      ReentrantLock verrou = new ReentrantLock();
+      try {
+          verrou.lock();
+          try {
+              throw new IllegalStateException();
+          } finally {
+              verrou.unlock();
+          }
+      } catch (IllegalStateException e) {
+          System.out.println(verrou.isLocked());
+      }
+      ```
+    answer: '`false` : le `finally` a rendu le verrou malgré l''exception.'
+    check:
+      output: "false"
+  - key: bug-sans-finally
+    format: bug-fix
+    question: |-
+      Après une erreur de validation, toutes les commandes suivantes restent bloquées :
+      ```java
+      verrou.lock();
+      valider(commande);       // peut lever une exception
+      enregistrer(commande);
+      verrou.unlock();
+      ```
+    answer: |-
+      ```java
+      verrou.lock();
+      try {
+          valider(commande);
+          enregistrer(commande);
+      } finally {
+          verrou.unlock();
+      }
+      ```
+      L'exception sautait `unlock()` : le verrou restait pris. Le `finally` le rend dans tous les cas.
+  - key: bug-lock-dans-try
+    format: bug-fix
+    question: |-
+      Ce code lève parfois `IllegalMonitorStateException` au lieu de l'erreur d'origine :
+      ```java
+      try {
+          verrou.lockInterruptibly();
+          traiter();
+      } finally {
+          verrou.unlock();
+      }
+      ```
+    answer: |-
+      ```java
+      verrou.lockInterruptibly();
+      try {
+          traiter();
+      } finally {
+          verrou.unlock();
+      }
+      ```
+      Si `lockInterruptibly()` est interrompu, le verrou n'est pas pris, mais le `finally` tente de le rendre. On prend le
+      verrou avant le `try`.
+  - key: bug-synchronized-lectures
+    format: bug-fix
+    question: |-
+      Ce registre, presque toujours lu, est un goulot d'étranglement :
+      ```java
+      synchronized Tarif tarif(String code) { return tarifs.get(code); }
+      synchronized void recharger(Map<String, Tarif> nouveaux) { tarifs = new HashMap<>(nouveaux); }
+      ```
+    answer: |-
+      ```java
+      private volatile Map<String, Tarif> tarifs = Map.of();
+      Tarif tarif(String code) { return tarifs.get(code); }
+      void recharger(Map<String, Tarif> nouveaux) { tarifs = Map.copyOf(nouveaux); }
+      ```
+      Les lectures s'excluaient entre elles. Une map immuable publiée par une référence `volatile` se lit sans verrou ;
+      un `ReentrantReadWriteLock` serait l'autre option si la map devait être modifiée en place.
+  - key: bug-condition-unique
+    format: bug-fix
+    question: |-
+      Producteurs et consommateurs se réveillent inutilement en permanence :
+      ```java
+      synchronized void deposer(T x) throws InterruptedException {
+          while (plein()) wait();
+          ajouter(x);
+          notifyAll();
+      }
+      ```
+    answer: |-
+      ```java
+      private final ReentrantLock verrou = new ReentrantLock();
+      private final Condition nonPlein = verrou.newCondition();
+      private final Condition nonVide = verrou.newCondition();
+
+      void deposer(T x) throws InterruptedException {
+          verrou.lock();
+          try {
+              while (plein()) nonPlein.await();
+              ajouter(x);
+              nonVide.signal();          // ne réveille qu'un consommateur
+          } finally {
+              verrou.unlock();
+          }
+      }
+      ```
+      Avec deux `Condition`, on réveille seulement ceux qui attendent la bonne condition. (Une `ArrayBlockingQueue` fait
+      exactement cela.)

@@ -1,4 +1,35 @@
 notion: streams-paresse
+lesson: |-
+  Les opérations intermédiaires sont **paresseuses** : elles décrivent le traitement, et rien ne s'exécute avant
+  l'opération terminale. Les éléments traversent ensuite le pipeline **un par un**, verticalement :
+
+  ```java
+  Stream.of("a", "b", "c")
+          .peek(s -> System.out.print("lu " + s + ", "))
+          .map(String::toUpperCase)
+          .filter(s -> !s.equals("A"))
+          .findFirst();
+  // lu a, lu b,   → "B" trouvé : "c" n'est jamais lu
+  ```
+
+  Conséquences :
+  - **Court-circuit** : `findFirst`, `anyMatch`, `limit` s'arrêtent dès que possible, ce qui rend possibles les streams
+    infinis (`Stream.iterate(1, x -> x * 2).limit(10)`).
+  - Les opérations **avec état** (`sorted`, `distinct`) font exception : `sorted` doit voir **tous** les éléments avant
+    d'en émettre un.
+  - `count()` peut même ne rien parcourir quand la taille est connue (une liste sans `filter`) : les `peek` et `map` ne
+    s'exécutent pas.
+
+  Un stream ne s'utilise **qu'une fois** : une seconde opération terminale lève une `IllegalStateException`. Pour
+  recommencer, on recrée le stream depuis la source, ou on garde un `Supplier<Stream<T>>`.
+
+  - `peek` sert au **débogage**, pas à la logique : il peut être sauté.
+
+  **Piège classique** : garder un `Stream` dans une variable et l'utiliser deux fois (`s.count()` puis `s.toList()`). La
+  seconde lève `IllegalStateException: stream has already been operated upon or closed`.
+
+  **En entretien** : « Rien ne s'exécute avant l'opération terminale, puis chaque élément traverse tout le pipeline, ce
+  qui permet le court-circuit ; et un stream ne se consomme qu'une fois. »
 cards:
   - key: reutiliser-stream
     format: course
@@ -12,6 +43,82 @@ cards:
     format: course
     question: Pourquoi peek n'affiche-t-il parfois rien ?
     answer: Il n'y a pas d'opération terminale, ou count() a calculé la taille sans exécuter le pipeline (Java 9+).
+  - key: sorted-barriere
+    format: course
+    question: Pourquoi `sorted` casse-t-elle le traitement élément par élément ?
+    answer: "C'est une opération avec état : elle doit recevoir tous les éléments avant d'émettre le plus petit ; un stream infini trié ne termine jamais."
+  - key: vf-execution
+    format: true-false
+    question: "`stream.map(f)` appelle `f` immédiatement sur chaque élément."
+    truth: false
+    answer: Rien ne s'exécute avant l'opération terminale.
+  - key: vf-infini
+    format: true-false
+    question: "`Stream.iterate(1, x -> x + 1).limit(5).toList()` termine."
+    truth: true
+    answer: '`limit` court-circuite le stream infini.'
+  - key: vf-deux-terminales
+    format: true-false
+    question: On peut appeler `count()` puis `toList()` sur le même objet `Stream`.
+    truth: false
+    answer: La seconde opération terminale lève une `IllegalStateException`.
+  - key: vf-find-first
+    format: true-false
+    question: "`findFirst` sur un stream de un million d'éléments peut n'en traiter qu'un seul."
+    truth: true
+    answer: Grâce à l'exécution verticale et au court-circuit (sauf opération avec état comme `sorted`).
+  - key: qcm-reutiliser
+    format: multiple-choice
+    question: Comment calculer deux résultats à partir des mêmes données ?
+    choices:
+      - text: "Recréer le stream depuis la collection pour chaque calcul"
+        correct: true
+      - text: "Garder un `Supplier<Stream<T>>` et appeler `get()` à chaque fois"
+        correct: true
+      - text: "Réutiliser la même variable `Stream`"
+        correct: false
+      - text: "Appeler `reset()` sur le stream"
+        correct: false
+    answer: Un stream ne se consomme qu'une fois et n'a pas de `reset`.
+  - key: qcm-court-circuit
+    format: multiple-choice
+    question: Lesquelles court-circuitent ?
+    choices:
+      - text: "`anyMatch`"
+        correct: true
+      - text: "`limit`"
+        correct: true
+      - text: "`sorted`"
+        correct: false
+      - text: "`count` sur un stream filtré"
+        correct: false
+    answer: '`sorted` doit tout voir ; `count` après un `filter` doit tout parcourir.'
+  - key: qcm-peek
+    format: multiple-choice
+    question: À quoi sert `peek` ?
+    choices:
+      - text: "Observer les éléments pendant le débogage"
+        correct: true
+      - text: "Modifier une base de données pour chaque élément"
+        correct: false
+      - text: "Forcer l'exécution du pipeline"
+        correct: false
+      - text: "Compter les éléments"
+        correct: false
+    answer: "Il peut être sauté (par exemple par `count`) : la logique métier n'y a pas sa place."
+  - key: qcm-ordre
+    format: multiple-choice
+    question: "Que s'affiche-t-il avec `Stream.of(1, 2).peek(x -> print(\"a\" + x)).map(x -> x).peek(x -> print(\"b\" + x)).toList()` ?"
+    choices:
+      - text: "a1 b1 a2 b2"
+        correct: true
+      - text: "a1 a2 b1 b2"
+        correct: false
+      - text: "b1 b2 a1 a2"
+        correct: false
+      - text: "Rien"
+        correct: false
+    answer: Chaque élément traverse tout le pipeline avant le suivant.
   - key: code-stream-of-1-2-3
     format: code-output
     question: '`Stream.of(1, 2, 3).peek(System.out::println).map(x -> x * 2);`'
@@ -28,3 +135,108 @@ cards:
       code: |-
         System.out.println(List.of(1, 2, 3).stream().peek(System.out::println).count());
       output: "3"
+  - key: code-vertical
+    format: code-output
+    question: |-
+      ```java
+      Stream.of("a", "b", "c")
+              .peek(s -> System.out.print(s))
+              .map(String::toUpperCase)
+              .peek(s -> System.out.print(s))
+              .toList();
+      ```
+    answer: '`aAbBcC` : chaque élément traverse tout le pipeline.'
+    check:
+      output: "aAbBcC"
+  - key: code-court-circuit
+    format: code-output
+    question: |-
+      ```java
+      Optional<Integer> premier = Stream.of(1, 2, 3, 4)
+              .peek(x -> System.out.print(x + " "))
+              .filter(x -> x % 2 == 0)
+              .findFirst();
+      System.out.println("-> " + premier.get());
+      ```
+    answer: '`1 2 -> 2` : 3 et 4 ne sont jamais lus.'
+    check:
+      output: "1 2 -> 2"
+  - key: code-reutilisation
+    format: code-output
+    question: |-
+      ```java
+      Stream<String> s = Stream.of("a", "b");
+      System.out.println(s.count());
+      System.out.println(s.toList());
+      ```
+    answer: '`2`, puis une `IllegalStateException` : le stream est déjà consommé.'
+    check:
+      output: "2"
+      throws: IllegalStateException
+  - key: code-sorted
+    format: code-output
+    question: |-
+      ```java
+      Stream.of(3, 1, 2)
+              .peek(x -> System.out.print("a" + x + " "))
+              .sorted()
+              .forEach(x -> System.out.print("b" + x + " "));
+      ```
+    answer: '`a3 a1 a2 b1 b2 b3` : `sorted` attend tous les éléments avant d''émettre.'
+    check:
+      output: "a3 a1 a2 b1 b2 b3"
+  - key: bug-reutilisation
+    format: bug-fix
+    question: |-
+      Ce code lève une `IllegalStateException` :
+      ```java
+      Stream<Commande> payees = commandes.stream().filter(Commande::payee);
+      long nombre = payees.count();
+      List<Commande> liste = payees.toList();
+      ```
+    answer: |-
+      ```java
+      List<Commande> liste = commandes.stream().filter(Commande::payee).toList();
+      long nombre = liste.size();
+      ```
+      Un stream ne se consomme qu'une fois. On matérialise le résultat une fois, ou on recrée le stream.
+  - key: bug-peek-logique
+    format: bug-fix
+    question: |-
+      Les notifications ne partent pas, alors que le compte est juste :
+      ```java
+      long envoyees = clients.stream().peek(notifier::envoyer).count();
+      ```
+    answer: |-
+      ```java
+      clients.forEach(notifier::envoyer);
+      long envoyees = clients.size();
+      ```
+      `count` sur une source de taille connue ne parcourt pas le pipeline : `peek` est sauté. Une action se fait dans
+      `forEach`, pas dans `peek`.
+  - key: bug-sorted-infini
+    format: bug-fix
+    question: |-
+      Ce code ne termine jamais :
+      ```java
+      List<Integer> petits = Stream.iterate(100, x -> x - 1).sorted().limit(3).toList();
+      ```
+    answer: |-
+      ```java
+      List<Integer> petits = Stream.iterate(100, x -> x - 1).limit(3).sorted().toList();
+      ```
+      `sorted` attend tous les éléments d'un stream infini. On borne d'abord avec `limit`, puis on trie. (Si l'on voulait
+      les trois plus petits d'un ensemble fini, on bornerait la source avant.)
+  - key: bug-ordre-filtre
+    format: bug-fix
+    question: |-
+      Ce pipeline appelle `enrichir` (une requête réseau) sur tous les clients, alors que seuls dix sont affichés :
+      ```java
+      clients.stream().map(this::enrichir).sorted(parNom).filter(Client::actif).limit(10).toList();
+      ```
+    answer: |-
+      ```java
+      clients.stream().filter(Client::actif).sorted(parNom).limit(10).map(this::enrichir).toList();
+      ```
+      `sorted` doit tout voir, donc tout ce qui la précède s'exécute sur tous les éléments. On filtre et on trie sur les
+      données locales, on borne, puis on n'enrichit que les dix restants.

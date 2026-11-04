@@ -1,0 +1,221 @@
+notion: fuite-memoire-classe-interne
+lesson: |-
+  Une **classe interne** (non `static`) et une **classe anonyme** créée dans une méthode d'instance gardent une
+  référence cachée vers l'instance englobante (un champ synthétique, souvent nommé `this$0`). Tant qu'elles vivent,
+  l'englobante **ne peut pas être récupérée** par le ramasse-miettes.
+
+  ```java
+  class Ecran {
+      private final byte[] image = new byte[50_000_000];
+
+      void ouvrir(Bus bus) {
+          bus.abonner(new Ecouteur() {                 // classe anonyme : référence vers l'Ecran
+              public void recevoir(String m) { ... }
+          });
+      }                                                // l'écran fermé reste accessible par le bus
+  }
+  ```
+
+  La fuite apparaît quand l'objet interne **survit** à son englobante : abonné à un bus ou à un champ `static`,
+  rangé dans un cache, tâche planifiée, thread de longue durée.
+
+  - Les compilateurs récents peuvent omettre la référence quand la classe interne ne s'en sert pas, mais on ne
+    conçoit pas en comptant dessus : la règle reste de déclarer `static` ce qui n'a pas besoin de l'englobante.
+  - Une **lambda** ne capture `this` que si elle l'utilise (un champ, une méthode d'instance) ; une référence de
+    méthode `this::m` le capture forcément.
+  - Remèdes : classe imbriquée `static` (en passant explicitement ce dont elle a besoin), désabonnement à la
+    fermeture, et à défaut des références faibles (`WeakReference`).
+  - Autre effet de la référence cachée : sérialiser un objet interne sérialise aussi son englobante.
+
+  **Piège classique** : un écouteur anonyme enregistré à chaque ouverture d'écran et jamais retiré. Chaque écran fermé
+  reste en mémoire, avec tout ce qu'il référence.
+
+  **En entretien** : « Une classe interne ou anonyme retient son englobante : si elle vit plus longtemps qu'elle, c'est
+  une fuite ; on préfère une classe `static` et on désabonne ce qu'on abonne. »
+cards:
+  - key: reference-cachee
+    format: course
+    question: Pourquoi une classe interne peut-elle provoquer une fuite mémoire ?
+    answer: Elle garde une référence cachée vers l'instance englobante ; si l'objet interne survit (abonné, mis en cache, dans un thread), l'englobante reste accessible et n'est jamais récupérée.
+  - key: lambda-capture
+    format: course
+    question: Une lambda retient-elle toujours l'objet qui la crée ?
+    answer: Non, seulement si elle utilise `this` (un champ ou une méthode d'instance) ; une lambda qui n'utilise que ses paramètres et des variables locales ne le capture pas.
+  - key: remedes
+    format: course
+    question: Comment éviter ce type de fuite ?
+    answer: Déclarer `static` les classes qui n'ont pas besoin de l'englobante, désabonner les écouteurs à la fermeture, limiter la durée de vie des tâches, et en dernier recours utiliser des `WeakReference`.
+  - key: serialisation
+    format: course
+    question: Que se passe-t-il quand on sérialise un objet d'une classe interne ?
+    answer: "Sa référence vers l'englobante est sérialisée aussi : l'englobante doit être `Serializable`, et elle part avec l'objet. On évite de sérialiser des classes internes."
+  - key: vf-anonyme-reference
+    format: true-false
+    question: Une classe anonyme créée dans une méthode d'instance peut retenir l'objet englobant en mémoire.
+    truth: true
+    answer: Elle a accès à l'instance englobante, donc en garde (en général) une référence.
+  - key: vf-static-reference
+    format: true-false
+    question: Une classe imbriquée `static` retient l'instance de l'englobante qui l'a créée.
+    truth: false
+    answer: Elle n'a pas de référence vers une instance englobante.
+  - key: vf-lambda-toujours
+    format: true-false
+    question: Une lambda capture toujours `this`.
+    truth: false
+    answer: Seulement si elle s'en sert ; `this::m` le capture forcément.
+  - key: vf-survie
+    format: true-false
+    question: Une classe interne ne pose problème que si son objet vit plus longtemps que l'englobante.
+    truth: true
+    answer: Si les deux disparaissent ensemble, la référence ne retient rien.
+  - key: qcm-fuite
+    format: multiple-choice
+    question: Lesquelles de ces situations risquent une fuite de l'objet englobant ?
+    choices:
+      - text: "Un écouteur anonyme abonné à un bus global et jamais désabonné"
+        correct: true
+      - text: "Une instance de classe interne rangée dans un cache `static`"
+        correct: true
+      - text: "Une classe anonyme utilisée et jetée dans la même méthode"
+        correct: false
+      - text: "Une classe imbriquée `static` mise en cache"
+        correct: false
+    answer: Le risque vient d'un objet interne qui survit à son englobante.
+  - key: qcm-lambda
+    format: multiple-choice
+    question: Laquelle de ces lambdas, créée dans une méthode d'instance, capture `this` ?
+    choices:
+      - text: "`m -> this.journal.add(m)`"
+        correct: true
+      - text: "`m -> System.out.println(m)`"
+        correct: false
+      - text: "`(a, b) -> a + b`"
+        correct: false
+      - text: "`String::length`"
+        correct: false
+    answer: Lire un champ d'instance capture l'objet englobant.
+  - key: qcm-remede
+    format: multiple-choice
+    question: Quel est le remède le plus simple pour une classe interne qui n'utilise pas son englobante ?
+    choices:
+      - text: "La déclarer `static`"
+        correct: true
+      - text: "Appeler `System.gc()`"
+        correct: false
+      - text: "La déclarer `final`"
+        correct: false
+      - text: "La rendre `public`"
+        correct: false
+    answer: Sans référence vers l'englobante, elle ne peut pas la retenir.
+  - key: qcm-outil
+    format: multiple-choice
+    question: Comment confirmer qu'un écran fermé reste en mémoire ?
+    choices:
+      - text: "Analyser un vidage du tas (*heap dump*) et chercher le chemin vers une racine"
+        correct: true
+      - text: "Lire le code source à la recherche de `new`"
+        correct: false
+      - text: "Ajouter des `System.gc()`"
+        correct: false
+      - text: "Augmenter la taille du tas"
+        correct: false
+    answer: Un outil comme Eclipse MAT ou VisualVM montre qui retient l'objet.
+  - key: bug-ecouteur-anonyme
+    format: bug-fix
+    question: |-
+      Chaque écran fermé reste en mémoire, avec ses images :
+      ```java
+      class Ecran {
+          void ouvrir(Bus bus) {
+              bus.abonner(new Ecouteur() {
+                  public void recevoir(String m) { afficher(m); }
+              });
+          }
+      }
+      ```
+    answer: |-
+      ```java
+      class Ecran implements AutoCloseable {
+          private final Bus bus;
+          private final Ecouteur ecouteur = this::afficher;
+
+          Ecran(Bus bus) {
+              this.bus = bus;
+          }
+
+          void ouvrir() { bus.abonner(ecouteur); }
+
+          @Override
+          public void close() { bus.desabonner(ecouteur); }
+      }
+      ```
+      L'écouteur anonyme retient l'écran, et le bus retient l'écouteur. On garde une référence à l'écouteur pour le
+      désabonner à la fermeture.
+  - key: bug-tache-planifiee
+    format: bug-fix
+    question: |-
+      Après la fin d'un import, son objet et ses données restent en mémoire pendant des heures :
+      ```java
+      class Import {
+          private final List<Ligne> lignes = ...;
+          void lancer(ScheduledExecutorService planificateur) {
+              planificateur.scheduleAtFixedRate(new Runnable() {
+                  public void run() { journal.info("import en cours"); }
+              }, 0, 1, TimeUnit.MINUTES);
+          }
+      }
+      ```
+    answer: |-
+      ```java
+      void lancer(ScheduledExecutorService planificateur) {
+          ScheduledFuture<?> suivi = planificateur.scheduleAtFixedRate(
+                  () -> JOURNAL.info("import en cours"), 0, 1, TimeUnit.MINUTES);
+          try {
+              importer();
+          } finally {
+              suivi.cancel(false);
+          }
+      }
+      ```
+      La tâche anonyme retient l'import, et elle n'est jamais annulée. On l'annule à la fin, et la lambda, qui n'utilise
+      plus que le journal `static`, ne capture plus l'import.
+  - key: bug-cache-interne
+    format: bug-fix
+    question: |-
+      Le cache des clés de tri retient tous les gros rapports qui les ont créées :
+      ```java
+      class Rapport {
+          private final byte[] contenu;
+          class Cle { final String valeur; Cle(String v) { valeur = v; } }
+          Cle cle() { return new Cle(titre); }
+      }
+      // ailleurs : CACHE.put(rapport.cle(), resultat);
+      ```
+    answer: |-
+      ```java
+      class Rapport {
+          private final byte[] contenu;
+          record Cle(String valeur) { }
+          Cle cle() { return new Cle(titre); }
+      }
+      ```
+      `Cle` n'utilise pas son rapport ; en classe interne, elle le retenait. Un record imbriqué est implicitement
+      `static` (et donne `equals` et `hashCode`, indispensables pour une clé de cache).
+  - key: bug-serialisation-interne
+    format: bug-fix
+    question: |-
+      La sérialisation d'une ligne échoue avec `NotSerializableException: Facture` :
+      ```java
+      class Facture {
+          class Ligne implements Serializable { String produit; int quantite; }
+      }
+      ```
+    answer: |-
+      ```java
+      class Facture {
+          static class Ligne implements Serializable { String produit; int quantite; }
+      }
+      ```
+      Une classe interne sérialise aussi sa référence vers la facture englobante, qui n'est pas sérialisable. En
+      classe `static`, la ligne se sérialise seule.

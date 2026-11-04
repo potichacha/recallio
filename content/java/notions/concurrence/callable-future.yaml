@@ -1,4 +1,41 @@
 notion: callable-future
+lesson: |-
+  Un **`Callable<V>`** est une tâche qui **renvoie une valeur** et peut lever une **exception vérifiée** (contrairement à
+  `Runnable`). La soumettre à un pool donne un **`Future<V>`**, une poignée sur le résultat à venir.
+
+  ```java
+  Future<Rapport> f = pool.submit(() -> genererRapport());      // Callable<Rapport>
+
+  // ... faire autre chose ...
+
+  try {
+      Rapport r = f.get(5, TimeUnit.SECONDS);                     // attend, au plus 5 s
+  } catch (ExecutionException e) {
+      Throwable cause = e.getCause();                             // l'exception levée par la tâche
+  } catch (TimeoutException e) {
+      f.cancel(true);                                             // interrompt la tâche
+  } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+  }
+
+  List<Future<Prix>> resultats = pool.invokeAll(taches);         // attend toutes les tâches
+  Prix premier = pool.invokeAny(taches);                          // le premier résultat réussi
+  ```
+
+  - `get()` **bloque** jusqu'au résultat ; sans délai, il peut attendre indéfiniment. On passe un **délai**.
+  - Une exception levée par la tâche est **conservée** dans le `Future` et relancée à `get()`, enveloppée dans une
+    **`ExecutionException`**. Si personne n'appelle `get()`, elle est **perdue** silencieusement.
+  - `cancel(true)` interrompt la tâche si elle a commencé (elle doit réagir à l'interruption) ; `isDone()`,
+    `isCancelled()` donnent l'état.
+  - Java 19 a ajouté `resultNow()`, `exceptionNow()` et `state()` pour les futures déjà terminés.
+  - `Future` ne se **compose** pas (pas de « puis faire ceci ») : pour enchaîner des traitements asynchrones, on utilise
+    `CompletableFuture`.
+
+  **Piège classique** : `pool.submit(tache);` sans jamais lire le `Future`. Si la tâche échoue, l'exception disparaît :
+  aucun log, aucune alerte.
+
+  **En entretien** : « `Callable` renvoie une valeur et peut lever une exception ; le `Future` la conserve et la relance à
+  `get()` dans une `ExecutionException`. Je mets toujours un délai à `get`, et j'utilise `CompletableFuture` pour composer. »
 cards:
   - key: runnable-vs-callable
     format: course
@@ -8,9 +45,297 @@ cards:
     format: course
     question: Que devient une exception dans une tâche soumise par submit ?
     answer: Elle est stockée dans le Future et relevée enveloppée dans ExecutionException au get() ; sans get(), elle est perdue.
+  - key: get-delai
+    format: course
+    question: Pourquoi passer un délai à `Future.get` ?
+    answer: Sans délai, `get()` peut bloquer indéfiniment si la tâche ne se termine jamais (service distant bloqué, interblocage).
+  - key: invoke
+    format: course
+    question: Que font `invokeAll` et `invokeAny` ?
+    answer: '`invokeAll` exécute une liste de tâches et attend qu''elles soient toutes terminées ; `invokeAny` renvoie le résultat de la première tâche réussie et annule les autres.'
+  - key: vf-exception-checked
+    format: true-false
+    question: Un `Callable` peut lever une exception vérifiée.
+    truth: true
+    answer: '`call()` déclare `throws Exception`.'
+  - key: vf-get-bloque
+    format: true-false
+    question: "`Future.get()` sans argument rend la main immédiatement si la tâche n'est pas finie."
+    truth: false
+    answer: Il bloque jusqu'à la fin de la tâche.
+  - key: vf-cancel
+    format: true-false
+    question: "`cancel(true)` arrête de force une tâche qui ne vérifie jamais l'interruption."
+    truth: false
+    answer: Il interrompt le thread ; la tâche doit réagir à l'interruption.
+  - key: vf-compose
+    format: true-false
+    question: "`Future` permet d'enchaîner un traitement à la fin de la tâche, sans bloquer."
+    truth: false
+    answer: Il faut bloquer avec `get()` ; `CompletableFuture` permet de composer.
+  - key: qcm-exception
+    format: multiple-choice
+    question: "Une tâche lève `IOException`. Que lève `future.get()` ?"
+    choices:
+      - text: "Une `ExecutionException` dont la cause est l'`IOException`"
+        correct: true
+      - text: "L'`IOException` directement"
+        correct: false
+      - text: "Une `RuntimeException`"
+        correct: false
+      - text: "Rien, il renvoie `null`"
+        correct: false
+    answer: '`getCause()` donne l''exception d''origine.'
+  - key: qcm-perdue
+    format: multiple-choice
+    question: Comment éviter qu'une erreur d'une tâche soumise passe inaperçue ?
+    choices:
+      - text: "Lire le `Future` avec `get()`"
+        correct: true
+      - text: "Attraper et journaliser l'exception dans la tâche elle-même"
+        correct: true
+      - text: "Appeler `submit` deux fois"
+        correct: false
+      - text: "Augmenter la taille du pool"
+        correct: false
+    answer: Ou utiliser un `CompletableFuture` avec un `whenComplete` qui journalise.
+  - key: qcm-timeout
+    format: multiple-choice
+    question: "Que lève `f.get(1, SECONDS)` si la tâche n'a pas fini à temps ?"
+    choices:
+      - text: "`TimeoutException`"
+        correct: true
+      - text: "`InterruptedException`"
+        correct: false
+      - text: "`CancellationException`"
+        correct: false
+      - text: "Rien, il renvoie `null`"
+        correct: false
+    answer: La tâche continue ; on peut l'annuler avec `cancel(true)`.
+  - key: qcm-premier
+    format: multiple-choice
+    question: Trois serveurs miroirs peuvent répondre ; on veut la première réponse réussie. Que choisir ?
+    choices:
+      - text: "`pool.invokeAny(taches)`"
+        correct: true
+      - text: "`pool.invokeAll(taches)`"
+        correct: false
+      - text: "Trois `get()` successifs"
+        correct: false
+      - text: "`pool.execute(taches)`"
+        correct: false
+    answer: '`invokeAny` annule les tâches restantes.'
+  - key: trous-get
+    format: fill-in
+    question: |-
+      Complétez pour attendre le résultat au plus 2 secondes :
+      ```java
+      Prix prix = futur.___(2, TimeUnit.SECONDS);
+      ```
+    blanks: [[get]]
+    answer: Un délai évite de bloquer indéfiniment.
+  - key: trous-cause
+    format: fill-in
+    question: |-
+      Complétez pour retrouver l'exception levée par la tâche :
+      ```java
+      } catch (ExecutionException e) {
+          Throwable origine = e.___();
+      }
+      ```
+    blanks: [[getCause]]
+    answer: L'exception de la tâche est la cause de l'`ExecutionException`.
+  - key: trous-cancel
+    format: fill-in
+    question: |-
+      Complétez pour interrompre la tâche trop lente :
+      ```java
+      } catch (TimeoutException e) {
+          futur.___(true);
+      }
+      ```
+    blanks: [[cancel]]
+    answer: '`true` interrompt le thread si la tâche a commencé.'
+  - key: trous-callable
+    format: fill-in
+    question: |-
+      Complétez le type de la tâche qui renvoie un résultat :
+      ```java
+      ___<Integer> tache = () -> compterLignes(fichier);
+      ```
+    blanks: [[Callable]]
+    answer: '`Callable` renvoie une valeur et peut lever une exception vérifiée.'
+  - key: code-get
+    format: code-output
+    question: |-
+      ```java
+      try (ExecutorService pool = Executors.newFixedThreadPool(2)) {
+          Future<Integer> f = pool.submit(() -> 6 * 7);
+          System.out.println(f.get() + " " + f.isDone());
+      }
+      ```
+    answer: '`42 true`.'
+    check:
+      output: "42 true"
+  - key: code-execution-exception
+    format: code-output
+    question: |-
+      ```java
+      try (ExecutorService pool = Executors.newSingleThreadExecutor()) {
+          Future<Integer> f = pool.submit(() -> Integer.parseInt("abc"));
+          try {
+              f.get();
+          } catch (ExecutionException e) {
+              System.out.println(e.getCause().getClass().getSimpleName());
+          }
+      }
+      ```
+    answer: '`NumberFormatException` : l''exception de la tâche est la cause.'
+    check:
+      output: "NumberFormatException"
+  - key: code-invoke-all
+    format: code-output
+    question: |-
+      ```java
+      try (ExecutorService pool = Executors.newFixedThreadPool(3)) {
+          List<Callable<Integer>> taches = List.of(() -> 1, () -> 2, () -> 3);
+          int total = 0;
+          for (Future<Integer> f : pool.invokeAll(taches)) total += f.get();
+          System.out.println(total);
+      }
+      ```
+    answer: '`6` : `invokeAll` renvoie les futures dans l''ordre des tâches, toutes terminées.'
+    check:
+      output: "6"
+  - key: code-result-now
+    format: code-output
+    question: |-
+      ```java
+      try (ExecutorService pool = Executors.newSingleThreadExecutor()) {
+          Future<String> f = pool.submit(() -> "ok");
+          f.get();
+          System.out.println(f.state() + " " + f.resultNow());
+      }
+      ```
+    answer: '`SUCCESS ok` (Java 19+).'
+    check:
+      output: "SUCCESS ok"
+  - key: bug-future-ignore
+    format: bug-fix
+    question: |-
+      Des imports échouent sans aucune trace dans les logs :
+      ```java
+      for (Fichier f : fichiers) {
+          pool.submit(() -> importer(f));
+      }
+      ```
+    answer: |-
+      ```java
+      for (Fichier f : fichiers) {
+          pool.submit(() -> {
+              try {
+                  importer(f);
+              } catch (Exception e) {
+                  log.error("échec de l'import de {}", f.nom(), e);
+              }
+          });
+      }
+      ```
+      L'exception restait dans un `Future` que personne ne lisait. On la journalise dans la tâche (ou on lit les futures,
+      ou on passe à `CompletableFuture` avec `whenComplete`).
+  - key: bug-get-sans-delai
+    format: bug-fix
+    question: |-
+      Une requête reste bloquée indéfiniment quand le service de stock ne répond plus :
+      ```java
+      Stock s = pool.submit(() -> clientStock.consulter(ref)).get();
+      ```
+    answer: |-
+      ```java
+      Future<Stock> f = pool.submit(() -> clientStock.consulter(ref));
+      try {
+          Stock s = f.get(2, TimeUnit.SECONDS);
+      } catch (TimeoutException e) {
+          f.cancel(true);
+          throw new StockIndisponibleException(ref, e);
+      }
+      ```
+      `get()` sans délai attend pour toujours. Un délai borne l'attente, et l'annulation libère le thread. (Le client
+      HTTP doit aussi avoir ses propres délais.)
+  - key: bug-get-sequentiel
+    format: bug-fix
+    question: |-
+      Ces trois appels « parallèles » prennent la somme de leurs durées :
+      ```java
+      Prix p = pool.submit(this::prix).get();
+      Stock s = pool.submit(this::stock).get();
+      Avis a = pool.submit(this::avis).get();
+      ```
+    answer: |-
+      ```java
+      Future<Prix> fp = pool.submit(this::prix);
+      Future<Stock> fs = pool.submit(this::stock);
+      Future<Avis> fa = pool.submit(this::avis);
+      Prix p = fp.get(); Stock s = fs.get(); Avis a = fa.get();
+      ```
+      Chaque `get()` attendait la fin de la tâche avant de soumettre la suivante. On soumet tout, puis on attend.
+  - key: bug-interrupted
+    format: bug-fix
+    question: |-
+      Améliorez la gestion des exceptions :
+      ```java
+      try {
+          return f.get(1, SECONDS);
+      } catch (Exception e) {
+          return null;
+      }
+      ```
+    answer: |-
+      ```java
+      try {
+          return f.get(1, SECONDS);
+      } catch (InterruptedException e) {
+          Thread.currentThread().interrupt();
+          throw new IllegalStateException("attente interrompue", e);
+      } catch (ExecutionException e) {
+          throw new IllegalStateException("la tâche a échoué", e.getCause());
+      } catch (TimeoutException e) {
+          f.cancel(true);
+          throw new IllegalStateException("délai dépassé", e);
+      }
+      ```
+      Un `catch (Exception)` qui renvoie `null` cache l'erreur, perd l'interruption et laisse tourner la tâche. Chaque
+      cas a son traitement.
   - key: taches-soumises-executorservice-echouent-sans
     format: scenario
     question: Des tâches soumises à un ExecutorService échouent sans aucune trace dans les logs.
     answer: |-
       Typique d'un `submit()` dont personne ne lit le Future : l'exception est capturée dans le Future et jamais relevée. Avec `execute()`, elle serait au moins passée à l'`UncaughtExceptionHandler`.
       Corrections possibles : récupérer et consommer les Future, entourer le corps de la tâche d'un try/catch qui logge, utiliser CompletableFuture avec un `exceptionally` ou `whenComplete` qui logge, ou surcharger `afterExecute` dans un ThreadPoolExecutor personnalisé. Et nommer les threads via une ThreadFactory pour que les logs disent d'où vient l'erreur.
+  - key: scenario-lot
+    format: scenario
+    question: Tu dois traiter 10 000 fichiers en parallèle et produire un rapport des succès et des échecs. Comment organises-tu le code ?
+    answer: |-
+      Un pool dimensionné selon la nature du traitement (cœurs pour du calcul, plus pour de l'entrée-sortie), une tâche
+      par fichier qui renvoie un résultat (`Callable<Resultat>`, avec le fichier et le succès ou l'erreur) en attrapant
+      ses propres exceptions, pour qu'un fichier défectueux n'interrompe pas les autres. Je soumets tout, je collecte
+      les futures et je construis le rapport. Avec beaucoup de tâches, je limite les tâches en vol (file bornée ou
+      sémaphore) pour ne pas tout charger en mémoire. Je fais aussi en sorte que l'arrêt (interruption) soit respecté.
+  - key: scenario-timeout-global
+    format: scenario
+    question: Une page agrège trois services ; elle doit répondre en moins d'une seconde, même si un service est lent. Comment ?
+    answer: |-
+      Je lance les trois appels en parallèle, chacun avec son délai (dans le client HTTP et sur l'attente du résultat),
+      et une valeur de repli pour les données facultatives (des recommandations vides plutôt qu'une erreur). Avec
+      `CompletableFuture`, `orTimeout` ou `completeOnTimeout(valeurParDefaut, 800, MILLISECONDS)` le disent directement ;
+      avec des `Future`, `get` avec délai puis `cancel(true)`. La réponse part dans le délai, dégradée si besoin, et je
+      mesure le taux de replis pour repérer le service lent.
+  - key: scenario-annulation
+    format: scenario
+    question: Un utilisateur annule une génération de rapport longue. Comment l'arrêter réellement ?
+    answer: |-
+      Je garde le `Future` de la tâche et j'appelle `cancel(true)`, qui interrompt le thread. Mais cela ne suffit que si
+      la tâche coopère : elle doit tester `Thread.currentThread().isInterrupted()` régulièrement (entre deux lots de
+      lignes) et réagir aux `InterruptedException` des appels bloquants, en s'arrêtant proprement (fermeture des
+      ressources, suppression du fichier partiel). Sans cette coopération, la tâche continue à consommer des ressources
+      après l'annulation.

@@ -1,4 +1,28 @@
 notion: threads-virtuels-pieges
+lesson: |-
+  Les threads virtuels simplifient beaucoup, mais quelques pièges demeurent :
+
+  - **L'épinglage** (*pinning*) : un thread virtuel qui bloque reste **attaché** à son porteur, qui ne peut servir
+    personne d'autre, s'il est dans un **appel natif** (JNI, certaines opérations de fichiers) ou, **avant Java 24**,
+    dans un bloc **`synchronized`**. Avec peu de porteurs (un par cœur), quelques threads épinglés suffisent à tout
+    bloquer. Depuis Java 24 (JEP 491), `synchronized` n'épingle plus ; sur Java 21 à 23, on remplaçait `synchronized`
+    autour des entrées-sorties par un `ReentrantLock`. Diagnostic : l'événement JFR `jdk.VirtualThreadPinned`.
+  - **Pas de pool** : un thread virtuel est jetable ; un pool de threads virtuels n'a pas de sens.
+  - **La limite disparaît** : un pool de 200 threads bornait à 200 requêtes simultanées vers la base. Avec un thread par
+    tâche, il faut une **limite explicite** devant la ressource : le pool de connexions (avec un délai d'acquisition), ou
+    un **`Semaphore`**.
+  - **`ThreadLocal`** : avec des millions de threads, une valeur coûteuse par thread (un tampon, un formateur mis en
+    cache) multiplie la mémoire sans être jamais réutilisée ; on préfère des objets locaux, et **`ScopedValue`** pour le
+    contexte.
+  - **Le calcul** ne gagne rien : un thread virtuel qui calcule longtemps occupe son porteur comme un thread normal.
+  - **L'observabilité** : un thread dump classique n'affiche pas les threads virtuels ;
+    `jcmd <pid> Thread.dump_to_file -format=json fichier` les inclut.
+
+  **Piège classique** : migrer vers les threads virtuels et voir la base de données s'effondrer. Le pool de threads
+  servait de limite de concurrence ; il faut la reporter devant la ressource.
+
+  **En entretien** : « Attention à l'épinglage (natif, et `synchronized` avant Java 24), aux limites de concurrence à
+  reporter devant les ressources, aux `ThreadLocal` lourds ; et pas de pool de threads virtuels. »
 cards:
   - key: mettre-virtual-threads-pool
     format: course
@@ -12,6 +36,157 @@ cards:
     format: course
     question: synchronized est-il toujours un problème avec les virtual threads ?
     answer: Plus depuis Java 24 (JEP 491) ; sur Java 21 à 23, ReentrantLock évitait le pinning.
+  - key: detecter-epinglage
+    format: course
+    question: Comment détecter l'épinglage des threads virtuels ?
+    answer: Avec l'événement JFR `jdk.VirtualThreadPinned`, qui signale les threads virtuels restés attachés à leur porteur pendant un blocage.
+  - key: vf-threadlocal
+    format: true-false
+    question: Un `ThreadLocal` qui met en cache un gros objet par thread est un bon choix avec des threads virtuels.
+    truth: false
+    answer: "Chaque tâche a son thread : l'objet n'est jamais réutilisé et la mémoire est multipliée."
+  - key: vf-dump
+    format: true-false
+    question: "`jstack` affiche tous les threads virtuels d'une application."
+    truth: false
+    answer: Il faut `jcmd <pid> Thread.dump_to_file` (format JSON) pour les voir.
+  - key: vf-natif
+    format: true-false
+    question: Un appel natif (JNI) peut encore épingler un thread virtuel en Java 25.
+    truth: true
+    answer: Seul l'épinglage dû à `synchronized` a été levé en Java 24.
+  - key: vf-limite
+    format: true-false
+    question: Passer aux threads virtuels supprime la limite de concurrence qu'imposait la taille du pool.
+    truth: true
+    answer: D'où la nécessité d'une limite explicite devant chaque ressource.
+  - key: qcm-epinglage
+    format: multiple-choice
+    question: Qu'est-ce qui épingle un thread virtuel sur Java 21 ?
+    choices:
+      - text: "Un blocage dans un bloc `synchronized`"
+        correct: true
+      - text: "Un appel natif qui bloque"
+        correct: true
+      - text: "Un `ReentrantLock.lock()` qui attend"
+        correct: false
+      - text: "Une lecture sur une socket"
+        correct: false
+    answer: '`ReentrantLock` et les entrées-sorties réseau démontent le thread virtuel.'
+  - key: qcm-limite
+    format: multiple-choice
+    question: Après le passage aux threads virtuels, la base reçoit trop de requêtes simultanées. Que faire ?
+    choices:
+      - text: "Borner le pool de connexions et lui donner un délai d'acquisition"
+        correct: true
+      - text: "Ajouter un `Semaphore` devant les appels concernés"
+        correct: true
+      - text: "Mettre les threads virtuels dans un pool de 50"
+        correct: false
+      - text: "Revenir à `newCachedThreadPool`"
+        correct: false
+    answer: La limite se place devant la ressource.
+  - key: qcm-java24
+    format: multiple-choice
+    question: Qu'a changé la JEP 491 (Java 24) ?
+    choices:
+      - text: "`synchronized` n'épingle plus les threads virtuels"
+        correct: true
+      - text: "Les threads virtuels peuvent être mis en pool"
+        correct: false
+      - text: "Les appels natifs n'épinglent plus"
+        correct: false
+      - text: "`ThreadLocal` est interdit"
+        correct: false
+    answer: Le moniteur peut désormais être détenu par un thread virtuel démonté.
+  - key: qcm-contexte
+    format: multiple-choice
+    question: Que préférer à `ThreadLocal` pour transmettre un contexte de requête avec des threads virtuels ?
+    choices:
+      - text: "`ScopedValue` (Java 25)"
+        correct: true
+      - text: "Passer le contexte en paramètre"
+        correct: true
+      - text: "Un champ statique"
+        correct: false
+      - text: "`InheritableThreadLocal` pour tout"
+        correct: false
+    answer: '`ScopedValue` est immuable et lié à une portée.'
+  - key: bug-synchronized-io
+    format: bug-fix
+    question: |-
+      Sur Java 21, avec des threads virtuels, le service se fige quand plusieurs requêtes arrivent :
+      ```java
+      synchronized Reponse appeler(Requete r) {
+          return clientHttp.envoyer(r);     // bloque plusieurs centaines de ms
+      }
+      ```
+    answer: |-
+      ```java
+      private final ReentrantLock verrou = new ReentrantLock();
+      Reponse appeler(Requete r) {
+          verrou.lock();
+          try {
+              return clientHttp.envoyer(r);
+          } finally {
+              verrou.unlock();
+          }
+      }
+      // (ou passer à Java 24+, où synchronized n'épingle plus ; et se demander si le verrou est utile)
+      ```
+      Sur Java 21 à 23, un thread virtuel bloqué dans `synchronized` épingle son porteur ; quelques appels suffisent à
+      occuper tous les porteurs. `ReentrantLock` laisse le thread se démonter.
+  - key: bug-threadlocal-cache
+    format: bug-fix
+    question: |-
+      Depuis le passage à un thread virtuel par requête, la mémoire a fortement augmenté :
+      ```java
+      private static final ThreadLocal<ObjectMapper> MAPPER = ThreadLocal.withInitial(ObjectMapper::new);
+      ```
+    answer: |-
+      ```java
+      private static final ObjectMapper MAPPER = new ObjectMapper();     // thread-safe une fois configuré
+      ```
+      Un cache par thread n'a de sens qu'avec quelques threads réutilisés. Avec un thread par requête, chaque requête crée
+      son propre `ObjectMapper`. Un objet thread-safe partagé (ou un objet local léger) convient.
+  - key: bug-pas-de-limite
+    format: bug-fix
+    question: |-
+      L'API partenaire renvoie des erreurs 429 depuis le passage aux threads virtuels :
+      ```java
+      try (var es = Executors.newVirtualThreadPerTaskExecutor()) {
+          commandes.forEach(c -> es.submit(() -> partenaire.envoyer(c)));
+      }
+      ```
+    answer: |-
+      ```java
+      Semaphore limite = new Semaphore(20);      // capacité annoncée par le partenaire
+      try (var es = Executors.newVirtualThreadPerTaskExecutor()) {
+          commandes.forEach(c -> es.submit(() -> {
+              limite.acquire();
+              try {
+                  return partenaire.envoyer(c);
+              } finally {
+                  limite.release();
+              }
+          }));
+      }
+      ```
+      Avant, la taille du pool bornait les appels simultanés. Avec un thread par tâche, il faut une limite explicite
+      devant le partenaire.
+  - key: bug-pool-virtuels
+    format: bug-fix
+    question: |-
+      Corrigez :
+      ```java
+      ExecutorService es = Executors.newFixedThreadPool(100, Thread.ofVirtual().factory());
+      ```
+    answer: |-
+      ```java
+      ExecutorService es = Executors.newVirtualThreadPerTaskExecutor();
+      ```
+      Mettre des threads virtuels en pool annule leur intérêt et cache une limite de concurrence implicite. On crée un
+      thread par tâche, et l'on borne explicitement les ressources (sémaphore).
   - key: avec-virtual-threads-service-milliers-appels
     format: scenario
     question: Avec des virtual threads, ton service fait des milliers d'appels simultanés à une base qui sature.
@@ -19,3 +194,29 @@ cards:
       C'est l'effet pervers classique : les virtual threads suppriment la limite naturelle qu'imposait la taille du pool de threads. Avant, 200 threads = au plus 200 requêtes concurrentes vers la base ; maintenant, des milliers.
       La limite doit être **explicite et placée devant la ressource** : la taille du pool de connexions JDBC en est déjà une (les virtual threads attendront une connexion), et pour une API externe sans pool, un `Semaphore` qui borne les appels simultanés.
       Je vérifierais aussi les timeouts d'acquisition de connexion pour échouer vite plutôt que d'empiler des attentes, et je surveillerais le nombre de threads en attente du pool. Les virtual threads changent le coût d'un thread, pas la capacité des systèmes en aval.
+  - key: scenario-migration
+    format: scenario
+    question: Comment migrer prudemment un service existant vers les threads virtuels ?
+    answer: |-
+      Je vérifie d'abord la version (Java 24+ de préférence, pour éviter l'épinglage sur `synchronized`) et celle du
+      framework et des pilotes (JDBC, client HTTP). J'active les threads virtuels sur un environnement de test de charge,
+      avec JFR (`jdk.VirtualThreadPinned`) pour repérer les épinglages restants. Je recense les limites implicites
+      qu'imposait le pool (base, services partenaires) et je les rends explicites (pool de connexions, sémaphores,
+      délais). Je cherche les `ThreadLocal` lourds. Puis je déploie progressivement en surveillant la latence, la
+      mémoire et la charge des ressources aval.
+  - key: scenario-gel
+    format: scenario
+    question: Sur Java 21, un service à threads virtuels se fige, CPU à zéro. Un thread dump classique ne montre rien d'utile. Que fais-tu ?
+    answer: |-
+      Je prends un dump qui inclut les threads virtuels : `jcmd <pid> Thread.dump_to_file -format=json dump.json`. Un gel
+      avec peu de porteurs évoque l'épinglage : des threads virtuels bloqués dans `synchronized` (ou dans du code natif)
+      occupent tous les porteurs. J'enregistre JFR avec `jdk.VirtualThreadPinned` pour trouver le code fautif, puis je
+      remplace ces `synchronized` autour d'entrées-sorties par des `ReentrantLock`, ou je passe à Java 24+.
+  - key: scenario-choix
+    format: scenario
+    question: Ton service fait à la fois des appels HTTP et un calcul lourd par requête. Comment répartis-tu le travail ?
+    answer: |-
+      Les appels HTTP sur des threads virtuels (un par requête), qui attendent sans coût. Le calcul lourd, lui, n'y gagne
+      rien et occuperait les porteurs : je le confie à un pool de plateforme dimensionné sur le nombre de cœurs, depuis
+      le thread virtuel (`executorCalcul.submit(...).get()`), qui attend sans bloquer de porteur. Ainsi, un pic de calcul
+      ne peut pas empêcher les autres requêtes de faire leurs entrées-sorties, et le calcul reste borné par les cœurs.

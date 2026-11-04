@@ -1,4 +1,40 @@
 notion: executors
+lesson: |-
+  Un **`ExecutorService`** sépare **ce qu'on exécute** (des tâches) de **comment on l'exécute** (des threads réutilisés) :
+
+  ```java
+  try (ExecutorService pool = Executors.newFixedThreadPool(4)) {     // close() attend la fin (Java 19+)
+      pool.execute(() -> journaliser(evt));                           // sans résultat
+      Future<Rapport> f = pool.submit(() -> genererRapport());       // avec résultat
+  }
+  ```
+
+  Les fabriques d'`Executors` :
+
+  | Fabrique | Comportement | Attention |
+  |---|---|---|
+  | `newFixedThreadPool(n)` | n threads, file **illimitée** | la file peut grossir sans fin |
+  | `newCachedThreadPool()` | crée des threads à la demande, les recycle | nombre de threads **illimité** |
+  | `newSingleThreadExecutor()` | un thread, tâches dans l'ordre | |
+  | `newScheduledThreadPool(n)` | tâches différées ou périodiques | |
+  | `newVirtualThreadPerTaskExecutor()` | un thread virtuel par tâche (Java 21) | borner la ressource aval |
+
+  En production, on configure souvent un **`ThreadPoolExecutor`** explicite : taille de base (`corePoolSize`), taille
+  maximale, **file bornée**, **`ThreadFactory`** qui nomme les threads, **politique de rejet** quand tout est plein
+  (`AbortPolicy` lève une exception, `CallerRunsPolicy` exécute dans le thread appelant, ce qui ralentit le producteur).
+  Les threads au-delà de la taille de base ne sont créés que si la file est **pleine**.
+
+  **L'arrêt** : un pool non arrêté garde ses threads (non démons) et empêche la JVM de s'arrêter.
+  - `shutdown()` refuse les nouvelles tâches et laisse finir les autres ;
+  - `awaitTermination(délai)` attend la fin ;
+  - `shutdownNow()` interrompt les tâches en cours et renvoie celles en attente ;
+  - depuis Java 19, `ExecutorService` est `AutoCloseable` : `close()` fait `shutdown` puis attend.
+
+  **Piège classique** : `Executors.newFixedThreadPool(10)` dans un service qui reçoit plus de tâches qu'il n'en traite. La
+  file illimitée grossit jusqu'à l'`OutOfMemoryError`, sans aucun signal avant.
+
+  **En entretien** : « Un pool réutilise des threads ; en production, je borne la file, je nomme les threads, je choisis
+  une politique de rejet, et j'arrête le pool avec `shutdown` puis `awaitTermination`, ou `close()`. »
 cards:
   - key: politiques-rejet-threadpoolexecutor
     format: course
@@ -16,3 +52,247 @@ cards:
     format: course
     question: Comment arrêter proprement un ExecutorService ?
     answer: shutdown, awaitTermination avec timeout, puis shutdownNow si nécessaire ; ou close() depuis Java 19.
+  - key: vf-file-illimitee
+    format: true-false
+    question: "`Executors.newFixedThreadPool(n)` utilise une file d'attente bornée."
+    truth: false
+    answer: Une `LinkedBlockingQueue` illimitée.
+  - key: vf-arret-jvm
+    format: true-false
+    question: Un pool non arrêté peut empêcher la JVM de s'arrêter.
+    truth: true
+    answer: Ses threads sont non démons par défaut.
+  - key: vf-close
+    format: true-false
+    question: Depuis Java 19, un `ExecutorService` peut s'utiliser dans un try-with-resources.
+    truth: true
+    answer: '`close()` appelle `shutdown()` et attend la fin des tâches.'
+  - key: vf-shutdown
+    format: true-false
+    question: "`shutdown()` interrompt les tâches en cours."
+    truth: false
+    answer: Il les laisse finir ; c'est `shutdownNow()` qui interrompt.
+  - key: qcm-fabriques
+    format: multiple-choice
+    question: Quels risques présentent les fabriques par défaut ?
+    choices:
+      - text: "`newFixedThreadPool` : une file illimitée"
+        correct: true
+      - text: "`newCachedThreadPool` : un nombre de threads illimité"
+        correct: true
+      - text: "`newSingleThreadExecutor` : l'exécution désordonnée des tâches"
+        correct: false
+      - text: "`newScheduledThreadPool` : l'impossibilité de planifier"
+        correct: false
+    answer: Un seul thread garantit au contraire l'ordre.
+  - key: qcm-caller-runs
+    format: multiple-choice
+    question: Que fait `CallerRunsPolicy` quand le pool et sa file sont pleins ?
+    choices:
+      - text: "La tâche s'exécute dans le thread qui l'a soumise, ce qui ralentit le producteur"
+        correct: true
+      - text: "La tâche est ignorée silencieusement"
+        correct: false
+      - text: "Une exception est levée"
+        correct: false
+      - text: "La plus ancienne tâche est supprimée"
+        correct: false
+    answer: C'est une forme simple de contre-pression.
+  - key: qcm-arret
+    format: multiple-choice
+    question: Quelle séquence arrête proprement un pool ?
+    choices:
+      - text: "`shutdown()`, puis `awaitTermination(30, SECONDS)`, puis `shutdownNow()` si le délai expire"
+        correct: true
+      - text: "`shutdownNow()` immédiatement, toujours"
+        correct: false
+      - text: "Ne rien faire, le GC s'en charge"
+        correct: false
+      - text: "`System.exit(0)`"
+        correct: false
+    answer: '`close()` (Java 19) fait l''essentiel : `shutdown` puis attente.'
+  - key: qcm-production
+    format: multiple-choice
+    question: Que configurer pour un pool de production ?
+    choices:
+      - text: "Une file bornée et une politique de rejet"
+        correct: true
+      - text: "Une `ThreadFactory` qui nomme les threads"
+        correct: true
+      - text: "Une priorité maximale pour tous les threads"
+        correct: false
+      - text: "Des threads démons pour éviter l'arrêt propre"
+        correct: false
+    answer: Les limites rendent la saturation visible au lieu de l'`OutOfMemoryError`.
+  - key: trous-fixe
+    format: fill-in
+    question: |-
+      Complétez pour créer un pool de 4 threads :
+      ```java
+      ExecutorService pool = Executors.___(4);
+      ```
+    blanks: [[newFixedThreadPool]]
+    answer: Attention à sa file illimitée.
+  - key: trous-submit
+    format: fill-in
+    question: |-
+      Complétez pour obtenir le résultat de la tâche :
+      ```java
+      Future<Integer> f = pool.___(() -> compter());
+      ```
+    blanks: [[submit]]
+    answer: '`submit` renvoie un `Future` ; `execute` ne renvoie rien.'
+  - key: trous-shutdown
+    format: fill-in
+    question: |-
+      Complétez l'arrêt propre :
+      ```java
+      pool.___();
+      if (!pool.awaitTermination(30, TimeUnit.SECONDS)) {
+          pool.shutdownNow();
+      }
+      ```
+    blanks: [[shutdown]]
+    answer: '`shutdown` refuse les nouvelles tâches et laisse finir les autres.'
+  - key: trous-virtuels
+    format: fill-in
+    question: |-
+      Complétez pour un thread virtuel par tâche :
+      ```java
+      try (var executor = Executors.___()) {
+          urls.forEach(u -> executor.submit(() -> telecharger(u)));
+      }
+      ```
+    blanks: [[newVirtualThreadPerTaskExecutor]]
+    answer: Java 21.
+  - key: code-close
+    format: code-output
+    question: |-
+      ```java
+      List<String> faits = new CopyOnWriteArrayList<>();
+      try (ExecutorService pool = Executors.newFixedThreadPool(2)) {
+          for (int i = 1; i <= 3; i++) {
+              int n = i;
+              pool.submit(() -> faits.add("t" + n));
+          }
+      }
+      System.out.println(faits.size());
+      ```
+    answer: '`3` : `close()` attend la fin de toutes les tâches.'
+    check:
+      output: "3"
+  - key: code-single
+    format: code-output
+    question: |-
+      ```java
+      StringBuffer ordre = new StringBuffer();
+      try (ExecutorService pool = Executors.newSingleThreadExecutor()) {
+          for (char c : "abc".toCharArray()) pool.submit(() -> ordre.append(c));
+      }
+      System.out.println(ordre);
+      ```
+    answer: '`abc` : un seul thread exécute les tâches dans l''ordre de soumission.'
+    check:
+      output: "abc"
+  - key: code-apres-shutdown
+    format: code-output
+    question: |-
+      ```java
+      ExecutorService pool = Executors.newFixedThreadPool(1);
+      pool.shutdown();
+      System.out.println(pool.isShutdown());
+      pool.submit(() -> {});
+      ```
+    answer: '`true`, puis une `RejectedExecutionException` : un pool arrêté refuse les tâches.'
+    check:
+      output: "true"
+      throws: RejectedExecutionException
+  - key: code-nom
+    format: code-output
+    question: |-
+      ```java
+      ThreadFactory fabrique = Thread.ofPlatform().name("export-", 1).factory();
+      try (ExecutorService pool = Executors.newFixedThreadPool(1, fabrique)) {
+          System.out.println(pool.submit(() -> Thread.currentThread().getName()).get());
+      }
+      ```
+    answer: '`export-1` : la fabrique nomme les threads du pool.'
+    check:
+      output: "export-1"
+  - key: bug-file-illimitee
+    format: bug-fix
+    question: |-
+      Lors d'un pic, le service finit en `OutOfMemoryError` sans avoir jamais rejeté de tâche :
+      ```java
+      private final ExecutorService pool = Executors.newFixedThreadPool(10);
+      ```
+    answer: |-
+      ```java
+      private final ExecutorService pool = new ThreadPoolExecutor(
+              10, 10, 0, TimeUnit.SECONDS,
+              new ArrayBlockingQueue<>(1_000),
+              Thread.ofPlatform().name("notifications-", 1).factory(),
+              new ThreadPoolExecutor.CallerRunsPolicy());
+      ```
+      La file illimitée accumulait les tâches en mémoire. Une file bornée et une politique de rejet rendent la saturation
+      visible et ralentissent le producteur.
+  - key: bug-pool-par-appel
+    format: bug-fix
+    question: |-
+      Le nombre de threads de l'application ne cesse d'augmenter :
+      ```java
+      void traiter(Commande c) {
+          ExecutorService pool = Executors.newFixedThreadPool(4);
+          pool.submit(() -> facturer(c));
+      }
+      ```
+    answer: |-
+      ```java
+      private final ExecutorService pool = Executors.newFixedThreadPool(4);   // un seul pool, arrêté à la fermeture
+      void traiter(Commande c) {
+          pool.submit(() -> facturer(c));
+      }
+      ```
+      Chaque appel créait un pool jamais arrêté, dont les threads restaient en vie. Un pool se crée une fois et s'arrête à
+      la fin de l'application.
+  - key: bug-sans-arret
+    format: bug-fix
+    question: |-
+      Ce programme en ligne de commande ne se termine jamais après avoir fini son travail :
+      ```java
+      public static void main(String[] args) {
+          ExecutorService pool = Executors.newFixedThreadPool(4);
+          fichiers.forEach(f -> pool.submit(() -> convertir(f)));
+      }
+      ```
+    answer: |-
+      ```java
+      public static void main(String[] args) {
+          try (ExecutorService pool = Executors.newFixedThreadPool(4)) {
+              fichiers.forEach(f -> pool.submit(() -> convertir(f)));
+          }    // attend la fin, puis arrête le pool
+      }
+      ```
+      Les threads du pool, non démons, gardaient la JVM en vie. `close()` (ou `shutdown` + `awaitTermination`) l'arrête.
+  - key: bug-cached
+    format: bug-fix
+    question: |-
+      Sous forte charge, la machine crée des milliers de threads et s'effondre :
+      ```java
+      private final ExecutorService pool = Executors.newCachedThreadPool();
+      void recevoir(Requete r) { pool.submit(() -> appelerServiceLent(r)); }
+      ```
+    answer: |-
+      ```java
+      private final ExecutorService pool = Executors.newVirtualThreadPerTaskExecutor();
+      private final Semaphore limite = new Semaphore(100);       // borne les appels au service lent
+      void recevoir(Requete r) {
+          pool.submit(() -> {
+              limite.acquire();
+              try { return appelerServiceLent(r); } finally { limite.release(); }
+          });
+      }
+      ```
+      Un pool « cached » crée un thread de plateforme par tâche en attente, sans limite. Des threads virtuels supportent
+      l'attente à faible coût, et un sémaphore borne la pression sur le service appelé (un pool fixe borné serait aussi
+      une solution).

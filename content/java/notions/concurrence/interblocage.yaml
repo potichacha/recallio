@@ -1,4 +1,39 @@
 notion: interblocage
+lesson: |-
+  Un **interblocage** (*deadlock*) survient quand des threads s'attendent **mutuellement** : chacun détient un verrou dont
+  l'autre a besoin, et aucun ne lâche le sien.
+
+  ```java
+  // Thread 1 : virement(a, b)            Thread 2 : virement(b, a)
+  synchronized (a) {                      synchronized (b) {
+      synchronized (b) { ... }   ⇄            synchronized (a) { ... }
+  }                                       }
+  ```
+
+  Quatre conditions doivent être réunies (Coffman) : exclusion mutuelle, détention en attendant un autre verrou, pas de
+  préemption, **attente circulaire**. On en casse une, le plus souvent la dernière :
+  - **ordre global** de prise des verrous : toujours verrouiller le compte de plus petit identifiant d'abord ;
+  - **`tryLock` avec délai** (`ReentrantLock`) : abandonner et réessayer plutôt qu'attendre indéfiniment ;
+  - **ne pas appeler de code inconnu** (écouteurs, callbacks) en détenant un verrou ;
+  - **un seul verrou** ou, mieux, **pas de verrou** : structures concurrentes, objets immuables, files de messages.
+
+  Deux cousins :
+  - la **famine** (*starvation*) : un thread n'obtient jamais la ressource, parce que d'autres passent toujours avant
+    (verrou non équitable, threads trop prioritaires, tâches longues qui monopolisent un pool) ;
+  - le **livelock** : les threads ne sont pas bloqués, ils réagissent sans cesse l'un à l'autre (chacun cède, réessaie,
+    recède...) sans jamais progresser ; un délai aléatoire avant de réessayer le casse.
+
+  Un interblocage existe aussi **sans verrou explicite** : des tâches d'un pool de taille fixe qui attendent le résultat
+  d'autres tâches soumises au même pool, une connexion à la base attendue par des threads qui en détiennent déjà une.
+
+  **Diagnostic** : un **thread dump** (`jstack`, `jcmd <pid> Thread.print`) détecte et affiche les interblocages sur
+  moniteurs et `ReentrantLock` (« Found one Java-level deadlock »).
+
+  **Piège classique** : un virement qui verrouille toujours « source puis destination ». Deux virements croisés
+  simultanés se bloquent pour toujours.
+
+  **En entretien** : « Attente circulaire de verrous ; je l'évite par un ordre global de verrouillage, `tryLock` avec délai,
+  aucun appel extérieur sous verrou, et je le diagnostique avec un thread dump. »
 cards:
   - key: deadlock
     format: course
@@ -12,3 +47,212 @@ cards:
     format: course
     question: C'est quoi la famine ?
     answer: Un thread qui n'obtient jamais la ressource dont il a besoin.
+  - key: ordre-global
+    format: course
+    question: Comment l'ordre global de verrouillage évite-t-il l'interblocage ?
+    answer: Si tous les threads prennent les verrous dans le même ordre (par exemple par identifiant croissant), aucune attente circulaire n'est possible.
+  - key: diagnostic
+    format: course
+    question: Comment diagnostiquer un interblocage en production ?
+    answer: Avec un thread dump (`jstack <pid>` ou `jcmd <pid> Thread.print`), qui signale « Found one Java-level deadlock » et montre quel thread détient et attend quel verrou.
+  - key: vf-sans-verrou
+    format: true-false
+    question: Un interblocage nécessite forcément des blocs `synchronized`.
+    truth: false
+    answer: Des tâches d'un pool plein qui attendent d'autres tâches du même pool, ou des connexions épuisées, suffisent.
+  - key: vf-ordre
+    format: true-false
+    question: Prendre toujours les verrous dans le même ordre global empêche l'interblocage sur ces verrous.
+    truth: true
+    answer: L'attente circulaire devient impossible.
+  - key: vf-livelock
+    format: true-false
+    question: Dans un livelock, les threads sont à l'état `BLOCKED`.
+    truth: false
+    answer: Ils s'exécutent, mais sans progresser.
+  - key: vf-trylock
+    format: true-false
+    question: "`tryLock` avec un délai permet de sortir d'une attente qui pourrait être un interblocage."
+    truth: true
+    answer: Le thread abandonne, relâche ses verrous et réessaie plus tard.
+  - key: qcm-prevenir
+    format: multiple-choice
+    question: Quelles pratiques préviennent l'interblocage ?
+    choices:
+      - text: "Prendre les verrous toujours dans le même ordre"
+        correct: true
+      - text: "Ne pas appeler d'écouteur extérieur en détenant un verrou"
+        correct: true
+      - text: "Augmenter la priorité des threads"
+        correct: false
+      - text: "Ajouter des `Thread.sleep` entre les prises de verrou"
+        correct: false
+    answer: Le `sleep` change seulement la probabilité du blocage.
+  - key: qcm-conditions
+    format: multiple-choice
+    question: Laquelle est une des quatre conditions nécessaires à un interblocage ?
+    choices:
+      - text: "L'attente circulaire"
+        correct: true
+      - text: "Un processeur à un seul cœur"
+        correct: false
+      - text: "Un ramasse-miettes actif"
+        correct: false
+      - text: "Des threads virtuels"
+        correct: false
+    answer: Les trois autres sont l'exclusion mutuelle, la détention en attente et l'absence de préemption.
+  - key: qcm-pool
+    format: multiple-choice
+    question: "Un pool de 4 threads exécute 4 tâches qui attendent chacune `pool.submit(sousTache).get()`. Que se passe-t-il ?"
+    choices:
+      - text: "Un interblocage : les sous-tâches n'ont aucun thread libre"
+        correct: true
+      - text: "Le pool crée automatiquement des threads supplémentaires"
+        correct: false
+      - text: "Les sous-tâches s'exécutent dans le thread appelant"
+        correct: false
+      - text: "Une exception immédiate"
+        correct: false
+    answer: Un pool fixe ne grandit pas ; ses threads attendent des tâches qu'ils devraient exécuter.
+  - key: qcm-livelock
+    format: multiple-choice
+    question: Comment casser un livelock où deux threads cèdent et réessaient en même temps ?
+    choices:
+      - text: "Un délai aléatoire avant de réessayer"
+        correct: true
+      - text: "Supprimer tout délai"
+        correct: false
+      - text: "Augmenter le nombre de threads"
+        correct: false
+      - text: "Utiliser `notify` au lieu de `notifyAll`"
+        correct: false
+    answer: Le hasard désynchronise les tentatives.
+  - key: bug-virement
+    format: bug-fix
+    question: |-
+      Deux virements croisés simultanés (A vers B, B vers A) bloquent l'application :
+      ```java
+      void virer(Compte source, Compte dest, long m) {
+          synchronized (source) {
+              synchronized (dest) {
+                  source.debiter(m); dest.crediter(m);
+              }
+          }
+      }
+      ```
+    answer: |-
+      ```java
+      void virer(Compte source, Compte dest, long m) {
+          Compte premier = source.id() < dest.id() ? source : dest;
+          Compte second = premier == source ? dest : source;
+          synchronized (premier) {
+              synchronized (second) {
+                  source.debiter(m); dest.crediter(m);
+              }
+          }
+      }
+      ```
+      Chaque thread verrouillait d'abord sa source : attente circulaire. Un ordre global (par identifiant) supprime le
+      cycle.
+  - key: bug-callback
+    format: bug-fix
+    question: |-
+      Un écouteur qui appelle à son tour le service provoque un interblocage :
+      ```java
+      synchronized void mettreAJour(Etat e) {
+          this.etat = e;
+          for (Ecouteur l : ecouteurs) l.notifier(e);      // code extérieur sous verrou
+      }
+      ```
+    answer: |-
+      ```java
+      void mettreAJour(Etat e) {
+          List<Ecouteur> aPrevenir;
+          synchronized (this) {
+              this.etat = e;
+              aPrevenir = List.copyOf(ecouteurs);
+          }
+          for (Ecouteur l : aPrevenir) l.notifier(e);      // hors verrou
+      }
+      ```
+      Un code extérieur appelé sous verrou peut prendre d'autres verrous dans un ordre inconnu. On met à jour l'état sous
+      verrou, puis on notifie hors verrou.
+  - key: bug-pool
+    format: bug-fix
+    question: |-
+      Sous charge, ce traitement se fige complètement :
+      ```java
+      ExecutorService pool = Executors.newFixedThreadPool(8);
+      Future<Rapport> f = pool.submit(() -> {
+          Future<Donnees> d = pool.submit(this::charger);   // même pool
+          return construire(d.get());
+      });
+      ```
+    answer: |-
+      ```java
+      CompletableFuture<Rapport> rapport = CompletableFuture
+              .supplyAsync(this::charger, poolEntreesSorties)
+              .thenApply(this::construire);
+      ```
+      Quand les 8 threads attendent tous une sous-tâche placée dans la file du même pool, plus personne ne l'exécute. On
+      compose sans bloquer (ou on utilise deux pools distincts, ou des threads virtuels).
+  - key: bug-trylock
+    format: bug-fix
+    question: |-
+      Ce code peut attendre indéfiniment deux ressources partagées avec d'autres modules :
+      ```java
+      verrouA.lock();
+      verrouB.lock();
+      try { traiter(); } finally { verrouB.unlock(); verrouA.unlock(); }
+      ```
+    answer: |-
+      ```java
+      if (verrouA.tryLock(1, SECONDS)) {
+          try {
+              if (verrouB.tryLock(1, SECONDS)) {
+                  try { traiter(); } finally { verrouB.unlock(); }
+              } else {
+                  planifierNouvelEssai();
+              }
+          } finally {
+              verrouA.unlock();
+          }
+      }
+      ```
+      Avec `tryLock` et un délai, le thread abandonne au lieu de rester bloqué, relâche ce qu'il détient et réessaie
+      (avec un délai aléatoire, pour éviter un livelock).
+  - key: scenario-application-figee
+    format: scenario
+    question: L'application est figée en production, le CPU est à zéro. Que fais-tu ?
+    answer: |-
+      Un CPU à zéro avec des requêtes en attente évoque un blocage, pas une surcharge. Je prends plusieurs thread dumps
+      (`jcmd <pid> Thread.print`) à quelques secondes d'intervalle : la JVM signale les interblocages de moniteurs et de
+      `ReentrantLock`, sinon je cherche les threads `BLOCKED` ou `WAITING` et ce qu'ils attendent (un verrou, une
+      connexion du pool de base, un `Future.get()` dans un pool saturé). Je redémarre pour rétablir le service, puis je
+      corrige la cause : ordre des verrous, appel extérieur sous verrou, pool partagé entre tâches dépendantes.
+  - key: scenario-conception
+    format: scenario
+    question: Comment conçois-tu un module pour qu'il ne puisse pas provoquer d'interblocage ?
+    answer: |-
+      En évitant d'avoir à prendre plusieurs verrous : état immuable, structures concurrentes (`ConcurrentHashMap`,
+      `AtomicReference`), ou un seul thread propriétaire de l'état à qui les autres envoient des messages (une file). Si
+      plusieurs verrous sont inévitables, je fixe un ordre global documenté, je ne fais ni entrée-sortie ni appel
+      extérieur sous verrou, je borne les attentes par des délais (`tryLock`, timeouts des pools de connexions), et je
+      sépare les pools des tâches qui dépendent les unes des autres.
+  - key: scenario-base-donnees
+    format: scenario
+    question: Deux transactions concurrentes en base se bloquent mutuellement et l'une est annulée par PostgreSQL. Comment le traites-tu ?
+    answer: |-
+      La base détecte l'interblocage et annule une des transactions (`deadlock detected`). Je l'évite en mettant à jour
+      les lignes dans un ordre stable (par identifiant), en gardant les transactions courtes, et en verrouillant
+      explicitement dès le début ce qu'on va modifier (`SELECT ... FOR UPDATE` dans l'ordre). Comme il peut toujours
+      arriver, je traite l'échec comme transitoire : la transaction est rejouée quelques fois avec un délai, si
+      l'opération est idempotente.
+  - key: scenario-famine
+    format: scenario
+    question: Des petites requêtes rapides attendent parfois longtemps derrière des exports lourds dans le même pool. Que proposes-tu ?
+    answer: |-
+      C'est une forme de famine : les tâches longues monopolisent les threads. Je sépare les charges : un pool dédié (et
+      borné) aux exports, un autre pour les requêtes interactives, pour que les unes ne bloquent jamais les autres
+      (principe de la cloison, *bulkhead*). Je peux aussi découper les exports en morceaux, ou les déplacer dans une file
+      traitée en arrière-plan. Des métriques sur la taille des files et le temps d'attente confirment l'effet.

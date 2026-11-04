@@ -1,6 +1,150 @@
 notion: serviceloader
+lesson: |-
+  Le mécanisme **SPI** (*Service Provider Interface*) permet à une application de découvrir à l'exécution les
+  **implémentations** d'une interface fournies par d'autres JAR, sans les connaître à la compilation. L'outil :
+  **`java.util.ServiceLoader`**.
+
+  ```java
+  // 1. L'interface du service (dans un module « api »)
+  public interface Exporteur {
+      String format();
+      byte[] exporter(Rapport r);
+  }
+
+  // 2. Une implémentation (dans un autre JAR), avec un constructeur public sans argument
+  public class ExporteurCsv implements Exporteur { ... }
+
+  // 3. Sa déclaration
+  //    sur le classpath : fichier META-INF/services/com.recallio.spi.Exporteur contenant
+  //        com.recallio.csv.ExporteurCsv
+  //    ou dans module-info.java : provides com.recallio.spi.Exporteur with com.recallio.csv.ExporteurCsv;
+  //    (et côté consommateur : uses com.recallio.spi.Exporteur;)
+
+  // 4. La découverte
+  ServiceLoader<Exporteur> chargeur = ServiceLoader.load(Exporteur.class);
+  Map<String, Exporteur> parFormat = chargeur.stream()
+          .map(ServiceLoader.Provider::get)
+          .collect(toMap(Exporteur::format, e -> e));
+  Optional<Exporteur> premier = chargeur.findFirst();
+  ```
+
+  - Ajouter un format revient à **ajouter un JAR** au classpath : le cœur de l'application ne change pas (principe
+    ouvert-fermé, plugins).
+  - Le JDK l'utilise partout : pilotes **JDBC** (`DriverManager`), fournisseurs de **journalisation** (SLF4J 2), de
+    cryptographie, `java.nio.file.spi.FileSystemProvider`, les processeurs d'annotations, le `HttpClient`.
+  - Les implémentations sont instanciées **à la demande**, pendant l'itération ; `stream()` permet de les examiner
+    (`Provider.type()`) sans les instancier.
+  - Un `ServiceLoader` n'est **pas thread-safe** ; `reload()` vide son cache.
+  - Dans une application à injection de dépendances, le conteneur (CDI, Spring) joue souvent ce rôle ; le SPI reste
+    utile pour les **bibliothèques** sans conteneur.
+
+  **Piège classique** : une faute dans le nom du fichier `META-INF/services/...` (il doit être le nom complet de
+  l'interface). Aucune implémentation n'est trouvée, sans aucune erreur.
+
+  **En entretien** : « `ServiceLoader` découvre les implémentations d'une interface déclarées dans
+  `META-INF/services` ou par `provides` dans un module ; c'est le mécanisme des plugins et des pilotes JDBC. »
 cards:
+  - key: principe
+    format: course
+    question: À quoi sert `ServiceLoader` ?
+    answer: À découvrir à l'exécution les implémentations d'une interface (des fournisseurs de service) présentes sur le classpath ou le module path, sans les connaître à la compilation.
+  - key: declarer
+    format: course
+    question: Comment déclarer une implémentation pour `ServiceLoader` ?
+    answer: Sur le classpath, dans un fichier `META-INF/services/<nom complet de l'interface>` qui liste les classes ; dans un module, avec `provides Interface with Implementation;`.
+  - key: jdk
+    format: course
+    question: Où le JDK utilise-t-il ce mécanisme ?
+    answer: Pour les pilotes JDBC, les fournisseurs de cryptographie, les systèmes de fichiers (`FileSystemProvider`), les processeurs d'annotations, et des bibliothèques comme SLF4J 2.
+  - key: plugins
+    format: course
+    question: Pourquoi le SPI est-il adapté à un système de plugins ?
+    answer: Ajouter une fonction revient à déposer un JAR qui fournit une implémentation ; le cœur de l'application ne change pas et ne connaît pas les plugins à la compilation.
+  - key: vf-constructeur
+    format: true-false
+    question: Une implémentation découverte par `ServiceLoader` doit avoir un constructeur public sans argument (ou une méthode `provider()` dans un module).
+    truth: true
+    answer: Le chargeur l'instancie lui-même.
+  - key: vf-erreur
+    format: true-false
+    question: Un fichier `META-INF/services` mal nommé provoque une erreur au démarrage.
+    truth: false
+    answer: Aucune implémentation n'est trouvée, silencieusement.
+  - key: vf-thread-safe
+    format: true-false
+    question: Un `ServiceLoader` peut être partagé sans précaution entre plusieurs threads.
+    truth: false
+    answer: Il n'est pas thread-safe.
+  - key: vf-paresseux
+    format: true-false
+    question: "`ServiceLoader` instancie les fournisseurs au fur et à mesure de l'itération."
+    truth: true
+    answer: Et `stream()` permet d'examiner leur type avant de les instancier.
+  - key: qcm-fichier
+    format: multiple-choice
+    question: "Quel est le nom du fichier qui déclare les implémentations de `com.recallio.spi.Exporteur` ?"
+    choices:
+      - text: "`META-INF/services/com.recallio.spi.Exporteur`"
+        correct: true
+      - text: "`META-INF/services/Exporteur`"
+        correct: false
+      - text: "`META-INF/spi.properties`"
+        correct: false
+      - text: "`src/main/resources/exporteur.xml`"
+        correct: false
+    answer: Le nom complet de l'interface.
+  - key: qcm-module
+    format: multiple-choice
+    question: Comment fournir et consommer un service avec des modules ?
+    choices:
+      - text: "`provides Exporteur with ExporteurCsv;` dans le module fournisseur"
+        correct: true
+      - text: "`uses Exporteur;` dans le module consommateur"
+        correct: true
+      - text: "`exports ExporteurCsv;`"
+        correct: false
+      - text: "`requires ServiceLoader;`"
+        correct: false
+    answer: Le fournisseur n'a pas besoin d'exporter son implémentation.
+  - key: qcm-usages
+    format: multiple-choice
+    question: Lesquels utilisent le mécanisme SPI ?
+    choices:
+      - text: "Le chargement automatique des pilotes JDBC"
+        correct: true
+      - text: "La découverte des processeurs d'annotations par `javac`"
+        correct: true
+      - text: "Le ramasse-miettes"
+        correct: false
+      - text: "Le compilateur JIT"
+        correct: false
+    answer: Les pilotes JDBC 4 se déclarent dans `META-INF/services/java.sql.Driver`.
+  - key: qcm-conteneur
+    format: multiple-choice
+    question: Dans une application Quarkus ou Spring, que préférer au SPI pour choisir une implémentation ?
+    choices:
+      - text: "L'injection de dépendances du conteneur"
+        correct: true
+      - text: "Des fichiers `META-INF/services` partout"
+        correct: false
+      - text: "La réflexion sur toutes les classes"
+        correct: false
+      - text: "Un singleton statique"
+        correct: false
+    answer: Le SPI reste utile pour les bibliothèques sans conteneur.
   - key: definition-spi
     format: definition
     question: SPI
     answer: Service Provider Interface (ServiceLoader)
+  - key: definition-fournisseur
+    format: definition
+    question: Fournisseur de service (provider)
+    answer: Une implémentation d'une interface de service, déclarée pour être découverte par `ServiceLoader`.
+  - key: definition-meta-inf-services
+    format: definition
+    question: META-INF/services
+    answer: Le dossier d'un JAR où un fichier nommé d'après une interface liste les classes qui l'implémentent.
+  - key: definition-provides
+    format: definition
+    question: provides ... with
+    answer: La clause de `module-info.java` qui déclare qu'un module fournit une implémentation d'un service.

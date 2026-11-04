@@ -1,4 +1,46 @@
 notion: testabilite
+lesson: |-
+  Un code est **testable** quand on peut contrôler ses entrées et observer ses sorties, sans infrastructure ni hasard. Les
+  obstacles habituels et leurs remèdes :
+
+  | Obstacle | Remède |
+  |---|---|
+  | `new ServiceExterne()` dans la classe | **injecter** la dépendance par le **constructeur** (une interface) |
+  | `Instant.now()`, `LocalDate.now()` | injecter un **`java.time.Clock`** (`Clock.fixed` en test) |
+  | `Math.random()`, `UUID.randomUUID()` | injecter un `RandomGenerator` ou un générateur d'identifiants |
+  | singletons et état statique | passer l'objet en paramètre ou l'injecter |
+  | logique mêlée aux entrées-sorties | séparer le **calcul pur** des effets (base, réseau, fichiers) |
+  | méthodes de 200 lignes | extraire des fonctions courtes, testables seules |
+
+  ```java
+  // Difficile à tester : dépendances cachées
+  class Abonnement {
+      boolean estExpire() { return LocalDate.now().isAfter(fin); }
+  }
+
+  // Testable : dépendances explicites
+  class Abonnement {
+      private final Clock horloge;
+      Abonnement(LocalDate fin, Clock horloge) { ... }
+      boolean estExpire() { return LocalDate.now(horloge).isAfter(fin); }
+  }
+  // test : new Abonnement(fin, Clock.fixed(instant, ZoneOffset.UTC))
+  ```
+
+  - **« Noyau fonctionnel, coquille impérative »** : le cœur métier est fait de fonctions pures (entrées → sortie), faciles
+    à tester unitairement ; une fine couche autour fait les entrées-sorties, testée en intégration. L'architecture
+    hexagonale (domaine, ports, adaptateurs) applique la même idée.
+  - Le code **asynchrone** se teste sans `Thread.sleep` : avec Awaitility (`await().atMost(...).until(...)`), ou en
+    injectant un exécuteur synchrone.
+  - Un test **flaky** (instable) vient presque toujours d'une dépendance non contrôlée : temps, ordre, état partagé,
+    concurrence, réseau, hasard.
+  - Un test difficile à écrire est un **signal** de conception : trop de dépendances, des responsabilités mêlées.
+
+  **Piège classique** : rendre une méthode `public` ou ajouter un accesseur « pour les tests ». On teste le comportement
+  par l'API publique ; si c'est impossible, la classe en fait trop et mérite d'être découpée.
+
+  **En entretien** : « Injection par constructeur, horloge et hasard injectés, calcul pur séparé des entrées-sorties ; un
+  test pénible à écrire révèle un problème de conception. »
 cards:
   - key: tester-code-asynchrone-sans-sleep
     format: course
@@ -8,6 +50,90 @@ cards:
     format: course
     question: Causes d'un test flaky ?
     answer: Ordre et état partagé, temps, concurrence, réseau, aléatoire.
+  - key: clock
+    format: course
+    question: Comment rendre testable un code qui dépend de l'heure courante ?
+    answer: En injectant un `java.time.Clock` et en lisant l'heure avec `Instant.now(clock)` ou `LocalDate.now(clock)` ; les tests passent `Clock.fixed(...)`.
+  - key: noyau-pur
+    format: course
+    question: Que signifie « noyau fonctionnel, coquille impérative » ?
+    answer: Placer la logique métier dans des fonctions pures, faciles à tester unitairement, et isoler les entrées-sorties dans une fine couche externe, testée en intégration.
+  - key: signal
+    format: course
+    question: Que révèle un test très difficile à écrire ?
+    answer: "Un problème de conception : trop de dépendances, des dépendances cachées (statiques, `new` internes, horloge), ou une classe qui mêle plusieurs responsabilités."
+  - key: vf-now
+    format: true-false
+    question: Un code qui appelle `LocalDate.now()` directement est facile à tester de façon déterministe.
+    truth: false
+    answer: Le résultat dépend du jour d'exécution ; on injecte un `Clock`.
+  - key: vf-public
+    format: true-false
+    question: Il est recommandé de rendre une méthode privée `public` pour pouvoir la tester.
+    truth: false
+    answer: On teste par l'API publique ; une méthode qui doit être testée seule mérite souvent sa propre classe.
+  - key: vf-constructeur
+    format: true-false
+    question: L'injection par constructeur facilite les tests unitaires.
+    truth: true
+    answer: Le test construit l'objet avec ses doublures, sans framework.
+  - key: vf-sleep
+    format: true-false
+    question: "`Thread.sleep` est une bonne façon d'attendre un traitement asynchrone dans un test."
+    truth: false
+    answer: Trop court, le test échoue au hasard ; trop long, il ralentit la suite. On attend une condition.
+  - key: qcm-obstacles
+    format: multiple-choice
+    question: Lesquels rendent une classe difficile à tester ?
+    choices:
+      - text: "Un `new ClientHttp()` dans le constructeur de la classe"
+        correct: true
+      - text: "Un appel à `UUID.randomUUID()` dont le résultat est vérifié"
+        correct: true
+      - text: "Des dépendances reçues par le constructeur"
+        correct: false
+      - text: "Des méthodes courtes et pures"
+        correct: false
+    answer: Les dépendances cachées échappent au contrôle du test.
+  - key: qcm-asynchrone
+    format: multiple-choice
+    question: Comment tester qu'un événement est traité par un consommateur asynchrone ?
+    choices:
+      - text: "`await().atMost(Duration.ofSeconds(2)).until(() -> repo.existe(id))` (Awaitility)"
+        correct: true
+      - text: "Injecter un exécuteur synchrone dans le test"
+        correct: true
+      - text: "`Thread.sleep(5000)` puis vérifier"
+        correct: false
+      - text: "Relancer le test jusqu'à ce qu'il passe"
+        correct: false
+    answer: Attendre une condition, ou supprimer l'asynchronisme dans le test.
+  - key: qcm-flaky
+    format: multiple-choice
+    question: Un test passe en local et échoue parfois en CI vers minuit. Quelle cause probable ?
+    choices:
+      - text: "Une dépendance à la date ou à l'heure courante (et au fuseau)"
+        correct: true
+      - text: "Un mauvais nom de méthode"
+        correct: false
+      - text: "Une assertion AssertJ"
+        correct: false
+      - text: "Un `@DisplayName`"
+        correct: false
+    answer: Un `Clock` fixe rend le test indépendant de l'heure d'exécution.
+  - key: qcm-separer
+    format: multiple-choice
+    question: Comment rendre testable une méthode qui lit un fichier, calcule des statistiques et envoie un e-mail ?
+    choices:
+      - text: "Extraire le calcul dans une fonction pure qui reçoit les données et renvoie les statistiques"
+        correct: true
+      - text: "Injecter le lecteur de fichier et l'envoi d'e-mails derrière des interfaces"
+        correct: true
+      - text: "Tout tester en bout en bout avec un vrai serveur SMTP"
+        correct: false
+      - text: "Rendre la méthode statique"
+        correct: false
+    answer: Le calcul se teste alors unitairement, les entrées-sorties à part.
   - key: refactorer-classe-critique-sans-tests
     format: scenario
     question: Refactorer une classe critique sans tests.
@@ -17,3 +143,30 @@ cards:
       Si la classe est trop couplée pour être testée, j'applique d'abord des refactorings **sûrs** pour l'ouvrir : extraire une dépendance et l'injecter. Ce sont des transformations mécaniques à faible risque.
       Ensuite je refactore **par petits pas**, tests relancés à chaque étape. Jamais une réécriture d'un bloc, si ça casse, on ne sait pas quoi.
       Sur une migration importante, j'ajouterais du **rejeu de trafic** : rejouer des requêtes réelles de production sur l'ancien et le nouveau système et comparer les résultats. C'est souvent le seul moyen de couvrir des cas qu'on n'aurait jamais imaginés en écrivant des tests.
+  - key: scenario-streak
+    format: scenario
+    question: Comment rends-tu testable le calcul d'un streak quotidien qui dépend du fuseau horaire de l'utilisateur ?
+    answer: |-
+      Le calcul devient une fonction pure : elle reçoit l'historique des jours actifs, la date du jour dans le fuseau de
+      l'utilisateur et l'objectif, et renvoie le streak, sans lire l'heure ni la base. Le service qui l'appelle obtient
+      « aujourd'hui » avec `LocalDate.now(clock.withZone(fuseau))`, avec un `Clock` injecté. Les tests unitaires couvrent
+      les cas délicats (un jour manqué, le passage de minuit, un changement d'heure, des fuseaux à l'opposé), avec des
+      dates explicites, et un test d'intégration vérifie l'assemblage avec la base.
+  - key: scenario-singleton
+    format: scenario
+    question: Une classe métier appelle `Configuration.getInstance().taux()` partout. Comment la rendre testable sans tout réécrire ?
+    answer: |-
+      J'introduis la dépendance progressivement : un constructeur qui reçoit l'objet de configuration (ou mieux, seulement
+      la valeur utile, un `TauxTva`), et un constructeur de transition qui passe `Configuration.getInstance()` pour ne pas
+      casser les appelants. Les tests utilisent le nouveau constructeur avec une configuration de test. Ensuite, je fais
+      migrer les appelants vers l'injection (le conteneur fournit la configuration), et je supprime le constructeur de
+      transition et, à terme, le singleton.
+  - key: scenario-async
+    format: scenario
+    question: Un test vérifie qu'un e-mail est envoyé par un traitement asynchrone, avec un `Thread.sleep(3000)`. Il est lent et échoue parfois. Que proposes-tu ?
+    answer: |-
+      Deux options. Remplacer l'attente fixe par une attente de condition avec Awaitility
+      (`await().atMost(5, SECONDS).untilAsserted(() -> verify(mailer).envoyer(any()))`) : le test continue dès que l'e-mail
+      est envoyé, et n'échoue qu'au-delà du délai. Ou, pour un test unitaire, injecter l'exécuteur et passer un exécuteur
+      synchrone (`Runnable::run`) : le traitement s'exécute dans le thread du test, sans attente. Le test devient rapide et
+      déterministe.

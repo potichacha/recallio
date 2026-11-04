@@ -1,9 +1,201 @@
 notion: fuites-memoire
+lesson: |-
+  Le ramasse-miettes récupère les objets **inaccessibles**. Une **fuite mémoire** en Java, c'est donc un objet qui reste
+  **accessible** alors qu'il ne sert plus : une référence oubliée le retient, et avec lui tout ce qu'il référence.
+
+  Les causes classiques :
+  - une **collection statique** ou de longue durée qui ne fait que grossir (`static Map<String, Session>`) ;
+  - un **cache sans limite** ni expiration ;
+  - des **écouteurs** (*listeners*) enregistrés et jamais retirés ;
+  - un **`ThreadLocal`** non nettoyé dans un pool de threads ;
+  - des **ressources non fermées** (connexions, flux) qui gardent des tampons ;
+  - des **chargeurs de classes** retenus après un redéploiement (fuite du Metaspace) ;
+  - une `HashMap` dont les clés ont un `hashCode` qui change ou un `equals` incorrect : les entrées ne sont jamais
+    retrouvées ni retirées ;
+  - une classe interne non statique (ou une lambda) qui retient son objet englobant.
+
+  Le symptôme : après chaque GC complet, la mémoire occupée remonte **un peu plus haut** (un escalier), jusqu'à
+  `OutOfMemoryError` ou un GC qui tourne en permanence.
+
+  Le diagnostic :
+  1. confirmer la tendance (métriques du tas **après GC**, journaux du GC) ;
+  2. capturer un **heap dump** (`-XX:+HeapDumpOnOutOfMemoryError`, ou `jcmd <pid> GC.heap_dump`), deux à quelques
+     minutes d'écart si possible ;
+  3. l'analyser avec **Eclipse MAT** : le *dominator tree* et le *leak suspects report* montrent ce qui occupe la mémoire,
+     et le **chemin vers les racines** (*path to GC roots*) dit **qui le retient** ;
+  4. corriger la référence en trop (borner le cache, retirer l'écouteur, `remove()` le `ThreadLocal`).
+
+  **Piège classique** : augmenter `-Xmx` pour « régler » une fuite. L'application tient plus longtemps, puis plante
+  quand même, avec un heap dump plus gros à analyser.
+
+  **En entretien** : « Une fuite, c'est un objet inutile encore référencé ; on la voit à la mémoire après GC qui monte en
+  escalier, et on trouve le coupable dans un heap dump par le chemin vers les racines. »
 cards:
   - key: fuite-memoire-malgre-gc
     format: course
     question: Fuite mémoire malgré le GC ?
     answer: Des objets restent référencés inutilement (static, cache, listeners, ThreadLocal).
+  - key: symptome
+    format: course
+    question: Comment reconnaître une fuite sur les courbes mémoire ?
+    answer: Le niveau du tas après chaque GC complet monte progressivement (un escalier) au lieu de rester stable, jusqu'à l'`OutOfMemoryError`.
+  - key: chemin-racines
+    format: course
+    question: Dans un heap dump, comment trouver le responsable d'une fuite ?
+    answer: En suivant le chemin des objets qui occupent la mémoire vers les racines du GC (path to GC roots), qui montre quelle référence les retient.
+  - key: hashcode
+    format: course
+    question: Comment un `hashCode` incorrect peut-il provoquer une fuite ?
+    answer: Si le `hashCode` d'une clé change après insertion (ou si `equals` est incohérent), l'entrée n'est plus retrouvée ; elle ne peut plus être retirée et reste dans la map pour toujours.
+  - key: vf-gc
+    format: true-false
+    question: Grâce au ramasse-miettes, une application Java ne peut pas avoir de fuite mémoire.
+    truth: false
+    answer: Le GC ne récupère que les objets inaccessibles ; un objet inutile mais référencé reste.
+  - key: vf-xmx
+    format: true-false
+    question: Augmenter `-Xmx` corrige une fuite mémoire.
+    truth: false
+    answer: Cela retarde seulement l'`OutOfMemoryError`.
+  - key: vf-classe-interne
+    format: true-false
+    question: Une instance de classe interne non statique retient son objet englobant.
+    truth: true
+    answer: Elle garde une référence implicite vers lui.
+  - key: vf-heap-dump-auto
+    format: true-false
+    question: "`-XX:+HeapDumpOnOutOfMemoryError` capture un heap dump au moment de l'`OutOfMemoryError`."
+    truth: true
+    answer: Indispensable en production (avec un dossier qui a la place).
+  - key: qcm-causes
+    format: multiple-choice
+    question: Lesquelles peuvent provoquer une fuite mémoire ?
+    choices:
+      - text: "Un cache statique sans limite ni expiration"
+        correct: true
+      - text: "Des écouteurs enregistrés et jamais retirés"
+        correct: true
+      - text: "Des variables locales dans une méthode courte"
+        correct: false
+      - text: "Des objets immuables créés et abandonnés"
+        correct: false
+    answer: Les objets abandonnés sont récupérés ; ce sont les références oubliées qui retiennent.
+  - key: qcm-outil
+    format: multiple-choice
+    question: Quel outil pour analyser un heap dump ?
+    choices:
+      - text: "Eclipse MAT"
+        correct: true
+      - text: "VisualVM"
+        correct: true
+      - text: "`javac`"
+        correct: false
+      - text: "JUnit"
+        correct: false
+    answer: MAT offre le dominator tree et le rapport des suspects.
+  - key: qcm-capture
+    format: multiple-choice
+    question: Comment capturer un heap dump d'une JVM en cours ?
+    choices:
+      - text: "`jcmd <pid> GC.heap_dump /chemin/dump.hprof`"
+        correct: true
+      - text: "`jmap -dump:live,format=b,file=dump.hprof <pid>`"
+        correct: true
+      - text: "`jstack <pid>`"
+        correct: false
+      - text: "`java -version`"
+        correct: false
+    answer: Le dump fige la JVM pendant l'écriture ; prévoir l'espace disque.
+  - key: qcm-distinguer
+    format: multiple-choice
+    question: Comment distinguer une fuite d'un tas simplement trop petit ?
+    choices:
+      - text: "Une fuite fait monter le niveau après GC au fil du temps ; un tas trop petit reste stable mais haut"
+        correct: true
+      - text: "Une fuite ne fait jamais tourner le GC"
+        correct: false
+      - text: "Un tas trop petit fait toujours monter la mémoire en escalier"
+        correct: false
+      - text: "Il est impossible de les distinguer"
+        correct: false
+    answer: C'est la tendance dans le temps qui compte.
+  - key: bug-cache-statique
+    format: bug-fix
+    question: |-
+      La mémoire du service grossit de jour en jour :
+      ```java
+      private static final Map<String, Rapport> CACHE = new HashMap<>();
+      Rapport rapport(String id) { return CACHE.computeIfAbsent(id, this::generer); }
+      ```
+    answer: |-
+      ```java
+      private final Cache<String, Rapport> cache = Caffeine.newBuilder()
+              .maximumSize(1_000)
+              .expireAfterWrite(Duration.ofHours(1))
+              .build();
+      Rapport rapport(String id) { return cache.get(id, this::generer); }
+      ```
+      Un cache sans limite garde chaque rapport pour toujours. Une taille maximale et une expiration bornent la mémoire
+      (et `HashMap` n'était de toute façon pas thread-safe).
+  - key: bug-ecouteur
+    format: bug-fix
+    question: |-
+      Chaque écran ouvert reste en mémoire après sa fermeture :
+      ```java
+      class Ecran {
+          Ecran(BusEvenements bus) { bus.abonner(this::surEvenement); }
+      }
+      ```
+    answer: |-
+      ```java
+      class Ecran implements AutoCloseable {
+          private final BusEvenements bus;
+          private final Abonnement abonnement;
+          Ecran(BusEvenements bus) {
+              this.bus = bus;
+              this.abonnement = bus.abonner(this::surEvenement);
+          }
+          @Override public void close() { bus.desabonner(abonnement); }
+      }
+      ```
+      Le bus, qui vit longtemps, garde une référence vers chaque écran (via la référence de méthode). Il faut se
+      désabonner à la fermeture.
+  - key: bug-threadlocal
+    format: bug-fix
+    question: |-
+      Le tas d'un serveur grossit avec des contextes de requêtes anciennes :
+      ```java
+      CONTEXTE.set(new ContexteRequete(requete));
+      traiter(requete);
+      ```
+    answer: |-
+      ```java
+      CONTEXTE.set(new ContexteRequete(requete));
+      try {
+          traiter(requete);
+      } finally {
+          CONTEXTE.remove();
+      }
+      ```
+      Les threads du pool vivent indéfiniment et gardent la dernière valeur de leur `ThreadLocal`. Le `remove()` dans un
+      `finally` libère le contexte.
+  - key: bug-cle-mutable
+    format: bug-fix
+    question: |-
+      Une map d'objets en cours de traitement ne se vide jamais, alors que chaque objet est retiré à la fin :
+      ```java
+      enCours.put(commande, Instant.now());     // commande est une clé mutable, hashCode sur son statut
+      commande.setStatut(Statut.TERMINEE);
+      enCours.remove(commande);                 // ne retire rien
+      ```
+    answer: |-
+      ```java
+      enCours.put(commande.id(), Instant.now());     // une clé immuable : l'identifiant
+      commande.setStatut(Statut.TERMINEE);
+      enCours.remove(commande.id());
+      ```
+      Le `hashCode` de la clé a changé après l'insertion : la map cherche dans la mauvaise case et ne retrouve jamais
+      l'entrée. Une clé doit être immuable (ou au moins avoir un `hashCode` stable).
   - key: service-consomme-plus-plus-memoire-jusqu
     format: scenario
     question: Ce service consomme de plus en plus de mémoire jusqu'à planter.
@@ -12,3 +204,30 @@ cards:
       Si c'est une fuite, je **capture un heap dump**, idéalement automatiquement via `-XX:+HeapDumpOnOutOfMemoryError`, et je l'analyse avec Eclipse MAT. Ce qui m'intéresse n'est pas seulement quelles classes occupent la place, mais **quel chemin de références les retient** : c'est ça qui désigne le coupable.
       Les suspects habituels : collection static qui grossit, cache sans limite ni TTL, listeners non désenregistrés, ThreadLocal non nettoyé dans un pool.
       Et je vérifierais la configuration : un `-Xmx` supérieur à la limite mémoire du pod fait tuer le conteneur par Kubernetes. En conteneur, `-XX:MaxRAMPercentage` est plus sûr qu'une valeur fixe.
+  - key: scenario-prevenir
+    format: scenario
+    question: Quelles pratiques mets-tu en place pour détecter les fuites avant la production ?
+    answer: |-
+      Des tests d'endurance (plusieurs heures de charge) en préproduction, en surveillant le tas après GC ; des métriques
+      JVM exposées (Micrometer) avec une alerte sur la tendance du tas après GC et sur le temps passé en GC ;
+      `-XX:+HeapDumpOnOutOfMemoryError` avec un dossier dédié ; et en revue de code, une attention aux collections
+      statiques, aux caches (toujours bornés), aux abonnements (toujours un désabonnement) et aux `ThreadLocal` (toujours
+      un `remove`).
+  - key: scenario-dump-enorme
+    format: scenario
+    question: Le heap dump fait 30 Go et MAT n'arrive pas à l'ouvrir sur ton poste. Comment avances-tu ?
+    answer: |-
+      J'analyse le dump sur une machine dédiée avec assez de mémoire, ou en mode ligne de commande avec MAT
+      (`ParseHeapDump.sh dump.hprof org.eclipse.mat.api:suspects`), qui produit le rapport des suspects sans interface.
+      Pour l'avenir, je capture un dump avec l'option `live` (seulement les objets accessibles, après un GC) et je réduis
+      le tas en préproduction pour reproduire la fuite plus vite avec un dump plus petit. Un histogramme
+      (`jcmd <pid> GC.class_histogram`) pris à deux moments donne déjà une bonne idée de ce qui grossit, sans dump complet.
+  - key: scenario-escalier-lent
+    format: scenario
+    question: La mémoire d'un service monte très lentement, sur plusieurs semaines, et il redémarre à chaque déploiement. Faut-il s'en occuper ?
+    answer: |-
+      Oui : les déploiements fréquents masquent la fuite, mais elle apparaîtra dès qu'ils s'espaceront (gel de
+      fin d'année, incident). Je compare deux histogrammes de classes (`jcmd GC.class_histogram`) pris à quelques jours
+      d'intervalle sur une instance, pour voir quel type d'objet grossit, puis je cherche ce qui le retient dans un heap
+      dump. Les causes lentes typiques : un cache sans expiration sur des clés rares, des métriques avec des étiquettes à
+      cardinalité illimitée (un identifiant d'utilisateur en étiquette), des écouteurs accumulés.

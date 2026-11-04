@@ -1,0 +1,125 @@
+notion: watchservice
+lesson: |-
+  Le **`WatchService`** (Java 7) signale les changements dans un **dossier** : création, modification, suppression
+  d'entrées.
+
+  ```java
+  try (WatchService watcher = FileSystems.getDefault().newWatchService()) {
+      dossier.register(watcher, ENTRY_CREATE, ENTRY_MODIFY, ENTRY_DELETE);
+      while (!Thread.currentThread().isInterrupted()) {
+          WatchKey cle = watcher.take();                       // attend un événement
+          for (WatchEvent<?> evt : cle.pollEvents()) {
+              if (evt.kind() == OVERFLOW) continue;            // des événements ont été perdus
+              Path nom = (Path) evt.context();                 // relatif au dossier surveillé
+              traiter(evt.kind(), dossier.resolve(nom));
+          }
+          if (!cle.reset()) break;                             // le dossier n'est plus accessible
+      }
+  }
+  ```
+
+  Ses limites :
+  - il surveille **un dossier**, pas ses sous-dossiers : il faut enregistrer chaque sous-dossier soi-même ;
+  - le contexte d'un événement est un chemin **relatif** au dossier ;
+  - il faut appeler **`reset()`** après chaque lot d'événements, sinon la clé ne reçoit plus rien ;
+  - des événements peuvent être **regroupés ou perdus** (`OVERFLOW`) : on ne s'y fie pas comme à un journal exact ;
+  - un fichier signalé « créé » peut être **encore en cours d'écriture** ;
+  - selon le système, l'implémentation repose sur les notifications du noyau ou sur un **sondage** périodique (lent) ;
+    sur les partages réseau (NFS, SMB), les notifications sont souvent absentes.
+
+  Pour un traitement fiable (dépôt de fichiers), on combine le `WatchService` avec un **parcours périodique** de
+  rattrapage, et un protocole de dépôt (fichier temporaire renommé une fois complet).
+
+  **Piège classique** : oublier `cle.reset()`. Le premier événement est reçu, puis plus rien, sans erreur.
+
+  **En entretien** : « `WatchService` signale les changements d'un dossier, pas de ses sous-dossiers ; il faut `reset()` la
+  clé, gérer `OVERFLOW`, et ne pas s'y fier seul : un parcours de rattrapage reste nécessaire. »
+cards:
+  - key: definition
+    format: course
+    question: À quoi sert un `WatchService` ?
+    answer: À être notifié des créations, modifications et suppressions d'entrées dans un dossier surveillé.
+  - key: reset
+    format: course
+    question: Pourquoi appeler `WatchKey.reset()` ?
+    answer: Après traitement de ses événements, la clé doit être réarmée pour en recevoir d'autres ; `reset` renvoie `false` si le dossier n'est plus accessible.
+  - key: limites
+    format: course
+    question: Quelles sont les limites du `WatchService` ?
+    answer: Un dossier seulement (pas ses sous-dossiers), des événements regroupés ou perdus (`OVERFLOW`), des fichiers signalés pendant leur écriture, et des notifications souvent absentes sur les partages réseau.
+  - key: fiable
+    format: course
+    question: Comment traiter de façon fiable les fichiers déposés dans un dossier ?
+    answer: En combinant le `WatchService` avec un parcours périodique de rattrapage, et un protocole de dépôt (nom temporaire renommé une fois le fichier complet).
+  - key: vf-recursif
+    format: true-false
+    question: Enregistrer un dossier dans un `WatchService` surveille aussi ses sous-dossiers.
+    truth: false
+    answer: Il faut enregistrer chaque sous-dossier.
+  - key: vf-contexte
+    format: true-false
+    question: Le contexte d'un `WatchEvent` est le chemin relatif au dossier surveillé.
+    truth: true
+    answer: On le résout avec `dossier.resolve(nom)`.
+  - key: vf-complet
+    format: true-false
+    question: Un événement `ENTRY_CREATE` garantit que le fichier est entièrement écrit.
+    truth: false
+    answer: Il peut être encore en cours d'écriture.
+  - key: vf-overflow
+    format: true-false
+    question: "L'événement `OVERFLOW` signale que des événements ont pu être perdus."
+    truth: true
+    answer: Il faut alors rescanner le dossier.
+  - key: qcm-oubli
+    format: multiple-choice
+    question: Un `WatchService` ne reçoit qu'un seul lot d'événements, puis plus rien. Pourquoi ?
+    choices:
+      - text: "`reset()` n'est pas appelé sur la clé"
+        correct: true
+      - text: "`take()` ne doit être appelé qu'une fois"
+        correct: false
+      - text: "Le dossier est trop gros"
+        correct: false
+      - text: "Les événements sont désactivés par défaut"
+        correct: false
+    answer: La clé reste dans l'état « signalée » tant qu'elle n'est pas réarmée.
+  - key: qcm-evenements
+    format: multiple-choice
+    question: Quels types d'événements peut-on surveiller ?
+    choices:
+      - text: "`ENTRY_CREATE`"
+        correct: true
+      - text: "`ENTRY_DELETE`"
+        correct: true
+      - text: "`ENTRY_READ`"
+        correct: false
+      - text: "`ENTRY_RENAME`"
+        correct: false
+    answer: '`ENTRY_MODIFY` aussi ; un renommage apparaît comme une suppression et une création.'
+  - key: qcm-reseau
+    format: multiple-choice
+    question: Pourquoi le `WatchService` peut-il ne rien signaler sur un dossier NFS ?
+    choices:
+      - text: "Les modifications faites par d'autres machines ne déclenchent pas de notification locale"
+        correct: true
+      - text: "Parce que NFS est en lecture seule"
+        correct: false
+      - text: "Parce que Java ne supporte pas NFS"
+        correct: false
+      - text: "Parce que le dossier est trop loin"
+        correct: false
+    answer: D'où l'intérêt d'un parcours périodique.
+  - key: qcm-take-poll
+    format: multiple-choice
+    question: Quelle différence entre `watcher.take()` et `watcher.poll()` ?
+    choices:
+      - text: "`take` attend un événement ; `poll` renvoie `null` immédiatement s'il n'y en a pas"
+        correct: true
+      - text: "`take` supprime le fichier"
+        correct: false
+      - text: "`poll` surveille les sous-dossiers"
+        correct: false
+      - text: "Aucune"
+        correct: false
+    answer: '`poll(délai)` attend au plus le délai donné.'

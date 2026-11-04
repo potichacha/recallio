@@ -1,6 +1,253 @@
 notion: threadlocal
+lesson: |-
+  Un **`ThreadLocal<T>`** donne à **chaque thread sa propre valeur** d'une même variable : ce qu'un thread y range, les
+  autres ne le voient pas.
+
+  ```java
+  private static final ThreadLocal<Utilisateur> COURANT = new ThreadLocal<>();
+
+  void traiterRequete(Requete r) {
+      COURANT.set(authentifier(r));
+      try {
+          service.executer();                 // peut lire COURANT.get() sans paramètre
+      } finally {
+          COURANT.remove();                   // indispensable dans un pool
+      }
+  }
+
+  private static final ThreadLocal<DateTimeFormatter> FORMAT =      // un objet non thread-safe par thread
+          ThreadLocal.withInitial(() -> DateTimeFormatter.ofPattern("dd/MM/yyyy"));
+  ```
+
+  Usages :
+  - un **contexte implicite** par requête : utilisateur connecté, identifiant de corrélation des logs (le MDC de SLF4J),
+    transaction (les frameworks s'en servent) ;
+  - un objet **coûteux et non thread-safe** par thread (l'ancien `SimpleDateFormat`).
+
+  Les dangers :
+  - dans un **pool**, les threads sont réutilisés : une valeur non retirée **fuit** vers la requête suivante (données d'un
+    autre utilisateur !) et retient de la mémoire ; on appelle **`remove()`** dans un `finally` ;
+  - dans un serveur d'applications, une valeur dont la classe vient de l'application peut retenir tout le chargeur de
+    classes après un redéploiement : fuite de Metaspace ;
+  - avec des **millions de threads virtuels**, une valeur par thread multiplie la mémoire ; les **`ScopedValue`**
+    (Java 25) sont l'alternative, immuables et liées à une portée ;
+  - c'est une forme d'**état global caché** : les dépendances ne sont plus visibles dans les signatures.
+  - `InheritableThreadLocal` copie la valeur aux threads enfants à leur création, pas aux tâches d'un pool existant.
+
+  **Piège classique** : un filtre HTTP qui fait `set()` sans `remove()`. La requête suivante, servie par le même thread du
+  pool, voit l'utilisateur de la précédente.
+
+  **En entretien** : « Une valeur par thread, pratique pour un contexte de requête, mais avec un pool il faut toujours
+  `remove()` dans un `finally` ; avec les threads virtuels, je préfère `ScopedValue`. »
 cards:
   - key: danger-threadlocal
     format: course
     question: Danger de ThreadLocal ?
     answer: Dans un pool, le thread recyclé garde la valeur → fuite mémoire et de données. Nettoyer avec remove().
+  - key: definition
+    format: course
+    question: Qu'est-ce qu'un `ThreadLocal` ?
+    answer: Une variable dont chaque thread a sa propre valeur, invisible des autres threads.
+  - key: usages
+    format: course
+    question: À quoi sert typiquement un `ThreadLocal` ?
+    answer: À porter un contexte de requête implicite (utilisateur, identifiant de corrélation, transaction) ou à donner à chaque thread son instance d'un objet non thread-safe.
+  - key: alternative
+    format: course
+    question: Quelle alternative à `ThreadLocal` pour les threads virtuels ?
+    answer: '`ScopedValue` (définitive en Java 25) : une valeur immuable liée à une portée d''exécution, sans `remove` à oublier ni copie par thread.'
+  - key: vf-partage
+    format: true-false
+    question: Deux threads qui lisent le même `ThreadLocal` voient la même valeur.
+    truth: false
+    answer: Chacun voit la sienne.
+  - key: vf-remove
+    format: true-false
+    question: Dans un pool de threads, il faut appeler `remove()` après usage.
+    truth: true
+    answer: Sinon le thread réutilisé garde la valeur pour la tâche suivante.
+  - key: vf-inheritable
+    format: true-false
+    question: "Une valeur d'`InheritableThreadLocal` est transmise aux tâches soumises à un pool déjà créé."
+    truth: false
+    answer: Elle est copiée à la création d'un thread enfant ; les threads du pool existent déjà.
+  - key: vf-with-initial
+    format: true-false
+    question: "`ThreadLocal.withInitial(fabrique)` crée une valeur à la première lecture de chaque thread."
+    truth: true
+    answer: La fabrique est appelée par thread, à la demande.
+  - key: qcm-fuite
+    format: multiple-choice
+    question: Que risque un `ThreadLocal` non nettoyé dans un serveur web ?
+    choices:
+      - text: "Une requête voit les données de la requête précédente servie par le même thread"
+        correct: true
+      - text: "Une fuite mémoire"
+        correct: true
+      - text: "Une erreur de compilation"
+        correct: false
+      - text: "Un interblocage automatique"
+        correct: false
+    answer: Les threads du pool vivent bien plus longtemps que les requêtes.
+  - key: qcm-nettoyage
+    format: multiple-choice
+    question: Où appeler `remove()` ?
+    choices:
+      - text: "Dans un `finally`, autour du traitement qui a fait `set()`"
+        correct: true
+      - text: "Au démarrage de l'application"
+        correct: false
+      - text: "Dans le constructeur de la classe"
+        correct: false
+      - text: "Nulle part, le GC s'en charge"
+        correct: false
+    answer: Le `finally` garantit le nettoyage même en cas d'exception.
+  - key: qcm-mdc
+    format: multiple-choice
+    question: Sur quoi repose le MDC (contexte de diagnostic) de SLF4J/Logback ?
+    choices:
+      - text: "Un `ThreadLocal`"
+        correct: true
+      - text: "Une variable statique partagée"
+        correct: false
+      - text: "Une base de données"
+        correct: false
+      - text: "Les paramètres de chaque méthode"
+        correct: false
+    answer: D'où la nécessité de le nettoyer, et de le propager à la main entre threads.
+  - key: qcm-inconvenient
+    format: multiple-choice
+    question: Quels sont les inconvénients d'un `ThreadLocal` comme mécanisme de contexte ?
+    choices:
+      - text: "Une dépendance cachée, absente des signatures"
+        correct: true
+      - text: "Le contexte ne suit pas automatiquement une tâche passée à un autre thread"
+        correct: true
+      - text: "Il est plus lent qu'une base de données"
+        correct: false
+      - text: "Il est interdit dans les applications web"
+        correct: false
+    answer: Un appel asynchrone perd le contexte s'il n'est pas transmis explicitement.
+  - key: code-par-thread
+    format: code-output
+    question: |-
+      ```java
+      ThreadLocal<String> nom = new ThreadLocal<>();
+      nom.set("main");
+      Thread t = new Thread(() -> System.out.print(nom.get() + " "));
+      t.start();
+      t.join();
+      System.out.println(nom.get());
+      ```
+    answer: '`null main` : le thread `t` n''a pas de valeur.'
+    check:
+      output: "null main"
+  - key: code-initial
+    format: code-output
+    question: |-
+      ```java
+      int[] creations = {0};
+      ThreadLocal<StringBuilder> tampon = ThreadLocal.withInitial(() -> { creations[0]++; return new StringBuilder(); });
+      tampon.get().append("a");
+      tampon.get().append("b");
+      System.out.println(tampon.get() + " " + creations[0]);
+      ```
+    answer: '`ab 1` : une seule création pour le thread courant.'
+    check:
+      output: "ab 1"
+  - key: code-pool-fuite
+    format: code-output
+    question: |-
+      ```java
+      ThreadLocal<String> utilisateur = new ThreadLocal<>();
+      try (var pool = Executors.newSingleThreadExecutor()) {
+          pool.submit(() -> utilisateur.set("ada")).get();
+          System.out.println(pool.submit(() -> utilisateur.get()).get());
+      }
+      ```
+    answer: '`ada` : la seconde tâche, sur le même thread, voit la valeur laissée par la première.'
+    check:
+      output: "ada"
+  - key: code-remove
+    format: code-output
+    question: |-
+      ```java
+      ThreadLocal<Integer> t = ThreadLocal.withInitial(() -> 0);
+      t.set(42);
+      t.remove();
+      System.out.println(t.get());
+      ```
+    answer: '`0` : après `remove()`, la valeur initiale est recréée.'
+    check:
+      output: "0"
+  - key: bug-filtre
+    format: bug-fix
+    question: |-
+      Des utilisateurs voient parfois le panier d'un autre :
+      ```java
+      public void filtrer(Requete r, Chaine chaine) {
+          CONTEXTE.set(authentifier(r));
+          chaine.continuer(r);
+      }
+      ```
+    answer: |-
+      ```java
+      public void filtrer(Requete r, Chaine chaine) {
+          CONTEXTE.set(authentifier(r));
+          try {
+              chaine.continuer(r);
+          } finally {
+              CONTEXTE.remove();
+          }
+      }
+      ```
+      Le thread du pool est réutilisé pour la requête suivante : sans `remove()`, elle hérite de l'utilisateur précédent.
+  - key: bug-asynchrone
+    format: bug-fix
+    question: |-
+      L'identifiant de corrélation disparaît des logs des traitements asynchrones :
+      ```java
+      MDC.put("correlation", id);
+      executor.submit(() -> traiter(commande));    // les logs de traiter() n'ont plus l'identifiant
+      ```
+    answer: |-
+      ```java
+      Map<String, String> contexte = MDC.getCopyOfContextMap();
+      executor.submit(() -> {
+          MDC.setContextMap(contexte);
+          try {
+              traiter(commande);
+          } finally {
+              MDC.clear();
+          }
+      });
+      ```
+      Le MDC repose sur un `ThreadLocal` : il ne suit pas la tâche dans un autre thread. On le copie à la soumission,
+      puis on le nettoie.
+  - key: bug-simpledateformat
+    format: bug-fix
+    question: |-
+      Ce formateur partagé produit parfois des dates absurdes sous charge :
+      ```java
+      private static final SimpleDateFormat FORMAT = new SimpleDateFormat("dd/MM/yyyy");
+      ```
+    answer: |-
+      ```java
+      private static final DateTimeFormatter FORMAT = DateTimeFormatter.ofPattern("dd/MM/yyyy");
+      ```
+      `SimpleDateFormat` n'est pas thread-safe. Plutôt qu'un `ThreadLocal<SimpleDateFormat>`, on utilise
+      `DateTimeFormatter`, immuable et thread-safe.
+  - key: bug-virtuels
+    format: bug-fix
+    question: |-
+      Avec un thread virtuel par requête (un million de requêtes simultanées), la mémoire explose :
+      ```java
+      private static final ThreadLocal<byte[]> TAMPON = ThreadLocal.withInitial(() -> new byte[64 * 1024]);
+      ```
+    answer: |-
+      ```java
+      byte[] tampon = new byte[64 * 1024];      // local à la requête, libéré à la fin
+      // ou un pool d'objets borné, partagé
+      ```
+      Un `ThreadLocal` de cache n'a de sens que pour quelques threads réutilisés. Avec un thread virtuel par tâche, chaque
+      tâche alloue son tampon une fois et ne le réutilise jamais : la mémoire est multipliée sans gain.

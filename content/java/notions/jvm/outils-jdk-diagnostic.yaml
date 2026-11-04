@@ -1,4 +1,42 @@
 notion: outils-jdk-diagnostic
+lesson: |-
+  Le JDK fournit des outils de diagnostic en ligne de commande, qui s'attachent à une JVM en cours :
+
+  | Outil | Pour |
+  |---|---|
+  | **`jcmd`** | le couteau suisse : `jcmd` liste les JVM, `jcmd <pid> help` les commandes |
+  | `jps` | lister les JVM locales et leurs identifiants |
+  | `jstack <pid>` | un thread dump |
+  | `jmap` | histogramme du tas, heap dump |
+  | `jstat -gcutil <pid> 1s` | l'occupation des zones mémoire et l'activité du GC, en continu |
+  | `jinfo` | les options et propriétés d'une JVM |
+
+  Les commandes `jcmd` les plus utiles :
+
+  ```
+  jcmd <pid> Thread.print                       # thread dump
+  jcmd <pid> GC.heap_dump /tmp/dump.hprof       # heap dump
+  jcmd <pid> GC.class_histogram                 # nombre d'instances et taille par classe
+  jcmd <pid> VM.flags                           # options effectives
+  jcmd <pid> VM.native_memory summary           # mémoire native (avec -XX:NativeMemoryTracking=summary)
+  jcmd <pid> JFR.start duration=60s filename=rec.jfr
+  jcmd <pid> VM.metaspace
+  jcmd <pid> Thread.dump_to_file -format=json f.json   # inclut les threads virtuels
+  ```
+
+  - `-XX:+PrintFlagsFinal` affiche toutes les options effectives au démarrage ; `jcmd VM.flags` sur une JVM en cours.
+  - Ces outils doivent tourner avec le **même utilisateur** que la JVM, et sur la même machine (ou dans le même
+    conteneur : `kubectl exec`). Une image de conteneur minimale (JRE seul) ne les contient pas toujours : prévoir un JDK
+    ou un conteneur de débogage.
+  - Un **heap dump** fige la JVM pendant son écriture et peut peser autant que le tas : prudence en production.
+  - Pour la supervision continue, on expose les métriques JVM (Micrometer, JMX) plutôt que de lancer ces outils à la
+    main.
+
+  **Piège classique** : chercher `jstack` dans une image de production basée sur un JRE minimal. L'outil est absent au
+  moment de l'incident ; on prévoit l'outillage (JDK, `jcmd`, ou un conteneur éphémère de débogage) à l'avance.
+
+  **En entretien** : « `jcmd` couvre presque tout : thread dump, heap dump, histogramme, options, mémoire native, JFR ;
+  `jstat` pour suivre le GC en direct. »
 cards:
   - key: mesurer-memoire-native
     format: course
@@ -12,7 +50,135 @@ cards:
     format: course
     question: Qu'affiche -XX:+PrintFlagsFinal ?
     answer: Toutes les valeurs effectives des flags de la JVM.
+  - key: jstat
+    format: course
+    question: À quoi sert `jstat -gcutil <pid> 1s` ?
+    answer: À suivre chaque seconde l'occupation des zones mémoire (Eden, Survivor, Old, Metaspace) et le nombre et le temps des GC.
+  - key: histogramme
+    format: course
+    question: Qu'apporte `jcmd <pid> GC.class_histogram` par rapport à un heap dump ?
+    answer: Le nombre d'instances et la taille occupée par classe, instantanément et sans fichier énorme ; comparer deux histogrammes montre ce qui grossit.
+  - key: vf-utilisateur
+    format: true-false
+    question: Les outils comme `jcmd` doivent être lancés avec le même utilisateur que la JVM ciblée.
+    truth: true
+    answer: Ils s'attachent au processus par un mécanisme local.
+  - key: vf-heap-dump-gratuit
+    format: true-false
+    question: Un heap dump n'a aucun impact sur une JVM de production.
+    truth: false
+    answer: Il fige la JVM pendant l'écriture et produit un fichier de la taille du tas.
+  - key: vf-jre
+    format: true-false
+    question: Une image de conteneur construite sur un runtime minimal contient toujours `jstack` et `jcmd`.
+    truth: false
+    answer: Un runtime réduit (jlink, JRE) peut ne pas les inclure.
+  - key: vf-jcmd-liste
+    format: true-false
+    question: "`jcmd` sans argument liste les JVM locales."
+    truth: true
+    answer: Comme `jps`.
+  - key: qcm-commandes
+    format: multiple-choice
+    question: Associez commande et usage.
+    choices:
+      - text: "`jcmd <pid> Thread.print` : un thread dump"
+        correct: true
+      - text: "`jcmd <pid> VM.flags` : les options effectives"
+        correct: true
+      - text: "`jcmd <pid> GC.heap_dump` : les statistiques réseau"
+        correct: false
+      - text: "`jstat -gcutil` : le bytecode des classes"
+        correct: false
+    answer: '`GC.heap_dump` écrit le contenu du tas.'
+  - key: qcm-natif
+    format: multiple-choice
+    question: Que faut-il pour voir la mémoire native par catégorie ?
+    choices:
+      - text: "Lancer la JVM avec `-XX:NativeMemoryTracking=summary`, puis `jcmd <pid> VM.native_memory summary`"
+        correct: true
+      - text: "Un heap dump"
+        correct: false
+      - text: "`jstack`"
+        correct: false
+      - text: "`-verbose:gc`"
+        correct: false
+    answer: NMT doit être activé au démarrage.
+  - key: qcm-virtuels
+    format: multiple-choice
+    question: Comment obtenir un dump qui inclut les threads virtuels ?
+    choices:
+      - text: "`jcmd <pid> Thread.dump_to_file -format=json fichier.json`"
+        correct: true
+      - text: "`jstack <pid>`"
+        correct: false
+      - text: "`jmap -histo <pid>`"
+        correct: false
+      - text: "`jps -v`"
+        correct: false
+    answer: '`jstack` ne montre que les threads de plateforme.'
+  - key: qcm-conteneur
+    format: multiple-choice
+    question: Comment utiliser `jcmd` sur une JVM qui tourne dans un pod Kubernetes ?
+    choices:
+      - text: "`kubectl exec` dans le conteneur, si l'image contient `jcmd`"
+        correct: true
+      - text: "Un conteneur éphémère de débogage qui partage l'espace de processus"
+        correct: true
+      - text: "Depuis son poste, sans accès au pod"
+        correct: false
+      - text: "Ce n'est jamais possible"
+        correct: false
+    answer: L'outil doit voir le processus de la JVM.
+  - key: scenario-incident
+    format: scenario
+    question: Un service répond lentement en production. Quelles commandes lances-tu en premier, et pourquoi ?
+    answer: |-
+      Je prends d'abord des données sans perturber : `jcmd <pid> Thread.print` deux ou trois fois à quelques secondes
+      d'intervalle (que font les threads, sont-ils bloqués ?), `jstat -gcutil <pid> 1s` pendant une minute (le GC
+      tourne-t-il en boucle, la vieille génération est-elle pleine ?), et `jcmd <pid> JFR.start duration=60s` pour un
+      enregistrement complet à faible coût. Selon ce que je vois : histogramme des classes ou heap dump pour la mémoire,
+      profilage CPU si le processeur est saturé. Je note les heures pour corréler avec les métriques et les journaux.
+  - key: scenario-preparer
+    format: scenario
+    question: Comment prépares-tu une application pour qu'elle soit diagnosticable en production ?
+    answer: |-
+      Des options au démarrage : `-XX:+HeapDumpOnOutOfMemoryError` avec un dossier qui a la place, des journaux GC en
+      rotation (`-Xlog:gc*`), éventuellement `-XX:NativeMemoryTracking=summary` et un enregistrement JFR continu. Une image
+      qui contient `jcmd` (ou une procédure de conteneur de débogage), des métriques JVM exposées (Micrometer :
+      mémoire, GC, threads), des threads nommés, et une procédure écrite pour récupérer un dump d'un pod avant qu'il soit
+      redémarré.
+  - key: scenario-quel-outil
+    format: scenario
+    question: Le CPU d'une instance est à 100 %. Comment trouves-tu rapidement le thread coupable avec les outils du JDK ?
+    answer: |-
+      Je liste les threads les plus gourmands du processus avec `top -H -p <pid>` et je note leurs identifiants système. Je
+      prends un thread dump (`jcmd <pid> Thread.print`) : chaque thread y porte un `nid` en hexadécimal, qui correspond à
+      cet identifiant. Je convertis, je retrouve les threads, et leur pile montre ce qu'ils exécutent. Je répète deux ou
+      trois fois pour confirmer. Si ce sont les threads du GC, je bascule sur le diagnostic mémoire ; pour une analyse
+      plus fine, async-profiler ou JFR donnent un profil CPU complet.
+  - key: scenario-flags
+    format: scenario
+    question: Une instance se comporte différemment des autres. Comment vérifies-tu sa configuration réelle de JVM ?
+    answer: |-
+      Avec `jcmd <pid> VM.flags` (les options non par défaut effectives) et `jcmd <pid> VM.command_line` (la ligne de
+      lancement), voire `-XX:+PrintFlagsFinal` pour tout voir. Je compare avec une instance saine : taille du tas, GC
+      choisi (une machine plus petite peut changer le GC par défaut), version du JDK (`jcmd <pid> VM.version`), variables
+      comme `JAVA_TOOL_OPTIONS` qui ajoutent des options sans qu'on le voie dans la commande. `jcmd <pid> VM.system_properties`
+      complète avec les propriétés système.
   - key: definition-nmt
     format: definition
     question: NMT
     answer: 'Native Memory Tracking : suivi de la mémoire native de la JVM'
+  - key: definition-jcmd
+    format: definition
+    question: jcmd
+    answer: L'outil du JDK qui envoie des commandes de diagnostic à une JVM en cours (thread dump, heap dump, options, JFR).
+  - key: definition-jstat
+    format: definition
+    question: jstat
+    answer: Un outil qui affiche en continu les statistiques des zones mémoire et du GC d'une JVM.
+  - key: definition-histogramme
+    format: definition
+    question: Histogramme de classes
+    answer: La liste, par classe, du nombre d'instances présentes dans le tas et de la mémoire qu'elles occupent.

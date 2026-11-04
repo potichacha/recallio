@@ -1,16 +1,259 @@
 notion: microbenchmark-jmh
+lesson: |-
+  Mesurer la performance d'un petit morceau de code est **piégeux** sur la JVM :
+  - la **chauffe** : les premières exécutions sont interprétées, puis compilées ; on mesure souvent la compilation ;
+  - l'**élimination de code mort** : si le résultat n'est pas utilisé, le JIT peut supprimer le calcul et l'on mesure le
+    vide ;
+  - le **repli de constantes** : des entrées constantes laissent le JIT précalculer le résultat ;
+  - l'**OSR** et les profils : une boucle de mesure compilée différemment du code réel ;
+  - les **variations** entre exécutions de JVM (placement mémoire, décisions du JIT), le GC, la fréquence du processeur.
+
+  **JMH** (*Java Microbenchmark Harness*, du projet OpenJDK) gère ces pièges :
+
+  ```java
+  @BenchmarkMode(Mode.AverageTime)
+  @OutputTimeUnit(TimeUnit.NANOSECONDS)
+  @Warmup(iterations = 5) @Measurement(iterations = 5) @Fork(3)
+  @State(Scope.Benchmark)
+  public class ConcatBenchmark {
+      @Param({"10", "1000"}) int taille;
+      List<String> mots;
+
+      @Setup public void preparer() { mots = genererMots(taille); }
+
+      @Benchmark public String joining() { return String.join(",", mots); }      // le résultat est renvoyé
+
+      @Benchmark public void builder(Blackhole bh) {
+          StringBuilder sb = new StringBuilder();
+          for (String m : mots) sb.append(m).append(',');
+          bh.consume(sb.toString());                                            // consommé : pas éliminé
+      }
+  }
+  ```
+
+  - Des itérations de **chauffe** non comptées, plusieurs **forks** (des JVM neuves), des **paramètres** (`@Param`) pour
+    varier la taille des données, un état préparé hors mesure (`@Setup`).
+  - On **renvoie** le résultat ou on le passe à un **`Blackhole`** pour empêcher son élimination.
+  - On lit l'écart (`± error`) : deux résultats dont les intervalles se recouvrent ne sont pas différents.
+  - Un micro-benchmark dit si A est plus rapide que B **isolément** ; seul un **profil** de l'application dit si ce code
+    compte dans le temps réel.
+
+  **Piège classique** : une boucle `for` autour de l'appel avec `System.nanoTime()` avant et après, dans le `main`. On
+  mesure l'interpréteur, la compilation, ou du code supprimé, et le résultat n'a aucune valeur.
+
+  **En entretien** : « JMH gère la chauffe, les forks et l'élimination de code mort ; je consomme les résultats avec un
+  `Blackhole`, je varie les tailles, et je vérifie par un profil que le code mesuré compte vraiment. »
 cards:
   - key: utiliser-jmh
     format: course
     question: Pourquoi utiliser JMH ?
     answer: 'Pour neutraliser les pièges des micro-benchmarks : chauffe, élimination de code mort, OSR, variance entre JVM.'
+  - key: blackhole
+    format: course
+    question: À quoi sert un `Blackhole` dans JMH ?
+    answer: À consommer un résultat pour que le JIT ne puisse pas considérer le calcul comme inutile et le supprimer.
+  - key: forks
+    format: course
+    question: Pourquoi JMH lance-t-il plusieurs forks ?
+    answer: Chaque fork est une JVM neuve ; les décisions du JIT et le placement mémoire varient d'une exécution à l'autre, et plusieurs forks révèlent cette variance.
+  - key: profil-avant
+    format: course
+    question: Que vérifier avant d'optimiser un code d'après un micro-benchmark ?
+    answer: Qu'il compte réellement dans le temps de l'application, grâce à un profil ; un gain important sur une partie négligeable ne change rien pour l'utilisateur.
+  - key: vf-code-mort
+    format: true-false
+    question: Le JIT peut supprimer un calcul dont le résultat n'est jamais utilisé.
+    truth: true
+    answer: C'est l'élimination de code mort, qui fausse les benchmarks naïfs.
+  - key: vf-nanotime
+    format: true-false
+    question: Une boucle chronométrée avec `System.nanoTime()` dans `main` donne une mesure fiable.
+    truth: false
+    answer: Elle mesure souvent la chauffe, la compilation ou du code éliminé.
+  - key: vf-erreur
+    format: true-false
+    question: Deux scores JMH dont les intervalles d'erreur se recouvrent ne permettent pas de conclure qu'un code est plus rapide.
+    truth: true
+    answer: La différence peut n'être que du bruit.
+  - key: vf-param
+    format: true-false
+    question: "`@Param` permet de faire varier les données d'entrée d'un benchmark."
+    truth: true
+    answer: Un résultat valable pour 10 éléments peut s'inverser pour un million.
+  - key: qcm-pieges
+    format: multiple-choice
+    question: Quels pièges JMH aide-t-il à éviter ?
+    choices:
+      - text: "La mesure pendant la chauffe"
+        correct: true
+      - text: "L'élimination de code mort"
+        correct: true
+      - text: "Un algorithme de mauvaise complexité"
+        correct: false
+      - text: "Les erreurs de compilation"
+        correct: false
+    answer: Il ne choisit pas l'algorithme à notre place.
+  - key: qcm-annotations
+    format: multiple-choice
+    question: Associez correctement l'annotation JMH et son rôle.
+    choices:
+      - text: "`@Warmup` : les itérations de chauffe non comptées"
+        correct: true
+      - text: "`@Setup` : préparer l'état hors de la mesure"
+        correct: true
+      - text: "`@Fork(0)` : le réglage recommandé"
+        correct: false
+      - text: "`@Benchmark` : désactiver le JIT"
+        correct: false
+    answer: Sans fork, le benchmark tourne dans la JVM de l'outil, moins fiable.
+  - key: qcm-constantes
+    format: multiple-choice
+    question: Pourquoi éviter des entrées constantes écrites en dur dans la méthode mesurée ?
+    choices:
+      - text: "Le JIT peut précalculer le résultat (repli de constantes)"
+        correct: true
+      - text: "Les constantes sont interdites dans JMH"
+        correct: false
+      - text: "Elles ralentissent la compilation"
+        correct: false
+      - text: "Elles remplissent le tas"
+        correct: false
+    answer: On place les entrées dans un champ d'état (`@State`).
+  - key: qcm-conclure
+    format: multiple-choice
+    question: Un benchmark montre qu'une méthode est 10 fois plus rapide après modification. Que faire avant de la fusionner ?
+    choices:
+      - text: "Vérifier la mesure avec JMH, plusieurs forks et des tailles réalistes"
+        correct: true
+      - text: "Vérifier par un profil que cette méthode compte dans l'application"
+        correct: true
+      - text: "Supprimer les tests pour gagner du temps"
+        correct: false
+      - text: "Rien, le chiffre suffit"
+        correct: false
+    answer: La lisibilité perdue doit être justifiée par un gain réel.
   - key: collegue-ecrit-benchmark-montrant-methode-50
     format: scenario
     question: Un collègue a écrit un benchmark montrant qu'une méthode est 50 fois plus rapide après sa modification.
     answer: |-
       Je serais prudent : un gain de ce facteur sur une micro-optimisation est souvent un artefact. Le JIT a pu éliminer le code dont le résultat n'est jamais utilisé, la mesure a pu inclure la compilation, ou les deux versions ont tourné dans la même JVM avec des profils différents.
       Je referais la mesure avec **JMH** : plusieurs forks, des itérations de chauffe, un `Blackhole` pour consommer les résultats. Et surtout, je vérifierais que cette méthode compte dans le temps de réponse réel : un gain de 50 fois sur 0,1 % du temps total ne change rien pour l'utilisateur.
+  - key: scenario-choisir-structure
+    format: scenario
+    question: Tu hésites entre deux structures de données pour un chemin critique. Comment conçois-tu le benchmark ?
+    answer: |-
+      Un benchmark JMH avec un état préparé dans `@Setup` (des données réalistes, pas des constantes), des tailles qui
+      couvrent les cas réels via `@Param` (petites et grandes), le même scénario d'accès que la production (proportion de
+      lectures et d'écritures, distribution des clés), des résultats consommés par un `Blackhole`, et plusieurs forks.
+      J'examine les écarts, je teste aussi avec le GC et les options de production, puis je valide le choix dans
+      l'application avec un profil ou un test de charge.
+  - key: scenario-ci
+    format: scenario
+    question: Faut-il exécuter les benchmarks JMH dans la CI à chaque commit ?
+    answer: |-
+      Rarement : les machines de CI sont partagées et bruyantes, et les benchmarks sont longs. Je les garde dans un module
+      dédié, lancés à la demande ou de façon planifiée sur une machine stable, avec un historique des résultats pour
+      repérer les régressions. Pour la CI, des tests de performance plus grossiers (un temps de réponse sous un seuil
+      large) et, surtout, des tests de charge réguliers sur un environnement représentatif.
+  - key: scenario-resultat-incoherent
+    format: scenario
+    question: Un benchmark JMH donne un temps de 0,3 ns par appel pour une méthode qui fait un vrai calcul. Qu'en conclus-tu ?
+    answer: |-
+      Que le calcul n'est probablement pas mesuré : 0,3 ns, c'est environ un cycle processeur. Le JIT a sans doute éliminé
+      le calcul (résultat non utilisé) ou l'a précalculé (entrées constantes). Je vérifie que la méthode renvoie son
+      résultat ou le passe à un `Blackhole`, que les entrées viennent d'un champ d'état et non de constantes, et je peux
+      regarder le code généré avec le profileur `-prof perfasm` de JMH.
+  - key: bug-nanotime
+    format: bug-fix
+    question: |-
+      Fiabilisez cette mesure :
+      ```java
+      long debut = System.nanoTime();
+      for (int i = 0; i < 1_000_000; i++) calculer(i);
+      System.out.println((System.nanoTime() - debut) / 1_000_000 + " ns par appel");
+      ```
+    answer: |-
+      ```java
+      @State(Scope.Benchmark)
+      @Warmup(iterations = 5) @Measurement(iterations = 5) @Fork(3)
+      public class CalculBenchmark {
+          int i;
+          @Benchmark public long calcul() { return calculer(i++); }
+      }
+      ```
+      La boucle mesurait la chauffe et la compilation, et le résultat inutilisé pouvait être éliminé. JMH gère chauffe,
+      forks et consommation du résultat (renvoyé ici).
+  - key: bug-resultat-ignore
+    format: bug-fix
+    question: |-
+      Ce benchmark affiche un temps presque nul :
+      ```java
+      @Benchmark public void hacher() {
+          sha256(donnees);
+      }
+      ```
+    answer: |-
+      ```java
+      @Benchmark public byte[] hacher() {
+          return sha256(donnees);
+      }
+      // ou : @Benchmark public void hacher(Blackhole bh) { bh.consume(sha256(donnees)); }
+      ```
+      Le résultat n'était jamais utilisé : le JIT pouvait supprimer le calcul. Le renvoyer ou le consommer l'en empêche.
+  - key: bug-constante
+    format: bug-fix
+    question: |-
+      Ce benchmark mesure un calcul que le JIT peut faire une fois pour toutes :
+      ```java
+      @Benchmark public double racine() {
+          return Math.sqrt(42.0);
+      }
+      ```
+    answer: |-
+      ```java
+      @State(Scope.Thread)
+      public class RacineBenchmark {
+          double x = 42.0;
+          @Benchmark public double racine() { return Math.sqrt(x); }
+      }
+      ```
+      Avec une constante, le JIT peut précalculer le résultat. Une entrée lue dans un champ d'état n'est pas connue à la
+      compilation.
+  - key: bug-setup-mesure
+    format: bug-fix
+    question: |-
+      Ce benchmark mesure surtout la préparation des données :
+      ```java
+      @Benchmark public List<Integer> trier() {
+          List<Integer> l = genererMillionAleatoire();
+          Collections.sort(l);
+          return l;
+      }
+      ```
+    answer: |-
+      ```java
+      @State(Scope.Thread)
+      public class TriBenchmark {
+          List<Integer> donnees;
+          @Setup(Level.Invocation) public void preparer() { donnees = genererMillionAleatoire(); }
+          @Benchmark public List<Integer> trier() { Collections.sort(donnees); return donnees; }
+      }
+      ```
+      La génération était comptée dans la mesure. `@Setup` la sort du temps mesuré (au niveau de l'invocation, car le tri
+      modifie les données ; ce niveau a lui-même un coût, acceptable pour une opération longue).
   - key: definition-jmh
     format: definition
     question: JMH
     answer: Java Microbenchmark Harness
+  - key: definition-code-mort
+    format: definition
+    question: Élimination de code mort
+    answer: Une optimisation du JIT qui supprime un calcul dont le résultat n'est jamais utilisé.
+  - key: definition-blackhole
+    format: definition
+    question: Blackhole
+    answer: Un objet de JMH qui consomme les résultats d'un benchmark pour empêcher leur élimination par le JIT.
+  - key: definition-warmup
+    format: definition
+    question: Chauffe (warm-up)
+    answer: La période initiale où le code est interprété puis compilé ; ses mesures ne reflètent pas le régime établi.

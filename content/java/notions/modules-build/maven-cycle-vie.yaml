@@ -1,4 +1,44 @@
 notion: maven-cycle-vie
+lesson: |-
+  Maven organise le build en **cycles de vie**, faits de **phases** ordonnées. Le cycle principal (*default*) :
+
+  ```
+  validate → compile → test → package → verify → install → deploy
+  ```
+
+  - Lancer une phase exécute **toutes les phases précédentes** : `mvn package` compile, lance les tests, puis empaquette.
+  - **`install`** copie l'artefact dans le dépôt **local** (`~/.m2`), **`deploy`** le publie dans le dépôt **distant**.
+  - Deux autres cycles : **`clean`** (supprimer `target/`) et **`site`** (documentation).
+
+  Le travail réel est fait par des **plugins**, dont les **goals** sont rattachés aux phases :
+
+  | Phase | Plugin et goal par défaut (packaging jar) |
+  |---|---|
+  | compile | `maven-compiler-plugin:compile` |
+  | test | `maven-surefire-plugin:test` (tests unitaires `*Test`) |
+  | package | `maven-jar-plugin:jar` |
+  | verify | `maven-failsafe-plugin:verify` si configuré (tests d'intégration `*IT`) |
+  | install | `maven-install-plugin:install` |
+
+  ```
+  mvn clean verify                  # le build complet de la CI
+  mvn -DskipTests package           # compile les tests sans les lancer
+  mvn -Dmaven.test.skip=true package    # ne compile même pas les tests
+  mvn dependency:tree               # un goal lancé directement, hors cycle
+  mvn -T 1C install                 # un thread par cœur, modules en parallèle
+  mvn -o verify                     # hors ligne
+  ```
+
+  - On peut lier d'autres goals à des phases (`<executions>` d'un plugin) : formatage (Spotless), analyse statique,
+    génération de code, construction d'une image.
+  - Les versions des plugins se **fixent** dans le POM (`pluginManagement`), pour un build reproductible.
+  - **`verify`** est la bonne cible de la CI : elle lance les tests d'intégration et les contrôles sans publier.
+
+  **Piège classique** : `mvn install` en CI « pour être sûr ». Il écrit dans le dépôt local et peut masquer un problème
+  (un module qui dépend d'un artefact installé lors d'un build précédent) ; `mvn verify` suffit et reste isolé.
+
+  **En entretien** : « Des phases ordonnées (compile, test, package, verify, install, deploy), dont chacune déclenche les
+  précédentes, et des goals de plugins rattachés aux phases ; `verify` pour la CI. »
 cards:
   - key: phases-principales-cycle-maven
     format: course
@@ -14,8 +54,120 @@ cards:
     answer: Une étape du cycle de vie vs une action fournie par un plugin et liée à une phase.
   - key: dskiptests-vs-dmaven-test-skip-true
     format: course
-    question: -DskipTests vs -Dmaven.test.skip=true ?
+    question: "-DskipTests vs -Dmaven.test.skip=true ?"
     answer: Compile les tests sans les lancer vs ne les compile pas.
+  - key: install-deploy
+    format: course
+    question: Quelle différence entre `install` et `deploy` ?
+    answer: '`install` copie l''artefact dans le dépôt local (`~/.m2`), `deploy` le publie dans un dépôt distant partagé.'
+  - key: vf-precedentes
+    format: true-false
+    question: "`mvn package` lance aussi les tests."
+    truth: true
+    answer: Une phase exécute toutes les phases précédentes.
+  - key: vf-clean
+    format: true-false
+    question: "`clean` fait partie du cycle de vie par défaut, avant `validate`."
+    truth: false
+    answer: C'est un cycle de vie séparé, qu'on combine (`mvn clean verify`).
+  - key: vf-verify-ci
+    format: true-false
+    question: "`mvn verify` lance les tests d'intégration configurés avec failsafe."
+    truth: true
+    answer: Sans publier l'artefact.
+  - key: vf-goal
+    format: true-false
+    question: On peut lancer un goal de plugin directement, sans passer par une phase.
+    truth: true
+    answer: Par exemple `mvn dependency:tree`.
+  - key: qcm-ordre
+    format: multiple-choice
+    question: Dans quel ordre s'exécutent ces phases ?
+    choices:
+      - text: "compile, test, package, verify, install"
+        correct: true
+      - text: "test, compile, package, install, verify"
+        correct: false
+      - text: "package, compile, test, deploy, install"
+        correct: false
+      - text: "compile, package, test, install, verify"
+        correct: false
+    answer: Les tests passent avant l'empaquetage.
+  - key: qcm-ci
+    format: multiple-choice
+    question: Quelle commande convient à la CI d'une pull request ?
+    choices:
+      - text: "`mvn -B clean verify`"
+        correct: true
+      - text: "`mvn deploy`"
+        correct: false
+      - text: "`mvn -DskipTests install`"
+        correct: false
+      - text: "`mvn compile`"
+        correct: false
+    answer: '`-B` (mode batch) évite les sorties interactives.'
+  - key: qcm-plugins
+    format: multiple-choice
+    question: Quel plugin lance les tests unitaires dans la phase `test` ?
+    choices:
+      - text: "`maven-surefire-plugin`"
+        correct: true
+      - text: "`maven-failsafe-plugin`"
+        correct: false
+      - text: "`maven-jar-plugin`"
+        correct: false
+      - text: "`maven-install-plugin`"
+        correct: false
+    answer: Failsafe lance les tests d'intégration en `integration-test` et `verify`.
+  - key: qcm-parallele
+    format: multiple-choice
+    question: Comment accélérer le build d'un projet multi-modules ?
+    choices:
+      - text: "`mvn -T 1C verify` (un thread par cœur)"
+        correct: true
+      - text: "Mettre en cache le dépôt local `~/.m2` dans la CI"
+        correct: true
+      - text: "Supprimer tous les tests"
+        correct: false
+      - text: "Lancer `mvn deploy` à chaque commit"
+        correct: false
+    answer: Les modules indépendants se construisent alors en parallèle.
+  - key: trous-skip
+    format: fill-in
+    question: |-
+      Complétez pour empaqueter sans lancer les tests (mais en les compilant) :
+      ```
+      mvn -D___ package
+      ```
+    blanks: [[skipTests]]
+    answer: '`-Dmaven.test.skip=true` ne les compilerait pas.'
+  - key: trous-phase
+    format: fill-in
+    question: |-
+      Complétez pour lancer les tests d'intégration sans installer l'artefact :
+      ```
+      mvn clean ___
+      ```
+    blanks: [[verify]]
+    answer: La cible habituelle de la CI.
+  - key: trous-local
+    format: fill-in
+    question: |-
+      Complétez pour copier l'artefact dans le dépôt local `~/.m2` :
+      ```
+      mvn ___
+      ```
+    blanks: [[install]]
+    answer: '`deploy` le publierait dans un dépôt distant.'
+  - key: trous-arbre
+    format: fill-in
+    question: |-
+      Complétez pour afficher l'arbre des dépendances :
+      ```
+      mvn dependency:___
+      ```
+    blanks: [[tree]]
+    answer: Un goal lancé directement.
   - key: build-met-15-minutes-ci
     format: scenario
     question: Le build met 15 minutes en CI.
@@ -26,3 +178,29 @@ cards:
       Puis la **parallélisation** : `mvn -T` pour construire les modules en parallèle, et faire tourner ensemble les étapes indépendantes du pipeline.
       Enfin, séparer les cycles : sur une pull request, build et tests rapides ; les tests longs et l'analyse complète sur la branche d'intégration.
       Si la lenteur vient des tests, c'est un problème de pyramide plutôt que de build.
+  - key: scenario-formatage
+    format: scenario
+    question: Tu veux que le build échoue si le code n'est pas formaté. Comment l'intègres-tu au cycle de vie ?
+    answer: |-
+      J'ajoute le plugin de formatage (Spotless, par exemple) dans le POM parent, avec une exécution de son goal `check`
+      liée à une phase précoce (`validate` ou `verify` selon qu'on veut échouer avant ou après les tests). La CI qui lance
+      `mvn verify` échoue alors sur un fichier mal formaté, et le goal `apply` corrige en local. Je fixe la version du
+      plugin et de l'outil de formatage dans `pluginManagement`, pour que tout le monde obtienne le même résultat.
+  - key: scenario-tests-integration
+    format: scenario
+    question: Comment sépares-tu tests unitaires et tests d'intégration dans un build Maven ?
+    answer: |-
+      Par convention de nommage et par plugin : les tests unitaires (`*Test`) passent avec Surefire dans la phase `test`,
+      les tests d'intégration (`*IT`) avec Failsafe dans `integration-test` et `verify`. Failsafe a l'avantage de lancer
+      `post-integration-test` (arrêt des conteneurs, nettoyage) même si les tests échouent, puis de faire échouer le build
+      dans `verify`. Ainsi `mvn test` reste rapide en local, et la CI lance `mvn verify` pour tout. Avec Quarkus, les
+      `@QuarkusIntegrationTest` testent l'artefact empaqueté, d'où leur place après `package`.
+  - key: scenario-install-masque
+    format: scenario
+    question: Un projet multi-modules passe en local mais échoue sur une machine propre. Le développeur lance toujours `mvn install`. Que se passe-t-il ?
+    answer: |-
+      Son dépôt local contient des artefacts installés lors de builds précédents : un module peut compiler contre une
+      ancienne version d'un autre module installée, ou contre un artefact qu'aucun dépôt ne fournit. Sur une machine
+      propre, ce n'est plus le cas. Je reproduis avec un dépôt local vide (`-Dmaven.repo.local=/tmp/repo`) et je lance le
+      build depuis la racine du projet (`mvn verify`), qui construit tous les modules dans l'ordre sans dépendre de ce qui
+      a été installé. La CI, qui part de zéro, joue ce rôle.

@@ -67,13 +67,14 @@ class SubjectFolderTest {
 
     /**
      * Garde-fou contre une suppression accidentelle. Les cartes du document Java ont été rangées dans les notions de son
-     * référentiel (ADR 0026) ; Java reste le sujet qui présente tous les formats.
+     * référentiel (ADR 0026), puis toutes les notions ont été complétées (leçon et matrice de cartes) ; Java reste le sujet
+     * qui présente tous les formats. Toute PR de contenu Java met ce nombre à jour.
      */
     @Test
     void shouldKeepEveryJavaCardAndEveryFormat() {
         ParsedContent java = parse(CONTENT.resolve("java"));
 
-        assertThat(java.cardCount()).isEqualTo(992);
+        assertThat(java.cardCount()).isEqualTo(7072);
         assertThat(java.themes().stream()
                         .flatMap(theme -> theme.cards().stream())
                         .map(card -> card.content().type())

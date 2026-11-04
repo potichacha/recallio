@@ -1,4 +1,46 @@
 notion: fork-join
+lesson: |-
+  Le framework **fork/join** (Java 7) parallélise les algorithmes **diviser pour régner** : une tâche trop grosse se
+  **découpe** en sous-tâches (`fork`), on attend leurs résultats (`join`) et on les combine.
+
+  ```java
+  class Somme extends RecursiveTask<Long> {
+      private static final int SEUIL = 10_000;
+      private final long[] t; private final int debut, fin;
+
+      Somme(long[] t, int debut, int fin) { this.t = t; this.debut = debut; this.fin = fin; }
+
+      @Override protected Long compute() {
+          if (fin - debut <= SEUIL) {                         // assez petit : calcul direct
+              long s = 0;
+              for (int i = debut; i < fin; i++) s += t[i];
+              return s;
+          }
+          int milieu = (debut + fin) >>> 1;
+          Somme gauche = new Somme(t, debut, milieu);
+          gauche.fork();                                      // lancée en parallèle
+          long droite = new Somme(t, milieu, fin).compute();  // calculée dans le thread courant
+          return droite + gauche.join();
+      }
+  }
+
+  long total = ForkJoinPool.commonPool().invoke(new Somme(tableau, 0, tableau.length));
+  ```
+
+  - **`RecursiveTask<V>`** renvoie un résultat, **`RecursiveAction`** non.
+  - Le **`ForkJoinPool`** utilise le **vol de travail** (*work stealing*) : chaque thread a sa file de tâches, et un
+    thread inoccupé vole des tâches dans la file d'un autre. Les sous-tâches s'équilibrent ainsi entre les cœurs.
+  - Le **seuil** est essentiel : découper trop finement coûte plus qu'il ne rapporte.
+  - Idiome : `fork()` une moitié, `compute()` l'autre dans le thread courant, puis `join()` la première (plutôt que
+    `fork` deux fois).
+  - Les **streams parallèles** reposent sur ce framework et sur le pool commun.
+  - Fait pour du **calcul pur** : une tâche qui bloque (entrée-sortie) gâche un thread du pool.
+
+  **Piège classique** : appeler `join()` juste après `fork()` (`gauche.fork(); gauche.join();`). Le thread attend au lieu
+  de travailler : on perd tout le parallélisme.
+
+  **En entretien** : « Diviser pour régner avec `RecursiveTask` : `fork` une moitié, `compute` l'autre, `join` ; le pool
+  équilibre par vol de travail. Utile pour du calcul pur sur de gros volumes, avec un seuil bien choisi. »
 cards:
   - key: work-stealing
     format: course
@@ -8,3 +50,161 @@ cards:
     format: course
     question: RecursiveTask vs RecursiveAction ?
     answer: Avec résultat vs sans résultat.
+  - key: seuil
+    format: course
+    question: Pourquoi une tâche fork/join a-t-elle besoin d'un seuil ?
+    answer: En dessous d'une certaine taille, découper coûte plus cher (création et coordination des tâches) que le calcul direct ; le seuil arrête la récursion.
+  - key: idiome
+    format: course
+    question: Quel est l'idiome correct pour deux sous-tâches ?
+    answer: '`fork()` la première, `compute()` la seconde dans le thread courant, puis `join()` la première, pour que le thread courant travaille au lieu d''attendre.'
+  - key: vf-io
+    format: true-false
+    question: Le framework fork/join convient bien aux tâches qui font des appels réseau.
+    truth: false
+    answer: Il est fait pour le calcul ; une tâche bloquée gâche un thread du pool.
+  - key: vf-streams
+    format: true-false
+    question: Les streams parallèles utilisent le `ForkJoinPool` commun.
+    truth: true
+    answer: Ils découpent la source en sous-tâches.
+  - key: vf-join-tot
+    format: true-false
+    question: "`t.fork(); t.join();` à la suite exécute `t` en parallèle du thread courant."
+    truth: false
+    answer: Le thread attend aussitôt ; il n'y a pas de travail en parallèle.
+  - key: vf-action
+    format: true-false
+    question: "`RecursiveAction` renvoie un résultat."
+    truth: false
+    answer: C'est `RecursiveTask<V>` qui en renvoie un.
+  - key: qcm-adapte
+    format: multiple-choice
+    question: Pour quels traitements fork/join est-il adapté ?
+    choices:
+      - text: "Trier ou sommer un très grand tableau"
+        correct: true
+      - text: "Parcourir récursivement un arbre en mémoire pour un calcul"
+        correct: true
+      - text: "Télécharger 1 000 pages web"
+        correct: false
+      - text: "Traiter une requête HTTP courte"
+        correct: false
+    answer: Diviser pour régner sur du calcul en mémoire.
+  - key: qcm-classe
+    format: multiple-choice
+    question: Quelle classe étendre pour une tâche fork/join qui calcule un total ?
+    choices:
+      - text: "`RecursiveTask<Long>`"
+        correct: true
+      - text: "`RecursiveAction`"
+        correct: false
+      - text: "`Thread`"
+        correct: false
+      - text: "`Callable<Long>`"
+        correct: false
+    answer: '`compute()` renvoie le résultat.'
+  - key: qcm-vol
+    format: multiple-choice
+    question: Qu'apporte le vol de travail ?
+    choices:
+      - text: "Un équilibrage automatique des sous-tâches entre les threads"
+        correct: true
+      - text: "La priorité aux tâches les plus anciennes"
+        correct: false
+      - text: "Une file unique partagée par tous"
+        correct: false
+      - text: "L'exécution séquentielle garantie"
+        correct: false
+    answer: Un thread inoccupé prend du travail dans la file d'un autre.
+  - key: qcm-lancer
+    format: multiple-choice
+    question: Comment lancer une `RecursiveTask` et obtenir son résultat ?
+    choices:
+      - text: "`ForkJoinPool.commonPool().invoke(tache)`"
+        correct: true
+      - text: "`new ForkJoinPool().invoke(tache)`"
+        correct: true
+      - text: "`tache.run()`"
+        correct: false
+      - text: "`new Thread(tache).start()`"
+        correct: false
+    answer: '`invoke` exécute et attend le résultat.'
+  - key: code-somme
+    format: code-output
+    question: |-
+      ```java
+      class Somme extends RecursiveTask<Long> {
+          final int debut, fin;
+          Somme(int debut, int fin) { this.debut = debut; this.fin = fin; }
+          protected Long compute() {
+              if (fin - debut <= 1000) {
+                  long s = 0;
+                  for (int i = debut; i < fin; i++) s += i;
+                  return s;
+              }
+              int m = (debut + fin) >>> 1;
+              Somme g = new Somme(debut, m);
+              g.fork();
+              return new Somme(m, fin).compute() + g.join();
+          }
+      }
+      System.out.println(ForkJoinPool.commonPool().invoke(new Somme(0, 100_000)));
+      ```
+    answer: '`4999950000` : la somme de 0 à 99 999.'
+    check:
+      output: "4999950000"
+  - key: code-action
+    format: code-output
+    question: |-
+      ```java
+      class Doubler extends RecursiveAction {
+          final int[] t; final int debut, fin;
+          Doubler(int[] t, int debut, int fin) { this.t = t; this.debut = debut; this.fin = fin; }
+          protected void compute() {
+              if (fin - debut <= 2) {
+                  for (int i = debut; i < fin; i++) t[i] *= 2;
+                  return;
+              }
+              int m = (debut + fin) >>> 1;
+              invokeAll(new Doubler(t, debut, m), new Doubler(t, m, fin));
+          }
+      }
+      int[] t = {1, 2, 3, 4, 5};
+      ForkJoinPool.commonPool().invoke(new Doubler(t, 0, t.length));
+      System.out.println(Arrays.toString(t));
+      ```
+    answer: '`[2, 4, 6, 8, 10]`.'
+    check:
+      output: "[2, 4, 6, 8, 10]"
+  - key: code-pool-dedie
+    format: code-output
+    question: |-
+      ```java
+      try (ForkJoinPool pool = new ForkJoinPool(2)) {
+          System.out.println(pool.getParallelism());
+      }
+      ```
+    answer: '`2` : un pool dédié, d''un parallélisme choisi.'
+    check:
+      output: "2"
+  - key: code-max
+    format: code-output
+    question: |-
+      ```java
+      class Max extends RecursiveTask<Integer> {
+          final int[] t; final int debut, fin;
+          Max(int[] t, int debut, int fin) { this.t = t; this.debut = debut; this.fin = fin; }
+          protected Integer compute() {
+              if (fin - debut == 1) return t[debut];
+              int m = (debut + fin) >>> 1;
+              Max g = new Max(t, debut, m);
+              g.fork();
+              return Math.max(new Max(t, m, fin).compute(), g.join());
+          }
+      }
+      System.out.println(ForkJoinPool.commonPool().invoke(new Max(new int[]{4, 9, 1, 7}, 0, 4)));
+      ```
+    answer: '`9`.'
+    check:
+      output: "9"

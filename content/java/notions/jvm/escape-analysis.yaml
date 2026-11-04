@@ -1,6 +1,127 @@
 notion: escape-analysis
+lesson: |-
+  L'**analyse d'échappement** (*escape analysis*) est une optimisation du compilateur **C2** : il détermine si un objet
+  créé dans une méthode peut être vu **hors** de cette méthode (s'il « s'échappe »).
+
+  Un objet **s'échappe** s'il est :
+  - renvoyé par la méthode ;
+  - stocké dans un champ, un tableau ou une collection accessibles ailleurs ;
+  - passé à une méthode que le JIT n'a pas pu inliner.
+
+  S'il ne s'échappe pas, le JIT peut :
+  - le **remplacer par ses champs** (*scalar replacement*) : plus d'objet du tout, ses champs deviennent des variables
+    locales, souvent dans des registres ;
+  - **supprimer les verrous** pris sur lui (*lock elision*), puisque aucun autre thread ne peut le voir.
+
+  ```java
+  double distance(double x1, double y1, double x2, double y2) {
+      Point a = new Point(x1, y1);         // ne s'échappe pas : peut ne jamais être alloué
+      Point b = new Point(x2, y2);
+      return a.distance(b);                // si distance() est inlinée
+  }
+
+  StringBuffer sb = new StringBuffer();     // synchronisé, mais local : les verrous peuvent être supprimés
+  ```
+
+  - L'optimisation dépend de l'**inlining** : un appel non inliné fait « échapper » l'objet par prudence.
+  - Elle ne s'applique qu'au code **compilé par C2** (chaud), pas à l'interprété.
+  - Elle explique pourquoi créer de petits objets temporaires (records, itérateurs) coûte souvent moins qu'on ne le
+    croit, et pourquoi un micro-benchmark naïf peut mesurer zéro allocation.
+  - Elle est activée par défaut (`-XX:+DoEscapeAnalysis`) ; JFR et un profileur d'allocations montrent ce qui est
+    réellement alloué.
+
+  **Piège classique** : réutiliser à la main des objets temporaires (un `StringBuilder` partagé, un « pool d'objets »)
+  pour éviter des allocations que le JIT aurait supprimées. Le code devient plus complexe, parfois plus lent, et parfois
+  faux en concurrence.
+
+  **En entretien** : « Le JIT vérifie si un objet sort de la méthode ; sinon, il peut le remplacer par ses champs et
+  supprimer ses verrous. Cela dépend de l'inlining, et rend souvent gratuits les petits objets temporaires. »
 cards:
   - key: escape-analysis
     format: course
     question: C'est quoi l'escape analysis ?
     answer: Une optimisation du JIT qui évite d'allouer dans le heap un objet qui ne sort pas de la méthode.
+  - key: echapper
+    format: course
+    question: Quand un objet « s'échappe »-t-il d'une méthode ?
+    answer: Quand il est renvoyé, stocké dans un champ, un tableau ou une collection accessibles ailleurs, ou passé à une méthode que le JIT n'a pas pu inliner.
+  - key: scalar-replacement
+    format: course
+    question: Qu'est-ce que le remplacement scalaire ?
+    answer: Supprimer l'allocation d'un objet qui ne s'échappe pas en remplaçant ses champs par des variables locales (souvent des registres).
+  - key: lock-elision
+    format: course
+    question: Pourquoi l'analyse d'échappement permet-elle de supprimer des verrous ?
+    answer: "Un objet qui ne sort pas de la méthode ne peut être vu par aucun autre thread : se synchroniser dessus est inutile."
+  - key: vf-inlining
+    format: true-false
+    question: L'analyse d'échappement fonctionne même si les méthodes appelées ne sont pas inlinées.
+    truth: false
+    answer: Un objet passé à une méthode non inlinée est considéré comme échappé.
+  - key: vf-interprete
+    format: true-false
+    question: L'analyse d'échappement s'applique au code interprété.
+    truth: false
+    answer: Elle est faite par le compilateur C2, sur le code chaud.
+  - key: vf-retour
+    format: true-false
+    question: Un objet renvoyé par une méthode s'échappe de cette méthode.
+    truth: true
+    answer: Il peut toutefois ne pas s'échapper de l'appelant si l'appel est inliné.
+  - key: vf-defaut
+    format: true-false
+    question: L'analyse d'échappement est activée par défaut dans HotSpot.
+    truth: true
+    answer: Option `-XX:+DoEscapeAnalysis`.
+  - key: qcm-echappe
+    format: multiple-choice
+    question: Dans lesquels de ces cas l'objet s'échappe-t-il ?
+    choices:
+      - text: "Il est ajouté à une liste stockée dans un champ"
+        correct: true
+      - text: "Il est renvoyé par la méthode"
+        correct: true
+      - text: "Il est créé, lu et abandonné dans la même méthode, avec des appels inlinés"
+        correct: false
+      - text: "Ses champs sont copiés dans des variables locales"
+        correct: false
+    answer: Un objet purement local peut ne jamais être alloué.
+  - key: qcm-effets
+    format: multiple-choice
+    question: Que permet l'analyse d'échappement ?
+    choices:
+      - text: "Supprimer l'allocation de certains objets"
+        correct: true
+      - text: "Supprimer des verrous inutiles"
+        correct: true
+      - text: "Accélérer le chargement des classes"
+        correct: false
+      - text: "Réduire la taille des fichiers `.class`"
+        correct: false
+    answer: Deux optimisations du code compilé.
+  - key: qcm-consequence
+    format: multiple-choice
+    question: Quelle conséquence pratique pour l'écriture du code ?
+    choices:
+      - text: "Créer de petits objets temporaires est souvent bon marché ; inutile de les recycler à la main"
+        correct: true
+      - text: "Il faut éviter tout `new` dans une méthode"
+        correct: false
+      - text: "Il faut mettre tous les objets dans des pools"
+        correct: false
+      - text: "Les records sont toujours alloués sur la pile"
+        correct: false
+    answer: Rien n'est garanti, mais le JIT gère bien ces cas ; on mesure avant d'optimiser.
+  - key: qcm-observer
+    format: multiple-choice
+    question: Comment savoir si des objets temporaires sont réellement alloués ?
+    choices:
+      - text: "Avec un profileur d'allocations ou JFR"
+        correct: true
+      - text: "Avec `javap -c`"
+        correct: false
+      - text: "En lisant le code source"
+        correct: false
+      - text: "Avec `-Xss`"
+        correct: false
+    answer: Le bytecode montre toujours un `new` ; seul le profilage du code compilé dit ce qui est alloué.

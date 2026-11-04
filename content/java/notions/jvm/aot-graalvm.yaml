@@ -1,4 +1,38 @@
 notion: aot-graalvm
+lesson: |-
+  Le JIT donne d'excellentes performances **en régime établi**, mais au prix d'un démarrage lent et d'une chauffe.
+  Plusieurs techniques déplacent ce travail **avant** l'exécution (*ahead of time*) :
+
+  | Technique | Principe | Gain |
+  |---|---|---|
+  | **CDS / AppCDS** | une archive des classes déjà analysées, partagée en mémoire | démarrage plus rapide, sans changer le code |
+  | **Cache AOT** (projet Leyden, Java 24+) | une exécution d'entraînement enregistre classes chargées et liées, puis profils (Java 25) | démarrage et chauffe nettement plus rapides |
+  | **CRaC** | un instantané d'une JVM chaude, restauré à la demande | redémarrage en millisecondes, nécessite le support du JDK et de l'OS |
+  | **GraalVM native image** | compile toute l'application en un exécutable natif | démarrage en millisecondes, mémoire faible |
+
+  ```
+  java -XX:AOTMode=record -XX:AOTConfiguration=app.aotconf -jar app.jar     # entraînement (Java 24)
+  java -XX:AOTMode=create -XX:AOTConfiguration=app.aotconf -XX:AOTCache=app.aot -jar app.jar
+  java -XX:AOTCache=app.aot -jar app.jar                                     # exécutions suivantes
+  native-image -jar app.jar                                                  # GraalVM
+  ```
+
+  L'image native repose sur l'**hypothèse du monde fermé** : tout le code atteignable est connu à la construction. Donc :
+  - la **réflexion**, les proxys dynamiques et les ressources doivent être **déclarés** (fichiers de configuration,
+    souvent générés par les frameworks : Quarkus, Spring AOT, Micronaut) ;
+  - la construction est **longue** et gourmande en mémoire ;
+  - pas de JIT : le **débit de pointe** est en général inférieur à celui d'une JVM chaude (moins vrai avec le profilage
+    guidé, PGO) ;
+  - certaines bibliothèques ne sont pas compatibles.
+
+  Choisir : l'image native pour des fonctions à démarrage critique (serverless, CLI, mise à l'échelle rapide), la JVM
+  classique (avec CDS ou cache AOT) pour les services longs qui doivent soutenir un débit élevé.
+
+  **Piège classique** : passer en image native sans tester tous les chemins. Une classe chargée par réflexion et non
+  déclarée provoque une erreur à l'exécution, en production.
+
+  **En entretien** : « CDS et le cache AOT accélèrent le démarrage sans changer de modèle ; CRaC restaure une JVM chaude ;
+  l'image native GraalVM démarre en millisecondes, mais impose le monde fermé et perd le JIT. »
 cards:
   - key: cds
     format: course
@@ -20,6 +54,78 @@ cards:
     format: course
     question: C'est quoi CRaC ?
     answer: Checkpoint/restore d'une JVM chaude pour redémarrer en millisecondes.
+  - key: vf-jit-natif
+    format: true-false
+    question: Une image native GraalVM dispose d'un compilateur JIT à l'exécution.
+    truth: false
+    answer: Tout est compilé à l'avance ; il n'y a pas de recompilation guidée par le profil réel (sauf PGO à la construction).
+  - key: vf-reflexion
+    format: true-false
+    question: En image native, la réflexion fonctionne sur toutes les classes sans configuration.
+    truth: false
+    answer: Les classes utilisées par réflexion doivent être déclarées à la construction.
+  - key: vf-cds-code
+    format: true-false
+    question: CDS accélère le démarrage sans modifier le code de l'application.
+    truth: true
+    answer: Il suffit d'options de lancement.
+  - key: vf-entrainement
+    format: true-false
+    question: Le cache AOT de Leyden se construit à partir d'une exécution d'entraînement.
+    truth: true
+    answer: Elle enregistre les classes chargées et, depuis Java 25, des profils de méthodes.
+  - key: qcm-natif-adapte
+    format: multiple-choice
+    question: Pour quels cas une image native est-elle la plus intéressante ?
+    choices:
+      - text: "Une fonction serverless démarrée à chaque requête"
+        correct: true
+      - text: "Un outil en ligne de commande"
+        correct: true
+      - text: "Un service de calcul qui tourne des semaines à pleine charge"
+        correct: false
+      - text: "Une application qui charge des plugins inconnus à l'exécution"
+        correct: false
+    answer: Le démarrage compte plus que le débit de pointe ; le monde fermé exclut les plugins dynamiques.
+  - key: qcm-sans-code
+    format: multiple-choice
+    question: Quelles techniques accélèrent le démarrage d'une JVM classique sans changer de modèle d'exécution ?
+    choices:
+      - text: "AppCDS"
+        correct: true
+      - text: "Le cache AOT du JDK (Java 24+)"
+        correct: true
+      - text: "Augmenter `-Xmx`"
+        correct: false
+      - text: "Désactiver le JIT"
+        correct: false
+    answer: Désactiver le JIT ralentirait tout.
+  - key: qcm-frameworks
+    format: multiple-choice
+    question: Comment les frameworks facilitent-ils l'image native ?
+    choices:
+      - text: "En générant la configuration de réflexion et en préparant le démarrage à la construction"
+        correct: true
+      - text: "En désactivant la réflexion du JDK"
+        correct: false
+      - text: "En ajoutant un JIT dans l'image"
+        correct: false
+      - text: "En chargeant toutes les classes au démarrage"
+        correct: false
+    answer: Quarkus et Spring AOT déplacent l'essentiel de l'initialisation à la construction.
+  - key: qcm-crac
+    format: multiple-choice
+    question: Quelle contrainte présente CRaC ?
+    choices:
+      - text: "Les ressources ouvertes (connexions, fichiers) doivent être fermées avant l'instantané et rouvertes après"
+        correct: true
+      - text: "Il impose GraalVM"
+        correct: false
+      - text: "Il supprime le JIT"
+        correct: false
+      - text: "Il ne fonctionne qu'avec Spring"
+        correct: false
+    answer: Il faut aussi un JDK et un système qui le supportent.
   - key: demarrage-service-prend-25-secondes-penalise
     format: scenario
     question: Le démarrage de ton service prend 25 secondes, ce qui pénalise l'autoscaling.
@@ -27,6 +133,31 @@ cards:
       Je mesurerais d'abord où passe le temps : chargement des classes, initialisation des beans, connexions aux dépendances, migrations de base au démarrage. Spring Boot fournit un suivi du démarrage (`ApplicationStartup` / l'endpoint startup d'Actuator).
       Ensuite plusieurs leviers, du moins au plus structurant : supprimer les initialisations inutiles ou les rendre paresseuses, sortir les migrations de schéma du démarrage applicatif, activer **CDS ou le cache AOT** du JDK (gain important sans changer le code), utiliser **CRaC** si l'environnement le permet, et enfin la compilation **native** (Spring AOT + GraalVM, ou Quarkus) qui ramène le démarrage à moins d'une seconde mais demande un travail de compatibilité.
       Je n'oublierais pas la readiness probe : même rapide, le pod ne doit recevoir du trafic qu'une fois prêt.
+  - key: scenario-natif-production
+    format: scenario
+    question: Comment sécurises-tu le passage d'un service en image native ?
+    answer: |-
+      Je construis l'image native dans la CI et j'exécute la suite de tests d'intégration **contre l'image native**
+      elle-même (Quarkus le permet avec `@QuarkusIntegrationTest`), pas seulement sur la JVM : c'est là qu'apparaissent les
+      réflexions, ressources et proxys non déclarés. J'utilise l'agent de traçage de GraalVM pour générer la configuration
+      sur les cas dynamiques, je vérifie la compatibilité de chaque bibliothèque, et je compare débit, latence et mémoire
+      sous charge avec la version JVM avant de basculer, progressivement.
+  - key: scenario-choix
+    format: scenario
+    question: Ton équipe hésite entre l'image native et la JVM pour un service CRUD qui tourne en continu sur trois instances. Que recommandes-tu ?
+    answer: |-
+      Pour un service long, sans mise à l'échelle brutale, la JVM classique reste un bon choix : débit de pointe grâce au
+      JIT, construction rapide, aucun souci de compatibilité, outillage complet (JFR, heap dumps). J'activerais CDS ou le
+      cache AOT pour réduire le démarrage. L'image native se justifie si le démarrage ou la mémoire deviennent des
+      contraintes réelles (mise à l'échelle à zéro, beaucoup d'instances, coût mémoire en conteneur), après mesure.
+  - key: scenario-ressources
+    format: scenario
+    question: En image native, l'application ne trouve plus un fichier de modèles embarqué dans le JAR. Pourquoi, et que fais-tu ?
+    answer: |-
+      Dans le monde fermé, seules les ressources déclarées à la construction sont incluses dans l'exécutable. Le fichier
+      était lu dynamiquement (`getResourceAsStream`) sans être déclaré. Je l'ajoute à la configuration des ressources
+      (`resource-config.json`, ou la propriété dédiée du framework, comme `quarkus.native.resources.includes`), et
+      j'ajoute un test d'intégration sur l'image native qui exerce ce chemin, pour que l'oubli soit détecté en CI.
   - key: definition-aot
     format: definition
     question: AOT
@@ -39,3 +170,7 @@ cards:
     format: definition
     question: CRaC
     answer: 'Coordinated Restore at Checkpoint : instantané et restauration d''une JVM chaude'
+  - key: definition-native-image
+    format: definition
+    question: Native image
+    answer: Un exécutable natif produit par GraalVM à partir d'une application Java, compilée entièrement à l'avance sous l'hypothèse du monde fermé.

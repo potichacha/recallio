@@ -1,6 +1,172 @@
 notion: gatherers
+lesson: |-
+  Les **gatherers** (Java 24, JEP 485) permettent d'écrire ses propres **opérations intermédiaires**, y compris avec un
+  état, ce que `map`, `filter` et `flatMap` ne permettent pas proprement. On les branche avec `stream.gather(...)`.
+
+  La classe `Gatherers` en fournit plusieurs :
+
+  ```java
+  Stream.of(1, 2, 3, 4, 5).gather(Gatherers.windowFixed(2)).toList();      // [[1, 2], [3, 4], [5]]
+  Stream.of(1, 2, 3, 4).gather(Gatherers.windowSliding(3)).toList();       // [[1, 2, 3], [2, 3, 4]]
+  Stream.of(1, 2, 3).gather(Gatherers.scan(() -> 0, Integer::sum)).toList();   // [1, 3, 6] : sommes cumulées
+  Stream.of(1, 2, 3).gather(Gatherers.fold(() -> 0, Integer::sum)).toList();   // [6] : un seul résultat
+  urls.stream().gather(Gatherers.mapConcurrent(10, this::telecharger));    // 10 appels à la fois au plus (threads virtuels)
+  ```
+
+  Un gatherer a jusqu'à quatre parties : un **initialiseur** (l'état), un **intégrateur** (appelé pour chaque élément,
+  il peut émettre zéro, un ou plusieurs éléments en aval, ou arrêter le stream), un **combineur** (pour le parallèle) et
+  un **finisseur** (appelé à la fin, pour émettre le reste).
+
+  ```java
+  // Garder les éléments strictement croissants
+  Gatherer<Integer, ?, Integer> croissants = Gatherer.ofSequential(
+          () -> new int[]{Integer.MIN_VALUE},
+          (dernier, x, aval) -> {
+              if (x > dernier[0]) { dernier[0] = x; return aval.push(x); }
+              return true;                       // continuer
+          });
+  ```
+
+  - `gather` est aux opérations intermédiaires ce que `collect` est aux opérations terminales.
+  - Les gatherers se composent avec `andThen`.
+
+  **Piège classique** : `windowFixed` garde la **dernière** fenêtre incomplète (`[5]`), alors qu'on s'attend parfois à
+  des fenêtres toutes pleines : il faut la filtrer si besoin.
+
+  **En entretien** : « Un gatherer est une opération intermédiaire personnalisée avec état : `windowFixed`,
+  `windowSliding`, `scan`, `fold`, `mapConcurrent`, ou `Gatherer.of` pour écrire le sien. »
 cards:
   - key: gatherer
     format: course
     question: C'est quoi un Gatherer ?
     answer: 'Une opération intermédiaire personnalisée avec état (Java 24) : windowFixed, windowSliding, scan, fold, mapConcurrent.'
+  - key: parties
+    format: course
+    question: Quelles sont les parties d'un `Gatherer` ?
+    answer: Un initialiseur (l'état), un intégrateur (pour chaque élément, il peut émettre en aval ou arrêter), un combineur (pour le parallèle) et un finisseur (en fin de stream).
+  - key: scan-fold
+    format: course
+    question: Quelle différence entre `Gatherers.scan` et `Gatherers.fold` ?
+    answer: '`scan` émet chaque résultat intermédiaire (sommes cumulées), `fold` n''émet que le résultat final, comme un `reduce` mais en opération intermédiaire.'
+  - key: map-concurrent
+    format: course
+    question: À quoi sert `Gatherers.mapConcurrent(n, f)` ?
+    answer: À appliquer `f` avec au plus `n` appels simultanés, sur des threads virtuels, en gardant l'ordre des résultats ; utile pour des appels réseau.
+  - key: vf-intermediaire
+    format: true-false
+    question: "`gather` est une opération terminale."
+    truth: false
+    answer: Elle est intermédiaire et renvoie un stream.
+  - key: vf-window
+    format: true-false
+    question: "`Stream.of(1, 2, 3).gather(Gatherers.windowFixed(2))` donne `[[1, 2], [3]]`."
+    truth: true
+    answer: La dernière fenêtre peut être incomplète.
+  - key: vf-version
+    format: true-false
+    question: Les gatherers sont finalisés depuis Java 24.
+    truth: true
+    answer: JEP 485, après deux préversions (Java 22 et 23).
+  - key: vf-arreter
+    format: true-false
+    question: Un intégrateur peut arrêter le stream en renvoyant `false`.
+    truth: true
+    answer: Comme un `takeWhile` personnalisé.
+  - key: qcm-glissant
+    format: multiple-choice
+    question: Comment calculer une moyenne mobile sur 3 mesures ?
+    choices:
+      - text: "`mesures.stream().gather(Gatherers.windowSliding(3)).map(f -> moyenne(f))`"
+        correct: true
+      - text: "`mesures.stream().gather(Gatherers.windowFixed(3)).map(f -> moyenne(f))`"
+        correct: false
+      - text: "`mesures.stream().reduce(...)`"
+        correct: false
+      - text: "`mesures.stream().limit(3)`"
+        correct: false
+    answer: '`windowFixed` découpe en blocs disjoints, pas en fenêtres glissantes.'
+  - key: qcm-cumul
+    format: multiple-choice
+    question: Comment obtenir le solde après chaque mouvement d'un compte ?
+    choices:
+      - text: "`mouvements.stream().gather(Gatherers.scan(() -> 0, Integer::sum))`"
+        correct: true
+      - text: "`mouvements.stream().gather(Gatherers.fold(() -> 0, Integer::sum))`"
+        correct: false
+      - text: "`mouvements.stream().reduce(0, Integer::sum)`"
+        correct: false
+      - text: "`mouvements.stream().mapToInt(i -> i).sum()`"
+        correct: false
+    answer: Les trois dernières ne donnent que le solde final.
+  - key: qcm-utilite
+    format: multiple-choice
+    question: Pour quels besoins un gatherer est-il adapté ?
+    choices:
+      - text: "Regrouper les éléments par lots de 100 pour des insertions en base"
+        correct: true
+      - text: "Limiter le nombre d'appels HTTP simultanés dans un pipeline"
+        correct: true
+      - text: "Calculer une somme finale"
+        correct: false
+      - text: "Trier une liste"
+        correct: false
+    answer: '`windowFixed(100)` et `mapConcurrent` ; une somme ou un tri existent déjà.'
+  - key: qcm-api
+    format: multiple-choice
+    question: Comment créer un gatherer séquentiel personnalisé ?
+    choices:
+      - text: "`Gatherer.ofSequential(initialiseur, integrateur)`"
+        correct: true
+      - text: "`new Gatherer<>()`"
+        correct: false
+      - text: "`Collectors.gatherer(...)`"
+        correct: false
+      - text: "`Stream.gatherer(...)`"
+        correct: false
+    answer: '`Gatherer.of` crée une version parallélisable, avec un combineur.'
+  - key: code-window
+    format: code-output
+    question: |-
+      ```java
+      System.out.println(Stream.of(1, 2, 3, 4, 5).gather(Gatherers.windowFixed(2)).toList() + " "
+              + Stream.of(1, 2, 3, 4).gather(Gatherers.windowSliding(3)).toList());
+      ```
+    answer: '`[[1, 2], [3, 4], [5]] [[1, 2, 3], [2, 3, 4]]`.'
+    check:
+      output: "[[1, 2], [3, 4], [5]] [[1, 2, 3], [2, 3, 4]]"
+  - key: code-scan
+    format: code-output
+    question: |-
+      ```java
+      System.out.println(Stream.of(5, -2, 10).gather(Gatherers.scan(() -> 100, Integer::sum)).toList());
+      ```
+    answer: '`[105, 103, 113]`.'
+    check:
+      output: "[105, 103, 113]"
+  - key: code-fold
+    format: code-output
+    question: |-
+      ```java
+      System.out.println(Stream.of("a", "b", "c").gather(Gatherers.fold(() -> "", String::concat)).toList());
+      ```
+    answer: '`[abc]` : un seul élément émis.'
+    check:
+      output: "[abc]"
+  - key: code-personnalise
+    format: code-output
+    question: |-
+      ```java
+      Gatherer<Integer, int[], Integer> croissants = Gatherer.ofSequential(
+              () -> new int[]{Integer.MIN_VALUE},
+              (dernier, x, aval) -> {
+                  if (x > dernier[0]) {
+                      dernier[0] = x;
+                      return aval.push(x);
+                  }
+                  return true;
+              });
+      System.out.println(Stream.of(1, 3, 2, 5, 4, 6).gather(croissants).toList());
+      ```
+    answer: '`[1, 3, 5, 6]`.'
+    check:
+      output: "[1, 3, 5, 6]"

@@ -1,4 +1,32 @@
 notion: gc-algorithmes
+lesson: |-
+  HotSpot propose plusieurs ramasse-miettes, qui font des compromis différents entre **débit** (part du temps consacrée à
+  l'application), **latence** (durée des pauses) et **empreinte** (mémoire et CPU en plus) :
+
+  | GC | Option | Principe | Pour |
+  |---|---|---|---|
+  | **Serial** | `-XX:+UseSerialGC` | un seul thread, tout en pause | petits tas, un seul cœur, outils en ligne de commande |
+  | **Parallel** | `-XX:+UseParallelGC` | plusieurs threads, en pause | le **débit** maximal (traitements par lots) |
+  | **G1** | `-XX:+UseG1GC` (défaut) | tas en **régions**, collecte d'abord les plus rentables, marquage concurrent, objectif de pause | le choix général |
+  | **ZGC** | `-XX:+UseZGC` | presque tout en concurrence, pauses de l'ordre de la **milliseconde** quelle que soit la taille du tas | la **latence** sur de gros tas |
+  | **Shenandoah** | `-XX:+UseShenandoahGC` | compactage concurrent, pauses très courtes | la latence (OpenJDK) |
+  | **Epsilon** | `-XX:+UseEpsilonGC` | n'alloue que, ne collecte jamais | tests de performance, tâches très courtes |
+
+  À retenir :
+  - **G1** est le GC par défaut depuis Java 9 (sur les machines « serveur ») : le tas est découpé en régions, et G1 vise une
+    pause cible (`-XX:MaxGCPauseMillis`, 200 ms par défaut). Un objet de plus d'une demi-région est **humongous**, alloué
+    directement en vieille génération.
+  - **ZGC** est générationnel (par défaut depuis Java 23, seul mode depuis Java 24) ; il échange un peu de débit et de CPU
+    contre des pauses très faibles, même avec des centaines de gigaoctets.
+  - Sur une petite machine (moins de 2 CPU ou de 1,8 Go), la JVM choisissait Serial par défaut (JDK récents : G1
+    partout, selon la version).
+  - On ne change de GC qu'après avoir **mesuré** un problème de pauses ou de débit.
+
+  **Piège classique** : passer à ZGC « parce qu'il est plus moderne » sur un traitement par lots. Le débit baisse, sans
+  bénéfice : pour un batch, ce sont les pauses totales et le débit qui comptent, et Parallel ou G1 conviennent mieux.
+
+  **En entretien** : « Serial pour les petites machines, Parallel pour le débit, G1 par défaut avec un objectif de pause,
+  ZGC et Shenandoah pour des pauses de l'ordre de la milliseconde sur de gros tas. »
 cards:
   - key: gc-defaut
     format: course
@@ -20,7 +48,126 @@ cards:
     format: course
     question: ZGC est-il générationnel ?
     answer: Oui par défaut depuis Java 23, et le mode non générationnel a été supprimé en Java 24.
+  - key: vf-zgc-pauses
+    format: true-false
+    question: Les pauses de ZGC restent de l'ordre de la milliseconde, même avec un très gros tas.
+    truth: true
+    answer: L'essentiel du travail est fait en concurrence avec l'application.
+  - key: vf-parallel-latence
+    format: true-false
+    question: Parallel GC est le meilleur choix pour minimiser les pauses d'une API interactive.
+    truth: false
+    answer: Il maximise le débit mais fait des pauses longues ; G1 ou ZGC conviennent mieux.
+  - key: vf-epsilon
+    format: true-false
+    question: Epsilon ne libère jamais la mémoire.
+    truth: true
+    answer: Utile pour mesurer les performances sans GC, ou pour des tâches très courtes.
+  - key: vf-gratuit
+    format: true-false
+    question: Un GC à faible latence n'a aucun coût en échange.
+    truth: false
+    answer: Il consomme plus de CPU et un peu de débit pour faire son travail en concurrence.
+  - key: qcm-choix
+    format: multiple-choice
+    question: Associez correctement besoin et GC.
+    choices:
+      - text: "Un traitement par lots qui doit finir au plus vite : Parallel"
+        correct: true
+      - text: "Une API de trading avec un tas de 200 Go et des pauses minimales : ZGC"
+        correct: true
+      - text: "Un outil en ligne de commande qui dure deux secondes : ZGC obligatoirement"
+        correct: false
+      - text: "Un service général sans contrainte particulière : Epsilon"
+        correct: false
+    answer: G1 reste le choix par défaut raisonnable.
+  - key: qcm-g1
+    format: multiple-choice
+    question: Comment fonctionne G1 ?
+    choices:
+      - text: "Le tas est découpé en régions, collectées d'abord là où il y a le plus de place à récupérer"
+        correct: true
+      - text: "Il vise une durée de pause configurable"
+        correct: true
+      - text: "Il ne fait jamais de pause"
+        correct: false
+      - text: "Il utilise un seul thread"
+        correct: false
+    answer: D'où le nom « Garbage First ».
+  - key: qcm-options
+    format: multiple-choice
+    question: Quelle option active ZGC ?
+    choices:
+      - text: "`-XX:+UseZGC`"
+        correct: true
+      - text: "`-XX:+UseLowLatencyGC`"
+        correct: false
+      - text: "`-Xgc:zgc`"
+        correct: false
+      - text: "`-XX:GC=Z`"
+        correct: false
+    answer: Il est générationnel par défaut depuis Java 23.
+  - key: qcm-humongous
+    format: multiple-choice
+    question: Pourquoi de nombreux objets humongous peuvent-ils poser problème avec G1 ?
+    choices:
+      - text: "Ils sont alloués directement en vieille génération et peuvent fragmenter le tas"
+        correct: true
+      - text: "Ils ne sont jamais collectés"
+        correct: false
+      - text: "Ils sont stockés dans le Metaspace"
+        correct: false
+      - text: "Ils désactivent G1"
+        correct: false
+    answer: Agrandir la taille des régions (`-XX:G1HeapRegionSize`) ou réduire ces gros tableaux aide.
+  - key: scenario-choisir
+    format: scenario
+    question: Quel GC choisis-tu pour un nouveau service web, et sur quels critères pourrais-tu en changer ?
+    answer: |-
+      G1, le défaut : bon compromis entre débit et pauses pour la plupart des services, sans réglage. J'en changerais
+      après mesure : si les pauses dépassent l'objectif de latence (percentile 99) malgré un tas bien dimensionné et un
+      taux d'allocation raisonnable, je teste ZGC, qui donne des pauses de l'ordre de la milliseconde au prix d'un peu de
+      CPU. Pour un traitement par lots où seul le temps total compte, Parallel. Je compare toujours sous charge
+      réaliste, avec les journaux du GC et la latence de bout en bout.
+  - key: scenario-gros-tas
+    format: scenario
+    question: Un service en mémoire (un cache de 120 Go) subit des pauses de plusieurs secondes avec G1. Que proposes-tu ?
+    answer: |-
+      Sur un tas de cette taille, les phases d'arrêt de G1 (évacuation, et surtout un éventuel GC complet) deviennent
+      longues. ZGC (ou Shenandoah) fait le marquage et le compactage en concurrence, avec des pauses de l'ordre de la
+      milliseconde quelle que soit la taille du tas : c'est le bon candidat, à valider sous charge (CPU disponible pour
+      le GC, débit). Je me demanderais aussi s'il faut vraiment 120 Go dans le tas : des données hors tas (mémoire native,
+      un cache externe) ou plusieurs instances plus petites peuvent être plus simples à opérer.
+  - key: scenario-conteneur-petit
+    format: scenario
+    question: Un microservice tourne dans des conteneurs de 1 CPU et 512 Mo. Quel GC la JVM choisit-elle, et faut-il intervenir ?
+    answer: |-
+      Sur une machine considérée comme « non serveur » (moins de 2 CPU ou moins d'environ 1,8 Go), les JDK jusqu'à
+      récemment choisissent Serial ; les versions récentes prennent G1 partout. Je vérifie le GC réel
+      (`-XX:+PrintCommandLineFlags` ou `jcmd VM.flags`). Avec un seul CPU, Serial est d'ailleurs souvent efficace. Je
+      fixe explicitement le GC voulu pour ne pas dépendre de cette heuristique, je règle `MaxRAMPercentage`, et je mesure
+      les pauses sous charge.
+  - key: scenario-batch
+    format: scenario
+    question: Un traitement nocturne qui dure deux heures doit finir plus tôt. Le GC y prend 15 % du temps. Que fais-tu ?
+    answer: |-
+      Pour un batch, seul le temps total compte, pas les pauses individuelles : j'essaie Parallel GC, conçu pour le débit,
+      et un tas plus grand pour réduire le nombre de collectes. Je profile aussi les allocations : 15 % de GC signale
+      beaucoup d'objets temporaires (conversions, chaînes, entités chargées inutilement), et réduire les allocations est
+      souvent le gain le plus important. Je mesure chaque changement sur un jeu de données réaliste.
   - key: definition-gc
     format: definition
     question: GC
     answer: 'Garbage Collector : G1, ZGC, Shenandoah, Parallel, Serial, Epsilon'
+  - key: definition-g1
+    format: definition
+    question: G1
+    answer: Garbage First, le GC par défaut de HotSpot, qui découpe le tas en régions et vise une durée de pause configurable.
+  - key: definition-zgc
+    format: definition
+    question: ZGC
+    answer: Un GC à faible latence qui fait l'essentiel de son travail en concurrence, avec des pauses de l'ordre de la milliseconde.
+  - key: definition-humongous
+    format: definition
+    question: Objet humongous
+    answer: Dans G1, un objet plus grand que la moitié d'une région, alloué directement dans des régions de la vieille génération.

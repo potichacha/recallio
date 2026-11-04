@@ -1,4 +1,47 @@
 notion: modules-avances
+lesson: |-
+  Au-delà de `requires` et `exports`, `module-info.java` connaît :
+
+  ```java
+  module com.recallio.app {
+      requires com.fasterxml.jackson.databind;
+
+      opens com.recallio.app.dto to com.fasterxml.jackson.databind;   // réflexion profonde autorisée pour Jackson
+      opens com.recallio.app.entite;                                  // à tous
+
+      uses com.recallio.spi.Exporteur;                                // consomme un service
+      provides com.recallio.spi.Exporteur with com.recallio.app.ExporteurCsv;   // en fournit une implémentation
+  }
+
+  open module com.recallio.plugin { ... }                             // tout le module ouvert à la réflexion
+  ```
+
+  - **`exports`** donne accès aux types **publics** et à leurs membres publics ; **`opens`** autorise la **réflexion
+    profonde** (accès aux membres privés, `setAccessible(true)`) à l'exécution. Les frameworks (Jackson, Hibernate,
+    injection de dépendances) ont besoin de `opens`.
+  - **`uses` / `provides ... with`** : le mécanisme des **services**, découverts avec **`ServiceLoader`**
+    (`ServiceLoader.load(Exporteur.class)`). Sur le classpath, la même découverte passe par des fichiers
+    `META-INF/services/<interface>`.
+
+  Les modules pour la migration :
+  - le **module sans nom** (*unnamed module*) : tout le code du **classpath** ; il lit tous les modules, mais un module
+    nommé ne peut pas le requérir ;
+  - un **module automatique** : un JAR **non modulaire** placé sur le **module path** ; son nom vient de l'attribut
+    `Automatic-Module-Name` du manifeste (ou du nom du fichier), il exporte et ouvre tous ses packages et lit tous les
+    modules. C'est une passerelle pour migrer progressivement.
+
+  Règles et contournements :
+  - un **split package** (le même package dans deux modules) est interdit ;
+  - les accès réflexifs refusés lèvent `InaccessibleObjectException` ; l'option de ligne de commande
+    `--add-opens module/package=ALL-UNNAMED` (et `--add-exports`, `--add-reads`) ouvre un accès sans modifier le module :
+    un pis-aller, à documenter ;
+  - une bibliothèque doit déclarer `Automatic-Module-Name` pour réserver un nom stable avant d'être modularisée.
+
+  **Piège classique** : un module qui exporte ses DTO mais ne les **ouvre** pas à Jackson. La sérialisation échoue avec
+  `InaccessibleObjectException`, car Jackson accède à des membres privés par réflexion.
+
+  **En entretien** : « `exports` pour la compilation et l'accès public, `opens` pour la réflexion des frameworks,
+  `uses`/`provides` pour les services ; les modules automatiques et le module sans nom permettent de migrer pas à pas. »
 cards:
   - key: exports-vs-opens
     format: course
@@ -12,3 +55,79 @@ cards:
     format: course
     question: Unnamed module vs automatic module ?
     answer: Le code du classpath vs un jar non modulaire placé sur le module path.
+  - key: services
+    format: course
+    question: Comment fonctionnent `uses` et `provides` ?
+    answer: Un module déclare consommer un service (`uses Interface`) et un autre en fournir une implémentation (`provides Interface with Classe`) ; `ServiceLoader.load(Interface.class)` découvre les implémentations à l'exécution.
+  - key: vf-opens-compilation
+    format: true-false
+    question: "`opens` suffit pour qu'un autre module compile contre les types du package."
+    truth: false
+    answer: '`opens` n''agit qu''à l''exécution (réflexion) ; la compilation demande `exports`.'
+  - key: vf-automatique
+    format: true-false
+    question: Un module automatique exporte tous ses packages.
+    truth: true
+    answer: Et les ouvre tous à la réflexion.
+  - key: vf-add-opens
+    format: true-false
+    question: "`--add-opens` permet d'ouvrir un package d'un module sans modifier son `module-info`."
+    truth: true
+    answer: C'est un contournement en ligne de commande, à documenter.
+  - key: vf-classpath-services
+    format: true-false
+    question: Sur le classpath, `ServiceLoader` découvre les implémentations via les fichiers `META-INF/services`.
+    truth: true
+    answer: Le nom du fichier est celui de l'interface, son contenu les classes d'implémentation.
+  - key: qcm-jackson
+    format: multiple-choice
+    question: "Jackson lève `InaccessibleObjectException` sur les DTO d'un module. Que faire ?"
+    choices:
+      - text: "`opens com.recallio.app.dto to com.fasterxml.jackson.databind;`"
+        correct: true
+      - text: "`exports com.recallio.app.dto;` seulement"
+        correct: false
+      - text: "`requires transitive com.fasterxml.jackson.databind;`"
+        correct: false
+      - text: "Rendre tous les champs `public static`"
+        correct: false
+    answer: La réflexion profonde demande `opens`.
+  - key: qcm-automatique-nom
+    format: multiple-choice
+    question: D'où vient le nom d'un module automatique ?
+    choices:
+      - text: "De l'attribut `Automatic-Module-Name` du manifeste, s'il existe"
+        correct: true
+      - text: "Sinon, du nom du fichier JAR"
+        correct: true
+      - text: "Du nom de la classe principale"
+        correct: false
+      - text: "Il n'a pas de nom"
+        correct: false
+    answer: Le nom dérivé du fichier est fragile ; les bibliothèques déclarent `Automatic-Module-Name`.
+  - key: qcm-split
+    format: multiple-choice
+    question: Deux JAR du module path contiennent le package `com.exemple.util`. Que se passe-t-il ?
+    choices:
+      - text: "Le démarrage échoue, car un même package ne peut venir de deux modules"
+        correct: true
+      - text: "Le premier JAR gagne, comme sur le classpath"
+        correct: false
+      - text: "Les deux sont fusionnés"
+        correct: false
+      - text: "Rien"
+        correct: false
+    answer: C'est une protection contre les conflits silencieux.
+  - key: qcm-open-module
+    format: multiple-choice
+    question: "Que fait `open module com.recallio.plugin { ... }` ?"
+    choices:
+      - text: "Il ouvre tous les packages du module à la réflexion"
+        correct: true
+      - text: "Il exporte tous les packages"
+        correct: false
+      - text: "Il supprime l'encapsulation à la compilation"
+        correct: false
+      - text: "Il rend le module automatique"
+        correct: false
+    answer: Les exports restent ceux déclarés.

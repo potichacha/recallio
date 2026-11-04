@@ -1,4 +1,35 @@
 notion: exceptions-performance
+lesson: |-
+  Lever une exception n'est pas gratuit, et le coût vient surtout de sa **création** : le constructeur appelle
+  `fillInStackTrace()`, qui parcourt la pile du thread pour enregistrer chaque appel. Plus la pile est profonde
+  (frameworks, proxys), plus c'est cher. Le `throw` et le `catch` eux-mêmes sont peu coûteux.
+
+  ```java
+  // une exception sans pile, pour un cas très fréquent et bien identifié
+  class LigneIgnoree extends RuntimeException {
+      LigneIgnoree() {
+          super("ligne ignorée", null, false, false);   // pas de suppression, pas de pile
+      }
+  }
+  ```
+
+  - Pour un cas **exceptionnel**, ce coût est négligeable : on ne s'en soucie pas.
+  - Il compte quand une exception sert au **flux normal** dans une boucle chaude : tester `Integer.parseInt` dans un
+    `try` pour savoir si un texte est numérique, sur des millions de lignes.
+  - Le constructeur protégé `(message, cause, enableSuppression, writableStackTrace)` (Java 7) crée une exception sans
+    pile ; on peut aussi redéfinir `fillInStackTrace()`. À réserver à des cas mesurés : une exception sans pile est
+    impossible à diagnostiquer.
+  - HotSpot finit par réutiliser une instance **sans pile** pour certaines exceptions levées très souvent au même endroit
+    (`NullPointerException`, `ArithmeticException`...) : c'est `OmitStackTraceInFastThrow`, désactivable avec
+    `-XX:-OmitStackTraceInFastThrow`.
+  - Avant d'optimiser, on **mesure** (JMH, profileur) : le plus souvent, la solution est de ne pas utiliser
+    d'exception pour un cas attendu.
+
+  **Piège classique** : « optimiser » toutes les exceptions de l'application en supprimant leur pile. On gagne quelques
+  microsecondes et l'on perd toute capacité de diagnostic.
+
+  **En entretien** : « Le coût d'une exception vient du remplissage de la pile ; il n'importe que si on l'utilise pour le
+  flux normal, ce qu'il faut éviter. »
 cards:
   - key: exceptions-sont-elles-couteuses
     format: course
@@ -8,9 +39,256 @@ cards:
     format: course
     question: Pourquoi voit-on parfois des NPE sans stack trace en production ?
     answer: Le JIT omet la pile des exceptions très fréquentes (OmitStackTraceInFastThrow).
+  - key: sans-pile
+    format: course
+    question: Comment créer une exception sans pile d'appels ?
+    answer: Avec le constructeur protégé `super(message, cause, false, false)` (Java 7), ou en redéfinissant `fillInStackTrace()` pour qu'elle renvoie `this` sans rien remplir.
+  - key: quand-compte
+    format: course
+    question: Quand le coût des exceptions compte-t-il vraiment ?
+    answer: Quand elles servent au flux normal dans une boucle très fréquente (tester un format par `try/catch` sur des millions de valeurs) ; pour des erreurs rares, il est négligeable.
+  - key: vf-throw-cher
+    format: true-false
+    question: L'essentiel du coût d'une exception vient de l'instruction `throw`.
+    truth: false
+    answer: Il vient de la création de l'exception, qui remplit la pile d'appels.
+  - key: vf-rare
+    format: true-false
+    question: Pour une erreur rare, le coût d'une exception est négligeable.
+    truth: true
+    answer: On ne l'optimise pas ; on la garde lisible et diagnosticable.
+  - key: vf-omit
+    format: true-false
+    question: "`-XX:-OmitStackTraceInFastThrow` force la JVM à garder la pile des exceptions fréquentes."
+    truth: true
+    answer: Utile pour enquêter sur une NPE répétée sans pile.
+  - key: vf-optimiser-toutes
+    format: true-false
+    question: Supprimer la pile de toutes les exceptions d'une application est une bonne optimisation.
+    truth: false
+    answer: On perd le diagnostic pour un gain rarement mesurable.
+  - key: qcm-cout
+    format: multiple-choice
+    question: Qu'est-ce qui coûte le plus cher dans une exception ?
+    choices:
+      - text: "Le remplissage de la pile (`fillInStackTrace`) à sa création"
+        correct: true
+      - text: "Le bloc `catch`"
+        correct: false
+      - text: "Le message"
+        correct: false
+      - text: "Le bloc `finally`"
+        correct: false
+    answer: La JVM parcourt toute la pile du thread.
+  - key: qcm-eviter
+    format: multiple-choice
+    question: Comment tester qu'un texte est un entier dans une boucle de millions de lignes ?
+    choices:
+      - text: "Vérifier les caractères (ou une regex compilée) avant d'appeler `parseInt`"
+        correct: true
+      - text: "Appeler `parseInt` dans un `try` et attraper `NumberFormatException`"
+        correct: false
+      - text: "Attraper `Exception` autour de toute la boucle"
+        correct: false
+      - text: "Désactiver les piles de toutes les exceptions"
+        correct: false
+    answer: Une ligne non numérique y est un cas normal, pas une exception.
+  - key: qcm-mesurer
+    format: multiple-choice
+    question: Avant d'optimiser le coût des exceptions, que faire ?
+    choices:
+      - text: "Mesurer avec un profileur ou JMH"
+        correct: true
+      - text: "Supprimer tous les `try/catch`"
+        correct: false
+      - text: "Remplacer les exceptions par des codes d'erreur partout"
+        correct: false
+      - text: "Augmenter la taille du tas"
+        correct: false
+    answer: Sans mesure, on optimise souvent au mauvais endroit.
+  - key: qcm-constructeur
+    format: multiple-choice
+    question: "Que désactivent les deux derniers arguments de `super(message, cause, false, false)` ?"
+    choices:
+      - text: "Les exceptions supprimées et la pile d'appels"
+        correct: true
+      - text: "Le message et la cause"
+        correct: false
+      - text: "Le `catch` et le `finally`"
+        correct: false
+      - text: "La sérialisation"
+        correct: false
+    answer: '`enableSuppression` et `writableStackTrace`.'
+  - key: code-sans-pile
+    format: code-output
+    question: |-
+      ```java
+      class Rapide extends RuntimeException {
+          Rapide() { super("rapide", null, false, false); }
+      }
+      System.out.println(new Rapide().getStackTrace().length + " " + (new RuntimeException().getStackTrace().length > 0));
+      ```
+    answer: '`0 true` : l''exception légère n''a pas de pile, une exception ordinaire en a une.'
+    check:
+      output: "0 true"
+  - key: code-fill-in
+    format: code-output
+    question: |-
+      ```java
+      class SansPile extends RuntimeException {
+          @Override
+          public synchronized Throwable fillInStackTrace() { return this; }
+      }
+      System.out.println(new SansPile().getStackTrace().length);
+      ```
+    answer: '`0` : `fillInStackTrace` redéfinie ne remplit rien.'
+    check:
+      output: "0"
+  - key: code-suppression-desactivee
+    format: code-output
+    question: |-
+      ```java
+      class Rapide extends RuntimeException {
+          Rapide() { super("rapide", null, false, false); }
+      }
+      Rapide r = new Rapide();
+      r.addSuppressed(new IllegalStateException());
+      System.out.println(r.getSuppressed().length);
+      ```
+    answer: '`0` : avec `enableSuppression` à `false`, les exceptions supprimées sont ignorées.'
+    check:
+      output: "0"
+  - key: code-message-conserve
+    format: code-output
+    question: |-
+      ```java
+      class Rapide extends RuntimeException {
+          Rapide(String m) { super(m, null, false, false); }
+      }
+      try {
+          throw new Rapide("ligne vide");
+      } catch (Rapide e) {
+          System.out.println(e.getMessage());
+      }
+      ```
+    answer: '`ligne vide` : sans pile, l''exception garde son type et son message.'
+    check:
+      output: "ligne vide"
+  - key: bug-parse-boucle
+    format: bug-fix
+    question: |-
+      Le profilage d'un import de dix millions de lignes montre l'essentiel du temps dans la création d'exceptions :
+      ```java
+      for (String champ : champs) {
+          try {
+              total += Integer.parseInt(champ);
+          } catch (NumberFormatException e) {
+              ignorees++;
+          }
+      }
+      ```
+      La moitié des champs sont des textes.
+    answer: |-
+      ```java
+      private static final Pattern ENTIER = Pattern.compile("-?\\d{1,9}");
+
+      for (String champ : champs) {
+          if (ENTIER.matcher(champ).matches()) {
+              total += Integer.parseInt(champ);
+          } else {
+              ignorees++;
+          }
+      }
+      ```
+      Un champ textuel est ici un cas normal : un test préalable évite de créer des millions d'exceptions (et de leurs
+      piles).
+  - key: bug-validation-exceptions
+    format: bug-fix
+    question: |-
+      La validation d'un fichier de cent mille lignes lève une exception par ligne invalide pour les compter :
+      ```java
+      int erreurs = 0;
+      for (String ligne : lignes) {
+          try { valider(ligne); } catch (LigneInvalide e) { erreurs++; }
+      }
+      ```
+    answer: |-
+      ```java
+      int erreurs = 0;
+      for (String ligne : lignes) {
+          if (!estValide(ligne)) erreurs++;
+      }
+      ```
+      Quand l'invalidité est un résultat attendu, une méthode qui renvoie un booléen (ou un résultat de validation) est
+      plus claire et bien plus rapide qu'une exception par ligne.
+  - key: bug-pile-supprimee-partout
+    format: bug-fix
+    question: |-
+      Depuis qu'une classe de base « optimise » toutes les exceptions de l'application, plus aucune erreur de production
+      n'est diagnosticable :
+      ```java
+      public abstract class ErreurApplication extends RuntimeException {
+          protected ErreurApplication(String m) { super(m, null, false, false); }
+      }
+      ```
+    answer: |-
+      ```java
+      public abstract class ErreurApplication extends RuntimeException {
+          protected ErreurApplication(String m) { super(m); }
+          protected ErreurApplication(String m, Throwable cause) { super(m, cause); }
+      }
+      ```
+      Les exceptions d'une application sont rares : leur pile coûte peu et vaut beaucoup. On ne supprime la pile que pour
+      un cas précis, fréquent et mesuré.
+  - key: bug-flux-normal
+    format: bug-fix
+    question: |-
+      Ce cache lève une exception à chaque absence, soit à chaque premier accès :
+      ```java
+      Profil profil(long id) {
+          try {
+              return cache.lireOuLever(id);
+          } catch (AbsentDuCache e) {
+              return charger(id);
+          }
+      }
+      ```
+    answer: |-
+      ```java
+      Profil profil(long id) {
+          return cache.lire(id).orElseGet(() -> charger(id));   // lire renvoie un Optional
+      }
+      ```
+      Une absence du cache est un cas normal : un `Optional` l'exprime sans le coût ni le bruit d'une exception.
   - key: erreur-intermittente-apparait-logs-comme
     format: scenario
     question: Une erreur intermittente apparaît dans les logs comme une NullPointerException sans aucune stack trace.
     answer: |-
       C'est l'optimisation du JIT qui, pour une exception levée très souvent au même endroit, finit par réutiliser une instance préallouée sans pile. Il faut chercher la **première occurrence** dans les logs, qui elle avait sa stack trace, ou redémarrer avec `-XX:-OmitStackTraceInFastThrow` pour la conserver.
       Et la fréquence elle-même est une information : une NPE levée assez souvent pour que le JIT l'optimise, c'est un vrai bug, pas un incident isolé.
+  - key: scenario-profilage
+    format: scenario
+    question: Un profileur montre beaucoup de temps passé dans `Throwable.fillInStackTrace`. Que fais-tu ?
+    answer: |-
+      Je cherche d'où viennent ces exceptions : souvent une seule exception utilisée comme flux normal (un `parseInt` dans
+      un `try`, une recherche qui lève pour une absence, un framework qui lève puis attrape en interne). Je corrige la
+      cause : un test préalable, un `Optional`, une option du framework. Si l'exception est vraiment nécessaire et
+      fréquente dans une boucle chaude, je peux créer une exception sans pile pour ce seul cas, en documentant le choix.
+      Je vérifie le gain par une mesure avant et après.
+  - key: scenario-framework
+    format: scenario
+    question: Une bibliothèque lève et attrape des milliers d'exceptions par seconde en interne. Comment le détectes-tu et que fais-tu ?
+    answer: |-
+      Le profileur ou un enregistrement JFR (événements `jdk.JavaExceptionThrow`, ou les statistiques d'exceptions)
+      montrent le volume et l'endroit. Je regarde ensuite la documentation de la bibliothèque : il existe souvent une
+      méthode de test (`isValid`, `tryParse`) ou une option pour éviter ce chemin. À défaut, je valide moi-même les données
+      avant de les lui passer. Je ne désactive pas les piles globalement : ce serait payer le diagnostic de toute
+      l'application pour un problème local.
+  - key: scenario-debat
+    format: scenario
+    question: Un collègue refuse les exceptions métier « parce que les exceptions sont lentes ». Que lui réponds-tu ?
+    answer: |-
+      Que le coût d'une exception (quelques microsecondes, surtout la pile) est négligeable pour une erreur métier, qui
+      arrive rarement à l'échelle d'une requête qui fait des appels réseau et base de données. La lisibilité et la gestion
+      centralisée valent bien plus. Le coût devient un problème seulement quand on s'en sert pour le flux normal, en boucle :
+      c'est ce cas-là qu'il faut éviter, pas les exceptions en général. Et si le doute persiste, on mesure.

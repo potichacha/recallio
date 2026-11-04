@@ -1,5 +1,131 @@
 notion: jar-hell
+lesson: |-
+  Le **« JAR hell »** désigne les conflits de versions sur le classpath : deux bibliothèques demandent des **versions
+  différentes** d'une même dépendance, mais une seule peut être chargée.
+
+  ```
+  mon-service
+  ├── client-paiement 2.1 ──► jackson-databind 2.15
+  └── client-stock 1.4    ──► jackson-databind 2.9      ← une seule version sera sur le classpath
+  ```
+
+  Les symptômes apparaissent **à l'exécution**, alors que tout compile :
+  - **`NoSuchMethodError`**, **`NoSuchFieldError`** : le code a été compilé contre une version qui avait cette méthode,
+    mais une autre est chargée ;
+  - **`ClassNotFoundException`**, **`NoClassDefFoundError`** : une classe a disparu ou été déplacée entre versions ;
+  - **`AbstractMethodError`**, **`IncompatibleClassChangeError`** : une interface a changé ;
+  - un comportement **différent** selon l'environnement (l'ordre du classpath n'est pas le même).
+
+  Le diagnostic :
+  - **`mvn dependency:tree -Dverbose`** (ou `-Dincludes=groupe:artefact`) montre qui tire quelle version et laquelle
+    est retenue ;
+  - **`-verbose:class`** ou `getCodeSource().getLocation()` disent de quel JAR vient une classe à l'exécution.
+
+  Les remèdes :
+  - **aligner** les versions : `dependencyManagement`, et surtout les **BOM** (Spring Boot, Quarkus, Jackson) qui
+    fournissent un ensemble cohérent ;
+  - **exclure** une version transitive indésirable (`<exclusions>`) ;
+  - **faire échouer le build** en cas de conflit : plugin **enforcer** avec `dependencyConvergence` et
+    `banDuplicateClasses` ;
+  - en dernier recours, **relocaliser** une dépendance (plugin Shade : la renommer dans un autre package) quand deux
+    versions incompatibles sont vraiment nécessaires ;
+  - le **module path** (JPMS) interdit qu'un même package vienne de deux modules.
+
+  **Piège classique** : corriger un `NoSuchMethodError` en ajoutant la dépendance « manquante » à la main, sans regarder
+  l'arbre. On ajoute une troisième version, et l'erreur se déplace.
+
+  **En entretien** : « Deux versions d'une même bibliothèque, une seule chargée : des `NoSuchMethodError` à l'exécution. Je
+  lis `dependency:tree`, j'aligne avec un BOM, j'exclus les doublons, et l'enforcer fait échouer le build en cas de
+  conflit. »
 cards:
+  - key: definition
+    format: course
+    question: Qu'appelle-t-on le « JAR hell » ?
+    answer: Les conflits de versions d'une même bibliothèque sur le classpath, qui provoquent des erreurs à l'exécution parce qu'une seule version est chargée.
+  - key: symptomes
+    format: course
+    question: Quelles erreurs signalent un conflit de versions ?
+    answer: '`NoSuchMethodError`, `NoSuchFieldError`, `NoClassDefFoundError`, `AbstractMethodError` ou un comportement qui varie selon l''environnement, alors que le code compile.'
+  - key: enforcer
+    format: course
+    question: Comment empêcher un conflit de versions d'atteindre la production ?
+    answer: Avec le plugin Maven enforcer et ses règles `dependencyConvergence` et `banDuplicateClasses`, qui font échouer le build dès qu'un conflit apparaît.
+  - key: relocalisation
+    format: course
+    question: Que faire si deux bibliothèques ont vraiment besoin de deux versions incompatibles d'une dépendance ?
+    answer: En dernier recours, relocaliser l'une d'elles avec le plugin Shade (la renommer dans un autre package), ou isoler les composants dans des chargeurs de classes distincts.
+  - key: vf-compile
+    format: true-false
+    question: Un conflit de versions provoque en général une erreur de compilation.
+    truth: false
+    answer: Les erreurs apparaissent à l'exécution, quand la méthode attendue n'existe pas dans la version chargée.
+  - key: vf-une-version
+    format: true-false
+    question: Sur le classpath classique, deux versions d'une même classe peuvent être utilisées en même temps.
+    truth: false
+    answer: La première trouvée masque l'autre (sauf chargeurs distincts).
+  - key: vf-bom
+    format: true-false
+    question: Un BOM aide à aligner les versions d'un ensemble de bibliothèques.
+    truth: true
+    answer: Il fixe des versions cohérentes, testées ensemble.
+  - key: vf-verbose
+    format: true-false
+    question: "`-verbose:class` indique de quel JAR provient chaque classe chargée."
+    truth: true
+    answer: Pratique pour prouver qu'une ancienne version est chargée.
+  - key: qcm-diagnostic
+    format: multiple-choice
+    question: Comment trouver quelle dépendance tire une ancienne version de Guava ?
+    choices:
+      - text: "`mvn dependency:tree -Dincludes=com.google.guava`"
+        correct: true
+      - text: "`mvn dependency:tree -Dverbose`, qui montre aussi les versions écartées"
+        correct: true
+      - text: "`mvn clean install`"
+        correct: false
+      - text: "`java -version`"
+        correct: false
+    answer: L'arbre montre le chemin de chaque version.
+  - key: qcm-remedes
+    format: multiple-choice
+    question: Quelles corrections sont propres ?
+    choices:
+      - text: "Imposer la version dans `dependencyManagement` ou importer un BOM"
+        correct: true
+      - text: "Exclure la version transitive indésirable"
+        correct: true
+      - text: "Copier les classes de la bonne version dans le projet"
+        correct: false
+      - text: "Changer l'ordre des JAR à la main dans le dossier `lib`"
+        correct: false
+    answer: Les deux dernières sont fragiles et invisibles pour les autres développeurs.
+  - key: qcm-erreur
+    format: multiple-choice
+    question: "Quelle erreur indique typiquement qu'une méthode existait à la compilation mais pas dans la version chargée ?"
+    choices:
+      - text: "`NoSuchMethodError`"
+        correct: true
+      - text: "`NoSuchMethodException`"
+        correct: false
+      - text: "`NullPointerException`"
+        correct: false
+      - text: "`IllegalArgumentException`"
+        correct: false
+    answer: '`NoSuchMethodException` vient de la réflexion.'
+  - key: qcm-jpms
+    format: multiple-choice
+    question: En quoi le module path réduit-il le JAR hell ?
+    choices:
+      - text: "Un même package ne peut pas venir de deux modules (pas de split package)"
+        correct: true
+      - text: "Il autorise deux versions de chaque module"
+        correct: false
+      - text: "Il télécharge automatiquement la bonne version"
+        correct: false
+      - text: "Il supprime les dépendances transitives"
+        correct: false
+    answer: Le conflit est détecté au démarrage plutôt que de surprendre à l'exécution.
   - key: application-leve-nosuchmethoderror-production
     format: scenario
     question: L'application lève un NoSuchMethodError en production mais compile sans problème.
@@ -9,3 +135,29 @@ cards:
       La correction dépend du cas : soit **exclure** la version indésirable de la dépendance qui la tire, soit **imposer** la bonne version dans `dependencyManagement`, soit aligner tout le monde via un **BOM**.
       En prévention, le plugin **enforcer** avec la règle de convergence des dépendances fait échouer le build quand un conflit apparaît, plutôt que de le découvrir en production.
       Et je vérifierais que l'environnement d'exécution n'ajoute pas lui-même des librairies au classpath, c'est une source fréquente d'écart entre local et production.
+  - key: scenario-deux-clients
+    format: scenario
+    question: Deux SDK partenaires exigent des versions majeures incompatibles de la même bibliothèque HTTP. Comment t'en sors-tu ?
+    answer: |-
+      Je vérifie d'abord s'il existe des versions des deux SDK compatibles avec une même version (souvent la solution la
+      plus simple, avec un BOM). Sinon, je relocalise la dépendance de l'un des deux avec le plugin Shade, dans un module
+      dédié qui produit un JAR où la bibliothèque est renommée (`partenaire.shaded.okhttp`), pour que les deux versions
+      cohabitent. Autre option : isoler l'un des SDK dans un petit service à part. Je documente le choix (ADR), car c'est
+      une dette à résorber quand les SDK évoluent.
+  - key: scenario-prevention
+    format: scenario
+    question: Quelles règles mets-tu en place dans un projet pour éviter les conflits de dépendances ?
+    answer: |-
+      Toutes les versions centralisées dans le pom parent (`dependencyManagement`, propriétés) et alignées par les BOM du
+      framework ; le plugin enforcer avec `dependencyConvergence` et `requireUpperBoundDeps`, pour que le build échoue au
+      premier conflit ; un outil de mise à jour (Renovate, Dependabot) qui propose des montées groupées et testées en CI ;
+      et une revue de l'arbre (`dependency:tree`) à chaque nouvelle dépendance importante.
+  - key: scenario-serveur
+    format: scenario
+    question: Une application fonctionne en local mais lève `NoSuchMethodError` une fois déployée sur un serveur d'applications. Que soupçonnes-tu ?
+    answer: |-
+      Que le serveur fournit lui-même une version de la bibliothèque (dans ses modules ou son dossier `lib`), différente de
+      celle embarquée par l'application, et que la sienne est chargée en priorité. Je vérifie avec `-verbose:class` d'où
+      vient la classe. Selon le serveur, on configure la priorité des classes de l'application (*child first*), on exclut
+      le module du serveur, ou l'on passe la dépendance en `provided` si l'on peut utiliser la version du serveur.
+      Livrer une application autonome (un JAR exécutable ou une image) évite ce type d'écart.

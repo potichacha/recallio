@@ -226,7 +226,7 @@ chapters:
 | `priority` | 1 essentiel, 2 courant, 3 avancé, 4 rare | l'ordre de production du contenu |
 | `requires` | des `id` de notions | les prérequis, pour le parcours « apprendre » |
 | `formats` | facultatif | les formats qui conviennent, quand tous ne conviennent pas (pas de bug à corriger sur l'histoire de Java) |
-| `complete` | facultatif | `true` quand la notion est terminée : la CI vérifie alors qu'elle le reste (4 cartes par format, une leçon, un exercice dans son chapitre) |
+| `complete` | facultatif | `true` quand la notion est terminée : la CI vérifie alors qu'elle le reste (4 cartes par format, une leçon ; et un exercice dans son chapitre quand toutes les notions de priorité 1 du chapitre sont complètes et qu'au moins une de ses notions retient `exercise`) |
 
 Formats possibles : `course`, `true-false`, `multiple-choice`, `fill-in`, `code-output`, `bug-fix`, `scenario`,
 `definition`, `exercise`. La cible est de **4 à 5 cartes par format applicable** pour chaque notion.
@@ -308,6 +308,13 @@ cards:
   - Au premier niveau, JShell ignore `final` et `static` : une variable y est un champ. Une carte qui dépend d'une
     variable locale (une constante `final` calculée à la compilation) place son code dans une méthode :
     `void run() { ... }` puis `run();`.
+  - Les autres packages s'importent dans le bloc de code de la question (`java.util.concurrent.atomic`,
+    `java.util.concurrent.locks`, `java.lang.reflect`, `java.nio.charset`...). Un import ciblé évite les ambiguïtés
+    (`import java.lang.reflect.Proxy;`, car `java.net.Proxy` est déjà importé).
+  - `throws` attend le nom simple de l'exception (`NoSuchElementException`).
+  - Le constructeur compact d'un record doit être `public`, et un type scellé se déclare dans une classe englobante.
+  - JShell appelle `toString` sur les valeurs qu'il affiche, et son thread principal gère lui-même les interruptions :
+    une carte sur l'interruption exécute son code dans un nouveau thread.
   - Une sortie non déterministe (threads, `hashCode` d'identité) remplace `check` par `unverifiable: <raison>`.
   - `./mvnw test -Dtest='CodeOutputTest'` exécute toutes ces cartes, comme la CI.
 - En YAML, une valeur qui contient « : » (la typographie française en met partout) doit être entre guillemets, ou

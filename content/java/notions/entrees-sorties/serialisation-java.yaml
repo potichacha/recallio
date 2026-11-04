@@ -1,4 +1,46 @@
 notion: serialisation-java
+lesson: |-
+  La **sérialisation Java** transforme un objet (et tout ce qu'il référence) en octets, et inversement :
+
+  ```java
+  record Point(int x, int y) implements Serializable {}
+
+  class Session implements Serializable {
+      private static final long serialVersionUID = 1L;   // version de la forme sérialisée
+      private String utilisateur;
+      private transient Connexion connexion;             // exclu : ne se sérialise pas
+  }
+
+  try (var out = new ObjectOutputStream(Files.newOutputStream(fichier))) {
+      out.writeObject(session);
+  }
+  try (var in = new ObjectInputStream(Files.newInputStream(fichier))) {
+      Session s = (Session) in.readObject();
+  }
+  ```
+
+  Règles :
+  - la classe implémente l'interface marqueur **`Serializable`** ; tous les champs non `transient` doivent être
+    sérialisables, sinon `NotSerializableException` ;
+  - **`transient`** exclut un champ (il revient à sa valeur par défaut : `null`, 0, `false`) ; les champs **`static`** ne
+    sont jamais sérialisés ;
+  - **`serialVersionUID`** identifie la version de la classe : s'il diffère entre l'écriture et la lecture,
+    `InvalidClassException`. Sans déclaration, il est **calculé** à partir de la structure de la classe et change au
+    moindre ajout de méthode : on le déclare explicitement ;
+  - à la désérialisation, le **constructeur** de la classe n'est **pas** appelé (seul celui du premier parent non
+    sérialisable l'est), donc ses validations sont contournées ; les **records** font exception : ils passent toujours
+    par leur constructeur canonique ;
+  - `writeObject`/`readObject` privés personnalisent le format, `readResolve` remplace l'objet lu (singletons) ;
+    `Externalizable` donne un contrôle total.
+
+  La sérialisation native est **dangereuse** sur des données non fiables et **couplée** aux classes Java : on lui préfère
+  JSON ou Protobuf pour les échanges et le stockage.
+
+  **Piège classique** : sérialiser des objets dans un cache distribué sans `serialVersionUID`. Après un déploiement qui
+  ajoute un champ, tous les objets en cache deviennent illisibles (`InvalidClassException`).
+
+  **En entretien** : « `Serializable`, `transient` pour exclure, `serialVersionUID` à déclarer ; le constructeur n'est pas
+  appelé, sauf pour les records. Et pour échanger des données, je préfère JSON ou Protobuf. »
 cards:
   - key: role-serialversionuid
     format: course
@@ -24,3 +66,221 @@ cards:
     format: course
     question: Serializable vs Externalizable ?
     answer: Sérialisation automatique vs contrôle total via writeExternal/readExternal (constructeur public sans argument requis).
+  - key: vf-champ-non-serialisable
+    format: true-false
+    question: Un champ d'un type non sérialisable (et non `transient`) fait échouer la sérialisation.
+    truth: true
+    answer: '`NotSerializableException`.'
+  - key: vf-transient-valeur
+    format: true-false
+    question: Après désérialisation, un champ `transient` garde la valeur qu'il avait avant la sérialisation.
+    truth: false
+    answer: Il revient à sa valeur par défaut (`null`, 0, `false`).
+  - key: vf-uid-calcule
+    format: true-false
+    question: Sans `serialVersionUID` déclaré, ajouter une méthode à la classe peut rendre illisibles les anciens objets sérialisés.
+    truth: true
+    answer: L'identifiant calculé change avec la structure de la classe.
+  - key: vf-record
+    format: true-false
+    question: La désérialisation d'un record passe par son constructeur canonique.
+    truth: true
+    answer: Ses validations s'appliquent donc aussi aux données lues.
+  - key: qcm-exclus
+    format: multiple-choice
+    question: Quels champs ne sont pas sérialisés ?
+    choices:
+      - text: "Les champs `transient`"
+        correct: true
+      - text: "Les champs `static`"
+        correct: true
+      - text: "Les champs `private`"
+        correct: false
+      - text: "Les champs `final`"
+        correct: false
+    answer: La visibilité et `final` ne changent rien.
+  - key: qcm-uid
+    format: multiple-choice
+    question: Quelle exception signale un `serialVersionUID` différent à la lecture ?
+    choices:
+      - text: "`InvalidClassException`"
+        correct: true
+      - text: "`ClassNotFoundException`"
+        correct: false
+      - text: "`NotSerializableException`"
+        correct: false
+      - text: "`ClassCastException`"
+        correct: false
+    answer: '`ClassNotFoundException` signale une classe absente.'
+  - key: qcm-alternatives
+    format: multiple-choice
+    question: Que préférer à la sérialisation Java pour échanger des données entre services ?
+    choices:
+      - text: "JSON avec un contrat documenté"
+        correct: true
+      - text: "Protobuf ou Avro, avec un schéma"
+        correct: true
+      - text: "`ObjectOutputStream` sur le réseau"
+        correct: false
+      - text: "Un tableau d'octets copié depuis la mémoire"
+        correct: false
+    answer: Des formats à contrat explicite, indépendants des classes Java.
+  - key: qcm-constructeur
+    format: multiple-choice
+    question: Une classe valide ses champs dans son constructeur. Que se passe-t-il à la désérialisation ?
+    choices:
+      - text: "La validation est contournée, sauf si `readObject` la refait"
+        correct: true
+      - text: "La validation s'exécute normalement"
+        correct: false
+      - text: "La désérialisation échoue toujours"
+        correct: false
+      - text: "Le constructeur sans argument est appelé"
+        correct: false
+    answer: Le constructeur de la classe sérialisable n'est pas appelé (les records font exception).
+  - key: code-transient
+    format: code-output
+    question: |-
+      ```java
+      class Session implements Serializable {
+          String utilisateur = "ada";
+          transient String jeton = "secret";
+          transient int essais = 3;
+      }
+      ByteArrayOutputStream octets = new ByteArrayOutputStream();
+      try (var out = new ObjectOutputStream(octets)) { out.writeObject(new Session()); }
+      try (var in = new ObjectInputStream(new ByteArrayInputStream(octets.toByteArray()))) {
+          Session s = (Session) in.readObject();
+          System.out.println(s.utilisateur + " " + s.jeton + " " + s.essais);
+      }
+      ```
+    answer: '`ada null 0` : les champs `transient` reviennent à leur valeur par défaut, et l''initialiseur n''est pas exécuté.'
+    check:
+      output: "ada null 0"
+  - key: code-non-serialisable
+    format: code-output
+    question: |-
+      ```java
+      class Connexion {}
+      class Panier implements Serializable { Connexion c = new Connexion(); }
+      try (var out = new ObjectOutputStream(new ByteArrayOutputStream())) {
+          out.writeObject(new Panier());
+      }
+      ```
+    answer: "Une `NotSerializableException` : le champ `Connexion` n'est pas sérialisable."
+    check:
+      throws: NotSerializableException
+  - key: code-record
+    format: code-output
+    question: |-
+      ```java
+      record Point(int x, int y) implements Serializable {}
+      ByteArrayOutputStream octets = new ByteArrayOutputStream();
+      try (var out = new ObjectOutputStream(octets)) { out.writeObject(new Point(1, 2)); }
+      try (var in = new ObjectInputStream(new ByteArrayInputStream(octets.toByteArray()))) {
+          Object o = in.readObject();
+          System.out.println(o + " " + o.equals(new Point(1, 2)));
+      }
+      ```
+    answer: '`Point[x=1, y=2] true`.'
+    check:
+      output: "Point[x=1, y=2] true"
+  - key: code-static
+    format: code-output
+    question: |-
+      ```java
+      class Config implements Serializable {
+          static int compteur = 0;
+          int valeur = 5;
+      }
+      Config.compteur = 10;
+      ByteArrayOutputStream octets = new ByteArrayOutputStream();
+      try (var out = new ObjectOutputStream(octets)) { out.writeObject(new Config()); }
+      Config.compteur = 99;
+      try (var in = new ObjectInputStream(new ByteArrayInputStream(octets.toByteArray()))) {
+          Config c = (Config) in.readObject();
+          System.out.println(c.valeur + " " + Config.compteur);
+      }
+      ```
+    answer: '`5 99` : le champ `static` n''est pas sérialisé, il garde la valeur courante de la classe.'
+    check:
+      output: "5 99"
+  - key: bug-uid
+    format: bug-fix
+    question: |-
+      Après chaque déploiement, les sessions stockées dans le cache distribué deviennent illisibles :
+      ```java
+      public class SessionUtilisateur implements Serializable {
+          private String id;
+          private List<String> roles;
+      }
+      ```
+    answer: |-
+      ```java
+      public class SessionUtilisateur implements Serializable {
+          @Serial private static final long serialVersionUID = 1L;
+          private String id;
+          private List<String> roles;
+      }
+      ```
+      Sans `serialVersionUID`, il est calculé à partir de la classe et change à chaque modification. Le déclarer garde
+      la compatibilité tant que les changements sont compatibles (mieux : stocker du JSON).
+  - key: bug-connexion
+    format: bug-fix
+    question: |-
+      La sérialisation de ce service échoue avec `NotSerializableException` :
+      ```java
+      class Rapport implements Serializable {
+          private List<Ligne> lignes;
+          private DataSource source;      // ressource technique
+      }
+      ```
+    answer: |-
+      ```java
+      class Rapport implements Serializable {
+          @Serial private static final long serialVersionUID = 1L;
+          private List<Ligne> lignes;
+          private transient DataSource source;
+      }
+      ```
+      Une ressource technique n'a pas à être sérialisée : `transient` l'exclut (il faudra la réinjecter après lecture).
+      Mieux encore : ne sérialiser qu'un objet de données, sans dépendances.
+  - key: bug-validation
+    format: bug-fix
+    question: |-
+      Des objets `Montant` négatifs apparaissent après lecture d'un fichier, alors que le constructeur l'interdit :
+      ```java
+      class Montant implements Serializable {
+          private final long centimes;
+          Montant(long c) { if (c < 0) throw new IllegalArgumentException(); centimes = c; }
+      }
+      ```
+    answer: |-
+      ```java
+      record Montant(long centimes) implements Serializable {
+          Montant {
+              if (centimes < 0) throw new IllegalArgumentException("montant négatif");
+          }
+      }
+      ```
+      La désérialisation d'une classe ordinaire contourne son constructeur. Un record passe toujours par son constructeur
+      canonique (sinon, une méthode `readObject` doit refaire la validation).
+  - key: bug-singleton
+    format: bug-fix
+    question: |-
+      Après désérialisation, deux instances de ce « singleton » coexistent :
+      ```java
+      class Registre implements Serializable {
+          static final Registre INSTANCE = new Registre();
+          private Registre() {}
+      }
+      ```
+    answer: |-
+      ```java
+      enum Registre {
+          INSTANCE;
+      }
+      // ou : @Serial private Object readResolve() { return INSTANCE; }
+      ```
+      La désérialisation crée un nouvel objet. Une enum garantit l'unicité (la JVM résout la constante), ou `readResolve`
+      remplace l'objet lu par l'instance unique.

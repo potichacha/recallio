@@ -35,16 +35,18 @@ public record ContentCoverage(String subject, List<NotionCoverage> notions) {
      * (les exercices de code, comptés par chapitre, n'en font pas partie).
      *
      * @param declaredComplete vrai si le référentiel déclare la notion complète : elle doit alors le rester
+     * @param exerciseRetained vrai si le référentiel retient le format « exercice » pour elle
      */
-    public record NotionTarget(ParsedNotion notion, Set<CardType> formats, boolean declaredComplete) {
+    public record NotionTarget(
+            ParsedNotion notion, Set<CardType> formats, boolean declaredComplete, boolean exerciseRetained) {
 
         public NotionTarget {
             formats = Set.copyOf(formats);
         }
 
-        /** Une notion que le référentiel ne déclare pas complète. */
+        /** Une notion que le référentiel ne déclare pas complète, et qui retient les exercices. */
         public NotionTarget(ParsedNotion notion, Set<CardType> formats) {
-            this(notion, formats, false);
+            this(notion, formats, false, true);
         }
     }
 
@@ -64,7 +66,8 @@ public record ContentCoverage(String subject, List<NotionCoverage> notions) {
                                 target.notion(),
                                 target.formats(),
                                 counts.getOrDefault(target.notion().slug(), Map.of()),
-                                target.declaredComplete()))
+                                target.declaredComplete(),
+                                target.exerciseRetained()))
                         .toList());
     }
 
@@ -102,7 +105,8 @@ public record ContentCoverage(String subject, List<NotionCoverage> notions) {
     /**
      * Ce qui manque aux notions déclarées complètes (ADR 0025), pour que la CI échoue si l'une d'elles régresse :
      * chacun de ses formats à la cible, sa leçon, et un exercice dans un chapitre dont toutes les notions essentielles
-     * sont déclarées complètes. Vide si tout est en ordre.
+     * sont déclarées complètes, si l'une de ses notions retient ce format (un chapitre purement théorique n'en a pas).
+     * Vide si tout est en ordre.
      */
     public List<String> completionProblems() {
         List<String> problems = new ArrayList<>();
@@ -138,6 +142,7 @@ public record ContentCoverage(String subject, List<NotionCoverage> notions) {
                             .toList();
                     return !essential.isEmpty()
                             && essential.stream().allMatch(NotionCoverage::declaredComplete)
+                            && chapter.getValue().stream().anyMatch(NotionCoverage::exerciseRetained)
                             && chapter.getValue().stream()
                                     .allMatch(notion -> notion.count(CardType.CODING_EXERCISE) == 0);
                 })
@@ -155,9 +160,14 @@ public record ContentCoverage(String subject, List<NotionCoverage> notions) {
     /**
      * @param cards le nombre de cartes par format ; un format absent n'a aucune carte
      * @param declaredComplete vrai si le référentiel la déclare complète
+     * @param exerciseRetained vrai si le référentiel retient le format « exercice » pour elle
      */
     public record NotionCoverage(
-            ParsedNotion notion, Set<CardType> formats, Map<CardType, Integer> cards, boolean declaredComplete) {
+            ParsedNotion notion,
+            Set<CardType> formats,
+            Map<CardType, Integer> cards,
+            boolean declaredComplete,
+            boolean exerciseRetained) {
 
         public NotionCoverage {
             formats = Set.copyOf(formats);

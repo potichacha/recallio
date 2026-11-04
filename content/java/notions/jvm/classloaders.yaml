@@ -1,4 +1,39 @@
 notion: classloaders
+lesson: |-
+  Un **class loader** trouve et charge le bytecode des classes. La JVM en a trois par défaut, en hiérarchie :
+
+  | Chargeur | Charge |
+  |---|---|
+  | **Bootstrap** (natif, représenté par `null`) | le cœur du JDK (`java.base` : `java.lang`, `java.util`) |
+  | **Platform** (ex-Extension) | les autres modules du JDK (`java.sql`, `java.net.http`...) |
+  | **Application** (System) | le classpath et les modules de l'application |
+
+  La **délégation parent** : un chargeur demande d'abord à son **parent** ; il ne charge lui-même la classe que si le
+  parent ne la trouve pas. Ainsi, personne ne peut remplacer `java.lang.String` par sa propre version.
+
+  Une classe est identifiée par son **nom et son chargeur** : la même classe chargée par deux chargeurs donne deux types
+  différents, d'où l'étonnant `ClassCastException: X cannot be cast to X`.
+
+  Les serveurs d'applications, les conteneurs de plugins et le mode développement des frameworks (Quarkus dev mode,
+  Spring DevTools) créent leurs **propres chargeurs** : un par application ou par rechargement, pour isoler et
+  remplacer le code. C'est l'origine des **fuites de chargeurs** :
+  - après un redéploiement, l'ancien chargeur devrait être récupéré par le GC avec toutes ses classes ;
+  - mais une seule référence suffit à le retenir : un thread encore vivant, un `ThreadLocal`, un pilote JDBC enregistré
+    dans `DriverManager`, un champ statique d'une classe du serveur ;
+  - ses classes restent alors dans le **Metaspace**, qui grossit à chaque redéploiement jusqu'à
+    `OutOfMemoryError: Metaspace`.
+
+  Autres points :
+  - `ClassNotFoundException` : une recherche par nom (`Class.forName`) échoue ; `NoClassDefFoundError` : une classe
+    connue à la compilation manque à l'exécution (ou son initialisation a échoué) ;
+  - le **chargeur de contexte** du thread (`Thread.currentThread().getContextClassLoader()`) sert aux bibliothèques qui
+    chargent des classes de l'application (`ServiceLoader`, JNDI).
+
+  **Piège classique** : un thread lancé par l'application et jamais arrêté dans un serveur d'applications. Il retient le
+  chargeur de l'application ; chaque redéploiement ajoute une copie de toutes les classes au Metaspace.
+
+  **En entretien** : « Bootstrap, Platform, Application, avec délégation au parent ; une classe est identifiée par son
+  nom et son chargeur ; et une seule référence oubliée fait fuir un chargeur et tout son Metaspace. »
 cards:
   - key: trois-class-loaders-principaux
     format: course
@@ -16,3 +51,122 @@ cards:
     format: course
     question: C'est quoi une fuite de class loader ?
     answer: 'Un chargeur retenu par une référence (thread, static, ThreadLocal) après un redéploiement : ses classes restent en Metaspace.'
+  - key: cnfe-ncdfe
+    format: course
+    question: Quelle différence entre `ClassNotFoundException` et `NoClassDefFoundError` ?
+    answer: La première vient d'une recherche par nom qui échoue (`Class.forName`, chargement dynamique) ; la seconde signale qu'une classe présente à la compilation manque à l'exécution, ou que son initialisation a échoué.
+  - key: vf-string
+    format: true-false
+    question: Une application peut remplacer `java.lang.String` en mettant sa propre classe sur le classpath.
+    truth: false
+    answer: La délégation parent fait charger `String` par le chargeur bootstrap.
+  - key: vf-null
+    format: true-false
+    question: "`String.class.getClassLoader()` renvoie `null`."
+    truth: true
+    answer: Le chargeur bootstrap est natif et représenté par `null`.
+  - key: vf-identite
+    format: true-false
+    question: Deux classes de même nom complet chargées par deux chargeurs différents sont le même type.
+    truth: false
+    answer: Une classe est identifiée par son nom et son chargeur.
+  - key: vf-redeploiement
+    format: true-false
+    question: Après un redéploiement, les classes de l'ancienne version sont toujours libérées.
+    truth: false
+    answer: Seulement si plus rien ne référence l'ancien chargeur.
+  - key: qcm-retenir
+    format: multiple-choice
+    question: Qu'est-ce qui peut retenir le chargeur d'une application redéployée ?
+    choices:
+      - text: "Un thread lancé par l'application et jamais arrêté"
+        correct: true
+      - text: "Un pilote JDBC enregistré dans `DriverManager` et jamais désenregistré"
+        correct: true
+      - text: "Une variable locale d'une méthode terminée"
+        correct: false
+      - text: "Un objet déjà inaccessible"
+        correct: false
+    answer: Les `ThreadLocal` non nettoyés aussi.
+  - key: qcm-ordre
+    format: multiple-choice
+    question: Avec la délégation parent, qui tente de charger une classe en premier ?
+    choices:
+      - text: "Le chargeur parent (jusqu'au bootstrap)"
+        correct: true
+      - text: "Le chargeur de l'application"
+        correct: false
+      - text: "Le chargeur le plus récent"
+        correct: false
+      - text: "Le JIT"
+        correct: false
+    answer: Le chargeur enfant ne cherche que si le parent échoue.
+  - key: qcm-symptome
+    format: multiple-choice
+    question: "Le Metaspace grossit à chaque redéploiement à chaud, jusqu'à `OutOfMemoryError: Metaspace`. Que suspecter ?"
+    choices:
+      - text: "Une fuite de class loader"
+        correct: true
+      - text: "Un tas trop petit"
+        correct: false
+      - text: "Un trop grand nombre de requêtes"
+        correct: false
+      - text: "Un problème d'encodage"
+        correct: false
+    answer: Un heap dump montre plusieurs instances du chargeur de l'application.
+  - key: qcm-plateforme
+    format: multiple-choice
+    question: Quel chargeur charge les classes de `java.sql` ?
+    choices:
+      - text: "Le chargeur Platform"
+        correct: true
+      - text: "Le chargeur bootstrap"
+        correct: false
+      - text: "Le chargeur de l'application"
+        correct: false
+      - text: "Aucun, elles sont dans le tas"
+        correct: false
+    answer: '`java.base` est chargé par le bootstrap, les autres modules du JDK par Platform.'
+  - key: code-chargeurs
+    format: code-output
+    question: |-
+      ```java
+      System.out.println(String.class.getClassLoader() + " "
+              + java.sql.Connection.class.getClassLoader().getName());
+      ```
+    answer: '`null platform` : bootstrap pour `java.base`, Platform pour `java.sql`.'
+    check:
+      output: "null platform"
+  - key: code-parent
+    format: code-output
+    question: |-
+      ```java
+      ClassLoader app = ClassLoader.getSystemClassLoader();
+      System.out.println(app.getName() + " " + app.getParent().getName() + " " + app.getParent().getParent());
+      ```
+    answer: '`app platform null`.'
+    check:
+      output: "app platform null"
+  - key: code-for-name
+    format: code-output
+    question: |-
+      ```java
+      try {
+          Class.forName("com.exemple.Absente");
+      } catch (ClassNotFoundException e) {
+          System.out.println("introuvable : " + e.getMessage());
+      }
+      ```
+    answer: '`introuvable : com.exemple.Absente`.'
+    check:
+      output: "introuvable : com.exemple.Absente"
+  - key: code-platform
+    format: code-output
+    question: |-
+      ```java
+      System.out.println(ClassLoader.getPlatformClassLoader().getParent() + " "
+              + (Integer.class.getClassLoader() == null));
+      ```
+    answer: '`null true`.'
+    check:
+      output: "null true"

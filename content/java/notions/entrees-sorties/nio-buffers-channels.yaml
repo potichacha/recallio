@@ -1,4 +1,46 @@
 notion: nio-buffers-channels
+lesson: |-
+  Le NIO de Java 1.4 introduit trois briques bas niveau :
+
+  - les **buffers** (`ByteBuffer`, `CharBuffer`...) : un tableau avec une **position**, une **limite** et une **capacité** ;
+  - les **canaux** (`FileChannel`, `SocketChannel`) : des connexions vers un fichier ou une socket, qui lisent et écrivent
+    des buffers ;
+  - les **sélecteurs** (`Selector`) : un seul thread surveille de nombreux canaux **non bloquants** et réagit à ceux qui
+    sont prêts (la base de Netty et des serveurs à boucle d'événements).
+
+  ```java
+  ByteBuffer buf = ByteBuffer.allocate(1024);     // position 0, limite 1024
+  buf.put((byte) 1).putInt(42);                   // écriture : la position avance (5)
+  buf.flip();                                     // passer en lecture : limite = 5, position = 0
+  byte b = buf.get();
+  int n = buf.getInt();
+  buf.clear();                                    // réutiliser pour écrire (les données ne sont pas effacées)
+
+  try (FileChannel canal = FileChannel.open(fichier, StandardOpenOption.READ)) {
+      ByteBuffer tampon = ByteBuffer.allocate(8192);
+      while (canal.read(tampon) != -1) {
+          tampon.flip();
+          traiter(tampon);
+          tampon.clear();
+      }
+      canal.transferTo(0, canal.size(), socket);  // zero-copy : du fichier vers la socket sans passer par Java
+  }
+  ```
+
+  - **`flip()`** fait passer de l'écriture à la lecture ; **`clear()`** prépare une nouvelle écriture ; `compact()` garde
+    les octets non lus.
+  - Un buffer **direct** (`allocateDirect`) vit hors du tas : il évite une copie lors des entrées-sorties, mais son
+    allocation coûte et sa mémoire native se surveille à part (`-XX:MaxDirectMemorySize`).
+  - `FileChannel.map` projette un fichier en mémoire (`MappedByteBuffer`) ; l'API FFM (`MemorySegment`, Java 22) le fait
+    de façon plus sûre pour les gros fichiers.
+  - En pratique, on utilise rarement ces classes directement : `Files` pour les fichiers, Netty ou un framework pour le
+    réseau.
+
+  **Piège classique** : oublier `flip()` après avoir rempli un buffer. La lecture part de la position courante, après les
+  données écrites, et ne lit rien (ou des octets non initialisés).
+
+  **En entretien** : « Buffers à position et limite, `flip` entre écriture et lecture ; canaux pour les fichiers et
+  sockets ; sélecteurs pour qu'un thread gère beaucoup de connexions ; `transferTo` pour le zero-copy. »
 cards:
   - key: selector
     format: course
@@ -16,7 +58,154 @@ cards:
     format: course
     question: C'est quoi le zero-copy ?
     answer: Transférer des données entre fichier et socket sans les copier en espace utilisateur (FileChannel.transferTo).
+  - key: clear-compact
+    format: course
+    question: Quelle différence entre `clear()` et `compact()` ?
+    answer: '`clear()` remet position à 0 et limite à la capacité, en abandonnant les octets non lus ; `compact()` recopie les octets non lus au début et place la position après eux.'
+  - key: vf-clear-efface
+    format: true-false
+    question: "`clear()` efface le contenu du buffer."
+    truth: false
+    answer: Il ne remet que la position et la limite ; les octets restent.
+  - key: vf-direct-tas
+    format: true-false
+    question: Un `ByteBuffer.allocateDirect` est alloué dans le tas Java.
+    truth: false
+    answer: Il est en mémoire native, hors du tas.
+  - key: vf-selector
+    format: true-false
+    question: Un `Selector` permet à un seul thread de gérer de nombreuses connexions non bloquantes.
+    truth: true
+    answer: C'est le cœur des serveurs à boucle d'événements.
+  - key: vf-flip-limite
+    format: true-false
+    question: Après `flip()`, la limite vaut l'ancienne position.
+    truth: true
+    answer: Et la position revient à 0.
+  - key: qcm-sequence
+    format: multiple-choice
+    question: Quelle séquence lit correctement ce qu'on vient d'écrire dans un buffer ?
+    choices:
+      - text: "`put(...)`, `flip()`, puis `get()`"
+        correct: true
+      - text: "`put(...)`, puis `get()`"
+        correct: false
+      - text: "`put(...)`, `clear()`, puis `get()`"
+        correct: false
+      - text: "`flip()`, `put(...)`, puis `get()`"
+        correct: false
+    answer: '`flip` place la limite à la fin des données et la position au début.'
+  - key: qcm-direct
+    format: multiple-choice
+    question: Quand un buffer direct est-il intéressant ?
+    choices:
+      - text: "Pour de nombreuses entrées-sorties sur un buffer réutilisé longtemps"
+        correct: true
+      - text: "Pour des buffers temporaires créés à chaque requête"
+        correct: false
+      - text: "Pour stocker des objets Java"
+        correct: false
+      - text: "Pour éviter toute limite de mémoire"
+        correct: false
+    answer: Son allocation est coûteuse ; on le réutilise.
+  - key: qcm-zero-copy
+    format: multiple-choice
+    question: Quelle méthode permet d'envoyer un fichier sur une socket sans le copier dans le tas Java ?
+    choices:
+      - text: "`FileChannel.transferTo`"
+        correct: true
+      - text: "`Files.readAllBytes` puis `write`"
+        correct: false
+      - text: "`BufferedReader.readLine`"
+        correct: false
+      - text: "`ByteBuffer.allocate`"
+        correct: false
+    answer: Le noyau transfère directement les octets.
+  - key: qcm-usage
+    format: multiple-choice
+    question: Dans une application métier, que privilégier pour lire des fichiers ?
+    choices:
+      - text: "Les méthodes de `Files` (`readString`, `lines`, `newInputStream`)"
+        correct: true
+      - text: "Des `FileChannel` et `ByteBuffer` écrits à la main partout"
+        correct: false
+      - text: "Un `Selector`"
+        correct: false
+      - text: "`MappedByteBuffer` pour chaque petit fichier"
+        correct: false
+    answer: Les canaux et buffers servent aux besoins bas niveau.
+  - key: code-flip
+    format: code-output
+    question: |-
+      ```java
+      import java.nio.ByteBuffer;
+      ByteBuffer buf = ByteBuffer.allocate(16);
+      buf.put((byte) 7).putInt(42);
+      System.out.print(buf.position() + " ");
+      buf.flip();
+      System.out.println(buf.limit() + " " + buf.get() + " " + buf.getInt() + " " + buf.remaining());
+      ```
+    answer: '`5 5 7 42 0`.'
+    check:
+      output: "5 5 7 42 0"
+  - key: code-sans-flip
+    format: code-output
+    question: |-
+      ```java
+      import java.nio.ByteBuffer;
+      ByteBuffer buf = ByteBuffer.allocate(4);
+      buf.put((byte) 1).put((byte) 2);
+      System.out.println(buf.get() + " " + buf.position());
+      ```
+    answer: '`0 3` : sans `flip`, la lecture part après les données écrites et lit un octet non initialisé.'
+    check:
+      output: "0 3"
+  - key: code-clear
+    format: code-output
+    question: |-
+      ```java
+      import java.nio.ByteBuffer;
+      ByteBuffer buf = ByteBuffer.allocate(4);
+      buf.put((byte) 9).flip();
+      buf.clear();
+      System.out.println(buf.position() + " " + buf.limit() + " " + buf.get(0));
+      ```
+    answer: '`0 4 9` : `clear` remet les indices, l''octet reste.'
+    check:
+      output: "0 4 9"
+  - key: code-channel
+    format: code-output
+    question: |-
+      ```java
+      import java.nio.ByteBuffer;
+      import java.nio.channels.FileChannel;
+      Path f = Files.createTempFile("canal", ".bin");
+      try (FileChannel c = FileChannel.open(f, StandardOpenOption.WRITE)) {
+          c.write(ByteBuffer.wrap("abc".getBytes()));
+      }
+      try (FileChannel c = FileChannel.open(f, StandardOpenOption.READ)) {
+          ByteBuffer b = ByteBuffer.allocate(10);
+          int n = c.read(b);
+          b.flip();
+          System.out.println(n + " " + (char) b.get() + " " + c.size());
+      }
+      ```
+    answer: '`3 a 3`.'
+    check:
+      output: "3 a 3"
   - key: definition-nio
     format: definition
     question: NIO
     answer: 'New I/O : buffers, canaux, sélecteurs, Path/Files'
+  - key: definition-buffer
+    format: definition
+    question: ByteBuffer
+    answer: Un tableau d'octets doté d'une position, d'une limite et d'une capacité, lu et écrit par les canaux NIO.
+  - key: definition-canal
+    format: definition
+    question: Canal (Channel)
+    answer: Une connexion ouverte vers une entité d'entrée-sortie (fichier, socket) qui lit et écrit des buffers.
+  - key: definition-selector
+    format: definition
+    question: Selector
+    answer: Un multiplexeur NIO qui indique quels canaux non bloquants sont prêts à lire ou à écrire, pour qu'un seul thread en gère beaucoup.

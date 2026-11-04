@@ -1,4 +1,33 @@
 notion: bonnes-pratiques-exceptions
+lesson: |-
+  Quelques règles qui évitent la plupart des problèmes :
+
+  1. **Ne jamais avaler** une exception (`catch (Exception e) { }`) : soit on la traite vraiment, soit on la laisse
+     remonter.
+  2. **Attraper précis** : seulement les types qu'on sait traiter, autour du seul code qui les lève.
+  3. **Échouer tôt** (*fail fast*) : valider les arguments à l'entrée, avec un message qui donne la valeur reçue.
+  4. **Le bon niveau d'abstraction** : traduire les erreurs techniques à la frontière de la couche, avec la cause.
+  5. **Journaliser ou propager, pas les deux** : un seul endroit journalise, avec la pile (`log.error("...", e)`).
+  6. **Pas d'exception pour le flux normal** : une absence attendue est un `Optional`, une fin de boucle une condition.
+  7. **Un gestionnaire central** à la frontière (API, tâche planifiée) traduit en réponse et journalise.
+
+  ```java
+  // les choix de la JDK, à connaître
+  throw new IllegalArgumentException("quantité négative : " + q);         // argument invalide
+  throw new IllegalStateException("commande déjà expédiée : " + id);      // état incompatible
+  throw new UnsupportedOperationException("liste en lecture seule");      // opération non permise
+  Objects.requireNonNull(client, "client");                               // null interdit
+  ```
+
+  - `assert` ne valide **pas** des entrées : les assertions sont désactivées par défaut (`-ea` pour les activer). Elles
+    documentent des invariants internes.
+  - Une exception doit rester **exceptionnelle** : elle coûte cher (la pile) et brouille le flux.
+
+  **Piège classique** : attraper `Exception` au milieu du code « pour être robuste ». On masque les bugs et l'on
+  continue dans un état faux ; la robustesse vient d'un traitement précis et d'un gestionnaire central.
+
+  **En entretien** : « Ne pas avaler, attraper précis, échouer tôt, traduire à la frontière, journaliser une seule fois
+  et centraliser la traduction en réponse. »
 cards:
   - key: fail-fast
     format: course
@@ -12,6 +41,82 @@ cards:
     format: course
     question: Faut-il utiliser assert pour valider des entrées ?
     answer: Non, les assertions sont désactivées par défaut ; utiliser des exceptions ou Objects.requireNonNull.
+  - key: journaliser-ou-propager
+    format: course
+    question: Que signifie « journaliser ou propager, pas les deux » ?
+    answer: "Une couche qui relance une exception ne la journalise pas : sinon la même erreur apparaît une fois par couche. Un seul endroit, souvent le gestionnaire global, journalise avec la pile."
+  - key: vf-catch-exception
+    format: true-false
+    question: "Entourer chaque méthode d'un `catch (Exception e)` rend une application plus robuste."
+    truth: false
+    answer: On masque les bugs et l'on continue dans un état incohérent.
+  - key: vf-assert
+    format: true-false
+    question: Les assertions Java sont actives par défaut.
+    truth: false
+    answer: Il faut lancer la JVM avec `-ea` ; on ne valide donc jamais des entrées avec `assert`.
+  - key: vf-unsupported
+    format: true-false
+    question: "`UnsupportedOperationException` signale une opération que l'objet ne permet pas."
+    truth: true
+    answer: Par exemple `add` sur une liste immuable.
+  - key: vf-flux-normal
+    format: true-false
+    question: Une exception est un bon moyen de signaler qu'une recherche n'a rien trouvé, quand c'est un cas courant.
+    truth: false
+    answer: Une absence attendue se renvoie (`Optional`, liste vide) ; l'exception est pour l'inattendu.
+  - key: qcm-type
+    format: multiple-choice
+    question: "On appelle `expedier()` sur une commande déjà annulée. Que lever ?"
+    choices:
+      - text: "`IllegalStateException`"
+        correct: true
+      - text: "`IllegalArgumentException`"
+        correct: false
+      - text: "`NullPointerException`"
+        correct: false
+      - text: "`Error`"
+        correct: false
+    answer: L'opération est incompatible avec l'état de l'objet, pas avec un argument.
+  - key: qcm-regles
+    format: multiple-choice
+    question: Lesquelles sont de bonnes pratiques ?
+    choices:
+      - text: "Attraper seulement les exceptions qu'on sait traiter"
+        correct: true
+      - text: "Conserver la cause en enveloppant"
+        correct: true
+      - text: "Journaliser `e.getMessage()` sans la pile"
+        correct: false
+      - text: "Journaliser à chaque couche avant de relancer"
+        correct: false
+    answer: La pile et un journal unique sont indispensables au diagnostic.
+  - key: qcm-assert
+    format: multiple-choice
+    question: À quoi sert `assert` ?
+    choices:
+      - text: "À vérifier des invariants internes pendant le développement et les tests"
+        correct: true
+      - text: "À valider les paramètres d'une API publique"
+        correct: false
+      - text: "À remplacer les exceptions métier"
+        correct: false
+      - text: "À vérifier les saisies des utilisateurs"
+        correct: false
+    answer: "Les assertions peuvent être désactivées : rien de ce qui protège le programme ne doit en dépendre."
+  - key: qcm-gestionnaire
+    format: multiple-choice
+    question: Où traduire les exceptions en réponses HTTP ?
+    choices:
+      - text: "Dans un gestionnaire global (`ExceptionMapper`), une seule fois"
+        correct: true
+      - text: "Dans chaque méthode de ressource"
+        correct: false
+      - text: "Dans le domaine"
+        correct: false
+      - text: "Dans les entités JPA"
+        correct: false
+    answer: Le domaine lève, la frontière traduit.
   - key: structures-gestion-erreurs-api-rest
     format: scenario
     question: Comment tu structures la gestion des erreurs dans une API REST ?
@@ -29,3 +134,93 @@ cards:
       Il **avale** l'erreur : le problème se produit, personne ne le sait, et on obtient des comportements incohérents impossibles à diagnostiquer parce qu'il ne reste aucune trace.
       Et il attrape **trop large** : un `catch (Exception)` capture aussi les bugs de programmation comme les NullPointerException, qu'on aurait voulu voir échouer bruyamment plutôt que masquer.
       Ce que je proposerais : catcher uniquement les exceptions qu'on sait effectivement traiter, laisser remonter le reste vers le handler global, et si on catch, toujours logger avec le stacktrace, `log.error(\"contexte\", e)` et pas `e.getMessage()`, sinon on perd l'information qui sert vraiment.
+  - key: scenario-erreurs-transitoires
+    format: scenario
+    question: Un appel à un service externe échoue parfois, puis réussit au second essai. Comment gères-tu ces erreurs ?
+    answer: |-
+      Je distingue les erreurs **transitoires** (délai dépassé, 503, connexion refusée) des erreurs **définitives** (400,
+      404, données invalides), qu'il ne sert à rien de rejouer. Pour les premières, un nombre limité de nouvelles tentatives
+      avec attente croissante et un peu d'aléa (*exponential backoff with jitter*), seulement si l'opération est
+      idempotente ; au-delà, un disjoncteur (*circuit breaker*) évite de surcharger un service en panne. Je n'écris pas ça à
+      la main : SmallRye Fault Tolerance (`@Retry`, `@CircuitBreaker`) ou Resilience4j. Chaque échec final est journalisé
+      et mesuré.
+  - key: scenario-lot
+    format: scenario
+    question: Un import de 10 000 lignes échoue entièrement à cause d'une seule ligne invalide. Que changes-tu ?
+    answer: |-
+      Je décide avec le métier si l'import doit être tout ou rien (une transaction) ou tolérant. S'il est tolérant, je
+      traite chaque ligne dans son propre `try`, j'attrape uniquement les erreurs de données attendues, je collecte les
+      lignes rejetées avec leur numéro et la raison, et je termine par un rapport (importées, rejetées). Une erreur
+      technique (base indisponible), elle, arrête tout. Je ne transforme pas toutes les exceptions en « ligne rejetée » :
+      un bug du code d'import doit rester visible.
+  - key: bug-avaler
+    format: bug-fix
+    question: |-
+      Des commandes disparaissent sans aucune trace dans les journaux :
+      ```java
+      try {
+          depot.enregistrer(commande);
+      } catch (Exception e) {
+      }
+      ```
+    answer: |-
+      ```java
+      depot.enregistrer(commande);
+      ```
+      L'exception était avalée : l'appelant croyait la commande enregistrée. Si on ne sait pas la traiter ici, on la
+      laisse remonter jusqu'au gestionnaire global, qui la journalise et répond une erreur.
+  - key: bug-assert-validation
+    format: bug-fix
+    question: |-
+      En production, des quantités négatives passent cette validation :
+      ```java
+      void ajouter(int quantite) {
+          assert quantite > 0 : "quantité positive attendue";
+          stock += quantite;
+      }
+      ```
+    answer: |-
+      ```java
+      void ajouter(int quantite) {
+          if (quantite <= 0) {
+              throw new IllegalArgumentException("quantité positive attendue : " + quantite);
+          }
+          stock += quantite;
+      }
+      ```
+      Les assertions sont désactivées par défaut en production. Une validation d'entrée est une vraie exception.
+  - key: bug-journal-et-relance
+    format: bug-fix
+    question: |-
+      Chaque erreur de paiement apparaît trois fois dans les journaux :
+      ```java
+      } catch (PaiementRefuse e) {
+          log.error("paiement refusé", e);
+          throw e;
+      }
+      ```
+      (Le service appelant et le gestionnaire global journalisent aussi.)
+    answer: |-
+      ```java
+      // pas de catch ici : l'exception remonte, et le gestionnaire global la journalise une seule fois
+      passerelle.payer(commande);
+      ```
+      Journaliser puis relancer multiplie les traces de la même erreur. Une couche qui ne la traite pas la laisse passer.
+  - key: bug-exception-generique
+    format: bug-fix
+    question: |-
+      Le client de l'API reçoit une erreur 500 pour un produit en rupture de stock :
+      ```java
+      if (stock < quantite) {
+          throw new RuntimeException("stock insuffisant");
+      }
+      ```
+    answer: |-
+      ```java
+      if (stock < quantite) {
+          throw new StockInsuffisant(produit, quantite, stock);
+      }
+      // et dans le gestionnaire global : StockInsuffisant → 409, avec un code stable
+      ```
+      Une `RuntimeException` générique ne peut être traduite qu'en erreur interne. Une exception métier dédiée devient une
+      réponse précise, et le client sait quoi afficher.

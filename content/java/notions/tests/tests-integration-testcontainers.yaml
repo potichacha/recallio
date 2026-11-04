@@ -1,6 +1,167 @@
 notion: tests-integration-testcontainers
+lesson: |-
+  Un **test d'intégration** vérifie que notre code fonctionne avec une **vraie** ressource : une base de données, un
+  broker de messages, un cache. **Testcontainers** démarre ces ressources dans des **conteneurs Docker** jetables, depuis
+  les tests.
+
+  ```java
+  @Testcontainers
+  class ClientRepositoryIT {
+
+      @Container
+      static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:17-alpine");   // partagé par la classe
+
+      @Test
+      void retrouveUnClientParEmail() {
+          var repo = new ClientRepository(dataSource(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword()));
+          repo.enregistrer(new Client("ada@exemple.org"));
+          assertThat(repo.parEmail("ada@exemple.org")).isPresent();
+      }
+  }
+  ```
+
+  Pourquoi une vraie base plutôt qu'**H2** en mémoire :
+  - H2 ne se comporte pas comme PostgreSQL : types (`jsonb`, `timestamptz`), fonctions, verrous, contraintes, messages
+    d'erreur, plans de requêtes ;
+  - les **migrations Flyway** et les requêtes natives doivent être testées sur le moteur de production ;
+  - les écarts se découvrent sinon en production.
+
+  Bonnes pratiques :
+  - un conteneur **par classe** (champ `static`) ou **partagé** par toute la suite (le *singleton container* ou la
+    réutilisation), car le démarrage coûte quelques secondes ;
+  - isoler les tests entre eux : transaction annulée, tables vidées, ou données propres à chaque test ;
+  - **fixer la version** de l'image (`postgres:17-alpine`, pas `latest`), la même qu'en production ;
+  - les frameworks l'intègrent : les **Dev Services** de Quarkus et `@ServiceConnection` de Spring Boot démarrent les
+    conteneurs automatiquement ;
+  - au-delà des bases : Kafka, Redis, Keycloak, LocalStack (AWS), et **WireMock** pour simuler une API HTTP.
+  - La CI doit disposer de Docker (ou d'un service équivalent).
+
+  **Piège classique** : des tests d'intégration qui laissent des données derrière eux. Un test passe seul et échoue après un
+  autre, parce qu'il trouve un client déjà créé.
+
+  **En entretien** : « Testcontainers lance la vraie base dans un conteneur jetable, pour tester requêtes et migrations sur
+  le moteur de production ; un conteneur partagé pour la vitesse, des tests isolés, et une image de version fixée. »
 cards:
   - key: testcontainers-plutot-h2
     format: course
     question: Pourquoi Testcontainers plutôt qu'H2 ?
     answer: Parce qu'H2 ne se comporte pas comme la base de production, et les écarts se découvrent en prod.
+  - key: definition
+    format: course
+    question: Qu'est-ce que Testcontainers ?
+    answer: Une bibliothèque qui démarre, depuis les tests, des dépendances réelles (bases, brokers, caches) dans des conteneurs Docker jetables.
+  - key: partage
+    format: course
+    question: Pourquoi partager un conteneur entre plusieurs tests ?
+    answer: Démarrer un conteneur prend plusieurs secondes ; un conteneur par classe (champ `static`) ou pour toute la suite garde des tests d'intégration raisonnablement rapides.
+  - key: isolation
+    format: course
+    question: Comment isoler des tests qui partagent la même base ?
+    answer: En annulant la transaction après chaque test, en vidant les tables, ou en créant des données propres à chaque test (identifiants uniques), pour que l'ordre n'ait pas d'importance.
+  - key: vf-docker
+    format: true-false
+    question: Testcontainers nécessite un environnement Docker (ou compatible).
+    truth: true
+    answer: Y compris dans la CI.
+  - key: vf-latest
+    format: true-false
+    question: Utiliser l'image `postgres:latest` dans les tests est une bonne pratique.
+    truth: false
+    answer: On fixe la version, la même qu'en production, pour des tests reproductibles.
+  - key: vf-dev-services
+    format: true-false
+    question: Les Dev Services de Quarkus démarrent automatiquement des conteneurs pour les tests.
+    truth: true
+    answer: Ils s'appuient sur Testcontainers.
+  - key: vf-static
+    format: true-false
+    question: Un champ `@Container` non statique démarre un nouveau conteneur pour chaque méthode de test.
+    truth: true
+    answer: Un champ `static` est partagé par la classe.
+  - key: qcm-ecarts
+    format: multiple-choice
+    question: Quels écarts une base H2 peut-elle masquer par rapport à PostgreSQL ?
+    choices:
+      - text: "Des types spécifiques (`jsonb`, `timestamptz`)"
+        correct: true
+      - text: "Le comportement des verrous et des contraintes"
+        correct: true
+      - text: "La syntaxe de base d'un `SELECT` simple"
+        correct: false
+      - text: "Le langage Java"
+        correct: false
+    answer: Les migrations et requêtes natives sont les plus exposées.
+  - key: qcm-ressources
+    format: multiple-choice
+    question: Quelles dépendances peut-on démarrer avec Testcontainers ?
+    choices:
+      - text: "PostgreSQL et Kafka"
+        correct: true
+      - text: "Redis et Keycloak"
+        correct: true
+      - text: "Le JDK lui-même"
+        correct: false
+      - text: "Le navigateur de l'utilisateur final"
+        correct: false
+    answer: Et des navigateurs pour des tests Selenium, ou LocalStack pour AWS.
+  - key: qcm-vitesse
+    format: multiple-choice
+    question: Comment garder des tests d'intégration rapides ?
+    choices:
+      - text: "Partager un conteneur pour la classe ou toute la suite"
+        correct: true
+      - text: "Garder la logique métier dans des tests unitaires, sans conteneur"
+        correct: true
+      - text: "Démarrer un conteneur par méthode"
+        correct: false
+      - text: "Ajouter des `Thread.sleep` pour attendre la base"
+        correct: false
+    answer: Testcontainers attend lui-même que le conteneur soit prêt.
+  - key: qcm-http
+    format: multiple-choice
+    question: Comment tester l'adaptateur qui appelle une API HTTP externe ?
+    choices:
+      - text: "Contre WireMock, en simulant réponses, erreurs et lenteurs"
+        correct: true
+      - text: "Contre l'API de production, à chaque build"
+        correct: false
+      - text: "En mockant la classe `HttpClient` du JDK"
+        correct: false
+      - text: "Sans test"
+        correct: false
+    answer: WireMock existe aussi en conteneur Testcontainers.
+  - key: scenario-migrations
+    format: scenario
+    question: Une migration Flyway passe en local sur H2 mais échoue en production sur PostgreSQL. Comment éviter cela ?
+    answer: |-
+      En testant les migrations sur le même moteur et la même version qu'en production : un test d'intégration (ou les
+      Dev Services de Quarkus) démarre PostgreSQL dans un conteneur, applique toutes les migrations depuis zéro, puis
+      exécute les tests des repositories. Je supprime H2 des tests, car il donne une fausse confiance. J'ajoute en CI une
+      vérification des migrations sur une copie anonymisée d'un schéma de production si des données existantes peuvent
+      poser problème.
+  - key: scenario-lents
+    format: scenario
+    question: Les tests d'intégration prennent 15 minutes, chaque classe redémarre sa base. Que fais-tu ?
+    answer: |-
+      Je partage un seul conteneur pour toute la suite (le motif du conteneur singleton, ou les Dev Services du framework,
+      qui le font déjà), et j'isole les tests par les données plutôt que par une base neuve (transaction annulée, tables
+      vidées). J'évite de redémarrer le contexte applicatif entre classes (même configuration de test). Je vérifie aussi
+      que les tests d'intégration ne testent pas une logique qui pourrait l'être unitairement, et je parallélise si les
+      tests sont bien isolés.
+  - key: scenario-ci
+    format: scenario
+    question: Les tests Testcontainers passent en local mais échouent en CI. Que vérifies-tu ?
+    answer: |-
+      La disponibilité de Docker dans le runner de CI (et les droits d'accès à son socket), l'accès au registre d'images
+      (proxy, quotas de Docker Hub : utiliser un miroir), les délais de démarrage plus longs sur une machine partagée
+      (attentes basées sur la disponibilité du service, pas sur une durée), l'architecture (une image sans variante ARM sur
+      un runner ARM), et les ports : on n'utilise jamais un port fixe, mais celui que Testcontainers attribue.
+  - key: scenario-isolation
+    format: scenario
+    question: Des tests d'intégration échouent selon l'ordre d'exécution. Comment les rends-tu indépendants ?
+    answer: |-
+      Chaque test doit préparer ses propres données et ne pas dépendre de ce qu'un autre a laissé. Selon le cas : une
+      transaction annulée à la fin de chaque test (simple, mais attention au code qui ouvre sa propre transaction), un
+      nettoyage des tables dans un `@AfterEach`, ou des données uniques par test (identifiants et e-mails générés) pour que
+      les tests ne se marchent pas dessus, même en parallèle. Je vérifie le résultat en lançant les tests dans un ordre
+      aléatoire.

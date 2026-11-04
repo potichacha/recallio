@@ -1,4 +1,39 @@
 notion: interpretation-jit
+lesson: |-
+  HotSpot exécute le bytecode de trois façons, selon la « chaleur » du code (**compilation étagée**) :
+
+  ```
+  interprété ──► C1 (compilation rapide, profilage) ──► C2 (compilation lente, optimisations agressives)
+  ```
+
+  - Au départ, tout est **interprété** : lent, mais immédiat.
+  - La JVM compte les appels et les tours de boucle. Une méthode chaude est compilée par **C1**, qui produit vite du
+    code natif correct et **collecte un profil** (types réellement rencontrés, branches prises).
+  - Si elle reste très chaude, **C2** la recompile en s'appuyant sur ce profil : du code très optimisé.
+  - Une boucle longue peut être compilée **pendant** son exécution : l'**OSR** (*on-stack replacement*).
+
+  Les optimisations principales du JIT :
+  - l'**inlining** : remplacer un appel par le corps de la méthode appelée ; la plus importante, car elle ouvre la voie
+    aux autres ;
+  - la **dévirtualisation** : un appel d'interface qui ne voit qu'une implémentation devient un appel direct ;
+  - l'**analyse d'échappement**, l'élimination de code mort, le déroulage de boucles, la suppression de verrous inutiles.
+
+  Ces optimisations reposent sur des **hypothèses** (« ce site d'appel ne voit que `ArrayList` »). Si une hypothèse
+  devient fausse (une nouvelle classe est chargée), le code compilé est **désoptimisé** : retour à l'interprété, puis
+  recompilation.
+
+  Conséquences pratiques :
+  - une application Java a une **phase de chauffe** (*warm-up*) : elle devient plus rapide après quelques minutes ;
+  - un **micro-benchmark** naïf mesure souvent l'interpréteur ou du code éliminé : on utilise JMH ;
+  - des méthodes courtes et un code monomorphe s'optimisent bien ; écrire du code « malin » pour aider le JIT est rarement
+    utile ;
+  - `-XX:+PrintCompilation` et JFR montrent l'activité du JIT ; le **code cache** plein arrête les compilations.
+
+  **Piège classique** : mesurer les performances juste après le démarrage. On mesure l'interpréteur et C1, pas le code
+  qui tournera en régime établi.
+
+  **En entretien** : « Interprété, puis C1 qui profile, puis C2 qui optimise d'après le profil ; l'inlining d'abord ;
+  des désoptimisations si une hypothèse tombe ; d'où la chauffe et la nécessité de JMH. »
 cards:
   - key: c1-vs-c2
     format: course
@@ -20,7 +55,127 @@ cards:
     format: course
     question: Pourquoi une application Java a-t-elle une phase de chauffe ?
     answer: Le code commence interprété et n'est compilé et optimisé qu'après avoir été observé.
+  - key: vf-osr
+    format: true-false
+    question: Une boucle longue peut être compilée par le JIT pendant son exécution.
+    truth: true
+    answer: C'est l'on-stack replacement (OSR).
+  - key: vf-tout-compile
+    format: true-false
+    question: Toutes les méthodes sont compilées en natif dès le démarrage.
+    truth: false
+    answer: Seules les méthodes chaudes le sont, progressivement.
+  - key: vf-devirt
+    format: true-false
+    question: Le JIT peut transformer un appel d'interface en appel direct s'il ne voit qu'une implémentation.
+    truth: true
+    answer: C'est la dévirtualisation, annulée par une désoptimisation si une autre implémentation apparaît.
+  - key: vf-code-cache
+    format: true-false
+    question: Si le code cache est plein, le JIT continue de compiler normalement.
+    truth: false
+    answer: Les compilations s'arrêtent, et les performances se dégradent.
+  - key: qcm-optimisations
+    format: multiple-choice
+    question: Lesquelles sont des optimisations du JIT ?
+    choices:
+      - text: "L'inlining"
+        correct: true
+      - text: "L'élimination de code mort"
+        correct: true
+      - text: "La compression des fichiers JAR"
+        correct: false
+      - text: "Le chargement des classes"
+        correct: false
+    answer: Et la dévirtualisation, l'analyse d'échappement, le déroulage de boucles.
+  - key: qcm-desopt
+    format: multiple-choice
+    question: Qu'est-ce qui peut provoquer une désoptimisation ?
+    choices:
+      - text: "Le chargement d'une nouvelle implémentation d'une interface jusque-là monomorphe"
+        correct: true
+      - text: "Une branche jamais prise auparavant qui devient prise"
+        correct: true
+      - text: "Un appel à `System.out.println`"
+        correct: false
+      - text: "Une pause du GC"
+        correct: false
+    answer: Les hypothèses tirées du profil ne tiennent plus.
+  - key: qcm-mesure
+    format: multiple-choice
+    question: Pourquoi un chronométrage avec `System.nanoTime()` autour d'une seule exécution est-il trompeur ?
+    choices:
+      - text: "Il mesure le code interprété ou en cours de compilation"
+        correct: true
+      - text: "Le JIT peut éliminer un calcul dont le résultat n'est pas utilisé"
+        correct: true
+      - text: "`nanoTime` est toujours faux"
+        correct: false
+      - text: "Il mesure le ramasse-miettes uniquement"
+        correct: false
+    answer: JMH gère la chauffe et l'élimination de code mort.
+  - key: qcm-flag
+    format: multiple-choice
+    question: Quelle option affiche les méthodes compilées par le JIT ?
+    choices:
+      - text: "`-XX:+PrintCompilation`"
+        correct: true
+      - text: "`-verbose:class`"
+        correct: false
+      - text: "`-Xlog:gc`"
+        correct: false
+      - text: "`-XX:+HeapDumpOnOutOfMemoryError`"
+        correct: false
+    answer: JFR enregistre aussi les événements de compilation.
+  - key: scenario-chauffe
+    format: scenario
+    question: Après chaque déploiement, la latence est mauvaise pendant deux minutes. Que proposes-tu ?
+    answer: |-
+      C'est la chauffe : code interprété puis compilé progressivement, caches vides. J'envoie un trafic de chauffe
+      représentatif avant que l'instance reçoive du trafic réel (la readiness probe ne passe à « prêt » qu'après), je
+      déploie progressivement (rolling update) pour ne jamais avoir toutes les instances froides, et j'évalue le cache AOT
+      du JDK (Java 24+, qui réutilise classes chargées et profils d'une exécution d'entraînement), CRaC, ou une image
+      native GraalVM si le démarrage est vraiment critique.
+  - key: scenario-optimiser
+    format: scenario
+    question: Un collègue réécrit du code de façon illisible « pour aider le JIT ». Comment réagis-tu ?
+    answer: |-
+      Je demande la mesure qui justifie le changement : un benchmark JMH et, surtout, un profil de l'application qui
+      montre que ce code compte dans le temps total. Le JIT optimise très bien du code simple et idiomatique (méthodes
+      courtes, appels monomorphes) ; les astuces manuelles empêchent parfois ses optimisations et rendent le code
+      fragile. Sans gain mesuré sur un chemin critique, je préfère le code lisible. Si le gain est réel, on garde la
+      version optimisée avec un commentaire qui renvoie à la mesure.
+  - key: scenario-degradation
+    format: scenario
+    question: Après plusieurs jours de fonctionnement, un service ralentit brutalement sans hausse de charge. Les journaux indiquent « CodeCache is full ». Explique.
+    answer: |-
+      Le code cache, où le JIT stocke le code natif, est plein : le compilateur s'arrête, et le nouveau code chaud (ou le
+      code désoptimisé) reste interprété, beaucoup plus lent. Les causes : beaucoup de code compilé (application très
+      large, génération de classes dynamiques, redéploiements à chaud). J'augmente sa taille
+      (`-XX:ReservedCodeCacheSize`), je surveille son occupation (JFR, `jcmd Compiler.codecache`), et je cherche une
+      génération de code anormale (proxys créés en boucle).
+  - key: scenario-polymorphisme
+    format: scenario
+    question: Pourquoi un appel `forme.aire()` peut-il devenir plus lent quand on ajoute une troisième implémentation de `Forme` utilisée au même endroit ?
+    answer: |-
+      Le JIT optimise les sites d'appel selon les types observés : avec un seul type (monomorphe), il inline directement ;
+      avec deux (bimorphe), il insère un test et inline les deux. Au-delà (mégamorphe), il revient à un appel virtuel
+      classique, sans inlining, et perd les optimisations qui en découlaient. L'effet n'est mesurable que sur des boucles
+      très chaudes ; dans la plupart du code, il est négligeable, et ce n'est pas une raison pour éviter le
+      polymorphisme sans mesure.
   - key: definition-jit
     format: definition
     question: JIT
     answer: 'Just-In-Time : compilation à la volée (C1, C2)'
+  - key: definition-osr
+    format: definition
+    question: OSR
+    answer: 'On-Stack Replacement : remplacer une boucle interprétée par sa version compilée pendant son exécution.'
+  - key: definition-inlining
+    format: definition
+    question: Inlining
+    answer: Remplacer un appel de méthode par le corps de la méthode appelée, l'optimisation de base du JIT.
+  - key: definition-desoptimisation
+    format: definition
+    question: Désoptimisation
+    answer: Abandonner du code compilé dont une hypothèse est devenue fausse, et revenir à l'interprétation avant de recompiler.

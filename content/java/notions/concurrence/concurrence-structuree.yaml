@@ -1,6 +1,126 @@
 notion: concurrence-structuree
+lesson: |-
+  La **concurrence structurée** (JEP 505 et suivantes, **encore en préversion en Java 25**) traite un groupe de
+  sous-tâches comme **une seule unité** : elles commencent et se terminent dans le même bloc, comme les appels d'une
+  méthode.
+
+  ```java
+  // Java 25, avec --enable-preview
+  Profil profil(String id) throws InterruptedException {
+      try (var scope = StructuredTaskScope.open()) {                    // échoue dès qu'une tâche échoue
+          Subtask<Client> client = scope.fork(() -> clients.charger(id));
+          Subtask<List<Commande>> commandes = scope.fork(() -> commandesDe(id));
+          scope.join();                                                  // attend toutes les tâches
+          return new Profil(client.get(), commandes.get());
+      }                                                                  // aucune tâche ne survit au bloc
+  }
+  ```
+
+  Ce qu'elle garantit, contrairement à un `ExecutorService` et des `Future` :
+  - si une sous-tâche **échoue**, les autres sont **annulées** (on n'attend pas inutilement un résultat devenu inutile) ;
+  - si le thread parent est **interrompu** ou quitte le bloc, les sous-tâches sont annulées : **pas de tâche orpheline**
+    qui continue après la réponse ;
+  - les thread dumps montrent la **hiérarchie** parent-enfants ;
+  - chaque sous-tâche tourne par défaut sur un **thread virtuel**.
+
+  Les **`Joiner`** choisissent la politique : tout ou échec (par défaut), **le premier succès**
+  (`Joiner.anySuccessfulResultOrThrow()`, par exemple pour interroger plusieurs miroirs), ou une politique sur mesure.
+
+  - L'API a changé entre les préversions (de sous-classes `ShutdownOnFailure` à `open()` et des `Joiner` en Java 25) :
+    elle peut encore évoluer, donc pas en production.
+  - Elle se combine avec les **`ScopedValue`**, transmises automatiquement aux sous-tâches.
+
+  **Piège classique** : la présenter comme définitive. En Java 25, elle demande `--enable-preview` ; en attendant, on
+  utilise `CompletableFuture` ou des `Future` avec une annulation explicite.
+
+  **En entretien** : « Un bloc qui lance des sous-tâches et ne se termine qu'avec elles : annulation des autres en cas
+  d'échec, pas de tâche orpheline, hiérarchie visible. Encore en préversion en Java 25. »
 cards:
   - key: structured-concurrency
     format: course
     question: C'est quoi la structured concurrency ?
     answer: Traiter un groupe de sous-tâches comme une unité avec annulation et gestion d'erreur communes ; encore en preview.
+  - key: garanties
+    format: course
+    question: Que garantit la concurrence structurée qu'un `ExecutorService` ne garantit pas ?
+    answer: L'annulation des sous-tâches restantes quand l'une échoue ou que le parent est interrompu, l'absence de tâche orpheline après la fin du bloc, et une hiérarchie parent-enfants visible dans les thread dumps.
+  - key: joiner
+    format: course
+    question: À quoi servent les `Joiner` de `StructuredTaskScope` (Java 25) ?
+    answer: "À choisir la politique d'attente et de résultat : tout réussir ou échouer (par défaut), garder le premier succès, ou une politique personnalisée."
+  - key: statut
+    format: course
+    question: La concurrence structurée est-elle utilisable en production en Java 25 ?
+    answer: Non, elle est encore en préversion (`--enable-preview`) et son API a changé entre les versions.
+  - key: vf-preview
+    format: true-false
+    question: "`StructuredTaskScope` est définitive en Java 25."
+    truth: false
+    answer: Elle est en préversion.
+  - key: vf-annulation
+    format: true-false
+    question: Si une sous-tâche échoue (politique par défaut), les autres sont annulées.
+    truth: true
+    answer: Inutile d'attendre des résultats qui ne serviront plus.
+  - key: vf-orpheline
+    format: true-false
+    question: Une sous-tâche peut continuer à s'exécuter après la sortie du bloc `try` du scope.
+    truth: false
+    answer: Le scope garantit que toutes ses sous-tâches sont terminées ou annulées.
+  - key: vf-virtuels
+    format: true-false
+    question: Par défaut, chaque sous-tâche d'un `StructuredTaskScope` s'exécute sur un thread virtuel.
+    truth: true
+    answer: Le fork est bon marché.
+  - key: qcm-apports
+    format: multiple-choice
+    question: Quels problèmes de `Future` la concurrence structurée résout-elle ?
+    choices:
+      - text: "Des tâches qui continuent alors que leur résultat n'est plus utile"
+        correct: true
+      - text: "Des tâches orphelines après une exception du parent"
+        correct: true
+      - text: "La lenteur du calcul pur"
+        correct: false
+      - text: "La nécessité d'un JDK"
+        correct: false
+    answer: Le cycle de vie des sous-tâches suit la structure du code.
+  - key: qcm-premier
+    format: multiple-choice
+    question: On interroge trois serveurs miroirs et l'on veut la première réponse réussie. Quel `Joiner` ?
+    choices:
+      - text: "`Joiner.anySuccessfulResultOrThrow()`"
+        correct: true
+      - text: "Le `Joiner` par défaut, qui attend que tout réussisse"
+        correct: false
+      - text: "`Joiner.allUntil(...)` sans condition"
+        correct: false
+      - text: "Aucun, il faut trois scopes"
+        correct: false
+    answer: Les autres sous-tâches sont annulées au premier succès.
+  - key: qcm-activer
+    format: multiple-choice
+    question: Que faut-il pour utiliser `StructuredTaskScope` en Java 25 ?
+    choices:
+      - text: "Compiler et lancer avec `--enable-preview`"
+        correct: true
+      - text: "Une dépendance Maven externe"
+        correct: false
+      - text: "Rien, l'API est définitive"
+        correct: false
+      - text: "Le module `jdk.incubator.concurrent` uniquement"
+        correct: false
+    answer: Elle a quitté l'incubation (Java 19-20) pour la préversion (depuis Java 21).
+  - key: qcm-alternative
+    format: multiple-choice
+    question: En attendant la version définitive, que faire pour lancer deux appels en parallèle et échouer vite ?
+    choices:
+      - text: "Des `CompletableFuture` combinés, en annulant l'autre en cas d'échec"
+        correct: true
+      - text: "Utiliser la préversion en production"
+        correct: false
+      - text: "Enchaîner les appels séquentiellement, sans délai"
+        correct: false
+      - text: "Ignorer les erreurs"
+        correct: false
+    answer: Plus verbeux, mais stable.

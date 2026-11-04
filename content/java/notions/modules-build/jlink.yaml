@@ -1,6 +1,159 @@
 notion: jlink
+lesson: |-
+  **`jlink`** (Java 9) assemble un **runtime Java sur mesure** qui ne contient que les modules dont l'application a
+  besoin, au lieu du JDK complet (plus de 300 Mo).
+
+  ```
+  jdeps --print-module-deps --ignore-missing-deps app.jar          # quels modules du JDK l'application utilise
+  # java.base,java.logging,java.net.http,java.sql
+
+  jlink --add-modules java.base,java.logging,java.net.http,java.sql \
+        --strip-debug --no-man-pages --no-header-files --compress=zip-6 \
+        --output runtime
+
+  runtime/bin/java -jar app.jar                                    # le runtime réduit lance l'application
+  ```
+
+  - Le résultat est un dossier autonome (`bin/java`, les modules choisis) de quelques dizaines de Mo : idéal pour une
+    **image de conteneur** plus petite, plus rapide à transférer, avec moins de surface d'attaque.
+  - **`jdeps`** trouve les modules du JDK nécessaires. Attention aux modules chargés **dynamiquement** (par réflexion,
+    `ServiceLoader`, un pilote JDBC), que `jdeps` ne voit pas : par exemple `jdk.localedata` pour les formats
+    régionaux, `java.naming` (JNDI), `jdk.charsets` pour les encodages rares, et `jdk.crypto.ec` pour TLS sur les JDK
+    antérieurs à 22 (il est intégré à `java.base` depuis). On les ajoute à la main et on **teste** le runtime.
+  - L'application elle-même peut rester sur le **classpath** : seul le runtime est réduit. Une application entièrement
+    modulaire peut être incluse dans l'image, avec un lanceur (`--launcher`).
+  - Le runtime est construit pour **une plateforme** (Linux x64, par exemple) : on le construit dans l'image Docker cible
+    (un build multi-étapes).
+  - Les outils de diagnostic (`jcmd`, `jfr`) sont dans des modules (`jdk.jcmd`, `jdk.jfr`) : les inclure si l'on veut
+    pouvoir diagnostiquer en production.
+  - `jpackage` (Java 16) va plus loin : un installateur natif (`.msi`, `.deb`, `.dmg`) pour une application de bureau.
+
+  **Piège classique** : un runtime `jlink` sans `jdk.localedata`. L'application démarre, mais les dates et les nombres
+  ne se formatent plus en français : `java.base` ne contient que les données de locale anglaises, et ce module est
+  chargé dynamiquement.
+
+  **En entretien** : « `jlink` construit un runtime réduit aux modules utiles, trouvés avec `jdeps` ; il allège les images,
+  mais il faut ajouter les modules chargés dynamiquement et tester le résultat. »
 cards:
   - key: sert-jlink
     format: course
     question: À quoi sert jlink ?
     answer: Construire un runtime Java réduit aux modules nécessaires.
+  - key: jdeps
+    format: course
+    question: Comment savoir quels modules donner à `jlink` ?
+    answer: Avec `jdeps --print-module-deps app.jar`, puis en ajoutant les modules chargés dynamiquement que `jdeps` ne voit pas (cryptographie, JNDI, données de locale), et en testant le runtime.
+  - key: interet
+    format: course
+    question: Quel est l'intérêt de `jlink` pour une image de conteneur ?
+    answer: Une image bien plus petite (quelques dizaines de Mo au lieu du JDK complet), plus rapide à transférer et à démarrer, avec moins de composants exposés aux failles.
+  - key: diagnostic
+    format: course
+    question: Quel module ajouter pour garder `jcmd` dans un runtime `jlink` ?
+    answer: '`jdk.jcmd` (et `jdk.jfr` pour Flight Recorder), sinon les outils de diagnostic sont absents en production.'
+  - key: vf-modulaire
+    format: true-false
+    question: Il faut que l'application soit entièrement modulaire pour utiliser un runtime `jlink`.
+    truth: false
+    answer: Une application sur le classpath peut tourner sur un runtime réduit.
+  - key: vf-plateforme
+    format: true-false
+    question: Un runtime produit par `jlink` fonctionne sur toutes les plateformes.
+    truth: false
+    answer: Il est propre à une plateforme (système et architecture).
+  - key: vf-dynamique
+    format: true-false
+    question: "`jdeps` détecte tous les modules chargés par réflexion ou par `ServiceLoader`."
+    truth: false
+    answer: Il analyse les dépendances statiques ; les chargements dynamiques échappent à l'analyse.
+  - key: vf-jpackage
+    format: true-false
+    question: "`jpackage` produit des installateurs natifs pour une application Java."
+    truth: true
+    answer: '`.msi`, `.deb`, `.dmg`, avec un runtime embarqué.'
+  - key: qcm-options
+    format: multiple-choice
+    question: Quelles options réduisent la taille d'un runtime `jlink` ?
+    choices:
+      - text: "`--strip-debug`"
+        correct: true
+      - text: "`--no-man-pages` et `--no-header-files`"
+        correct: true
+      - text: "`--add-modules ALL-MODULE-PATH` pour tout inclure"
+        correct: false
+      - text: "`-Xmx64m`"
+        correct: false
+    answer: '`--compress` aussi.'
+  - key: qcm-oublis
+    format: multiple-choice
+    question: Quels modules oublie-t-on souvent parce qu'ils sont chargés dynamiquement ?
+    choices:
+      - text: "`java.naming` (JNDI)"
+        correct: true
+      - text: "`jdk.localedata` (formats régionaux)"
+        correct: true
+      - text: "`java.base`"
+        correct: false
+      - text: "`java.lang`"
+        correct: false
+    answer: '`java.base` est toujours inclus ; `java.lang` est un package, pas un module.'
+  - key: qcm-docker
+    format: multiple-choice
+    question: Où construire le runtime `jlink` d'une image Docker Linux ?
+    choices:
+      - text: "Dans une étape de build de l'image, sur la même plateforme que l'image finale"
+        correct: true
+      - text: "Sur le poste Windows du développeur, puis copié dans l'image"
+        correct: false
+      - text: "À l'exécution du conteneur"
+        correct: false
+      - text: "Ce n'est pas possible dans Docker"
+        correct: false
+    answer: Un build multi-étapes construit le runtime puis le copie dans une image minimale.
+  - key: qcm-jdeps
+    format: multiple-choice
+    question: Que fait `jdeps --print-module-deps app.jar` ?
+    choices:
+      - text: "Il liste les modules du JDK dont l'application dépend statiquement"
+        correct: true
+      - text: "Il télécharge les dépendances Maven"
+        correct: false
+      - text: "Il construit le runtime"
+        correct: false
+      - text: "Il lance l'application"
+        correct: false
+    answer: Sa sortie sert d'entrée à `jlink --add-modules`.
+  - key: scenario-image
+    format: scenario
+    question: Ton image Docker fait 450 Mo, dont 350 pour le JDK. Comment la réduire ?
+    answer: |-
+      Je passe à un build multi-étapes : une première étape avec un JDK complet compile, lance `jdeps --print-module-deps`
+      sur l'application, puis `jlink` avec ces modules, plus ceux chargés dynamiquement (`jdk.localedata`,
+      `java.naming` si besoin, et `jdk.jcmd` pour le diagnostic) et les options `--strip-debug --no-man-pages`. L'image finale part
+      d'une base minimale et ne copie que le runtime et l'application. Je fais tourner la suite de tests d'intégration
+      contre l'image produite, pour détecter un module manquant avant la production.
+  - key: scenario-https
+    format: scenario
+    question: Sur un runtime `jlink` en Java 21, les appels HTTPS échouent avec une erreur de négociation TLS, alors que tout marchait avec le JDK complet. Pourquoi ?
+    answer: |-
+      Un module nécessaire à TLS n'est pas dans le runtime : sur les JDK antérieurs à 22, `jdk.crypto.ec` (les courbes
+      elliptiques) est un module séparé, chargé dynamiquement par le fournisseur de sécurité, que `jdeps` ne détecte pas
+      (il est intégré à `java.base` depuis Java 22). Je l'ajoute à `--add-modules`, je vérifie avec `java --list-modules`
+      sur le runtime, et j'ajoute à la CI un test qui fait un appel HTTPS depuis l'image, pour détecter la régression.
+  - key: scenario-diagnostic
+    format: scenario
+    question: En production, impossible d'utiliser `jcmd` sur un service qui tourne sur un runtime `jlink`. Que changes-tu ?
+    answer: |-
+      J'ajoute au runtime les modules de diagnostic : `jdk.jcmd` (jcmd, jstack, jmap), `jdk.jfr` (Flight Recorder),
+      éventuellement `jdk.management.agent` (JMX). Ils pèsent peu au regard du temps gagné lors d'un incident. Autre
+      option : une procédure de conteneur éphémère de débogage avec un JDK complet, qui partage l'espace de processus du
+      pod. Je documente la procédure pour qu'elle soit connue avant le prochain incident.
+  - key: scenario-alternative
+    format: scenario
+    question: Une équipe hésite entre un runtime `jlink` et une image native GraalVM pour réduire ses images. Comment les compares-tu ?
+    answer: |-
+      `jlink` réduit seulement le runtime : l'application reste une application JVM classique (JIT, outils de diagnostic,
+      aucune contrainte sur la réflexion), avec une image de quelques dizaines de Mo et un démarrage inchangé. L'image
+      native réduit aussi le démarrage et la mémoire de façon spectaculaire, mais impose le monde fermé (réflexion à
+      déclarer), une construction longue et un débit de pointe souvent moindre. Pour un service long, `jlink` est un gain
+      sans risque ; l'image native se justifie quand le démarrage ou la mémoire sont des contraintes fortes.

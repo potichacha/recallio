@@ -1,4 +1,42 @@
 notion: reactif-principe
+lesson: |-
+  La **programmation réactive** traite les données comme des **flux asynchrones** d'événements, auxquels on applique des
+  opérateurs (`map`, `filter`, `flatMap`...) et auxquels on **s'abonne**. Le code ne **bloque jamais** un thread : il
+  décrit ce qui doit se passer quand une donnée, une erreur ou la fin du flux arrive.
+
+  ```java
+  Flux<Commande> commandes = commandeRepository.findByClient(id);     // pas encore exécuté
+  commandes.filter(Commande::payee)
+           .map(Commande::total)
+           .reduce(BigDecimal.ZERO, BigDecimal::add)
+           .subscribe(total -> log.info("total {}", total));           // l'abonnement déclenche tout
+  ```
+
+  Les idées clés :
+  - **non bloquant** : quelques threads (une boucle d'événements, un par cœur) servent des milliers de connexions, car
+    aucun ne reste à attendre une réponse ;
+  - **paresseux** : rien ne se passe avant l'abonnement ;
+  - **contre-pression** (*backpressure*) : le consommateur **demande** un nombre d'éléments (`request(n)`) ; un producteur
+    rapide ne peut pas noyer un consommateur lent ;
+  - **standard** : **Reactive Streams** (`Publisher`, `Subscriber`, `Subscription`, `Processor`), repris en Java 9 par
+    `java.util.concurrent.Flow` ; implémentations : **Project Reactor** (Spring WebFlux), **Mutiny** (Quarkus), RxJava.
+
+  Le prix :
+  - **toute la chaîne** doit être non bloquante : un seul appel bloquant (JDBC, client HTTP synchrone) sur la boucle
+    d'événements effondre le débit ; il faut des pilotes réactifs (R2DBC, client HTTP réactif) ;
+  - le code est plus difficile à **lire**, **déboguer** (traces de pile fragmentées) et **tester** ;
+  - le contexte (MDC, transaction, sécurité) ne passe plus par `ThreadLocal`.
+
+  Depuis Java 21, les **threads virtuels** couvrent l'essentiel du besoin de scalabilité des entrées-sorties avec un code
+  bloquant classique. Le réactif garde l'avantage pour le **streaming** (flux continus, événements serveur) et la
+  contre-pression de bout en bout.
+
+  **Piège classique** : appeler `block()` ou un pilote JDBC dans un contrôleur WebFlux. La boucle d'événements est
+  bloquée, et quelques requêtes suffisent à figer le service.
+
+  **En entretien** : « Des flux asynchrones non bloquants, paresseux, avec contre-pression ; puissant pour le streaming,
+  mais toute la chaîne doit être non bloquante, et les threads virtuels couvrent désormais beaucoup de cas plus
+  simplement. »
 cards:
   - key: apporte-programmation-reactive
     format: course
@@ -12,3 +50,115 @@ cards:
     format: course
     question: Peut-on utiliser JPA avec WebFlux ?
     answer: Pas correctement, JPA est bloquant ; utiliser R2DBC ou isoler les appels.
+  - key: inconvenients
+    format: course
+    question: Quels sont les inconvénients de la programmation réactive ?
+    answer: Toute la chaîne doit être non bloquante, le code est plus difficile à lire, déboguer et tester, et le contexte ne peut plus passer par `ThreadLocal`.
+  - key: vf-paresseux
+    format: true-false
+    question: Un flux réactif ne s'exécute pas tant que personne ne s'y abonne.
+    truth: true
+    answer: Le pipeline n'est qu'une description.
+  - key: vf-bloquant
+    format: true-false
+    question: Un appel JDBC dans un pipeline WebFlux est sans conséquence.
+    truth: false
+    answer: Il bloque un thread de la boucle d'événements, dont il n'existe que quelques-uns.
+  - key: vf-standard
+    format: true-false
+    question: Reactive Streams est repris dans le JDK par `java.util.concurrent.Flow`.
+    truth: true
+    answer: Depuis Java 9.
+  - key: vf-plus-rapide
+    format: true-false
+    question: Un code réactif traite chaque requête plus vite qu'un code bloquant.
+    truth: false
+    answer: Il sert plus de requêtes concurrentes avec moins de threads ; la latence d'une requête n'est pas meilleure.
+  - key: qcm-bibliotheques
+    format: multiple-choice
+    question: Quelles bibliothèques implémentent Reactive Streams ?
+    choices:
+      - text: "Project Reactor"
+        correct: true
+      - text: "Mutiny"
+        correct: true
+      - text: "JPA"
+        correct: false
+      - text: "JUnit"
+        correct: false
+    answer: RxJava aussi.
+  - key: qcm-contre-pression
+    format: multiple-choice
+    question: Que permet la contre-pression ?
+    choices:
+      - text: "Au consommateur de limiter le débit du producteur"
+        correct: true
+      - text: "Au producteur d'ignorer le consommateur"
+        correct: false
+      - text: "De bloquer un thread jusqu'à l'arrivée des données"
+        correct: false
+      - text: "De trier les éléments"
+        correct: false
+    answer: Avec `request(n)`, le consommateur ne reçoit que ce qu'il peut traiter.
+  - key: qcm-adapte
+    format: multiple-choice
+    question: Pour quel cas le réactif reste-t-il particulièrement pertinent ?
+    choices:
+      - text: "Un flux continu d'événements envoyés aux clients (streaming, SSE)"
+        correct: true
+      - text: "Une chaîne déjà entièrement réactive (pilotes, clients, messagerie)"
+        correct: true
+      - text: "Un CRUD classique sur une base JDBC"
+        correct: false
+      - text: "Un calcul lourd sur le CPU"
+        correct: false
+    answer: Pour un CRUD bloquant, les threads virtuels sont plus simples.
+  - key: qcm-symptome
+    format: multiple-choice
+    question: Un service WebFlux s'effondre dès quelques dizaines de requêtes, avec un CPU bas. Que suspecter ?
+    choices:
+      - text: "Un appel bloquant exécuté sur la boucle d'événements"
+        correct: true
+      - text: "Un manque de mémoire"
+        correct: false
+      - text: "Trop de cœurs"
+        correct: false
+      - text: "Un GC trop rapide"
+        correct: false
+    answer: Un thread dump des threads `reactor-http-nio` le confirme.
+  - key: scenario-choisir
+    format: scenario
+    question: Une nouvelle API doit tenir 10 000 connexions simultanées qui attendent surtout des services distants. Réactif ou pas ?
+    answer: |-
+      Avec Java 21+, je commencerais par des threads virtuels avec un framework classique (Spring MVC, Quarkus en mode
+      bloquant avec `@RunOnVirtualThread`) : 10 000 connexions qui attendent ne posent plus de problème, et le code reste
+      séquentiel, lisible et facile à déboguer. Je choisirais le réactif si l'API fait du streaming (flux d'événements
+      vers les clients), a besoin de contre-pression de bout en bout, ou s'intègre dans une chaîne déjà réactive. Dans
+      les deux cas, je borne les appels aux services distants et je mets des délais.
+  - key: scenario-bloquant-inevitable
+    format: scenario
+    question: Dans un service réactif, tu dois appeler une bibliothèque bloquante sans équivalent réactif. Comment ?
+    answer: |-
+      Je l'isole hors de la boucle d'événements : en Reactor, `Mono.fromCallable(() -> bibliotheque.appeler(x))
+      .subscribeOn(Schedulers.boundedElastic())`, un pool prévu pour les tâches bloquantes, borné ; en Mutiny,
+      `runSubscriptionOn` avec un executor dédié. J'ajoute un délai (`timeout`), et je vérifie avec BlockHound en test
+      qu'aucun autre appel bloquant ne s'exécute sur la boucle d'événements. Si ces appels deviennent nombreux, c'est un
+      signe que le réactif n'est peut-être pas le bon choix pour ce service.
+  - key: scenario-equipe
+    format: scenario
+    question: Quels risques vois-tu à introduire la programmation réactive dans une équipe qui ne la connaît pas ?
+    answer: |-
+      Des appels bloquants glissés par erreur dans les pipelines (qui effondrent le débit), des abonnements oubliés (rien
+      ne s'exécute), des erreurs avalées, un contexte perdu (logs sans identifiant de corrélation, sécurité), des traces
+      de pile difficiles à lire et des tests plus complexes. Il faut former l'équipe, outiller (BlockHound, `checkpoint`,
+      StepVerifier) et s'assurer que le gain attendu (streaming, contre-pression) justifie le coût. Sinon, les threads
+      virtuels donnent souvent la scalabilité recherchée avec un modèle déjà connu.
+  - key: scenario-contre-pression
+    format: scenario
+    question: Un producteur d'événements émet bien plus vite que le consommateur ne peut écrire en base. Comment le réactif aide-t-il ?
+    answer: |-
+      Grâce à la contre-pression, le consommateur ne demande (`request(n)`) que ce qu'il peut traiter : la source ralentit
+      si elle le peut (lecture d'un fichier, d'un topic). Si la source ne peut pas ralentir (événements externes), il faut
+      choisir explicitement une stratégie : tampon borné (`onBackpressureBuffer(taille)`), abandon des plus anciens ou des
+      plus récents (`onBackpressureDrop`, `onBackpressureLatest`), ou regroupement par lots (`bufferTimeout`) pour écrire
+      en base plus efficacement. Sans stratégie, on retombe sur une file illimitée ou des pertes silencieuses.

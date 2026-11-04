@@ -1,0 +1,185 @@
+notion: fichiers-temporaires
+lesson: |-
+  **Fichiers temporaires** :
+
+  ```java
+  Path temp = Files.createTempFile("export-", ".csv");          // dans java.io.tmpdir, nom unique
+  Path dans = Files.createTempFile(dossierCible, "maj-", ".tmp");   // dans un dossier choisi
+  Path dossier = Files.createTempDirectory("travail-");
+
+  try {
+      Files.writeString(temp, contenu);
+      envoyer(temp);
+  } finally {
+      Files.deleteIfExists(temp);                               // toujours nettoyer
+  }
+  ```
+
+  - Le nom est **unique** et le fichier est créé de façon **atomique** : pas de collision entre deux processus.
+  - Sur les systèmes POSIX, le fichier est créé avec des droits **restreints** (lecture et écriture pour son seul
+    propriétaire), contrairement à l'ancien `File.createTempFile`.
+  - Il **n'est pas supprimé automatiquement** : on le supprime dans un `finally`. `deleteOnExit()` (de `File`) ne
+    s'exécute qu'à l'arrêt normal de la JVM et accumule des entrées en mémoire : à éviter dans un serveur.
+    L'option `StandardOpenOption.DELETE_ON_CLOSE` supprime le fichier à la fermeture du flux.
+  - Pour un **déplacement atomique** ensuite, le temporaire doit être dans le **même système de fichiers** que la cible
+    (d'où `createTempFile(dossierCible, ...)`).
+
+  **Permissions** :
+
+  ```java
+  Set<PosixFilePermission> droits = PosixFilePermissions.fromString("rw-r-----");
+  Files.setPosixFilePermissions(fichier, droits);
+  Files.createFile(cle, PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rw-------")));
+  Files.isReadable(f); Files.isWritable(f); Files.isExecutable(f);
+  ```
+
+  - Les permissions POSIX n'existent pas sous Windows (`UnsupportedOperationException`) ; on teste le support avec
+    `FileSystems.getDefault().supportedFileAttributeViews().contains("posix")`.
+  - Un fichier sensible (clé, export de données personnelles) se **crée** directement avec des droits restreints, plutôt
+    que d'être restreint après coup (une fenêtre pendant laquelle il est lisible par d'autres).
+
+  **Piège classique** : des fichiers temporaires jamais supprimés dans un service qui tourne des mois. Le disque se
+  remplit lentement jusqu'à la panne.
+
+  **En entretien** : « `Files.createTempFile` donne un nom unique et des droits restreints, mais ne supprime rien : je
+  nettoie dans un `finally`, et je crée les fichiers sensibles directement avec les bonnes permissions. »
+cards:
+  - key: creer
+    format: course
+    question: Comment créer un fichier temporaire de façon sûre ?
+    answer: Avec `Files.createTempFile(prefixe, suffixe)` (ou dans un dossier choisi), qui crée atomiquement un fichier au nom unique, avec des droits restreints sur les systèmes POSIX.
+  - key: suppression
+    format: course
+    question: Un fichier créé par `Files.createTempFile` est-il supprimé automatiquement ?
+    answer: Non ; il faut le supprimer soi-même, typiquement dans un `finally` avec `Files.deleteIfExists`, ou l'ouvrir avec `DELETE_ON_CLOSE`.
+  - key: delete-on-exit
+    format: course
+    question: Pourquoi éviter `deleteOnExit()` dans un serveur ?
+    answer: La suppression n'a lieu qu'à l'arrêt normal de la JVM, et chaque appel garde une entrée en mémoire jusque-là ; dans un serveur qui tourne longtemps, fichiers et mémoire s'accumulent.
+  - key: droits-creation
+    format: course
+    question: Pourquoi créer un fichier sensible directement avec des droits restreints ?
+    answer: Pour qu'il ne soit jamais lisible par d'autres, même brièvement ; restreindre les droits après la création laisse une fenêtre d'exposition.
+  - key: vf-unique
+    format: true-false
+    question: Deux appels simultanés à `Files.createTempFile` peuvent renvoyer le même fichier.
+    truth: false
+    answer: Le nom est unique et la création atomique.
+  - key: vf-posix-windows
+    format: true-false
+    question: "`Files.setPosixFilePermissions` fonctionne sous Windows."
+    truth: false
+    answer: Il lève `UnsupportedOperationException` sur un système de fichiers non POSIX.
+  - key: vf-meme-fs
+    format: true-false
+    question: Pour un `ATOMIC_MOVE` vers la cible, le fichier temporaire doit être sur le même système de fichiers.
+    truth: true
+    answer: D'où sa création dans le dossier cible.
+  - key: vf-tmpdir
+    format: true-false
+    question: Par défaut, `Files.createTempFile` crée le fichier dans le dossier de la propriété `java.io.tmpdir`.
+    truth: true
+    answer: Souvent `/tmp` sous Linux.
+  - key: qcm-nettoyage
+    format: multiple-choice
+    question: Comment garantir la suppression d'un fichier temporaire après usage ?
+    choices:
+      - text: "`Files.deleteIfExists(temp)` dans un `finally`"
+        correct: true
+      - text: "L'ouvrir avec `StandardOpenOption.DELETE_ON_CLOSE`"
+        correct: true
+      - text: "`temp.toFile().deleteOnExit()` dans un serveur"
+        correct: false
+      - text: "Compter sur le système d'exploitation"
+        correct: false
+    answer: Le système ne vide `/tmp` qu'au redémarrage, parfois jamais.
+  - key: qcm-droits
+    format: multiple-choice
+    question: "Que signifie `rw-r-----` ?"
+    choices:
+      - text: "Lecture et écriture pour le propriétaire, lecture pour le groupe, rien pour les autres"
+        correct: true
+      - text: "Lecture et écriture pour tous"
+        correct: false
+      - text: "Lecture seule pour le propriétaire"
+        correct: false
+      - text: "Exécution pour le groupe"
+        correct: false
+    answer: Trois triplets propriétaire, groupe, autres.
+  - key: qcm-sensible
+    format: multiple-choice
+    question: Comment créer un fichier de clé privée lisible par le seul propriétaire ?
+    choices:
+      - text: "`Files.createFile(p, PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString(\"rw-------\")))`"
+        correct: true
+      - text: "`Files.writeString(p, cle)` puis `setPosixFilePermissions`"
+        correct: false
+      - text: "`Files.writeString(p, cle)` seul"
+        correct: false
+      - text: "`new File(p).setReadable(false)`"
+        correct: false
+    answer: Les droits sont posés dès la création.
+  - key: qcm-dossier
+    format: multiple-choice
+    question: Comment créer un dossier de travail temporaire ?
+    choices:
+      - text: "`Files.createTempDirectory(\"travail-\")`"
+        correct: true
+      - text: "`Files.createTempFile` puis le renommer"
+        correct: false
+      - text: "`Path.of(\"/tmp/travail\")`"
+        correct: false
+      - text: "`Files.createDirectory(Path.of(\"tmp\"))`, partagé par tous"
+        correct: false
+    answer: Un nom unique, évitant les collisions.
+  - key: code-temp
+    format: code-output
+    question: |-
+      ```java
+      Path temp = Files.createTempFile("rapport-", ".csv");
+      String nom = temp.getFileName().toString();
+      System.out.println(nom.startsWith("rapport-") + " " + nom.endsWith(".csv") + " " + Files.size(temp));
+      Files.delete(temp);
+      ```
+    answer: '`true true 0` : un fichier vide, au nom unique.'
+    check:
+      output: "true true 0"
+  - key: code-delete-on-close
+    format: code-output
+    question: |-
+      ```java
+      Path temp = Files.createTempFile("x", ".tmp");
+      try (var out = Files.newOutputStream(temp, StandardOpenOption.DELETE_ON_CLOSE)) {
+          out.write(1);
+      }
+      System.out.println(Files.exists(temp));
+      ```
+    answer: '`false` : le fichier est supprimé à la fermeture du flux.'
+    check:
+      output: "false"
+  - key: code-uniques
+    format: code-output
+    question: |-
+      ```java
+      Path a = Files.createTempFile("meme", ".txt");
+      Path b = Files.createTempFile("meme", ".txt");
+      System.out.println(a.equals(b));
+      Files.delete(a);
+      Files.delete(b);
+      ```
+    answer: '`false` : deux noms distincts malgré le même préfixe.'
+    check:
+      output: "false"
+  - key: code-dossier
+    format: code-output
+    question: |-
+      ```java
+      Path d = Files.createTempDirectory("travail-");
+      Path f = Files.createTempFile(d, "part-", ".tmp");
+      System.out.println(Files.isDirectory(d) + " " + f.getParent().equals(d));
+      Files.delete(f);
+      Files.delete(d);
+      ```
+    answer: '`true true` : le temporaire est créé dans le dossier choisi.'
+    check:
+      output: "true true"

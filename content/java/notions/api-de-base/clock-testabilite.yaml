@@ -1,6 +1,285 @@
 notion: clock-testabilite
+lesson: |-
+  `LocalDate.now()` et `Instant.now()` lisent l'horloge du système : un code qui les appelle ne peut pas être testé à
+  une date précise (le 29 février, un changement d'heure, une échéance dans 30 jours). La solution : **injecter une
+  `java.time.Clock`**.
+
+  ```java
+  class Abonnement {
+      private final Clock clock;
+      private final LocalDate fin;
+
+      Abonnement(Clock clock, LocalDate fin) {
+          this.clock = clock;
+          this.fin = fin;
+      }
+
+      boolean estExpire() {
+          return LocalDate.now(clock).isAfter(fin);   // toutes les méthodes now acceptent une Clock
+      }
+  }
+
+  // en production
+  new Abonnement(Clock.systemUTC(), fin);
+
+  // en test : une horloge figée
+  Clock fixe = Clock.fixed(Instant.parse("2025-03-14T10:00:00Z"), ZoneOffset.UTC);
+  Clock plusTard = Clock.offset(fixe, Duration.ofDays(31));
+  ```
+
+  - `Clock.fixed(instant, zone)` : le temps ne bouge pas, les tests sont déterministes.
+  - `Clock.offset(base, duree)` : avancer le temps sans attendre.
+  - La `Clock` porte un **fuseau**, utilisé par `LocalDate.now(clock)` : `23:30Z` est déjà le lendemain à Paris.
+  - Avec un conteneur d'injection (Quarkus, Spring), un producteur fournit la `Clock` de production, et les tests la
+    remplacent.
+  - Plus de `Thread.sleep` dans les tests pour « attendre » une expiration.
+
+  **Piège classique** : un test qui passe tous les jours sauf autour de minuit ou de la fin du mois, parce que le code
+  appelle `LocalDate.now()` sans horloge.
+
+  **En entretien** : « Le temps est une dépendance comme une autre : j'injecte une `Clock`, et les tests utilisent
+  `Clock.fixed`. »
 cards:
   - key: rendre-testable-code-utilise-date-courante
     format: course
     question: Comment rendre testable du code qui utilise la date courante ?
     answer: Injecter un Clock et utiliser Clock.fixed en test.
+  - key: fixed-offset
+    format: course
+    question: Quelle différence entre `Clock.fixed` et `Clock.offset` ?
+    answer: '`Clock.fixed` renvoie toujours le même instant ; `Clock.offset` décale une autre horloge d''une durée, pour simuler un moment futur ou passé.'
+  - key: fuseau-clock
+    format: course
+    question: Pourquoi le fuseau d'une `Clock` compte-t-il ?
+    answer: '`LocalDate.now(clock)` et `LocalDateTime.now(clock)` convertissent l''instant dans le fuseau de l''horloge : le même instant peut tomber un autre jour selon le fuseau.'
+  - key: sans-sleep
+    format: course
+    question: Comment tester une expiration au bout de 30 jours sans attendre ?
+    answer: Créer l'objet avec une horloge fixe, puis vérifier son état avec `Clock.offset(horloge, Duration.ofDays(31))`, sans aucun `Thread.sleep`.
+  - key: vf-now-clock
+    format: true-false
+    question: "`LocalDate.now()` accepte une `Clock` en paramètre."
+    truth: true
+    answer: Tous les `now` de `java.time` ont une surcharge `now(Clock)`.
+  - key: vf-fixed-avance
+    format: true-false
+    question: Une horloge `Clock.fixed` avance avec le temps réel.
+    truth: false
+    answer: Elle renvoie toujours le même instant.
+  - key: vf-sleep
+    format: true-false
+    question: "Pour tester une expiration, il est normal d'utiliser `Thread.sleep` dans le test."
+    truth: false
+    answer: Le test devient lent et fragile ; on avance une `Clock` à la place.
+  - key: vf-production
+    format: true-false
+    question: En production, on peut fournir `Clock.systemUTC()`.
+    truth: true
+    answer: C'est l'horloge du système, en UTC.
+  - key: qcm-tester
+    format: multiple-choice
+    question: Quelle conception rend testable une méthode qui dépend de la date du jour ?
+    choices:
+      - text: "Recevoir une `Clock` dans le constructeur et appeler `LocalDate.now(clock)`"
+        correct: true
+      - text: "Recevoir la date du jour en paramètre de la méthode"
+        correct: true
+      - text: "Appeler `LocalDate.now()` et changer l'heure de la machine de test"
+        correct: false
+      - text: "Mettre la date dans un champ `static` modifiable"
+        correct: false
+    answer: Le temps devient une entrée contrôlable par le test.
+  - key: qcm-figer
+    format: multiple-choice
+    question: Comment figer le temps au 14 mars 2025 à 10 h UTC ?
+    choices:
+      - text: "`Clock.fixed(Instant.parse(\"2025-03-14T10:00:00Z\"), ZoneOffset.UTC)`"
+        correct: true
+      - text: "`Clock.systemUTC()`"
+        correct: false
+      - text: "`Clock.offset(Clock.systemUTC(), Duration.ZERO)`"
+        correct: false
+      - text: "`new Clock(\"2025-03-14\")`"
+        correct: false
+    answer: '`Clock` est abstraite ; ses fabriques donnent les horloges utiles.'
+  - key: qcm-minuit
+    format: multiple-choice
+    question: "Avec une horloge fixée à `2025-03-14T23:30:00Z` dans le fuseau `Europe/Paris`, que renvoie `LocalDate.now(clock)` ?"
+    choices:
+      - text: "2025-03-15"
+        correct: true
+      - text: "2025-03-14"
+        correct: false
+      - text: "2025-03-13"
+        correct: false
+      - text: "Une exception"
+        correct: false
+    answer: Il est 0 h 30 le 15 mars à Paris (UTC+1 en mars, avant l'heure d'été).
+  - key: qcm-quarkus
+    format: multiple-choice
+    question: Dans une application Quarkus, comment fournir la `Clock` ?
+    choices:
+      - text: "Un producteur CDI (`@Produces`) qui renvoie `Clock.systemUTC()`, remplacé en test"
+        correct: true
+      - text: "Un `static Clock` public modifiable"
+        correct: false
+      - text: "Appeler `Clock.systemDefaultZone()` partout"
+        correct: false
+      - text: "Lire `System.currentTimeMillis()`"
+        correct: false
+    answer: Le bean est injecté comme toute dépendance ; un test fournit une alternative fixe.
+  - key: trous-fixed
+    format: fill-in
+    question: |-
+      Complétez pour figer le temps dans un test :
+      ```java
+      Clock horloge = Clock.___(Instant.parse("2025-03-14T10:00:00Z"), ZoneOffset.UTC);
+      ```
+    blanks: [[fixed]]
+    answer: '`Clock.fixed` renvoie toujours le même instant.'
+  - key: trous-now
+    format: fill-in
+    question: |-
+      Complétez pour lire la date du jour à partir de l'horloge injectée :
+      ```java
+      LocalDate aujourdhui = LocalDate.now(___);
+      ```
+    blanks: [[clock, horloge]]
+    answer: On passe l'horloge injectée à `now`.
+  - key: trous-offset
+    format: fill-in
+    question: |-
+      Complétez pour simuler le lendemain :
+      ```java
+      Clock demain = Clock.___(horloge, Duration.ofDays(1));
+      ```
+    blanks: [[offset]]
+    answer: '`Clock.offset` décale une horloge d''une durée.'
+  - key: trous-production
+    format: fill-in
+    question: |-
+      Complétez l'horloge de production, en UTC :
+      ```java
+      Clock horloge = Clock.___();
+      ```
+    blanks: [[systemUTC]]
+    answer: L'horloge du système, exprimée en UTC.
+  - key: code-fixe
+    format: code-output
+    question: |-
+      ```java
+      import java.time.*;
+      Clock fixe = Clock.fixed(Instant.parse("2025-03-14T10:00:00Z"), ZoneOffset.UTC);
+      System.out.println(LocalDate.now(fixe) + " " + Instant.now(fixe));
+      ```
+    answer: '`2025-03-14 2025-03-14T10:00:00Z`.'
+    check:
+      output: "2025-03-14 2025-03-14T10:00:00Z"
+  - key: code-offset
+    format: code-output
+    question: |-
+      ```java
+      import java.time.*;
+      Clock fixe = Clock.fixed(Instant.parse("2025-03-14T10:00:00Z"), ZoneOffset.UTC);
+      Clock plusTard = Clock.offset(fixe, Duration.ofDays(31));
+      System.out.println(LocalDate.now(plusTard));
+      ```
+    answer: '`2025-04-14` : 31 jours plus tard, sans attendre.'
+    check:
+      output: "2025-04-14"
+  - key: code-fuseau
+    format: code-output
+    question: |-
+      ```java
+      import java.time.*;
+      Clock paris = Clock.fixed(Instant.parse("2025-03-14T23:30:00Z"), ZoneId.of("Europe/Paris"));
+      System.out.println(LocalDate.now(paris));
+      ```
+    answer: '`2025-03-15` : à Paris, il est déjà 0 h 30 le lendemain.'
+    check:
+      output: "2025-03-15"
+  - key: code-stable
+    format: code-output
+    question: |-
+      ```java
+      import java.time.*;
+      Clock fixe = Clock.fixed(Instant.parse("2025-03-14T10:00:00Z"), ZoneOffset.UTC);
+      Instant a = Instant.now(fixe);
+      Instant b = Instant.now(fixe);
+      System.out.println(a.equals(b));
+      ```
+    answer: '`true` : une horloge fixe donne toujours le même instant.'
+    check:
+      output: "true"
+  - key: bug-now-direct
+    format: bug-fix
+    question: |-
+      Ce test passe tous les jours sauf le dernier jour du mois :
+      ```java
+      class Facturation {
+          boolean finDeMois() {
+              LocalDate aujourdhui = LocalDate.now();
+              return aujourdhui.equals(aujourdhui.with(TemporalAdjusters.lastDayOfMonth()));
+          }
+      }
+      ```
+    answer: |-
+      ```java
+      class Facturation {
+          private final Clock clock;
+          Facturation(Clock clock) { this.clock = clock; }
+
+          boolean finDeMois() {
+              LocalDate aujourdhui = LocalDate.now(clock);
+              return aujourdhui.equals(aujourdhui.with(TemporalAdjusters.lastDayOfMonth()));
+          }
+      }
+      ```
+      Le résultat dépendait du jour d'exécution. Avec une `Clock` injectée, chaque test choisit sa date et couvre les
+      deux cas.
+  - key: bug-sleep
+    format: bug-fix
+    question: |-
+      Ce test dure deux secondes et échoue parfois sur la CI :
+      ```java
+      Jeton jeton = new Jeton(Duration.ofSeconds(1));
+      Thread.sleep(2000);
+      assertTrue(jeton.estExpire());
+      ```
+    answer: |-
+      ```java
+      Clock creation = Clock.fixed(Instant.parse("2025-03-14T10:00:00Z"), ZoneOffset.UTC);
+      Jeton jeton = new Jeton(creation, Duration.ofSeconds(1));
+
+      assertTrue(jeton.estExpire(Clock.offset(creation, Duration.ofSeconds(2))));
+      ```
+      On ne dort pas dans un test : on avance une horloge. Le test devient instantané et déterministe.
+  - key: bug-current-time-millis
+    format: bug-fix
+    question: |-
+      Ce calcul d'ancienneté ne peut pas être testé :
+      ```java
+      long anciennete = System.currentTimeMillis() - employe.embauche().getTime();
+      ```
+    answer: |-
+      ```java
+      Period anciennete = Period.between(employe.embauche(), LocalDate.now(clock));
+      ```
+      `System.currentTimeMillis()` est une horloge cachée. Avec `java.time` et une `Clock` injectée, le calcul est
+      testable, et le résultat est exprimé en années et mois plutôt qu'en millisecondes.
+  - key: bug-clock-defaut
+    format: bug-fix
+    question: |-
+      Selon le serveur, le changement de jour se fait à minuit UTC ou à minuit à Paris :
+      ```java
+      @Produces
+      Clock horloge() { return Clock.systemDefaultZone(); }
+      ```
+    answer: |-
+      ```java
+      @Produces
+      Clock horloge() { return Clock.systemUTC(); }
+      // et les calculs de jour métier convertissent explicitement : LocalDate.now(clock.withZone(fuseauBoutique))
+      ```
+      `systemDefaultZone` dépend de la machine. Une horloge UTC est la même partout, et le fuseau métier est rendu
+      explicite là où il compte.
