@@ -295,7 +295,7 @@ Les sujets s'ajoutent un par un, au rythme de la rédaction, indépendamment des
 
 ### 6.3 Gamification
 - **XP** (ADR 0035, elle a remplacé les points de la phase 1) : attribuée à chaque révision, quelle que soit la note, selon l'effort du format (un exercice de code vaut quatre questions de cours), avec un bonus pour une réussite corrigée par le serveur. Chaque sujet a son XP et son niveau. Stockée comme des **événements** dans un registre append-only (`points_ledger`, qui a gardé son nom) ; un total est une somme ou une projection, jamais un compteur modifié en place.
-- **Streak** : un jour compte si l'utilisateur a terminé au moins un objectif minimal (par exemple 10 cartes) **dans son fuseau horaire**. Un jour manqué remet le streak à zéro. Plus tard : "gel de streak" à gagner.
+- **Streak** : un jour compte si l'utilisateur a terminé au moins un objectif minimal (par exemple 10 cartes) **dans son fuseau horaire**. Un jour manqué remet le streak à zéro, sauf s'il est couvert par un **gel de streak** (ADR 0036) : chaque série de 7 jours en rapporte un, 2 au plus en réserve, consommé automatiquement un jour manqué.
 - La gamification ne doit jamais pousser à bâcler : pas d'XP pour aller plus vite en révision personnelle.
 - **Gamification v2** (phase 3 ter, ADR 0025) : carte des compétences par sujet, **maîtrise par notion** (mémoire FSRS et diversité des formats réussis), XP par sujet (plus pour les formats exigeants, jamais pour la vitesse), quêtes du jour et de la semaine qui font varier les formats, succès, gel de streak.
 - **Partage** : cartes de partage (chapitre maîtrisé, podium, promotion) et **profil public de compétences**, **privé par défaut** (RGPD, protection des données dès la conception), que chacun rend public ou privé à tout moment. Le profil distingue le **vérifié** (classé, live, défis, exercices jugés par le serveur) du **déclaré** (maîtrise en révision personnelle, auto-évaluée).
@@ -431,7 +431,7 @@ Carte des compétences, maîtrise par notion, XP, quêtes, succès, gel de strea
 1. ✅ **Maîtrise par notion** : nouvelle, découverte, acquise, maîtrisée, experte, d'après la mémoire FSRS et les formats réussis ; donnée par la carte du parcours, avec ce qui mène au niveau suivant (ADR 0034).
 2. ✅ **Carte des compétences** (PWA) : la page du parcours range les notions par domaine, chacun avec la barre de maîtrise de ses notions, et le domaine où l'on en est se déplie d'emblée ; chaque notion dit ce qui mène au niveau suivant ; un résumé par sujet sur le tableau de bord.
 3. ✅ **XP par sujet** (ADR 0035) : l'XP remplace les points ; une XP de base à chaque révision, quelle que soit la note, et un bonus pour une réussite corrigée par le serveur, plus fort pour les formats exigeants ; jamais liée au temps. Un niveau par sujet, sur le tableau de bord.
-4. **Gel de streak** : gagné avec le streak, consommé automatiquement un jour manqué.
+4. ✅ **Gel de streak** (ADR 0036) : gagné avec le streak, consommé automatiquement un jour manqué.
 5. **Quêtes du jour et de la semaine**, qui font varier les formats.
 6. **Succès**, débloqués une seule fois.
 

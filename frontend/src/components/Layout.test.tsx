@@ -34,11 +34,12 @@ describe('Layout', () => {
     expect(session.logout).toHaveBeenCalled()
   })
 
-  it('shows the streak and the XP of the signed-in user', async () => {
+  it('shows the streak, its freezes and the XP of the signed-in user', async () => {
     stubApi({ ...SUBJECTS, ...SIGNED_IN_API })
     renderAt('/subjects', fakeSession({ status: 'authenticated', userName: 'Alice' }))
 
     expect(await screen.findByLabelText('Série : 3 jours')).toBeInTheDocument()
+    expect(screen.getByLabelText('Gels de streak : 1')).toBeInTheDocument()
     expect(screen.getByText('120 XP')).toBeInTheDocument()
   })
 })

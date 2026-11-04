@@ -1,6 +1,9 @@
 import type { Progress } from '../api/progress'
 
-/** Avancement de l'objectif du jour : c'est lui qui fait compter la journée dans le streak. */
+/**
+ * Avancement de l'objectif du jour : c'est lui qui fait compter la journée dans le streak, et qui rapporte un gel de
+ * streak tous les sept jours (ADR 0036).
+ */
 export function DailyGoal({ progress }: { progress: Progress }) {
   const done = Math.min(progress.cardsToday, progress.dailyGoal)
   return (
@@ -21,6 +24,8 @@ export function DailyGoal({ progress }: { progress: Progress }) {
         <p role="status" className="text-sm font-medium text-emerald-700">
           Objectif atteint ! Votre série passe à {progress.streak} jour
           {progress.streak > 1 ? 's' : ''}.
+          {progress.freezeEarnedToday &&
+            ' Elle vous rapporte un gel de streak ❄️, qui couvrira un jour manqué.'}
         </p>
       )}
     </div>

@@ -3,7 +3,10 @@ import type { DayActivity } from '../api/stats'
 const WEEKDAY = new Intl.DateTimeFormat('fr-FR', { weekday: 'short', timeZone: 'UTC' })
 const FULL_DATE = new Intl.DateTimeFormat('fr-FR', { dateStyle: 'full', timeZone: 'UTC' })
 
-/** Les derniers jours : une pastille pleine quand l'objectif a été atteint. */
+/**
+ * Les derniers jours : une pastille pleine quand l'objectif a été atteint, un flocon quand un gel de streak a couvert
+ * le jour manqué (ADR 0036).
+ */
 export function WeekActivity({ days }: { days: DayActivity[] }) {
   return (
     <section aria-labelledby="week-title" className="flex flex-col gap-2">
@@ -11,10 +14,14 @@ export function WeekActivity({ days }: { days: DayActivity[] }) {
         Derniers jours
       </h2>
       <ol className="grid grid-cols-7 gap-2">
-        {days.map(({ day, cardsReviewed, goalReached }) => {
+        {days.map(({ day, cardsReviewed, goalReached, frozen }) => {
           // Une date sans heure : lue en UTC pour ne pas glisser d'un jour selon le fuseau du navigateur.
           const date = new Date(`${day}T00:00:00Z`)
-          const status = goalReached ? 'objectif atteint' : `${cardsReviewed} carte(s)`
+          const status = frozen
+            ? 'jour manqué couvert par un gel'
+            : goalReached
+              ? 'objectif atteint'
+              : `${cardsReviewed} carte(s)`
           return (
             <li
               key={day}
@@ -24,14 +31,16 @@ export function WeekActivity({ days }: { days: DayActivity[] }) {
               <span
                 aria-hidden="true"
                 className={`flex size-9 items-center justify-center rounded-full font-medium ${
-                  goalReached
-                    ? 'bg-emerald-500 text-white'
-                    : cardsReviewed > 0
-                      ? 'bg-emerald-100 text-emerald-800'
-                      : 'bg-slate-100 text-slate-400'
+                  frozen
+                    ? 'bg-sky-100'
+                    : goalReached
+                      ? 'bg-emerald-500 text-white'
+                      : cardsReviewed > 0
+                        ? 'bg-emerald-100 text-emerald-800'
+                        : 'bg-slate-100 text-slate-400'
                 }`}
               >
-                {cardsReviewed}
+                {frozen ? '❄️' : cardsReviewed}
               </span>
               <span aria-hidden="true">{WEEKDAY.format(date)}</span>
             </li>

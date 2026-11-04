@@ -3,6 +3,7 @@ import { useProfile } from '../api/profile'
 import { useProgress } from '../api/progress'
 import { useRecentActivity, useReviewStats, type ReviewStats } from '../api/stats'
 import { DailyGoal } from '../components/DailyGoal'
+import { freezeSummary } from '../components/streak'
 import { SubjectProgressList } from './SubjectProgressList'
 import { WeekActivity } from './WeekActivity'
 
@@ -31,7 +32,11 @@ export function DashboardPage() {
 
       {progress.data && stats.data && (
         <dl className="grid grid-cols-3 gap-3 text-center">
-          <Tile label="Série" value={`🔥 ${plural(progress.data.streak, 'jour')}`} />
+          <Tile
+            label="Série"
+            value={`🔥 ${plural(progress.data.streak, 'jour')}`}
+            hint={freezeSummary(progress.data)}
+          />
           <Tile label="XP" value={String(progress.data.totalXp)} />
           <Tile
             label="Maîtrisées"
@@ -78,11 +83,12 @@ function TodayCard({ stats }: { stats: ReviewStats }) {
   )
 }
 
-function Tile({ label, value }: { label: string; value: string }) {
+function Tile({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
     <div className="flex flex-col gap-1 rounded-xl bg-white p-4 shadow-sm">
       <dt className="text-xs font-medium tracking-wide text-slate-500 uppercase">{label}</dt>
       <dd className="text-lg font-semibold">{value}</dd>
+      {hint && <dd className="text-xs text-slate-500">{hint}</dd>}
     </div>
   )
 }

@@ -48,13 +48,13 @@ function stats(overrides: Partial<ReviewStats> = {}): ReviewStats {
 }
 
 const WEEK: DayActivity[] = [
-  { day: '2026-10-23', cardsReviewed: 0, goalReached: false },
-  { day: '2026-10-24', cardsReviewed: 3, goalReached: false },
-  { day: '2026-10-25', cardsReviewed: 10, goalReached: true },
-  { day: '2026-10-26', cardsReviewed: 12, goalReached: true },
-  { day: '2026-10-27', cardsReviewed: 10, goalReached: true },
-  { day: '2026-10-28', cardsReviewed: 11, goalReached: true },
-  { day: '2026-10-29', cardsReviewed: 4, goalReached: false },
+  { day: '2026-10-23', cardsReviewed: 10, goalReached: true, frozen: false },
+  { day: '2026-10-24', cardsReviewed: 3, goalReached: false, frozen: true },
+  { day: '2026-10-25', cardsReviewed: 10, goalReached: true, frozen: false },
+  { day: '2026-10-26', cardsReviewed: 12, goalReached: true, frozen: false },
+  { day: '2026-10-27', cardsReviewed: 10, goalReached: true, frozen: false },
+  { day: '2026-10-28', cardsReviewed: 11, goalReached: true, frozen: false },
+  { day: '2026-10-29', cardsReviewed: 4, goalReached: false, frozen: false },
 ]
 
 function stubDashboard(reviewStats: ReviewStats = stats()) {
@@ -95,17 +95,18 @@ describe('DashboardPage', () => {
     expect(screen.queryByRole('link', { name: 'Réviser maintenant' })).not.toBeInTheDocument()
   })
 
-  it('shows the streak, the XP and the mastered cards', async () => {
+  it('shows the streak and its freezes, the XP and the mastered cards', async () => {
     stubDashboard()
     renderAt('/', signedIn())
 
     const streak = await screen.findByText('Série')
     expect(streak.nextElementSibling).toHaveTextContent('🔥 3 jours')
+    expect(streak.parentElement).toHaveTextContent('❄️ 1 gel · prochain dans 4 jours')
     expect(screen.getByText('XP').nextElementSibling).toHaveTextContent('120')
     expect(screen.getByText('Maîtrisées').nextElementSibling).toHaveTextContent('4 / 30')
   })
 
-  it('shows the last seven days', async () => {
+  it('shows the last seven days, with the missed days covered by a freeze', async () => {
     stubDashboard()
     renderAt('/', signedIn())
 
@@ -113,6 +114,9 @@ describe('DashboardPage', () => {
       await screen.findByLabelText('dimanche 25 octobre 2026 : objectif atteint'),
     ).toBeInTheDocument()
     expect(screen.getByLabelText('jeudi 29 octobre 2026 : 4 carte(s)')).toBeInTheDocument()
+    expect(
+      screen.getByLabelText('samedi 24 octobre 2026 : jour manqué couvert par un gel'),
+    ).toHaveTextContent('❄️')
   })
 
   it('shows the progress of each followed subject, with a shortcut to review its due cards', async () => {

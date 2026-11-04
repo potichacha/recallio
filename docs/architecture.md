@@ -160,7 +160,7 @@ flowchart LR
     obs --> act[("daily_activity")]
     obs --> ledger[("points_ledger<br/>append-only")]
     pwa["PWA (en-tête, tableau de bord)"] -- "GET /api/v1/me/progress" --> prog["ProgressService"]
-    prog --> streaks["Streaks, SubjectLevel<br/>(domaine pur)"]
+    prog --> streaks["Streak, SubjectLevel<br/>(domaine pur)"]
     prog --> act
     prog --> ledger
     prog -- "user.FollowedSubjects" --> user["module user"]
@@ -170,7 +170,7 @@ flowchart LR
 |---|---|
 | `domain.XpRules` | Barème de l'XP (ADR 0035) : une base à chaque révision selon l'effort du format (`Effort`), un bonus pour une réussite corrigée par le serveur, celui de l'objectif du jour une fois par jour. |
 | `domain.SubjectLevel` | Le niveau d'un sujet d'après son XP : passer du niveau n au niveau n + 1 demande 100 × n XP. |
-| `domain.Streaks` | Jours consécutifs avec l'objectif atteint ; un jour manqué remet à zéro. |
+| `domain.Streak` | Jours consécutifs avec l'objectif atteint et gels de streak (ADR 0036) : un gel tous les 7 jours, 2 au plus ; un jour manqué consomme un gel, sinon remet à zéro. Recalculé à chaque lecture, rien n'est stocké. |
 | `domain.XpLedger` | Le registre append-only de l'XP, dans la table `points_ledger` ; chaque entrée garde le sujet de la carte révisée. |
 | `application.ActivityRecorder` | Observe `CardReviewed` (sujet, format, réussite) dans la transaction de la révision (ADR 0012). |
 | `application.ProgressService` | XP et niveau de chaque sujet suivi, streak et objectif du jour, dans le fuseau de l'utilisateur. |
