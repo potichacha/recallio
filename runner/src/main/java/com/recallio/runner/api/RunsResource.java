@@ -3,7 +3,7 @@ package com.recallio.runner.api;
 import com.recallio.runner.api.RunDtos.RunRequest;
 import com.recallio.runner.api.RunDtos.RunResultDto;
 import com.recallio.runner.sandbox.DockerSandbox;
-import com.recallio.runner.sandbox.SandboxConfig;
+import com.recallio.runner.sandbox.RunSlots;
 import com.recallio.runner.sandbox.Submission;
 import io.smallrye.common.annotation.RunOnVirtualThread;
 import jakarta.inject.Singleton;
@@ -15,7 +15,6 @@ import jakarta.ws.rs.Path;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
-import java.util.concurrent.Semaphore;
 
 /**
  * Exécute une soumission et renvoie le résultat de chaque test (ADR 0030). Synchrone : une exécution dure quelques
@@ -27,11 +26,11 @@ import java.util.concurrent.Semaphore;
 public class RunsResource {
 
     private final DockerSandbox sandbox;
-    private final Semaphore slots;
+    private final RunSlots slots;
 
-    RunsResource(DockerSandbox sandbox, SandboxConfig config) {
+    RunsResource(DockerSandbox sandbox, RunSlots slots) {
         this.sandbox = sandbox;
-        this.slots = new Semaphore(config.maxConcurrentRuns());
+        this.slots = slots;
     }
 
     @POST
@@ -44,18 +43,10 @@ public class RunsResource {
             submission = request.toSubmission();
         } catch (IllegalArgumentException e) {
             // Des fichiers qui ne sont pas ceux du langage annoncé, ou un test qui remplacerait un fichier du code.
-            return Response.status(Response.Status.BAD_REQUEST)
-                    .entity(e.getMessage())
-                    .type(MediaType.TEXT_PLAIN)
-                    .build();
+            return Responses.badRequest(e);
         }
-        if (!slots.tryAcquire()) {
-            return Response.status(Response.Status.SERVICE_UNAVAILABLE).build();
-        }
-        try {
-            return Response.ok(RunResultDto.from(sandbox.run(submission))).build();
-        } finally {
-            slots.release();
-        }
+        return slots.tryRun(() ->
+                        Response.ok(RunResultDto.from(sandbox.run(submission))).build())
+                .orElseGet(Responses::busy);
     }
 }

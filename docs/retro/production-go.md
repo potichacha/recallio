@@ -40,7 +40,8 @@ par leurs tests. Toutes les notions sont déclarées complètes (`complete: true
   paquets de `sandbox/go/warm/warm.go` ; le commentaire de ce fichier annonce pourtant qu'un autre paquet « sera
   compilé à chaque exécution, donc plus lentement ». L'exercice utilise maintenant des lecteurs écrits dans le test, et
   la règle est dans `content/README.md`. **À trancher** : corriger le commentaire, ou rendre le cache inscriptible dans
-  le tmpfs pour que les paquets non précompilés fonctionnent (ADR 0033).
+  le tmpfs pour que les paquets non précompilés fonctionnent (ADR 0033). **Tranché** (ADR 0037) : la cause était l'index
+  des modules, rangé dans ce cache ; l'image le désactive, et un paquet non précompilé se compile à chaque exécution.
 - **Les sorties non déterministes** : la concurrence et les maps obligent à choisir des exemples dont le résultat ne
   dépend pas de l'ordonnancement (sommes, résultats rangés par indice, `fmt` qui trie les maps).
 - **Les messages d'erreur du runtime** : `panics` accepte aussi les erreurs fatales (« all goroutines are asleep »),
@@ -64,6 +65,6 @@ Ces cartes énoncent des faits que rien n'exécute, sur des versions récentes o
 
 1. **La gamification v2** (phase 3 ter) est la suite : les deux langages complets donnent assez de matière pour la
    maîtrise par notion et les quêtes qui font varier les formats.
-2. **Le bac à sable Go** : décider du cache (ci-dessus) avant le prochain sujet qui aura des exercices.
+2. **Le bac à sable Go** : décider du cache (ci-dessus) avant le prochain sujet qui aura des exercices. ✅ Fait avec l'ADR 0037.
 3. **Les sujets sortis du document Java** (Spring Boot, Docker, SQL...) restent des documents d'entretien à enrichir ;
    les migrer vers des dossiers de notions demandera le même effort que Go, sujet par sujet.

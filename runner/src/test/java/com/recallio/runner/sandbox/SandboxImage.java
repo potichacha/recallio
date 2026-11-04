@@ -55,13 +55,21 @@ public final class SandboxImage {
         }
     }
 
+    /** Le délai d'un programme du Tour, celui de la configuration (ADR 0037). */
+    public static final Duration PROGRAM_TIMEOUT = Duration.ofSeconds(10);
+
     /** Un bac à sable sur les images de tous les langages, avec ce délai. */
     public static DockerSandbox sandbox(Duration timeout) {
+        return sandbox(timeout, PROGRAM_TIMEOUT);
+    }
+
+    /** Un bac à sable sur les images de tous les langages, avec ces délais : celui du conteneur, celui d'un programme. */
+    public static DockerSandbox sandbox(Duration timeout, Duration programTimeout) {
         ensureBuilt();
         Map<Language, String> images = new EnumMap<>(Language.class);
         for (Language language : Language.values()) {
             images.put(language, name(language));
         }
-        return new DockerSandbox(images, timeout, Optional.empty());
+        return new DockerSandbox(images, timeout, programTimeout, Optional.empty());
     }
 }

@@ -1,6 +1,7 @@
-// Package warm compile, à la construction de l'image, les paquets standard dont se servent les exercices : ils entrent
-// dans le cache de compilation, et une exécution ne recompile plus que le code du joueur (ADR 0033). Un exercice peut
-// importer un autre paquet standard : il sera compilé à chaque exécution, donc plus lentement.
+// Package warm compile, à la construction de l'image, les paquets standard dont se servent les exercices et les
+// programmes du Tour : ils entrent dans le cache de compilation, et une exécution ne recompile plus que le code du joueur
+// (ADR 0033). Un exercice peut importer un autre paquet standard : il sera compilé à chaque exécution, donc plus
+// lentement (l'image désactive pour cela l'index des modules, ADR 0037).
 package warm
 
 import (

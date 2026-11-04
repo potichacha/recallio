@@ -1,11 +1,14 @@
 package com.recallio.runner.sandbox;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.recallio.runner.sandbox.RunResult.Status;
 import com.recallio.runner.sandbox.RunResult.TestOutcome;
 import com.recallio.runner.sandbox.Submission.SourceFile;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -19,6 +22,7 @@ import org.junit.jupiter.api.Test;
 class DockerSandboxTest {
 
     private static final Duration TIMEOUT = Duration.ofSeconds(30);
+    private static final Duration PROGRAM = Duration.ofSeconds(5);
 
     private static final String ADDITION = """
             public final class Addition {
@@ -127,15 +131,66 @@ class DockerSandboxTest {
     }
 
     @Test
-    void shouldAddTheIsolatingRuntimeWhenOneIsConfigured() {
-        var sandbox = new DockerSandbox(Map.of(Language.JAVA, "image"), TIMEOUT, Optional.of("runsc"));
+    void shouldInterpretTheOutputOfAProgram() {
+        String output = "@@recallio:program 3 0\n%s\n%s\n".formatted(base64("Bonjour\n"), base64("oups"));
 
-        assertThat(sandbox.command("run", "image"))
+        assertThat(DockerSandbox.interpretProgram(output, PROGRAM))
+                .isEqualTo(new ProgramResult(ProgramResult.Status.COMPLETED, 3, "Bonjour\n", "oups", false, ""));
+        assertThat(DockerSandbox.interpretProgram("@@recallio:program 0 1\n\n\n", PROGRAM)
+                        .truncated())
+                .isTrue();
+        assertThat(DockerSandbox.interpretProgram("@@recallio:compilation-error\nMain.java:1: error\n", PROGRAM))
+                .isEqualTo(ProgramResult.failure(ProgramResult.Status.COMPILATION_ERROR, "Main.java:1: error"));
+    }
+
+    @Test
+    void shouldReportATimeoutWithWhatTheProgramWroteUntilThen() {
+        String output = "@@recallio:program 124 0\n%s\n\n".formatted(base64("début\n"));
+
+        assertThat(DockerSandbox.interpretProgram(output, PROGRAM))
+                .isEqualTo(new ProgramResult(
+                        ProgramResult.Status.TIMEOUT, 124, "début\n", "", false, "Le programme a dépassé 5 secondes."));
+    }
+
+    @Test
+    void shouldNotTrustAnUnexpectedProgramOutput() {
+        assertThat(DockerSandbox.interpretProgram("", PROGRAM).status()).isEqualTo(ProgramResult.Status.ERROR);
+        assertThat(DockerSandbox.interpretProgram("@@recallio:invalid\n", PROGRAM)
+                        .status())
+                .isEqualTo(ProgramResult.Status.ERROR);
+        assertThat(DockerSandbox.interpretProgram("@@recallio:program zéro 0\n\n\n", PROGRAM)
+                        .status())
+                .isEqualTo(ProgramResult.Status.ERROR);
+        assertThat(DockerSandbox.interpretProgram("@@recallio:program 0 0\npas du base64 !\n\n", PROGRAM)
+                        .status())
+                .isEqualTo(ProgramResult.Status.ERROR);
+        assertThat(DockerSandbox.interpretProgram("@@recallio:program 0 0\n", PROGRAM)
+                        .status())
+                .isEqualTo(ProgramResult.Status.ERROR);
+    }
+
+    @Test
+    void shouldRefuseAProgramTimeoutUnderOneSecond() {
+        assertThatThrownBy(() -> new DockerSandbox(Map.of(), TIMEOUT, Duration.ofMillis(500), Optional.empty()))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void shouldAddTheIsolatingRuntimeWhenOneIsConfigured() {
+        var sandbox = new DockerSandbox(
+                Map.of(Language.JAVA, "image"), TIMEOUT, SandboxImage.PROGRAM_TIMEOUT, Optional.of("runsc"));
+
+        assertThat(sandbox.command("run", "image", List.of("tests")))
                 .containsSequence("--network", "none")
                 .containsSequence("--cap-drop", "ALL")
                 .containsSequence("--user", "65534:65534")
-                .containsSequence("--runtime", "runsc", "image")
+                .containsSequence("--runtime", "runsc", "image", "tests")
                 .contains("--read-only");
+    }
+
+    /** Une sortie du programme, encodée comme le fait l'image. */
+    private static String base64(String output) {
+        return Base64.getEncoder().encodeToString(output.getBytes(StandardCharsets.UTF_8));
     }
 
     private static RunResult run(String code, String test) {

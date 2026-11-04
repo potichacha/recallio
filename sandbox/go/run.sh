@@ -1,16 +1,56 @@
 #!/bin/sh
-# Exécute une soumission Go (ADR 0033). L'entrée standard est une archive tar : le code dans src/, les tests dans tests/.
+# Exécute une soumission Go (ADR 0033) ou un programme du Tour (ADR 0037), selon le premier argument : tests (par
+# défaut) ou program, suivi du délai du programme en secondes.
+# L'entrée standard est une archive tar : le code dans src/, et pour une soumission les tests dans tests/.
 # La sortie standard commence par une ligne de résultat, que le runner lit :
-#   @@recallio:invalid             l'archive est illisible
-#   @@recallio:compilation-error   suivie des erreurs du compilateur
-#   @@recallio:report              suivie du flux JSON de test2json, un événement par ligne
-# Ce que le code écrit passe par test2json, qui l'enveloppe en événements : il ne peut pas se mêler à ce protocole.
+#   @@recallio:invalid                         l'archive est illisible
+#   @@recallio:compilation-error               suivie des erreurs du compilateur
+#   @@recallio:report                          suivie du flux JSON de test2json, un événement par ligne
+#   @@recallio:program <code> <tronqué : 0|1>  suivie des sorties standard et d'erreur du programme, en base64, une
+#                                              ligne chacune
+# Ce que le code écrit passe par test2json, ou par des fichiers pour un programme : il ne peut pas se mêler à ce
+# protocole.
 set -u
 
+MODE=${1:-tests}
+PROGRAM_SECONDS=${2:-10}
+# Ce que le runner reçoit de chaque sortie d'un programme : 64 Kio.
+MAX_OUTPUT=65536
 cd /work || exit 1
+
+# Le résultat d'un programme : son code de sortie, si une sortie a été tronquée, puis ses deux sorties en base64.
+report_program() {
+    truncated=0
+    for output in /tmp/stdout /tmp/stderr; do
+        if [ "$(wc -c < "$output")" -gt "$MAX_OUTPUT" ]; then
+            truncated=1
+        fi
+    done
+    echo "@@recallio:program $1 $truncated"
+    head -c "$MAX_OUTPUT" /tmp/stdout | base64 -w 0
+    echo
+    head -c "$MAX_OUTPUT" /tmp/stderr | base64 -w 0
+    echo
+}
 
 if ! tar -x -f - 2>/dev/null; then
     echo "@@recallio:invalid"
+    exit 0
+fi
+
+if [ "$MODE" = program ]; then
+    # Un seul package main, dans un module sans dépendance.
+    mkdir program && cp src/*.go program/ 2>/dev/null
+    cd program || exit 1
+    printf 'module programme\n\ngo 1.27\n' > go.mod
+    if ! go build -o /tmp/programme . > /tmp/build.log 2>&1; then
+        echo "@@recallio:compilation-error"
+        grep -v '^#' /tmp/build.log | sed 's|^\./||'
+        exit 0
+    fi
+    # Sans entrée standard ; au bout du délai, timeout l'arrête et sort avec le code 124.
+    timeout -k 1 "$PROGRAM_SECONDS" /tmp/programme < /dev/null > /tmp/stdout 2> /tmp/stderr
+    report_program $?
     exit 0
 fi
 
