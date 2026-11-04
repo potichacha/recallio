@@ -13,7 +13,7 @@ COPY frontend/ ./
 RUN npm run build
 
 # --- Exécution : nginx sert la PWA et relaie /api vers le backend --------
-FROM nginx:1.29-alpine
+FROM nginx:1.31-alpine
 # Applique les correctifs de sécurité Alpine publiés après la construction de l'image de base.
 RUN apk upgrade --no-cache
 ENV BACKEND_URL=http://backend:8080
