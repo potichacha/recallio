@@ -468,6 +468,7 @@ components:
           pattern: "([A-Za-z0-9_-]+/)*[A-Za-z0-9_-]+\\.(java|go)"
         content:
           type: string
+          pattern: \S
           maxLength: 20000
     ExerciseRun:
       type: object
@@ -1234,6 +1235,19 @@ components:
       - seenCount
       - mastery
       - nextLevel
+    PlaygroundRunRequest:
+      type: object
+      required:
+      - files
+      properties:
+        files:
+          type: array
+          items:
+            $ref: "#/components/schemas/ExerciseFile"
+          description: "Les fichiers du programme : en Java, un Main.java ; en Go,\
+            \ un package main"
+          minItems: 1
+          maxItems: 10
     ProblemDetail:
       required:
       - type
@@ -1291,6 +1305,40 @@ components:
       - roles
       - followedSubjects
       - tracks
+    ProgramRun:
+      type: object
+      properties:
+        status:
+          $ref: "#/components/schemas/ProgramStatus"
+        exitCode:
+          type: integer
+          format: int32
+          description: Le code de sortie du programme ; 0 s'il n'a pas été lancé
+        stdout:
+          type: string
+        stderr:
+          type: string
+        truncated:
+          type: boolean
+          description: Vrai si l'une des deux sorties a été tronquée (64 Kio au plus
+            chacune)
+        message:
+          type: string
+          description: "Les erreurs de compilation, ou ce qui a arrêté le programme\
+            \ ; vide sinon"
+      required:
+      - status
+      - exitCode
+      - stdout
+      - stderr
+      - truncated
+      - message
+    ProgramStatus:
+      type: string
+      enum:
+      - COMPLETED
+      - COMPILATION_ERROR
+      - TIMEOUT
     Progress:
       type: object
       properties:
@@ -1749,6 +1797,125 @@ components:
       - slug
       - title
       - counts
+    TourChapter:
+      type: object
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        notions:
+          type: array
+          items:
+            $ref: "#/components/schemas/TourEntry"
+      required:
+      - id
+      - title
+      - notions
+    TourDomain:
+      type: object
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        chapters:
+          type: array
+          items:
+            $ref: "#/components/schemas/TourChapter"
+      required:
+      - id
+      - title
+      - chapters
+    TourEntry:
+      type: object
+      properties:
+        slug:
+          type: string
+        title:
+          type: string
+          description: Le titre de sa première page
+        pageCount:
+          type: integer
+          format: int32
+      required:
+      - slug
+      - title
+      - pageCount
+    TourNotion:
+      type: object
+      properties:
+        slug:
+          type: string
+        title:
+          type: string
+        chapterTitle:
+          type: string
+        pages:
+          type: array
+          items:
+            $ref: "#/components/schemas/TourPage"
+      required:
+      - slug
+      - title
+      - chapterTitle
+      - pages
+    TourOutline:
+      type: object
+      properties:
+        subjectSlug:
+          type: string
+        subjectTitle:
+          type: string
+        domains:
+          type: array
+          items:
+            $ref: "#/components/schemas/TourDomain"
+          description: Dans l'ordre du référentiel ; vide si le sujet n'a pas encore
+            de Tour
+      required:
+      - subjectSlug
+      - subjectTitle
+      - domains
+    TourPage:
+      type: object
+      properties:
+        title:
+          type: string
+          description: "Son titre, ou celui de la notion"
+        text:
+          type: string
+          description: En Markdown
+        example:
+          type: array
+          items:
+            $ref: "#/components/schemas/SourceFile"
+          description: "Le programme de la page, à modifier et à exécuter"
+        task:
+          description: Un « À toi » ; la sortie attendue reste sur le serveur
+          type: object
+          anyOf:
+          - $ref: "#/components/schemas/TourTask"
+          - type: "null"
+      required:
+      - title
+      - text
+      - example
+      - task
+    TourTask:
+      type: object
+      properties:
+        instructions:
+          type: string
+          description: "La consigne, en Markdown"
+        starter:
+          type: array
+          items:
+            $ref: "#/components/schemas/SourceFile"
+          description: "Le code de départ, à modifier jusqu'à obtenir la sortie attendue"
+      required:
+      - instructions
+      - starter
     UUID:
       type: string
       format: uuid
@@ -1816,6 +1983,8 @@ tags:
 - name: Progression
 - name: Révision
   description: "File de révision et réponses, planifiées par FSRS"
+- name: Tour
+  description: "Apprendre un langage pas à pas, page par page (ADR 0037)"
 - name: MicroProfile Health
   description: Check the health of the application
 paths:
@@ -2964,6 +3133,53 @@ paths:
           description: Non authentifié
       security:
       - SecurityScheme: []
+  /api/v1/playground-runs:
+    post:
+      summary: "Lance un programme du Tour et renvoie ses sorties : rien n'est enregistré"
+      operationId: runProgram
+      tags:
+      - Tour
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PlaygroundRunRequest"
+        required: true
+      responses:
+        "200":
+          description: "Ce que le programme a écrit, et comment il s'est terminé"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProgramRun"
+        "400":
+          description: "Requête invalide : aucun fichier, trop de fichiers, un chemin\
+            \ invalide ou un fichier vide"
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+        "422":
+          description: "Les fichiers ne forment pas un programme : deux langages,\
+            \ un fichier de tests, ou pas de Main.java en Java"
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+        "429":
+          description: Une exécution de cet utilisateur est déjà en cours
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+        "503":
+          description: L'exécution du code est indisponible
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+      security:
+      - SecurityScheme: []
   /api/v1/review-queue:
     get:
       summary: "Cartes à réviser maintenant : les cartes dues, puis des nouvelles\
@@ -3154,6 +3370,62 @@ paths:
                   $ref: "#/components/schemas/Theme"
         "404":
           description: Sujet inconnu
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+  /api/v1/subjects/{subject}/tour:
+    get:
+      summary: "Le sommaire du Tour d'un sujet : ses domaines, ses chapitres et ses\
+        \ notions, dans l'ordre"
+      operationId: getTour
+      tags:
+      - Tour
+      parameters:
+      - name: subject
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          description: Le sommaire ; sans domaine si le sujet n'a pas encore de Tour
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TourOutline"
+        "404":
+          description: Sujet inconnu
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+  /api/v1/subjects/{subject}/tour/{notion}:
+    get:
+      summary: "Les pages d'une notion du Tour, dans l'ordre"
+      operationId: getTourNotion
+      tags:
+      - Tour
+      parameters:
+      - name: notion
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: subject
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          description: Les pages
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TourNotion"
+        "404":
+          description: "Sujet inconnu, ou notion qui n'est pas dans son Tour"
           content:
             application/problem+json:
               schema:

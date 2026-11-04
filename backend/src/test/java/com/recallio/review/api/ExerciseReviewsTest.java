@@ -131,6 +131,18 @@ class ExerciseReviewsTest {
                 .statusCode(422);
     }
 
+    /** Un éditeur vidé avant d'exécuter : la requête est refusée comme invalide, et non en erreur 500. */
+    @Test
+    @TestSecurity(user = "alice")
+    @OidcSecurity(claims = @Claim(key = "sub", value = "exercise-empty-file"))
+    void shouldRefuseAnEmptyFile() {
+        given().contentType(ContentType.JSON)
+                .body(Map.of("cardId", exerciseId(), "files", files("")))
+                .post(RUNS)
+                .then()
+                .statusCode(400);
+    }
+
     @Test
     @TestSecurity(user = "alice")
     @OidcSecurity(claims = @Claim(key = "sub", value = "exercise-submit"))
