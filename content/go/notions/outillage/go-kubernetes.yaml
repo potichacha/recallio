@@ -1,4 +1,29 @@
 notion: go-kubernetes
+lesson: |-
+  Un service Go s'intègre bien à Kubernetes, à condition de régler quelques points :
+
+  **Les sondes** :
+  - **readiness** (disponibilité) : le pod peut-il recevoir du trafic ? Elle peut vérifier les dépendances
+    indispensables (base joignable) et passe à faux pendant l'arrêt ;
+  - **liveness** (vivacité) : le processus est-il bloqué ? Elle doit rester **simple** (répondre 200) : si elle vérifie la
+    base, une panne de base fait **redémarrer** tous les pods en boucle, ce qui aggrave la situation ;
+  - **startup** : laisse le temps à un démarrage lent avant que la liveness ne s'applique.
+
+  **L'arrêt gracieux** : à SIGTERM, faire échouer la readiness, attendre quelques secondes (retrait des points
+  d'accès), `srv.Shutdown` avec un délai inférieur à `terminationGracePeriodSeconds`, puis fermer les dépendances.
+
+  **Les ressources** :
+  - mémoire : une **limite** est conseillée, et **`GOMEMLIMIT`** autour de 90 % de cette limite, pour que le GC
+    accélère avant l'OOMKill (avec l'API descendante : `resourceFieldRef: limits.memory`) ;
+  - CPU : depuis **Go 1.25**, GOMAXPROCS suit la limite CPU du conteneur ; beaucoup d'équipes ne fixent qu'une
+    **demande** CPU pour éviter le bridage (*throttling*).
+
+  **L'écosystème** : Kubernetes est lui-même écrit en Go. **client-go** est le client officiel ; les **opérateurs**
+  (contrôleurs qui gèrent des ressources personnalisées) s'écrivent avec **controller-runtime** et **Kubebuilder**,
+  autour d'une **boucle de réconciliation** : lire l'état voulu, comparer à l'état réel, agir, recommencer.
+
+  **En entretien** : « Readiness avec les dépendances, liveness simple ; arrêt gracieux sur SIGTERM ; GOMEMLIMIT sous la
+  limite mémoire ; GOMAXPROCS suit le CPU depuis Go 1.25 ; client-go et controller-runtime pour les opérateurs. »
 cards:
   - key: liveness-vs-readiness
     format: course
@@ -48,3 +73,106 @@ cards:
     format: course
     question: Que désigne « controller-runtime » ?
     answer: Bibliothèque de contrôleurs Kubernetes, base de Kubebuilder
+  - key: vf-liveness
+    format: true-false
+    question: La sonde liveness devrait vérifier que la base de données répond.
+    truth: false
+    answer: Une panne de base ferait redémarrer tous les pods en boucle ; la readiness s'en charge.
+  - key: vf-readiness-arret
+    format: true-false
+    question: Pendant l'arrêt gracieux, la sonde readiness doit passer à faux.
+    truth: true
+    answer: Pour que le pod soit retiré des points d'accès.
+  - key: vf-gomemlimit
+    format: true-false
+    question: GOMEMLIMIT peut être fixé à partir de la limite mémoire du pod avec l'API descendante.
+    truth: true
+    answer: resourceFieldRef sur limits.memory, avec un divisor ou un calcul au démarrage pour garder une marge.
+  - key: vf-go-k8s
+    format: true-false
+    question: Kubernetes est écrit en Go.
+    truth: true
+    answer: Comme Docker, etcd, Prometheus et Terraform.
+  - key: qcm-sondes
+    format: multiple-choice
+    question: Que doit vérifier chaque sonde ?
+    choices:
+      - text: 'Readiness : les dépendances indispensables pour servir du trafic'
+        correct: true
+      - text: 'Liveness : que le processus répond, sans dépendance externe'
+        correct: true
+      - text: 'Startup : que le démarrage est terminé'
+        correct: true
+      - text: 'Liveness : que tous les services appelés répondent'
+        correct: false
+    answer: La liveness ne doit détecter que le blocage du processus lui-même.
+  - key: qcm-ressources
+    format: multiple-choice
+    question: Quels réglages de ressources pour un service Go ?
+    choices:
+      - text: Une limite mémoire et GOMEMLIMIT à environ 90 % de celle-ci
+        correct: true
+      - text: Une demande CPU, avec ou sans limite selon la politique de l'équipe
+        correct: true
+      - text: Aucune limite mémoire et GOGC=off
+        correct: false
+      - text: GOMAXPROCS=64 pour aller plus vite
+        correct: false
+    answer: Depuis Go 1.25, GOMAXPROCS suit la limite CPU automatiquement.
+  - key: qcm-arret
+    format: multiple-choice
+    question: Que faire à la réception de SIGTERM dans Kubernetes ?
+    choices:
+      - text: Faire échouer la readiness et attendre quelques secondes
+        correct: true
+      - text: Appeler Shutdown avec un délai inférieur au délai de grâce
+        correct: true
+      - text: Quitter immédiatement avec os.Exit(0)
+        correct: false
+      - text: Ignorer le signal jusqu'au SIGKILL
+        correct: false
+    answer: Le délai de grâce est de 30 s par défaut.
+  - key: qcm-operateur
+    format: multiple-choice
+    question: Qu'est-ce qu'un opérateur Kubernetes ?
+    choices:
+      - text: Un contrôleur qui gère une ressource personnalisée (CRD)
+        correct: true
+      - text: Une boucle de réconciliation qui rapproche l'état réel de l'état voulu
+        correct: true
+      - text: Un administrateur humain du cluster
+        correct: false
+      - text: Un plugin de kubectl
+        correct: false
+    answer: controller-runtime et Kubebuilder en fournissent le squelette.
+  - key: scenario-sondes
+    format: scenario
+    question: Comment implémentes-tu les sondes d'un service Go qui dépend de PostgreSQL ?
+    answer: |-
+      `/livez` répond 200 sans rien vérifier (si le processus répond, il vit). `/readyz` vérifie `db.PingContext` avec un
+      délai court, et un drapeau atomique passé à faux au début de l'arrêt. Une sonde startup avec un délai généreux si
+      le démarrage charge des données. Les deux routes sont servies avant les middlewares d'authentification et ne sont
+      pas journalisées à chaque appel.
+  - key: scenario-oom
+    format: scenario
+    question: Ton service est régulièrement OOMKilled sous charge. Que vérifies-tu côté Go ?
+    answer: |-
+      La présence de GOMEMLIMIT, réglé un peu sous la limite du pod : sans lui, le tas peut doubler entre deux cycles du GC
+      (GOGC=100) et dépasser la limite. Puis le tas vivant (profil heap, métriques runtime) : s'il approche la limite, il
+      faut réduire la mémoire (caches bornés, flux plutôt que tout en mémoire) ou augmenter la limite. Je vérifie aussi
+      les fuites de goroutines.
+  - key: scenario-throttling
+    format: scenario
+    question: Ton service a une latence en dents de scie et des métriques de throttling CPU. Que fais-tu ?
+    answer: |-
+      Avant Go 1.25, GOMAXPROCS valait le nombre de cœurs du nœud : trop de threads consommaient le quota puis étaient
+      bridés. Je passe à Go 1.25 ou plus (ou automaxprocs), je journalise GOMAXPROCS au démarrage, et je revois la limite
+      CPU : souvent, une demande sans limite évite le bridage, au prix d'une isolation moindre entre pods.
+  - key: scenario-operateur
+    format: scenario
+    question: Comment aborderais-tu l'écriture d'un opérateur Kubernetes en Go ?
+    answer: |-
+      Kubebuilder pour générer le squelette (CRD, contrôleur, webhooks) sur controller-runtime. La fonction Reconcile
+      doit être idempotente : lire la ressource, calculer l'état voulu, créer ou mettre à jour les objets enfants (avec
+      des références de propriétaire), mettre à jour le statut, et renvoyer une demande de nouvelle réconciliation si
+      besoin. Les finalizers gèrent le nettoyage, et envtest permet de tester contre un vrai serveur d'API.

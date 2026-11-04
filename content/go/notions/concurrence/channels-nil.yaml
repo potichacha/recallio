@@ -1,4 +1,5 @@
 notion: channels-nil
+lesson: "Un channel **nil** (la valeur zéro d'un type channel) a un comportement particulier :\n\n| Opération | Channel nil |\n|---|---|\n| `ch <- v` | **bloque pour toujours** |\n| `<-ch` | **bloque pour toujours** |\n| `close(ch)` | **panique** (« close of nil channel ») |\n| `len(ch)`, `cap(ch)` | 0 |\n\nBloquer à jamais semble inutile, mais c'est précieux dans un **`select`** : un cas sur un channel nil n'est **jamais\nchoisi**. Mettre un channel à nil **désactive** donc ce cas, sans réécrire le select. L'idiome sert à fusionner deux\nchannels jusqu'à ce que les deux soient fermés :\n\n```go\nfor a != nil || b != nil {\n\tselect {\n\tcase v, ok := <-a:\n\t\tif !ok {\n\t\t\ta = nil // a est fermé : on ne le lit plus\n\t\t\tcontinue\n\t\t}\n\t\tsortie <- v\n\tcase v, ok := <-b:\n\t\tif !ok {\n\t\t\tb = nil\n\t\t\tcontinue\n\t\t}\n\t\tsortie <- v\n\t}\n}\n```\n\nSans cela, un channel fermé serait choisi **en boucle** (il renvoie immédiatement la valeur zéro), et la boucle\ntournerait à vide.\n\nEn dehors d'un select, un channel nil est presque toujours un **bug** : un channel déclaré par `var ch chan T` et jamais\ncréé, qui bloque une goroutine pour toujours.\n\n**Piège classique** : un champ de struct de type channel jamais initialisé ; la première opération bloque\nsilencieusement, ou provoque un interblocage.\n\n**En entretien** : « Un channel nil bloque pour toujours en envoi et en réception, et close panique ; dans un select, le\nmettre à nil désactive un cas, utile pour ne plus lire un channel fermé. »"
 cards:
   - key: channel-nil
     format: course
@@ -8,3 +9,143 @@ cards:
     format: course
     question: Comment désactiver un cas d'un select ?
     answer: Mettre son channel à nil.
+  - key: select
+    format: course
+    question: Pourquoi mettre un channel à nil dans une boucle `select` ?
+    answer: 'Un cas sur un channel nil n''est jamais choisi : on désactive ainsi la lecture d''un channel fermé, qui sinon serait sélectionné en boucle avec des valeurs zéro.'
+  - key: bug-habituel
+    format: course
+    question: Hors d'un select, que signale le plus souvent un channel nil ?
+    answer: 'Un bug : un channel déclaré mais jamais créé avec `make`, qui bloque pour toujours la goroutine qui l''utilise.'
+  - key: vf-bloque
+    format: true-false
+    question: Recevoir sur un channel nil bloque pour toujours.
+    truth: true
+    answer: Comme envoyer.
+  - key: vf-close
+    format: true-false
+    question: '`close` sur un channel nil ne fait rien.'
+    truth: false
+    answer: 'Il panique : « close of nil channel ».'
+  - key: vf-select-nil
+    format: true-false
+    question: Dans un select, un cas sur un channel nil n'est jamais sélectionné.
+    truth: true
+    answer: C'est ce qui permet de désactiver un cas.
+  - key: vf-ferme
+    format: true-false
+    question: Un channel fermé et un channel nil se comportent de la même façon en réception.
+    truth: false
+    answer: Le fermé renvoie immédiatement la valeur zéro ; le nil bloque pour toujours.
+  - key: qcm-operations
+    format: multiple-choice
+    question: Que fait chaque opération sur un channel nil ?
+    choices:
+      - text: '`ch <- 1` bloque pour toujours'
+        correct: true
+      - text: '`close(ch)` panique'
+        correct: true
+      - text: '`<-ch` renvoie la valeur zéro'
+        correct: false
+      - text: '`len(ch)` panique'
+        correct: false
+    answer: '`len` d''un channel nil vaut 0.'
+  - key: qcm-fusion
+    format: multiple-choice
+    question: Pour fusionner deux channels `a` et `b` jusqu'à leur fermeture, que faire quand `a` est fermé ?
+    choices:
+      - text: Mettre `a = nil` pour désactiver son cas
+        correct: true
+      - text: Continuer la boucle tant que `a` ou `b` n'est pas nil
+        correct: true
+      - text: Fermer `b`
+        correct: false
+      - text: Laisser le cas actif, il ne sera plus choisi
+        correct: false
+    answer: 'Un channel fermé reste toujours prêt : il serait choisi en boucle.'
+  - key: qcm-ferme-boucle
+    format: multiple-choice
+    question: Pourquoi un channel fermé laissé dans un select fait-il tourner la boucle à vide ?
+    choices:
+      - text: La réception sur un channel fermé réussit immédiatement avec la valeur zéro
+        correct: true
+      - text: Le select le choisit donc à chaque tour
+        correct: true
+      - text: Le select panique
+        correct: false
+      - text: Le channel se rouvre
+        correct: false
+    answer: D'où l'idiome du channel mis à nil.
+  - key: qcm-bug
+    format: multiple-choice
+    question: Une goroutine reste bloquée pour toujours sur `s.evenements <- e`. Que vérifier en premier ?
+    choices:
+      - text: Que le champ `evenements` a bien été créé avec make
+        correct: true
+      - text: Qu'un récepteur existe
+        correct: true
+      - text: Que le channel n'est pas fermé
+        correct: false
+      - text: Que go vet passe
+        correct: false
+    answer: Un envoi sur un channel fermé paniquerait au lieu de bloquer.
+  - key: code-select-nil
+    format: code-output
+    question: "```go\nvar jamais chan int\nch := make(chan int, 1)\nch <- 5\nselect {\ncase v := <-jamais:\n\tfmt.Println(\"nil\", v)\ncase v := <-ch:\n\tfmt.Println(\"ch\", v)\n}\n```"
+    answer: '`ch 5` : le cas sur le channel nil n''est jamais choisi.'
+    check:
+      code: "package main\n\nimport \"fmt\"\n\nfunc main() {\n\tvar jamais chan int\n\tch := make(chan int, 1)\n\tch <- 5\n\tselect {\n\tcase v := <-jamais:\n\t\tfmt.Println(\"nil\", v)\n\tcase v := <-ch:\n\t\tfmt.Println(\"ch\", v)\n\t}\n}\n"
+      output: ch 5
+  - key: code-fusion
+    format: code-output
+    question: "```go\na, b := make(chan int), make(chan int)\ngo func() { defer close(a); a <- 1; a <- 2 }()\ngo func() { defer close(b); b <- 10 }()\ntotal := 0\nfor a != nil || b != nil {\n\tselect {\n\tcase v, ok := <-a:\n\t\tif !ok {\n\t\t\ta = nil\n\t\t\tcontinue\n\t\t}\n\t\ttotal += v\n\tcase v, ok := <-b:\n\t\tif !ok {\n\t\t\tb = nil\n\t\t\tcontinue\n\t\t}\n\t\ttotal += v\n\t}\n}\nfmt.Println(total)\n```"
+    answer: '`13` : chaque channel fermé est désactivé, et la boucle s''arrête quand les deux le sont.'
+    check:
+      code: "package main\n\nimport \"fmt\"\n\nfunc main() {\n\ta, b := make(chan int), make(chan int)\n\tgo func() { defer close(a); a <- 1; a <- 2 }()\n\tgo func() { defer close(b); b <- 10 }()\n\ttotal := 0\n\tfor a != nil || b != nil {\n\t\tselect {\n\t\tcase v, ok := <-a:\n\t\t\tif !ok {\n\t\t\t\ta = nil\n\t\t\t\tcontinue\n\t\t\t}\n\t\t\ttotal += v\n\t\tcase v, ok := <-b:\n\t\t\tif !ok {\n\t\t\t\tb = nil\n\t\t\t\tcontinue\n\t\t\t}\n\t\t\ttotal += v\n\t\t}\n\t}\n\tfmt.Println(total)\n}\n"
+      output: '13'
+  - key: code-close-nil
+    format: code-output
+    question: |-
+      ```go
+      var ch chan int
+      fmt.Println(len(ch), cap(ch))
+      close(ch)
+      ```
+    answer: '`0 0`, puis une panique « close of nil channel ».'
+    check:
+      code: "package main\n\nimport \"fmt\"\n\nfunc main() {\n\tvar ch chan int\n\tfmt.Println(len(ch), cap(ch))\n\tclose(ch)\n}\n"
+      output: 0 0
+      panics: close of nil channel
+  - key: code-reception-nil
+    format: code-output
+    question: |-
+      ```go
+      var ch chan string
+      fmt.Println("avant")
+      fmt.Println(<-ch)
+      ```
+    answer: '`avant`, puis « all goroutines are asleep - deadlock! » : la réception sur un channel nil bloque pour toujours.'
+    check:
+      code: "package main\n\nimport \"fmt\"\n\nfunc main() {\n\tvar ch chan string\n\tfmt.Println(\"avant\")\n\tfmt.Println(<-ch)\n}\n"
+      output: avant
+      panics: all goroutines are asleep
+  - key: bug-champ
+    format: bug-fix
+    question: "Le service se bloque dès le premier événement :\n```go\ntype Bus struct {\n\tevenements chan Evenement\n}\n\nfunc (b *Bus) Publier(e Evenement) { b.evenements <- e }\n\nvar bus Bus\n```"
+    answer: "```go\nfunc NouveauBus(capacite int) *Bus {\n\treturn &Bus{evenements: make(chan Evenement, capacite)}\n}\n```\nLe champ channel valait nil : l'envoi bloquait pour toujours. Un constructeur crée le channel."
+  - key: bug-boucle-vide
+    format: bug-fix
+    question: "La fusion de deux flux consomme 100 % d'un cœur une fois le premier flux terminé :\n```go\nfor {\n\tselect {\n\tcase v := <-a:\n\t\tsortie <- v\n\tcase v := <-b:\n\t\tsortie <- v\n\t}\n}\n```"
+    answer: "```go\nfor a != nil || b != nil {\n\tselect {\n\tcase v, ok := <-a:\n\t\tif !ok {\n\t\t\ta = nil\n\t\t\tcontinue\n\t\t}\n\t\tsortie <- v\n\tcase v, ok := <-b:\n\t\tif !ok {\n\t\t\tb = nil\n\t\t\tcontinue\n\t\t}\n\t\tsortie <- v\n\t}\n}\nclose(sortie)\n```\nLe channel fermé était choisi en boucle avec des valeurs zéro ; le mettre à nil désactive son cas."
+  - key: bug-close-nil
+    format: bug-fix
+    question: |-
+      L'arrêt panique avec « close of nil channel » quand le service n'a jamais démarré :
+      ```go
+      func (s *Service) Arreter() { close(s.stop) }
+      ```
+    answer: "```go\nfunc (s *Service) Arreter() {\n\tif s.stop != nil {\n\t\ts.stopOnce.Do(func() { close(s.stop) })\n\t}\n}\n```\nLe channel n'est créé qu'au démarrage : on vérifie qu'il existe, et `sync.Once` évite une double fermeture."
+  - key: bug-desactiver
+    format: bug-fix
+    question: Un select doit cesser d'envoyer sur `sortie` quand il n'y a plus rien à envoyer, sans réécrire la boucle. Comment ?
+    answer: "```go\nvar envoi chan<- Lot // nil : cas désactivé\nif len(enAttente) > 0 {\n\tenvoi = sortie\n}\nselect {\ncase envoi <- enAttente[0]:\n\tenAttente = enAttente[1:]\ncase l := <-entree:\n\tenAttente = append(enAttente, l)\n}\n```\nUn channel nil désactive le cas d'envoi tant que la file est vide."

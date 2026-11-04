@@ -1,4 +1,5 @@
 notion: context-delais
+lesson: "Deux fonctions dérivent un contexte qui **expire tout seul** :\n- **`context.WithTimeout(parent, d)`** : expire au bout de la durée `d` ;\n- **`context.WithDeadline(parent, t)`** : expire à l'instant `t`.\n\n`WithTimeout(p, d)` équivaut à `WithDeadline(p, time.Now().Add(d))`. À l'échéance, `Done()` se ferme et `Err()` vaut\n**`context.DeadlineExceeded`**.\n\n```go\nfunc (c *Client) Profil(ctx context.Context, id string) (Profil, error) {\n\tctx, cancel := context.WithTimeout(ctx, 2*time.Second)\n\tdefer cancel() // toujours, même si le délai expire de lui-même\n\n\treq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base+\"/profils/\"+id, nil)\n\tif err != nil {\n\t\treturn Profil{}, err\n\t}\n\tresp, err := c.http.Do(req) // interrompu à l'échéance\n\t// ...\n}\n```\n\nLes règles :\n- **toujours `defer cancel()`** : sinon le minuteur et le contexte restent en mémoire jusqu'à l'échéance (go vet le\n  signale) ;\n- l'échéance d'un enfant ne peut pas **dépasser** celle du parent : `WithTimeout(ctx, 10*time.Second)` sous un\n  parent qui expire dans 1 seconde expire dans 1 seconde ;\n- un délai se place **au plus près** de l'appel qu'il borne, et l'appelant garde son propre budget global ;\n- `ctx.Deadline()` dit combien de temps il reste, pour renoncer tôt à un travail qui ne tiendra pas.\n\n**En entretien** : « WithTimeout pour une durée, WithDeadline pour un instant ; defer cancel toujours ;\nDeadlineExceeded à l'échéance ; un enfant ne peut pas aller au-delà de son parent. »"
 cards:
   - key: toujours-appeler-cancel
     format: course
@@ -18,3 +19,158 @@ cards:
     answer: |-
       Il manque un **budget de temps**. Je dériverais en entrée de handler un contexte avec un timeout global aligné sur ce que le client accepte (par exemple 3 s), et je le passerais à chaque appel. Chaque appel hérite de l'échéance restante, donc le troisième ne peut pas démarrer avec un délai plus long que ce qui reste.
       Je vérifierais que chaque client utilise vraiment le contexte (`NewRequestWithContext`, clients gRPC) et que le client HTTP a aussi ses propres timeouts de connexion. Enfin, si les appels sont indépendants, je les lancerais en parallèle avec `errgroup` pour diviser la latence.
+  - key: depasser
+    format: course
+    question: Que se passe-t-il si l'on dérive un contexte de 10 secondes d'un parent qui expire dans 1 seconde ?
+    answer: 'L''enfant expire dans 1 seconde, avec le parent : un contexte ne peut pas prolonger l''échéance de son parent.'
+  - key: vf-equivalence
+    format: true-false
+    question: '`WithTimeout(ctx, d)` équivaut à `WithDeadline(ctx, time.Now().Add(d))`.'
+    truth: true
+    answer: C'est ainsi qu'il est implémenté.
+  - key: vf-expire
+    format: true-false
+    question: Un contexte WithTimeout qui a expiré n'a plus besoin que l'on appelle cancel.
+    truth: false
+    answer: On appelle toujours cancel (en defer) ; c'est la seule façon sûre de libérer le contexte dans tous les cas.
+  - key: vf-err
+    format: true-false
+    question: À l'échéance, `ctx.Err()` vaut `context.DeadlineExceeded`.
+    truth: true
+    answer: Et `errors.Is(err, context.DeadlineExceeded)` le reconnaît dans une erreur enveloppée.
+  - key: vf-prolonger
+    format: true-false
+    question: On peut prolonger l'échéance d'un contexte existant.
+    truth: false
+    answer: Un contexte est immuable ; un enfant ne va jamais au-delà du parent.
+  - key: qcm-choisir
+    format: multiple-choice
+    question: Quand utiliser WithDeadline plutôt que WithTimeout ?
+    choices:
+      - text: Quand on a un instant précis, par exemple une échéance reçue d'un autre service
+        correct: true
+      - text: Quand plusieurs appels doivent finir avant la même heure
+        correct: true
+      - text: Quand on veut un délai de 2 secondes à partir de maintenant
+        correct: false
+      - text: Jamais, WithTimeout est plus précis
+        correct: false
+    answer: Pour une durée relative, WithTimeout est plus lisible.
+  - key: qcm-deadline
+    format: multiple-choice
+    question: À quoi sert `ctx.Deadline()` ?
+    choices:
+      - text: Savoir s'il existe une échéance et laquelle
+        correct: true
+      - text: Renoncer tôt à un travail qui ne tiendra pas dans le temps restant
+        correct: true
+      - text: Prolonger l'échéance
+        correct: false
+      - text: Annuler le contexte
+        correct: false
+    answer: Elle renvoie l'heure et un booléen qui dit si une échéance existe.
+  - key: qcm-ou
+    format: multiple-choice
+    question: Où placer le délai d'un appel à un service externe ?
+    choices:
+      - text: Au plus près de l'appel, dans le client de ce service
+        correct: true
+      - text: Dérivé du contexte reçu, pour garder l'annulation de l'appelant
+        correct: true
+      - text: Dérivé de context.Background(), pour ne pas dépendre de l'appelant
+        correct: false
+      - text: Nulle part, le service répondra
+        correct: false
+    answer: Partir de Background perdrait l'annulation et le budget de l'appelant.
+  - key: qcm-erreurs
+    format: multiple-choice
+    question: Comment reconnaître un délai dépassé dans une erreur renvoyée par un client HTTP ?
+    choices:
+      - text: '`errors.Is(err, context.DeadlineExceeded)`'
+        correct: true
+      - text: Une erreur qui implémente `Timeout() bool` et renvoie true
+        correct: true
+      - text: '`err == context.Canceled`'
+        correct: false
+      - text: '`strings.Contains(err.Error(), "timeout")`'
+        correct: false
+    answer: Comparer des chaînes est fragile ; errors.Is et l'interface Timeout sont prévus pour cela.
+  - key: trous-timeout
+    format: fill-in
+    question: |-
+      Complétez pour borner l'appel à 3 secondes :
+      ```go
+      ctx, cancel := context.___(ctx, 3*time.Second)
+      defer ___()
+      ```
+    blanks:
+      - - WithTimeout
+      - - cancel
+    answer: WithTimeout puis defer cancel.
+  - key: trous-deadline
+    format: fill-in
+    question: |-
+      Complétez pour finir avant minuit :
+      ```go
+      ctx, cancel := context.___(ctx, minuit)
+      defer cancel()
+      ```
+    blanks:
+      - - WithDeadline
+    answer: WithDeadline prend un instant.
+  - key: trous-erreur
+    format: fill-in
+    question: "Complétez pour reconnaître le délai dépassé :\n```go\nif errors.Is(err, context.___) {\n\treturn ErrServiceLent\n}\n```"
+    blanks:
+      - - DeadlineExceeded
+    answer: DeadlineExceeded.
+  - key: trous-reste
+    format: fill-in
+    question: "Complétez pour lire l'échéance :\n```go\nif fin, ok := ctx.___(); ok && time.Until(fin) < 100*time.Millisecond {\n\treturn ErrPasLeTemps\n}\n```"
+    blanks:
+      - - Deadline
+    answer: Deadline renvoie l'échéance et un booléen.
+  - key: bug-cancel-oublie
+    format: bug-fix
+    question: "Sous charge, la mémoire monte et le profil montre des milliers de minuteurs actifs :\n```go\nfunc (c *Client) Lire(ctx context.Context, id string) (Item, error) {\n\tctx, _ = context.WithTimeout(ctx, 30*time.Second)\n\treturn c.appeler(ctx, id)\n}\n```"
+    answer: "```go\nfunc (c *Client) Lire(ctx context.Context, id string) (Item, error) {\n\tctx, cancel := context.WithTimeout(ctx, 30*time.Second)\n\tdefer cancel()\n\treturn c.appeler(ctx, id)\n}\n```\nSans cancel, chaque contexte et son minuteur vivaient 30 secondes après la fin de l'appel."
+  - key: bug-background
+    format: bug-fix
+    question: "Les appels au service de prix continuent après la déconnexion du client :\n```go\nfunc (s *Service) Prix(ctx context.Context, id string) (int, error) {\n\tctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)\n\tdefer cancel()\n\treturn s.client.Prix(ctx, id)\n}\n```"
+    answer: "```go\nfunc (s *Service) Prix(ctx context.Context, id string) (int, error) {\n\tctx, cancel := context.WithTimeout(ctx, 2*time.Second)\n\tdefer cancel()\n\treturn s.client.Prix(ctx, id)\n}\n```\nDérivé de Background, le délai perdait l'annulation et l'échéance de l'appelant ; on dérive du contexte reçu."
+  - key: bug-boucle
+    format: bug-fix
+    question: "Le traitement crée un contexte par tour et `go vet` signale une fuite :\n```go\nfor _, id := range ids {\n\tctx, cancel := context.WithTimeout(ctx, time.Second)\n\tdefer cancel()\n\ttraiter(ctx, id)\n}\n```"
+    answer: "```go\nfor _, id := range ids {\n\tif err := traiterUn(ctx, id); err != nil {\n\t\treturn err\n\t}\n}\n\nfunc traiterUn(ctx context.Context, id string) error {\n\tctx, cancel := context.WithTimeout(ctx, time.Second)\n\tdefer cancel()\n\treturn traiter(ctx, id)\n}\n```\nLes defer d'une boucle s'accumulent jusqu'à la fin de la fonction ; une fonction par tour libère chaque contexte\naussitôt. (Le `ctx` réaffecté dans la boucle enchaînait aussi les délais.)"
+  - key: bug-sans-delai
+    format: bug-fix
+    question: |-
+      Le service se fige quand un partenaire ne répond plus :
+      ```go
+      resp, err := http.Get(urlPartenaire)
+      ```
+    answer: "```go\nctx, cancel := context.WithTimeout(ctx, 3*time.Second)\ndefer cancel()\nreq, err := http.NewRequestWithContext(ctx, http.MethodGet, urlPartenaire, nil)\nif err != nil {\n\treturn err\n}\nresp, err := client.Do(req)\n```\n`http.Get` utilise le client par défaut, sans délai et sans contexte : une requête peut attendre pour toujours."
+  - key: scenario-budget
+    format: scenario
+    question: Ton endpoint doit répondre en 500 ms et appelle trois services. Comment répartis-tu les délais ?
+    answer: |-
+      Un contexte global de 500 ms dérivé de la requête (ou fixé par un middleware), puis pour chaque appel un délai
+      propre, plus court, dérivé de ce contexte : l'enfant ne peut de toute façon pas dépasser le budget restant. Les
+      appels indépendants partent en parallèle (errgroup) ; un appel accessoire a un délai plus court et une valeur de
+      repli. Je mesure les latences p99 de chaque service pour régler ces délais.
+  - key: scenario-propager
+    format: scenario
+    question: Comment faire respecter l'échéance d'une requête par les services que tu appelles ?
+    answer: |-
+      Avec gRPC, l'échéance du contexte est transmise automatiquement (en-tête `grpc-timeout`) et le serveur reçoit un
+      contexte qui expire au même moment. En HTTP, rien n'est standard : on peut envoyer le temps restant dans un
+      en-tête, que le serveur appelé convertit en `WithTimeout`. Dans tous les cas, chaque service garde aussi son propre
+      délai maximal.
+  - key: scenario-test
+    format: scenario
+    question: Comment testes-tu qu'une fonction respecte bien son délai ?
+    answer: |-
+      Je lui passe un faux service qui bloque jusqu'à l'annulation de son contexte (`<-ctx.Done()`), puis je vérifie
+      qu'elle renvoie `context.DeadlineExceeded` (avec `errors.Is`) et qu'elle a rendu la main vite. Pour ne pas attendre
+      de vrais délais, le délai est un paramètre réglé très court dans le test, ou j'utilise `testing/synctest`
+      (Go 1.25), dont l'horloge virtuelle avance instantanément.

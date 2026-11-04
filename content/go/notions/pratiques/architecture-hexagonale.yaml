@@ -1,4 +1,5 @@
 notion: architecture-hexagonale
+lesson: "L'**architecture hexagonale** (ports et adaptateurs) place le **domaine** au centre, indépendant de la technique ; les\n**adaptateurs** (HTTP, base, messagerie) sont à la périphérie et dépendent du domaine, jamais l'inverse.\n\nEn Go, elle s'exprime naturellement :\n\n```\ninternal/\n├── commande/                  # le domaine et ses cas d'usage\n│   ├── commande.go            # le modèle : Commande, règles métier, erreurs\n│   ├── service.go             # les cas d'usage : Passer, Annuler\n│   └── ports.go               # les interfaces dont le service a besoin (Depot, Paiements)\n├── postgres/                  # adaptateur : implémente commande.Depot avec SQL\n├── stripe/                    # adaptateur : implémente commande.Paiements\n└── httpapi/                   # adaptateur entrant : handlers qui appellent commande.Service\n```\n\n```go\n// dans commande/ports.go : un port de sortie, défini par le domaine\ntype Depot interface {\n\tTrouver(ctx context.Context, id string) (Commande, error)\n\tSauver(ctx context.Context, c Commande) error\n}\n```\n\nCe qui rend Go adapté :\n- les **interfaces implicites** : l'adaptateur postgres satisfait `commande.Depot` sans l'importer pour le déclarer ;\n- les interfaces se définissent **chez l'utilisateur** (le domaine), petites ;\n- **pas de cycle d'import** possible : le compilateur fait respecter le sens des dépendances ;\n- **internal/** empêche d'utiliser les adaptateurs depuis l'extérieur.\n\nLes mises en garde :\n- ne pas multiplier les couches et les interfaces **sans besoin** : pour un CRUD simple, un handler qui appelle un\n  dépôt suffit ;\n- pas de « DTO » ni de mapping à chaque frontière si les types sont identiques ; on sépare quand les modèles divergent\n  vraiment (API publique, schéma de base) ;\n- les **transactions** traversent souvent plusieurs ports : il faut un mécanisme (unité de travail, fonction\n  `dansTransaction`) prévu dès le départ.\n\n**En entretien** : « Domaine au centre avec ses ports (interfaces) ; adaptateurs à la périphérie qui les implémentent ;\ninterfaces implicites et absence de cycles qui font respecter le sens ; sans sur-ingénierie pour un CRUD. »"
 cards:
   - key: applique-architecture-hexagonale
     format: course
@@ -15,3 +16,106 @@ cards:
       Un module avec `cmd/orders/main.go` et des packages `internal/` par responsabilité. Le cœur est `internal/order` : les types `Order`, `Line`, les règles (calcul du total, transitions de statut), un `Service` qui orchestre les cas d'usage, et les interfaces dont il a besoin (`Repository`, `Payments`, `EventPublisher`). Les adaptateurs vivent à côté : `internal/postgres` (avec sqlc pour les requêtes), `internal/httpapi` (handlers, DTO, validation, middlewares), `internal/kafka` (publication via un outbox).
       `main` lit la configuration depuis l'environnement, construit les adaptateurs, les injecte dans le service, démarre le serveur HTTP et le relais d'outbox, et gère l'arrêt propre sur SIGTERM.
       Les tests du package `order` utilisent des faux écrits à la main, ceux de `postgres` une vraie base dans testcontainers. Si le service reste petit, je fusionnerais certains packages : la structure doit suivre la complexité, pas la précéder.
+  - key: ports
+    format: course
+    question: Où déclarer les ports (interfaces) dans une architecture hexagonale en Go ?
+    answer: Dans le package du domaine qui en a besoin (commande.Depot, commande.Paiements) ; les adaptateurs les implémentent implicitement et dépendent du domaine, jamais l'inverse.
+  - key: surconception
+    format: course
+    question: Quand l'architecture hexagonale est-elle de la sur-ingénierie ?
+    answer: 'Pour un service CRUD sans règles métier, où chaque couche ne ferait que recopier des champs : un handler qui appelle un dépôt est plus simple. Elle paie quand le domaine a de vraies règles, plusieurs entrées (HTTP, messages) ou des dépendances à remplacer.'
+  - key: vf-dependances
+    format: true-false
+    question: Dans une architecture hexagonale, le domaine importe les packages des adaptateurs.
+    truth: false
+    answer: Ce sont les adaptateurs qui dépendent du domaine.
+  - key: vf-implicites
+    format: true-false
+    question: Les interfaces implicites de Go facilitent l'architecture hexagonale.
+    truth: true
+    answer: Un adaptateur satisfait un port sans le déclarer.
+  - key: vf-cycles
+    format: true-false
+    question: L'interdiction des cycles d'import aide à faire respecter le sens des dépendances.
+    truth: true
+    answer: Un adaptateur importé par le domaine créerait vite un cycle.
+  - key: vf-dto
+    format: true-false
+    question: Il faut toujours un type distinct et un mapping à chaque frontière entre couches.
+    truth: false
+    answer: On sépare les modèles quand ils divergent vraiment, pas par principe.
+  - key: qcm-roles
+    format: multiple-choice
+    question: Quel rôle a chaque élément ?
+    choices:
+      - text: 'Le domaine : modèle, règles et cas d''usage'
+        correct: true
+      - text: 'Un port : une interface déclarée par le domaine'
+        correct: true
+      - text: 'Un adaptateur : une implémentation technique d''un port (SQL, HTTP)'
+        correct: true
+      - text: 'Un port : un numéro de port réseau'
+        correct: false
+    answer: Le vocabulaire vient d'Alistair Cockburn.
+  - key: qcm-entrants
+    format: multiple-choice
+    question: Lesquels sont des adaptateurs entrants (qui appellent le domaine) ?
+    choices:
+      - text: Les handlers HTTP
+        correct: true
+      - text: Un consommateur de messages Kafka
+        correct: true
+      - text: Une commande en ligne de commande
+        correct: true
+      - text: Le dépôt PostgreSQL
+        correct: false
+    answer: Le dépôt est un adaptateur sortant, appelé par le domaine via un port.
+  - key: qcm-transactions
+    format: multiple-choice
+    question: Comment gérer une transaction qui couvre deux ports (commandes et stock) ?
+    choices:
+      - text: Une unité de travail ou une fonction dansTransaction fournie par l'adaptateur de persistance
+        correct: true
+      - text: Des dépôts construits sur la même transaction (une interface Executeur)
+        correct: true
+      - text: Une transaction ouverte dans chaque dépôt séparément
+        correct: false
+      - text: Ignorer la cohérence
+        correct: false
+    answer: Deux transactions séparées ne garantissent pas l'atomicité.
+  - key: qcm-avantages
+    format: multiple-choice
+    question: Qu'apporte l'architecture hexagonale ?
+    choices:
+      - text: Un domaine testable sans base ni réseau
+        correct: true
+      - text: Des adaptateurs remplaçables (une autre base, une autre API)
+        correct: true
+      - text: Plusieurs entrées vers les mêmes cas d'usage
+        correct: true
+      - text: Moins de code dans tous les cas
+        correct: false
+    answer: Elle ajoute du code ; elle doit le justifier.
+  - key: scenario-service
+    format: scenario
+    question: Présente l'architecture que tu choisirais pour un service de commandes avec des règles métier, une API HTTP et des événements Kafka.
+    answer: |-
+      Un package `commande` avec le modèle, les règles (calcul, transitions d'état), les erreurs et les cas d'usage
+      (Passer, Payer, Annuler), qui déclare ses ports : Depot, Paiements, Evenements. Des adaptateurs : `postgres` pour le
+      dépôt et l'outbox, `stripe` pour le paiement, `kafka` pour publier, `httpapi` et un consommateur Kafka comme
+      entrées. main assemble. Le domaine se teste avec des faux, les adaptateurs en intégration.
+  - key: scenario-crud
+    format: scenario
+    question: Un collègue veut une architecture hexagonale complète pour un petit service de gestion de paramètres. Ton avis ?
+    answer: |-
+      Pour un CRUD sans règles, quatre couches qui recopient les mêmes champs ajoutent du code sans valeur. Je propose
+      des handlers qui appellent un dépôt, tous deux dans un package par domaine, avec une interface de dépôt seulement si
+      un test en a besoin. Si des règles métier apparaissent, on extrait un service : la structure grandit avec le besoin.
+  - key: scenario-migration
+    format: scenario
+    question: Comment fais-tu évoluer un service où la logique métier est mélangée aux handlers HTTP et au SQL ?
+    answer: |-
+      Progressivement, cas d'usage par cas d'usage : j'extrais la logique dans une fonction ou un service du domaine qui
+      reçoit ses dépendances par de petites interfaces, j'écris des tests unitaires avec des faux, puis le handler ne fait
+      plus que décoder, appeler et répondre. Le SQL rejoint un dépôt. Chaque étape est une petite pull request qui ne change
+      pas le comportement, vérifiée par les tests existants.

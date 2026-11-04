@@ -1,4 +1,5 @@
 notion: rwmutex
+lesson: "Un **`sync.RWMutex`** distingue deux sortes d'accès :\n- **`RLock` / `RUnlock`** : plusieurs **lecteurs** à la fois ;\n- **`Lock` / `Unlock`** : un seul **écrivain**, et aucun lecteur pendant qu'il écrit.\n\n```go\ntype Config struct {\n\tmu      sync.RWMutex\n\tvaleurs map[string]string\n}\n\nfunc (c *Config) Lire(cle string) (string, bool) {\n\tc.mu.RLock()\n\tdefer c.mu.RUnlock()\n\tv, ok := c.valeurs[cle]\n\treturn v, ok\n}\n\nfunc (c *Config) Ecrire(cle, v string) {\n\tc.mu.Lock()\n\tdefer c.mu.Unlock()\n\tc.valeurs[cle] = v\n}\n```\n\nCe qu'il faut savoir :\n- il n'apporte un gain que si les lectures sont **nettement majoritaires** et durent un peu : un RWMutex coûte plus\n  cher qu'un Mutex à chaque opération ;\n- un écrivain qui attend **bloque les nouveaux lecteurs** (pour ne pas être affamé) : prendre deux `RLock` imbriqués\n  dans la même goroutine peut donc se bloquer si un écrivain arrive entre les deux ;\n- on ne peut pas **passer** d'un verrou de lecture à un verrou d'écriture : il faut relâcher le `RLock`, prendre le\n  `Lock`, puis **revérifier** l'état, qui a pu changer entre-temps ;\n- une lecture qui **modifie** quelque chose (un LRU qui déplace l'élément lu, un compteur de lectures) a besoin du\n  verrou d'écriture.\n\n**En entretien** : « RLock pour plusieurs lecteurs, Lock pour un écrivain ; utile seulement si les lectures dominent ;\npas de promotion de RLock vers Lock ; un écrivain en attente bloque les nouveaux lecteurs. »"
 cards:
   - key: mutex-vs-rwmutex
     format: course
@@ -8,3 +9,172 @@ cards:
     format: course
     question: Pourquoi le LRU utilise-t-il un Mutex et pas un RWMutex ?
     answer: Get modifie l'ordre d'usage, c'est une écriture.
+  - key: promotion
+    format: course
+    question: Comment passer d'un verrou de lecture à un verrou d'écriture avec un RWMutex ?
+    answer: 'On ne peut pas le promouvoir : on relâche le `RLock`, on prend le `Lock`, puis on revérifie l''état, car une autre goroutine a pu le modifier entre-temps.'
+  - key: ecrivain-attente
+    format: course
+    question: Que se passe-t-il pour les nouveaux lecteurs quand un écrivain attend un RWMutex ?
+    answer: Ils sont bloqués jusqu'à ce que l'écrivain soit passé, pour éviter qu'un flux continu de lecteurs ne l'affame ; deux RLock imbriqués peuvent donc se bloquer.
+  - key: vf-lecteurs
+    format: true-false
+    question: Plusieurs goroutines peuvent détenir le RLock d'un RWMutex en même temps.
+    truth: true
+    answer: C'est tout son intérêt.
+  - key: vf-toujours
+    format: true-false
+    question: Un RWMutex est toujours plus rapide qu'un Mutex.
+    truth: false
+    answer: Il coûte plus cher par opération ; il gagne seulement quand les lectures dominent et durent.
+  - key: vf-promotion
+    format: true-false
+    question: Une goroutine qui détient un RLock peut appeler Lock sur le même RWMutex pour passer en écriture.
+    truth: false
+    answer: 'Lock attend la fin de tous les lecteurs, dont elle-même : blocage.'
+  - key: vf-lru
+    format: true-false
+    question: La lecture d'un cache LRU peut se faire sous RLock.
+    truth: false
+    answer: 'Lire déplace l''élément en tête de liste : c''est une écriture.'
+  - key: qcm-quand
+    format: multiple-choice
+    question: Quand un RWMutex est-il un bon choix ?
+    choices:
+      - text: Une configuration lue à chaque requête et modifiée une fois par heure
+        correct: true
+      - text: Un catalogue lu par des milliers de requêtes, mis à jour rarement
+        correct: true
+      - text: Un compteur incrémenté à chaque requête
+        correct: false
+      - text: Une file où chaque opération retire un élément
+        correct: false
+    answer: Quand chaque opération écrit, il n'y a rien à partager entre lecteurs.
+  - key: qcm-operations
+    format: multiple-choice
+    question: Quelles paires d'opérations vont ensemble ?
+    choices:
+      - text: RLock et RUnlock
+        correct: true
+      - text: Lock et Unlock
+        correct: true
+      - text: RLock et Unlock
+        correct: false
+      - text: Lock et RUnlock
+        correct: false
+    answer: Mélanger les paires provoque une panique « unlock of unlocked mutex » ou un état incohérent.
+  - key: qcm-imbriques
+    format: multiple-choice
+    question: Une fonction prend un RLock puis appelle une autre fonction qui reprend un RLock. Quel risque ?
+    choices:
+      - text: Un blocage si un écrivain attend entre les deux RLock
+        correct: true
+      - text: Aucun, les lecteurs sont toujours compatibles
+        correct: false
+      - text: Une panique immédiate
+        correct: false
+      - text: Une erreur de compilation
+        correct: false
+    answer: L'écrivain en attente bloque le second RLock, et attend lui-même le premier.
+  - key: qcm-alternatives
+    format: multiple-choice
+    question: Quelles alternatives à un RWMutex pour une donnée lue très souvent ?
+    choices:
+      - text: Un atomic.Pointer vers une copie immuable, remplacée en entier
+        correct: true
+      - text: Un découpage en segments, chacun avec son verrou
+        correct: true
+      - text: Aucune protection, car les lectures sont sûres
+        correct: false
+      - text: Un sync.WaitGroup
+        correct: false
+    answer: Le WaitGroup attend des goroutines, il ne protège pas un état.
+  - key: trous-rlock
+    format: fill-in
+    question: |-
+      Complétez la lecture :
+      ```go
+      c.mu.___()
+      defer c.mu.___()
+      return c.valeurs[cle]
+      ```
+    blanks:
+      - - RLock
+      - - RUnlock
+    answer: Le verrou de lecture partagé.
+  - key: trous-type
+    format: fill-in
+    question: "Complétez pour autoriser plusieurs lecteurs :\n```go\ntype Catalogue struct {\n\tmu       sync.___\n\tproduits map[string]Produit\n}\n```"
+    blanks:
+      - - RWMutex
+    answer: Un RWMutex.
+  - key: trous-ecriture
+    format: fill-in
+    question: |-
+      Complétez l'écriture :
+      ```go
+      c.mu.___()
+      defer c.mu.Unlock()
+      c.valeurs[cle] = v
+      ```
+    blanks:
+      - - Lock
+    answer: Le verrou exclusif.
+  - key: trous-reverifier
+    format: fill-in
+    question: "Complétez le chargement paresseux :\n```go\nc.mu.RLock()\nv, ok := c.items[k]\nc.mu.RUnlock()\nif ok {\n\treturn v\n}\nc.mu.Lock()\ndefer c.mu.Unlock()\nif v, ok := c.items[k]; ___ {\n\treturn v\n}\nv = charger(k)\nc.items[k] = v\nreturn v\n```"
+    blanks:
+      - - ok
+    answer: On revérifie sous le verrou d'écriture, car une autre goroutine a pu charger entre-temps.
+  - key: bug-promotion
+    format: bug-fix
+    question: "Le chargement bloque pour toujours au premier défaut de cache :\n```go\nc.mu.RLock()\ndefer c.mu.RUnlock()\nv, ok := c.items[k]\nif !ok {\n\tc.mu.Lock()\n\tv = charger(k)\n\tc.items[k] = v\n\tc.mu.Unlock()\n}\nreturn v\n```"
+    answer: "```go\nc.mu.RLock()\nv, ok := c.items[k]\nc.mu.RUnlock()\nif ok {\n\treturn v\n}\nc.mu.Lock()\ndefer c.mu.Unlock()\nif v, ok := c.items[k]; ok {\n\treturn v\n}\nv = charger(k)\nc.items[k] = v\nreturn v\n```\nLock attendait la fin du RLock détenu par la même goroutine. On relâche, on prend Lock, et l'on revérifie."
+  - key: bug-ecriture-rlock
+    format: bug-fix
+    question: "Le détecteur de courses signale le compteur de lectures :\n```go\nfunc (c *Cache) Lire(k string) string {\n\tc.mu.RLock()\n\tdefer c.mu.RUnlock()\n\tc.lectures++\n\treturn c.items[k]\n}\n```"
+    answer: "```go\ntype Cache struct {\n\tmu       sync.RWMutex\n\titems    map[string]string\n\tlectures atomic.Int64\n}\n\nfunc (c *Cache) Lire(k string) string {\n\tc.lectures.Add(1)\n\tc.mu.RLock()\n\tdefer c.mu.RUnlock()\n\treturn c.items[k]\n}\n```\nPlusieurs lecteurs écrivaient le compteur en même temps ; un atomique (ou le verrou exclusif) le protège."
+  - key: bug-inutile
+    format: bug-fix
+    question: Un RWMutex protège un compteur que chaque requête incrémente, et le profil montre de la contention. Que proposes-tu ?
+    answer: |-
+      ```go
+      var requetes atomic.Int64
+      requetes.Add(1)
+      ```
+      Chaque opération est une écriture : le RWMutex n'apporte rien et coûte plus qu'un Mutex. Pour un compteur, un
+      atomique suffit et ne bloque personne.
+  - key: bug-imbrication
+    format: bug-fix
+    question: "Sous forte charge, le service se fige de temps en temps :\n```go\nfunc (s *Stock) Total() int {\n\ts.mu.RLock()\n\tdefer s.mu.RUnlock()\n\ttotal := 0\n\tfor id := range s.quantites {\n\t\ttotal += s.Quantite(id) // reprend s.mu.RLock()\n\t}\n\treturn total\n}\n```"
+    answer: "```go\nfunc (s *Stock) Total() int {\n\ts.mu.RLock()\n\tdefer s.mu.RUnlock()\n\ttotal := 0\n\tfor _, q := range s.quantites {\n\t\ttotal += q\n\t}\n\treturn total\n}\n```\nUn écrivain en attente bloquait le RLock imbriqué de `Quantite`, et attendait lui-même le premier RLock : on ne\nreprend pas le verrou dans une section qui le détient déjà."
+  - key: scenario-mesurer
+    format: scenario
+    question: Un collègue veut remplacer tous les Mutex du projet par des RWMutex « pour les performances ». Que réponds-tu ?
+    answer: |-
+      Que ce n'est pas un gain par défaut : le RWMutex coûte plus par opération et ne gagne que si les lectures dominent
+      et durent. Je propose de mesurer avec un benchmark parallèle (`b.RunParallel`) et le profil de contention, endroit
+      par endroit, et de ne changer que là où le gain est réel. Je signale aussi les pièges (RLock imbriqués, lectures
+      qui écrivent).
+  - key: scenario-config
+    format: scenario
+    question: Une configuration est lue à chaque requête et rechargée toutes les minutes. RWMutex ou autre chose ?
+    answer: |-
+      Un RWMutex convient, mais un `atomic.Pointer[Config]` est plus simple et plus rapide : le rechargement construit
+      une nouvelle Config complète puis la publie avec `Store`, et chaque requête fait `Load` sans verrou. La Config
+      publiée n'est jamais modifiée (immuable), donc les lecteurs voient toujours un état cohérent.
+  - key: scenario-starvation
+    format: scenario
+    question: Pourquoi un écrivain en attente bloque-t-il les nouveaux lecteurs d'un RWMutex, et quelles conséquences ?
+    answer: |-
+      Sans cette règle, un flux continu de lecteurs empêcherait l'écrivain de passer pour toujours (famine). La
+      conséquence : une goroutine qui prend deux RLock imbriqués peut se bloquer si un écrivain arrive entre les deux,
+      et une longue lecture retarde toutes les suivantes dès qu'un écrivain attend. On garde donc les lectures courtes et
+      sans RLock imbriqué.
+  - key: scenario-entretien
+    format: scenario
+    question: En entretien, on te demande quand tu choisirais RWMutex plutôt que Mutex.
+    answer: |-
+      Quand l'état est lu beaucoup plus souvent qu'il n'est modifié, que les lectures prennent un peu de temps (parcourir
+      une structure, pas lire un entier) et que la contention est mesurée. Dans le doute, je commence par un Mutex,
+      plus simple et plus rapide quand les sections sont courtes, et je passe au RWMutex sur preuve.

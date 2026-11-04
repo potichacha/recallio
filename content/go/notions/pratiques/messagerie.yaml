@@ -1,4 +1,5 @@
 notion: messagerie
+lesson: "Les **files de messages** découplent les services : le producteur publie un événement, un ou plusieurs consommateurs\nle traitent quand ils peuvent. En Go, les plus courants :\n\n- **Kafka** : un journal partitionné et persistant, très haut débit. Clients Go : **franz-go** (pur Go, complet),\n  **segmentio/kafka-go**, **confluent-kafka-go** (performant mais basé sur librdkafka en C, donc cgo) ;\n- **NATS** et **JetStream** : léger et rapide, écrit en Go ; JetStream ajoute la persistance et les acquittements ;\n- **RabbitMQ**, les files des clouds (SQS, Pub/Sub) ;\n- **Watermill** : une abstraction commune au-dessus de ces systèmes.\n\nUn consommateur Kafka robuste :\n\n```go\nfor {\n\tfetches := client.PollFetches(ctx)\n\tif ctx.Err() != nil {\n\t\treturn nil // arrêt demandé\n\t}\n\tfor _, rec := range fetches.Records() {\n\t\tif err := traiter(ctx, rec); err != nil {\n\t\t\tenvoyerEnQuarantaine(ctx, rec, err) // file des messages en échec\n\t\t}\n\t}\n\tif err := client.CommitUncommittedOffsets(ctx); err != nil { // acquitter après traitement\n\t\tlog.ErrorContext(ctx, \"commit des positions\", \"err\", err)\n\t}\n}\n```\n\nLes principes :\n- la livraison est en général **au moins une fois** : un message peut arriver **deux fois** (après un redémarrage, un\n  rééquilibrage) ; le consommateur doit être **idempotent** (clé de déduplication, mise à jour conditionnelle) ;\n- **acquitter après** le traitement, jamais avant, sinon un crash perd le message ;\n- l'**ordre** n'est garanti que dans une **partition** (Kafka) : on choisit la clé de partition (l'identifiant de\n  commande) pour garder l'ordre des événements d'une même entité ;\n- un message qui échoue toujours va dans une **file de quarantaine** (*dead letter*) au lieu de bloquer les autres ;\n- pour publier un événement de façon fiable avec une écriture en base, le motif **outbox** ;\n- l'**arrêt gracieux** : arrêter de lire, finir le message en cours, acquitter, puis fermer.\n\n**En entretien** : « Kafka avec franz-go, NATS ; au moins une fois, donc consommateurs idempotents ; acquitter après\ntraitement ; ordre par partition ; file de quarantaine ; outbox pour publier de façon fiable. »"
 cards:
   - key: clients-kafka
     format: course
@@ -26,3 +27,100 @@ cards:
     answer: |-
       Avec franz-go dans un groupe de consommateurs coopératif, et des offsets committés **après** traitement. Le traitement est idempotent : l'identifiant de l'événement est inséré dans une table avec contrainte unique dans la même transaction que l'effet métier. Pour la parallélisation, un worker par partition (ou un pool où les messages sont routés par clé), ce qui préserve l'ordre par clé.
       En cas d'échec : quelques retries avec backoff pour les erreurs temporaires, puis publication vers un topic de retry différé ou une DLQ avec le contexte de l'erreur, pour ne pas bloquer la partition. Arrêt propre sur SIGTERM : on arrête de poller, on termine les messages en cours, on committe, on quitte le groupe. Métriques : lag par partition, taux d'erreurs, durée de traitement.
+  - key: vf-au-moins-une-fois
+    format: true-false
+    question: Avec une livraison « au moins une fois », un consommateur peut recevoir le même message deux fois.
+    truth: true
+    answer: D'où des consommateurs idempotents.
+  - key: vf-acquitter-avant
+    format: true-false
+    question: Acquitter un message avant de le traiter est plus sûr.
+    truth: false
+    answer: Un crash pendant le traitement perdrait le message.
+  - key: vf-ordre
+    format: true-false
+    question: Kafka garantit l'ordre des messages sur l'ensemble d'un topic.
+    truth: false
+    answer: Seulement au sein d'une partition ; la clé de partition décide.
+  - key: vf-confluent
+    format: true-false
+    question: confluent-kafka-go repose sur une bibliothèque C et demande cgo.
+    truth: true
+    answer: Ce qui complique la compilation croisée et les images scratch.
+  - key: qcm-principes
+    format: multiple-choice
+    question: Quelles pratiques rendent un consommateur robuste ?
+    choices:
+      - text: Un traitement idempotent
+        correct: true
+      - text: L'acquittement après le traitement
+        correct: true
+      - text: Une file de quarantaine pour les messages qui échouent toujours
+        correct: true
+      - text: Un panic sur la moindre erreur de message
+        correct: false
+    answer: Un message empoisonné ne doit pas bloquer la file.
+  - key: qcm-ordre
+    format: multiple-choice
+    question: Comment garder l'ordre des événements d'une même commande dans Kafka ?
+    choices:
+      - text: Utiliser l'identifiant de la commande comme clé de partition
+        correct: true
+      - text: Traiter une partition par un seul consommateur à la fois
+        correct: true
+      - text: Utiliser une clé aléatoire
+        correct: false
+      - text: Créer un topic par commande
+        correct: false
+    answer: Une même clé va toujours dans la même partition.
+  - key: qcm-clients
+    format: multiple-choice
+    question: Quels clients ou outils existent en Go ?
+    choices:
+      - text: franz-go pour Kafka, en Go pur
+        correct: true
+      - text: nats.go pour NATS et JetStream
+        correct: true
+      - text: Watermill, une abstraction au-dessus de plusieurs systèmes
+        correct: true
+      - text: database/sql pour Kafka
+        correct: false
+    answer: Kafka n'est pas une base SQL.
+  - key: qcm-outbox
+    format: multiple-choice
+    question: Pourquoi utiliser le motif outbox ?
+    choices:
+      - text: Pour publier un événement si et seulement si l'écriture en base a été validée
+        correct: true
+      - text: Pour survivre à une indisponibilité du système de messages
+        correct: true
+      - text: Pour garantir qu'un événement n'est jamais publié deux fois
+        correct: false
+      - text: Pour éviter d'avoir une base de données
+        correct: false
+    answer: 'L''outbox peut republier : les consommateurs restent idempotents.'
+  - key: scenario-consommateur
+    format: scenario
+    question: Conçois un consommateur Kafka robuste en Go.
+    answer: |-
+      franz-go dans un groupe de consommateurs, avec le contexte du service annulé à SIGTERM. Pour chaque message :
+      décoder, traiter de façon idempotente (table de messages déjà traités ou mise à jour conditionnelle), avec un délai ;
+      en cas d'échec temporaire, quelques réessais avec backoff ; en cas d'échec définitif, publication en quarantaine
+      avec la cause. Les positions sont validées après traitement. Des métriques suivent le retard (lag), les erreurs et
+      la durée ; l'arrêt finit le lot en cours avant de valider et de fermer.
+  - key: scenario-choix
+    format: scenario
+    question: Kafka ou NATS pour un nouveau système d'événements ?
+    answer: |-
+      Kafka pour un journal d'événements durable à haut débit, relu par plusieurs consommateurs et rejouable (analyse,
+      reconstruction d'état), au prix d'une exploitation plus lourde. NATS (avec JetStream pour la persistance) pour une
+      messagerie légère et rapide entre services, des requêtes-réponses et une exploitation simple. Le choix dépend
+      surtout des besoins de rétention, de rejeu et de l'équipe qui l'exploitera.
+  - key: scenario-doublons
+    format: scenario
+    question: Ton consommateur crée parfois deux factures pour la même commande. Comment le corriges-tu ?
+    answer: |-
+      Le message a été livré deux fois (au moins une fois), et le traitement n'était pas idempotent. Je rends l'écriture
+      idempotente : une contrainte d'unicité sur l'identifiant de commande dans la table des factures (`INSERT ... ON
+      CONFLICT DO NOTHING`), ou une table des identifiants de messages traités mise à jour dans la même transaction. Le
+      second passage devient sans effet.

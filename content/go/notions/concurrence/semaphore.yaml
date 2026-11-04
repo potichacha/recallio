@@ -1,6 +1,201 @@
 notion: semaphore
+lesson: "Un **sémaphore** borne le nombre de goroutines qui font une chose **en même temps**, sans changer la façon dont elles\nsont lancées. En Go, le plus simple est un **channel bufferisé** de capacité n :\n\n```go\nsem := make(chan struct{}, 5) // au plus 5 téléchargements simultanés\n\nfor _, url := range urls {\n\twg.Go(func() {\n\t\tsem <- struct{}{}        // acquérir : bloque si 5 jetons sont pris\n\t\tdefer func() { <-sem }() // libérer\n\t\ttelecharger(url)\n\t})\n}\nwg.Wait()\n```\n\nVariantes :\n- **`golang.org/x/sync/semaphore`** : un sémaphore **pondéré** (`Acquire(ctx, poids)`), qui accepte un contexte pour\n  abandonner l'attente ;\n- **`errgroup.SetLimit(n)`**, quand on veut en plus la première erreur ;\n- un **pool de workers**, qui limite aussi mais crée seulement n goroutines au lieu d'une par tâche.\n\nPour que l'attente s'arrête avec le contexte, l'acquisition se fait dans un `select` :\n\n```go\nselect {\ncase sem <- struct{}{}:\ncase <-ctx.Done():\n\treturn ctx.Err()\n}\n```\n\n**Piège classique** : libérer sans `defer`. Un retour anticipé ou une panique garde le jeton, et la capacité fond\njusqu'à bloquer tout le monde.\n\n**En entretien** : « Un channel bufferisé de capacité n : envoyer pour acquérir, recevoir en defer pour libérer ;\nx/sync/semaphore pour des poids ou un contexte. »"
 cards:
   - key: limiter-concurrence
     format: course
     question: Comment limiter la concurrence ?
     answer: Worker pool, sémaphore (channel bufferisé), errgroup.SetLimit.
+  - key: channel
+    format: course
+    question: Comment faire un sémaphore avec un channel ?
+    answer: 'Un channel bufferisé de capacité n : `sem <- struct{}{}` pour acquérir (bloque quand n jetons sont pris), `defer func() { <-sem }()` pour libérer.'
+  - key: defer
+    format: course
+    question: Pourquoi libérer un jeton de sémaphore avec defer ?
+    answer: Pour qu'un retour anticipé ou une panique le rende quand même ; sinon la capacité fond jusqu'à bloquer toutes les goroutines.
+  - key: pondere
+    format: course
+    question: Qu'apporte `golang.org/x/sync/semaphore` par rapport à un channel ?
+    answer: 'Un sémaphore pondéré (`Acquire(ctx, poids)`, `Release(poids)`) : une tâche lourde prend plusieurs unités, et l''attente s''interrompt avec le contexte.'
+  - key: vf-capacite
+    format: true-false
+    question: Un channel de capacité 3 utilisé comme sémaphore laisse au plus 3 goroutines dans la section protégée.
+    truth: true
+    answer: La quatrième bloque sur l'envoi jusqu'à une libération.
+  - key: vf-mutex
+    format: true-false
+    question: Un sémaphore de capacité 1 se comporte comme un verrou exclusif.
+    truth: true
+    answer: Une seule goroutine à la fois, mais sync.Mutex reste plus simple et plus rapide pour cela.
+  - key: vf-goroutines
+    format: true-false
+    question: Un sémaphore limite le nombre de goroutines créées.
+    truth: false
+    answer: Il limite celles qui travaillent en même temps ; les autres existent et attendent. Un pool de workers limite les goroutines.
+  - key: vf-ctx
+    format: true-false
+    question: Une acquisition `sem <- struct{}{}` s'interrompt toute seule quand le contexte est annulé.
+    truth: false
+    answer: Il faut l'écrire dans un select avec ctx.Done().
+  - key: qcm-acquerir
+    format: multiple-choice
+    question: Avec `sem := make(chan struct{}, n)`, quelles opérations sont correctes ?
+    choices:
+      - text: '`sem <- struct{}{}` pour acquérir'
+        correct: true
+      - text: '`defer func() { <-sem }()` pour libérer'
+        correct: true
+      - text: '`close(sem)` pour libérer'
+        correct: false
+      - text: '`len(sem)` pour acquérir'
+        correct: false
+    answer: Fermer le channel ferait paniquer les acquisitions suivantes.
+  - key: qcm-vs-pool
+    format: multiple-choice
+    question: Sémaphore ou pool de workers ?
+    choices:
+      - text: Le sémaphore garde une goroutine par tâche, dont seules n travaillent
+        correct: true
+      - text: Le pool ne crée que n goroutines
+        correct: true
+      - text: Le sémaphore crée moins de goroutines que le pool
+        correct: false
+      - text: Seul le pool borne la concurrence
+        correct: false
+    answer: Les deux bornent la concurrence ; le pool économise les goroutines en attente.
+  - key: qcm-pondere
+    format: multiple-choice
+    question: Pourquoi choisir un sémaphore pondéré ?
+    choices:
+      - text: Quand les tâches consomment des quantités différentes d'une ressource (mémoire)
+        correct: true
+      - text: Pour interrompre l'attente avec un contexte
+        correct: true
+      - text: Pour récupérer les erreurs des tâches
+        correct: false
+      - text: Pour garder l'ordre des tâches
+        correct: false
+    answer: Une image de 400 Mo prend 4 unités, une de 100 Mo une seule.
+  - key: qcm-bug
+    format: multiple-choice
+    question: Que se passe-t-il si une goroutine oublie de libérer son jeton ?
+    choices:
+      - text: La capacité disponible diminue d'une unité pour toujours
+        correct: true
+      - text: Après n oublis, toutes les acquisitions bloquent
+        correct: true
+      - text: Le jeton est rendu à la fin de la goroutine
+        correct: false
+      - text: Le programme panique
+        correct: false
+    answer: Rien ne rend le jeton automatiquement.
+  - key: trous-acquerir
+    format: fill-in
+    question: |-
+      Complétez l'acquisition et la libération :
+      ```go
+      sem := make(chan struct{}, 5)
+      sem ___ struct{}{}
+      ___ func() { <-sem }()
+      ```
+    blanks:
+      - - <-
+      - - defer
+    answer: Envoyer acquiert, recevoir en defer libère.
+  - key: trous-capacite
+    format: fill-in
+    question: |-
+      Complétez pour au plus 8 traitements simultanés :
+      ```go
+      sem := make(chan struct{}, ___)
+      ```
+    blanks:
+      - - '8'
+    answer: La capacité est la limite.
+  - key: trous-select
+    format: fill-in
+    question: "Complétez pour abandonner l'attente si le contexte est annulé :\n```go\n___ {\ncase sem <- struct{}{}:\ncase <-ctx.___():\n\treturn ctx.Err()\n}\n```"
+    blanks:
+      - - select
+      - - Done
+    answer: Le select attend le jeton ou l'annulation.
+  - key: trous-x-sync
+    format: fill-in
+    question: "Complétez avec x/sync/semaphore :\n```go\nsem := semaphore.NewWeighted(10)\nif err := sem.___(ctx, 1); err != nil {\n\treturn err\n}\ndefer sem.Release(1)\n```"
+    blanks:
+      - - Acquire
+    answer: '`Acquire` attend des unités, ou l''annulation du contexte.'
+  - key: bug-sans-defer
+    format: bug-fix
+    question: "Après quelques erreurs, plus aucun téléchargement ne démarre :\n```go\nsem <- struct{}{}\nif err := telecharger(url); err != nil {\n\treturn err\n}\n<-sem\n```"
+    answer: |-
+      ```go
+      sem <- struct{}{}
+      defer func() { <-sem }()
+      return telecharger(url)
+      ```
+      Le retour en erreur gardait le jeton ; le defer le rend dans tous les cas.
+  - key: bug-acquisition-dehors
+    format: bug-fix
+    question: "Le sémaphore ne limite rien : 1 000 téléchargements démarrent en même temps.\n```go\nfor _, url := range urls {\n\tsem := make(chan struct{}, 5)\n\twg.Go(func() {\n\t\tsem <- struct{}{}\n\t\tdefer func() { <-sem }()\n\t\ttelecharger(url)\n\t})\n}\n```"
+    answer: "```go\nsem := make(chan struct{}, 5)\nfor _, url := range urls {\n\twg.Go(func() {\n\t\tsem <- struct{}{}\n\t\tdefer func() { <-sem }()\n\t\ttelecharger(url)\n\t})\n}\n```\nChaque tour créait son propre sémaphore ; il doit être partagé par toutes les goroutines."
+  - key: bug-ctx
+    format: bug-fix
+    question: |-
+      Après l'annulation de la requête, des goroutines restent bloquées en attente d'un jeton :
+      ```go
+      sem <- struct{}{}
+      defer func() { <-sem }()
+      return traiter(ctx, t)
+      ```
+    answer: "```go\nselect {\ncase sem <- struct{}{}:\ncase <-ctx.Done():\n\treturn ctx.Err()\n}\ndefer func() { <-sem }()\nreturn traiter(ctx, t)\n```\nL'acquisition attend désormais le jeton ou l'annulation."
+  - key: bug-mutex
+    format: bug-fix
+    question: |-
+      Un compteur partagé est protégé par un channel de capacité 1. Que proposes-tu ?
+      ```go
+      verrou := make(chan struct{}, 1)
+      verrou <- struct{}{}
+      compteur++
+      <-verrou
+      ```
+    answer: |-
+      ```go
+      var mu sync.Mutex
+      mu.Lock()
+      compteur++
+      mu.Unlock()
+      ```
+      Un sémaphore de capacité 1 marche, mais un `sync.Mutex` (ou `atomic.Int64` pour un compteur) dit l'intention et
+      coûte moins.
+  - key: scenario-memoire
+    format: scenario
+    question: Ton service redimensionne des images de tailles très variées et manque parfois de mémoire. Comment limiter ?
+    answer: |-
+      Un nombre fixe de traitements ne suffit pas : dix petites images passent, trois énormes font exploser la mémoire.
+      J'utilise un sémaphore pondéré (`x/sync/semaphore`) dont la capacité est le budget mémoire (par exemple 2 Go en
+      unités de 10 Mo), et chaque traitement acquiert un poids proportionnel à la taille estimée de l'image, avec le
+      contexte de la requête pour abandonner l'attente.
+  - key: scenario-choix
+    format: scenario
+    question: 'Sémaphore, pool de workers ou errgroup.SetLimit : comment choisis-tu pour borner la concurrence ?'
+    answer: |-
+      errgroup.SetLimit quand les tâches sont connues et que la première erreur doit tout arrêter ; un pool de workers
+      quand les tâches arrivent en flux ou que chaque worker garde un état (une connexion) ; un sémaphore quand le code
+      lance déjà une goroutine par tâche (un handler HTTP) et qu'on veut seulement limiter une section, comme les appels
+      à une dépendance fragile.
+  - key: scenario-handlers
+    format: scenario
+    question: Ton serveur HTTP appelle un service fragile qui tombe au-delà de 10 appels simultanés. Comment le protèges-tu ?
+    answer: |-
+      Chaque requête est déjà une goroutine : je partage un sémaphore de capacité 10 autour de l'appel, avec une
+      acquisition dans un select sur le contexte de la requête et un délai court ; si le jeton ne vient pas à temps, je
+      réponds 503 au lieu d'empiler les requêtes. Des métriques sur l'attente et les refus disent si la limite est bien
+      réglée.
+  - key: scenario-entretien
+    format: scenario
+    question: En entretien, on te demande d'implémenter un sémaphore en Go sans bibliothèque. Que réponds-tu ?
+    answer: |-
+      Un type qui enveloppe un `chan struct{}` de capacité n : `Acquire(ctx)` fait un select entre l'envoi d'un jeton et
+      `ctx.Done()`, `Release()` reçoit un jeton. Je précise que `struct{}` n'occupe pas de mémoire, que chaque Acquire
+      réussi doit être suivi d'un Release en defer, et qu'un `x/sync/semaphore` existe pour des poids variables.

@@ -1,4 +1,35 @@
 notion: deadlocks
+lesson: |-
+  Un **interblocage** (deadlock) : des goroutines s'attendent mutuellement et aucune ne peut avancer.
+
+  Quand **toutes** les goroutines du programme sont bloquées, le runtime le détecte et arrête le programme :
+
+  ```
+  fatal error: all goroutines are asleep - deadlock!
+  ```
+
+  Les causes classiques :
+  - un envoi sur un channel **non bufferisé** sans récepteur (souvent dans la même goroutine) ;
+  - une réception sur un channel que **personne ne ferme** (`range` sans `close`) ;
+  - un channel **nil** ;
+  - deux verrous pris dans un **ordre différent** par deux goroutines (A prend m1 puis attend m2, B prend m2 puis attend
+    m1) ;
+  - un `wg.Wait()` dont les `Done` n'arrivent jamais ;
+  - un mutex verrouillé deux fois par la **même goroutine** (les mutex de Go ne sont pas réentrants).
+
+  Le détecteur a une **limite** : il ne voit que le cas où **toutes** les goroutines sont bloquées. Dans un serveur, des
+  goroutines (le serveur HTTP, des timers) restent vivantes : un interblocage partiel passe inaperçu, et se manifeste par
+  des requêtes qui ne répondent plus. Il se diagnostique avec le **profil goroutine** de pprof ou un `SIGQUIT` qui affiche
+  toutes les piles.
+
+  Les parades : un ordre d'acquisition des verrous fixe, des délais (`context.WithTimeout`, `select` avec `ctx.Done()`),
+  des channels dont la fermeture est clairement attribuée.
+
+  **Piège classique** : un mutex pris dans une méthode qui en appelle une autre qui reprend le même mutex. La goroutine
+  s'attend elle-même.
+
+  **En entretien** : « Des goroutines qui s'attendent ; le runtime ne détecte que l'interblocage total ; dans un serveur on
+  le trouve par pprof ; on l'évite par un ordre de verrous, des délais et une fermeture des channels attribuée. »
 cards:
   - key: runtime-detecte-deadlocks
     format: course
@@ -11,3 +42,177 @@ cards:
     check:
       code: "package main\n\nfunc main() {\n\tch := make(chan int)\n\tch <- 1\n}\n"
       panics: all goroutines are asleep - deadlock!
+  - key: detection-limite
+    format: course
+    question: Pourquoi le runtime ne détecte-t-il pas un interblocage dans un serveur HTTP ?
+    answer: Il ne détecte que le cas où toutes les goroutines sont bloquées ; dans un serveur, d'autres goroutines (l'écoute réseau, des timers) restent actives.
+  - key: diagnostic
+    format: course
+    question: Comment diagnostiquer un interblocage partiel dans un service en production ?
+    answer: Avec le profil goroutine de pprof (`/debug/pprof/goroutine?debug=2`) ou un `SIGQUIT` qui affiche toutes les piles ; on y voit les goroutines bloquées sur les mêmes verrous ou channels.
+  - key: ordre-verrous
+    format: course
+    question: Comment éviter l'interblocage entre deux mutex ?
+    answer: En prenant toujours les verrous dans le même ordre, dans tout le code ; ou en évitant de tenir deux verrous à la fois.
+  - key: vf-detection
+    format: true-false
+    question: Le runtime de Go détecte tous les interblocages.
+    truth: false
+    answer: Seulement quand toutes les goroutines sont bloquées.
+  - key: vf-reentrant
+    format: true-false
+    question: Un `sync.Mutex` peut être verrouillé deux fois par la même goroutine.
+    truth: false
+    answer: 'Il n''est pas réentrant : le second `Lock` attend pour toujours.'
+  - key: vf-recover
+    format: true-false
+    question: « all goroutines are asleep - deadlock! » se récupère avec recover.
+    truth: false
+    answer: C'est une erreur fatale, pas une panique.
+  - key: vf-delais
+    format: true-false
+    question: Un délai (context.WithTimeout) peut transformer un blocage infini en erreur traitable.
+    truth: true
+    answer: Une attente avec un `select` sur `ctx.Done()` ne reste pas bloquée pour toujours.
+  - key: qcm-causes
+    format: multiple-choice
+    question: Lesquelles provoquent un interblocage dans un programme sans autre goroutine ?
+    choices:
+      - text: Un envoi sur un channel non bufferisé dans main sans récepteur
+        correct: true
+      - text: Un `wg.Wait()` alors que `wg.Add(1)` n'a pas de `Done` correspondant
+        correct: true
+      - text: Un envoi sur un channel bufferisé qui a de la place
+        correct: false
+      - text: Une réception sur un channel fermé
+        correct: false
+    answer: Les deux dernières ne bloquent pas.
+  - key: qcm-verrous
+    format: multiple-choice
+    question: Deux goroutines prennent `m1` puis `m2`, et `m2` puis `m1`. Quelles solutions ?
+    choices:
+      - text: Imposer le même ordre d'acquisition partout
+        correct: true
+      - text: Ne jamais tenir deux verrous en même temps
+        correct: true
+      - text: Remplacer les Mutex par des RWMutex
+        correct: false
+      - text: Ajouter un time.Sleep entre les deux Lock
+        correct: false
+    answer: Un RWMutex a le même problème, et un Sleep ne fait que le rendre plus rare.
+  - key: qcm-reentrance
+    format: multiple-choice
+    question: Pourquoi `Retirer` bloque-t-elle si elle appelle `Solde()`, et que les deux font `c.mu.Lock()` ?
+    choices:
+      - text: Le mutex n'est pas réentrant, la goroutine s'attend elle-même
+        correct: true
+      - text: Une solution est une méthode interne `solde()` sans verrou, appelée sous le verrou
+        correct: true
+      - text: Go détecte le cas et ignore le second Lock
+        correct: false
+      - text: Il faut un RLock dans Solde
+        correct: false
+    answer: Un RLock pris sous un Lock bloque tout autant.
+  - key: qcm-serveur
+    format: multiple-choice
+    question: Quels symptômes trahissent un interblocage partiel dans un serveur ?
+    choices:
+      - text: Certaines requêtes ne répondent plus, jusqu'au délai du client
+        correct: true
+      - text: Le nombre de goroutines bloquées sur le même verrou augmente
+        correct: true
+      - text: Le programme s'arrête avec « all goroutines are asleep »
+        correct: false
+      - text: Une erreur de compilation
+        correct: false
+    answer: Le serveur reste vivant, d'où la difficulté.
+  - key: code-wait
+    format: code-output
+    question: |-
+      ```go
+      var wg sync.WaitGroup
+      wg.Add(2)
+      go func() { defer wg.Done() }()
+      wg.Wait()
+      fmt.Println("fini")
+      ```
+    answer: '« all goroutines are asleep - deadlock! » : le compteur ne revient jamais à zéro.'
+    check:
+      code: "package main\n\nimport (\n\t\"fmt\"\n\t\"sync\"\n)\n\nfunc main() {\n\tvar wg sync.WaitGroup\n\twg.Add(2)\n\tgo func() { defer wg.Done() }()\n\twg.Wait()\n\tfmt.Println(\"fini\")\n}\n"
+      panics: all goroutines are asleep
+  - key: code-reentrance
+    format: code-output
+    question: |-
+      ```go
+      var mu sync.Mutex
+      mu.Lock()
+      fmt.Println("verrouillé")
+      mu.Lock()
+      fmt.Println("jamais")
+      ```
+    answer: '`verrouillé`, puis « all goroutines are asleep - deadlock! » : le mutex n''est pas réentrant.'
+    check:
+      code: "package main\n\nimport (\n\t\"fmt\"\n\t\"sync\"\n)\n\nfunc main() {\n\tvar mu sync.Mutex\n\tmu.Lock()\n\tfmt.Println(\"verrouillé\")\n\tmu.Lock()\n\tfmt.Println(\"jamais\")\n}\n"
+      output: verrouillé
+      panics: all goroutines are asleep
+  - key: code-timeout
+    format: code-output
+    question: "```go\nch := make(chan int)\nselect {\ncase v := <-ch:\n\tfmt.Println(v)\ncase <-time.After(20 * time.Millisecond):\n\tfmt.Println(\"délai dépassé, pas d'interblocage\")\n}\n```"
+    answer: '`délai dépassé, pas d''interblocage` : le délai transforme l''attente infinie en un cas traité.'
+    check:
+      code: "package main\n\nimport (\n\t\"fmt\"\n\t\"time\"\n)\n\nfunc main() {\n\tch := make(chan int)\n\tselect {\n\tcase v := <-ch:\n\t\tfmt.Println(v)\n\tcase <-time.After(20 * time.Millisecond):\n\t\tfmt.Println(\"délai dépassé, pas d'interblocage\")\n\t}\n}\n"
+      output: délai dépassé, pas d'interblocage
+  - key: bug-reentrance
+    format: bug-fix
+    question: "Le compte se bloque à chaque retrait :\n```go\nfunc (c *Compte) Solde() int {\n\tc.mu.Lock()\n\tdefer c.mu.Unlock()\n\treturn c.solde\n}\n\nfunc (c *Compte) Retirer(n int) error {\n\tc.mu.Lock()\n\tdefer c.mu.Unlock()\n\tif n > c.Solde() {\n\t\treturn ErrSoldeInsuffisant\n\t}\n\tc.solde -= n\n\treturn nil\n}\n```"
+    answer: "```go\nfunc (c *Compte) Retirer(n int) error {\n\tc.mu.Lock()\n\tdefer c.mu.Unlock()\n\tif n > c.solde {\n\t\treturn ErrSoldeInsuffisant\n\t}\n\tc.solde -= n\n\treturn nil\n}\n```\n`Solde()` reprenait le mutex déjà tenu, qui n'est pas réentrant ; sous le verrou, on lit le champ directement."
+  - key: bug-ordre
+    format: bug-fix
+    question: "Deux virements simultanés en sens inverse bloquent le service :\n```go\nfunc Virer(de, vers *Compte, n int) {\n\tde.mu.Lock()\n\tdefer de.mu.Unlock()\n\tvers.mu.Lock()\n\tdefer vers.mu.Unlock()\n\t...\n}\n```"
+    answer: "```go\nfunc Virer(de, vers *Compte, n int) {\n\tpremier, second := de, vers\n\tif vers.ID < de.ID {\n\t\tpremier, second = vers, de\n\t}\n\tpremier.mu.Lock()\n\tdefer premier.mu.Unlock()\n\tsecond.mu.Lock()\n\tdefer second.mu.Unlock()\n\t...\n}\n```\nLes verrous étaient pris dans un ordre qui dépendait du sens du virement ; un ordre fixe (par identifiant) supprime\nl'attente circulaire."
+  - key: bug-reception
+    format: bug-fix
+    question: "Le programme se termine sur « all goroutines are asleep - deadlock! » :\n```go\nresultats := make(chan int)\nfor _, t := range taches {\n\tgo func() { resultats <- executer(t) }()\n}\nfor r := range resultats {\n\ttotal += r\n}\n```"
+    answer: "```go\nvar wg sync.WaitGroup\nfor _, t := range taches {\n\twg.Go(func() { resultats <- executer(t) })\n}\ngo func() {\n\twg.Wait()\n\tclose(resultats)\n}()\nfor r := range resultats {\n\ttotal += r\n}\n```\nPersonne ne fermait `resultats` : le range attendait pour toujours une fois les résultats reçus."
+  - key: bug-attente-infinie
+    format: bug-fix
+    question: |-
+      Une requête reste bloquée pour toujours quand le service de stock ne répond pas :
+      ```go
+      reponse := <-s.reponses
+      ```
+    answer: "```go\nselect {\ncase reponse := <-s.reponses:\n\treturn reponse, nil\ncase <-ctx.Done():\n\treturn Reponse{}, ctx.Err()\n}\n```\nUne attente bornée par le contexte (avec un délai) transforme le blocage infini en erreur traitable."
+  - key: scenario-serveur
+    format: scenario
+    question: Des requêtes de ton service HTTP ne répondent plus, sans erreur ni consommation de CPU. Comment procèdes-tu ?
+    answer: |-
+      Je soupçonne un interblocage partiel. Je récupère le profil goroutine complet (`/debug/pprof/goroutine?debug=2`)
+      ou j'envoie un SIGQUIT pour obtenir toutes les piles. J'y cherche de nombreuses goroutines bloquées au même endroit
+      (`sync.(*Mutex).Lock`, un envoi ou une réception de channel) et je remonte la pile de celle qui tient la ressource.
+      La correction passe par un ordre de verrous, une méthode interne sans verrou, ou une attente bornée par un
+      contexte ; puis un test qui reproduit le scénario avec `-race`.
+  - key: scenario-prevention
+    format: scenario
+    question: Quelles règles d'équipe réduisent le risque d'interblocage ?
+    answer: |-
+      Des sections critiques courtes, sans appel externe (réseau, I/O, callbacks) sous verrou ; jamais deux verrous à la
+      fois, ou un ordre documenté ; des méthodes internes non verrouillées pour éviter la réentrance ; une seule
+      goroutine responsable de la fermeture de chaque channel ; et toute attente bornée par un contexte avec délai. En
+      revue, je regarde particulièrement les méthodes qui en appellent d'autres sous verrou.
+  - key: scenario-entretien
+    format: scenario
+    question: En entretien, on te demande la différence entre un interblocage et une fuite de goroutine. Que réponds-tu ?
+    answer: |-
+      Une fuite, c'est une goroutine qui ne se termine jamais, souvent bloquée sur un channel abandonné : le reste du
+      programme avance, mais la mémoire et le nombre de goroutines croissent. Un interblocage, ce sont des goroutines
+      qui s'attendent mutuellement : la partie concernée du programme n'avance plus du tout. Si toutes les goroutines
+      sont concernées, le runtime l'arrête avec « all goroutines are asleep » ; sinon, il faut un profil goroutine pour
+      le voir.
+  - key: scenario-test
+    format: scenario
+    question: Comment écrire un test qui échoue au lieu de bloquer indéfiniment si le code testé s'interbloque ?
+    answer: |-
+      Je fais tourner le code testé dans une goroutine qui ferme un channel `fini`, puis j'attends avec un `select` entre
+      `fini` et `time.After(2 * time.Second)` ; au-delà, `t.Fatal("interblocage")`. Le délai global de `go test`
+      (`-timeout`, 10 minutes par défaut) affiche aussi toutes les piles en cas de blocage. Depuis Go 1.25,
+      `testing/synctest` détecte même les blocages dans une « bulle » de test sans attendre de vraie durée.

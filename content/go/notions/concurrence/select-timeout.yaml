@@ -1,0 +1,169 @@
+notion: select-timeout
+lesson: "Un délai s'ajoute à une attente avec un cas **`time.After`** ou, mieux, un **contexte** :\n\n```go\nselect {\ncase r := <-resultat:\n\treturn r, nil\ncase <-time.After(2 * time.Second):\n\treturn Resultat{}, ErrDelai\n}\n\n// avec un contexte, le délai se propage aussi aux appels sous-jacents\nctx, cancel := context.WithTimeout(ctx, 2*time.Second)\ndefer cancel()\nselect {\ncase r := <-resultat:\n\treturn r, nil\ncase <-ctx.Done():\n\treturn Resultat{}, ctx.Err() // context.DeadlineExceeded\n}\n```\n\n- **`time.After(d)`** renvoie un channel qui reçoit l'heure après `d`. Depuis **Go 1.23**, un timer non référencé est\n  libéré même s'il n'a pas expiré : l'ancien problème de mémoire de `time.After` dans une boucle a disparu.\n- Pour un délai **global** sur une boucle (et non à chaque tour), on crée le timer **avant** la boucle\n  (`time.NewTimer`, ou un contexte avec délai).\n- Un **ticker** (`time.NewTicker`) envoie à intervalle régulier : pour une action périodique dans un select. On\n  l'arrête avec `Stop()`.\n- Un délai ne **stoppe pas** le travail en cours : la goroutine qui calcule le résultat continue. Elle doit surveiller\n  le même contexte, et le channel de résultat doit avoir une capacité de 1 pour qu'elle puisse se terminer.\n\n**Piège classique** : `case <-time.After(5 * time.Second)` dans une boucle `for`/`select` qui reçoit des messages\nfréquents. Le délai **repart à chaque tour** et n'expire jamais ; ce n'est pas un délai global.\n\n**En entretien** : « Un cas time.After ou ctx.Done dans un select ; le contexte se propage aux appels ; un délai global\nse crée avant la boucle ; la goroutine qui travaille doit aussi s'arrêter. »"
+cards:
+  - key: contexte
+    format: course
+    question: Pourquoi préférer un contexte avec délai à `time.After` ?
+    answer: Le contexte se propage aux appels sous-jacents (requêtes HTTP, base de données), qui s'arrêtent eux aussi ; `time.After` ne limite que l'attente locale.
+  - key: global
+    format: course
+    question: Pourquoi `time.After` dans une boucle `for`/`select` ne fait-il pas un délai global ?
+    answer: 'Un nouveau timer est créé à chaque tour : le délai repart de zéro à chaque message reçu ; un délai global se crée avant la boucle.'
+  - key: go123
+    format: course
+    question: Qu'a changé Go 1.23 pour `time.After` ?
+    answer: 'Les timers non référencés sont libérés même s''ils n''ont pas expiré : un `time.After` dans une boucle ne retient plus de mémoire jusqu''à son échéance.'
+  - key: travail
+    format: course
+    question: Le délai d'un select arrête-t-il la goroutine qui calcule le résultat ?
+    answer: 'Non : elle continue ; elle doit surveiller le même contexte pour s''arrêter, et envoyer sur un channel de capacité 1 pour ne pas rester bloquée.'
+  - key: vf-after
+    format: true-false
+    question: '`time.After(d)` renvoie un channel qui reçoit une valeur après la durée d.'
+    truth: true
+    answer: Une seule valeur, l'heure de l'expiration.
+  - key: vf-global
+    format: true-false
+    question: Un `case <-time.After(5*time.Second)` dans une boucle qui reçoit un message par seconde expire au bout de 5 secondes.
+    truth: false
+    answer: Il repart à chaque tour et n'expire jamais.
+  - key: vf-deadline
+    format: true-false
+    question: Après un `context.WithTimeout` expiré, `ctx.Err()` vaut `context.DeadlineExceeded`.
+    truth: true
+    answer: Et `context.Canceled` après un appel à cancel.
+  - key: vf-ticker
+    format: true-false
+    question: Un ticker doit être arrêté avec Stop quand on n'en a plus besoin.
+    truth: true
+    answer: '`defer ticker.Stop()` est l''idiome.'
+  - key: qcm-delai
+    format: multiple-choice
+    question: Comment limiter à 2 secondes l'attente d'un résultat ?
+    choices:
+      - text: Un cas `<-time.After(2 * time.Second)` dans le select
+        correct: true
+      - text: Un `context.WithTimeout(ctx, 2*time.Second)` et un cas `<-ctx.Done()`
+        correct: true
+      - text: '`time.Sleep(2 * time.Second)` avant la réception'
+        correct: false
+      - text: Un channel de capacité 2
+        correct: false
+    answer: Le Sleep attendrait toujours deux secondes, résultat ou pas.
+  - key: qcm-global
+    format: multiple-choice
+    question: Comment imposer un délai global de 10 secondes à une boucle qui reçoit des messages ?
+    choices:
+      - text: Créer `timer := time.NewTimer(10 * time.Second)` avant la boucle et écouter `timer.C`
+        correct: true
+      - text: Un contexte `WithTimeout` créé avant la boucle
+        correct: true
+      - text: '`case <-time.After(10 * time.Second)` dans le select'
+        correct: false
+      - text: Compter les tours de boucle
+        correct: false
+    answer: Le timer doit survivre aux tours de boucle.
+  - key: qcm-err
+    format: multiple-choice
+    question: Comment savoir qu'un contexte s'est terminé par un délai ?
+    choices:
+      - text: '`errors.Is(ctx.Err(), context.DeadlineExceeded)`'
+        correct: true
+      - text: '`ctx.Err() == context.DeadlineExceeded`'
+        correct: true
+      - text: '`ctx.Err() == nil`'
+        correct: false
+      - text: '`ctx.Done() == nil`'
+        correct: false
+    answer: '`ctx.Err()` renvoie directement la sentinelle (errors.Is reste le réflexe pour une erreur enveloppée).'
+  - key: qcm-periodique
+    format: multiple-choice
+    question: Comment exécuter une action toutes les 30 secondes dans une goroutine arrêtable ?
+    choices:
+      - text: Un `time.NewTicker(30*time.Second)` écouté dans un select avec `ctx.Done()`
+        correct: true
+      - text: Une boucle avec `time.Sleep(30 * time.Second)` et aucune condition d'arrêt
+        correct: false
+      - text: '`time.After(30 * time.Second)` une seule fois'
+        correct: false
+      - text: Un cron externe obligatoirement
+        correct: false
+    answer: Le ticker et le contexte donnent une action périodique qui s'arrête proprement.
+  - key: trous-after
+    format: fill-in
+    question: "Complétez le cas de délai :\n```go\ncase <-time.___(2 * time.Second):\n\treturn ErrDelai\n```"
+    blanks:
+      - - After
+    answer: '`time.After` renvoie un channel qui reçoit après la durée.'
+  - key: trous-timeout
+    format: fill-in
+    question: |-
+      Complétez le contexte avec délai :
+      ```go
+      ctx, cancel := context.___(ctx, 2*time.Second)
+      defer cancel()
+      ```
+    blanks:
+      - - WithTimeout
+    answer: Le délai se propage aux appels qui reçoivent ce contexte.
+  - key: trous-ticker
+    format: fill-in
+    question: |-
+      Complétez l'action périodique :
+      ```go
+      t := time.NewTicker(time.Minute)
+      defer t.___()
+      ```
+    blanks:
+      - - Stop
+    answer: On arrête le ticker quand la goroutine se termine.
+  - key: trous-timer
+    format: fill-in
+    question: "Complétez le délai global :\n```go\nlimite := time.NewTimer(10 * time.Second)\nfor {\n\tselect {\n\tcase m := <-messages:\n\t\ttraiter(m)\n\tcase <-limite.___:\n\t\treturn ErrDelai\n\t}\n}\n```"
+    blanks:
+      - - C
+    answer: Le champ `C` d'un timer est son channel.
+  - key: code-delai
+    format: code-output
+    question: "```go\nres := make(chan string, 1)\ngo func() {\n\ttime.Sleep(100 * time.Millisecond)\n\tres <- \"résultat\"\n}()\nselect {\ncase r := <-res:\n\tfmt.Println(r)\ncase <-time.After(20 * time.Millisecond):\n\tfmt.Println(\"délai dépassé\")\n}\n```"
+    answer: '`délai dépassé` : le résultat arrive après le délai.'
+    check:
+      code: "package main\n\nimport (\n\t\"fmt\"\n\t\"time\"\n)\n\nfunc main() {\n\tres := make(chan string, 1)\n\tgo func() {\n\t\ttime.Sleep(100 * time.Millisecond)\n\t\tres <- \"résultat\"\n\t}()\n\tselect {\n\tcase r := <-res:\n\t\tfmt.Println(r)\n\tcase <-time.After(20 * time.Millisecond):\n\t\tfmt.Println(\"délai dépassé\")\n\t}\n}\n"
+      output: délai dépassé
+  - key: code-contexte
+    format: code-output
+    question: "```go\nctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)\ndefer cancel()\nselect {\ncase <-time.After(time.Second):\n\tfmt.Println(\"fini\")\ncase <-ctx.Done():\n\tfmt.Println(ctx.Err(), errors.Is(ctx.Err(), context.DeadlineExceeded))\n}\n```"
+    answer: '`context deadline exceeded true` : le contexte expire avant le travail.'
+    check:
+      code: "package main\n\nimport (\n\t\"context\"\n\t\"errors\"\n\t\"fmt\"\n\t\"time\"\n)\n\nfunc main() {\n\tctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)\n\tdefer cancel()\n\tselect {\n\tcase <-time.After(time.Second):\n\t\tfmt.Println(\"fini\")\n\tcase <-ctx.Done():\n\t\tfmt.Println(ctx.Err(), errors.Is(ctx.Err(), context.DeadlineExceeded))\n\t}\n}\n"
+      output: context deadline exceeded true
+  - key: code-ticker
+    format: code-output
+    question: "```go\nt := time.NewTicker(10 * time.Millisecond)\ndefer t.Stop()\nfin := time.After(55 * time.Millisecond)\nn := 0\nfor {\n\tselect {\n\tcase <-t.C:\n\t\tn++\n\t\tcontinue\n\tcase <-fin:\n\t}\n\tbreak\n}\nfmt.Println(n >= 3 && n <= 6)\n```"
+    answer: '`true` : environ cinq tics en 55 millisecondes.'
+    check:
+      code: "package main\n\nimport (\n\t\"fmt\"\n\t\"time\"\n)\n\nfunc main() {\n\tt := time.NewTicker(10 * time.Millisecond)\n\tdefer t.Stop()\n\tfin := time.After(55 * time.Millisecond)\n\tn := 0\n\tfor {\n\t\tselect {\n\t\tcase <-t.C:\n\t\t\tn++\n\t\t\tcontinue\n\t\tcase <-fin:\n\t\t}\n\t\tbreak\n\t}\n\tfmt.Println(n >= 3 && n <= 6)\n}\n"
+      output: 'true'
+  - key: code-global
+    format: code-output
+    question: "```go\nmessages := make(chan int)\ngo func() {\n\tfor i := 0; ; i++ {\n\t\tmessages <- i\n\t\ttime.Sleep(5 * time.Millisecond)\n\t}\n}()\nlimite := time.NewTimer(30 * time.Millisecond)\nrecus := 0\nfor {\n\tselect {\n\tcase <-messages:\n\t\trecus++\n\t\tcontinue\n\tcase <-limite.C:\n\t}\n\tbreak\n}\nfmt.Println(recus > 0 && recus < 10)\n```"
+    answer: '`true` : le timer créé avant la boucle impose un délai global, malgré les messages fréquents.'
+    check:
+      code: "package main\n\nimport (\n\t\"fmt\"\n\t\"time\"\n)\n\nfunc main() {\n\tmessages := make(chan int)\n\tgo func() {\n\t\tfor i := 0; ; i++ {\n\t\t\tmessages <- i\n\t\t\ttime.Sleep(5 * time.Millisecond)\n\t\t}\n\t}()\n\tlimite := time.NewTimer(30 * time.Millisecond)\n\trecus := 0\n\tfor {\n\t\tselect {\n\t\tcase <-messages:\n\t\t\trecus++\n\t\t\tcontinue\n\t\tcase <-limite.C:\n\t\t}\n\t\tbreak\n\t}\n\tfmt.Println(recus > 0 && recus < 10)\n}\n"
+      output: 'true'
+  - key: bug-global
+    format: bug-fix
+    question: "L'import devait s'arrêter au bout d'une minute, mais il ne s'arrête jamais tant que des lignes arrivent :\n```go\nfor {\n\tselect {\n\tcase l := <-lignes:\n\t\timporter(l)\n\tcase <-time.After(time.Minute):\n\t\treturn ErrDelai\n\t}\n}\n```"
+    answer: "```go\nctx, cancel := context.WithTimeout(ctx, time.Minute)\ndefer cancel()\nfor {\n\tselect {\n\tcase l := <-lignes:\n\t\timporter(l)\n\tcase <-ctx.Done():\n\t\treturn ctx.Err()\n\t}\n}\n```\n`time.After` repartait à chaque ligne ; un délai créé avant la boucle est global."
+  - key: bug-fuite
+    format: bug-fix
+    question: "Chaque appel qui expire laisse une goroutine bloquée :\n```go\nres := make(chan Profil)\ngo func() { res <- chargerProfil(id) }()\nselect {\ncase p := <-res:\n\treturn p, nil\ncase <-time.After(time.Second):\n\treturn Profil{}, ErrDelai\n}\n```"
+    answer: "```go\nctx, cancel := context.WithTimeout(ctx, time.Second)\ndefer cancel()\nres := make(chan Profil, 1)\ngo func() { res <- chargerProfil(ctx, id) }()\nselect {\ncase p := <-res:\n\treturn p, nil\ncase <-ctx.Done():\n\treturn Profil{}, ctx.Err()\n}\n```\nLa capacité de 1 laisse la goroutine se terminer, et le contexte transmis arrête aussi le chargement."
+  - key: bug-sleep
+    format: bug-fix
+    question: "Le service attend toujours 2 secondes, même quand la réponse arrive vite :\n```go\ntime.Sleep(2 * time.Second)\nselect {\ncase r := <-reponses:\n\treturn r, nil\ndefault:\n\treturn Reponse{}, ErrDelai\n}\n```"
+    answer: "```go\nselect {\ncase r := <-reponses:\n\treturn r, nil\ncase <-time.After(2 * time.Second):\n\treturn Reponse{}, ErrDelai\n}\n```\nLe select attend la réponse ou le délai, le premier des deux."
+  - key: bug-ticker
+    format: bug-fix
+    question: "La synchronisation périodique continue après l'arrêt du service :\n```go\ngo func() {\n\tfor range time.Tick(time.Minute) {\n\t\tsynchroniser()\n\t}\n}()\n```"
+    answer: "```go\ngo func() {\n\tt := time.NewTicker(time.Minute)\n\tdefer t.Stop()\n\tfor {\n\t\tselect {\n\t\tcase <-t.C:\n\t\t\tsynchroniser()\n\t\tcase <-ctx.Done():\n\t\t\treturn\n\t\t}\n\t}\n}()\n```\n`time.Tick` dans une boucle range n'offre aucune condition d'arrêt ; un ticker et le contexte en donnent une."

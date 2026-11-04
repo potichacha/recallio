@@ -1,4 +1,34 @@
 notion: pool-connexions
+lesson: |-
+  Un `*sql.DB` gère un **pool** : il ouvre des connexions à la demande, garde les inactives pour les réutiliser, et en
+  ferme selon ses réglages.
+
+  ```go
+  db.SetMaxOpenConns(25)                  // connexions ouvertes au plus (0 = illimité, le défaut)
+  db.SetMaxIdleConns(25)                  // connexions inactives gardées (2 par défaut)
+  db.SetConnMaxLifetime(30 * time.Minute) // durée de vie maximale d'une connexion
+  db.SetConnMaxIdleTime(5 * time.Minute)  // fermer une connexion inactive depuis 5 minutes
+  ```
+
+  Pourquoi les régler :
+  - **`MaxOpenConns`** illimité par défaut : sous un pic, le service peut ouvrir des centaines de connexions et dépasser
+    la limite de la base (`max_connections` de PostgreSQL), pour tous les services qui la partagent. On le borne :
+    au-delà, les requêtes **attendent** une connexion libre (d'où l'importance des contextes avec délai) ;
+  - **`MaxIdleConns`** à 2 par défaut : avec 25 connexions actives, 23 sont fermées puis rouvertes en permanence ; on
+    l'aligne sur MaxOpenConns ;
+  - **`ConnMaxLifetime`** renouvelle les connexions, pour suivre un basculement de base, un répartiteur ou une rotation
+    des identifiants ;
+  - **`ConnMaxIdleTime`** libère les connexions après un pic.
+
+  Le dimensionnement se raisonne **globalement** : nombre d'instances × MaxOpenConns doit rester sous la limite de la
+  base (en gardant de la marge pour les migrations et l'administration), ou passer par un **PgBouncer**.
+
+  **`db.Stats()`** donne l'état du pool : connexions ouvertes, en usage, inactives, et surtout **`WaitCount`** et
+  **`WaitDuration`** (combien de requêtes ont attendu une connexion, et combien de temps). On les exporte en métriques.
+
+  **En entretien** : « Un pool ; MaxOpenConns illimité par défaut, à borner ; MaxIdleConns à 2 par défaut, à aligner ;
+  ConnMaxLifetime pour renouveler ; instances × MaxOpenConns sous la limite de la base ; Stats pour surveiller
+  l'attente. »
 cards:
   - key: valeur-defaut-maxopenconns
     format: course
@@ -14,3 +44,147 @@ cards:
     answer: |-
       Symptôme typique d'un **pool épuisé**. Je regarderais `db.Stats()` (ou la métrique correspondante) : si `InUse` est au maximum et `WaitCount` explose, des connexions ne sont pas rendues. Les causes : un `rows.Close()` manquant sur un chemin d'erreur, une transaction jamais commitée ni annulée, ou un traitement long (appel HTTP) effectué pendant qu'on itère sur des `Rows` ou dans une transaction.
       Les requêtes "attendent sans fin" aussi parce qu'il n'y a pas de contexte avec délai : avec `QueryContext` et un timeout, elles échoueraient vite au lieu de s'empiler. Je corrigerais les fuites, j'ajouterais `defer rows.Close()` systématique, et des timeouts sur chaque requête. L'analyseur `sqlclosecheck` (golangci-lint) détecte les `Rows` non fermés.
+  - key: idle-defaut
+    format: course
+    question: Pourquoi aligner MaxIdleConns sur MaxOpenConns ?
+    answer: Par défaut, seules 2 connexions inactives sont gardées ; sous une charge régulière de 25 requêtes simultanées, les autres sont fermées puis rouvertes sans cesse, ce qui coûte du temps et de la charge à la base.
+  - key: stats
+    format: course
+    question: Quelles statistiques du pool surveiller ?
+    answer: 'Celles de db.Stats() : OpenConnections, InUse, Idle, et surtout WaitCount et WaitDuration, qui disent combien de requêtes ont attendu une connexion et combien de temps.'
+  - key: vf-defaut
+    format: true-false
+    question: Par défaut, un sql.DB n'impose aucune limite au nombre de connexions ouvertes.
+    truth: true
+    answer: MaxOpenConns vaut 0, soit illimité.
+  - key: vf-attente
+    format: true-false
+    question: Quand MaxOpenConns est atteint, une nouvelle requête échoue immédiatement.
+    truth: false
+    answer: Elle attend qu'une connexion se libère, jusqu'à l'expiration de son contexte.
+  - key: vf-lifetime
+    format: true-false
+    question: SetConnMaxLifetime ferme les connexions au bout d'une durée, même si elles servent régulièrement.
+    truth: true
+    answer: Elles sont fermées quand elles reviennent au pool après cette durée.
+  - key: vf-instances
+    format: true-false
+    question: Avec 10 instances réglées à MaxOpenConns(50), la base peut recevoir jusqu'à 500 connexions de ce service.
+    truth: true
+    answer: Le dimensionnement se fait sur l'ensemble des instances.
+  - key: qcm-reglages
+    format: multiple-choice
+    question: Que règle chaque méthode ?
+    choices:
+      - text: 'SetMaxOpenConns : le plafond de connexions ouvertes'
+        correct: true
+      - text: 'SetMaxIdleConns : le nombre de connexions inactives gardées'
+        correct: true
+      - text: 'SetConnMaxIdleTime : la fermeture des connexions inactives depuis trop longtemps'
+        correct: true
+      - text: 'SetConnMaxLifetime : la durée maximale d''une requête'
+        correct: false
+    answer: La durée d'une requête se borne par son contexte.
+  - key: qcm-dimensionner
+    format: multiple-choice
+    question: La base accepte 200 connexions et le service tourne sur 6 instances. Quel MaxOpenConns ?
+    choices:
+      - text: Environ 25, pour rester sous 200 avec de la marge
+        correct: true
+      - text: '100'
+        correct: false
+      - text: '200'
+        correct: false
+      - text: 0, illimité
+        correct: false
+    answer: 6 × 25 = 150, ce qui laisse de la place pour les migrations et l'administration.
+  - key: qcm-symptomes
+    format: multiple-choice
+    question: Quels symptômes montrent un pool trop petit ?
+    choices:
+      - text: Un WaitCount qui augmente vite
+        correct: true
+      - text: Une latence élevée alors que la base est peu chargée
+        correct: true
+      - text: Des erreurs « too many clients » côté base
+        correct: false
+      - text: Une mémoire du service qui baisse
+        correct: false
+    answer: « too many clients » signale au contraire trop de connexions.
+  - key: qcm-lifetime
+    format: multiple-choice
+    question: Pourquoi fixer ConnMaxLifetime ?
+    choices:
+      - text: Pour que les connexions suivent un basculement vers une nouvelle base primaire
+        correct: true
+      - text: Pour répartir les connexions entre les instances derrière un répartiteur
+        correct: true
+      - text: Pour accélérer chaque requête
+        correct: false
+      - text: Pour éviter l'injection SQL
+        correct: false
+    answer: Une connexion très ancienne reste attachée au serveur d'origine.
+  - key: bug-illimite
+    format: bug-fix
+    question: |-
+      Lors d'un pic, le service ouvre 800 connexions et la base refuse tous les autres services :
+      ```go
+      db, err := sql.Open("pgx", dsn)
+      ```
+    answer: "```go\ndb, err := sql.Open(\"pgx\", dsn)\nif err != nil {\n\treturn err\n}\ndb.SetMaxOpenConns(25)\ndb.SetMaxIdleConns(25)\ndb.SetConnMaxLifetime(30 * time.Minute)\ndb.SetConnMaxIdleTime(5 * time.Minute)\n```\nSans plafond, le pool ouvrait autant de connexions que de requêtes simultanées ; au-delà de 25, les requêtes\nattendent désormais une connexion libre."
+  - key: bug-idle
+    format: bug-fix
+    question: |-
+      Les métriques de la base montrent des centaines d'ouvertures de connexion par seconde, pour un trafic stable :
+      ```go
+      db.SetMaxOpenConns(40)
+      ```
+    answer: |-
+      ```go
+      db.SetMaxOpenConns(40)
+      db.SetMaxIdleConns(40)
+      ```
+      Avec MaxIdleConns à 2 par défaut, 38 connexions étaient fermées après chaque requête, puis rouvertes.
+  - key: bug-attente-sans-fin
+    format: bug-fix
+    question: |-
+      Quand la base ralentit, les requêtes HTTP attendent indéfiniment une connexion du pool :
+      ```go
+      rows, err := s.db.QueryContext(context.Background(), q)
+      ```
+    answer: |-
+      ```go
+      ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+      defer cancel()
+      rows, err := s.db.QueryContext(ctx, q)
+      ```
+      L'attente d'une connexion libre respecte le contexte : avec un délai, la requête échoue vite au lieu de s'empiler.
+  - key: bug-fuite-tx
+    format: bug-fix
+    question: "Le pool se vide peu à peu, et db.Stats() montre des connexions « InUse » qui ne reviennent jamais :\n```go\ntx, err := db.BeginTx(ctx, nil)\nif err != nil {\n\treturn err\n}\nif err := debiter(ctx, tx, compte, montant); err != nil {\n\treturn err\n}\nreturn tx.Commit()\n```"
+    answer: "```go\ntx, err := db.BeginTx(ctx, nil)\nif err != nil {\n\treturn err\n}\ndefer tx.Rollback() // sans effet après un Commit réussi\nif err := debiter(ctx, tx, compte, montant); err != nil {\n\treturn err\n}\nreturn tx.Commit()\n```\nEn cas d'erreur, la transaction n'était ni validée ni annulée : sa connexion restait prise."
+  - key: scenario-dimensionnement
+    format: scenario
+    question: Comment dimensionnes-tu le pool de connexions d'un service ?
+    answer: |-
+      Je pars de la limite de la base et du nombre d'instances au maximum de l'autoscaling, avec une marge pour
+      l'administration et les autres services : MaxOpenConns = (limite − marge) / instances. Je fixe MaxIdleConns à la même
+      valeur, ConnMaxLifetime à quelques dizaines de minutes et ConnMaxIdleTime à quelques minutes. Puis je surveille
+      WaitCount et WaitDuration : si les attentes montent alors que la base a de la marge, j'augmente ; sinon je cherche les
+      requêtes lentes. Au-delà, un PgBouncer mutualise les connexions.
+  - key: scenario-pgbouncer
+    format: scenario
+    question: Quand mettrais-tu un PgBouncer devant PostgreSQL ?
+    answer: |-
+      Quand le nombre total de connexions voulues (beaucoup d'instances, de services ou de fonctions serverless) dépasse ce
+      que la base supporte : chaque connexion PostgreSQL est un processus, coûteux en mémoire. PgBouncer en mode
+      transaction partage quelques connexions réelles entre de nombreux clients. Attention : ce mode ne garde pas l'état de
+      session (requêtes préparées nommées, SET, verrous consultatifs) ; le pilote doit être configuré en conséquence.
+  - key: scenario-metriques
+    format: scenario
+    question: Comment surveilles-tu le pool en production ?
+    answer: |-
+      J'exporte périodiquement `db.Stats()` en métriques (Prometheus) : connexions ouvertes, en usage, inactives,
+      WaitCount, WaitDuration, et les fermetures par MaxIdleTime et MaxLifetime. Des alertes sur la durée d'attente et sur
+      un pool constamment plein ; côté base, le nombre de connexions par application. Un pool plein avec une base peu
+      chargée signale souvent des connexions retenues (rows ou transactions non fermés).

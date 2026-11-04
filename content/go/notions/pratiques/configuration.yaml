@@ -1,4 +1,5 @@
 notion: configuration
+lesson: "Un service lit sa configuration au **démarrage**, la **valide**, puis la passe à ses composants. Les sources usuelles,\npar priorité croissante : **valeurs par défaut** < **fichier** < **variables d'environnement** < **options de la ligne\nde commande**.\n\n```go\ntype Config struct {\n\tAdresse   string\n\tBaseURL   string\n\tDelaiAPI  time.Duration\n\tNiveauLog slog.Level\n}\n\nfunc Charger(getenv func(string) string) (Config, error) {\n\tcfg := Config{Adresse: \":8080\", DelaiAPI: 5 * time.Second} // défauts\n\tif v := getenv(\"APP_ADRESSE\"); v != \"\" {\n\t\tcfg.Adresse = v\n\t}\n\tcfg.BaseURL = getenv(\"DATABASE_URL\")\n\tif v := getenv(\"APP_DELAI_API\"); v != \"\" {\n\t\td, err := time.ParseDuration(v)\n\t\tif err != nil {\n\t\t\treturn Config{}, fmt.Errorf(\"APP_DELAI_API %q : %w\", v, err)\n\t\t}\n\t\tcfg.DelaiAPI = d\n\t}\n\treturn cfg, cfg.valider()\n}\n\nfunc (c Config) valider() error {\n\tvar errs []error\n\tif c.BaseURL == \"\" {\n\t\terrs = append(errs, errors.New(\"DATABASE_URL est obligatoire\"))\n\t}\n\treturn errors.Join(errs...)\n}\n```\n\nLes principes :\n- **échouer au démarrage** avec un message clair si la configuration est invalide ou incomplète, plutôt qu'à la\n  première requête ;\n- une **struct typée** passée aux composants, jamais `os.Getenv` dispersé dans le code ;\n- injecter la source (`getenv`) pour **tester** sans toucher à l'environnement du processus ;\n- `os.LookupEnv` distingue une variable **absente** d'une variable **vide** ;\n- les **secrets** viennent de l'environnement ou d'un gestionnaire de secrets, jamais du dépôt, et ne sont **jamais\n  journalisés** ;\n- les durées avec `time.ParseDuration` (`5s`, `2m`) plutôt que des nombres sans unité.\n\nDes bibliothèques aident (envconfig, koanf, viper), mais une fonction de chargement écrite à la main reste souvent la\nplus claire.\n\n**En entretien** : « Défauts, fichier, environnement, options, par priorité croissante ; une struct typée validée au\ndémarrage ; échouer tôt ; source injectable pour les tests ; secrets jamais dans le dépôt ni les journaux. »"
 cards:
   - key: os-getenv-vs-os-lookupenv
     format: course
@@ -16,3 +17,132 @@ cards:
     format: course
     question: Quel ordre de priorité pour la configuration ?
     answer: Drapeaux, puis variables d'environnement, puis fichier, puis valeurs par défaut.
+  - key: vf-demarrage
+    format: true-false
+    question: Une configuration invalide doit faire échouer le service au démarrage, avec un message clair.
+    truth: true
+    answer: Plutôt qu'une erreur surprise à la première requête.
+  - key: vf-lookupenv
+    format: true-false
+    question: '`os.Getenv` permet de distinguer une variable absente d''une variable vide.'
+    truth: false
+    answer: Il renvoie "" dans les deux cas ; os.LookupEnv renvoie aussi un booléen.
+  - key: vf-secrets
+    format: true-false
+    question: On peut versionner un fichier de configuration contenant le mot de passe de production s'il est dans un dépôt privé.
+    truth: false
+    answer: Les secrets viennent de l'environnement ou d'un gestionnaire de secrets.
+  - key: vf-priorite
+    format: true-false
+    question: Une option de ligne de commande l'emporte en général sur une variable d'environnement.
+    truth: true
+    answer: 'Ordre usuel : défauts, fichier, environnement, options.'
+  - key: qcm-pratiques
+    format: multiple-choice
+    question: Quelles pratiques sont recommandées pour la configuration ?
+    choices:
+      - text: Une struct typée chargée et validée au démarrage
+        correct: true
+      - text: Des valeurs par défaut sensées pour le développement
+        correct: true
+      - text: Des durées au format time.ParseDuration
+        correct: true
+      - text: Des appels à os.Getenv dans chaque handler
+        correct: false
+    answer: La configuration dispersée est impossible à valider et à tester.
+  - key: qcm-tests
+    format: multiple-choice
+    question: Comment tester le chargement de la configuration ?
+    choices:
+      - text: Injecter une fonction getenv alimentée par une map
+        correct: true
+      - text: t.Setenv, dans un test non parallèle
+        correct: true
+      - text: os.Setenv sans restaurer la valeur
+        correct: false
+      - text: Lire le fichier de production
+        correct: false
+    answer: L'injection permet des tests parallèles.
+  - key: qcm-secrets
+    format: multiple-choice
+    question: Comment gérer les secrets d'un service ?
+    choices:
+      - text: Les fournir par l'environnement ou un gestionnaire de secrets
+        correct: true
+      - text: Ne jamais les écrire dans les journaux
+        correct: true
+      - text: Les embarquer avec //go:embed
+        correct: false
+      - text: Les passer en option de ligne de commande visible dans ps
+        correct: false
+    answer: Un secret embarqué se lit dans le binaire.
+  - key: qcm-validation
+    format: multiple-choice
+    question: Que vérifier lors de la validation de la configuration ?
+    choices:
+      - text: La présence des valeurs obligatoires
+        correct: true
+      - text: Les formats (URL, durées, ports)
+        correct: true
+      - text: La cohérence entre valeurs (un délai de lecture plus court que le délai total)
+        correct: true
+      - text: Rien, les composants se débrouilleront
+        correct: false
+    answer: errors.Join permet de signaler toutes les erreurs d'un coup.
+  - key: bug-disperse
+    format: bug-fix
+    question: "Le service démarre sans DATABASE_URL et n'échoue qu'à la première requête :\n```go\nfunc (s *Serveur) lister(w http.ResponseWriter, r *http.Request) {\n\tdb, err := sql.Open(\"pgx\", os.Getenv(\"DATABASE_URL\"))\n\t// ...\n}\n```"
+    answer: "```go\nfunc run() error {\n\tcfg, err := config.Charger(os.Getenv)\n\tif err != nil {\n\t\treturn fmt.Errorf(\"configuration : %w\", err) // échec immédiat et explicite\n\t}\n\tdb, err := sql.Open(\"pgx\", cfg.BaseURL)\n\t// ...\n}\n```\nLa configuration est chargée et validée une fois au démarrage, puis passée aux composants."
+  - key: bug-unite
+    format: bug-fix
+    question: |-
+      Le délai configuré à « 30 » vaut 30 nanosecondes :
+      ```go
+      n, _ := strconv.Atoi(os.Getenv("APP_DELAI"))
+      delai := time.Duration(n)
+      ```
+    answer: "```go\ndelai, err := time.ParseDuration(os.Getenv(\"APP_DELAI\")) // \"30s\", \"2m\"\nif err != nil {\n\treturn Config{}, fmt.Errorf(\"APP_DELAI %q : %w\", os.Getenv(\"APP_DELAI\"), err)\n}\n```\nUne durée avec son unité est explicite et validée ; l'erreur de conversion n'est plus ignorée."
+  - key: bug-log-secret
+    format: bug-fix
+    question: |-
+      Le mot de passe de la base apparaît dans les journaux au démarrage :
+      ```go
+      log.Info("configuration chargée", "config", cfg)
+      ```
+    answer: "```go\ntype Secret string\n\nfunc (Secret) LogValue() slog.Value { return slog.StringValue(\"[masqué]\") }\nfunc (Secret) String() string      { return \"[masqué]\" }\n\ntype Config struct {\n\tAdresse    string\n\tMotDePasse Secret\n}\n```\nUn type dédié aux secrets se masque dans slog (LogValuer) et dans fmt ; on peut aussi ne journaliser que des champs\nchoisis."
+  - key: bug-vide
+    format: bug-fix
+    question: "Mettre APP_CACHE=\"\" pour désactiver le cache ne marche pas : le défaut « true » reste appliqué.\n```go\nif v := os.Getenv(\"APP_CACHE\"); v != \"\" {\n\tcfg.Cache, _ = strconv.ParseBool(v)\n}\n```"
+    answer: "```go\nif v, ok := os.LookupEnv(\"APP_CACHE\"); ok {\n\tb, err := strconv.ParseBool(v)\n\tif err != nil {\n\t\treturn Config{}, fmt.Errorf(\"APP_CACHE %q : attendu true ou false\", v)\n\t}\n\tcfg.Cache = b\n}\n```\nLookupEnv distingue la variable absente de la variable fournie ; une valeur invalide (y compris vide) est\nsignalée au lieu d'être ignorée."
+  - key: scenario-conception
+    format: scenario
+    question: Comment conçois-tu la configuration d'un service déployé dans Kubernetes ?
+    answer: |-
+      Une struct typée chargée au démarrage depuis des variables d'environnement (ConfigMap pour le reste, Secret pour
+      les secrets), avec des défauts adaptés au développement local et des options de ligne de commande pour les tests
+      manuels. Validation complète avec errors.Join et échec immédiat. Les secrets ont un type masqué dans les journaux.
+      La configuration effective (sans secret) est journalisée au démarrage pour le diagnostic.
+  - key: scenario-chaud
+    format: scenario
+    question: Faut-il recharger la configuration à chaud ?
+    answer: |-
+      Rarement : redémarrer le pod avec la nouvelle configuration est plus simple et plus sûr, surtout avec des
+      déploiements progressifs. Pour les quelques réglages qui doivent changer sans redémarrage (niveau de journal,
+      drapeaux de fonctionnalité), je les isole derrière un `atomic.Pointer` ou un `slog.LevelVar`, mis à jour par un
+      signal ou un endpoint d'administration, et je valide chaque nouvelle valeur.
+  - key: scenario-bibliotheque
+    format: scenario
+    question: 'Viper, koanf ou une fonction écrite à la main : comment choisis-tu ?'
+    answer: |-
+      Pour un service avec une douzaine de variables d'environnement, une fonction Charger écrite à la main (ou envconfig,
+      qui remplit une struct par ses tags) est la plus lisible et ne tire aucune dépendance. koanf ou viper deviennent
+      intéressants avec plusieurs sources et formats (fichiers YAML, profils, rechargement), au prix d'une API plus
+      large. viper est très répandu mais lourd ; koanf est plus léger.
+  - key: scenario-douze-facteurs
+    format: scenario
+    question: Que dit l'application « douze facteurs » sur la configuration, et comment l'appliques-tu en Go ?
+    answer: |-
+      La configuration qui varie entre environnements (adresses, identifiants, réglages) doit être séparée du code et
+      fournie par l'environnement. En Go : aucune valeur d'environnement dans le binaire, une struct chargée depuis les
+      variables d'environnement au démarrage, la même image Docker promue de la préproduction à la production avec une
+      configuration différente.

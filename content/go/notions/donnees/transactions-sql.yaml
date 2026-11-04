@@ -1,4 +1,5 @@
 notion: transactions-sql
+lesson: "Une **transaction** regroupe plusieurs requêtes qui réussissent ou échouent **ensemble**. En Go :\n\n```go\nfunc (d *Depot) Virer(ctx context.Context, de, vers string, montant int64) (err error) {\n\ttx, err := d.db.BeginTx(ctx, nil)\n\tif err != nil {\n\t\treturn err\n\t}\n\tdefer tx.Rollback() // annule si l'on sort avant Commit ; sans effet (ErrTxDone) après\n\n\tif _, err := tx.ExecContext(ctx,\n\t\t\"UPDATE comptes SET solde = solde - $1 WHERE id = $2 AND solde >= $1\", montant, de); err != nil {\n\t\treturn err\n\t}\n\tif _, err := tx.ExecContext(ctx,\n\t\t\"UPDATE comptes SET solde = solde + $1 WHERE id = $2\", montant, vers); err != nil {\n\t\treturn err\n\t}\n\treturn tx.Commit()\n}\n```\n\nLes règles :\n- **`defer tx.Rollback()`** juste après `BeginTx` : toute sortie anticipée (erreur, panique) annule la transaction et\n  rend la connexion ; après un `Commit` réussi, il ne fait rien ;\n- une transaction est **attachée à une connexion** : toutes ses requêtes passent par **`tx`**, jamais par `db` (qui\n  prendrait une autre connexion, hors transaction) ;\n- le **contexte** de `BeginTx` couvre toute la transaction : s'il est annulé, la transaction est annulée ;\n- **`sql.TxOptions`** fixe le niveau d'isolation (`sql.LevelSerializable`) et le mode lecture seule ;\n- une transaction doit être **courte** : pas d'appel réseau ni d'attente d'un utilisateur à l'intérieur, car elle\n  garde des verrous et une connexion ;\n- en isolation sérialisable, une transaction peut échouer pour un **conflit** (erreur de sérialisation) : on la\n  **rejoue** entièrement.\n\nPour que plusieurs dépôts travaillent dans la même transaction, on leur passe un type commun aux deux, une petite\ninterface (`ExecContext`, `QueryContext`, `QueryRowContext`) que `*sql.DB` et `*sql.Tx` satisfont.\n\n**En entretien** : « BeginTx, defer Rollback, Commit ; tout passe par tx ; une transaction courte, sans appel réseau ;\nTxOptions pour l'isolation ; rejouer les conflits de sérialisation. »"
 cards:
   - key: idiome-garantir-rollback-transaction
     format: course
@@ -12,3 +13,165 @@ cards:
     format: course
     question: Comment faire passer une transaction dans plusieurs repositories ?
     answer: Une interface commune à *sql.DB et *sql.Tx, ou un objet unit of work.
+  - key: interface
+    format: course
+    question: Comment écrire une fonction qui marche aussi bien avec un *sql.DB qu'avec un *sql.Tx ?
+    answer: En la faisant dépendre d'une petite interface avec ExecContext, QueryContext et QueryRowContext, que les deux types satisfont ; l'appelant choisit d'exécuter dans une transaction ou non.
+  - key: vf-rollback-apres
+    format: true-false
+    question: Un `defer tx.Rollback()` annule une transaction déjà validée par Commit.
+    truth: false
+    answer: Après Commit, Rollback ne fait rien (il renvoie sql.ErrTxDone).
+  - key: vf-db-dans-tx
+    format: true-false
+    question: Pendant une transaction, une requête faite avec db au lieu de tx s'exécute dans la transaction.
+    truth: false
+    answer: Elle prend une autre connexion du pool, hors transaction.
+  - key: vf-contexte
+    format: true-false
+    question: Si le contexte passé à BeginTx est annulé, la transaction est annulée.
+    truth: true
+    answer: Le pilote la rollback, et Commit échouera.
+  - key: vf-reseau
+    format: true-false
+    question: On peut sans risque appeler un service externe lent au milieu d'une transaction.
+    truth: false
+    answer: La transaction garde verrous et connexion pendant tout l'appel.
+  - key: qcm-idiome
+    format: multiple-choice
+    question: Quel est l'idiome correct ?
+    choices:
+      - text: '`tx, err := db.BeginTx(ctx, nil)`, vérifier err, puis `defer tx.Rollback()`'
+        correct: true
+      - text: Toutes les requêtes avec tx, puis `return tx.Commit()`
+        correct: true
+      - text: '`defer tx.Commit()` juste après BeginTx'
+        correct: false
+      - text: Rollback seulement dans le dernier if err != nil
+        correct: false
+    answer: Un Commit différé validerait même en cas d'erreur.
+  - key: qcm-options
+    format: multiple-choice
+    question: Que permet sql.TxOptions ?
+    choices:
+      - text: Choisir le niveau d'isolation, par exemple sql.LevelSerializable
+        correct: true
+      - text: Ouvrir une transaction en lecture seule
+        correct: true
+      - text: Fixer le délai de la transaction
+        correct: false
+      - text: Choisir la base de données
+        correct: false
+    answer: Le délai passe par le contexte.
+  - key: qcm-courte
+    format: multiple-choice
+    question: Pourquoi garder les transactions courtes ?
+    choices:
+      - text: Elles gardent des verrous qui bloquent les autres transactions
+        correct: true
+      - text: Elles occupent une connexion du pool
+        correct: true
+      - text: Le pilote les annule après une seconde
+        correct: false
+      - text: Go limite leur nombre de requêtes
+        correct: false
+    answer: Une transaction longue crée de la contention et vide le pool.
+  - key: qcm-serialisation
+    format: multiple-choice
+    question: Une transaction sérialisable échoue avec une erreur de sérialisation. Que faire ?
+    choices:
+      - text: Rejouer toute la transaction depuis le début
+        correct: true
+      - text: Limiter le nombre de tentatives
+        correct: true
+      - text: Rejouer seulement la dernière requête
+        correct: false
+      - text: Passer en lecture seule
+        correct: false
+    answer: L'état lu au début a pu changer ; tout est à refaire.
+  - key: trous-begin
+    format: fill-in
+    question: "Complétez :\n```go\ntx, err := db.___(ctx, nil)\nif err != nil {\n\treturn err\n}\ndefer tx.___()\n```"
+    blanks:
+      - - BeginTx
+      - - Rollback
+    answer: BeginTx puis defer Rollback.
+  - key: trous-commit
+    format: fill-in
+    question: "Complétez la fin :\n```go\nif _, err := tx.ExecContext(ctx, q2, id); err != nil {\n\treturn err\n}\nreturn tx.___()\n```"
+    blanks:
+      - - Commit
+    answer: Commit valide la transaction.
+  - key: trous-isolation
+    format: fill-in
+    question: |-
+      Complétez pour une transaction sérialisable :
+      ```go
+      tx, err := db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.___})
+      ```
+    blanks:
+      - - LevelSerializable
+    answer: sql.LevelSerializable.
+  - key: trous-tx
+    format: fill-in
+    question: |-
+      Complétez pour exécuter dans la transaction :
+      ```go
+      _, err = ___.ExecContext(ctx, "INSERT INTO lignes ...", id)
+      ```
+    blanks:
+      - - tx
+    answer: Toutes les requêtes passent par tx.
+  - key: bug-rollback
+    format: bug-fix
+    question: "Après une erreur de stock, la connexion reste bloquée et des verrous persistent :\n```go\ntx, _ := db.BeginTx(ctx, nil)\nif err := reserver(ctx, tx, produit); err != nil {\n\treturn err\n}\nif err := facturer(ctx, tx, commande); err != nil {\n\ttx.Rollback()\n\treturn err\n}\nreturn tx.Commit()\n```"
+    answer: "```go\ntx, err := db.BeginTx(ctx, nil)\nif err != nil {\n\treturn err\n}\ndefer tx.Rollback()\nif err := reserver(ctx, tx, produit); err != nil {\n\treturn err\n}\nif err := facturer(ctx, tx, commande); err != nil {\n\treturn err\n}\nreturn tx.Commit()\n```\nLe premier retour en erreur oubliait le Rollback ; le defer couvre toutes les sorties (et l'erreur de BeginTx\nn'était pas vérifiée)."
+  - key: bug-db
+    format: bug-fix
+    question: "Une commande est parfois enregistrée sans ses lignes après une erreur :\n```go\ntx, err := db.BeginTx(ctx, nil)\nif err != nil {\n\treturn err\n}\ndefer tx.Rollback()\nif _, err := db.ExecContext(ctx, \"INSERT INTO commandes ...\", c.ID); err != nil {\n\treturn err\n}\nif _, err := tx.ExecContext(ctx, \"INSERT INTO lignes ...\", c.ID); err != nil {\n\treturn err\n}\nreturn tx.Commit()\n```"
+    answer: "```go\nif _, err := tx.ExecContext(ctx, \"INSERT INTO commandes ...\", c.ID); err != nil {\n\treturn err\n}\nif _, err := tx.ExecContext(ctx, \"INSERT INTO lignes ...\", c.ID); err != nil {\n\treturn err\n}\nreturn tx.Commit()\n```\nLe premier INSERT passait par db, hors transaction : il restait validé même après le Rollback."
+  - key: bug-appel-reseau
+    format: bug-fix
+    question: "Les virements se bloquent mutuellement quand la banque partenaire est lente :\n```go\ntx, _ := db.BeginTx(ctx, nil)\ndefer tx.Rollback()\ndebiter(ctx, tx, compte, montant)\nif err := banque.Valider(ctx, virement); err != nil { // 2 à 10 secondes\n\treturn err\n}\ncrediter(ctx, tx, dest, montant)\nreturn tx.Commit()\n```"
+    answer: "```go\nif err := banque.Valider(ctx, virement); err != nil { // hors transaction, avant\n\treturn err\n}\ntx, err := db.BeginTx(ctx, nil)\nif err != nil {\n\treturn err\n}\ndefer tx.Rollback()\nif err := debiter(ctx, tx, compte, montant); err != nil {\n\treturn err\n}\nif err := crediter(ctx, tx, dest, montant); err != nil {\n\treturn err\n}\nreturn tx.Commit()\n```\nL'appel lent gardait les verrous du compte pendant des secondes ; on le sort de la transaction (et l'on traite les\nerreurs de debiter et crediter, ignorées jusque-là). Si l'appel doit suivre l'écriture, un motif outbox convient."
+  - key: bug-commit-ignore
+    format: bug-fix
+    question: |-
+      Des commandes sont annoncées comme créées alors qu'elles n'existent pas en base :
+      ```go
+      tx.Commit()
+      return nil
+      ```
+    answer: "```go\nif err := tx.Commit(); err != nil {\n\treturn fmt.Errorf(\"validation de la commande : %w\", err)\n}\nreturn nil\n```\nCommit peut échouer (conflit, contexte annulé, connexion perdue) : son erreur doit être remontée."
+  - key: scenario-plusieurs-depots
+    format: scenario
+    question: Une création de commande doit écrire dans les dépôts commandes et stock en une seule transaction. Comment l'organises-tu ?
+    answer: |-
+      Les dépôts dépendent d'une interface `Executeur` (ExecContext, QueryContext, QueryRowContext). Un service ou une
+      unité de travail ouvre la transaction, construit les dépôts avec le `*sql.Tx`, appelle leurs méthodes, puis valide ;
+      ou bien une fonction `dansTransaction(ctx, db, func(tx Executeur) error)` qui gère BeginTx, Rollback et Commit, et
+      rejoue en cas de conflit de sérialisation. Le métier ne voit pas les détails SQL.
+  - key: scenario-isolation
+    format: scenario
+    question: Deux réservations simultanées prennent la dernière place d'un vol. Comment l'éviter ?
+    answer: |-
+      Plusieurs options : un UPDATE conditionnel atomique (`UPDATE vols SET places = places - 1 WHERE id = $1 AND
+      places > 0`, puis vérifier RowsAffected), un verrou de ligne (`SELECT ... FOR UPDATE` dans la transaction), ou une
+      transaction sérialisable rejouée en cas de conflit. Je préfère l'UPDATE conditionnel, le plus simple et le plus
+      rapide, et j'ajoute une contrainte en base (`CHECK (places >= 0)`) comme filet de sécurité.
+  - key: scenario-outbox
+    format: scenario
+    question: Après avoir enregistré une commande, il faut publier un événement dans Kafka. Comment garantir qu'aucun des deux ne manque ?
+    answer: |-
+      Le motif outbox : dans la même transaction que la commande, j'insère l'événement dans une table `outbox`. Une tâche
+      séparée lit cette table, publie les événements dans Kafka, puis les marque comme envoyés. Si Kafka est indisponible,
+      les événements attendent ; si la transaction échoue, rien n'est publié. Les consommateurs doivent être idempotents,
+      car un événement peut être publié deux fois.
+  - key: scenario-entretien
+    format: scenario
+    question: En entretien, on te demande d'écrire un virement entre deux comptes en Go.
+    answer: |-
+      BeginTx avec le contexte, defer Rollback, puis un débit conditionnel (`UPDATE ... SET solde = solde - $1 WHERE id =
+      $2 AND solde >= $1`) dont je vérifie RowsAffected (0 signifie fonds insuffisants, une erreur métier), un crédit, et
+      Commit dont je vérifie l'erreur. Pour éviter les interblocages entre virements croisés, je verrouille les comptes
+      dans un ordre fixe (par identifiant), et j'ajoute une clé d'idempotence pour qu'un réessai ne vire pas deux fois.

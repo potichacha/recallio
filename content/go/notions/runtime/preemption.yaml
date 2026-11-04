@@ -1,4 +1,29 @@
 notion: preemption
+lesson: |-
+  Une goroutine ne garde pas un P indéfiniment : l'ordonnanceur la **préempte** pour laisser tourner les autres.
+
+  **Préemption coopérative** (depuis toujours) : une goroutine cède sa place aux points de contrôle insérés par le
+  compilateur, en pratique à l'**entrée des fonctions**, et quand elle bloque (channel, verrou, réseau, `Gosched`).
+
+  **Préemption asynchrone** (depuis **Go 1.14**) : le moniteur du runtime (`sysmon`) repère une goroutine qui tourne
+  depuis plus de **10 ms** et lui envoie un **signal** (`SIGURG` sous Unix) qui l'interrompt n'importe où. Avant 1.14,
+  une boucle serrée sans appel de fonction pouvait bloquer un P, et même empêcher le GC de démarrer :
+
+  ```go
+  for { i++ } // avant Go 1.14 : jamais préemptée ; depuis : préemptée au bout de 10 ms environ
+  ```
+
+  **Appels système** : une goroutine qui entre dans un appel système bloquant garde son thread ; si l'appel dure,
+  `sysmon` détache son **P** et le donne à un autre thread. Les entrées-sorties **réseau** passent par le
+  **netpoller** et ne bloquent pas de thread du tout ; les **fichiers** ordinaires, eux, bloquent un thread.
+
+  **cgo** : un appel vers du C se comporte comme un appel système long (le thread est pris) et coûte bien plus qu'un
+  appel Go ; du code C ne peut pas être préempté par le runtime.
+
+  `runtime.Gosched()` cède volontairement la place ; il est rarement utile dans du code normal.
+
+  **En entretien** : « Coopérative aux appels de fonction, asynchrone par signal depuis Go 1.14 après 10 ms ; un appel
+  système long cède son P ; le réseau passe par le netpoller ; cgo bloque un thread. »
 cards:
   - key: passe-quand-goroutine-appel-systeme-bloquant
     format: course
@@ -24,3 +49,105 @@ cards:
     format: course
     question: Que désigne « netpoller » ?
     answer: Composant du runtime qui gère les I/O réseau non bloquantes
+  - key: vf-1-14
+    format: true-false
+    question: Depuis Go 1.14, une boucle serrée sans appel de fonction peut être préemptée.
+    truth: true
+    answer: Par un signal envoyé par le runtime.
+  - key: vf-fichiers
+    format: true-false
+    question: La lecture d'un fichier ordinaire passe par le netpoller et ne bloque pas de thread.
+    truth: false
+    answer: Les fichiers bloquent un thread ; seul le réseau (et quelques descripteurs) passe par le netpoller.
+  - key: vf-cgo
+    format: true-false
+    question: Le runtime peut préempter du code C appelé par cgo.
+    truth: false
+    answer: Le thread est pris par le code C jusqu'à son retour.
+  - key: vf-gosched
+    format: true-false
+    question: '`runtime.Gosched()` cède le processeur à d''autres goroutines prêtes.'
+    truth: true
+    answer: La goroutine reste prête et reprendra plus tard.
+  - key: qcm-points
+    format: multiple-choice
+    question: Quand une goroutine cède-t-elle sa place sans préemption asynchrone ?
+    choices:
+      - text: Quand elle bloque sur un channel ou un verrou
+        correct: true
+      - text: À l'entrée d'une fonction, quand le runtime le demande
+        correct: true
+      - text: Quand elle attend le réseau
+        correct: true
+      - text: À chaque instruction d'addition
+        correct: false
+    answer: Les points de contrôle sont surtout à l'entrée des fonctions.
+  - key: qcm-signal
+    format: multiple-choice
+    question: Comment fonctionne la préemption asynchrone sous Unix ?
+    choices:
+      - text: sysmon repère une goroutine qui tourne depuis environ 10 ms
+        correct: true
+      - text: Le runtime envoie un signal SIGURG à son thread
+        correct: true
+      - text: Le noyau tue la goroutine
+        correct: false
+      - text: Le compilateur insère un sleep dans les boucles
+        correct: false
+    answer: SIGURG a été choisi car il est rarement utilisé par les programmes.
+  - key: qcm-syscall
+    format: multiple-choice
+    question: Que fait le runtime quand un appel système bloquant dure ?
+    choices:
+      - text: Il détache le P du thread bloqué
+        correct: true
+      - text: Il confie ce P à un autre thread, créé si besoin
+        correct: true
+      - text: Il interrompt l'appel système
+        correct: false
+      - text: Il arrête toutes les goroutines
+        correct: false
+    answer: Les autres goroutines continuent donc de tourner.
+  - key: qcm-cgo
+    format: multiple-choice
+    question: Pourquoi limiter les appels cgo dans un chemin chaud ?
+    choices:
+      - text: Chaque appel coûte bien plus qu'un appel de fonction Go
+        correct: true
+      - text: Le thread est pris pendant tout l'appel
+        correct: true
+      - text: cgo désactive le ramasse-miettes
+        correct: false
+      - text: cgo interdit les goroutines
+        correct: false
+    answer: cgo complique aussi la compilation croisée et les binaires statiques.
+  - key: scenario-avant-114
+    format: scenario
+    question: Pourquoi un programme avec une boucle de calcul serrée pouvait-il se figer avant Go 1.14 ?
+    answer: |-
+      La préemption était seulement coopérative, aux appels de fonction : une boucle sans appel ne cédait jamais son P.
+      Pire, le GC doit arrêter brièvement toutes les goroutines (stop-the-world) : il attendait cette boucle, et tout le
+      programme se figeait. Depuis Go 1.14, le runtime envoie un signal pour l'interrompre n'importe où.
+  - key: scenario-threads
+    format: scenario
+    question: Ton service lit des milliers de fichiers en parallèle et crée des centaines de threads. Pourquoi, et que fais-tu ?
+    answer: |-
+      Les lectures de fichiers sont des appels système bloquants : chaque goroutine bloquée garde son thread, et le
+      runtime en crée d'autres pour faire tourner les P. Je borne le nombre de lectures simultanées (un pool de workers
+      ou un sémaphore, de l'ordre de quelques dizaines), ce qui suffit en général à saturer le disque. La limite de
+      10 000 threads (`debug.SetMaxThreads`) fait planter le programme si on l'atteint.
+  - key: scenario-latence
+    format: scenario
+    question: Une goroutine de calcul long dégrade-t-elle la latence des autres requêtes ?
+    answer: |-
+      Peu, depuis Go 1.14 : elle est préemptée environ toutes les 10 ms et les autres goroutines reprennent leur tour.
+      Mais elle occupe un P pendant ses tranches : si plusieurs calculs longs occupent tous les P, les requêtes attendent.
+      Je borne alors les calculs concurrents (un pool plus petit que GOMAXPROCS) ou je les envoie à un service séparé.
+  - key: scenario-cgo
+    format: scenario
+    question: Quand accepterais-tu d'utiliser cgo dans un service ?
+    answer: |-
+      Quand une bibliothèque C n'a pas d'équivalent Go raisonnable (SQLite historique, un codec, un SDK matériel). Je
+      regroupe alors les appels pour en faire peu et de gros, je borne les appels simultanés, et j'accepte une
+      compilation croisée plus compliquée. Sinon je préfère du Go pur (par exemple modernc.org/sqlite) : binaire statique,
+      compilation rapide, profils et traces complets.

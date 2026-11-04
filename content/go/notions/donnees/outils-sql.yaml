@@ -1,4 +1,29 @@
 notion: outils-sql
+lesson: |-
+  `database/sql` suffit, mais demande d'écrire beaucoup de code de `Scan`. L'écosystème propose plusieurs niveaux
+  d'abstraction :
+
+  | Outil | Principe | Quand |
+  |---|---|---|
+  | **pgx** (natif) | pilote PostgreSQL avec sa propre API : types riches, `COPY`, batch, notifications | PostgreSQL seulement, besoin de performance ou de fonctions propres |
+  | **sqlc** | on écrit les requêtes SQL, il **génère** le code Go typé (structs et fonctions) | SQL maîtrisé, sûreté de type vérifiée à la génération |
+  | **sqlx** | extensions de database/sql : `Get`, `Select`, `StructScan` | réduire le code de Scan sans changer d'approche |
+  | **squirrel** | constructeur de requêtes | requêtes dynamiques (filtres optionnels) |
+  | **GORM**, **ent** | ORM : modèles Go, requêtes générées, relations, migrations | CRUD rapide, équipe à l'aise avec les ORM |
+  | **golang-migrate**, **goose**, **Atlas** | migrations du schéma | dans tous les cas |
+
+  La tendance en Go est de **garder le SQL visible** : sqlc et pgx sont très répandus, car on sait exactement quelle
+  requête s'exécute, et les erreurs de schéma apparaissent à la génération plutôt qu'en production.
+
+  Les pièges des ORM : requêtes **N+1** (charger une liste, puis une requête par élément), requêtes générées
+  inefficaces, comportements implicites (valeurs zéro ignorées dans les mises à jour avec GORM), et une couche
+  supplémentaire à apprendre.
+
+  Avec pgx, les erreurs PostgreSQL se lisent avec `errors.As(err, &pgErr)` et `pgErr.Code` (`23505` pour une violation
+  d'unicité), et l'import massif passe par `CopyFrom`, bien plus rapide que des INSERT.
+
+  **En entretien** : « database/sql pour la base commune ; pgx pour PostgreSQL ; sqlc pour du code typé généré depuis
+  le SQL ; sqlx pour moins de Scan ; un ORM avec prudence (N+1) ; un outil de migrations dans tous les cas. »
 cards:
   - key: pgx-natif-vs-database-sql
     format: course
@@ -32,3 +57,107 @@ cards:
     format: course
     question: Que désigne « sqlc » ?
     answer: Générateur de code Go typé depuis du SQL
+  - key: vf-sqlc
+    format: true-false
+    question: sqlc génère du code Go typé à partir de requêtes SQL écrites par le développeur.
+    truth: true
+    answer: Il lit aussi le schéma pour vérifier les requêtes.
+  - key: vf-orm-n1
+    format: true-false
+    question: Un ORM met à l'abri des requêtes N+1.
+    truth: false
+    answer: Charger les relations élément par élément est au contraire un piège classique des ORM.
+  - key: vf-pgx
+    format: true-false
+    question: pgx peut s'utiliser comme pilote de database/sql ou avec sa propre API.
+    truth: true
+    answer: Via pgx/v5/stdlib ou pgxpool.
+  - key: vf-copy
+    format: true-false
+    question: Pour importer des millions de lignes dans PostgreSQL, CopyFrom de pgx est bien plus rapide qu'une boucle d'INSERT.
+    truth: true
+    answer: COPY envoie les lignes en flux, sans un aller-retour par ligne.
+  - key: qcm-outils
+    format: multiple-choice
+    question: Quel outil pour quel besoin ?
+    choices:
+      - text: 'Du code typé généré depuis des requêtes SQL : sqlc'
+        correct: true
+      - text: 'Moins de code de Scan sans changer d''approche : sqlx'
+        correct: true
+      - text: 'Les migrations du schéma : goose ou golang-migrate'
+        correct: true
+      - text: 'Le pool de connexions HTTP : GORM'
+        correct: false
+    answer: GORM est un ORM.
+  - key: qcm-unicite
+    format: multiple-choice
+    question: Comment détecter une violation d'unicité avec pgx ?
+    choices:
+      - text: '`var pgErr *pgconn.PgError; errors.As(err, &pgErr) && pgErr.Code == "23505"`'
+        correct: true
+      - text: Chercher « duplicate » dans le message d'erreur
+        correct: false
+      - text: '`errors.Is(err, sql.ErrNoRows)`'
+        correct: false
+      - text: Faire un SELECT avant chaque INSERT
+        correct: false
+    answer: Le SELECT préalable laisse une course entre deux requêtes ; la contrainte et son code sont fiables.
+  - key: qcm-n1
+    format: multiple-choice
+    question: Comment éviter un N+1 en chargeant des commandes et leurs lignes ?
+    choices:
+      - text: Une jointure, ou une seconde requête avec `WHERE commande_id = ANY($1)`
+        correct: true
+      - text: Le préchargement de l'ORM (Preload dans GORM)
+        correct: true
+      - text: Une requête par commande dans une boucle
+        correct: false
+      - text: Un cache par ligne
+        correct: false
+    answer: Deux requêtes au lieu de N+1.
+  - key: qcm-orm
+    format: multiple-choice
+    question: Quels inconvénients peut avoir un ORM comme GORM ?
+    choices:
+      - text: Des requêtes générées moins efficaces ou difficiles à prévoir
+        correct: true
+      - text: Des comportements implicites, comme les valeurs zéro ignorées dans un Updates avec une struct
+        correct: true
+      - text: L'impossibilité d'utiliser PostgreSQL
+        correct: false
+      - text: L'obligation d'écrire tout le SQL à la main
+        correct: false
+    answer: Pour modifier une colonne à zéro, il faut une map ou Select.
+  - key: scenario-choix
+    format: scenario
+    question: Quel outil d'accès aux données choisirais-tu pour un nouveau service Go sur PostgreSQL ?
+    answer: |-
+      pgx comme pilote (pgxpool), et sqlc pour générer le code des requêtes : le SQL reste lisible et relu, les types sont
+      vérifiés à la génération, et il n'y a pas de réflexion à l'exécution. Pour quelques requêtes vraiment dynamiques,
+      un constructeur (squirrel) ou un assemblage prudent avec paramètres. Les migrations avec goose ou Atlas, embarquées
+      dans le binaire. Un ORM seulement si l'équipe le maîtrise et que le domaine est surtout du CRUD.
+  - key: scenario-gorm
+    format: scenario
+    question: Ton équipe utilise GORM et un endpoint est devenu lent. Que regardes-tu ?
+    answer: |-
+      J'active le journal des requêtes de GORM (ou les traces OpenTelemetry) pour voir le SQL réellement exécuté : souvent
+      un N+1 sur une relation, à corriger avec Preload ou une jointure, un SELECT * qui charge des colonnes lourdes, ou
+      un index manquant (EXPLAIN ANALYZE). Pour une requête critique, j'écris le SQL à la main avec Raw, en gardant
+      GORM pour le reste.
+  - key: scenario-import
+    format: scenario
+    question: Comment importes-tu un fichier CSV de 5 millions de lignes dans PostgreSQL depuis Go ?
+    answer: |-
+      Avec `CopyFrom` de pgx, alimenté par un `CopyFromSource` qui lit le CSV en flux (encoding/csv) et convertit chaque
+      ligne : pas de chargement complet en mémoire, et un débit de centaines de milliers de lignes par seconde. J'importe
+      dans une table de travail, je valide, puis je fusionne dans la table cible par un INSERT ... ON CONFLICT dans une
+      transaction. Les lignes invalides sont rejetées dans un fichier d'erreurs.
+  - key: scenario-entretien
+    format: scenario
+    question: En entretien, on te demande pourquoi beaucoup d'équipes Go évitent les ORM.
+    answer: |-
+      La culture Go préfère l'explicite : on veut voir la requête qui s'exécute, maîtriser ses performances, et éviter la
+      réflexion et la magie. sqlc donne le confort du code généré et typé sans cacher le SQL ; database/sql ou pgx restent
+      simples. Les ORM ont leur place pour du CRUD, mais leurs pièges (N+1, requêtes inattendues, valeurs zéro) coûtent cher
+      à diagnostiquer.

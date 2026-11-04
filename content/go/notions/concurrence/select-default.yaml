@@ -1,4 +1,5 @@
 notion: select-default
+lesson: "Un cas **`default`** rend le `select` **non bloquant** : si aucun autre cas n'est prêt **tout de suite**, `default`\ns'exécute.\n\n```go\n// essayer d'envoyer, sans attendre\nselect {\ncase evenements <- e:\ndefault:\n\tperdus++ // le tampon est plein : on abandonne l'événement\n}\n\n// essayer de recevoir, sans attendre\nselect {\ncase m := <-messages:\n\ttraiter(m)\ndefault:\n\t// rien à traiter pour l'instant\n}\n```\n\nUsages :\n- **ne jamais bloquer** un chemin critique : un envoi de métrique ou de journal qu'on accepte de perdre ;\n- **tester** si un signal est arrivé (`select { case <-stop: return; default: }`), par exemple pour vérifier une\n  priorité ;\n- un channel de capacité 1 comme **verrou non bloquant** (« essayer de prendre la main »).\n\nPiège majeur : un **`for` avec un `select` qui a un `default` vide** tourne en boucle **active** (busy loop) et consomme\n100 % d'un cœur. Si l'on doit attendre, on retire le `default` et l'on laisse le select bloquer.\n\n**Piège classique** : ajouter un `default` « pour éviter un interblocage ». Le programme ne se bloque plus, mais il perd\ndes messages ou tourne à vide, et le vrai problème reste.\n\n**En entretien** : « default rend le select non bloquant : envoi ou réception si c'est possible tout de suite, sinon\ndefault ; utile pour abandonner un envoi ou tester un signal ; jamais un default vide dans une boucle d'attente. »"
 cards:
   - key: sert-default-select
     format: course
@@ -20,3 +21,131 @@ cards:
     check:
       code: "package main\n\nimport \"fmt\"\n\nfunc main() {\n\tch := make(chan int)\n\tselect {\n\tcase v := <-ch:\n\t    fmt.Println(v)\n\tdefault:\n\t    fmt.Println(\"default\")\n\t}\n}\n"
       output: default
+  - key: abandon
+    format: course
+    question: Comment envoyer une métrique sans jamais bloquer le chemin principal ?
+    answer: 'Avec un select à deux cas, l''envoi et `default` : si le channel est plein, la métrique est abandonnée (et l''on compte les pertes).'
+  - key: busy-loop
+    format: course
+    question: 'Pourquoi un `for { select { case ...: default: } }` est-il dangereux ?'
+    answer: 'Quand aucun cas n''est prêt, default s''exécute aussitôt et la boucle recommence : elle tourne à vide et consomme un cœur entier.'
+  - key: interblocage
+    format: course
+    question: Un `default` corrige-t-il un interblocage ?
+    answer: 'Non : il évite le blocage en abandonnant l''opération, ce qui perd des messages ou fait tourner à vide ; il faut corriger la conception.'
+  - key: vf-non-bloquant
+    format: true-false
+    question: Un select avec un cas default ne bloque jamais.
+    truth: true
+    answer: Si aucun cas n'est prêt, default s'exécute immédiatement.
+  - key: vf-default-prioritaire
+    format: true-false
+    question: Le cas default est choisi même si un autre cas est prêt.
+    truth: false
+    answer: Il ne s'exécute que si aucun autre cas n'est prêt.
+  - key: vf-busy
+    format: true-false
+    question: Une boucle for avec un select dont le default est vide peut consommer 100 % d'un cœur.
+    truth: true
+    answer: Elle ne bloque jamais et repasse sans cesse.
+  - key: vf-un-seul
+    format: true-false
+    question: Un select peut avoir plusieurs cas default.
+    truth: false
+    answer: Un seul default par select.
+  - key: qcm-usages
+    format: multiple-choice
+    question: Quels usages de default sont raisonnables ?
+    choices:
+      - text: Abandonner l'envoi d'un événement de télémétrie quand le tampon est plein
+        correct: true
+      - text: Vérifier sans attendre si un signal d'arrêt est arrivé
+        correct: true
+      - text: Attendre un message en boucle avec un default vide
+        correct: false
+      - text: Masquer un interblocage
+        correct: false
+    answer: Pour attendre, on laisse le select bloquer.
+  - key: qcm-resultat
+    format: multiple-choice
+    question: 'Que fait `select { case v := <-ch: f(v); default: g() }` si `ch` est vide et ouvert ?'
+    choices:
+      - text: Il appelle g immédiatement
+        correct: true
+      - text: Il attend une valeur puis appelle f
+        correct: false
+      - text: Il panique
+        correct: false
+      - text: Il bloque pour toujours
+        correct: false
+    answer: 'Aucun cas n''est prêt : default s''exécute.'
+  - key: qcm-verrou
+    format: multiple-choice
+    question: Comment « essayer de prendre la main » sans attendre, avec `jeton := make(chan struct{}, 1)` ?
+    choices:
+      - text: '`select { case jeton <- struct{}{}: travailler(); <-jeton; default: return }`'
+        correct: true
+      - text: '`jeton <- struct{}{}` sans select'
+        correct: false
+      - text: '`close(jeton)`'
+        correct: false
+      - text: '`len(jeton) == 0` puis envoyer'
+        correct: false
+    answer: Le test de longueur puis l'envoi n'est pas atomique (deux goroutines peuvent passer).
+  - key: qcm-busy
+    format: multiple-choice
+    question: Comment corriger une boucle d'attente qui tourne à vide avec un default ?
+    choices:
+      - text: Retirer le default pour que le select bloque
+        correct: true
+      - text: Ajouter un cas ctx.Done() pour pouvoir s'arrêter
+        correct: true
+      - text: Ajouter un time.Sleep(1 * time.Nanosecond) dans le default
+        correct: false
+      - text: Augmenter la capacité du channel
+        correct: false
+    answer: Un sommeil minuscule réduit la consommation sans corriger la conception.
+  - key: code-plein
+    format: code-output
+    question: "```go\nch := make(chan int, 2)\nperdus := 0\nfor i := range 5 {\n\tselect {\n\tcase ch <- i:\n\tdefault:\n\t\tperdus++\n\t}\n}\nfmt.Println(len(ch), perdus)\n```"
+    answer: '`2 3` : deux envois passent, les trois autres sont abandonnés.'
+    check:
+      code: "package main\n\nimport \"fmt\"\n\nfunc main() {\n\tch := make(chan int, 2)\n\tperdus := 0\n\tfor i := range 5 {\n\t\tselect {\n\t\tcase ch <- i:\n\t\tdefault:\n\t\t\tperdus++\n\t\t}\n\t}\n\tfmt.Println(len(ch), perdus)\n}\n"
+      output: 2 3
+  - key: code-pret
+    format: code-output
+    question: "```go\nch := make(chan int, 1)\nch <- 9\nselect {\ncase v := <-ch:\n\tfmt.Println(\"reçu\", v)\ndefault:\n\tfmt.Println(\"rien\")\n}\n```"
+    answer: '`reçu 9` : un cas prêt passe avant default.'
+    check:
+      code: "package main\n\nimport \"fmt\"\n\nfunc main() {\n\tch := make(chan int, 1)\n\tch <- 9\n\tselect {\n\tcase v := <-ch:\n\t\tfmt.Println(\"reçu\", v)\n\tdefault:\n\t\tfmt.Println(\"rien\")\n\t}\n}\n"
+      output: reçu 9
+  - key: code-signal
+    format: code-output
+    question: "```go\nstop := make(chan struct{})\narrete := func() bool {\n\tselect {\n\tcase <-stop:\n\t\treturn true\n\tdefault:\n\t\treturn false\n\t}\n}\nfmt.Print(arrete(), \" \")\nclose(stop)\nfmt.Println(arrete())\n```"
+    answer: '`false true` : on teste le signal sans attendre.'
+    check:
+      code: "package main\n\nimport \"fmt\"\n\nfunc main() {\n\tstop := make(chan struct{})\n\tarrete := func() bool {\n\t\tselect {\n\t\tcase <-stop:\n\t\t\treturn true\n\t\tdefault:\n\t\t\treturn false\n\t\t}\n\t}\n\tfmt.Print(arrete(), \" \")\n\tclose(stop)\n\tfmt.Println(arrete())\n}\n"
+      output: false true
+  - key: bug-busy
+    format: bug-fix
+    question: "Le worker consomme 100 % d'un cœur alors qu'il n'a presque rien à faire :\n```go\nfor {\n\tselect {\n\tcase j := <-jobs:\n\t\ttraiter(j)\n\tdefault:\n\t}\n}\n```"
+    answer: "```go\nfor {\n\tselect {\n\tcase j := <-jobs:\n\t\ttraiter(j)\n\tcase <-ctx.Done():\n\t\treturn\n\t}\n}\n```\nLe default vide faisait tourner la boucle à vide ; sans lui, le select bloque jusqu'au prochain job."
+  - key: bug-masque
+    format: bug-fix
+    question: |-
+      Après l'ajout d'un default « pour débloquer », des commandes disparaissent :
+      ```go
+      select {
+      case commandes <- c:
+      default:
+      }
+      ```
+    answer: "```go\nselect {\ncase commandes <- c:\ncase <-ctx.Done():\n\treturn ctx.Err()\n}\n```\nUne commande ne doit pas être abandonnée : on attend qu'elle soit acceptée (ou que le contexte expire), et l'on\ncorrige la lenteur du consommateur s'il le faut. Le default ne convient qu'aux données qu'on accepte de perdre."
+  - key: bug-len
+    format: bug-fix
+    question: "Deux goroutines entrent parfois toutes les deux dans la section réservée :\n```go\nif len(jeton) == 0 {\n\tjeton <- struct{}{}\n\ttravailler()\n\t<-jeton\n}\n```"
+    answer: "```go\nselect {\ncase jeton <- struct{}{}:\n\tdefer func() { <-jeton }()\n\ttravailler()\ndefault:\n\t// déjà occupé\n}\n```\nTester la longueur puis envoyer n'est pas atomique ; le select avec default tente l'envoi en une seule opération."
+  - key: bug-reception
+    format: bug-fix
+    question: "Le traitement des messages ne se fait que de temps en temps :\n```go\nselect {\ncase m := <-messages:\n\ttraiter(m)\ndefault:\n\treturn\n}\n```"
+    answer: "```go\nfor m := range messages {\n\ttraiter(m)\n}\n```\nLe default faisait abandonner dès qu'aucun message n'était prêt à l'instant précis ; un consommateur attend les\nmessages (avec un cas ctx.Done si l'on doit pouvoir l'arrêter)."

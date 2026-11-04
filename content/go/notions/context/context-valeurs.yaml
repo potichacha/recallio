@@ -1,4 +1,5 @@
 notion: context-valeurs
+lesson: "**`context.WithValue(parent, cle, valeur)`** attache une valeur à un contexte ; `ctx.Value(cle)` la retrouve en\nremontant les parents.\n\n```go\ntype cleUtilisateur struct{} // un type non exporté : aucune collision possible\n\nfunc AvecUtilisateur(ctx context.Context, u Utilisateur) context.Context {\n\treturn context.WithValue(ctx, cleUtilisateur{}, u)\n}\n\nfunc UtilisateurDe(ctx context.Context) (Utilisateur, bool) {\n\tu, ok := ctx.Value(cleUtilisateur{}).(Utilisateur)\n\treturn u, ok\n}\n```\n\n**Ce qu'on y met** : des données **propres à la requête** qui traversent les couches sans être des paramètres\nmétier, et dont la plupart des fonctions n'ont pas besoin : identifiant de trace ou de requête, utilisateur\nauthentifié, informations pour les journaux.\n\n**Ce qu'on n'y met pas** :\n- des **paramètres** de la fonction (un identifiant de commande, une option) : ils deviennent invisibles dans la\n  signature ;\n- des **dépendances** (connexion à la base, logger configuré, client HTTP) : elles se passent au constructeur ;\n- des valeurs **mutables** partagées.\n\nLes règles techniques :\n- la clé est d'un **type non exporté** propre au package (`struct{}` ou `type cle int`), jamais une `string` : deux\n  packages qui utiliseraient `\"user\"` se marcheraient dessus (go vet le signale) ;\n- on expose des **fonctions d'accès typées** (`AvecUtilisateur`, `UtilisateurDe`) plutôt que la clé ;\n- la recherche **remonte la chaîne** des parents : elle est linéaire, et convient à quelques valeurs, pas à des\n  dizaines.\n\n**En entretien** : « Seulement des données de requête qui traversent les API : trace, utilisateur ; jamais des\nparamètres ni des dépendances ; une clé de type non exporté et des accesseurs typés. »"
 cards:
   - key: type-utiliser-comme-cle-valeur
     format: course
@@ -8,3 +9,181 @@ cards:
     format: course
     question: Que mettre dans les valeurs de contexte ?
     answer: 'Des données de portée requête : request ID, identité, tracing ; jamais des dépendances ni des paramètres.'
+  - key: cle-string
+    format: course
+    question: Pourquoi ne pas utiliser une string comme clé de WithValue ?
+    answer: Deux packages qui choisiraient la même chaîne (`"user"`) écraseraient mutuellement leurs valeurs ; une clé d'un type non exporté est unique au package.
+  - key: accesseurs
+    format: course
+    question: Comment exposer une valeur de contexte aux autres packages ?
+    answer: 'Par des fonctions typées (`AvecUtilisateur(ctx, u)` et `UtilisateurDe(ctx) (Utilisateur, bool)`), en gardant la clé non exportée : l''assertion de type est à un seul endroit.'
+  - key: vf-remonte
+    format: true-false
+    question: '`ctx.Value(k)` cherche la clé dans le contexte puis dans ses parents.'
+    truth: true
+    answer: Une valeur ajoutée par un parent est visible des enfants.
+  - key: vf-dependances
+    format: true-false
+    question: Le contexte est un bon endroit pour passer la connexion à la base de données.
+    truth: false
+    answer: Une dépendance se passe au constructeur ; dans le contexte, elle devient invisible et non vérifiée.
+  - key: vf-absente
+    format: true-false
+    question: '`ctx.Value(k)` renvoie nil quand la clé est absente.'
+    truth: true
+    answer: D'où l'assertion avec `, ok` dans les accesseurs.
+  - key: vf-enfant
+    format: true-false
+    question: Une valeur ajoutée à un contexte enfant est visible depuis le parent.
+    truth: false
+    answer: La recherche remonte vers les parents, jamais vers les enfants.
+  - key: qcm-oui
+    format: multiple-choice
+    question: Quelles données ont leur place dans les valeurs du contexte ?
+    choices:
+      - text: L'identifiant de trace de la requête
+        correct: true
+      - text: L'utilisateur authentifié par le middleware
+        correct: true
+      - text: L'identifiant de la commande à afficher
+        correct: false
+      - text: Le pool de connexions SQL
+        correct: false
+    answer: Un paramètre métier va dans la signature, une dépendance dans le constructeur.
+  - key: qcm-cle
+    format: multiple-choice
+    question: Quelles clés conviennent pour WithValue ?
+    choices:
+      - text: '`type cleTrace struct{}`, non exporté'
+        correct: true
+      - text: '`type cle int` avec des constantes non exportées'
+        correct: true
+      - text: '`"trace-id"`'
+        correct: false
+      - text: '`42`'
+        correct: false
+    answer: Une valeur de type prédéfini peut entrer en collision avec un autre package.
+  - key: qcm-defauts
+    format: multiple-choice
+    question: Quels défauts a le passage de paramètres par le contexte ?
+    choices:
+      - text: Les dépendances de la fonction disparaissent de sa signature
+        correct: true
+      - text: Le compilateur ne vérifie plus le type ni la présence de la valeur
+        correct: true
+      - text: Le contexte devient non thread-safe
+        correct: false
+      - text: Les valeurs sont perdues à la première fonction
+        correct: false
+    answer: Le code compile mais échoue à l'exécution si la valeur manque.
+  - key: qcm-accesseur
+    format: multiple-choice
+    question: Quelle écriture d'accesseur est correcte ?
+    choices:
+      - text: '`u, ok := ctx.Value(cleUtilisateur{}).(Utilisateur); return u, ok`'
+        correct: true
+      - text: '`return ctx.Value(cleUtilisateur{}).(Utilisateur)`, qui panique si la valeur manque'
+        correct: false
+      - text: '`return ctx.Value("utilisateur")`'
+        correct: false
+      - text: '`ctx.Utilisateur`'
+        correct: false
+    answer: La forme `, ok` évite la panique.
+  - key: trous-withvalue
+    format: fill-in
+    question: |-
+      Complétez :
+      ```go
+      ctx = context.___(ctx, cleTrace{}, idTrace)
+      ```
+    blanks:
+      - - WithValue
+    answer: WithValue renvoie un contexte enfant qui porte la valeur.
+  - key: trous-value
+    format: fill-in
+    question: "Complétez l'accesseur :\n```go\nfunc TraceDe(ctx context.Context) string {\n\tid, _ := ctx.___(cleTrace{}).(string)\n\treturn id\n}\n```"
+    blanks:
+      - - Value
+    answer: Value cherche la clé.
+  - key: trous-cle
+    format: fill-in
+    question: |-
+      Complétez une clé sans collision possible :
+      ```go
+      type cleTrace ___{}
+      ```
+    blanks:
+      - - struct
+    answer: Une struct vide d'un type non exporté.
+  - key: trous-ok
+    format: fill-in
+    question: |-
+      Complétez pour ne pas paniquer si la valeur manque :
+      ```go
+      u, ___ := ctx.Value(cleUtilisateur{}).(Utilisateur)
+      ```
+    blanks:
+      - - ok
+    answer: L'assertion à deux résultats.
+  - key: bug-string
+    format: bug-fix
+    question: |-
+      `go vet` signale « should not use built-in type string as key for value » :
+      ```go
+      ctx = context.WithValue(ctx, "utilisateur", u)
+      ```
+    answer: |-
+      ```go
+      type cleUtilisateur struct{}
+
+      ctx = context.WithValue(ctx, cleUtilisateur{}, u)
+      ```
+      Une clé string peut entrer en collision avec celle d'un autre package ; un type non exporté est unique.
+  - key: bug-parametre
+    format: bug-fix
+    question: "Que reproches-tu à ce code ?\n```go\nfunc (s *Service) Facturer(ctx context.Context) error {\n\tid := ctx.Value(cleCommande{}).(string)\n\treturn s.depot.Facturer(ctx, id)\n}\n```"
+    answer: "```go\nfunc (s *Service) Facturer(ctx context.Context, idCommande string) error {\n\treturn s.depot.Facturer(ctx, idCommande)\n}\n```\nL'identifiant est un paramètre métier : caché dans le contexte, il disparaît de la signature, n'est plus vérifié\npar le compilateur, et l'assertion panique s'il manque."
+  - key: bug-dependance
+    format: bug-fix
+    question: "Les tests doivent remplir le contexte d'une base, d'un logger et d'un client pour appeler chaque fonction :\n```go\nfunc Traiter(ctx context.Context) error {\n\tdb := ctx.Value(cleDB{}).(*sql.DB)\n\tlog := ctx.Value(cleLog{}).(*slog.Logger)\n\t// ...\n}\n```"
+    answer: "```go\ntype Service struct {\n\tdb  *sql.DB\n\tlog *slog.Logger\n}\n\nfunc NouveauService(db *sql.DB, log *slog.Logger) *Service {\n\treturn &Service{db: db, log: log}\n}\n\nfunc (s *Service) Traiter(ctx context.Context) error { ... }\n```\nLes dépendances se passent au constructeur ; le contexte ne porte que des données de requête."
+  - key: bug-panique
+    format: bug-fix
+    question: |-
+      Une route appelée sans le middleware d'authentification fait paniquer le service :
+      ```go
+      u := r.Context().Value(cleUtilisateur{}).(Utilisateur)
+      ```
+    answer: "```go\nu, ok := UtilisateurDe(r.Context())\nif !ok {\n\thttp.Error(w, \"non authentifié\", http.StatusUnauthorized)\n\treturn\n}\n```\nL'assertion simple panique si la valeur manque ; l'accesseur avec `, ok` permet de répondre proprement."
+  - key: scenario-trace
+    format: scenario
+    question: Comment fais-tu apparaître l'identifiant de trace de chaque requête dans tous ses journaux ?
+    answer: |-
+      Un middleware lit l'en-tête de trace (ou en génère un), le met dans le contexte avec une clé non exportée et un
+      accesseur, puis toutes les couches journalisent avec `slog.InfoContext(ctx, ...)` ; un `slog.Handler`
+      personnalisé lit l'identifiant dans le contexte et l'ajoute à chaque ligne. Avec OpenTelemetry, c'est le span du
+      contexte qui porte ces identifiants, et les appels sortants les propagent.
+  - key: scenario-revue
+    format: scenario
+    question: En revue, tu trouves un contexte qui transporte une dizaine de valeurs. Que dis-tu ?
+    answer: |-
+      Je trie : les données de requête transverses (trace, utilisateur, locale) peuvent rester ; les paramètres métier
+      redeviennent des arguments, les dépendances passent au constructeur. Je rappelle que la recherche dans le contexte
+      est linéaire le long de la chaîne et que rien n'est vérifié à la compilation. Je propose des accesseurs typés
+      pour ce qui reste.
+  - key: scenario-utilisateur
+    format: scenario
+    question: Comment transmets-tu l'utilisateur authentifié du middleware aux handlers ?
+    answer: |-
+      Le middleware valide le jeton, construit un `Utilisateur` immuable et appelle `next.ServeHTTP(w,
+      r.WithContext(AvecUtilisateur(r.Context(), u)))`. Les handlers récupèrent `UtilisateurDe(r.Context())`, en
+      vérifiant le `ok`. Les couches métier, elles, reçoivent l'utilisateur (ou son identifiant) en paramètre explicite
+      quand une décision en dépend.
+  - key: scenario-java
+    format: scenario
+    question: Compare les valeurs de contexte Go aux ThreadLocal de Java.
+    answer: |-
+      Les deux portent des données de requête sans les passer partout, mais le contexte est explicite : il voyage en
+      paramètre, survit aux changements de goroutine, et chaque enfant est immuable. Un ThreadLocal est implicite,
+      attaché au thread, et doit être nettoyé (pools de threads, threads virtuels). En Go, il n'existe pas de stockage
+      par goroutine : c'est voulu.

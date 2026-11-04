@@ -1,4 +1,43 @@
 notion: trace-execution
+lesson: |-
+  Le **traceur d'exécution** enregistre ce qui se passe dans le runtime, événement par événement : quand chaque
+  goroutine est créée, s'exécute, se bloque (channel, verrou, réseau, appel système) et se réveille, sur quel P, et
+  quand le GC tourne.
+
+  Là où un profil CPU dit **où** le processeur passe son temps, la trace dit **quand** et **pourquoi** une goroutine
+  n'avançait pas : parfait pour une **latence** élevée avec un CPU bas.
+
+  ```
+  go test -trace=trace.out ./...
+  curl -o trace.out "http://localhost:6060/debug/pprof/trace?seconds=5"
+  go tool trace trace.out
+  ```
+
+  ```go
+  // dans le code
+  f, _ := os.Create("trace.out")
+  trace.Start(f)
+  defer trace.Stop()
+  ```
+
+  On peut annoter la trace avec des **tâches** et des **régions** (`trace.NewTask`, `trace.WithRegion`) pour retrouver
+  une requête précise.
+
+  Le **flight recorder** (`trace.FlightRecorder`, Go 1.25) garde en mémoire les **dernières secondes** de trace en
+  continu, et l'on écrit ce tampon seulement quand un événement intéressant survient (une requête trop lente, une
+  erreur) : on capture ce qui s'est passé **juste avant** l'incident, sans tracer en permanence sur disque.
+
+  ```go
+  fr := trace.NewFlightRecorder(trace.FlightRecorderConfig{MinAge: 5 * time.Second})
+  fr.Start()
+  // ... quand une requête dépasse 1 s :
+  fr.WriteTo(fichier)
+  ```
+
+  Une trace coûte quelques pourcents de CPU et devient vite volumineuse : quelques secondes suffisent.
+
+  **En entretien** : « La trace montre les goroutines dans le temps, leurs blocages et le GC : l'outil des problèmes de
+  latence ; go tool trace pour la lire ; le flight recorder de Go 1.25 pour capturer les secondes avant un incident. »
 cards:
   - key: profil-cpu-vs-trace-execution
     format: course
@@ -12,3 +51,108 @@ cards:
     format: course
     question: Quel profil pour une latence élevée avec un CPU bas ?
     answer: block, mutex et la trace d'exécution.
+  - key: annoter
+    format: course
+    question: Comment retrouver une requête précise dans une trace d'exécution ?
+    answer: 'En l''annotant avec `trace.NewTask(ctx, "commande")` et des régions (`trace.WithRegion`) : go tool trace regroupe alors les événements par tâche et donne leurs durées.'
+  - key: vf-quand
+    format: true-false
+    question: La trace d'exécution montre quand une goroutine attendait un verrou ou un channel.
+    truth: true
+    answer: C'est son principal intérêt par rapport au profil CPU.
+  - key: vf-flight
+    format: true-false
+    question: Le flight recorder écrit en continu toute la trace sur le disque.
+    truth: false
+    answer: Il garde les dernières secondes en mémoire, écrites seulement quand on le demande.
+  - key: vf-duree
+    format: true-false
+    question: Quelques secondes de trace suffisent en général à comprendre un problème.
+    truth: true
+    answer: Une trace longue devient énorme et difficile à lire.
+  - key: vf-1-25
+    format: true-false
+    question: Le flight recorder fait partie de runtime/trace depuis Go 1.25.
+    truth: true
+    answer: Avant, il existait dans golang.org/x/exp/trace.
+  - key: qcm-contenu
+    format: multiple-choice
+    question: Que montre une trace d'exécution ?
+    choices:
+      - text: Les goroutines exécutées sur chaque P au fil du temps
+        correct: true
+      - text: Les blocages sur channels, verrous et réseau
+        correct: true
+      - text: Les cycles du GC
+        correct: true
+      - text: Les requêtes SQL envoyées, avec leur texte
+        correct: false
+    answer: Le texte des requêtes n'est pas dans la trace du runtime.
+  - key: qcm-choix
+    format: multiple-choice
+    question: Quel outil pour quel symptôme ?
+    choices:
+      - text: 'Latence élevée avec un CPU bas : la trace'
+        correct: true
+      - text: 'CPU saturé : le profil CPU'
+        correct: true
+      - text: 'Mémoire qui monte : le profil CPU'
+        correct: false
+      - text: 'Fuite de goroutines : la trace de quelques millisecondes'
+        correct: false
+    answer: Pour la mémoire, le profil heap ; pour les fuites, le profil goroutine.
+  - key: qcm-obtenir
+    format: multiple-choice
+    question: Comment obtenir une trace ?
+    choices:
+      - text: '`go test -trace=trace.out`'
+        correct: true
+      - text: '`/debug/pprof/trace?seconds=5` avec net/http/pprof'
+        correct: true
+      - text: '`trace.Start(w)` et `trace.Stop()` dans le code'
+        correct: true
+      - text: '`go build -trace`'
+        correct: false
+    answer: Elle se lit avec go tool trace.
+  - key: qcm-flight
+    format: multiple-choice
+    question: Dans quel cas le flight recorder est-il utile ?
+    choices:
+      - text: Comprendre pourquoi une requête rare a mis 3 secondes
+        correct: true
+      - text: Capturer ce qui précède une erreur intermittente en production
+        correct: true
+      - text: Remplacer les métriques du service
+        correct: false
+      - text: Profiler la mémoire
+        correct: false
+    answer: On l'écrit quand on détecte l'événement, et l'on voit les secondes qui l'ont précédé.
+  - key: scenario-latence
+    format: scenario
+    question: La latence p99 de ton service est élevée alors que le CPU est à 20 %. Comment utilises-tu la trace ?
+    answer: |-
+      Je capture quelques secondes de trace pendant la charge, annotées par tâche si possible, puis j'ouvre go tool trace.
+      Je regarde les goroutines des requêtes lentes : temps bloqué sur un verrou (contention), sur le réseau (un appel
+      aval lent), en attente d'un P (trop de goroutines de calcul), ou interrompu par le GC et le mark assist. Les vues de
+      synthèse (latence d'ordonnancement, blocage par cause) orientent vers le bon correctif.
+  - key: scenario-flight
+    format: scenario
+    question: Comment mettrais-tu en place le flight recorder dans un service ?
+    answer: |-
+      Au démarrage, un `trace.NewFlightRecorder` avec quelques secondes de rétention, démarré en continu. Un middleware
+      mesure chaque requête ; au-delà d'un seuil (1 s), il demande l'écriture du tampon dans un fichier (une fois par
+      période au plus, pour ne pas inonder le disque). Les fichiers sont ensuite récupérés et ouverts avec go tool trace.
+  - key: scenario-gc
+    format: scenario
+    question: Comment vois-tu dans une trace que le GC ralentit tes requêtes ?
+    answer: |-
+      La trace montre les cycles du GC sur une ligne dédiée, et les goroutines en « mark assist » quand elles doivent
+      aider au marquage avant d'allouer. Si les requêtes lentes coïncident avec des cycles et beaucoup d'assists, la
+      pression d'allocation est en cause : je réduis les allocations ou je donne plus de marge (GOGC, GOMEMLIMIT).
+  - key: scenario-vs-pprof
+    format: scenario
+    question: En entretien, on te demande quand préférer une trace à un profil pprof.
+    answer: |-
+      pprof agrège par échantillonnage : il dit quelles fonctions coûtent le plus, en moyenne. La trace garde l'ordre des
+      événements : elle dit ce qui est arrivé à une goroutine donnée, quand elle attendait et pourquoi. Je prends pprof
+      pour un problème de débit ou de CPU, la trace pour un problème de latence, de concurrence ou d'ordonnancement.

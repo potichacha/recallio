@@ -1,4 +1,5 @@
 notion: http-timeouts-serveur
+lesson: "Un `http.Server` créé sans réglage n'a **aucun délai** : un client qui ouvre une connexion et envoie ses en-têtes un\noctet par minute (attaque **Slowloris**) garde une goroutine et un descripteur pour toujours. En production, on fixe\ntoujours les délais :\n\n```go\nsrv := &http.Server{\n\tAddr:              \":8080\",\n\tHandler:           h,\n\tReadHeaderTimeout: 5 * time.Second,   // lire les en-têtes\n\tReadTimeout:       30 * time.Second,  // lire toute la requête, corps compris\n\tWriteTimeout:      30 * time.Second,  // écrire la réponse\n\tIdleTimeout:       120 * time.Second, // garder une connexion keep-alive inactive\n\tMaxHeaderBytes:    1 << 20,\n}\n```\n\nCe que mesure chaque délai :\n- **`ReadHeaderTimeout`** : de l'acceptation de la connexion à la fin des en-têtes ; le plus important contre\n  Slowloris ;\n- **`ReadTimeout`** : jusqu'à la fin du **corps** ; trop court, il coupe les téléversements ;\n- **`WriteTimeout`** : jusqu'à la fin de l'écriture de la réponse, donc il borne aussi le **temps du handler** ;\n  trop court, il coupe les réponses longues (exports, streaming) ;\n- **`IdleTimeout`** : la durée d'inactivité entre deux requêtes d'une connexion keep-alive (s'il vaut zéro, c'est\n  `ReadTimeout` qui s'applique).\n\nQuand un délai est dépassé, la connexion est **coupée** : le client ne reçoit pas de réponse propre. Pour une limite\nmétier (« une requête ne dure pas plus de 10 s »), on ajoute un **contexte** avec délai dans un middleware, ou\n`http.TimeoutHandler` qui répond 503.\n\nPour une route particulière (un téléversement, un flux d'événements), **`http.ResponseController`** (Go 1.20) change\nles échéances de la requête en cours : `rc.SetWriteDeadline(time.Time{})` lève le délai d'écriture.\n\n**En entretien** : « Aucun délai par défaut, d'où Slowloris ; ReadHeaderTimeout surtout, plus Read, Write et Idle ;\nWriteTimeout coupe la connexion, un contexte ou TimeoutHandler donne une réponse propre ; ResponseController pour les\nexceptions par route. »"
 cards:
   - key: serveur-defaut-timeouts
     format: course
@@ -8,3 +9,173 @@ cards:
     format: course
     question: C'est quoi une attaque Slowloris ?
     answer: Ouvrir beaucoup de connexions et envoyer les en-têtes très lentement pour épuiser le serveur.
+  - key: write
+    format: course
+    question: Que se passe-t-il quand un handler dépasse le WriteTimeout du serveur ?
+    answer: 'Les écritures suivantes échouent et la connexion est coupée : le client voit une erreur réseau, pas une réponse HTTP. Le handler, lui, continue jusqu''au bout s''il ne surveille pas son contexte.'
+  - key: responsecontroller
+    format: course
+    question: Comment allonger le délai d'écriture pour une seule route, par exemple un export de 5 minutes ?
+    answer: Avec `http.NewResponseController(w).SetWriteDeadline(time.Now().Add(10*time.Minute))` (Go 1.20), qui change l'échéance de la requête en cours sans toucher aux autres.
+  - key: vf-defaut
+    format: true-false
+    question: Un http.Server sans réglage coupe les connexions inactives au bout de deux minutes.
+    truth: false
+    answer: Il n'a aucun délai par défaut.
+  - key: vf-readheader
+    format: true-false
+    question: ReadHeaderTimeout est le délai le plus important contre une attaque Slowloris.
+    truth: true
+    answer: L'attaque envoie les en-têtes au compte-gouttes.
+  - key: vf-idle
+    format: true-false
+    question: Si IdleTimeout vaut zéro, c'est ReadTimeout qui s'applique aux connexions inactives.
+    truth: true
+    answer: Et s'il vaut zéro aussi, aucune limite.
+  - key: vf-handler
+    format: true-false
+    question: Quand le WriteTimeout expire, le handler en cours est arrêté de force.
+    truth: false
+    answer: Il continue ; seules ses écritures échouent. Un contexte avec délai permet de l'arrêter.
+  - key: qcm-delais
+    format: multiple-choice
+    question: Quels délais faut-il fixer sur un serveur de production ?
+    choices:
+      - text: ReadHeaderTimeout
+        correct: true
+      - text: ReadTimeout et WriteTimeout
+        correct: true
+      - text: IdleTimeout
+        correct: true
+      - text: Aucun, les valeurs par défaut suffisent
+        correct: false
+    answer: Les valeurs par défaut sont « aucune limite ».
+  - key: qcm-propre
+    format: multiple-choice
+    question: Comment renvoyer une réponse propre quand une requête dure trop longtemps ?
+    choices:
+      - text: '`http.TimeoutHandler`, qui répond 503 après le délai'
+        correct: true
+      - text: Un contexte avec délai dans un middleware, surveillé par le handler
+        correct: true
+      - text: Un WriteTimeout plus court
+        correct: false
+      - text: Un ReadHeaderTimeout plus court
+        correct: false
+    answer: Le WriteTimeout coupe la connexion sans réponse.
+  - key: qcm-televersement
+    format: multiple-choice
+    question: Des téléversements de gros fichiers échouent au bout de 30 secondes. Quelles pistes ?
+    choices:
+      - text: Le ReadTimeout du serveur est trop court pour ces routes
+        correct: true
+      - text: Allonger l'échéance de lecture de la route avec http.ResponseController
+        correct: true
+      - text: Supprimer ReadHeaderTimeout
+        correct: false
+      - text: Augmenter MaxHeaderBytes
+        correct: false
+    answer: ReadTimeout couvre la lecture du corps.
+  - key: qcm-slowloris
+    format: multiple-choice
+    question: Qu'est-ce qu'une attaque Slowloris ?
+    choices:
+      - text: Ouvrir beaucoup de connexions et envoyer les en-têtes très lentement pour épuiser le serveur
+        correct: true
+      - text: Envoyer des millions de requêtes par seconde
+        correct: false
+      - text: Injecter du SQL dans les en-têtes
+        correct: false
+      - text: Usurper un certificat TLS
+        correct: false
+    answer: Chaque connexion garde des ressources tant qu'elle n'expire pas.
+  - key: trous-readheader
+    format: fill-in
+    question: "Complétez pour borner la lecture des en-têtes :\n```go\nsrv := &http.Server{\n\tAddr:              \":8080\",\n\tHandler:           h,\n\t___: 5 * time.Second,\n}\n```"
+    blanks:
+      - - ReadHeaderTimeout
+    answer: ReadHeaderTimeout.
+  - key: trous-idle
+    format: fill-in
+    question: |-
+      Complétez pour fermer les connexions keep-alive inactives après deux minutes :
+      ```go
+      ___: 2 * time.Minute,
+      ```
+    blanks:
+      - - IdleTimeout
+    answer: IdleTimeout.
+  - key: trous-controller
+    format: fill-in
+    question: |-
+      Complétez pour lever le délai d'écriture d'un flux d'événements :
+      ```go
+      rc := http.___(w)
+      rc.SetWriteDeadline(time.Time{})
+      ```
+    blanks:
+      - - NewResponseController
+    answer: http.NewResponseController.
+  - key: trous-timeouthandler
+    format: fill-in
+    question: |-
+      Complétez pour répondre 503 après 10 secondes :
+      ```go
+      h := http.___(mux, 10*time.Second, "délai dépassé")
+      ```
+    blanks:
+      - - TimeoutHandler
+    answer: http.TimeoutHandler.
+  - key: bug-aucun
+    format: bug-fix
+    question: |-
+      Sous une attaque, le serveur accumule des dizaines de milliers de connexions qui n'envoient rien :
+      ```go
+      log.Fatal(http.ListenAndServe(":8080", h))
+      ```
+    answer: "```go\nsrv := &http.Server{\n\tAddr:              \":8080\",\n\tHandler:           h,\n\tReadHeaderTimeout: 5 * time.Second,\n\tReadTimeout:       30 * time.Second,\n\tWriteTimeout:      30 * time.Second,\n\tIdleTimeout:       120 * time.Second,\n}\nlog.Fatal(srv.ListenAndServe())\n```\nhttp.ListenAndServe n'a aucun délai ; un http.Server configuré coupe les clients lents."
+  - key: bug-export
+    format: bug-fix
+    question: "L'export CSV d'un gros client s'interrompt au bout de 30 secondes, avec un fichier tronqué :\n```go\nfunc exporter(w http.ResponseWriter, r *http.Request) {\n\tw.Header().Set(\"Content-Type\", \"text/csv\")\n\tecrireCSV(r.Context(), w)\n}\n```"
+    answer: "```go\nfunc exporter(w http.ResponseWriter, r *http.Request) {\n\trc := http.NewResponseController(w)\n\tif err := rc.SetWriteDeadline(time.Now().Add(10 * time.Minute)); err != nil {\n\t\thttp.Error(w, \"export indisponible\", http.StatusInternalServerError)\n\t\treturn\n\t}\n\tw.Header().Set(\"Content-Type\", \"text/csv\")\n\tecrireCSV(r.Context(), w)\n}\n```\nLe WriteTimeout global (30 s) coupait la connexion ; on l'allonge pour cette seule route."
+  - key: bug-handler-continue
+    format: bug-fix
+    question: "Après un dépassement du WriteTimeout, les requêtes lentes continuent de charger la base pendant des minutes :\n```go\nfunc rapport(w http.ResponseWriter, r *http.Request) {\n\tlignes := depot.RapportComplet(context.Background())\n\tjson.NewEncoder(w).Encode(lignes)\n}\n```"
+    answer: "```go\nfunc rapport(w http.ResponseWriter, r *http.Request) {\n\tctx, cancel := context.WithTimeout(r.Context(), 25*time.Second)\n\tdefer cancel()\n\tlignes, err := depot.RapportComplet(ctx)\n\tif err != nil {\n\t\thttp.Error(w, \"rapport indisponible\", http.StatusServiceUnavailable)\n\t\treturn\n\t}\n\tjson.NewEncoder(w).Encode(lignes)\n}\n```\nLe WriteTimeout coupe la connexion mais n'arrête pas le handler ; un contexte dérivé de la requête, un peu plus\ncourt que le WriteTimeout, arrête la requête SQL et permet une réponse propre."
+  - key: bug-idle
+    format: bug-fix
+    question: "Le nombre de connexions ouvertes ne redescend jamais après un pic, alors que le trafic est retombé :\n```go\nsrv := &http.Server{\n\tAddr:              \":8080\",\n\tHandler:           h,\n\tReadHeaderTimeout: 5 * time.Second,\n}\n```"
+    answer: "```go\nsrv := &http.Server{\n\tAddr:              \":8080\",\n\tHandler:           h,\n\tReadHeaderTimeout: 5 * time.Second,\n\tIdleTimeout:       120 * time.Second,\n}\n```\nSans IdleTimeout (ni ReadTimeout), les connexions keep-alive inactives restaient ouvertes pour toujours."
+  - key: scenario-valeurs
+    format: scenario
+    question: Comment choisis-tu les délais du serveur HTTP de ton API ?
+    answer: |-
+      ReadHeaderTimeout court (5 s) dans tous les cas. ReadTimeout et WriteTimeout d'après les requêtes les plus longues
+      normales, mesurées (p99), avec une marge : par exemple 30 s pour une API qui répond en moins d'une seconde.
+      IdleTimeout autour de 60 à 120 s, cohérent avec le répartiteur de charge devant (son délai doit être plus court que
+      celui du serveur pour éviter les connexions coupées des deux côtés). Les routes exceptionnelles passent par
+      ResponseController, et un délai par requête (contexte) donne des réponses propres.
+  - key: scenario-lb
+    format: scenario
+    question: Ton répartiteur de charge renvoie des 502 de temps en temps sur des connexions keep-alive. Que vérifies-tu ?
+    answer: |-
+      L'ordre des délais d'inactivité : si le serveur Go ferme une connexion inactive (IdleTimeout) pendant que le
+      répartiteur la croit encore ouverte et y envoie une requête, celle-ci échoue en 502. Le délai d'inactivité du
+      répartiteur doit être plus court que l'IdleTimeout du serveur. Je vérifie aussi que l'arrêt gracieux laisse le
+      temps au répartiteur de retirer l'instance.
+  - key: scenario-sse
+    format: scenario
+    question: Comment sers-tu un flux Server-Sent Events qui reste ouvert des heures, avec un WriteTimeout global de 30 s ?
+    answer: |-
+      Dans le handler du flux, `http.NewResponseController(w)` : `SetWriteDeadline(time.Time{})` lève le délai, puis
+      chaque événement est suivi de `rc.Flush()`. La boucle surveille `r.Context().Done()` pour s'arrêter quand le client
+      part, et envoie un commentaire périodique (battement) pour que les intermédiaires ne coupent pas la connexion
+      inactive. Le reste de l'API garde ses délais courts.
+  - key: scenario-entretien
+    format: scenario
+    question: En entretien, on te demande pourquoi `http.ListenAndServe(":8080", mux)` n'est pas prêt pour la production.
+    answer: |-
+      Il crée un serveur sans aucun délai : vulnérable à Slowloris et aux clients lents, avec des connexions inactives
+      jamais fermées. Il ne permet pas non plus l'arrêt gracieux, faute de garder la référence au serveur. En production,
+      je crée un `http.Server` avec ReadHeaderTimeout, ReadTimeout, WriteTimeout et IdleTimeout, et je l'arrête avec
+      `Shutdown` à la réception de SIGTERM.

@@ -1,4 +1,5 @@
 notion: mutex
+lesson: "Quand plusieurs goroutines lisent et modifient **le même état**, il faut les empêcher d'y toucher en même temps. Un\n**`sync.Mutex`** (verrou d'exclusion mutuelle) laisse **une seule** goroutine à la fois dans la section protégée.\n\n```go\ntype Compteurs struct {\n\tmu     sync.Mutex     // protège vus\n\tvus    map[string]int\n}\n\nfunc (c *Compteurs) Ajouter(page string) {\n\tc.mu.Lock()\n\tdefer c.mu.Unlock()\n\tc.vus[page]++\n}\n\nfunc (c *Compteurs) Lire(page string) int {\n\tc.mu.Lock()\n\tdefer c.mu.Unlock()\n\treturn c.vus[page]       // les lectures aussi passent par le verrou\n}\n```\n\nLes règles :\n- **toutes** les lectures et écritures de l'état protégé passent par le verrou, pas seulement les écritures ;\n- `defer mu.Unlock()` juste après `Lock()` : le verrou est rendu même en cas de retour anticipé ou de panique ;\n- le mutex se place **à côté** des champs qu'il protège, avec un commentaire qui le dit ;\n- la valeur zéro est un mutex **déverrouillé**, prêt à l'emploi ;\n- les méthodes ont un **récepteur pointeur** : copier un mutex copie son état (voir `go vet copylocks`) ;\n- un `sync.Mutex` **n'est pas réentrant** : appeler `Lock()` deux fois dans la même goroutine bloque pour toujours.\n\nGarder les sections critiques **courtes** : pas d'appel réseau ni d'entrée-sortie sous verrou, et toujours le même\nordre quand il faut prendre plusieurs verrous (sinon deux goroutines peuvent s'attendre mutuellement).\n\nDepuis Go 1.18, `TryLock()` existe, mais son usage est rarement justifié.\n\n**En entretien** : « Un mutex à côté de l'état qu'il protège, lectures comprises ; Lock puis defer Unlock ; non\nréentrant ; sections courtes, ordre fixe entre verrous. »"
 cards:
   - key: cache-memoire-partage-plusieurs-goroutines
     format: scenario
@@ -80,3 +81,182 @@ cards:
     check:
       code: "package main\n\nimport (\n\t\"fmt\"\n\t\"sync\"\n)\n\nfunc main() {\n\tvar wg sync.WaitGroup\n\tvar mu sync.Mutex\n\ttotal := 0\n\tfor i := 1; i <= 100; i++ {\n\t    wg.Add(1)\n\t    go func() {\n\t        defer wg.Done()\n\t        mu.Lock()\n\t        total += i\n\t        mu.Unlock()\n\t    }()\n\t}\n\twg.Wait()\n\tfmt.Println(total)\n}\n"
       output: '5050'
+  - key: vf-lectures
+    format: true-false
+    question: Seules les écritures d'un état partagé ont besoin du verrou ; les lectures peuvent s'en passer.
+    truth: false
+    answer: Une lecture concurrente d'une écriture est aussi une data race.
+  - key: vf-zero
+    format: true-false
+    question: Un `sync.Mutex` déclaré sans initialisation est utilisable tel quel.
+    truth: true
+    answer: Sa valeur zéro est un mutex déverrouillé.
+  - key: vf-reentrant
+    format: true-false
+    question: Une goroutine qui a déjà le verrou peut appeler `Lock()` une seconde fois sans bloquer.
+    truth: false
+    answer: 'sync.Mutex n''est pas réentrant : le second Lock bloque pour toujours.'
+  - key: vf-unlock-autre
+    format: true-false
+    question: En Go, une goroutine peut déverrouiller un Mutex verrouillé par une autre.
+    truth: true
+    answer: Le Mutex n'est pas attaché à une goroutine, mais ce style rend le code difficile à suivre.
+  - key: qcm-regles
+    format: multiple-choice
+    question: Quelles pratiques sont recommandées avec un sync.Mutex ?
+    choices:
+      - text: '`defer mu.Unlock()` juste après `mu.Lock()`'
+        correct: true
+      - text: Placer le mutex à côté des champs qu'il protège
+        correct: true
+      - text: Faire les appels HTTP sous verrou pour être sûr
+        correct: false
+      - text: Passer la struct qui contient le mutex par valeur
+        correct: false
+    answer: Une copie a son propre verrou et ne protège plus rien.
+  - key: qcm-deadlock
+    format: multiple-choice
+    question: Lesquels de ces codes provoquent un blocage ?
+    choices:
+      - text: Une méthode qui verrouille puis appelle une autre méthode qui reverrouille le même mutex
+        correct: true
+      - text: Deux goroutines qui prennent A puis B, et B puis A
+        correct: true
+      - text: Lock, defer Unlock, puis un return anticipé
+        correct: false
+      - text: Deux mutex différents pris toujours dans le même ordre
+        correct: false
+    answer: Le defer rend le verrou ; l'ordre fixe évite l'attente circulaire.
+  - key: qcm-recepteur
+    format: multiple-choice
+    question: Une struct contient un `sync.Mutex`. Quel récepteur pour ses méthodes ?
+    choices:
+      - text: Un récepteur pointeur
+        correct: true
+      - text: Un récepteur valeur
+        correct: false
+      - text: Peu importe
+        correct: false
+      - text: Un récepteur valeur pour les lectures, pointeur pour les écritures
+        correct: false
+    answer: Un récepteur valeur copie le mutex à chaque appel, et la copie ne protège rien.
+  - key: qcm-section
+    format: multiple-choice
+    question: Pourquoi garder une section critique courte ?
+    choices:
+      - text: Les autres goroutines attendent pendant qu'elle s'exécute
+        correct: true
+      - text: Une entrée-sortie lente sous verrou bloque tout le service
+        correct: true
+      - text: Le verrou expire au bout d'une seconde
+        correct: false
+      - text: Le compilateur l'exige
+        correct: false
+    answer: Un verrou n'expire jamais.
+  - key: trous-lock
+    format: fill-in
+    question: |-
+      Complétez pour protéger l'incrément :
+      ```go
+      c.mu.___()
+      defer c.mu.___()
+      c.n++
+      ```
+    blanks:
+      - - Lock
+      - - Unlock
+    answer: Lock, puis defer Unlock.
+  - key: trous-champ
+    format: fill-in
+    question: "Complétez le champ qui protège la map :\n```go\ntype Cache struct {\n\tmu    sync.___\n\titems map[string]string\n}\n```"
+    blanks:
+      - - Mutex
+        - RWMutex
+    answer: Un Mutex (ou un RWMutex si les lectures dominent).
+  - key: trous-defer
+    format: fill-in
+    question: |-
+      Complétez pour que le verrou soit rendu même en cas de panique :
+      ```go
+      mu.Lock()
+      ___ mu.Unlock()
+      ```
+    blanks:
+      - - defer
+    answer: Le defer s'exécute aussi pendant une panique.
+  - key: trous-recepteur
+    format: fill-in
+    question: "Complétez le récepteur pour ne pas copier le mutex :\n```go\nfunc (c ___Compteur) Incrementer() {\n\tc.mu.Lock()\n\tdefer c.mu.Unlock()\n\tc.n++\n}\n```"
+    blanks:
+      - - '*'
+    answer: Un récepteur pointeur.
+  - key: code-map
+    format: code-output
+    question: "```go\nvar mu sync.Mutex\nvus := map[string]int{}\nvar wg sync.WaitGroup\nfor i := range 300 {\n\twg.Go(func() {\n\t\tpage := []string{\"a\", \"b\", \"c\"}[i%3]\n\t\tmu.Lock()\n\t\tdefer mu.Unlock()\n\t\tvus[page]++\n\t})\n}\nwg.Wait()\nfmt.Println(vus)\n```"
+    answer: '`map[a:100 b:100 c:100]` : le verrou protège la map ; fmt affiche les clés triées.'
+    check:
+      code: "package main\n\nimport (\n\t\"fmt\"\n\t\"sync\"\n)\n\nfunc main() {\n\tvar mu sync.Mutex\n\tvus := map[string]int{}\n\tvar wg sync.WaitGroup\n\tfor i := range 300 {\n\t\twg.Go(func() {\n\t\t\tpage := []string{\"a\", \"b\", \"c\"}[i%3]\n\t\t\tmu.Lock()\n\t\t\tdefer mu.Unlock()\n\t\t\tvus[page]++\n\t\t})\n\t}\n\twg.Wait()\n\tfmt.Println(vus)\n}\n"
+      output: map[a:100 b:100 c:100]
+  - key: code-reentrant
+    format: code-output
+    question: |-
+      ```go
+      var mu sync.Mutex
+      mu.Lock()
+      mu.Lock()
+      fmt.Println("deux fois")
+      ```
+    answer: '« all goroutines are asleep - deadlock! » : le second Lock attend un Unlock qui ne viendra jamais.'
+    check:
+      code: "package main\n\nimport (\n\t\"fmt\"\n\t\"sync\"\n)\n\nfunc main() {\n\tvar mu sync.Mutex\n\tmu.Lock()\n\tmu.Lock()\n\tfmt.Println(\"deux fois\")\n}\n"
+      panics: all goroutines are asleep
+  - key: code-trylock
+    format: code-output
+    question: |-
+      ```go
+      var mu sync.Mutex
+      fmt.Println(mu.TryLock())
+      fmt.Println(mu.TryLock())
+      mu.Unlock()
+      fmt.Println(mu.TryLock())
+      ```
+    answer: '`true`, `false`, `true` : TryLock prend le verrou s''il est libre, sans attendre.'
+    check:
+      code: "package main\n\nimport (\n\t\"fmt\"\n\t\"sync\"\n)\n\nfunc main() {\n\tvar mu sync.Mutex\n\tfmt.Println(mu.TryLock())\n\tfmt.Println(mu.TryLock())\n\tmu.Unlock()\n\tfmt.Println(mu.TryLock())\n}\n"
+      output: |-
+        true
+        false
+        true
+  - key: bug-lecture
+    format: bug-fix
+    question: "Le détecteur de courses signale `Solde` :\n```go\nfunc (c *Compte) Deposer(m int) {\n\tc.mu.Lock()\n\tdefer c.mu.Unlock()\n\tc.solde += m\n}\n\nfunc (c *Compte) Solde() int {\n\treturn c.solde\n}\n```"
+    answer: "```go\nfunc (c *Compte) Solde() int {\n\tc.mu.Lock()\n\tdefer c.mu.Unlock()\n\treturn c.solde\n}\n```\nUne lecture concurrente d'une écriture est une course : elle passe aussi par le verrou."
+  - key: bug-reentrant
+    format: bug-fix
+    question: "`Vider` bloque pour toujours :\n```go\nfunc (c *Cache) Taille() int {\n\tc.mu.Lock()\n\tdefer c.mu.Unlock()\n\treturn len(c.items)\n}\n\nfunc (c *Cache) Vider() int {\n\tc.mu.Lock()\n\tdefer c.mu.Unlock()\n\tn := c.Taille()\n\tclear(c.items)\n\treturn n\n}\n```"
+    answer: "```go\nfunc (c *Cache) Taille() int {\n\tc.mu.Lock()\n\tdefer c.mu.Unlock()\n\treturn c.taille()\n}\n\n// taille suppose que c.mu est verrouillé.\nfunc (c *Cache) taille() int { return len(c.items) }\n\nfunc (c *Cache) Vider() int {\n\tc.mu.Lock()\n\tdefer c.mu.Unlock()\n\tn := c.taille()\n\tclear(c.items)\n\treturn n\n}\n```\nLe mutex n'est pas réentrant : une version interne non verrouillée sert aux méthodes qui ont déjà le verrou."
+  - key: bug-io
+    format: bug-fix
+    question: "Sous charge, toutes les requêtes attendent derrière celle qui rafraîchit le cache :\n```go\nc.mu.Lock()\ndefer c.mu.Unlock()\nif time.Since(c.date) > time.Minute {\n\tc.valeur, _ = appelerAPI() // 2 secondes\n\tc.date = time.Now()\n}\nreturn c.valeur\n```"
+    answer: "```go\nc.mu.Lock()\nperime := time.Since(c.date) > time.Minute\nvaleur := c.valeur\nc.mu.Unlock()\nif !perime {\n\treturn valeur\n}\n\nnouvelle, err := appelerAPI() // hors verrou\nif err != nil {\n\treturn valeur\n}\nc.mu.Lock()\nc.valeur, c.date = nouvelle, time.Now()\nc.mu.Unlock()\nreturn nouvelle\n```\nL'appel lent se fait hors verrou ; le verrou ne protège plus que la lecture et l'écriture de l'état.\n(`singleflight` évite en plus que plusieurs goroutines rafraîchissent en même temps.)"
+  - key: bug-ordre
+    format: bug-fix
+    question: "Deux virements croisés se bloquent parfois mutuellement :\n```go\nfunc Virer(de, vers *Compte, m int) {\n\tde.mu.Lock()\n\tdefer de.mu.Unlock()\n\tvers.mu.Lock()\n\tdefer vers.mu.Unlock()\n\tde.solde -= m\n\tvers.solde += m\n}\n```"
+    answer: "```go\nfunc Virer(de, vers *Compte, m int) {\n\tpremier, second := de, vers\n\tif vers.id < de.id {\n\t\tpremier, second = vers, de\n\t}\n\tpremier.mu.Lock()\n\tdefer premier.mu.Unlock()\n\tsecond.mu.Lock()\n\tdefer second.mu.Unlock()\n\tde.solde -= m\n\tvers.solde += m\n}\n```\nA→B et B→A prenaient les verrous dans l'ordre inverse ; un ordre fixe (par identifiant) supprime l'attente\ncirculaire."
+  - key: scenario-granularite
+    format: scenario
+    question: Un seul mutex protège tout ton cache et devient un goulot d'étranglement. Que fais-tu ?
+    answer: |-
+      Je mesure d'abord (profil de contention `pprof`, `mutex` et `block`). Si le verrou est bien en cause : sections
+      critiques plus courtes (rien de lent sous verrou), un RWMutex si les lectures dominent nettement, puis un
+      découpage en segments (*sharding*) : N sous-caches, chacun avec son verrou, choisis par un hash de la clé. Pour des
+      données lues très souvent et rarement modifiées, un `atomic.Pointer` vers une copie immuable évite tout verrou en
+      lecture.
+  - key: scenario-revue
+    format: scenario
+    question: En revue de code, quels points vérifies-tu autour d'un mutex ?
+    answer: |-
+      Que tous les accès à l'état protégé passent par le verrou (lectures comprises) et que le commentaire dise ce qu'il
+      protège ; Lock suivi de defer Unlock ; pas d'appel lent ni de callback inconnu sous verrou ; pas de méthode qui
+      reverrouille ; ordre fixe entre plusieurs verrous ; récepteurs pointeurs et pas de copie de la struct (go vet) ;
+      et que les tests tournent avec `-race`.

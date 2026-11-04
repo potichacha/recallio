@@ -1,4 +1,30 @@
 notion: go-vet
+lesson: |-
+  **`go vet`** est l'analyseur statique fourni avec Go : il cherche des **erreurs probables** que le compilateur
+  accepte. Ses analyses sont conçues pour avoir **très peu de faux positifs** : on le lance sur tout le code, et
+  l'on corrige ce qu'il signale.
+
+  ```
+  go vet ./...
+  ```
+
+  Ce qu'il détecte, entre autres :
+  - **printf** : un verbe qui ne correspond pas à l'argument (`%d` avec une chaîne), un argument manquant ;
+  - **copylocks** : un mutex ou un WaitGroup copié (récepteur valeur, range) ;
+  - **lostcancel** : la fonction `cancel` d'un `context.WithCancel` jamais appelée ;
+  - **structtag** : un tag de struct mal formé (`json:nom` sans guillemets) ;
+  - **unreachable** : du code jamais atteint ;
+  - **httpresponse** : un `resp.Body` utilisé avant de vérifier l'erreur ;
+  - **unusedresult** : le résultat ignoré de fonctions comme `fmt.Sprintf` ;
+  - **tests** : des signatures de tests ou d'exemples erronées ;
+  - **waitgroup** (Go 1.25) : un `wg.Add(1)` placé dans la goroutine au lieu d'avant ;
+  - **errorsas** : un second argument de `errors.As` qui n'est pas un pointeur.
+
+  `go test` lance automatiquement un **sous-ensemble** de ces analyses (les plus sûres, comme printf) avant les tests ;
+  `go vet ./...` complet a sa place en CI. Pour aller plus loin, **staticcheck** et **golangci-lint**.
+
+  **En entretien** : « L'analyseur standard, presque sans faux positifs : printf, copylocks, lostcancel, structtag,
+  waitgroup ; go test en lance une partie ; go vet ./... en CI. »
 cards:
   - key: vet
     format: course
@@ -16,3 +42,99 @@ cards:
     format: course
     question: Que désigne « vet » ?
     answer: Analyseur statique intégré (go vet)
+  - key: vf-faux-positifs
+    format: true-false
+    question: go vet est conçu pour avoir très peu de faux positifs.
+    truth: true
+    answer: Ce qu'il signale est presque toujours un vrai problème.
+  - key: vf-test
+    format: true-false
+    question: go test lance toutes les analyses de go vet.
+    truth: false
+    answer: Seulement un sous-ensemble ; go vet ./... reste utile en CI.
+  - key: vf-compile
+    format: true-false
+    question: Un code qui compile ne peut pas être signalé par go vet.
+    truth: false
+    answer: vet cherche justement des erreurs que le compilateur accepte.
+  - key: vf-waitgroup
+    format: true-false
+    question: Depuis Go 1.25, vet signale un wg.Add(1) placé à l'intérieur de la goroutine.
+    truth: true
+    answer: L'analyse waitgroup ; wg.Go évite ce piège.
+  - key: qcm-detecte
+    format: multiple-choice
+    question: Lesquels de ces problèmes go vet détecte-t-il ?
+    choices:
+      - text: '`fmt.Printf("%d", nom)` avec nom une string'
+        correct: true
+      - text: Une struct contenant un sync.Mutex passée par valeur
+        correct: true
+      - text: Un cancel de context.WithTimeout jamais appelé
+        correct: true
+      - text: Une requête SQL lente
+        correct: false
+    answer: Les performances ne sont pas son domaine.
+  - key: qcm-structtag
+    format: multiple-choice
+    question: Quels tags de struct go vet signale-t-il ?
+    choices:
+      - text: '`json:nom` sans guillemets'
+        correct: true
+      - text: Deux champs avec le même nom JSON
+        correct: true
+      - text: '`json:"nom,omitempty"`'
+        correct: false
+      - text: '`db:"nom"`'
+        correct: false
+    answer: Les tags bien formés de n'importe quel outil sont acceptés.
+  - key: qcm-ci
+    format: multiple-choice
+    question: Comment utiliser go vet dans un projet ?
+    choices:
+      - text: '`go vet ./...` dans la CI, qui échoue au moindre signalement'
+        correct: true
+      - text: Le compléter par staticcheck ou golangci-lint
+        correct: true
+      - text: L'ignorer, puisque le code compile
+        correct: false
+      - text: Le lancer seulement avant une version majeure
+        correct: false
+    answer: Ses signalements sont presque toujours de vrais bugs.
+  - key: qcm-errorsas
+    format: multiple-choice
+    question: Que signale l'analyse errorsas ?
+    choices:
+      - text: Un second argument de errors.As qui n'est pas un pointeur vers un type d'erreur
+        correct: true
+      - text: Un errors.Is au lieu de ==
+        correct: false
+      - text: Une erreur ignorée
+        correct: false
+      - text: Un message d'erreur en majuscules
+        correct: false
+    answer: errors.As(err, ErrX) au lieu de errors.As(err, &cible) panique à l'exécution.
+  - key: bug-printf
+    format: bug-fix
+    question: |-
+      vet signale « Printf format %d has arg nom of wrong type string » :
+      ```go
+      log.Printf("utilisateur %d connecté", nom)
+      ```
+    answer: |-
+      ```go
+      log.Printf("utilisateur %s connecté", nom)
+      ```
+      Le verbe doit correspondre au type de l'argument ; %v convient aussi pour tout type.
+  - key: bug-structtag
+    format: bug-fix
+    question: "Le champ est encodé « Email » au lieu de « email », et vet signale « struct field tag not compatible with reflect.StructTag.Get » :\n```go\ntype Client struct {\n\tEmail string `json:email`\n}\n```"
+    answer: "```go\ntype Client struct {\n\tEmail string `json:\"email\"`\n}\n```\nLa valeur d'un tag se met entre guillemets."
+  - key: bug-lostcancel
+    format: bug-fix
+    question: "vet signale « the cancel function is not used on all paths (possible context leak) » :\n```go\nctx, cancel := context.WithTimeout(ctx, time.Second)\nif cle == \"\" {\n\treturn ErrCle\n}\ndefer cancel()\n```"
+    answer: "```go\nctx, cancel := context.WithTimeout(ctx, time.Second)\ndefer cancel()\nif cle == \"\" {\n\treturn ErrCle\n}\n```\nLe retour anticipé sautait le defer ; on le place juste après la création du contexte."
+  - key: bug-waitgroup
+    format: bug-fix
+    question: "vet (Go 1.25) signale ce code, et wg.Wait() rend parfois la main trop tôt :\n```go\nfor _, t := range taches {\n\tgo func() {\n\t\twg.Add(1)\n\t\tdefer wg.Done()\n\t\ttraiter(t)\n\t}()\n}\nwg.Wait()\n```"
+    answer: "```go\nfor _, t := range taches {\n\twg.Go(func() {\n\t\ttraiter(t)\n\t})\n}\nwg.Wait()\n```\nLe Add pouvait s'exécuter après Wait ; wg.Go fait le Add avant de lancer la goroutine."

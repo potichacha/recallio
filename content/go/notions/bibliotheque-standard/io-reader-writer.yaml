@@ -1,4 +1,5 @@
 notion: io-reader-writer
+lesson: "Deux interfaces d'une seule méthode sont au cœur des entrées-sorties en Go :\n\n```go\ntype Reader interface {\n\tRead(p []byte) (n int, err error) // remplit p, renvoie le nombre d'octets lus\n}\n\ntype Writer interface {\n\tWrite(p []byte) (n int, err error) // écrit p, renvoie le nombre d'octets écrits\n}\n```\n\nUn fichier, une connexion réseau, le corps d'une requête HTTP, un `strings.Reader`, un `bytes.Buffer`, un\ncompresseur gzip, un hash : tous sont des `Reader` ou des `Writer`. Une fonction qui accepte un `io.Reader`\nfonctionne donc avec **toutes** ces sources, et se teste avec un simple `strings.NewReader`.\n\nLes règles de `Read` :\n- il peut renvoyer **moins** d'octets que `len(p)`, même si d'autres arrivent ensuite ;\n- il peut renvoyer **des données et une erreur** en même temps : on traite toujours les `n` octets **avant**\n  l'erreur ;\n- la fin des données se signale par **`io.EOF`**, qui n'est pas une vraie erreur.\n\nOn écrit rarement la boucle de lecture soi-même ; le package `io` compose les flux :\n\n| Fonction | Rôle |\n|---|---|\n| `io.Copy(dst, src)` | recopie tout, par morceaux, sans tout charger en mémoire |\n| `io.ReadAll(r)` | lit tout en mémoire (à borner pour une source non fiable) |\n| `io.LimitReader(r, n)` | ne laisse passer que n octets |\n| `io.MultiReader(a, b)` | enchaîne des sources |\n| `io.TeeReader(r, w)` | recopie dans w ce qui est lu |\n| `io.MultiWriter(a, b)` | écrit dans plusieurs destinations |\n\n```go\n// télécharger, calculer le hash et écrire le fichier en un seul passage\nh := sha256.New()\n_, err := io.Copy(io.MultiWriter(fichier, h), resp.Body)\n```\n\n**En entretien** : « Deux interfaces d'une méthode ; Read peut lire moins et renvoyer données et erreur ; io.EOF\nmarque la fin ; on compose avec io.Copy, LimitReader, MultiWriter, et l'on accepte des io.Reader pour tester\nfacilement. »"
 cards:
   - key: signifie-io-eof
     format: course
@@ -32,3 +33,203 @@ cards:
       return os.Rename(tmp.Name(), destination)   // remplacement atomique
       ```
       "La mémoire reste constante quelle que soit la taille. J'écris dans un fichier temporaire du même répertoire puis je le renomme, pour qu'un lecteur ne voie jamais un fichier partiel ; je vérifie l'erreur de `Close`. J'ajouterais une vérification de somme de contrôle si la source en fournit une, et une limite de taille si la source n'est pas fiable.
+  - key: accepter
+    format: course
+    question: Pourquoi une fonction devrait-elle accepter un io.Reader plutôt qu'un nom de fichier ?
+    answer: Elle fonctionne alors avec toute source (fichier, requête HTTP, chaîne, connexion, flux compressé), et se teste avec un simple strings.NewReader, sans fichier sur le disque.
+  - key: vf-moins
+    format: true-false
+    question: Un appel à Read peut renvoyer moins d'octets que la taille du tampon, sans erreur.
+    truth: true
+    answer: Il faut boucler, ou utiliser io.ReadFull ou io.Copy.
+  - key: vf-eof
+    format: true-false
+    question: '`io.EOF` signale une panne de lecture qu''il faut journaliser comme une erreur.'
+    truth: false
+    answer: C'est la fin normale des données.
+  - key: vf-copy
+    format: true-false
+    question: '`io.Copy` charge toute la source en mémoire avant d''écrire.'
+    truth: false
+    answer: Il recopie par morceaux (32 Ko par défaut).
+  - key: vf-donnees-erreur
+    format: true-false
+    question: Si Read renvoie n > 0 et une erreur, il faut traiter les n octets avant l'erreur.
+    truth: true
+    answer: Sinon on perd les dernières données.
+  - key: qcm-implementations
+    format: multiple-choice
+    question: Lesquels sont des io.Reader ?
+    choices:
+      - text: '`*os.File`'
+        correct: true
+      - text: Le corps d'une réponse HTTP (`resp.Body`)
+        correct: true
+      - text: '`strings.NewReader("...")`'
+        correct: true
+      - text: '`string`'
+        correct: false
+    answer: Une string n'a pas de méthode Read ; strings.NewReader l'enveloppe.
+  - key: qcm-borner
+    format: multiple-choice
+    question: Comment lire le corps d'une requête sans risquer d'épuiser la mémoire ?
+    choices:
+      - text: '`io.ReadAll(io.LimitReader(r.Body, 1<<20))`'
+        correct: true
+      - text: '`http.MaxBytesReader(w, r.Body, 1<<20)`'
+        correct: true
+      - text: '`io.ReadAll(r.Body)` sans limite'
+        correct: false
+      - text: Lire octet par octet jusqu'à la fin
+        correct: false
+    answer: Un client peut envoyer des gigaoctets ; on borne toujours.
+  - key: qcm-composer
+    format: multiple-choice
+    question: Comment écrire un téléchargement dans un fichier tout en calculant son hash ?
+    choices:
+      - text: '`io.Copy(io.MultiWriter(f, h), body)`'
+        correct: true
+      - text: '`io.Copy(f, io.TeeReader(body, h))`'
+        correct: true
+      - text: Lire tout en mémoire, puis écrire et hacher
+        correct: false
+      - text: Télécharger deux fois
+        correct: false
+    answer: Les deux premières font un seul passage sans tout charger.
+  - key: qcm-eof
+    format: multiple-choice
+    question: Comment reconnaître la fin des données ?
+    choices:
+      - text: '`errors.Is(err, io.EOF)`'
+        correct: true
+      - text: '`err == io.EOF` pour une erreur renvoyée directement par Read'
+        correct: true
+      - text: '`n == 0` seul'
+        correct: false
+      - text: '`err.Error() == "EOF"`'
+        correct: false
+    answer: n == 0 sans erreur ne signifie pas la fin.
+  - key: trous-copy
+    format: fill-in
+    question: "Complétez pour recopier le corps dans le fichier :\n```go\nif _, err := io.___(f, resp.Body); err != nil {\n\treturn err\n}\n```"
+    blanks:
+      - - Copy
+    answer: io.Copy recopie par morceaux.
+  - key: trous-eof
+    format: fill-in
+    question: "Complétez la boucle de lecture :\n```go\nfor {\n\tn, err := r.Read(buf)\n\ttraiter(buf[:n])\n\tif err == io.___ {\n\t\tbreak\n\t}\n\tif err != nil {\n\t\treturn err\n\t}\n}\n```"
+    blanks:
+      - - EOF
+    answer: io.EOF marque la fin.
+  - key: trous-limit
+    format: fill-in
+    question: |-
+      Complétez pour lire au plus 1 Mo :
+      ```go
+      donnees, err := io.ReadAll(io.___(r, 1<<20))
+      ```
+    blanks:
+      - - LimitReader
+    answer: LimitReader borne la lecture.
+  - key: trous-interface
+    format: fill-in
+    question: |-
+      Complétez la signature pour accepter toute source :
+      ```go
+      func CompterLignes(r io.___) (int, error)
+      ```
+    blanks:
+      - - Reader
+    answer: io.Reader.
+  - key: code-copy
+    format: code-output
+    question: |-
+      ```go
+      n, err := io.Copy(os.Stdout, strings.NewReader("bonjour\n"))
+      fmt.Println(n, err)
+      ```
+    answer: '`bonjour` puis `8 <nil>` : io.Copy renvoie le nombre d''octets recopiés.'
+    check:
+      code: "package main\n\nimport (\n\t\"fmt\"\n\t\"io\"\n\t\"os\"\n\t\"strings\"\n)\n\nfunc main() {\n\tn, err := io.Copy(os.Stdout, strings.NewReader(\"bonjour\\n\"))\n\tfmt.Println(n, err)\n}\n"
+      output: |-
+        bonjour
+        8 <nil>
+  - key: code-limit
+    format: code-output
+    question: |-
+      ```go
+      donnees, _ := io.ReadAll(io.LimitReader(strings.NewReader("abcdefgh"), 3))
+      fmt.Println(string(donnees))
+      ```
+    answer: '`abc` : LimitReader ne laisse passer que trois octets.'
+    check:
+      code: "package main\n\nimport (\n\t\"fmt\"\n\t\"io\"\n\t\"strings\"\n)\n\nfunc main() {\n\tdonnees, _ := io.ReadAll(io.LimitReader(strings.NewReader(\"abcdefgh\"), 3))\n\tfmt.Println(string(donnees))\n}\n"
+      output: abc
+  - key: code-multi
+    format: code-output
+    question: |-
+      ```go
+      r := io.MultiReader(strings.NewReader("go"), strings.NewReader("pher"))
+      var b strings.Builder
+      io.Copy(&b, r)
+      fmt.Println(b.String())
+      ```
+    answer: '`gopher` : MultiReader enchaîne les sources ; strings.Builder est un io.Writer.'
+    check:
+      code: "package main\n\nimport (\n\t\"fmt\"\n\t\"io\"\n\t\"strings\"\n)\n\nfunc main() {\n\tr := io.MultiReader(strings.NewReader(\"go\"), strings.NewReader(\"pher\"))\n\tvar b strings.Builder\n\tio.Copy(&b, r)\n\tfmt.Println(b.String())\n}\n"
+      output: gopher
+  - key: code-lecture-partielle
+    format: code-output
+    question: "```go\nr := strings.NewReader(\"abcde\")\nbuf := make([]byte, 2)\nfor {\n\tn, err := r.Read(buf)\n\tfmt.Printf(\"%q \", buf[:n])\n\tif err == io.EOF {\n\t\tbreak\n\t}\n}\nfmt.Println()\n```"
+    answer: '`"ab" "cd" "e" ""` : le dernier morceau est court, puis un Read renvoie 0 et io.EOF.'
+    check:
+      code: "package main\n\nimport (\n\t\"fmt\"\n\t\"io\"\n\t\"strings\"\n)\n\nfunc main() {\n\tr := strings.NewReader(\"abcde\")\n\tbuf := make([]byte, 2)\n\tfor {\n\t\tn, err := r.Read(buf)\n\t\tfmt.Printf(\"%q \", buf[:n])\n\t\tif err == io.EOF {\n\t\t\tbreak\n\t\t}\n\t}\n\tfmt.Println()\n}\n"
+      output: '"ab" "cd" "e" ""'
+  - key: bug-readall
+    format: bug-fix
+    question: |-
+      Un client malveillant fait tomber le service en envoyant un corps de 10 Go :
+      ```go
+      donnees, err := io.ReadAll(r.Body)
+      ```
+    answer: "```go\nr.Body = http.MaxBytesReader(w, r.Body, 1<<20)\ndonnees, err := io.ReadAll(r.Body)\nif err != nil {\n\thttp.Error(w, \"corps trop volumineux\", http.StatusRequestEntityTooLarge)\n\treturn\n}\n```\nLe corps est borné à 1 Mo ; au-delà, la lecture échoue au lieu d'épuiser la mémoire."
+  - key: bug-ordre
+    format: bug-fix
+    question: "Les derniers octets du fichier ne sont jamais traités :\n```go\nfor {\n\tn, err := r.Read(buf)\n\tif err != nil {\n\t\tbreak\n\t}\n\ttraiter(buf[:n])\n}\n```"
+    answer: "```go\nfor {\n\tn, err := r.Read(buf)\n\ttraiter(buf[:n])\n\tif err == io.EOF {\n\t\tbreak\n\t}\n\tif err != nil {\n\t\treturn err\n\t}\n}\n```\nRead peut renvoyer des données avec io.EOF ; on traite les n octets avant de regarder l'erreur (et l'on ne\nconfond plus la fin avec une vraie erreur)."
+  - key: bug-fichier
+    format: bug-fix
+    question: "La fonction est impossible à tester sans créer de fichier :\n```go\nfunc Compter(chemin string) (int, error) {\n\tf, err := os.Open(chemin)\n\tif err != nil {\n\t\treturn 0, err\n\t}\n\tdefer f.Close()\n\t// ... lit f ligne par ligne\n}\n```"
+    answer: "```go\nfunc Compter(r io.Reader) (int, error) {\n\tsc := bufio.NewScanner(r)\n\tn := 0\n\tfor sc.Scan() {\n\t\tn++\n\t}\n\treturn n, sc.Err()\n}\n```\nEn acceptant un io.Reader, la fonction se teste avec strings.NewReader ; l'ouverture du fichier reste chez\nl'appelant."
+  - key: bug-memoire
+    format: bug-fix
+    question: "La copie d'une sauvegarde de 4 Go fait exploser la mémoire :\n```go\ndonnees, err := io.ReadAll(src)\nif err != nil {\n\treturn err\n}\n_, err = dst.Write(donnees)\n```"
+    answer: |-
+      ```go
+      _, err := io.Copy(dst, src)
+      ```
+      io.Copy recopie par morceaux, avec une mémoire constante.
+  - key: scenario-proxy
+    format: scenario
+    question: Ton service relaie des fichiers depuis un stockage objet vers le client HTTP. Comment le fais-tu efficacement ?
+    answer: |-
+      Je fais `io.Copy(w, objet.Body)` : les octets passent par morceaux, avec une mémoire constante, sans jamais charger
+      le fichier. Je transmets avant les en-têtes utiles (taille, type), je ferme le corps en defer, et je passe le
+      contexte de la requête à l'appel au stockage pour arrêter le transfert si le client part. Si un hash doit être
+      vérifié, un TeeReader le calcule au passage.
+  - key: scenario-api
+    format: scenario
+    question: Comment conçois-tu l'API d'une bibliothèque qui lit un format de fichier maison ?
+    answer: |-
+      Un `NewReader(r io.Reader)` qui renvoie un lecteur du format, avec une méthode `Read` ou un itérateur sur les
+      enregistrements, comme `csv.NewReader` ou `json.NewDecoder`. L'appelant fournit le fichier, la connexion ou un
+      flux décompressé ; les tests utilisent des chaînes. J'enveloppe la source dans un `bufio.Reader` à l'intérieur si
+      je lis par petits morceaux.
+  - key: scenario-entretien
+    format: scenario
+    question: En entretien, on te demande ce qui rend io.Reader et io.Writer si importants en Go.
+    answer: |-
+      Ce sont des interfaces minuscules, satisfaites implicitement par des dizaines de types : fichiers, réseau, HTTP,
+      compression, chiffrement, hachage, tampons. Une fonction écrite pour un io.Reader fonctionne avec toutes, et les
+      fonctions de io (Copy, MultiWriter, TeeReader, LimitReader) les composent comme des tuyaux Unix, en flux, sans tout
+      charger en mémoire. C'est l'exemple type de la philosophie des petites interfaces.

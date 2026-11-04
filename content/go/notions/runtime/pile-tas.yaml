@@ -1,4 +1,5 @@
 notion: pile-tas
+lesson: "Une variable vit soit sur la **pile** de la goroutine, soit sur le **tas** :\n- la **pile** est libérée d'un coup au retour de la fonction : allouer y coûte presque rien, et le ramasse-miettes\n  n'a rien à faire ;\n- le **tas** survit à la fonction, mais chaque allocation coûte, et le **ramasse-miettes** doit ensuite la retrouver\n  et la libérer.\n\nEn Go, **on ne choisit pas** : `new`, `&T{}` ou `make` ne disent rien de l'emplacement. C'est le compilateur qui\ndécide, par l'**analyse d'échappement** (*escape analysis*) : si une variable peut être utilisée **après** le retour\nde la fonction, elle **s'échappe** vers le tas.\n\n```go\nfunc nouveau() *Point {\n\tp := Point{1, 2}\n\treturn &p // p s'échappe : elle survit à la fonction (c'est permis et sûr en Go)\n}\n\nfunc somme() int {\n\tp := &Point{1, 2} // ne s'échappe pas : reste sur la pile malgré le &\n\treturn p.X + p.Y\n}\n```\n\nCe qui fait souvent échapper une variable :\n- renvoyer son adresse, ou la stocker dans une variable globale ou un objet du tas ;\n- la capturer dans une closure qui survit à la fonction ;\n- la convertir en **interface** quand le compilateur ne peut pas suivre (par exemple `fmt.Println(x)`) ;\n- une taille **inconnue à la compilation** (`make([]byte, n)` avec un `n` variable) ou trop grande.\n\nPour voir les décisions : `go build -gcflags=-m` (« moved to heap: p », « does not escape »). Pour mesurer :\n`go test -bench . -benchmem` (colonne allocs/op).\n\nOn n'optimise ces allocations que sur un **chemin chaud** mesuré ; le reste du temps, on écrit le code le plus clair.\n\n**En entretien** : « Le compilateur choisit pile ou tas par l'analyse d'échappement ; renvoyer &x est sûr ; -gcflags=-m\npour voir ; moins d'allocations, c'est moins de travail pour le GC. »"
 cards:
   - key: retourner-adresse-variable-locale
     format: course
@@ -16,3 +17,151 @@ cards:
     format: definition
     question: escape analysis
     answer: Décision du compilateur entre pile et heap
+  - key: pourquoi
+    format: course
+    question: Pourquoi une allocation sur la pile est-elle moins coûteuse qu'une allocation sur le tas ?
+    answer: Elle est libérée d'un coup au retour de la fonction, sans travail pour le ramasse-miettes ; une allocation sur le tas demande l'allocateur, puis un marquage et un balayage par le GC.
+  - key: vf-new
+    format: true-false
+    question: '`new(T)` alloue toujours sur le tas.'
+    truth: false
+    answer: Si la valeur ne s'échappe pas, elle reste sur la pile.
+  - key: vf-adresse
+    format: true-false
+    question: En Go, renvoyer l'adresse d'une variable locale est sûr.
+    truth: true
+    answer: Le compilateur la place sur le tas.
+  - key: vf-interface
+    format: true-false
+    question: Passer une valeur à `fmt.Println` peut la faire échapper vers le tas.
+    truth: true
+    answer: La conversion en interface et l'usage par fmt empêchent souvent le compilateur de prouver qu'elle reste locale.
+  - key: vf-choisir
+    format: true-false
+    question: Le développeur choisit explicitement si une variable va sur la pile ou sur le tas.
+    truth: false
+    answer: C'est le compilateur qui décide.
+  - key: qcm-echappe
+    format: multiple-choice
+    question: Lesquelles de ces situations font en général échapper une variable ?
+    choices:
+      - text: Renvoyer son adresse
+        correct: true
+      - text: La stocker dans une variable globale
+        correct: true
+      - text: La capturer dans une closure renvoyée par la fonction
+        correct: true
+      - text: L'additionner à une autre variable locale
+        correct: false
+    answer: Tout ce qui la rend accessible après le retour.
+  - key: qcm-voir
+    format: multiple-choice
+    question: Comment observer les allocations et l'échappement ?
+    choices:
+      - text: '`go build -gcflags=-m`'
+        correct: true
+      - text: '`go test -bench . -benchmem`'
+        correct: true
+      - text: Un profil d'allocations pprof
+        correct: true
+      - text: '`go vet -escape`'
+        correct: false
+    answer: vet n'a pas d'analyse d'échappement.
+  - key: qcm-reduire
+    format: multiple-choice
+    question: Comment réduire les allocations sur un chemin chaud ?
+    choices:
+      - text: Préallouer les slices avec la bonne capacité
+        correct: true
+      - text: Réutiliser des tampons (sync.Pool, ou un tampon passé en paramètre)
+        correct: true
+      - text: Remplacer toutes les valeurs par des pointeurs
+        correct: false
+      - text: Appeler runtime.GC après chaque requête
+        correct: false
+    answer: Des pointeurs partout feraient plutôt échapper davantage.
+  - key: qcm-taille
+    format: multiple-choice
+    question: Pourquoi `make([]byte, n)` avec un n connu seulement à l'exécution s'alloue-t-il souvent sur le tas ?
+    choices:
+      - text: Le compilateur ne connaît pas la taille à réserver sur la pile
+        correct: true
+      - text: Les slices vont toujours sur le tas
+        correct: false
+      - text: make alloue toujours sur le tas
+        correct: false
+      - text: Les octets ne peuvent pas être sur la pile
+        correct: false
+    answer: Avec une petite taille constante, le tableau peut rester sur la pile.
+  - key: code-adresse
+    format: code-output
+    question: "```go\nfunc nouveau() *int {\n\tx := 41\n\treturn &x\n}\n\np := nouveau()\n*p++\nfmt.Println(*p)\n```"
+    answer: '`42` : la variable survit au retour, le compilateur l''a placée sur le tas.'
+    check:
+      code: "package main\n\nimport \"fmt\"\n\nfunc nouveau() *int {\n\tx := 41\n\treturn &x\n}\n\nfunc main() {\n\tp := nouveau()\n\t*p++\n\tfmt.Println(*p)\n}\n"
+      output: '42'
+  - key: code-distincts
+    format: code-output
+    question: "```go\nfunc nouveau() *int {\n\tx := 0\n\treturn &x\n}\n\na, b := nouveau(), nouveau()\n*a = 1\nfmt.Println(a == b, *a, *b)\n```"
+    answer: '`false 1 0` : chaque appel crée sa propre variable.'
+    check:
+      code: "package main\n\nimport \"fmt\"\n\nfunc nouveau() *int {\n\tx := 0\n\treturn &x\n}\n\nfunc main() {\n\ta, b := nouveau(), nouveau()\n\t*a = 1\n\tfmt.Println(a == b, *a, *b)\n}\n"
+      output: false 1 0
+  - key: code-closure
+    format: code-output
+    question: "```go\nfunc compteur() func() int {\n\tn := 0\n\treturn func() int {\n\t\tn++\n\t\treturn n\n\t}\n}\n\nc := compteur()\nc()\nc()\nfmt.Println(c(), compteur()())\n```"
+    answer: '`3 1` : la closure garde sa variable n, qui s''échappe ; un nouveau compteur repart de zéro.'
+    check:
+      code: "package main\n\nimport \"fmt\"\n\nfunc compteur() func() int {\n\tn := 0\n\treturn func() int {\n\t\tn++\n\t\treturn n\n\t}\n}\n\nfunc main() {\n\tc := compteur()\n\tc()\n\tc()\n\tfmt.Println(c(), compteur()())\n}\n"
+      output: 3 1
+  - key: code-boucle
+    format: code-output
+    question: "```go\nvar adresses []*int\nfor i := range 3 {\n\tadresses = append(adresses, &i)\n}\nfor _, p := range adresses {\n\tfmt.Print(*p, \" \")\n}\nfmt.Println()\n```"
+    answer: '`0 1 2` : depuis Go 1.22, chaque tour a sa propre variable i, qui s''échappe vers le tas.'
+    check:
+      code: "package main\n\nimport \"fmt\"\n\nfunc main() {\n\tvar adresses []*int\n\tfor i := range 3 {\n\t\tadresses = append(adresses, &i)\n\t}\n\tfor _, p := range adresses {\n\t\tfmt.Print(*p, \" \")\n\t}\n\tfmt.Println()\n}\n"
+      output: 0 1 2
+  - key: scenario-optimiser
+    format: scenario
+    question: Le GC consomme 30 % du CPU de ton service. Comment réduis-tu les allocations ?
+    answer: |-
+      Je prends un profil d'allocations (`pprof -alloc_space` et `-alloc_objects`) pour trouver les fonctions qui
+      allouent le plus, puis je regarde pourquoi avec `-gcflags=-m`. Les remèdes courants : préallouer les slices et les
+      maps, éviter les conversions string/[]byte répétées, réutiliser des tampons (sync.Pool), éviter fmt sur le
+      chemin chaud (strconv), passer des petites structs par valeur. Je vérifie chaque changement avec `-benchmem`, et
+      en parallèle je règle GOGC ou GOMEMLIMIT si la mémoire le permet.
+  - key: scenario-pointeurs
+    format: scenario
+    question: Un collègue passe toutes les structs par pointeur « pour éviter les copies ». Qu'en penses-tu ?
+    answer: |-
+      Pour des petites structs (quelques champs), la copie est très bon marché et garde les données sur la pile, alors
+      qu'un pointeur peut faire échapper la valeur vers le tas et donner du travail au GC. Je choisis valeur ou pointeur
+      selon le sens (doit-on modifier l'original, la struct contient-elle un verrou, est-elle grande), et je laisse les
+      benchmarks trancher sur un chemin chaud.
+  - key: scenario-java
+    format: scenario
+    question: Compare la gestion de la mémoire de Go et de Java du point de vue de la pile et du tas.
+    answer: |-
+      En Java, les objets vont sur le tas (l'escape analysis du JIT peut en remplacer certains par des scalaires), et
+      les types primitifs locaux sur la pile. En Go, les structs sont des valeurs : un `[]Point` est un bloc contigu,
+      sans un objet par élément, et le compilateur place sur la pile tout ce qui ne s'échappe pas, dès la compilation.
+      Résultat : moins d'allocations et une mémoire plus compacte, ce qui compense un GC plus simple que ceux de la JVM.
+  - key: scenario-entretien
+    format: scenario
+    question: En entretien, on te demande ce que veut dire « moved to heap » dans la sortie de -gcflags=-m.
+    answer: |-
+      Que l'analyse d'échappement n'a pas pu prouver que la variable reste locale à la fonction : elle est allouée sur le
+      tas, ce qui coûte une allocation et du travail pour le GC. Je cherche alors la raison (adresse renvoyée ou stockée,
+      closure, interface, taille inconnue) et je ne la corrige que si un profil montre que cette allocation pèse.
+  - key: definition-pile
+    format: definition
+    question: pile (stack)
+    answer: Mémoire propre à une goroutine, libérée au retour des fonctions, sans intervention du GC
+  - key: definition-tas
+    format: definition
+    question: tas (heap)
+    answer: Mémoire partagée dont les objets survivent aux fonctions et sont libérés par le ramasse-miettes
+  - key: definition-echappement
+    format: definition
+    question: échappement (escape)
+    answer: Le fait qu'une variable puisse être utilisée après le retour de sa fonction, ce qui l'envoie sur le tas

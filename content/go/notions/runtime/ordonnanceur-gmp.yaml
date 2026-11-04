@@ -1,4 +1,35 @@
 notion: ordonnanceur-gmp
+lesson: |-
+  Le **runtime** de Go, compilé dans chaque binaire, contient un **ordonnanceur** qui répartit les goroutines sur les
+  threads du système. Il repose sur trois entités :
+  - **G** (goroutine) : une fonction en cours, avec sa pile et son état ;
+  - **M** (*machine*) : un thread du système d'exploitation, qui exécute du code ;
+  - **P** (*processor*) : un contexte d'exécution, avec une **file locale** de goroutines prêtes. Il y a exactement
+    **`GOMAXPROCS`** P.
+
+  Pour exécuter du code Go, un M doit **tenir un P**. Au plus `GOMAXPROCS` goroutines tournent donc vraiment en même
+  temps, quel que soit le nombre de goroutines ou de threads.
+
+  ```
+   P0 [G3 G7 G9]     P1 [G2]       file globale [G12 G15]
+    |                 |
+    M0 → exécute G1   M1 → exécute G4        M2 (bloqué dans un appel système, sans P)
+  ```
+
+  Les mécanismes principaux :
+  - chaque P prend ses goroutines dans **sa file locale** (sans verrou), et regarde de temps en temps la **file
+    globale** ;
+  - un P à vide **vole** la moitié de la file d'un autre P (*work stealing*) : la charge s'équilibre toute seule ;
+  - quand un M se bloque dans un **appel système**, son P est confié à un autre M, pour que les autres goroutines
+    continuent ;
+  - les entrées-sorties **réseau** ne bloquent pas de thread : le **netpoller** (epoll, kqueue, IOCP) réveille les
+    goroutines quand leurs sockets sont prêtes.
+
+  Résultat : créer une goroutine coûte quelques centaines de nanosecondes et quelques Ko, et l'on peut en avoir des
+  centaines de milliers sur une poignée de threads.
+
+  **En entretien** : « G les goroutines, M les threads, P les processeurs logiques (GOMAXPROCS) avec leurs files ; un M
+  doit tenir un P ; vol de travail entre P ; netpoller pour le réseau ; P passé à un autre M pendant un appel système. »
 cards:
   - key: contient-runtime
     format: course
@@ -16,3 +47,123 @@ cards:
     format: definition
     question: G-M-P
     answer: 'Modèle du scheduler : goroutine, thread OS, processeur logique'
+  - key: m-tient-p
+    format: course
+    question: Pourquoi au plus GOMAXPROCS goroutines exécutent-elles du code Go en même temps ?
+    answer: Parce qu'un thread (M) doit tenir un P pour exécuter du code Go, et qu'il y a exactement GOMAXPROCS P ; les autres threads sont bloqués dans des appels système ou inactifs.
+  - key: vf-p
+    format: true-false
+    question: Il y a autant de P que la valeur de GOMAXPROCS.
+    truth: true
+    answer: Chaque P a sa file locale de goroutines prêtes.
+  - key: vf-un-thread
+    format: true-false
+    question: Chaque goroutine a son propre thread du système.
+    truth: false
+    answer: Les goroutines sont multiplexées sur un petit nombre de threads (modèle M:N).
+  - key: vf-vol
+    format: true-false
+    question: Un P qui n'a plus de goroutine à exécuter peut en prendre dans la file d'un autre P.
+    truth: true
+    answer: C'est le work stealing.
+  - key: vf-reseau
+    format: true-false
+    question: Une goroutine qui attend une réponse réseau bloque un thread du système pendant toute l'attente.
+    truth: false
+    answer: Elle est garée, et le netpoller la réveille quand la socket est prête.
+  - key: qcm-roles
+    format: multiple-choice
+    question: Quelles correspondances sont justes ?
+    choices:
+      - text: G est une goroutine
+        correct: true
+      - text: M est un thread du système d'exploitation
+        correct: true
+      - text: P est un contexte d'exécution avec une file de goroutines
+        correct: true
+      - text: P est un processus du système
+        correct: false
+    answer: P signifie processor, au sens de processeur logique.
+  - key: qcm-syscall
+    format: multiple-choice
+    question: Que se passe-t-il quand une goroutine entre dans un appel système bloquant (lecture d'un fichier) ?
+    choices:
+      - text: Son thread reste bloqué dans l'appel
+        correct: true
+      - text: Le P est confié à un autre thread, pour exécuter d'autres goroutines
+        correct: true
+      - text: Toutes les goroutines du programme attendent
+        correct: false
+      - text: La goroutine est détruite
+        correct: false
+    answer: C'est pourquoi un programme Go peut avoir plus de threads que GOMAXPROCS.
+  - key: qcm-files
+    format: multiple-choice
+    question: Où l'ordonnanceur cherche-t-il la prochaine goroutine à exécuter sur un P ?
+    choices:
+      - text: Dans la file locale du P
+        correct: true
+      - text: Dans la file globale, de temps en temps
+        correct: true
+      - text: Dans les files des autres P, par vol de travail
+        correct: true
+      - text: Dans la file du système d'exploitation
+        correct: false
+    answer: Le système ne voit que les threads, pas les goroutines.
+  - key: qcm-cout
+    format: multiple-choice
+    question: Pourquoi les goroutines sont-elles bon marché ?
+    choices:
+      - text: Une petite pile qui grandit à la demande
+        correct: true
+      - text: Des changements de goroutine faits par le runtime, sans passer par le noyau
+        correct: true
+      - text: Elles n'ont pas de pile
+        correct: false
+      - text: Elles s'exécutent toutes sur un seul thread
+        correct: false
+    answer: Un thread du système a une pile fixe de l'ordre du Mo et coûte un appel noyau à chaque changement.
+  - key: scenario-expliquer
+    format: scenario
+    question: En entretien, on te demande d'expliquer comment Go exécute 100 000 goroutines sur une machine à 8 cœurs.
+    answer: |-
+      Le runtime crée 8 P (GOMAXPROCS), chacun avec une file de goroutines prêtes, et quelques threads qui tiennent ces P.
+      Les goroutines bloquées (channel, verrou, réseau) ne sont dans aucune file : elles sont garées et ne coûtent que
+      leur pile, de quelques Ko. Les P à vide volent du travail aux autres, le netpoller réveille les goroutines réseau,
+      et un thread bloqué dans un appel système cède son P. Seules 8 goroutines tournent à un instant donné.
+  - key: scenario-threads
+    format: scenario
+    question: Ton service a GOMAXPROCS=4 mais le système montre 60 threads. Est-ce normal ?
+    answer: |-
+      Oui, dans une certaine mesure : GOMAXPROCS limite les threads qui exécutent du code Go, pas le nombre total. Des
+      threads restent bloqués dans des appels système (fichiers, DNS via cgo) ou dans du code C, d'autres sont inactifs
+      et gardés pour être réutilisés, plus ceux du GC et du runtime. Si leur nombre grimpe sans cesse, je cherche des
+      appels bloquants en masse (cgo, fichiers sur un disque lent) avec un profil `threadcreate` et une trace.
+  - key: scenario-trace
+    format: scenario
+    question: Comment observes-tu le comportement de l'ordonnanceur dans un programme ?
+    answer: |-
+      Avec `go tool trace` sur une trace capturée (`runtime/trace`, `-trace` dans les tests, ou `/debug/pprof/trace`) :
+      on y voit chaque P, les goroutines qui s'y exécutent, les blocages, les appels système et le GC. Pour un aperçu
+      rapide, `GODEBUG=schedtrace=1000` affiche toutes les secondes l'état des P et des files. Le flight recorder (Go
+      1.25) garde les dernières secondes de trace pour les capturer après un incident.
+  - key: scenario-java
+    format: scenario
+    question: Compare les goroutines aux threads virtuels de Java 21.
+    answer: |-
+      Les deux sont des fils d'exécution légers multiplexés sur quelques threads porteurs, avec des piles qui grandissent
+      à la demande et des entrées-sorties qui garent le fil au lieu de bloquer le thread. Go le fait depuis le début :
+      toute la bibliothèque est écrite pour, et la préemption est asynchrone. En Java, les threads virtuels sont plus
+      récents, et un bloc `synchronized` ou du code natif pouvait épingler le thread porteur (amélioré en Java 24).
+  - key: definition-work-stealing
+    format: definition
+    question: work stealing
+    answer: Vol de goroutines prêtes dans la file d'un autre P par un P inoccupé
+  - key: definition-netpoller
+    format: definition
+    question: netpoller
+    answer: Composant du runtime qui surveille les sockets (epoll, kqueue, IOCP) et réveille les goroutines quand elles sont prêtes
+  - key: definition-p
+    format: definition
+    question: P (processor)
+    answer: Contexte d'exécution de l'ordonnanceur, avec une file de goroutines ; il y en a GOMAXPROCS

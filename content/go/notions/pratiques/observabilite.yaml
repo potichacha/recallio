@@ -1,4 +1,5 @@
 notion: observabilite
+lesson: "Un service en production doit dire **comment il va**. Trois signaux complémentaires :\n- les **journaux** : ce qui s'est passé, événement par événement (slog) ;\n- les **métriques** : des nombres agrégés dans le temps (débit, erreurs, latence, mémoire) ;\n- les **traces** : le chemin d'une requête à travers les services, avec la durée de chaque étape.\n\n**Les métriques avec Prometheus** (`github.com/prometheus/client_golang`) :\n\n```go\nvar requetes = promauto.NewCounterVec(prometheus.CounterOpts{\n\tName: \"http_requetes_total\",\n\tHelp: \"Requêtes HTTP traitées.\",\n}, []string{\"route\", \"code\"})\n\nvar duree = promauto.NewHistogramVec(prometheus.HistogramOpts{\n\tName:    \"http_duree_secondes\",\n\tBuckets: prometheus.DefBuckets,\n}, []string{\"route\"})\n\nmux.Handle(\"GET /metrics\", promhttp.Handler())\n```\n\n- **Counter** : ne fait qu'augmenter (requêtes, erreurs) ; **Gauge** : monte et descend (connexions ouvertes) ;\n  **Histogram** : une distribution (latences), d'où l'on calcule des percentiles agrégeables entre instances ;\n- les **étiquettes** doivent avoir une **faible cardinalité** : la route (`/commandes/{id}`), jamais l'identifiant\n  ou l'utilisateur, qui créeraient des millions de séries ;\n- le client expose aussi les métriques du **runtime** Go (goroutines, GC, mémoire).\n\n**Les traces avec OpenTelemetry** : `otelhttp.NewHandler(mux, \"api\")` côté serveur, un transport `otelhttp` côté\nclient, et le **contexte** propagé partout ; chaque appel crée un **span**, relié aux autres par l'en-tête `traceparent`\n(W3C). Les spans s'exportent vers un collecteur (Jaeger, Tempo, un fournisseur).\n\nLes méthodes de choix des métriques : **RED** pour les services (Rate, Errors, Duration), **USE** pour les ressources\n(Utilization, Saturation, Errors).\n\n**En entretien** : « Journaux, métriques, traces ; Prometheus : Counter, Gauge, Histogram, étiquettes à faible\ncardinalité ; OpenTelemetry pour les traces, propagées par le contexte et traceparent ; RED pour les services. »"
 cards:
   - key: types-metriques-prometheus
     format: course
@@ -36,3 +37,99 @@ cards:
       Métriques : histogramme de latence et compteur de requêtes par route, méthode et statut (labels à faible cardinalité), métriques du pool de base (`db.Stats`), et les métriques runtime par défaut ; un endpoint `/metrics`.
       Traces : OpenTelemetry avec `otelhttp` côté serveur et client, l'instrumentation de la base et de Kafka, et quelques spans métier ; export OTLP vers un collecteur avec échantillonnage.
       Opérations : `/healthz` et `/readyz` distincts, pprof sur un port interne, la version exposée en métrique `build_info`. Puis des tableaux de bord RED et des alertes sur les SLO, plutôt que sur des seuils de CPU.
+  - key: vf-cardinalite
+    format: true-false
+    question: Ajouter l'identifiant de l'utilisateur comme étiquette d'une métrique Prometheus est une bonne pratique.
+    truth: false
+    answer: 'Chaque valeur crée une série : la cardinalité explose ; l''utilisateur va dans les journaux ou les traces.'
+  - key: vf-counter
+    format: true-false
+    question: Un Counter Prometheus peut diminuer.
+    truth: false
+    answer: Il ne fait qu'augmenter (sauf remise à zéro au redémarrage) ; pour monter et descendre, une Gauge.
+  - key: vf-contexte
+    format: true-false
+    question: Pour qu'une trace suive une requête, le contexte doit être propagé à tous les appels.
+    truth: true
+    answer: Le span courant voyage dans le contexte.
+  - key: vf-runtime
+    format: true-false
+    question: Le client Prometheus pour Go peut exposer les métriques du runtime (goroutines, GC, mémoire).
+    truth: true
+    answer: Le collecteur Go est enregistré par défaut.
+  - key: qcm-types
+    format: multiple-choice
+    question: Quel type de métrique pour quel besoin ?
+    choices:
+      - text: 'Le nombre de requêtes traitées : Counter'
+        correct: true
+      - text: 'Les connexions actuellement ouvertes : Gauge'
+        correct: true
+      - text: 'La distribution des latences : Histogram'
+        correct: true
+      - text: 'La latence de chaque requête individuelle : Gauge'
+        correct: false
+    answer: Une requête individuelle se suit dans une trace.
+  - key: qcm-red
+    format: multiple-choice
+    question: Que mesurent les métriques RED d'un service ?
+    choices:
+      - text: Le débit de requêtes (Rate)
+        correct: true
+      - text: Les erreurs (Errors)
+        correct: true
+      - text: La durée (Duration)
+        correct: true
+      - text: Le nombre de lignes de code
+        correct: false
+    answer: USE s'applique aux ressources (CPU, disque, pool).
+  - key: qcm-traces
+    format: multiple-choice
+    question: Comment instrumenter un service HTTP avec OpenTelemetry ?
+    choices:
+      - text: Envelopper le routeur avec otelhttp.NewHandler
+        correct: true
+      - text: Utiliser un transport otelhttp pour les appels sortants
+        correct: true
+      - text: Passer r.Context() à tous les appels
+        correct: true
+      - text: Créer un nouveau context.Background() dans chaque fonction
+        correct: false
+    answer: Un nouveau Background casserait la trace.
+  - key: qcm-signaux
+    format: multiple-choice
+    question: Quel signal pour quelle question ?
+    choices:
+      - text: Le taux d'erreurs a-t-il augmenté ? Les métriques
+        correct: true
+      - text: Pourquoi cette requête précise a-t-elle mis 3 s ? Les traces
+        correct: true
+      - text: Quel message d'erreur exact a renvoyé la base ? Les journaux
+        correct: true
+      - text: Quelle est la latence p99 de la semaine ? Les journaux bruts
+        correct: false
+    answer: Les percentiles se calculent sur des histogrammes.
+  - key: scenario-nouveau
+    format: scenario
+    question: Comment instrumentes-tu un nouveau service avant sa mise en production ?
+    answer: |-
+      Métriques RED par route (Counter de requêtes par code, Histogram de durée) et métriques du runtime, exposées sur
+      /metrics ; métriques du pool SQL et des files ; traces OpenTelemetry côté serveur et clients, avec le contexte
+      propagé ; journaux slog en JSON avec l'identifiant de trace. Puis des tableaux de bord RED et des alertes sur les
+      symptômes (taux d'erreurs, latence p99), pas sur chaque cause.
+  - key: scenario-cardinalite
+    format: scenario
+    question: Le serveur Prometheus sature depuis l'ajout d'une métrique. Que vérifies-tu ?
+    answer: |-
+      Les étiquettes de la nouvelle métrique : une étiquette à forte cardinalité (identifiant, URL brute avec les
+      paramètres, adresse IP) crée une série par valeur. Je remplace l'URL par le motif de route, je retire les
+      identifiants (ils vont dans les traces ou les journaux), et je vérifie le nombre de séries par métrique. Les
+      histogrammes multiplient aussi les séries par le nombre de seaux.
+  - key: scenario-lenteur
+    format: scenario
+    question: Les utilisateurs se plaignent de lenteurs ponctuelles. Comment l'observabilité t'aide-t-elle à trouver la cause ?
+    answer: |-
+      Les métriques montrent quand et sur quelles routes la latence p99 monte, et si elle coïncide avec une hausse de
+      débit, du GC ou de l'attente du pool SQL. J'ouvre ensuite des traces des requêtes lentes de cette période pour voir
+      l'étape qui dure (un appel aval, une requête SQL), puis les journaux de ces traces pour les erreurs. Si rien
+      n'apparaît, un profil ou une trace d'exécution Go prend le relais.

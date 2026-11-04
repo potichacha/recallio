@@ -1,0 +1,138 @@
+notion: fan-in-fan-out
+lesson: "Deux motifs complémentaires pour paralléliser une étape :\n\n**Fan-out** : plusieurs goroutines lisent **le même channel** d'entrée et se partagent le travail. Chaque valeur n'est\nreçue que par **une** goroutine.\n\n**Fan-in** : on **fusionne** plusieurs channels en un seul.\n\n```go\nfunc fusionner(ctx context.Context, entrees ...<-chan Resultat) <-chan Resultat {\n\tsortie := make(chan Resultat)\n\tvar wg sync.WaitGroup\n\tfor _, e := range entrees {\n\t\twg.Go(func() {\n\t\t\tfor r := range e {\n\t\t\t\tselect {\n\t\t\t\tcase sortie <- r:\n\t\t\t\tcase <-ctx.Done():\n\t\t\t\t\treturn\n\t\t\t\t}\n\t\t\t}\n\t\t})\n\t}\n\tgo func() {\n\t\twg.Wait()\n\t\tclose(sortie) // une seule fermeture, après tous les émetteurs\n\t}()\n\treturn sortie\n}\n\n// fan-out : 4 workers sur la même entrée, puis fan-in de leurs sorties\nvar sorties []<-chan Resultat\nfor range 4 {\n\tsorties = append(sorties, traiter(ctx, entree))\n}\nfor r := range fusionner(ctx, sorties...) { ... }\n```\n\nCe qu'il faut savoir :\n- le fan-out **perd l'ordre** des éléments : on ajoute un indice si l'ordre compte ;\n- la sortie fusionnée se ferme **une seule fois**, après la fin de **tous** les émetteurs (un `WaitGroup`) ;\n- pour **deux** sources seulement, un `select` dans une boucle (avec l'idiome du channel mis à nil) suffit.\n\n**Piège classique** : chaque goroutine de fan-in ferme la sortie à la fin de son entrée. La première à finir la ferme,\net les autres paniquent sur « send on closed channel ».\n\n**En entretien** : « Fan-out : plusieurs goroutines lisent la même entrée ; fan-in : une goroutine par source copie vers\nune sortie unique, fermée après un WaitGroup ; l'ordre est perdu. »"
+cards:
+  - key: fan-out
+    format: course
+    question: Qu'est-ce que le fan-out ?
+    answer: Plusieurs goroutines qui lisent le même channel d'entrée et se partagent le travail ; chaque valeur n'est reçue que par l'une d'elles.
+  - key: fan-in
+    format: course
+    question: Qu'est-ce que le fan-in ?
+    answer: La fusion de plusieurs channels en un seul, en général une goroutine par source qui recopie vers la sortie commune.
+  - key: fermeture
+    format: course
+    question: Quand fermer la sortie d'un fan-in ?
+    answer: 'Une seule fois, après la fin de toutes les goroutines qui y envoient : une goroutine attend leur WaitGroup puis ferme.'
+  - key: ordre
+    format: course
+    question: Comment garder l'ordre des résultats après un fan-out ?
+    answer: En joignant à chaque élément son indice d'origine, puis en rangeant les résultats à la réception (ou en écrivant dans un slice préalloué).
+  - key: vf-une-fois
+    format: true-false
+    question: Dans un fan-out, chaque valeur du channel d'entrée est reçue par une seule goroutine.
+    truth: true
+    answer: Une réception consomme la valeur.
+  - key: vf-ordre
+    format: true-false
+    question: Un fan-out garde l'ordre des éléments.
+    truth: false
+    answer: Les workers finissent dans un ordre quelconque.
+  - key: vf-chaque-ferme
+    format: true-false
+    question: Dans un fan-in, chaque goroutine de copie peut fermer la sortie quand sa source est épuisée.
+    truth: false
+    answer: La première fermeture ferait paniquer les autres émetteurs.
+  - key: vf-deux-sources
+    format: true-false
+    question: Pour fusionner deux channels, un select dans une boucle suffit.
+    truth: true
+    answer: Avec les channels fermés mis à nil pour désactiver leur cas.
+  - key: qcm-motifs
+    format: multiple-choice
+    question: Lesquelles décrivent correctement les motifs ?
+    choices:
+      - text: Fan-out pour paralléliser une étape lente
+        correct: true
+      - text: Fan-in pour regrouper les sorties de plusieurs workers
+        correct: true
+      - text: Fan-out pour diffuser chaque valeur à toutes les goroutines
+        correct: false
+      - text: Fan-in pour garder l'ordre des éléments
+        correct: false
+    answer: Pour diffuser à tous, il faut un channel par abonné (ou une fermeture pour un signal).
+  - key: qcm-fermer
+    format: multiple-choice
+    question: Comment fermer la sortie d'un fan-in de n sources ?
+    choices:
+      - text: Une goroutine fait `wg.Wait()` puis `close(sortie)`
+        correct: true
+      - text: Chaque goroutine de copie appelle `close(sortie)` à la fin
+        correct: false
+      - text: Le consommateur ferme la sortie
+        correct: false
+      - text: On ne la ferme jamais
+        correct: false
+    answer: Sans fermeture, le consommateur qui fait range attendrait pour toujours.
+  - key: qcm-diffusion
+    format: multiple-choice
+    question: Comment envoyer chaque événement à trois abonnés ?
+    choices:
+      - text: Un channel par abonné, et une goroutine qui recopie chaque événement sur les trois
+        correct: true
+      - text: Trois goroutines qui lisent le même channel
+        correct: false
+      - text: Un seul channel bufferisé de capacité 3
+        correct: false
+      - text: Fermer le channel après chaque événement
+        correct: false
+    answer: Lire le même channel partage les événements au lieu de les diffuser.
+  - key: qcm-quand
+    format: multiple-choice
+    question: Quand le fan-out apporte-t-il un gain ?
+    choices:
+      - text: Quand une étape est nettement plus lente que les autres
+        correct: true
+      - text: Quand elle fait des entrées-sorties qui peuvent se chevaucher
+        correct: true
+      - text: Quand le traitement par élément est une simple addition
+        correct: false
+      - text: Toujours
+        correct: false
+    answer: Pour un travail minuscule, la coordination coûte plus qu'elle ne rapporte.
+  - key: bug-close-multiple
+    format: bug-fix
+    question: "La fusion panique avec « send on closed channel » :\n```go\nfor _, e := range entrees {\n\tgo func() {\n\t\tfor r := range e {\n\t\t\tsortie <- r\n\t\t}\n\t\tclose(sortie)\n\t}()\n}\n```"
+    answer: "```go\nvar wg sync.WaitGroup\nfor _, e := range entrees {\n\twg.Go(func() {\n\t\tfor r := range e {\n\t\t\tsortie <- r\n\t\t}\n\t})\n}\ngo func() {\n\twg.Wait()\n\tclose(sortie)\n}()\n```\nLa première source épuisée fermait la sortie des autres ; on ferme une fois, après tous les émetteurs."
+  - key: bug-ordre
+    format: bug-fix
+    question: "Après la parallélisation de la conversion, les lignes de l'export sortent dans le désordre :\n```go\nfor r := range fusionner(convertir(lignes), convertir(lignes), convertir(lignes)) {\n\tecrire(r)\n}\n```"
+    answer: "```go\ntype ligneNumerotee struct {\n\tN     int\n\tLigne string\n}\n\n// les workers recopient N ; à la réception :\nresultats := make([]string, total)\nfor r := range fusionner(...) {\n\tresultats[r.N] = r.Ligne\n}\nfor _, l := range resultats {\n\tecrire(l)\n}\n```\nLe fan-out perd l'ordre : chaque élément porte son numéro, et l'on reconstruit l'ordre à la fin."
+  - key: bug-diffusion
+    format: bug-fix
+    question: "Chaque abonné ne reçoit qu'une partie des notifications :\n```go\nfor _, a := range abonnes {\n\tgo a.Ecouter(notifications) // tous lisent le même channel\n}\n```"
+    answer: "```go\ncanaux := make([]chan Notification, len(abonnes))\nfor i, a := range abonnes {\n\tcanaux[i] = make(chan Notification, 16)\n\tgo a.Ecouter(canaux[i])\n}\nfor n := range notifications {\n\tfor _, c := range canaux {\n\t\tc <- n\n\t}\n}\n```\nPlusieurs lecteurs d'un même channel se partagent les valeurs ; pour diffuser, chaque abonné a son channel."
+  - key: bug-fuite
+    format: bug-fix
+    question: "Le fan-in laisse des goroutines bloquées quand le consommateur s'arrête tôt :\n```go\nwg.Go(func() {\n\tfor r := range e {\n\t\tsortie <- r\n\t}\n})\n```"
+    answer: "```go\nwg.Go(func() {\n\tfor r := range e {\n\t\tselect {\n\t\tcase sortie <- r:\n\t\tcase <-ctx.Done():\n\t\t\treturn\n\t\t}\n\t}\n})\n```\nChaque copie surveille le contexte, annulé par le consommateur quand il abandonne."
+  - key: scenario-crawler
+    format: scenario
+    question: Conçois un collecteur qui télécharge 10 000 pages avec au plus 20 téléchargements simultanés et rassemble les résultats.
+    answer: |-
+      Un producteur envoie les URL sur un channel ; 20 workers (fan-out) lisent ce channel, téléchargent avec le
+      contexte du collecteur, et envoient un résultat (`URL`, contenu ou erreur) sur un channel commun ; une goroutine
+      ferme ce channel après le `WaitGroup` des workers (fan-in). Le consommateur range les résultats. Un délai par
+      requête et une annulation globale évitent les blocages ; un limiteur de débit respecte les sites visités.
+  - key: scenario-ordre-besoin
+    format: scenario
+    question: Ton traitement parallèle doit produire un fichier dans l'ordre d'origine. Quelles options ?
+    answer: |-
+      Écrire les résultats dans un slice préalloué, à l'indice de chaque élément, puis écrire le fichier une fois tous
+      les résultats reçus ; c'est simple mais tout tient en mémoire. Pour un flux, garder un tampon de réordonnancement :
+      on écrit le résultat n dès que tous ceux d'avant sont écrits, en gardant les suivants en attente dans une map.
+      Ou paralléliser par blocs consécutifs et concaténer les blocs dans l'ordre.
+  - key: scenario-fusion-deux
+    format: scenario
+    question: Tu dois fusionner exactement deux flux d'événements. Fan-in avec WaitGroup ou select ?
+    answer: |-
+      Un select dans une boucle, avec les deux channels et `ctx.Done()`, suffit et évite deux goroutines : quand un
+      channel est fermé, je le mets à nil pour désactiver son cas, et la boucle s'arrête quand les deux sont nil. Le fan-in
+      générique avec WaitGroup devient plus simple dès que le nombre de sources est variable.
+  - key: scenario-entretien
+    format: scenario
+    question: En entretien, on te demande d'expliquer fan-in et fan-out avec un exemple concret.
+    answer: |-
+      Pour redimensionner des images téléversées : les noms de fichiers arrivent sur un channel ; plusieurs workers
+      (fan-out) le lisent, chacun redimensionne l'image qu'il reçoit et envoie le résultat sur son propre channel de
+      sortie ; une fonction de fusion (fan-in) recopie ces sorties vers un channel unique, fermé une fois tous les
+      workers terminés, que lit la goroutine qui met à jour la base. L'ordre est perdu, ce qui ne gêne pas ici.

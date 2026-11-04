@@ -1,4 +1,33 @@
 notion: context-causes
+lesson: |-
+  Depuis Go 1.20 et 1.21, le package `context` sait dire **pourquoi** un contexte a été annulé, exécuter du code **à
+  l'annulation**, et **détacher** un contexte de l'annulation de son parent.
+
+  **Les causes** :
+
+  ```go
+  ctx, cancel := context.WithCancelCause(parent)
+  cancel(ErrQuotaDepasse)        // annuler avec une cause
+  ctx.Err()                      // context.Canceled, comme toujours
+  context.Cause(ctx)             // ErrQuotaDepasse
+
+  ctx, cancel := context.WithTimeoutCause(parent, 2*time.Second, ErrServiceLent)
+  // à l'échéance : Err() == DeadlineExceeded, Cause(ctx) == ErrServiceLent
+  ```
+
+  `Err()` garde ses deux valeurs habituelles (pour la compatibilité) ; **`context.Cause`** donne la raison précise. Sans
+  cause fournie, `Cause` renvoie la même chose que `Err()`.
+
+  **`context.AfterFunc(ctx, f)`** (Go 1.21) exécute `f` dans sa propre goroutine quand `ctx` est annulé, et renvoie
+  une fonction `stop` pour désinscrire `f` (elle renvoie `true` si elle a empêché l'exécution). Utile pour relier
+  l'annulation à une API qui ne connaît pas les contextes (fermer une connexion, réveiller une sync.Cond).
+
+  **`context.WithoutCancel(ctx)`** (Go 1.21) renvoie un contexte qui garde les **valeurs** du parent mais **pas** son
+  annulation ni son échéance : pour un travail qui doit finir même si la requête est terminée (audit, nettoyage).
+  On lui redonne en général un délai propre.
+
+  **En entretien** : « WithCancelCause et Cause pour savoir pourquoi ; AfterFunc pour réagir à l'annulation sans
+  goroutine à écrire ; WithoutCancel pour garder les valeurs sans l'annulation. »
 cards:
   - key: apporte-withcancelcause
     format: course
@@ -18,3 +47,188 @@ cards:
     answer: |-
       Si j'utilise `r.Context()` directement, l'écriture sera annulée quand le client part. J'utiliserais `context.WithoutCancel(r.Context())` : on garde les valeurs utiles (identifiant de requête, utilisateur, trace) sans hériter de l'annulation, avec un timeout propre pour que l'écriture ne bloque pas indéfiniment.
       Si l'audit est critique, je ne le ferais pas en ligne mais via une file (ou l'outbox en base dans la même transaction), pour qu'il survive aussi à un crash du processus.
+  - key: cause-sans
+    format: course
+    question: Que renvoie `context.Cause(ctx)` pour un contexte annulé sans cause particulière ?
+    answer: La même valeur que `ctx.Err()` (context.Canceled ou context.DeadlineExceeded), et nil tant que le contexte n'est pas annulé.
+  - key: vf-err-inchange
+    format: true-false
+    question: Avec WithCancelCause, `ctx.Err()` renvoie la cause passée à cancel.
+    truth: false
+    answer: Err renvoie toujours context.Canceled ; la cause s'obtient avec context.Cause.
+  - key: vf-afterfunc-goroutine
+    format: true-false
+    question: La fonction passée à context.AfterFunc s'exécute dans sa propre goroutine.
+    truth: true
+    answer: Elle ne bloque donc pas celui qui annule.
+  - key: vf-without-valeurs
+    format: true-false
+    question: Un contexte obtenu par WithoutCancel garde les valeurs de son parent.
+    truth: true
+    answer: Il perd seulement l'annulation et l'échéance.
+  - key: vf-without-delai
+    format: true-false
+    question: Un contexte obtenu par WithoutCancel garde l'échéance de son parent.
+    truth: false
+    answer: Deadline renvoie ok == false ; on ajoute souvent un délai propre.
+  - key: qcm-fonctions
+    format: multiple-choice
+    question: Quelles fonctions du package context existent depuis Go 1.21 ?
+    choices:
+      - text: '`context.AfterFunc`'
+        correct: true
+      - text: '`context.WithoutCancel`'
+        correct: true
+      - text: '`context.WithTimeoutCause`'
+        correct: true
+      - text: '`context.WithRetry`'
+        correct: false
+    answer: WithCancelCause et Cause datent de Go 1.20.
+  - key: qcm-afterfunc
+    format: multiple-choice
+    question: À quoi sert la fonction stop renvoyée par AfterFunc ?
+    choices:
+      - text: À désinscrire la fonction si le contexte n'est pas encore annulé
+        correct: true
+      - text: Elle renvoie true si elle a empêché l'exécution de la fonction
+        correct: true
+      - text: À annuler le contexte
+        correct: false
+      - text: À attendre la fin de la fonction
+        correct: false
+    answer: Elle n'attend pas une fonction déjà lancée.
+  - key: qcm-without
+    format: multiple-choice
+    question: Dans quels cas WithoutCancel convient-il ?
+    choices:
+      - text: Écrire un journal d'audit après la réponse, même si le client est parti
+        correct: true
+      - text: Libérer une ressource distante à la fin d'une requête annulée
+        correct: true
+      - text: Contourner un délai trop court fixé par l'appelant pour un appel normal
+        correct: false
+      - text: Toute goroutine lancée par un handler, sans délai propre
+        correct: false
+    answer: Il faut une raison précise, et un délai propre pour ne pas tourner sans fin.
+  - key: qcm-cause
+    format: multiple-choice
+    question: Pourquoi utiliser une cause d'annulation ?
+    choices:
+      - text: Distinguer dans les journaux « quota dépassé » de « client parti »
+        correct: true
+      - text: Renvoyer une erreur métier précise quand une opération est interrompue
+        correct: true
+      - text: Changer la valeur de ctx.Err()
+        correct: false
+      - text: Réessayer automatiquement l'opération
+        correct: false
+    answer: Err reste Canceled ou DeadlineExceeded.
+  - key: code-cause
+    format: code-output
+    question: |-
+      ```go
+      ctx, cancel := context.WithCancelCause(context.Background())
+      cancel(errors.New("quota dépassé"))
+      fmt.Println(ctx.Err())
+      fmt.Println(context.Cause(ctx))
+      ```
+    answer: '`context canceled` puis `quota dépassé` : Err ne change pas, Cause donne la raison.'
+    check:
+      code: "package main\n\nimport (\n\t\"context\"\n\t\"errors\"\n\t\"fmt\"\n)\n\nfunc main() {\n\tctx, cancel := context.WithCancelCause(context.Background())\n\tcancel(errors.New(\"quota dépassé\"))\n\tfmt.Println(ctx.Err())\n\tfmt.Println(context.Cause(ctx))\n}\n"
+      output: |-
+        context canceled
+        quota dépassé
+  - key: code-timeout-cause
+    format: code-output
+    question: |-
+      ```go
+      lent := errors.New("service de prix trop lent")
+      ctx, cancel := context.WithTimeoutCause(context.Background(), time.Millisecond, lent)
+      defer cancel()
+      <-ctx.Done()
+      fmt.Println(errors.Is(ctx.Err(), context.DeadlineExceeded))
+      fmt.Println(context.Cause(ctx))
+      ```
+    answer: '`true` puis `service de prix trop lent`.'
+    check:
+      code: "package main\n\nimport (\n\t\"context\"\n\t\"errors\"\n\t\"fmt\"\n\t\"time\"\n)\n\nfunc main() {\n\tlent := errors.New(\"service de prix trop lent\")\n\tctx, cancel := context.WithTimeoutCause(context.Background(), time.Millisecond, lent)\n\tdefer cancel()\n\t<-ctx.Done()\n\tfmt.Println(errors.Is(ctx.Err(), context.DeadlineExceeded))\n\tfmt.Println(context.Cause(ctx))\n}\n"
+      output: |-
+        true
+        service de prix trop lent
+  - key: code-afterfunc
+    format: code-output
+    question: "```go\nctx, cancel := context.WithCancel(context.Background())\nfait := make(chan struct{})\nstop := context.AfterFunc(ctx, func() {\n\tfmt.Println(\"rappel\")\n\tclose(fait)\n})\ncancel()\n<-fait\nfmt.Println(stop())\n```"
+    answer: '`rappel` puis `false` : la fonction s''est déjà exécutée, stop ne l''empêche plus.'
+    check:
+      code: "package main\n\nimport (\n\t\"context\"\n\t\"fmt\"\n)\n\nfunc main() {\n\tctx, cancel := context.WithCancel(context.Background())\n\tfait := make(chan struct{})\n\tstop := context.AfterFunc(ctx, func() {\n\t\tfmt.Println(\"rappel\")\n\t\tclose(fait)\n\t})\n\tcancel()\n\t<-fait\n\tfmt.Println(stop())\n}\n"
+      output: |-
+        rappel
+        false
+  - key: code-without
+    format: code-output
+    question: |-
+      ```go
+      type cleTrace struct{}
+
+      parent, cancel := context.WithCancel(context.Background())
+      parent = context.WithValue(parent, cleTrace{}, "trace-42")
+      detache := context.WithoutCancel(parent)
+      cancel()
+      fmt.Println(parent.Err(), detache.Err(), detache.Value(cleTrace{}))
+      ```
+    answer: '`context canceled <nil> trace-42` : le contexte détaché garde la valeur mais pas l''annulation.'
+    check:
+      code: "package main\n\nimport (\n\t\"context\"\n\t\"fmt\"\n)\n\ntype cleTrace struct{}\n\nfunc main() {\n\tparent, cancel := context.WithCancel(context.Background())\n\tparent = context.WithValue(parent, cleTrace{}, \"trace-42\")\n\tdetache := context.WithoutCancel(parent)\n\tcancel()\n\tfmt.Println(parent.Err(), detache.Err(), detache.Value(cleTrace{}))\n}\n"
+      output: context canceled <nil> trace-42
+  - key: bug-cause-err
+    format: bug-fix
+    question: "Le journal affiche toujours « context canceled » au lieu de la vraie raison :\n```go\nctx, cancel := context.WithCancelCause(ctx)\n// ... ailleurs : cancel(ErrStockEpuise)\nif err := traiter(ctx); err != nil {\n\tlog.Printf(\"arrêt : %v\", ctx.Err())\n}\n```"
+    answer: "```go\nif err := traiter(ctx); err != nil {\n\tlog.Printf(\"arrêt : %v\", context.Cause(ctx))\n}\n```\nErr reste context.Canceled ; la cause passée à cancel se lit avec context.Cause."
+  - key: bug-audit
+    format: bug-fix
+    question: "Les journaux d'audit manquent pour les clients qui ferment leur page trop vite :\n```go\ndefer func() {\n\tgo audit.Ecrire(r.Context(), evenement)\n}()\n```"
+    answer: "```go\ndefer func() {\n\tctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 5*time.Second)\n\tgo func() {\n\t\tdefer cancel()\n\t\taudit.Ecrire(ctx, evenement)\n\t}()\n}()\n```\nLe contexte de la requête était annulé avant l'écriture ; WithoutCancel garde les valeurs (trace) sans\nl'annulation, et un délai propre borne l'écriture."
+  - key: bug-goroutine-surveillance
+    format: bug-fix
+    question: "Une goroutine par connexion attend l'annulation pour fermer la connexion, et reste bloquée quand la connexion se termine normalement :\n```go\ngo func() {\n\t<-ctx.Done()\n\tconn.Close()\n}()\nreturn lire(conn)\n```"
+    answer: |-
+      ```go
+      stop := context.AfterFunc(ctx, func() { conn.Close() })
+      defer stop()
+      return lire(conn)
+      ```
+      AfterFunc relie l'annulation à la fermeture, et `stop` désinscrit le rappel quand la lecture finit normalement :
+      plus de goroutine en attente.
+  - key: bug-without-sans-delai
+    format: bug-fix
+    question: |-
+      Des goroutines de nettoyage s'accumulent quand le service distant ne répond plus :
+      ```go
+      go nettoyer(context.WithoutCancel(ctx), id)
+      ```
+    answer: "```go\nctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)\ngo func() {\n\tdefer cancel()\n\tnettoyer(ctx, id)\n}()\n```\nWithoutCancel supprime aussi l'échéance : sans délai propre, un appel bloqué ne finit jamais."
+  - key: scenario-causes
+    format: scenario
+    question: Comment utiliserais-tu les causes d'annulation dans un service ?
+    answer: |-
+      Là où plusieurs raisons peuvent arrêter une opération : un errgroup maison qui annule avec l'erreur de la tâche
+      fautive, un arrêt du service (`cancel(ErrArret)`), un délai par appel (`WithTimeoutCause(ctx, d,
+      ErrPrixTropLent)`). Les journaux et les métriques utilisent `context.Cause(ctx)` pour distinguer « client parti »,
+      « délai du partenaire » et « arrêt », ce que `Err()` seul confond.
+  - key: scenario-afterfunc
+    format: scenario
+    question: Une bibliothèque bloquante ne connaît pas les contextes. Comment la rends-tu annulable ?
+    answer: |-
+      Si elle offre un moyen d'interrompre l'opération (fermer la connexion, positionner une échéance avec
+      `SetDeadline`, appeler une méthode Cancel), je relie l'annulation du contexte à ce moyen avec
+      `context.AfterFunc(ctx, ...)`, et j'appelle `stop()` en defer quand l'opération finit normalement. Je convertis
+      ensuite l'erreur obtenue en `ctx.Err()` (ou `context.Cause(ctx)`) pour que l'appelant reconnaisse l'annulation.
+  - key: scenario-shutdown
+    format: scenario
+    question: Pendant l'arrêt du service, les requêtes en cours doivent finir mais les nouvelles tâches de fond doivent s'arrêter. Comment combines-tu ces outils ?
+    answer: |-
+      Le contexte racine vient de `signal.NotifyContext` ; les tâches de fond l'utilisent et s'arrêtent dès le signal.
+      Les requêtes en cours ont leur propre contexte, que `srv.Shutdown` laisse vivre jusqu'à leur fin ou jusqu'au délai
+      d'arrêt. Le nettoyage qui doit survivre à une requête annulée part d'un `WithoutCancel` borné par un délai, et
+      `WithCancelCause(ErrArret)` sur les tâches de fond permet de journaliser « arrêt du service » plutôt qu'une
+      annulation anonyme.

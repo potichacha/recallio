@@ -1,4 +1,5 @@
 notion: context-bases
+lesson: "Un **`context.Context`** accompagne une opération (une requête HTTP, un job) à travers tous les appels qu'elle\ndéclenche. Il transporte trois choses :\n- un signal d'**annulation** : le client s'est déconnecté, l'opération n'a plus de raison de continuer ;\n- une **échéance** (*deadline*) : l'opération doit avoir fini avant telle heure ;\n- quelques **valeurs** propres à la requête (identifiant de trace, utilisateur authentifié).\n\n```go\ntype Context interface {\n\tDeadline() (deadline time.Time, ok bool)\n\tDone() <-chan struct{} // fermé quand le contexte est annulé ou expiré\n\tErr() error            // nil, context.Canceled ou context.DeadlineExceeded\n\tValue(key any) any\n}\n```\n\nLes contextes forment un **arbre** : on dérive un enfant d'un parent (`WithCancel`, `WithTimeout`, `WithValue`...).\nAnnuler un parent annule **tous ses descendants** ; annuler un enfant ne touche pas le parent.\n\nLes racines :\n- **`context.Background()`** : au sommet du programme (`main`, initialisation, tests) ;\n- **`context.TODO()`** : identique, mais signale « je n'ai pas encore le bon contexte ici » (code en cours de\n  migration).\n\nDans un serveur HTTP, `r.Context()` est déjà le contexte de la requête, annulé quand le client se déconnecte ou que\nle handler rend la main. On le passe à **tout ce qui bloque** : requêtes SQL (`QueryContext`), appels HTTP\n(`http.NewRequestWithContext`), attentes sur des channels.\n\nUn contexte est **immuable** et **sûr entre goroutines** : on peut passer le même à plusieurs goroutines.\n\n**En entretien** : « Annulation, échéance et valeurs de requête, propagées en arbre ; Background à la racine, TODO\nprovisoire ; on le passe à tout appel bloquant. »"
 cards:
   - key: sert-context-context
     format: course
@@ -12,3 +13,154 @@ cards:
     format: definition
     question: context
     answer: Package de propagation d'annulation, d'échéance et de valeurs
+  - key: arbre
+    format: course
+    question: Que se passe-t-il pour les contextes enfants quand on annule un parent ?
+    answer: Ils sont tous annulés, récursivement ; à l'inverse, annuler un enfant ne touche ni le parent ni ses frères.
+  - key: r-context
+    format: course
+    question: D'où vient le contexte d'une requête dans un serveur net/http, et quand est-il annulé ?
+    answer: De `r.Context()` ; il est annulé quand le client ferme la connexion, quand la requête HTTP/2 est annulée, ou quand ServeHTTP rend la main.
+  - key: vf-immuable
+    format: true-false
+    question: 'Un context.Context est immuable : WithTimeout renvoie un nouveau contexte au lieu de modifier le parent.'
+    truth: true
+    answer: On dérive des enfants, on ne modifie jamais un contexte.
+  - key: vf-goroutines
+    format: true-false
+    question: On peut passer le même contexte à plusieurs goroutines.
+    truth: true
+    answer: Il est sûr entre goroutines.
+  - key: vf-todo
+    format: true-false
+    question: '`context.TODO()` se comporte différemment de `context.Background()` à l''exécution.'
+    truth: false
+    answer: Ils sont identiques ; TODO sert seulement à signaler un contexte à remplacer.
+  - key: vf-enfant-parent
+    format: true-false
+    question: Annuler un contexte enfant annule aussi son parent.
+    truth: false
+    answer: L'annulation descend l'arbre, elle ne remonte pas.
+  - key: qcm-transporte
+    format: multiple-choice
+    question: Que transporte un context.Context ?
+    choices:
+      - text: Un signal d'annulation
+        correct: true
+      - text: Une échéance
+        correct: true
+      - text: Des valeurs propres à la requête
+        correct: true
+      - text: Les paramètres métier de la fonction
+        correct: false
+    answer: Les paramètres métier restent des arguments explicites.
+  - key: qcm-racine
+    format: multiple-choice
+    question: Où utiliser context.Background() ?
+    choices:
+      - text: Dans main, pour la racine du programme
+        correct: true
+      - text: Dans un test
+        correct: true
+      - text: Dans un handler HTTP, à la place de r.Context()
+        correct: false
+      - text: Dans une fonction de bibliothèque qui reçoit déjà un ctx
+        correct: false
+    answer: Remplacer le contexte reçu perdrait l'annulation de l'appelant.
+  - key: qcm-err
+    format: multiple-choice
+    question: Que peut renvoyer `ctx.Err()` ?
+    choices:
+      - text: nil tant que le contexte est actif
+        correct: true
+      - text: context.Canceled
+        correct: true
+      - text: context.DeadlineExceeded
+        correct: true
+      - text: io.EOF
+        correct: false
+    answer: La cause précise s'obtient avec context.Cause.
+  - key: qcm-passer
+    format: multiple-choice
+    question: À quels appels un handler doit-il passer son contexte ?
+    choices:
+      - text: '`db.QueryContext(ctx, ...)`'
+        correct: true
+      - text: '`http.NewRequestWithContext(ctx, ...)`'
+        correct: true
+      - text: '`strings.ToUpper(s)`'
+        correct: false
+      - text: '`fmt.Sprintf(...)`'
+        correct: false
+    answer: Le contexte va aux opérations qui peuvent bloquer ou durer.
+  - key: trous-background
+    format: fill-in
+    question: "Complétez la racine de main :\n```go\nfunc main() {\n\tctx := context.___()\n\tif err := run(ctx); err != nil {\n\t\tlog.Fatal(err)\n\t}\n}\n```"
+    blanks:
+      - - Background
+    answer: Background est la racine.
+  - key: trous-requete
+    format: fill-in
+    question: "Complétez pour récupérer le contexte de la requête :\n```go\nfunc handler(w http.ResponseWriter, r *http.Request) {\n\tctx := r.___()\n\tproduits, err := depot.Lister(ctx)\n\t// ...\n}\n```"
+    blanks:
+      - - Context
+    answer: r.Context() est annulé quand le client part.
+  - key: trous-done
+    format: fill-in
+    question: "Complétez pour attendre l'annulation :\n```go\nselect {\ncase <-ctx.___():\n\treturn ctx.Err()\ncase r := <-resultats:\n\treturn r\n}\n```"
+    blanks:
+      - - Done
+    answer: Done renvoie un channel fermé à l'annulation.
+  - key: trous-signature
+    format: fill-in
+    question: |-
+      Complétez la signature idiomatique :
+      ```go
+      func (d *Depot) Trouver(___ context.Context, id string) (Produit, error)
+      ```
+    blanks:
+      - - ctx
+    answer: Le contexte est le premier paramètre, nommé ctx.
+  - key: scenario-propagation
+    format: scenario
+    question: Un client HTTP abandonne une requête lente. Comment t'assures-tu que le serveur arrête vraiment le travail ?
+    answer: |-
+      Le contexte `r.Context()` est annulé à la déconnexion ; il faut qu'il descende jusqu'à chaque appel bloquant :
+      `QueryContext` pour la base, `NewRequestWithContext` pour les appels sortants, `select` avec `ctx.Done()` dans
+      les attentes et les boucles longues. Je vérifie par un test qui annule le contexte et observe que la requête SQL
+      est interrompue et qu'aucune goroutine ne reste (goleak).
+  - key: scenario-migration
+    format: scenario
+    question: Tu ajoutes la gestion du contexte dans une vieille base de code qui n'en a pas. Comment procèdes-tu ?
+    answer: |-
+      Du haut vers le bas : les points d'entrée (handlers, consommateurs de messages) ont déjà un contexte ; j'ajoute
+      `ctx context.Context` en premier paramètre des fonctions qu'ils appellent, couche par couche, et je mets
+      `context.TODO()` là où la chaîne n'est pas encore reliée, pour les retrouver facilement. Je finis par les appels
+      bloquants (`QueryContext`, requêtes HTTP), qui donnent tout l'intérêt de la migration.
+  - key: scenario-vs-java
+    format: scenario
+    question: Comment expliques-tu le contexte Go à un développeur Java ?
+    answer: |-
+      C'est l'équivalent explicite de ce que Java fait souvent implicitement : l'interruption d'un thread, un délai sur un
+      Future, et les données de requête d'un ThreadLocal ou d'un MDC. En Go, rien n'est attaché à la goroutine : on passe
+      le contexte en paramètre, ce qui rend visible quelles fonctions peuvent bloquer et être annulées.
+  - key: scenario-goroutine-fond
+    format: scenario
+    question: Un handler lance une goroutine qui envoie un e-mail après la réponse. Quel contexte lui donnes-tu ?
+    answer: |-
+      Pas `r.Context()` tel quel : il est annulé dès que le handler rend la main, et l'envoi échouerait. Je prends
+      `context.WithoutCancel(r.Context())` (Go 1.21), qui garde les valeurs (trace, utilisateur) sans l'annulation, avec
+      un délai propre (`WithTimeout`). Mieux encore, pour un travail important : une file de tâches durable plutôt
+      qu'une goroutine perdue si le service redémarre.
+  - key: definition-background
+    format: definition
+    question: context.Background
+    answer: Contexte racine vide, jamais annulé, sans échéance ni valeur
+  - key: definition-deadline
+    format: definition
+    question: deadline (échéance)
+    answer: Instant après lequel un contexte est automatiquement annulé avec DeadlineExceeded
+  - key: definition-annulation
+    format: definition
+    question: annulation (contexte)
+    answer: Signal propagé aux contextes descendants par la fermeture de leur channel Done

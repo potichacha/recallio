@@ -1,4 +1,5 @@
 notion: attendre-goroutines
+lesson: "Pour attendre la fin d'un groupe de goroutines, on utilise **`sync.WaitGroup`** :\n\n```go\nvar wg sync.WaitGroup\nfor _, url := range urls {\n\twg.Add(1)                // AVANT de lancer la goroutine\n\tgo func() {\n\t\tdefer wg.Done()      // à la fin, quoi qu'il arrive\n\t\ttelecharger(url)\n\t}()\n}\nwg.Wait()                    // bloque jusqu'à ce que le compteur revienne à 0\n\n// Depuis Go 1.25 : Add, go et Done en un seul appel\nfor _, url := range urls {\n\twg.Go(func() { telecharger(url) })\n}\nwg.Wait()\n```\n\n- **`Add` avant `go`**, jamais dans la goroutine : sinon `Wait` peut passer avant que la goroutine ait incrémenté le\n  compteur.\n- **`defer wg.Done()`** garantit le décompte même en cas de retour anticipé.\n- Un `WaitGroup` **ne se copie pas** : on le passe par pointeur (ou on utilise une closure).\n- Il n'offre **ni résultats ni erreurs** : pour des tâches qui peuvent échouer, `errgroup.Group` attend et renvoie la\n  première erreur.\n- Pour une seule goroutine, un **channel** fermé à la fin (`done := make(chan struct{})`) suffit.\n- **`time.Sleep` n'est jamais une synchronisation** : il ne garantit rien et ralentit les tests.\n\n**Piège classique** : `wg.Add(1)` à l'intérieur de la goroutine. `Wait` peut trouver le compteur à zéro et rendre la main\ntrop tôt.\n\n**En entretien** : « WaitGroup avec Add avant go, defer Done, Wait pour attendre ; wg.Go depuis Go 1.25 ; errgroup quand\nil faut les erreurs ; jamais de Sleep pour synchroniser. »"
 cards:
   - key: apporte-sync-waitgroup
     format: course
@@ -12,3 +13,168 @@ cards:
     format: course
     question: Pourquoi éviter time.Sleep pour synchroniser ?
     answer: C'est fragile et lent ; utiliser WaitGroup, channels ou contextes.
+  - key: copie
+    format: course
+    question: Pourquoi ne faut-il pas passer un `sync.WaitGroup` par valeur ?
+    answer: 'La copie a son propre compteur : `Done` sur la copie ne réveille jamais le `Wait` de l''original ; on le passe par pointeur (go vet le signale).'
+  - key: wg-go
+    format: course
+    question: Que fait `wg.Go(f)` (Go 1.25) ?
+    answer: 'Il incrémente le compteur, lance `f` dans une goroutine et appelle `Done` à sa fin : l''équivalent sûr de `Add(1)`, `go` et `defer Done()`.'
+  - key: errgroup
+    format: course
+    question: Quand préférer `errgroup` à `WaitGroup` ?
+    answer: 'Quand les goroutines peuvent échouer : `errgroup` attend, renvoie la première erreur et, avec `WithContext`, annule les autres.'
+  - key: vf-add-dans
+    format: true-false
+    question: '`wg.Add(1)` peut sans risque être appelé au début de la goroutine.'
+    truth: false
+    answer: '`Wait` pourrait s''exécuter avant ; on appelle `Add` avant `go`.'
+  - key: vf-defer-done
+    format: true-false
+    question: '`defer wg.Done()` garantit le décompte même si la goroutine sort tôt.'
+    truth: true
+    answer: Le defer s'exécute à toute sortie de la fonction.
+  - key: vf-negatif
+    format: true-false
+    question: Appeler `Done` plus de fois que `Add` provoque une panique.
+    truth: true
+    answer: '« sync: negative WaitGroup counter ».'
+  - key: vf-sleep
+    format: true-false
+    question: Un `time.Sleep` suffisamment long est une synchronisation acceptable dans un test.
+    truth: false
+    answer: Il ne garantit rien et rend les tests lents et instables.
+  - key: qcm-ordre
+    format: multiple-choice
+    question: Quel ordre est correct ?
+    choices:
+      - text: '`wg.Add(1)`, puis `go func() { defer wg.Done(); ... }()`, puis `wg.Wait()`'
+        correct: true
+      - text: '`wg.Go(func() { ... })` puis `wg.Wait()`'
+        correct: true
+      - text: '`go func() { wg.Add(1); ...; wg.Done() }()` puis `wg.Wait()`'
+        correct: false
+      - text: '`wg.Wait()` puis lancer les goroutines'
+        correct: false
+    answer: Le compteur doit être incrémenté avant que `Wait` puisse s'exécuter.
+  - key: qcm-outils
+    format: multiple-choice
+    question: Quels outils attendent la fin de goroutines ?
+    choices:
+      - text: '`sync.WaitGroup`'
+        correct: true
+      - text: '`errgroup.Group`'
+        correct: true
+      - text: '`time.Sleep`'
+        correct: false
+      - text: '`runtime.Gosched`'
+        correct: false
+    answer: '`Gosched` cède seulement le processeur un instant.'
+  - key: qcm-passer
+    format: multiple-choice
+    question: Comment partager un WaitGroup avec une fonction de travail ?
+    choices:
+      - text: Passer `&wg` (un `*sync.WaitGroup`)
+        correct: true
+      - text: Utiliser une closure qui capture `wg`
+        correct: true
+      - text: Passer `wg` par valeur
+        correct: false
+      - text: Créer un WaitGroup dans chaque goroutine
+        correct: false
+    answer: Une copie a un compteur séparé.
+  - key: qcm-erreurs
+    format: multiple-choice
+    question: Trois téléchargements en parallèle peuvent échouer. Quel outil garde la première erreur ?
+    choices:
+      - text: '`errgroup.Group` et `g.Wait()`'
+        correct: true
+      - text: '`sync.WaitGroup` seul'
+        correct: false
+      - text: '`time.Sleep` puis vérifier'
+        correct: false
+      - text: '`panic` dans la goroutine'
+        correct: false
+    answer: Le WaitGroup n'a pas de notion d'erreur.
+  - key: trous-add
+    format: fill-in
+    question: "Complétez :\n```go\nwg.___(1)\ngo func() {\n\tdefer wg.Done()\n\ttravailler()\n}()\n```"
+    blanks:
+      - - Add
+    answer: '`Add` avant de lancer la goroutine.'
+  - key: trous-done
+    format: fill-in
+    question: "Complétez le décompte :\n```go\ngo func() {\n\tdefer wg.___()\n\ttravailler()\n}()\n```"
+    blanks:
+      - - Done
+    answer: '`Done` décrémente le compteur.'
+  - key: trous-wait
+    format: fill-in
+    question: |-
+      Complétez l'attente :
+      ```go
+      wg.___()
+      fmt.Println("tout est fini")
+      ```
+    blanks:
+      - - Wait
+    answer: '`Wait` bloque jusqu''à ce que le compteur soit nul.'
+  - key: trous-go
+    format: fill-in
+    question: "Complétez la forme de Go 1.25 :\n```go\nfor _, u := range urls {\n\twg.___(func() { telecharger(u) })\n}\n```"
+    blanks:
+      - - Go
+    answer: '`wg.Go` regroupe Add, go et Done.'
+  - key: code-waitgroup
+    format: code-output
+    question: "```go\nvar wg sync.WaitGroup\nres := make([]int, 5)\nfor i := range 5 {\n\twg.Add(1)\n\tgo func() {\n\t\tdefer wg.Done()\n\t\tres[i] = i * 10\n\t}()\n}\nwg.Wait()\nfmt.Println(res)\n```"
+    answer: '`[0 10 20 30 40]` : chaque goroutine écrit à son propre indice, et `Wait` attend toutes les écritures.'
+    check:
+      code: "package main\n\nimport (\n\t\"fmt\"\n\t\"sync\"\n)\n\nfunc main() {\n\tvar wg sync.WaitGroup\n\tres := make([]int, 5)\n\tfor i := range 5 {\n\t\twg.Add(1)\n\t\tgo func() {\n\t\t\tdefer wg.Done()\n\t\t\tres[i] = i * 10\n\t\t}()\n\t}\n\twg.Wait()\n\tfmt.Println(res)\n}\n"
+      output: '[0 10 20 30 40]'
+  - key: code-wg-go
+    format: code-output
+    question: "```go\nvar wg sync.WaitGroup\nvar total atomic.Int64\nfor i := 1; i <= 100; i++ {\n\twg.Go(func() { total.Add(int64(i)) })\n}\nwg.Wait()\nfmt.Println(total.Load())\n```"
+    answer: '`5050` : `wg.Go` (Go 1.25) et un atomique pour la somme.'
+    check:
+      code: "package main\n\nimport (\n\t\"fmt\"\n\t\"sync\"\n\t\"sync/atomic\"\n)\n\nfunc main() {\n\tvar wg sync.WaitGroup\n\tvar total atomic.Int64\n\tfor i := 1; i <= 100; i++ {\n\t\twg.Go(func() { total.Add(int64(i)) })\n\t}\n\twg.Wait()\n\tfmt.Println(total.Load())\n}\n"
+      output: '5050'
+  - key: code-negatif
+    format: code-output
+    question: |-
+      ```go
+      var wg sync.WaitGroup
+      wg.Add(1)
+      wg.Done()
+      wg.Done()
+      ```
+    answer: 'Une panique « sync: negative WaitGroup counter ».'
+    check:
+      code: "package main\n\nimport \"sync\"\n\nfunc main() {\n\tvar wg sync.WaitGroup\n\twg.Add(1)\n\twg.Done()\n\twg.Done()\n}\n"
+      panics: negative WaitGroup counter
+  - key: code-done-channel
+    format: code-output
+    question: "```go\nfini := make(chan struct{})\ngo func() {\n\tdefer close(fini)\n\tfmt.Println(\"travail\")\n}()\n<-fini\nfmt.Println(\"après\")\n```"
+    answer: '`travail` puis `après` : pour une seule goroutine, un channel fermé suffit.'
+    check:
+      code: "package main\n\nimport \"fmt\"\n\nfunc main() {\n\tfini := make(chan struct{})\n\tgo func() {\n\t\tdefer close(fini)\n\t\tfmt.Println(\"travail\")\n\t}()\n\t<-fini\n\tfmt.Println(\"après\")\n}\n"
+      output: |-
+        travail
+        après
+  - key: bug-add-dedans
+    format: bug-fix
+    question: "Le rapport est parfois incomplet :\n```go\nfor _, c := range clients {\n\tgo func() {\n\t\twg.Add(1)\n\t\tdefer wg.Done()\n\t\tfacturer(c)\n\t}()\n}\nwg.Wait()\n```"
+    answer: "```go\nfor _, c := range clients {\n\twg.Add(1)\n\tgo func() {\n\t\tdefer wg.Done()\n\t\tfacturer(c)\n\t}()\n}\nwg.Wait()\n```\n`Add` dans la goroutine pouvait arriver après `Wait`, qui rendait la main trop tôt."
+  - key: bug-copie
+    format: bug-fix
+    question: "`Wait` ne rend jamais la main, et go vet signale « passes lock by value » :\n```go\nfunc travailler(wg sync.WaitGroup) {\n\tdefer wg.Done()\n\t...\n}\n\nwg.Add(1)\ngo travailler(wg)\nwg.Wait()\n```"
+    answer: "```go\nfunc travailler(wg *sync.WaitGroup) {\n\tdefer wg.Done()\n\t...\n}\n\ngo travailler(&wg)\n```\nLa copie avait son propre compteur ; le `Done` ne touchait pas celui qu'attendait `Wait`."
+  - key: bug-done-oublie
+    format: bug-fix
+    question: "Le programme se bloque quand un téléchargement échoue :\n```go\ngo func() {\n\tif err := telecharger(u); err != nil {\n\t\tlog.Println(err)\n\t\treturn\n\t}\n\twg.Done()\n}()\n```"
+    answer: "```go\ngo func() {\n\tdefer wg.Done()\n\tif err := telecharger(u); err != nil {\n\t\tlog.Println(err)\n\t\treturn\n\t}\n}()\n```\nLe retour anticipé sautait `Done` ; `defer` le garantit sur toutes les sorties."
+  - key: bug-sleep
+    format: bug-fix
+    question: "Rendez cette attente fiable :\n```go\nfor _, t := range taches {\n\tgo executer(t)\n}\ntime.Sleep(2 * time.Second)\n```"
+    answer: "```go\nvar wg sync.WaitGroup\nfor _, t := range taches {\n\twg.Go(func() { executer(t) })\n}\nwg.Wait()\n```\n`Sleep` attendait trop ou pas assez ; le WaitGroup attend exactement la fin des tâches."

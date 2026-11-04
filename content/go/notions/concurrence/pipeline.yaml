@@ -1,0 +1,170 @@
+notion: pipeline
+lesson: "Un **pipeline** enchaîne des **étapes** reliées par des channels : chaque étape est une goroutine (ou un groupe) qui\nreçoit sur un channel d'entrée, transforme, et envoie sur un channel de sortie qu'elle **ferme** à la fin.\n\n```go\nfunc generer(ctx context.Context, nombres ...int) <-chan int {\n\tsortie := make(chan int)\n\tgo func() {\n\t\tdefer close(sortie)\n\t\tfor _, n := range nombres {\n\t\t\tselect {\n\t\t\tcase sortie <- n:\n\t\t\tcase <-ctx.Done():\n\t\t\t\treturn\n\t\t\t}\n\t\t}\n\t}()\n\treturn sortie\n}\n\nfunc carres(ctx context.Context, entree <-chan int) <-chan int {\n\tsortie := make(chan int)\n\tgo func() {\n\t\tdefer close(sortie)\n\t\tfor n := range entree {\n\t\t\tselect {\n\t\t\tcase sortie <- n * n:\n\t\t\tcase <-ctx.Done():\n\t\t\t\treturn\n\t\t\t}\n\t\t}\n\t}()\n\treturn sortie\n}\n\nfor v := range carres(ctx, generer(ctx, 1, 2, 3)) {\n\tfmt.Println(v)\n}\n```\n\nLes règles d'un pipeline sain :\n- chaque étape **ferme son channel de sortie** quand son entrée est épuisée : la fermeture se propage jusqu'au bout ;\n- chaque envoi est dans un **select avec `ctx.Done()`** : si le consommateur abandonne, toutes les étapes s'arrêtent,\n  sans fuite ;\n- les étapes reçoivent un `<-chan` et renvoient un `<-chan` : les rôles sont vérifiés par le compilateur.\n\nLes étapes travaillent **en parallèle** sur des éléments différents ; une étape lente peut être dupliquée (fan-out).\n\n**Piège classique** : un consommateur qui s'arrête au premier résultat utile sans annuler le contexte. Les étapes\nprécédentes restent bloquées sur leur envoi : fuite de goroutines.\n\n**En entretien** : « Des étapes reliées par des channels, chacune ferme sa sortie ; chaque envoi surveille le contexte\npour qu'un abandon arrête tout ; des signatures <-chan pour les rôles. »"
+cards:
+  - key: fermeture
+    format: course
+    question: Comment la fin des données se propage-t-elle dans un pipeline ?
+    answer: 'Chaque étape ferme son channel de sortie quand son range sur l''entrée se termine : la fermeture descend d''étape en étape jusqu''au consommateur.'
+  - key: abandon
+    format: course
+    question: Que doit faire chaque étape pour qu'un pipeline ne fuie pas quand le consommateur abandonne ?
+    answer: 'Envoyer dans un `select` avec `ctx.Done()` : quand le contexte est annulé, l''étape sort au lieu de rester bloquée sur un envoi que personne ne lit.'
+  - key: parallelisme
+    format: course
+    question: En quoi un pipeline est-il concurrent ?
+    answer: Les étapes tournent dans des goroutines distinctes et traitent des éléments différents en même temps, comme une chaîne de montage.
+  - key: lente
+    format: course
+    question: Que faire d'une étape plus lente que les autres ?
+    answer: 'La dupliquer (fan-out : plusieurs goroutines lisent la même entrée) puis fusionner leurs sorties (fan-in), ou ajouter un tampon si la lenteur est passagère.'
+  - key: vf-fermer-sortie
+    format: true-false
+    question: Chaque étape d'un pipeline ferme son propre channel de sortie.
+    truth: true
+    answer: Elle en est le seul émetteur.
+  - key: vf-ordre
+    format: true-false
+    question: Un pipeline à une goroutine par étape conserve l'ordre des éléments.
+    truth: true
+    answer: Chaque étape traite les éléments un par un, dans l'ordre reçu ; c'est le fan-out qui casse l'ordre.
+  - key: vf-fuite
+    format: true-false
+    question: Si le consommateur cesse de lire sans annuler, les étapes précédentes s'arrêtent d'elles-mêmes.
+    truth: false
+    answer: Elles restent bloquées sur leurs envois ; il faut un contexte annulé.
+  - key: vf-signatures
+    format: true-false
+    question: Une étape qui reçoit un `<-chan int` et renvoie un `<-chan int` ne peut ni fermer son entrée ni écrire dedans.
+    truth: true
+    answer: Le compilateur vérifie les rôles.
+  - key: qcm-etape
+    format: multiple-choice
+    question: Que fait une étape de pipeline bien écrite ?
+    choices:
+      - text: Elle lit son entrée avec range jusqu'à la fermeture
+        correct: true
+      - text: Elle ferme sa sortie avec `defer close(sortie)`
+        correct: true
+      - text: Elle ferme son channel d'entrée quand elle a fini
+        correct: false
+      - text: Elle envoie sans surveiller le contexte
+        correct: false
+    answer: L'entrée appartient à l'étape précédente.
+  - key: qcm-arret
+    format: multiple-choice
+    question: Le consommateur n'a besoin que du premier résultat. Comment éviter que le pipeline fuie ?
+    choices:
+      - text: Annuler le contexte partagé par toutes les étapes (defer cancel)
+        correct: true
+      - text: Écrire chaque envoi dans un select avec ctx.Done()
+        correct: true
+      - text: Fermer le channel de sortie de la dernière étape côté consommateur
+        correct: false
+      - text: Laisser le ramasse-miettes s'en charger
+        correct: false
+    answer: Le GC ne ramasse pas les goroutines bloquées.
+  - key: qcm-avantages
+    format: multiple-choice
+    question: Quels avantages offre un pipeline ?
+    choices:
+      - text: Des étapes simples, chacune testable seule
+        correct: true
+      - text: Un traitement au fil de l'eau, sans tout charger en mémoire
+        correct: true
+      - text: Un traitement toujours plus rapide qu'une boucle simple
+        correct: false
+      - text: Aucune synchronisation à écrire
+        correct: false
+    answer: Pour des étapes très légères, une boucle simple reste plus rapide.
+  - key: qcm-signature
+    format: multiple-choice
+    question: Quelle signature pour une étape qui double des entiers ?
+    choices:
+      - text: '`func doubler(ctx context.Context, entree <-chan int) <-chan int`'
+        correct: true
+      - text: '`func doubler(entree chan int, sortie chan int)` sans fermer'
+        correct: false
+      - text: '`func doubler(entree []int) []int`, dans une goroutine'
+        correct: false
+      - text: '`func doubler(entree chan<- int) chan<- int`'
+        correct: false
+    answer: Elle reçoit, renvoie un channel en lecture seule, et prend le contexte.
+  - key: code-pipeline
+    format: code-output
+    question: "```go\ngenerer := func(ns ...int) <-chan int {\n\tout := make(chan int)\n\tgo func() {\n\t\tdefer close(out)\n\t\tfor _, n := range ns {\n\t\t\tout <- n\n\t\t}\n\t}()\n\treturn out\n}\ncarres := func(in <-chan int) <-chan int {\n\tout := make(chan int)\n\tgo func() {\n\t\tdefer close(out)\n\t\tfor n := range in {\n\t\t\tout <- n * n\n\t\t}\n\t}()\n\treturn out\n}\n\nfor v := range carres(carres(generer(1, 2, 3))) {\n\tfmt.Print(v, \" \")\n}\nfmt.Println()\n```"
+    answer: '`1 16 81` : deux étapes de carrés à la suite, dans l''ordre.'
+    check:
+      code: "package main\n\nimport \"fmt\"\n\nfunc main() {\n\tgenerer := func(ns ...int) <-chan int {\n\t\tout := make(chan int)\n\t\tgo func() {\n\t\t\tdefer close(out)\n\t\t\tfor _, n := range ns {\n\t\t\t\tout <- n\n\t\t\t}\n\t\t}()\n\t\treturn out\n\t}\n\tcarres := func(in <-chan int) <-chan int {\n\t\tout := make(chan int)\n\t\tgo func() {\n\t\t\tdefer close(out)\n\t\t\tfor n := range in {\n\t\t\t\tout <- n * n\n\t\t\t}\n\t\t}()\n\t\treturn out\n\t}\n\n\tfor v := range carres(carres(generer(1, 2, 3))) {\n\t\tfmt.Print(v, \" \")\n\t}\n\tfmt.Println()\n}\n"
+      output: 1 16 81
+  - key: code-filtre
+    format: code-output
+    question: "```go\nsource := func(n int) <-chan int {\n\tout := make(chan int)\n\tgo func() {\n\t\tdefer close(out)\n\t\tfor i := range n {\n\t\t\tout <- i\n\t\t}\n\t}()\n\treturn out\n}\npairs := func(in <-chan int) <-chan int {\n\tout := make(chan int)\n\tgo func() {\n\t\tdefer close(out)\n\t\tfor v := range in {\n\t\t\tif v%2 == 0 {\n\t\t\t\tout <- v\n\t\t\t}\n\t\t}\n\t}()\n\treturn out\n}\n\nsomme := 0\nfor v := range pairs(source(10)) {\n\tsomme += v\n}\nfmt.Println(somme)\n```"
+    answer: '`20` : 0 + 2 + 4 + 6 + 8.'
+    check:
+      code: "package main\n\nimport \"fmt\"\n\nfunc main() {\n\tsource := func(n int) <-chan int {\n\t\tout := make(chan int)\n\t\tgo func() {\n\t\t\tdefer close(out)\n\t\t\tfor i := range n {\n\t\t\t\tout <- i\n\t\t\t}\n\t\t}()\n\t\treturn out\n\t}\n\tpairs := func(in <-chan int) <-chan int {\n\t\tout := make(chan int)\n\t\tgo func() {\n\t\t\tdefer close(out)\n\t\t\tfor v := range in {\n\t\t\t\tif v%2 == 0 {\n\t\t\t\t\tout <- v\n\t\t\t\t}\n\t\t\t}\n\t\t}()\n\t\treturn out\n\t}\n\n\tsomme := 0\n\tfor v := range pairs(source(10)) {\n\t\tsomme += v\n\t}\n\tfmt.Println(somme)\n}\n"
+      output: '20'
+  - key: code-annulation
+    format: code-output
+    question: "```go\nctx, cancel := context.WithCancel(context.Background())\ninfini := func() <-chan int {\n\tout := make(chan int)\n\tgo func() {\n\t\tdefer close(out)\n\t\tfor i := 0; ; i++ {\n\t\t\tselect {\n\t\t\tcase out <- i:\n\t\t\tcase <-ctx.Done():\n\t\t\t\treturn\n\t\t\t}\n\t\t}\n\t}()\n\treturn out\n}\n\nch := infini()\nfmt.Println(<-ch, <-ch, <-ch)\ncancel()\nfor range ch {\n}\nfmt.Println(\"source arrêtée\")\n```"
+    answer: '`0 1 2` puis `source arrêtée` : l''annulation arrête la source infinie, qui ferme sa sortie.'
+    check:
+      code: "package main\n\nimport (\n\t\"context\"\n\t\"fmt\"\n)\n\nfunc main() {\n\tctx, cancel := context.WithCancel(context.Background())\n\tinfini := func() <-chan int {\n\t\tout := make(chan int)\n\t\tgo func() {\n\t\t\tdefer close(out)\n\t\t\tfor i := 0; ; i++ {\n\t\t\t\tselect {\n\t\t\t\tcase out <- i:\n\t\t\t\tcase <-ctx.Done():\n\t\t\t\t\treturn\n\t\t\t\t}\n\t\t\t}\n\t\t}()\n\t\treturn out\n\t}\n\n\tch := infini()\n\tfmt.Println(<-ch, <-ch, <-ch)\n\tcancel()\n\tfor range ch {\n\t}\n\tfmt.Println(\"source arrêtée\")\n}\n"
+      output: |-
+        0 1 2
+        source arrêtée
+  - key: code-ordre
+    format: code-output
+    question: "```go\netape := func(in <-chan string, suffixe string) <-chan string {\n\tout := make(chan string)\n\tgo func() {\n\t\tdefer close(out)\n\t\tfor s := range in {\n\t\t\tout <- s + suffixe\n\t\t}\n\t}()\n\treturn out\n}\nsrc := make(chan string)\ngo func() {\n\tdefer close(src)\n\tfor _, s := range []string{\"a\", \"b\", \"c\"} {\n\t\tsrc <- s\n\t}\n}()\nfor s := range etape(etape(src, \"1\"), \"2\") {\n\tfmt.Print(s, \" \")\n}\nfmt.Println()\n```"
+    answer: '`a12 b12 c12` : une goroutine par étape conserve l''ordre.'
+    check:
+      code: "package main\n\nimport \"fmt\"\n\nfunc main() {\n\tetape := func(in <-chan string, suffixe string) <-chan string {\n\t\tout := make(chan string)\n\t\tgo func() {\n\t\t\tdefer close(out)\n\t\t\tfor s := range in {\n\t\t\t\tout <- s + suffixe\n\t\t\t}\n\t\t}()\n\t\treturn out\n\t}\n\tsrc := make(chan string)\n\tgo func() {\n\t\tdefer close(src)\n\t\tfor _, s := range []string{\"a\", \"b\", \"c\"} {\n\t\t\tsrc <- s\n\t\t}\n\t}()\n\tfor s := range etape(etape(src, \"1\"), \"2\") {\n\t\tfmt.Print(s, \" \")\n\t}\n\tfmt.Println()\n}\n"
+      output: a12 b12 c12
+  - key: bug-fuite
+    format: bug-fix
+    question: "Le nombre de goroutines augmente à chaque recherche qui trouve vite son résultat :\n```go\nfor r := range filtrer(lire(fichier)) {\n\tif r.Correspond(q) {\n\t\treturn r, nil\n\t}\n}\n```"
+    answer: "```go\nctx, cancel := context.WithCancel(ctx)\ndefer cancel()\nfor r := range filtrer(ctx, lire(ctx, fichier)) {\n\tif r.Correspond(q) {\n\t\treturn r, nil\n\t}\n}\n```\nEn sortant tôt, le consommateur laissait les étapes bloquées sur leurs envois ; le contexte annulé au retour\n(avec des envois dans un select sur `ctx.Done()`) les arrête."
+  - key: bug-close
+    format: bug-fix
+    question: "Le consommateur reste bloqué après le dernier élément :\n```go\nfunc majuscules(in <-chan string) <-chan string {\n\tout := make(chan string)\n\tgo func() {\n\t\tfor s := range in {\n\t\t\tout <- strings.ToUpper(s)\n\t\t}\n\t}()\n\treturn out\n}\n```"
+    answer: "```go\ngo func() {\n\tdefer close(out)\n\tfor s := range in {\n\t\tout <- strings.ToUpper(s)\n\t}\n}()\n```\nL'étape doit fermer sa sortie pour que la fin se propage."
+  - key: bug-envoi-sans-select
+    format: bug-fix
+    question: "Une étape ne s'arrête pas quand le contexte est annulé :\n```go\nfor n := range entree {\n\tif ctx.Err() != nil {\n\t\treturn\n\t}\n\tsortie <- traiter(n)\n}\n```"
+    answer: "```go\nfor n := range entree {\n\tselect {\n\tcase sortie <- traiter(n):\n\tcase <-ctx.Done():\n\t\treturn\n\t}\n}\n```\nLe test de `ctx.Err()` avant l'envoi ne suffit pas : l'étape peut rester bloquée sur l'envoi lui-même ; le select\nsurveille les deux en même temps."
+  - key: bug-fermer-entree
+    format: bug-fix
+    question: "Le pipeline panique avec « close of closed channel » ou « send on closed channel » :\n```go\nfunc doubler(in chan int) chan int {\n\tout := make(chan int)\n\tgo func() {\n\t\tfor v := range in {\n\t\t\tout <- v * 2\n\t\t}\n\t\tclose(in)\n\t\tclose(out)\n\t}()\n\treturn out\n}\n```"
+    answer: "```go\nfunc doubler(in <-chan int) <-chan int {\n\tout := make(chan int)\n\tgo func() {\n\t\tdefer close(out)\n\t\tfor v := range in {\n\t\t\tout <- v * 2\n\t\t}\n\t}()\n\treturn out\n}\n```\nL'étape fermait son entrée, qui appartient à l'étape précédente ; avec des types orientés, le compilateur\nl'interdit."
+  - key: scenario-import
+    format: scenario
+    question: Conçois un pipeline pour importer un fichier CSV de 10 Go dans une base de données.
+    answer: |-
+      Une étape de lecture (un `csv.Reader` sur le fichier, qui envoie des lignes), une étape de validation et de
+      conversion (dupliquée en quelques goroutines si elle est coûteuse), une étape de regroupement en lots de 1 000
+      lignes, et une étape d'écriture qui insère chaque lot (avec `COPY` pour PostgreSQL), limitée par le pool de
+      connexions. Toutes partagent un contexte annulé à la première erreur grave ; les lignes invalides partent sur un
+      channel d'erreurs. La mémoire reste bornée : rien n'est chargé en entier.
+  - key: scenario-quand
+    format: scenario
+    question: Quand un pipeline de goroutines n'est-il pas une bonne idée ?
+    answer: |-
+      Quand les étapes sont très légères (une addition, une conversion simple) : le coût des envois sur les channels
+      dépasse alors le travail, et une simple boucle est plus rapide et plus lisible. Le pipeline vaut le coup quand les
+      étapes ont des coûts significatifs ou différents (I/O, calcul), qu'on veut traiter au fil de l'eau, ou paralléliser
+      une étape précise.
+  - key: scenario-erreurs
+    format: scenario
+    question: Comment remonter les erreurs d'un pipeline ?
+    answer: |-
+      Deux options : faire circuler des valeurs qui portent leur erreur (`type Resultat struct { Valeur T; Err error }`),
+      que le consommateur traite ; ou une erreur fatale qui arrête tout, via `errgroup.WithContext` qui lance les étapes,
+      annule le contexte à la première erreur et la renvoie par `Wait`. Je choisis selon que les erreurs concernent un
+      élément (on continue) ou l'ensemble (on arrête).
+  - key: scenario-iterateurs
+    format: scenario
+    question: Depuis Go 1.23, faut-il remplacer les pipelines de channels par des itérateurs ?
+    answer: |-
+      Pour un traitement séquentiel (lire, filtrer, transformer sans concurrence), des itérateurs `iter.Seq` sont plus
+      simples et plus rapides : pas de goroutines, pas de channels, pas de fuite possible. Les pipelines de channels
+      restent utiles quand les étapes doivent vraiment tourner en parallèle (I/O concurrentes, étape coûteuse dupliquée).
+      On choisit les itérateurs par défaut et la concurrence quand elle apporte un gain mesuré.

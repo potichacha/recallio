@@ -1,4 +1,5 @@
 notion: http-handlers
+lesson: "Le package **`net/http`** suffit pour écrire un serveur web de production. Tout repose sur une interface :\n\n```go\ntype Handler interface {\n\tServeHTTP(w http.ResponseWriter, r *http.Request)\n}\n```\n\nLe plus souvent, on écrit une simple fonction, convertie en Handler par **`http.HandlerFunc`** :\n\n```go\nfunc bonjour(w http.ResponseWriter, r *http.Request) {\n\tw.Header().Set(\"Content-Type\", \"text/plain; charset=utf-8\")\n\tw.WriteHeader(http.StatusOK)          // facultatif : 200 par défaut au premier Write\n\tfmt.Fprintf(w, \"Bonjour %s\\n\", r.URL.Query().Get(\"nom\"))\n}\n\nfunc main() {\n\tmux := http.NewServeMux()\n\tmux.HandleFunc(\"GET /bonjour\", bonjour)\n\tsrv := &http.Server{Addr: \":8080\", Handler: mux, ReadHeaderTimeout: 5 * time.Second}\n\tlog.Fatal(srv.ListenAndServe())\n}\n```\n\nL'**ordre** d'écriture de la réponse compte :\n1. les **en-têtes** (`w.Header().Set(...)`) ;\n2. le **statut** (`w.WriteHeader(code)`) ;\n3. le **corps** (`w.Write`, `fmt.Fprint`, `json.NewEncoder(w).Encode`).\n\nAprès le premier `Write`, le statut (200 par défaut) et les en-têtes sont **envoyés** : un `WriteHeader` ou un\n`Header().Set` ultérieur est ignoré (avec un avertissement « superfluous WriteHeader call »).\n\nCe qu'il faut savoir :\n- chaque requête est servie dans **sa propre goroutine** : les handlers s'exécutent en parallèle, et tout état\n  partagé doit être protégé ;\n- `http.Error(w, msg, code)` écrit une réponse d'erreur en texte ;\n- un handler qui renvoie une erreur doit **`return`** juste après l'avoir écrite ;\n- **`net/http/httptest`** teste un handler sans réseau : `httptest.NewRecorder()` et `httptest.NewRequest`.\n- HTTP/2 est pris en charge automatiquement en TLS.\n\n**En entretien** : « Handler et HandlerFunc ; en-têtes, statut, puis corps ; une goroutine par requête ; return après\nhttp.Error ; httptest pour tester. »"
 cards:
   - key: interface-implemente-handler-http
     format: course
@@ -24,3 +25,179 @@ cards:
     format: course
     question: HTTP/3 est-il dans la bibliothèque standard ?
     answer: Non, on utilise quic-go.
+  - key: vf-goroutine
+    format: true-false
+    question: Chaque requête HTTP est servie dans sa propre goroutine.
+    truth: true
+    answer: Les handlers s'exécutent en parallèle.
+  - key: vf-statut-apres
+    format: true-false
+    question: On peut appeler WriteHeader après avoir écrit le corps pour changer le statut.
+    truth: false
+    answer: Le premier Write envoie déjà le statut (200 par défaut).
+  - key: vf-defaut
+    format: true-false
+    question: Sans appel à WriteHeader, le statut d'une réponse est 200.
+    truth: true
+    answer: Il est envoyé au premier Write.
+  - key: vf-handlerfunc
+    format: true-false
+    question: '`http.HandlerFunc` est un type qui permet d''utiliser une fonction ordinaire comme Handler.'
+    truth: true
+    answer: Sa méthode ServeHTTP appelle la fonction.
+  - key: qcm-ordre
+    format: multiple-choice
+    question: Dans quel ordre écrire une réponse ?
+    choices:
+      - text: En-têtes, puis statut, puis corps
+        correct: true
+      - text: Corps, puis statut, puis en-têtes
+        correct: false
+      - text: Statut, puis corps, puis en-têtes
+        correct: false
+      - text: L'ordre n'a pas d'importance
+        correct: false
+    answer: Le statut et les en-têtes partent avant le premier octet du corps.
+  - key: qcm-tester
+    format: multiple-choice
+    question: Comment tester un handler sans démarrer de serveur ?
+    choices:
+      - text: '`httptest.NewRecorder()` comme ResponseWriter'
+        correct: true
+      - text: '`httptest.NewRequest` pour construire la requête'
+        correct: true
+      - text: '`httptest.NewServer` pour un vrai serveur local, si l''on teste un client'
+        correct: true
+      - text: '`http.Get("http://localhost:8080")` sur le serveur de production'
+        correct: false
+    answer: Le recorder garde le statut, les en-têtes et le corps.
+  - key: qcm-partage
+    format: multiple-choice
+    question: Un handler incrémente un compteur global de visites. Que faut-il ?
+    choices:
+      - text: Un atomic.Int64 ou un mutex
+        correct: true
+      - text: Rien, les requêtes sont servies une par une
+        correct: false
+      - text: Une variable locale au handler
+        correct: false
+      - text: Un channel non bufferisé par requête
+        correct: false
+    answer: Les handlers s'exécutent en parallèle.
+  - key: qcm-erreur
+    format: multiple-choice
+    question: Que faire après `http.Error(w, "introuvable", http.StatusNotFound)` dans un handler ?
+    choices:
+      - text: '`return` immédiatement'
+        correct: true
+      - text: Continuer et écrire la réponse normale
+        correct: false
+      - text: Appeler WriteHeader(200)
+        correct: false
+      - text: Paniquer
+        correct: false
+    answer: Sinon le corps normal s'ajoute à l'erreur.
+  - key: trous-signature
+    format: fill-in
+    question: |-
+      Complétez la signature d'un handler :
+      ```go
+      func lister(w http.___, r *http.Request) {
+      ```
+    blanks:
+      - - ResponseWriter
+    answer: http.ResponseWriter.
+  - key: trous-handlefunc
+    format: fill-in
+    question: |-
+      Complétez l'enregistrement :
+      ```go
+      mux := http.NewServeMux()
+      mux.___("GET /sante", sante)
+      ```
+    blanks:
+      - - HandleFunc
+    answer: HandleFunc prend une fonction.
+  - key: trous-writeheader
+    format: fill-in
+    question: |-
+      Complétez pour répondre 201 :
+      ```go
+      w.Header().Set("Location", "/commandes/"+id)
+      w.___(http.StatusCreated)
+      ```
+    blanks:
+      - - WriteHeader
+    answer: WriteHeader, après les en-têtes.
+  - key: trous-recorder
+    format: fill-in
+    question: |-
+      Complétez le test :
+      ```go
+      rec := httptest.___()
+      h.ServeHTTP(rec, httptest.NewRequest("GET", "/sante", nil))
+      if rec.Code != 200 {
+      ```
+    blanks:
+      - - NewRecorder
+    answer: httptest.NewRecorder.
+  - key: code-recorder
+    format: code-output
+    question: "```go\nh := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n\tfmt.Fprintf(w, \"bonjour %s\", r.URL.Query().Get(\"nom\"))\n})\nrec := httptest.NewRecorder()\nh.ServeHTTP(rec, httptest.NewRequest(\"GET\", \"/?nom=Ada\", nil))\nfmt.Println(rec.Code, rec.Body.String())\n```"
+    answer: '`200 bonjour Ada` : sans WriteHeader, le statut est 200.'
+    check:
+      code: "package main\n\nimport (\n\t\"fmt\"\n\t\"net/http\"\n\t\"net/http/httptest\"\n)\n\nfunc main() {\n\th := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n\t\tfmt.Fprintf(w, \"bonjour %s\", r.URL.Query().Get(\"nom\"))\n\t})\n\trec := httptest.NewRecorder()\n\th.ServeHTTP(rec, httptest.NewRequest(\"GET\", \"/?nom=Ada\", nil))\n\tfmt.Println(rec.Code, rec.Body.String())\n}\n"
+      output: 200 bonjour Ada
+  - key: code-tard
+    format: code-output
+    question: "```go\nh := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n\tw.Write([]byte(\"ok\"))\n\tw.WriteHeader(http.StatusNotFound)\n})\nrec := httptest.NewRecorder()\nh.ServeHTTP(rec, httptest.NewRequest(\"GET\", \"/\", nil))\nfmt.Println(rec.Code)\n```"
+    answer: '`200` : le premier Write a déjà envoyé le statut ; le WriteHeader suivant est ignoré.'
+    check:
+      code: "package main\n\nimport (\n\t\"fmt\"\n\t\"net/http\"\n\t\"net/http/httptest\"\n)\n\nfunc main() {\n\th := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n\t\tw.Write([]byte(\"ok\"))\n\t\tw.WriteHeader(http.StatusNotFound)\n\t})\n\trec := httptest.NewRecorder()\n\th.ServeHTTP(rec, httptest.NewRequest(\"GET\", \"/\", nil))\n\tfmt.Println(rec.Code)\n}\n"
+      output: '200'
+  - key: code-entete-tard
+    format: code-output
+    question: "```go\nh := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n\tw.WriteHeader(http.StatusCreated)\n\tw.Header().Set(\"Location\", \"/commandes/1\")\n})\nrec := httptest.NewRecorder()\nh.ServeHTTP(rec, httptest.NewRequest(\"POST\", \"/commandes\", nil))\nres := rec.Result()\nfmt.Printf(\"%d %q\\n\", res.StatusCode, res.Header.Get(\"Location\"))\n```"
+    answer: '`201 ""` : un en-tête ajouté après WriteHeader n''est pas envoyé.'
+    check:
+      code: "package main\n\nimport (\n\t\"fmt\"\n\t\"net/http\"\n\t\"net/http/httptest\"\n)\n\nfunc main() {\n\th := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n\t\tw.WriteHeader(http.StatusCreated)\n\t\tw.Header().Set(\"Location\", \"/commandes/1\")\n\t})\n\trec := httptest.NewRecorder()\n\th.ServeHTTP(rec, httptest.NewRequest(\"POST\", \"/commandes\", nil))\n\tres := rec.Result()\n\tfmt.Printf(\"%d %q\\n\", res.StatusCode, res.Header.Get(\"Location\"))\n}\n"
+      output: 201 ""
+  - key: code-error
+    format: code-output
+    question: "```go\nh := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n\thttp.Error(w, \"introuvable\", http.StatusNotFound)\n})\nrec := httptest.NewRecorder()\nh.ServeHTTP(rec, httptest.NewRequest(\"GET\", \"/x\", nil))\nfmt.Printf(\"%d %q %s\\n\", rec.Code, rec.Body.String(), rec.Header().Get(\"Content-Type\"))\n```"
+    answer: '`404 "introuvable\n" text/plain; charset=utf-8` : http.Error ajoute un retour à la ligne et le type texte.'
+    check:
+      code: "package main\n\nimport (\n\t\"fmt\"\n\t\"net/http\"\n\t\"net/http/httptest\"\n)\n\nfunc main() {\n\th := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n\t\thttp.Error(w, \"introuvable\", http.StatusNotFound)\n\t})\n\trec := httptest.NewRecorder()\n\th.ServeHTTP(rec, httptest.NewRequest(\"GET\", \"/x\", nil))\n\tfmt.Printf(\"%d %q %s\\n\", rec.Code, rec.Body.String(), rec.Header().Get(\"Content-Type\"))\n}\n"
+      output: 404 "introuvable\n" text/plain; charset=utf-8
+  - key: bug-return
+    format: bug-fix
+    question: "Les clients reçoivent un message d'erreur suivi du JSON d'un utilisateur vide :\n```go\nu, err := depot.Trouver(r.Context(), id)\nif err != nil {\n\thttp.Error(w, \"introuvable\", http.StatusNotFound)\n}\njson.NewEncoder(w).Encode(u)\n```"
+    answer: "```go\nu, err := depot.Trouver(r.Context(), id)\nif err != nil {\n\thttp.Error(w, \"introuvable\", http.StatusNotFound)\n\treturn\n}\njson.NewEncoder(w).Encode(u)\n```\nSans return, le handler continuait après l'erreur."
+  - key: bug-ordre
+    format: bug-fix
+    question: |-
+      Le client reçoit du JSON annoncé comme « text/plain » avec un statut 200 au lieu de 201 :
+      ```go
+      json.NewEncoder(w).Encode(commande)
+      w.Header().Set("Content-Type", "application/json")
+      w.WriteHeader(http.StatusCreated)
+      ```
+    answer: |-
+      ```go
+      w.Header().Set("Content-Type", "application/json")
+      w.WriteHeader(http.StatusCreated)
+      json.NewEncoder(w).Encode(commande)
+      ```
+      Les en-têtes et le statut partent au premier Write : ils doivent être fixés avant le corps.
+  - key: bug-etat
+    format: bug-fix
+    question: "Le détecteur de courses signale le handler, et le service plante parfois avec « concurrent map writes » :\n```go\nvar vues = map[string]int{}\n\nfunc compter(w http.ResponseWriter, r *http.Request) {\n\tvues[r.URL.Path]++\n}\n```"
+    answer: "```go\ntype Compteur struct {\n\tmu   sync.Mutex\n\tvues map[string]int\n}\n\nfunc (c *Compteur) ServeHTTP(w http.ResponseWriter, r *http.Request) {\n\tc.mu.Lock()\n\tc.vues[r.URL.Path]++\n\tc.mu.Unlock()\n}\n```\nLes requêtes sont servies en parallèle : la map partagée est protégée par un mutex (et le handler devient un type\navec son état, au lieu d'une variable globale)."
+  - key: bug-listen
+    format: bug-fix
+    question: |-
+      Le serveur accepte des connexions qui n'envoient jamais leurs en-têtes, jusqu'à épuiser les ressources :
+      ```go
+      http.ListenAndServe(":8080", mux)
+      ```
+    answer: "```go\nsrv := &http.Server{\n\tAddr:              \":8080\",\n\tHandler:           mux,\n\tReadHeaderTimeout: 5 * time.Second,\n\tReadTimeout:       30 * time.Second,\n\tWriteTimeout:      30 * time.Second,\n\tIdleTimeout:       120 * time.Second,\n}\nlog.Fatal(srv.ListenAndServe())\n```\nhttp.ListenAndServe n'a aucun délai ; un http.Server configuré protège contre les clients lents (Slowloris)."

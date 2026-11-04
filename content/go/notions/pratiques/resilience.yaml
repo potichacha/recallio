@@ -1,4 +1,5 @@
 notion: resilience
+lesson: "Un service qui dépend d'autres services doit supporter leurs **pannes** et leurs **lenteurs** sans s'effondrer.\n\n**Les délais** d'abord : chaque appel a un délai (contexte), sinon une dépendance lente bloque toutes les\ngoroutines.\n\n**Les réessais** avec **backoff exponentiel et jitter** :\n\n```go\nfunc avecReessais(ctx context.Context, n int, f func(context.Context) error) error {\n\tdelai := 100 * time.Millisecond\n\tvar err error\n\tfor essai := range n {\n\t\tif err = f(ctx); err == nil || !temporaire(err) {\n\t\t\treturn err\n\t\t}\n\t\tif essai == n-1 {\n\t\t\tbreak\n\t\t}\n\t\tattente := delai/2 + rand.N(delai) // jitter : désynchronise les clients\n\t\tselect {\n\t\tcase <-time.After(attente):\n\t\t\tdelai *= 2\n\t\tcase <-ctx.Done():\n\t\t\treturn ctx.Err()\n\t\t}\n\t}\n\treturn err\n}\n```\n\n- seulement les erreurs **temporaires** (délai, 429, 502, 503, connexion refusée), jamais un 400 ;\n- seulement des opérations **idempotentes**, ou rendues idempotentes par une **clé d'idempotence** (le serveur\n  reconnaît une requête déjà traitée) ;\n- un nombre de tentatives **borné**, dans le budget du contexte, et en respectant `Retry-After`.\n\n**Le disjoncteur** (*circuit breaker*, `sony/gobreaker`) : après trop d'échecs, il **ouvre** le circuit et échoue tout\nde suite pendant un temps, au lieu de surcharger une dépendance déjà en difficulté ; puis il laisse passer quelques\nessais (**semi-ouvert**) avant de se refermer.\n\n**Les autres outils** : limiter la **concurrence** vers une dépendance (sémaphore, cloison), une **valeur de repli**\n(un cache, une réponse dégradée), la **limitation de débit** à l'entrée, et des files de messages pour absorber les pics.\n\n**En entretien** : « Délais partout ; réessais bornés avec backoff et jitter, seulement sur des erreurs temporaires et\ndes opérations idempotentes ; clé d'idempotence ; disjoncteur pour ne pas achever une dépendance ; repli et cloisons. »"
 cards:
   - key: apporte-temporal
     format: course
@@ -8,3 +9,132 @@ cards:
     format: course
     question: Quelle bibliothèque de circuit breaker en Go ?
     answer: sony/gobreaker.
+  - key: jitter
+    format: course
+    question: Pourquoi ajouter une part aléatoire (jitter) au délai entre deux réessais ?
+    answer: Sans jitter, tous les clients qui ont échoué au même moment réessaient au même moment, et la dépendance reçoit des vagues synchronisées ; l'aléa étale les réessais.
+  - key: idempotence
+    format: course
+    question: Comment réessayer sans risque une requête de paiement qui n'est pas idempotente par nature ?
+    answer: 'Avec une clé d''idempotence générée par le client et envoyée avec chaque tentative : le serveur enregistre la clé avec le résultat et renvoie ce résultat au lieu de payer une seconde fois.'
+  - key: vf-400
+    format: true-false
+    question: Il est utile de réessayer une requête qui a reçu 400 Bad Request.
+    truth: false
+    answer: La même requête échouera de la même façon ; on ne réessaie que les erreurs temporaires.
+  - key: vf-disjoncteur
+    format: true-false
+    question: Un disjoncteur ouvert échoue immédiatement sans appeler la dépendance.
+    truth: true
+    answer: Il la laisse récupérer et libère vite l'appelant.
+  - key: vf-borne
+    format: true-false
+    question: Des réessais sans limite garantissent qu'une opération finit par réussir.
+    truth: false
+    answer: Ils aggravent la panne et dépassent l'échéance de l'appelant ; on borne le nombre et la durée.
+  - key: vf-retry-after
+    format: true-false
+    question: Un client devrait respecter l'en-tête Retry-After d'une réponse 429 ou 503.
+    truth: true
+    answer: Le serveur dit quand revenir.
+  - key: qcm-reessayer
+    format: multiple-choice
+    question: Quelles erreurs peut-on réessayer ?
+    choices:
+      - text: Un délai dépassé sur un GET
+        correct: true
+      - text: Un 503 Service Unavailable
+        correct: true
+      - text: Un 429 Too Many Requests, après le délai indiqué
+        correct: true
+      - text: Un 404 Not Found
+        correct: false
+    answer: Une ressource absente ne réapparaîtra pas en réessayant.
+  - key: qcm-disjoncteur
+    format: multiple-choice
+    question: Quels sont les états d'un disjoncteur ?
+    choices:
+      - text: 'Fermé : les appels passent'
+        correct: true
+      - text: 'Ouvert : les appels échouent aussitôt'
+        correct: true
+      - text: 'Semi-ouvert : quelques appels d''essai passent'
+        correct: true
+      - text: 'Bloqué : les appels attendent sans limite'
+        correct: false
+    answer: Le semi-ouvert décide de refermer ou de rouvrir.
+  - key: qcm-outils
+    format: multiple-choice
+    question: Quels mécanismes protègent un service d'une dépendance défaillante ?
+    choices:
+      - text: Un délai sur chaque appel
+        correct: true
+      - text: Une limite d'appels simultanés vers elle (cloison)
+        correct: true
+      - text: Une valeur de repli, par exemple un cache
+        correct: true
+      - text: Des goroutines sans limite pour chaque appel
+        correct: false
+    answer: Sans limite, la panne de la dépendance épuise le service.
+  - key: qcm-backoff
+    format: multiple-choice
+    question: Quelles caractéristiques doit avoir une politique de réessais ?
+    choices:
+      - text: Un délai qui augmente à chaque tentative
+        correct: true
+      - text: Une part aléatoire
+        correct: true
+      - text: Un nombre maximal de tentatives et le respect du contexte
+        correct: true
+      - text: Un délai fixe de zéro entre les tentatives
+        correct: false
+    answer: Réessayer immédiatement martèle la dépendance.
+  - key: bug-boucle
+    format: bug-fix
+    question: "Lors d'une panne du partenaire, le service le martèle de milliers de requêtes par seconde :\n```go\nfor {\n\tif err := appeler(ctx); err == nil {\n\t\tbreak\n\t}\n}\n```"
+    answer: "```go\nerr := avecReessais(ctx, 4, appeler) // backoff exponentiel avec jitter, borné, respecte ctx\nif err != nil {\n\treturn fmt.Errorf(\"partenaire indisponible : %w\", err)\n}\n```\nLa boucle réessayait sans délai ni limite ; les réessais doivent être espacés, bornés et annulables."
+  - key: bug-paiement
+    format: bug-fix
+    question: "Après un délai dépassé suivi d'un réessai, certains clients sont débités deux fois :\n```go\nerr := avecReessais(ctx, 3, func(ctx context.Context) error {\n\treturn paiements.Debiter(ctx, client, montant)\n})\n```"
+    answer: "```go\ncle := commande.ID // stable pour toutes les tentatives\nerr := avecReessais(ctx, 3, func(ctx context.Context) error {\n\treturn paiements.Debiter(ctx, client, montant, cle)\n})\n```\nLe premier débit avait réussi mais la réponse s'était perdue ; avec une clé d'idempotence, le fournisseur reconnaît\nla tentative et ne débite pas deux fois."
+  - key: bug-tous-codes
+    format: bug-fix
+    question: "Le client réessaie trois fois chaque requête refusée pour données invalides :\n```go\nif err != nil {\n\tcontinue // réessayer\n}\n```"
+    answer: "```go\nif err != nil {\n\tif !temporaire(err) { // délai, 429, 502, 503, connexion refusée\n\t\treturn err\n\t}\n\tcontinue\n}\n```\nSeules les erreurs temporaires méritent un réessai ; une erreur du client échoue tout de suite."
+  - key: bug-sans-delai
+    format: bug-fix
+    question: "Quand le service de recommandations ralentit, toute la page produit devient lente et les goroutines s'accumulent :\n```go\nrecos, err := recommandations.Pour(ctx, produit)\nif err != nil {\n\treturn err\n}\n```"
+    answer: "```go\nctxRecos, cancel := context.WithTimeout(ctx, 150*time.Millisecond)\ndefer cancel()\nrecos, err := recommandations.Pour(ctxRecos, produit)\nif err != nil {\n\tlog.WarnContext(ctx, \"recommandations indisponibles\", \"err\", err)\n\trecos = nil // la page s'affiche sans elles\n}\n```\nUne dépendance accessoire a un délai court et une valeur de repli : sa lenteur ne fait plus tomber la page."
+  - key: scenario-strategie
+    format: scenario
+    question: Ton service appelle une API de paiement parfois instable. Quelle stratégie de résilience mets-tu en place ?
+    answer: |-
+      Un délai par appel inférieur au budget de la requête, des réessais bornés (deux ou trois) avec backoff et jitter
+      seulement sur les erreurs temporaires, une clé d'idempotence par commande, un disjoncteur pour échouer vite quand
+      l'API est en panne, et une limite d'appels simultanés. Si le paiement peut être différé, une file de messages et un
+      traitement asynchrone découplent le client de la disponibilité de l'API. Des métriques suivent erreurs, réessais
+      et état du disjoncteur.
+  - key: scenario-tempete
+    format: scenario
+    question: Qu'est-ce qu'une tempête de réessais, et comment l'éviter ?
+    answer: |-
+      Quand une dépendance ralentit, chaque couche réessaie : trois réessais à trois niveaux font jusqu'à 27 appels par
+      requête, ce qui achève la dépendance. On ne réessaie qu'à un seul niveau (souvent le plus proche de la
+      dépendance), avec un budget de réessais global, du jitter, un disjoncteur, et le respect de l'échéance propagée par
+      le contexte.
+  - key: scenario-idempotence-serveur
+    format: scenario
+    question: Comment implémentes-tu les clés d'idempotence côté serveur ?
+    answer: |-
+      Le client envoie un en-tête `Idempotency-Key`. Le serveur, dans la même transaction que l'opération, enregistre la
+      clé (contrainte d'unicité) avec le résultat ; si la clé existe déjà, il renvoie le résultat enregistré sans refaire
+      l'opération ; si une requête avec la même clé est en cours, il répond 409. Les clés expirent après un délai (24 h),
+      et la clé est associée au client pour éviter les collisions.
+  - key: scenario-degrade
+    format: scenario
+    question: Comment concevoir un mode dégradé pour une page qui agrège cinq services ?
+    answer: |-
+      Je distingue l'essentiel (le produit, le prix) de l'accessoire (avis, recommandations, stock précis). Les appels
+      partent en parallèle, chacun avec son délai ; l'essentiel en échec fait échouer la requête, l'accessoire est
+      remplacé par une valeur de repli (cache récent, section masquée). Des drapeaux de fonctionnalité permettent de couper
+      un appel accessoire pendant un incident.

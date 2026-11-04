@@ -1,4 +1,36 @@
 notion: securite-go
+lesson: |-
+  Go est sûr en mémoire (pas de dépassement de tampon hors `unsafe` et cgo), mais les failles applicatives restent
+  possibles. Les réflexes :
+
+  | Risque | Réponse en Go |
+  |---|---|
+  | jetons, mots de passe temporaires prévisibles | **`crypto/rand`** (`rand.Text()` en Go 1.24), jamais `math/rand` |
+  | injection SQL | requêtes **paramétrées** |
+  | XSS dans les pages HTML | **`html/template`**, qui échappe selon le contexte, jamais `text/template` pour du HTML |
+  | injection de commande | `exec.Command("prog", arg1, arg2)` sans shell, jamais `sh -c` avec une entrée |
+  | traversée de chemins | **`os.Root`** (Go 1.24), `filepath.IsLocal` |
+  | mots de passe stockés | **bcrypt** ou **argon2id** (`golang.org/x/crypto`), jamais un simple hash |
+  | comparaison de secrets | **`subtle.ConstantTimeCompare`** ou `hmac.Equal` |
+  | TLS désactivé | jamais `InsecureSkipVerify: true` en production |
+  | CSRF | `http.CrossOriginProtection` (Go 1.25) |
+  | entrées trop grosses | `http.MaxBytesReader`, délais du serveur |
+
+  ```go
+  jeton := rand.Text() // crypto/rand, Go 1.24 : 26 caractères base32, 128 bits d'aléa
+
+  hash, err := bcrypt.GenerateFromPassword([]byte(motDePasse), bcrypt.DefaultCost)
+  err = bcrypt.CompareHashAndPassword(hash, []byte(saisie))
+  ```
+
+  Pour le chiffrement, on reste sur les primitives de haut niveau : **AES-GCM** (`cipher.NewGCM`) ou
+  `chacha20poly1305`, avec un nonce **unique** par message. La bibliothèque standard inclut un module cryptographique
+  validé **FIPS 140-3** (Go 1.24) et des échanges de clés **post-quantiques** (ML-KEM) activés par défaut en TLS.
+
+  Et toujours : les secrets hors du dépôt et des journaux, les dépendances surveillées (govulncheck), gosec en CI.
+
+  **En entretien** : « crypto/rand pour tout secret ; requêtes paramétrées ; html/template ; exec sans shell ; os.Root ;
+  bcrypt ou argon2id ; comparaison en temps constant ; jamais InsecureSkipVerify ; govulncheck et gosec. »
 cards:
   - key: math-rand-vs-crypto-rand
     format: course
@@ -77,3 +109,139 @@ cards:
     format: course
     question: Que désigne « FIPS 140-3 » ?
     answer: Norme de modules cryptographiques ; module natif depuis Go 1.24
+  - key: vf-math-rand
+    format: true-false
+    question: math/rand convient pour générer des jetons de réinitialisation de mot de passe.
+    truth: false
+    answer: Il est prévisible ; il faut crypto/rand.
+  - key: vf-html-template
+    format: true-false
+    question: html/template échappe les données selon leur contexte (HTML, attribut, JavaScript, URL).
+    truth: true
+    answer: C'est sa protection contre le XSS.
+  - key: vf-exec
+    format: true-false
+    question: '`exec.Command("convert", fichier)` passe fichier comme un seul argument, sans interprétation par un shell.'
+    truth: true
+    answer: Le danger vient de `sh -c` avec une entrée de l'utilisateur.
+  - key: vf-sha256
+    format: true-false
+    question: Un SHA-256 du mot de passe suffit pour le stocker de façon sûre.
+    truth: false
+    answer: Il est trop rapide à attaquer ; on utilise bcrypt ou argon2id, avec sel et coût réglable.
+  - key: qcm-reponses
+    format: multiple-choice
+    question: Quelle réponse à quel risque ?
+    choices:
+      - text: 'Jeton de session : crypto/rand'
+        correct: true
+      - text: 'Page HTML avec des données d''utilisateurs : html/template'
+        correct: true
+      - text: 'Fichier demandé par nom : os.Root'
+        correct: true
+      - text: 'Mot de passe : base64 avant stockage'
+        correct: false
+    answer: base64 n'est qu'un encodage.
+  - key: qcm-comparer
+    format: multiple-choice
+    question: Comment comparer la signature d'un webhook à celle attendue ?
+    choices:
+      - text: '`hmac.Equal(recue, attendue)`'
+        correct: true
+      - text: '`subtle.ConstantTimeCompare(recue, attendue) == 1`'
+        correct: true
+      - text: '`string(recue) == string(attendue)`'
+        correct: false
+      - text: '`bytes.Equal(recue, attendue)`'
+        correct: false
+    answer: Une comparaison qui s'arrête au premier octet différent laisse fuir l'information par le temps.
+  - key: qcm-tls
+    format: multiple-choice
+    question: Un appel HTTPS échoue sur un certificat interne. Quelles solutions sont acceptables ?
+    choices:
+      - text: Ajouter l'autorité de certification interne au RootCAs du tls.Config
+        correct: true
+      - text: Corriger le certificat du serveur
+        correct: true
+      - text: '`InsecureSkipVerify: true` en production'
+        correct: false
+      - text: Passer en HTTP
+        correct: false
+    answer: Désactiver la vérification ouvre la porte à l'interception.
+  - key: qcm-chiffrement
+    format: multiple-choice
+    question: Quelles pratiques sont correctes pour chiffrer des données ?
+    choices:
+      - text: AES-GCM avec un nonce unique par message
+        correct: true
+      - text: chacha20poly1305 de golang.org/x/crypto
+        correct: true
+      - text: AES en mode ECB
+        correct: false
+      - text: Réutiliser le même nonce pour tous les messages
+        correct: false
+    answer: Un nonce réutilisé avec GCM détruit la confidentialité et l'authenticité.
+  - key: bug-math-rand
+    format: bug-fix
+    question: "Un audit signale des jetons d'invitation prévisibles :\n```go\nb := make([]byte, 16)\nfor i := range b {\n\tb[i] = byte(mrand.IntN(256)) // math/rand/v2\n}\njeton := hex.EncodeToString(b)\n```"
+    answer: |-
+      ```go
+      jeton := rand.Text() // crypto/rand, Go 1.24
+      ```
+      Un jeton de sécurité doit venir de crypto/rand ; rand.Text en produit un de 128 bits, prêt à l'emploi.
+  - key: bug-text-template
+    format: bug-fix
+    question: |-
+      Un commentaire contenant `<script>` s'exécute dans le navigateur des visiteurs :
+      ```go
+      import "text/template"
+
+      tmpl := template.Must(template.New("page").Parse(`<p>{{.Commentaire}}</p>`))
+      ```
+    answer: |-
+      ```go
+      import "html/template"
+
+      tmpl := template.Must(template.New("page").Parse(`<p>{{.Commentaire}}</p>`))
+      ```
+      text/template n'échappe rien ; html/template échappe selon le contexte HTML.
+  - key: bug-shell
+    format: bug-fix
+    question: |-
+      Un nom de fichier comme `a.png; rm -rf /` exécute une commande :
+      ```go
+      exec.Command("sh", "-c", "convert "+nom+" vignette.png").Run()
+      ```
+    answer: |-
+      ```go
+      exec.CommandContext(ctx, "convert", "--", nom, "vignette.png").Run()
+      ```
+      Sans shell, le nom est un argument et n'est jamais interprété ; « -- » empêche aussi qu'il soit pris pour une option.
+  - key: bug-comparaison
+    format: bug-fix
+    question: "La vérification de la clé d'API est vulnérable à une attaque temporelle :\n```go\nif r.Header.Get(\"X-Api-Key\") != cleAttendue {\n\thttp.Error(w, \"interdit\", http.StatusUnauthorized)\n\treturn\n}\n```"
+    answer: "```go\nrecue := r.Header.Get(\"X-Api-Key\")\nif subtle.ConstantTimeCompare([]byte(recue), []byte(cleAttendue)) != 1 {\n\thttp.Error(w, \"interdit\", http.StatusUnauthorized)\n\treturn\n}\n```\nLa comparaison en temps constant ne révèle pas, par sa durée, combien de caractères sont corrects."
+  - key: scenario-revue
+    format: scenario
+    question: En revue de sécurité d'un service Go, que vérifies-tu en priorité ?
+    answer: |-
+      Les entrées : tailles bornées, délais du serveur, validation ; les requêtes SQL paramétrées ; html/template pour le
+      HTML ; aucune commande via un shell ; les chemins de fichiers par os.Root ; crypto/rand pour les secrets ; bcrypt
+      ou argon2id pour les mots de passe ; les comparaisons en temps constant ; TLS vérifié ; les secrets hors du dépôt
+      et des journaux ; l'autorisation vérifiée pour chaque ressource ; govulncheck et gosec dans la CI.
+  - key: scenario-mots-de-passe
+    format: scenario
+    question: Comment stockes-tu et vérifies-tu les mots de passe des utilisateurs ?
+    answer: |-
+      Avec bcrypt (`bcrypt.GenerateFromPassword` avec un coût d'au moins 10, ou argon2id), qui ajoute un sel et reste lent
+      pour un attaquant. À la connexion, `bcrypt.CompareHashAndPassword` compare en temps constant. Je limite les
+      tentatives (par compte et par adresse), je ne révèle pas si c'est l'identifiant ou le mot de passe qui est faux, et
+      je prévois de recalculer le hash avec un coût plus élevé à la connexion suivante quand je l'augmente.
+  - key: scenario-webhook
+    format: scenario
+    question: Comment vérifies-tu la signature d'un webhook entrant signé en HMAC-SHA256 ?
+    answer: |-
+      Je lis le corps brut (borné par MaxBytesReader) avant tout décodage, je calcule `hmac.New(sha256.New, secret)` sur
+      ce corps (et l'horodatage si le fournisseur le signe), puis je compare avec la signature reçue décodée par
+      `hmac.Equal`, en temps constant. Je refuse les horodatages trop anciens pour éviter le rejeu, et je ne traite le
+      contenu qu'après la vérification.

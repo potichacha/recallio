@@ -1,4 +1,29 @@
 notion: gomaxprocs
+lesson: |-
+  **`GOMAXPROCS`** fixe le nombre de **P** de l'ordonnanceur, donc le nombre de goroutines qui exécutent du code Go en
+  même temps. Il se règle par la variable d'environnement `GOMAXPROCS` ou par `runtime.GOMAXPROCS(n)` ;
+  `runtime.GOMAXPROCS(0)` lit la valeur sans la changer.
+
+  Par défaut, il vaut le nombre de processeurs **visibles**. Avant Go 1.25, en conteneur, c'était un problème : un
+  conteneur limité à 2 CPU par son quota cgroup sur une machine de 64 cœurs prenait GOMAXPROCS=64. Le runtime lançait
+  64 threads actifs qui consommaient le quota en quelques millisecondes, puis le noyau **bridait** le conteneur
+  (*throttling*) : latence en dents de scie. On ajoutait la bibliothèque `go.uber.org/automaxprocs`.
+
+  **Depuis Go 1.25** :
+  - sous Linux, la valeur par défaut tient compte de la **limite de CPU du cgroup** (arrondie à l'entier supérieur) ;
+  - le runtime **réévalue** périodiquement cette valeur si la limite ou le nombre de CPU change ;
+  - ces comportements ne s'appliquent pas si `GOMAXPROCS` est fixé à la main, et se désactivent avec
+    `GODEBUG=containermaxprocs=0` et `updatemaxprocs=0`.
+
+  ```go
+  fmt.Println(runtime.NumCPU(), runtime.GOMAXPROCS(0))
+  ```
+
+  Ce que GOMAXPROCS **ne** limite **pas** : le nombre de goroutines, ni le nombre de threads (ceux bloqués dans des
+  appels système ou du code C ne comptent pas).
+
+  **En entretien** : « Le nombre de P, donc le parallélisme du code Go ; par défaut le nombre de CPU, et depuis Go 1.25
+  la limite CPU du cgroup, réévaluée en cours de route ; avant, automaxprocs. »
 cards:
   - key: controle-gomaxprocs
     format: course
@@ -16,3 +41,105 @@ cards:
     format: course
     question: Que désigne « GOMAXPROCS » ?
     answer: Nombre de P, conscient des conteneurs depuis Go 1.25
+  - key: vf-lire
+    format: true-false
+    question: '`runtime.GOMAXPROCS(0)` renvoie la valeur actuelle sans la modifier.'
+    truth: true
+    answer: Toute valeur inférieure à 1 ne change rien.
+  - key: vf-goroutines
+    format: true-false
+    question: GOMAXPROCS limite le nombre de goroutines qu'un programme peut créer.
+    truth: false
+    answer: Il limite celles qui s'exécutent en même temps.
+  - key: vf-cgroup
+    format: true-false
+    question: Depuis Go 1.25, sous Linux, la valeur par défaut de GOMAXPROCS tient compte de la limite de CPU du conteneur.
+    truth: true
+    answer: Et elle est réévaluée si la limite change.
+  - key: vf-manuel
+    format: true-false
+    question: Si la variable d'environnement GOMAXPROCS est fixée, Go 1.25 la remplace quand même par la limite du cgroup.
+    truth: false
+    answer: Une valeur fixée à la main est respectée telle quelle.
+  - key: qcm-throttling
+    format: multiple-choice
+    question: Avant Go 1.25, que se passait-il pour un service limité à 2 CPU sur une machine de 64 cœurs ?
+    choices:
+      - text: GOMAXPROCS valait 64
+        correct: true
+      - text: Le quota de CPU était consommé très vite, puis le conteneur était bridé
+        correct: true
+      - text: GOMAXPROCS valait 2
+        correct: false
+      - text: Le programme refusait de démarrer
+        correct: false
+    answer: D'où des pics de latence ; automaxprocs corrigeait cela.
+  - key: qcm-regler
+    format: multiple-choice
+    question: Comment régler GOMAXPROCS ?
+    choices:
+      - text: La variable d'environnement GOMAXPROCS
+        correct: true
+      - text: '`runtime.GOMAXPROCS(n)` dans le programme'
+        correct: true
+      - text: Un drapeau de go build
+        correct: false
+      - text: Une directive //go:maxprocs
+        correct: false
+    answer: Depuis Go 1.25, `runtime.SetDefaultGOMAXPROCS()` revient aussi au calcul par défaut.
+  - key: qcm-calcul
+    format: multiple-choice
+    question: Quelle valeur de GOMAXPROCS choisir pour un service de calcul intensif ?
+    choices:
+      - text: Le nombre de CPU réellement disponibles pour le processus
+        correct: true
+      - text: Bien plus que le nombre de CPU, pour aller plus vite
+        correct: false
+      - text: 1, pour éviter la concurrence
+        correct: false
+      - text: Le nombre de goroutines
+        correct: false
+    answer: Au-delà, les threads se disputent les mêmes cœurs.
+  - key: qcm-ne-limite-pas
+    format: multiple-choice
+    question: Que ne limite pas GOMAXPROCS ?
+    choices:
+      - text: Le nombre de threads bloqués dans des appels système
+        correct: true
+      - text: Le nombre de goroutines
+        correct: true
+      - text: Le nombre de goroutines qui exécutent du code Go au même instant
+        correct: false
+      - text: Le nombre de P
+        correct: false
+    answer: Il fixe exactement le nombre de P.
+  - key: scenario-conteneur
+    format: scenario
+    question: Ton service Go dans Kubernetes a une latence en dents de scie, et les métriques montrent du CPU throttling. Que vérifies-tu ?
+    answer: |-
+      La version de Go et la valeur effective de GOMAXPROCS (`runtime.GOMAXPROCS(0)` journalisée au démarrage). Avant
+      Go 1.25, elle valait le nombre de cœurs du nœud : je passe en 1.25 ou j'ajoute automaxprocs, ou je fixe
+      GOMAXPROCS à la limite CPU dans le déploiement. Je vérifie aussi qu'une limite CPU a un sens ici : beaucoup
+      d'équipes ne fixent qu'une demande (request) pour éviter le bridage.
+  - key: scenario-request-limit
+    format: scenario
+    question: Ton pod n'a qu'une demande CPU (request), sans limite. Que vaut GOMAXPROCS avec Go 1.25 ?
+    answer: |-
+      Le calcul de Go 1.25 se base sur la limite de CPU du cgroup, pas sur la demande : sans limite, GOMAXPROCS vaut le
+      nombre de CPU du nœud. C'est souvent voulu (le pod profite des cœurs libres), mais si l'on veut aligner le
+      parallélisme sur la demande, on fixe GOMAXPROCS à la main, par exemple depuis la demande exposée par l'API
+      descendante de Kubernetes.
+  - key: scenario-mesurer
+    format: scenario
+    question: Faut-il augmenter GOMAXPROCS pour un service qui fait surtout des appels réseau ?
+    answer: |-
+      Non : les goroutines en attente réseau sont garées par le netpoller et n'occupent pas de P. GOMAXPROCS doit
+      refléter les CPU disponibles ; augmenter le nombre d'appels simultanés passe par plus de goroutines (ou de workers),
+      pas par plus de P. Je regarde d'abord où part le temps avec une trace et un profil CPU.
+  - key: scenario-benchmark
+    format: scenario
+    question: Comment mesures-tu l'effet de GOMAXPROCS sur ton code ?
+    answer: |-
+      Avec `go test -bench . -cpu=1,2,4,8`, qui relance chaque benchmark avec ces valeurs de GOMAXPROCS : on voit si le
+      code passe à l'échelle (benchmarks parallèles avec `b.RunParallel`) ou s'il bute sur un verrou. Le profil de
+      contention (`-mutexprofile`) explique un plafond.

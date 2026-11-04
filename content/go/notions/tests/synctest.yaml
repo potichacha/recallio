@@ -1,4 +1,5 @@
 notion: synctest
+lesson: "Le package **`testing/synctest`** (stable depuis **Go 1.25**) teste le code **concurrent** et **temporel** sans attendre\nde vraies durées et sans tests instables.\n\n```go\nfunc TestCacheExpire(t *testing.T) {\n\tsynctest.Test(t, func(t *testing.T) {\n\t\tc := NouveauCache(time.Minute)\n\t\tc.Mettre(\"cle\", \"valeur\")\n\n\t\ttime.Sleep(59 * time.Second) // instantané : horloge virtuelle\n\t\tif _, ok := c.Lire(\"cle\"); !ok {\n\t\t\tt.Error(\"expirée trop tôt\")\n\t\t}\n\t\ttime.Sleep(2 * time.Second)\n\t\tsynctest.Wait() // attendre que les goroutines du cache aient réagi\n\t\tif _, ok := c.Lire(\"cle\"); ok {\n\t\t\tt.Error(\"pas expirée après une minute\")\n\t\t}\n\t})\n}\n```\n\nLe principe : `synctest.Test` exécute la fonction dans une **bulle** :\n- les goroutines lancées dans la bulle en font partie ;\n- le temps (`time.Now`, `time.Sleep`, timers, tickers, `context.WithTimeout`) est **virtuel** : il démarre à minuit\n  UTC le 1er janvier 2000, et n'avance **que lorsque toutes** les goroutines de la bulle sont **durablement\n  bloquées** (sommeil, channel, `sync.WaitGroup`, `sync.Cond`) ; il saute alors directement au prochain événement ;\n- **`synctest.Wait()`** attend que toutes les autres goroutines de la bulle soient durablement bloquées : on vérifie\n  ensuite un état stable, sans `time.Sleep` de précaution ;\n- à la fin, la bulle attend que ses goroutines se terminent : une goroutine qui reste bloquée fait échouer le test\n  (détection de fuites).\n\nLes limites : une goroutine bloquée sur une **entrée-sortie réelle** (réseau, fichier) ou un mutex n'est pas\n« durablement bloquée » ; dans la bulle, on utilise des **faux en mémoire** (`net.Pipe`). Les channels créés hors de\nla bulle ne doivent pas y être utilisés.\n\n**En entretien** : « Une bulle avec une horloge virtuelle qui saute quand tout est bloqué ; synctest.Wait pour\nattendre un état stable ; des tests de délais instantanés et déterministes ; pas d'entrées-sorties réelles dans la\nbulle. »"
 cards:
   - key: sert-testing-synctest
     format: course
@@ -14,3 +15,107 @@ cards:
     format: course
     question: Que désigne « synctest » ?
     answer: Tests de concurrence avec horloge virtuelle (Go 1.25)
+  - key: wait
+    format: course
+    question: À quoi sert synctest.Wait() ?
+    answer: 'Il attend que toutes les autres goroutines de la bulle soient durablement bloquées : le test vérifie ensuite un état stable, au lieu d''ajouter des time.Sleep de précaution.'
+  - key: horloge
+    format: course
+    question: Quand le temps virtuel avance-t-il dans une bulle synctest ?
+    answer: Seulement quand toutes les goroutines de la bulle sont durablement bloquées ; il saute alors directement au prochain réveil (timer, Sleep, échéance de contexte).
+  - key: vf-instantane
+    format: true-false
+    question: Dans une bulle synctest, un time.Sleep(time.Hour) s'exécute presque instantanément.
+    truth: true
+    answer: Le temps est virtuel.
+  - key: vf-reseau
+    format: true-false
+    question: Une goroutine qui attend une réponse d'un vrai serveur réseau est considérée comme durablement bloquée par synctest.
+    truth: false
+    answer: Les entrées-sorties réelles ne le sont pas ; on utilise des faux en mémoire comme net.Pipe.
+  - key: vf-125
+    format: true-false
+    question: testing/synctest est stable depuis Go 1.25.
+    truth: true
+    answer: Il était expérimental en Go 1.24 (GOEXPERIMENT=synctest).
+  - key: vf-fuite
+    format: true-false
+    question: Une goroutine de la bulle qui reste bloquée à la fin fait échouer le test.
+    truth: true
+    answer: synctest détecte ainsi les fuites de goroutines.
+  - key: qcm-usages
+    format: multiple-choice
+    question: Quels tests synctest rend-il simples ?
+    choices:
+      - text: Un cache qui expire après une heure
+        correct: true
+      - text: Une fonction qui réessaie avec un délai croissant
+        correct: true
+      - text: Un ticker qui rafraîchit toutes les 5 minutes
+        correct: true
+      - text: Un appel à une vraie API sur internet
+        correct: false
+    answer: Le réseau réel sort du modèle.
+  - key: qcm-bloque
+    format: multiple-choice
+    question: Quels blocages sont « durables » pour synctest ?
+    choices:
+      - text: Un time.Sleep
+        correct: true
+      - text: Une réception sur un channel créé dans la bulle
+        correct: true
+      - text: Un wg.Wait() sur un WaitGroup de la bulle
+        correct: true
+      - text: Une attente sur un sync.Mutex
+        correct: false
+    answer: Un mutex n'est pas considéré comme durablement bloquant.
+  - key: qcm-avantages
+    format: multiple-choice
+    question: Qu'apporte synctest par rapport à des time.Sleep dans les tests ?
+    choices:
+      - text: Des tests qui s'exécutent sans attendre les vraies durées
+        correct: true
+      - text: Des tests déterministes, sans échecs aléatoires dus à la charge de la machine
+        correct: true
+      - text: La possibilité d'appeler de vrais services
+        correct: false
+      - text: Des tests sans goroutine
+        correct: false
+    answer: Le temps virtuel supprime l'aléa.
+  - key: qcm-api
+    format: multiple-choice
+    question: Comment démarre-t-on une bulle depuis Go 1.25 ?
+    choices:
+      - text: '`synctest.Test(t, func(t *testing.T) { ... })`'
+        correct: true
+      - text: '`synctest.Run(func() { ... })`, l''ancienne API expérimentale de Go 1.24'
+        correct: false
+      - text: '`t.Synctest()`'
+        correct: false
+      - text: '`go test -synctest`'
+        correct: false
+    answer: synctest.Run était l'API expérimentale, remplacée par Test.
+  - key: scenario-retry
+    format: scenario
+    question: Comment testes-tu une fonction qui réessaie un appel avec des délais de 1 s, 2 s puis 4 s ?
+    answer: |-
+      Dans `synctest.Test`, je lui passe un faux qui échoue deux fois puis réussit, en notant `time.Now()` à chaque appel.
+      Comme le temps est virtuel, le test est instantané, et je vérifie exactement les écarts entre les appels (1 s, puis
+      2 s) et le nombre d'appels. Un second cas vérifie l'abandon après le nombre maximal de tentatives, ou à l'expiration
+      d'un contexte avec délai.
+  - key: scenario-flaky
+    format: scenario
+    question: Un test qui utilise des time.Sleep échoue une fois sur cent en CI. Comment le stabilises-tu ?
+    answer: |-
+      Les Sleep supposent que les goroutines auront fini dans le délai, ce qui n'est pas garanti sur une machine chargée.
+      Je mets le test dans une bulle synctest : les Sleep deviennent virtuels et synctest.Wait remplace les attentes de
+      précaution, car il attend vraiment que tout soit bloqué. Si le code fait des entrées-sorties réelles, je les remplace
+      d'abord par des faux en mémoire.
+  - key: scenario-limites
+    format: scenario
+    question: Quelles sont les limites de synctest ?
+    answer: |-
+      Les goroutines bloquées sur des entrées-sorties réelles (réseau, fichiers, appels système) ou sur un mutex ne sont
+      pas considérées comme bloquées durablement : le temps n'avance pas et Wait peut attendre. Il faut donc des faux en
+      mémoire (net.Pipe, un faux dépôt). Les channels et timers créés hors de la bulle ne doivent pas y servir. Enfin, le
+      code doit utiliser le package time standard, pas une horloge maison.

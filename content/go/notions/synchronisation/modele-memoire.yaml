@@ -1,4 +1,5 @@
 notion: modele-memoire
+lesson: "Le **modèle mémoire** de Go dit quand une goroutine est **garantie** de voir l'écriture d'une autre. Sans ces\ngaranties, le compilateur et le processeur peuvent **réordonner** ou garder en registre les accès, et une goroutine\npeut voir des valeurs anciennes, ou les écritures dans le désordre.\n\nLa notion centrale est la relation **happens-before** (« arrive avant ») : si une écriture *arrive avant* une\nlecture, la lecture voit cette écriture (ou une plus récente). Elle s'établit par les **synchronisations** :\n- **channels** : un envoi arrive avant la réception correspondante ; pour un channel non bufferisé, la réception\n  arrive avant la fin de l'envoi ; la fermeture arrive avant une réception qui voit le channel fermé ;\n- **mutex** : un `Unlock` arrive avant le `Lock` suivant ;\n- **`sync.Once`** : la fonction passée à `Do` arrive avant le retour de tous les `Do` ;\n- **`WaitGroup`** : chaque `Done` arrive avant le retour de `Wait` ;\n- **atomiques** : depuis Go 1.19, ils sont **séquentiellement cohérents** (comme en Java `volatile`) ;\n- **lancement** : l'instruction `go` arrive avant le début de la goroutine. La **fin** d'une goroutine, elle, n'est\n  synchronisée avec rien.\n\n```go\nvar message string\nvar pret = make(chan struct{})\n\ngo func() {\n\tmessage = \"bonjour\"\n\tclose(pret)          // l'écriture de message arrive avant la fermeture\n}()\n<-pret                   // ... qui arrive avant cette réception\nfmt.Println(message)     // garanti : « bonjour »\n```\n\nUn programme **sans data race** se comporte comme si les goroutines s'entrelaçaient sur un seul processeur\n(*DRF-SC*). Avec une course, tout peut arriver : les valeurs de plusieurs mots (interfaces, slices, strings) peuvent\nêtre lues **à moitié écrites**.\n\n**En entretien** : « happens-before s'établit par les channels, les mutex, Once, WaitGroup et les atomiques ; sans\nsynchronisation, aucune garantie de visibilité ; sans data race, le programme est séquentiellement cohérent. »"
 cards:
   - key: relation-happens-before
     format: course
@@ -16,3 +17,171 @@ cards:
     format: definition
     question: happens-before
     answer: Relation d'ordre et de visibilité du modèle mémoire
+  - key: drf-sc
+    format: course
+    question: Que garantit Go à un programme sans data race ?
+    answer: 'Qu''il se comporte de façon séquentiellement cohérente (DRF-SC) : comme si les opérations des goroutines s''entrelaçaient dans un ordre unique, sans réordonnancement visible.'
+  - key: vf-go
+    format: true-false
+    question: Les écritures faites avant l'instruction `go` sont visibles dans la goroutine lancée.
+    truth: true
+    answer: Le lancement arrive avant le début de la goroutine.
+  - key: vf-fin
+    format: true-false
+    question: Les écritures d'une goroutine sont visibles dès qu'elle est terminée, sans autre synchronisation.
+    truth: false
+    answer: Sa fin n'est synchronisée avec rien ; il faut un WaitGroup, un channel ou un mutex.
+  - key: vf-atomiques
+    format: true-false
+    question: Depuis Go 1.19, les opérations atomiques sont séquentiellement cohérentes.
+    truth: true
+    answer: Comme les variables volatile de Java ; le modèle mémoire a été révisé en 1.19.
+  - key: vf-sleep
+    format: true-false
+    question: Un `time.Sleep` assez long garantit qu'une goroutine voit l'écriture d'une autre.
+    truth: false
+    answer: Le sommeil n'établit aucune relation happens-before.
+  - key: qcm-synchronisent
+    format: multiple-choice
+    question: Lesquels établissent une relation happens-before ?
+    choices:
+      - text: Un envoi sur un channel et la réception correspondante
+        correct: true
+      - text: Un Unlock et le Lock suivant du même mutex
+        correct: true
+      - text: Un Done et le retour de Wait du même WaitGroup
+        correct: true
+      - text: Deux goroutines qui écrivent au même moment
+        correct: false
+    answer: Des accès simultanés sans synchronisation sont une course.
+  - key: qcm-demi
+    format: multiple-choice
+    question: Quelles valeurs peuvent être lues « à moitié écrites » en cas de data race ?
+    choices:
+      - text: Une interface (type et pointeur)
+        correct: true
+      - text: Un slice (pointeur, longueur, capacité)
+        correct: true
+      - text: Une string (pointeur et longueur)
+        correct: true
+      - text: Aucune, Go l'empêche
+        correct: false
+    answer: Ce sont des valeurs de plusieurs mots ; la lecture peut mélanger deux écritures et provoquer un accès mémoire invalide.
+  - key: qcm-close
+    format: multiple-choice
+    question: Que garantit la fermeture d'un channel ?
+    choices:
+      - text: Les écritures faites avant close sont visibles par une goroutine qui reçoit et voit le channel fermé
+        correct: true
+      - text: Toutes les goroutines s'arrêtent
+        correct: false
+      - text: Rien, ce n'est pas une synchronisation
+        correct: false
+      - text: Seulement la première goroutine qui reçoit voit les écritures
+        correct: false
+    answer: C'est ce qui rend ctx.Done() utilisable comme signal.
+  - key: qcm-once
+    format: multiple-choice
+    question: Que garantit `once.Do(f)` vis-à-vis de la mémoire ?
+    choices:
+      - text: Les écritures faites par f sont visibles après le retour de chaque appel à Do
+        correct: true
+      - text: f s'exécute dans une goroutine séparée
+        correct: false
+      - text: Rien, il faut un mutex en plus
+        correct: false
+      - text: Les écritures sont visibles avant la fin de f
+        correct: false
+    answer: C'est pourquoi l'initialisation paresseuse avec Once est sûre.
+  - key: bug-drapeau
+    format: bug-fix
+    question: "Le programme affiche parfois une chaîne vide, ou boucle pour toujours :\n```go\nvar message string\nvar pret bool\n\ngo func() {\n\tmessage = \"bonjour\"\n\tpret = true\n}()\nfor !pret {\n}\nfmt.Println(message)\n```"
+    answer: "```go\nvar message string\npret := make(chan struct{})\n\ngo func() {\n\tmessage = \"bonjour\"\n\tclose(pret)\n}()\n<-pret\nfmt.Println(message)\n```\nSans synchronisation, rien ne garantit l'ordre ni la visibilité des écritures ; la fermeture du channel crée la\nrelation happens-before (et supprime l'attente active)."
+  - key: bug-fin
+    format: bug-fix
+    question: |-
+      Le résultat est parfois vide, même si la goroutine a fini :
+      ```go
+      var resultat []int
+      go func() { resultat = calculer() }()
+      time.Sleep(100 * time.Millisecond)
+      fmt.Println(resultat)
+      ```
+    answer: |-
+      ```go
+      var resultat []int
+      var wg sync.WaitGroup
+      wg.Go(func() { resultat = calculer() })
+      wg.Wait()
+      fmt.Println(resultat)
+      ```
+      Le sommeil ne synchronise rien, et la fin d'une goroutine non plus ; Wait garantit que l'écriture est visible.
+  - key: bug-double-check
+    format: bug-fix
+    question: "Une initialisation « optimisée » avec double vérification lit parfois un objet incomplet :\n```go\nif instance == nil {\n\tmu.Lock()\n\tif instance == nil {\n\t\tinstance = &Service{config: charger()}\n\t}\n\tmu.Unlock()\n}\nreturn instance\n```"
+    answer: "```go\nvar instance = sync.OnceValue(func() *Service {\n\treturn &Service{config: charger()}\n})\n```\nLa première lecture de `instance` se faisait hors verrou : une course, qui peut voir le pointeur avant les champs.\nOnce (ou un atomic.Pointer) publie l'objet correctement."
+  - key: bug-interface
+    format: bug-fix
+    question: |-
+      Le service plante de temps en temps avec un « invalid memory address » dans un appel de méthode :
+      ```go
+      var courant Stockage // une interface, changée par le rechargement
+
+      func recharger() { courant = nouveauStockage() }
+      func lire(k string) string { return courant.Lire(k) }
+      ```
+    answer: |-
+      ```go
+      var courant atomic.Pointer[stockageCourant]
+
+      type stockageCourant struct{ s Stockage }
+
+      func recharger() { courant.Store(&stockageCourant{s: nouveauStockage()}) }
+      func lire(k string) string { return courant.Load().s.Lire(k) }
+      ```
+      Une interface a deux mots (type, pointeur) : une lecture en course peut combiner le type de l'un et les données de
+      l'autre. Un atomic.Pointer (ou un mutex) publie la valeur en entier.
+  - key: scenario-expliquer
+    format: scenario
+    question: En entretien, on te demande ce qu'est la relation happens-before en Go.
+    answer: |-
+      C'est l'ordre partiel qui dit quelles écritures une lecture est garantie de voir. Elle découle de l'ordre du code
+      dans une goroutine et des synchronisations entre goroutines : envoi et réception d'un channel, fermeture, Unlock
+      puis Lock, Done puis Wait, Once, atomiques, lancement d'une goroutine. Si une écriture n'arrive pas avant une
+      lecture et qu'elles sont concurrentes, c'est une data race et aucune valeur n'est garantie.
+  - key: scenario-java
+    format: scenario
+    question: Compare le modèle mémoire de Go à celui de Java.
+    answer: |-
+      Les deux reposent sur happens-before et garantissent DRF-SC. Les atomiques de Go correspondent aux `volatile` et
+      `AtomicXxx` de Java, `sync.Mutex` à `synchronized` ou `ReentrantLock` (mais non réentrant), et les channels n'ont
+      pas d'équivalent direct (une BlockingQueue s'en approche). La différence majeure : en Java une course reste limitée
+      (pas de valeur « inventée » pour une référence), alors qu'en Go une course sur une valeur de plusieurs mots peut
+      corrompre la mémoire.
+  - key: scenario-revue
+    format: scenario
+    question: En revue, un collègue a écrit une attente avec un booléen et un `time.Sleep`. Comment le convaincs-tu de changer ?
+    answer: |-
+      Je lui montre que ni le booléen ni le sommeil n'établissent de relation happens-before : le compilateur peut sortir
+      la lecture de la boucle, et la goroutine peut ne jamais voir le changement ; `go test -race` le signale. Je propose
+      un channel fermé, un contexte annulé ou un `atomic.Bool`, plus courts et garantis, et sans attente active.
+  - key: scenario-publication
+    format: scenario
+    question: Comment publies-tu un objet construit par une goroutine pour que les autres le voient entièrement initialisé ?
+    answer: |-
+      Par une synchronisation qui établit happens-before entre la construction et la lecture : l'envoyer sur un channel,
+      l'affecter sous le mutex que les lecteurs prennent aussi, le stocker dans un `atomic.Pointer`, ou le créer dans un
+      `sync.Once`. Une fois publié, je ne le modifie plus (ou seulement sous verrou), sinon les lecteurs peuvent voir un
+      état intermédiaire.
+  - key: definition-modele-memoire
+    format: definition
+    question: modèle mémoire
+    answer: Règles qui définissent quand une goroutine est garantie de voir les écritures d'une autre
+  - key: definition-drf-sc
+    format: definition
+    question: DRF-SC
+    answer: Garantie qu'un programme sans data race se comporte de façon séquentiellement cohérente
+  - key: definition-coherence-sequentielle
+    format: definition
+    question: cohérence séquentielle
+    answer: Comportement où toutes les opérations semblent s'exécuter dans un ordre unique respectant l'ordre de chaque goroutine

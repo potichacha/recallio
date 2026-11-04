@@ -1,6 +1,185 @@
 notion: middleware
+lesson: "Un **middleware** est une fonction qui prend un `http.Handler` et renvoie un autre `http.Handler` qui fait quelque\nchose **avant** et/ou **après** l'appel au suivant : journalisation, authentification, récupération des paniques,\nlimitation de débit, en-têtes de sécurité, CORS.\n\n```go\nfunc journaliser(log *slog.Logger) func(http.Handler) http.Handler {\n\treturn func(next http.Handler) http.Handler {\n\t\treturn http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n\t\t\tdebut := time.Now()\n\t\t\tnext.ServeHTTP(w, r)                    // le handler suivant\n\t\t\tlog.Info(\"requête\", \"methode\", r.Method, \"chemin\", r.URL.Path, \"duree\", time.Since(debut))\n\t\t})\n\t}\n}\n\nvar h http.Handler = mux\nh = authentifier(h)\nh = journaliser(logger)(h)\nh = recuperer(h) // le dernier appliqué est le premier exécuté\n```\n\nLes points clés :\n- un middleware **arrête** la chaîne en écrivant une réponse sans appeler `next` (401 d'une authentification) ;\n- pour transmettre une information au handler (l'utilisateur authentifié), il passe une requête enrichie :\n  `next.ServeHTTP(w, r.WithContext(ctx))` ;\n- pour connaître le **statut** écrit par le handler, on enveloppe le `ResponseWriter` dans un type qui intercepte\n  `WriteHeader`, en gardant `Unwrap()` pour que `http.ResponseController` trouve les interfaces d'origine (Flush) ;\n- l'**ordre** compte : la récupération des paniques à l'extérieur, la journalisation avant l'authentification pour\n  voir aussi les refus ;\n- `http.StripPrefix`, `http.TimeoutHandler` et `http.MaxBytesHandler` sont des middlewares de la bibliothèque\n  standard.\n\n**En entretien** : « func(http.Handler) http.Handler ; avant et après next.ServeHTTP ; arrêter en n'appelant pas\nnext ; r.WithContext pour transmettre ; envelopper le ResponseWriter pour le statut ; l'ordre compte. »"
 cards:
   - key: ecrit-middleware-http
     format: course
     question: Comment s'écrit un middleware HTTP ?
     answer: Une fonction qui prend un http.Handler et renvoie un http.Handler enrichi (Decorator).
+  - key: arreter
+    format: course
+    question: Comment un middleware empêche-t-il la requête d'atteindre le handler ?
+    answer: Il écrit lui-même une réponse (par exemple 401) et rend la main sans appeler next.ServeHTTP.
+  - key: statut
+    format: course
+    question: Comment un middleware connaît-il le statut renvoyé par le handler ?
+    answer: En passant au handler un ResponseWriter enveloppé, dont la méthode WriteHeader enregistre le code avant de l'appeler sur l'original (200 si Write est appelé sans WriteHeader).
+  - key: ordre
+    format: course
+    question: Dans quel ordre s'exécutent des middlewares appliqués par `h = c(b(a(mux)))` ?
+    answer: c d'abord, puis b, puis a, puis le mux ; au retour, dans l'ordre inverse. Le dernier appliqué est le plus extérieur.
+  - key: vf-signature
+    format: true-false
+    question: Un middleware idiomatique a la signature `func(http.Handler) http.Handler`.
+    truth: true
+    answer: Ce qui permet de les composer.
+  - key: vf-next
+    format: true-false
+    question: Un middleware doit toujours appeler next.ServeHTTP.
+    truth: false
+    answer: Il peut arrêter la chaîne, par exemple pour refuser une requête.
+  - key: vf-contexte
+    format: true-false
+    question: Pour transmettre l'utilisateur authentifié, un middleware peut appeler `next.ServeHTTP(w, r.WithContext(ctx))`.
+    truth: true
+    answer: Le handler le lit dans r.Context().
+  - key: vf-panique
+    format: true-false
+    question: Une panique dans un handler arrête tout le serveur net/http.
+    truth: false
+    answer: net/http la récupère et ferme la connexion, mais un middleware de récupération permet de répondre 500 et de journaliser.
+  - key: qcm-usages
+    format: multiple-choice
+    question: Quelles fonctions conviennent à un middleware ?
+    choices:
+      - text: Journaliser chaque requête avec sa durée
+        correct: true
+      - text: Vérifier un jeton d'authentification
+        correct: true
+      - text: Ajouter des en-têtes de sécurité à toutes les réponses
+        correct: true
+      - text: Calculer le prix d'une commande
+        correct: false
+    answer: La logique métier reste dans les handlers.
+  - key: qcm-ordre
+    format: multiple-choice
+    question: Quel ordre choisir, de l'extérieur vers l'intérieur ?
+    choices:
+      - text: Récupération des paniques, journalisation, authentification, handler
+        correct: true
+      - text: Authentification, récupération des paniques, journalisation, handler
+        correct: false
+      - text: Handler, authentification, journalisation
+        correct: false
+      - text: L'ordre n'a pas d'importance
+        correct: false
+    answer: La récupération doit englober tout ; la journalisation doit voir les refus d'authentification.
+  - key: qcm-stdlib
+    format: multiple-choice
+    question: Lesquels sont des middlewares fournis par net/http ?
+    choices:
+      - text: '`http.StripPrefix`'
+        correct: true
+      - text: '`http.TimeoutHandler`'
+        correct: true
+      - text: '`http.MaxBytesHandler`'
+        correct: true
+      - text: '`http.AuthHandler`'
+        correct: false
+    answer: L'authentification est à écrire (ou à prendre dans une bibliothèque).
+  - key: qcm-wrapper
+    format: multiple-choice
+    question: Pourquoi ajouter une méthode Unwrap au ResponseWriter enveloppé ?
+    choices:
+      - text: Pour que http.ResponseController retrouve le ResponseWriter d'origine et ses capacités (Flush, Hijack)
+        correct: true
+      - text: Pour que errors.Is fonctionne sur la réponse
+        correct: false
+      - text: Pour accélérer les écritures
+        correct: false
+      - text: Elle est obligatoire pour compiler
+        correct: false
+    answer: Sans elle, le streaming peut cesser de fonctionner derrière le middleware.
+  - key: trous-signature
+    format: fill-in
+    question: |-
+      Complétez la signature :
+      ```go
+      func enTetesSecurite(next http.Handler) http.___ {
+      ```
+    blanks:
+      - - Handler
+    answer: Un middleware renvoie un http.Handler.
+  - key: trous-next
+    format: fill-in
+    question: "Complétez l'appel au suivant :\n```go\nreturn http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n\tw.Header().Set(\"X-Content-Type-Options\", \"nosniff\")\n\tnext.___(w, r)\n})\n```"
+    blanks:
+      - - ServeHTTP
+    answer: next.ServeHTTP.
+  - key: trous-withcontext
+    format: fill-in
+    question: |-
+      Complétez pour transmettre l'utilisateur :
+      ```go
+      ctx := AvecUtilisateur(r.Context(), u)
+      next.ServeHTTP(w, r.___(ctx))
+      ```
+    blanks:
+      - - WithContext
+    answer: r.WithContext renvoie une copie de la requête.
+  - key: trous-handlerfunc
+    format: fill-in
+    question: "Complétez la conversion :\n```go\nreturn http.___(func(w http.ResponseWriter, r *http.Request) {\n\t// ...\n})\n```"
+    blanks:
+      - - HandlerFunc
+    answer: http.HandlerFunc.
+  - key: bug-return
+    format: bug-fix
+    question: "Les requêtes sans jeton reçoivent un 401 suivi des données protégées :\n```go\nfunc authentifier(next http.Handler) http.Handler {\n\treturn http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n\t\tif r.Header.Get(\"Authorization\") == \"\" {\n\t\t\thttp.Error(w, \"non authentifié\", http.StatusUnauthorized)\n\t\t}\n\t\tnext.ServeHTTP(w, r)\n\t})\n}\n```"
+    answer: "```go\nfunc authentifier(next http.Handler) http.Handler {\n\treturn http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n\t\tif r.Header.Get(\"Authorization\") == \"\" {\n\t\t\thttp.Error(w, \"non authentifié\", http.StatusUnauthorized)\n\t\t\treturn\n\t\t}\n\t\tnext.ServeHTTP(w, r)\n\t})\n}\n```\nSans return, la chaîne continuait vers le handler protégé."
+  - key: bug-statut
+    format: bug-fix
+    question: |-
+      Le middleware de journalisation affiche toujours le statut 0 :
+      ```go
+      next.ServeHTTP(w, r)
+      log.Info("requête", "statut", w.(interface{ Status() int }).Status())
+      ```
+    answer: "```go\ntype ecrivain struct {\n\thttp.ResponseWriter\n\tstatut int\n}\n\nfunc (e *ecrivain) WriteHeader(code int) {\n\te.statut = code\n\te.ResponseWriter.WriteHeader(code)\n}\n\nfunc (e *ecrivain) Unwrap() http.ResponseWriter { return e.ResponseWriter }\n\n// dans le middleware\ne := &ecrivain{ResponseWriter: w, statut: http.StatusOK}\nnext.ServeHTTP(e, r)\nlog.Info(\"requête\", \"statut\", e.statut)\n```\nLe ResponseWriter ne donne pas le statut ; on l'enveloppe pour enregistrer le code écrit (200 par défaut)."
+  - key: bug-recover
+    format: bug-fix
+    question: |-
+      Une panique dans un handler coupe la connexion sans réponse ni trace exploitable. Que proposes-tu ?
+      ```go
+      srv := &http.Server{Handler: mux}
+      ```
+    answer: "```go\nfunc recuperer(log *slog.Logger, next http.Handler) http.Handler {\n\treturn http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n\t\tdefer func() {\n\t\t\tif v := recover(); v != nil {\n\t\t\t\tif v == http.ErrAbortHandler {\n\t\t\t\t\tpanic(v) // abandon volontaire : laisser net/http le traiter\n\t\t\t\t}\n\t\t\t\tlog.Error(\"panique\", \"valeur\", v, \"pile\", string(debug.Stack()))\n\t\t\t\thttp.Error(w, \"erreur interne\", http.StatusInternalServerError)\n\t\t\t}\n\t\t}()\n\t\tnext.ServeHTTP(w, r)\n\t})\n}\n\nsrv := &http.Server{Handler: recuperer(logger, mux)}\n```\nUn middleware à l'extérieur de la chaîne récupère la panique, la journalise avec sa pile, et répond 500."
+  - key: bug-ordre
+    format: bug-fix
+    question: |-
+      Les tentatives d'accès refusées n'apparaissent pas dans les journaux :
+      ```go
+      h := journaliser(authentifier(mux))
+      ```
+      L'authentification s'exécute pourtant après la journalisation. Que vérifies-tu, et que corriges-tu ?
+    answer: "```go\nfunc journaliser(next http.Handler) http.Handler {\n\treturn http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n\t\te := &ecrivain{ResponseWriter: w, statut: http.StatusOK}\n\t\tnext.ServeHTTP(e, r)\n\t\tlog.Info(\"requête\", \"chemin\", r.URL.Path, \"statut\", e.statut) // après next : voit aussi les 401\n\t})\n}\n```\nL'ordre était bon, mais la journalisation n'avait lieu que dans le handler final. Elle doit se faire dans le\nmiddleware, après next.ServeHTTP, pour voir aussi les requêtes arrêtées par l'authentification."
+  - key: scenario-chaine
+    format: scenario
+    question: Quels middlewares mets-tu sur une API publique, et dans quel ordre ?
+    answer: |-
+      De l'extérieur vers l'intérieur : récupération des paniques, identifiant de requête et trace, journalisation et
+      métriques, en-têtes de sécurité et CORS, limitation de débit, limite de taille du corps, authentification, puis le
+      routeur. La récupération englobe tout ; la journalisation voit les refus ; la limitation de débit passe avant
+      l'authentification, plus coûteuse. Les routes publiques (santé) sont montées avant l'authentification.
+  - key: scenario-tester
+    format: scenario
+    question: Comment testes-tu un middleware d'authentification ?
+    answer: |-
+      Avec httptest : je l'applique à un faux handler qui note s'il a été appelé et ce qu'il lit dans le contexte, puis
+      j'envoie des requêtes avec `httptest.NewRequest` et `httptest.NewRecorder` : sans jeton (401, faux handler non
+      appelé), jeton invalide, jeton valide (handler appelé, utilisateur dans le contexte). Le tout en tests de table,
+      sans réseau.
+  - key: scenario-chi
+    format: scenario
+    question: Faut-il un routeur tiers comme chi pour gérer les middlewares ?
+    answer: |-
+      Pas forcément : des fonctions `func(http.Handler) http.Handler` se composent très bien avec le ServeMux standard,
+      au besoin avec un petit utilitaire `chaine(h, m1, m2...)`. chi devient pratique quand on a beaucoup de groupes de
+      routes avec des middlewares différents (une partie admin, une partie publique). Je commence avec la bibliothèque
+      standard et je change si le besoin apparaît.
+  - key: scenario-timeout
+    format: scenario
+    question: Comment imposes-tu un délai maximal à chaque requête de ton API ?
+    answer: |-
+      Un middleware qui dérive un contexte `WithTimeout` de `r.Context()` et le passe avec `r.WithContext`, pour que les
+      appels à la base et aux services s'interrompent. `http.TimeoutHandler` renvoie en plus un 503 si le handler dépasse
+      le délai. Je règle aussi le `WriteTimeout` du serveur au-dessus de ce délai, comme filet de sécurité.

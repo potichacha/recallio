@@ -1,6 +1,149 @@
 notion: timers-tickers
+lesson: "Le package `time` fournit des minuteurs qui délivrent leurs signaux sur des **channels** :\n\n| Outil | Effet |\n|---|---|\n| `time.After(d)` | un channel qui reçoit une valeur une fois, après d |\n| `time.NewTimer(d)` | idem, avec `Stop` et `Reset` |\n| `time.AfterFunc(d, f)` | appelle f dans sa propre goroutine après d |\n| `time.NewTicker(d)` | un channel qui reçoit une valeur toutes les d |\n| `time.Tick(d)` | un ticker sans possibilité de l'arrêter |\n\n```go\ntick := time.NewTicker(30 * time.Second)\ndefer tick.Stop()\nfor {\n\tselect {\n\tcase <-tick.C:\n\t\trafraichir()\n\tcase <-ctx.Done():\n\t\treturn\n\t}\n}\n```\n\n**Depuis Go 1.23** (modules en `go 1.23` ou plus) :\n- les timers et tickers **non référencés** sont ramassés par le GC même sans `Stop` : `time.After` dans une boucle ne\n  fuit plus ;\n- leurs channels sont **non bufferisés** : après `Stop` ou `Reset`, aucune valeur périmée ne peut être reçue, et\n  l'ancien motif « vider le channel avant Reset » est inutile.\n\nLes règles restantes :\n- `defer tick.Stop()` reste une bonne habitude pour un ticker : il dit l'intention et libère tout de suite ;\n- un ticker **saute** les tics si le traitement est plus long que la période (il ne les accumule pas) ;\n- pour une attente annulable, `select` avec `time.After` (ou un `context.WithTimeout`) plutôt que `time.Sleep` ;\n- dans les tests, `testing/synctest` (Go 1.25) fait avancer une horloge virtuelle : un test avec un ticker de\n  5 minutes s'exécute instantanément.\n\n**En entretien** : « After et Timer pour une fois, Ticker pour une période, AfterFunc pour un rappel ; Stop en defer ;\nGo 1.23 : timers ramassés sans Stop et channels sans valeur périmée ; select pour combiner avec le contexte. »"
 cards:
   - key: change-1-23-timers
     format: course
     question: Qu'a changé Go 1.23 pour les timers ?
     answer: Channels de timers non bufferisés (pas de valeur périmée après Stop/Reset) et timers non référencés collectés immédiatement.
+  - key: saute
+    format: course
+    question: Que fait un Ticker quand le traitement dure plus longtemps que sa période ?
+    answer: 'Il ne cumule pas les tics : son channel garde au plus une valeur en attente (ou aucune depuis Go 1.23), et les tics manqués sont perdus ; le rythme se recale sur la période.'
+  - key: afterfunc
+    format: course
+    question: Que fait time.AfterFunc ?
+    answer: Il appelle la fonction dans sa propre goroutine une fois le délai écoulé, et renvoie un *Timer dont Stop annule l'appel s'il n'a pas encore eu lieu.
+  - key: sleep
+    format: course
+    question: Pourquoi préférer un select avec time.After à time.Sleep dans un service ?
+    answer: Sleep ne peut pas être interrompu ; un select qui attend aussi ctx.Done() permet d'arrêter l'attente dès l'annulation, par exemple à l'arrêt du service.
+  - key: vf-123-gc
+    format: true-false
+    question: Depuis Go 1.23, un Timer non référencé est ramassé par le GC même s'il n'a pas été arrêté.
+    truth: true
+    answer: Pour les modules qui déclarent go 1.23 ou plus.
+  - key: vf-tick
+    format: true-false
+    question: Un ticker créé par time.Tick peut être arrêté.
+    truth: false
+    answer: Il n'expose pas de Stop ; NewTicker le permet.
+  - key: vf-afterfunc
+    format: true-false
+    question: La fonction passée à time.AfterFunc s'exécute dans la goroutine qui a créé le timer.
+    truth: false
+    answer: Dans sa propre goroutine.
+  - key: vf-perime
+    format: true-false
+    question: Depuis Go 1.23, après Reset d'un Timer, on ne peut pas recevoir une valeur périmée de l'ancien délai.
+    truth: true
+    answer: Les channels des timers sont devenus non bufferisés.
+  - key: qcm-choisir
+    format: multiple-choice
+    question: Quel outil pour quel besoin ?
+    choices:
+      - text: 'Rafraîchir un cache toutes les 5 minutes : NewTicker'
+        correct: true
+      - text: 'Abandonner une attente après 2 secondes : time.After dans un select'
+        correct: true
+      - text: 'Relancer une tâche une seule fois dans 10 minutes : AfterFunc'
+        correct: true
+      - text: 'Attendre 5 minutes de façon annulable : time.Sleep'
+        correct: false
+    answer: Sleep ne s'interrompt pas.
+  - key: qcm-tests
+    format: multiple-choice
+    question: Comment tester un code qui utilise un ticker de 5 minutes sans attendre ?
+    choices:
+      - text: '`testing/synctest` (Go 1.25), avec son horloge virtuelle'
+        correct: true
+      - text: Rendre la période configurable et la réduire dans le test
+        correct: true
+      - text: Attendre 5 minutes dans le test
+        correct: false
+      - text: Modifier l'heure du système
+        correct: false
+    answer: Dans une bulle synctest, le temps avance dès que toutes les goroutines sont bloquées.
+  - key: qcm-stop
+    format: multiple-choice
+    question: Que renvoie `t.Stop()` sur un Timer ?
+    choices:
+      - text: true si l'appel a empêché le timer de se déclencher
+        correct: true
+      - text: false s'il s'était déjà déclenché ou était arrêté
+        correct: true
+      - text: La durée restante
+        correct: false
+      - text: Une erreur
+        correct: false
+    answer: Avec AfterFunc, true signifie que la fonction ne sera pas appelée.
+  - key: qcm-boucle
+    format: multiple-choice
+    question: 'Un serveur utilise `select { case m := <-msgs: ... case <-time.After(time.Minute): ... }` dans une boucle très rapide. Qu''en penser ?'
+    choices:
+      - text: Depuis Go 1.23, les timers non utilisés sont ramassés et ne fuient plus
+        correct: true
+      - text: Un seul Timer réutilisé avec Reset évite quand même une allocation par tour
+        correct: true
+      - text: Cela bloque le serveur une minute à chaque tour
+        correct: false
+      - text: Cela ne compile pas
+        correct: false
+    answer: Avant 1.23, chaque timer restait en mémoire jusqu'à son échéance.
+  - key: trous-ticker
+    format: fill-in
+    question: |-
+      Complétez :
+      ```go
+      tick := time.___(time.Minute)
+      defer tick.___()
+      ```
+    blanks:
+      - - NewTicker
+      - - Stop
+    answer: NewTicker puis defer Stop.
+  - key: trous-c
+    format: fill-in
+    question: "Complétez la réception du tic :\n```go\nselect {\ncase <-tick.___:\n\trafraichir()\ncase <-ctx.Done():\n\treturn\n}\n```"
+    blanks:
+      - - C
+    answer: Le champ C est le channel du ticker.
+  - key: trous-after
+    format: fill-in
+    question: "Complétez pour abandonner après 2 secondes :\n```go\nselect {\ncase r := <-resultat:\n\treturn r, nil\ncase <-time.___(2 * time.Second):\n\treturn nil, ErrDelai\n}\n```"
+    blanks:
+      - - After
+    answer: time.After.
+  - key: trous-reset
+    format: fill-in
+    question: |-
+      Complétez pour repousser l'échéance d'inactivité :
+      ```go
+      minuteur.___(30 * time.Second)
+      ```
+    blanks:
+      - - Reset
+    answer: Reset relance le timer.
+  - key: bug-sleep
+    format: bug-fix
+    question: "L'arrêt du service prend jusqu'à 5 minutes :\n```go\nfor {\n\tsynchroniser()\n\ttime.Sleep(5 * time.Minute)\n}\n```"
+    answer: "```go\ntick := time.NewTicker(5 * time.Minute)\ndefer tick.Stop()\nfor {\n\tsynchroniser()\n\tselect {\n\tcase <-tick.C:\n\tcase <-ctx.Done():\n\t\treturn\n\t}\n}\n```\nLe sommeil ne pouvait pas être interrompu ; le select attend le tic ou l'annulation."
+  - key: bug-tick
+    format: bug-fix
+    question: "Chaque nouvel abonné crée un ticker qui continue de tourner après son départ :\n```go\nfunc (s *Serveur) abonner(ctx context.Context, w io.Writer) {\n\tfor t := range time.Tick(time.Second) {\n\t\tif ctx.Err() != nil {\n\t\t\treturn\n\t\t}\n\t\tfmt.Fprintln(w, t)\n\t}\n}\n```"
+    answer: "```go\nfunc (s *Serveur) abonner(ctx context.Context, w io.Writer) {\n\ttick := time.NewTicker(time.Second)\n\tdefer tick.Stop()\n\tfor {\n\t\tselect {\n\t\tcase t := <-tick.C:\n\t\t\tfmt.Fprintln(w, t)\n\t\tcase <-ctx.Done():\n\t\t\treturn\n\t\t}\n\t}\n}\n```\nUn ticker arrêtable et un select : la goroutine part dès l'annulation, sans attendre le tic suivant."
+  - key: bug-afterfunc
+    format: bug-fix
+    question: "La session est parfois supprimée alors que l'utilisateur vient de se reconnecter :\n```go\nfunc (s *Sessions) Deconnecter(id string) {\n\ttime.AfterFunc(10*time.Minute, func() { s.supprimer(id) })\n}\n\nfunc (s *Sessions) Reconnecter(id string) { s.marquerActive(id) }\n```"
+    answer: "```go\nfunc (s *Sessions) Deconnecter(id string) {\n\ts.mu.Lock()\n\tdefer s.mu.Unlock()\n\ts.expirations[id] = time.AfterFunc(10*time.Minute, func() { s.supprimer(id) })\n}\n\nfunc (s *Sessions) Reconnecter(id string) {\n\ts.mu.Lock()\n\tdefer s.mu.Unlock()\n\tif t, ok := s.expirations[id]; ok {\n\t\tt.Stop()\n\t\tdelete(s.expirations, id)\n\t}\n\ts.marquerActive(id)\n}\n```\nLe timer n'était jamais annulé ; on le garde pour l'arrêter à la reconnexion."
+  - key: bug-intervalle
+    format: bug-fix
+    question: |-
+      Le cache est rafraîchi plusieurs fois par seconde :
+      ```go
+      tick := time.NewTicker(time.Duration(cfg.IntervalleMinutes))
+      ```
+    answer: |-
+      ```go
+      tick := time.NewTicker(time.Duration(cfg.IntervalleMinutes) * time.Minute)
+      ```
+      Sans l'unité, la valeur était comprise comme des nanosecondes.
