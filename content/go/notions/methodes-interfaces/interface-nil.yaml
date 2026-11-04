@@ -1,4 +1,5 @@
 notion: interface-nil
+lesson: "Une valeur d'interface est un couple **(type, valeur)**. Elle n'est **nil** que si **les deux** sont absents.\n\n```go\nvar p *MonErreur = nil\nvar err error = p      // type = *MonErreur, valeur = nil\nfmt.Println(p == nil)  // true\nfmt.Println(err == nil) // FALSE : l'interface contient un type\n```\n\nLe cas typique : une fonction qui renvoie un **pointeur d'erreur concret** typé nil dans une interface `error` :\n\n```go\nfunc valider(c Client) error {\n\tvar e *ErrValidation\n\tif c.Nom == \"\" {\n\t\te = &ErrValidation{Champ: \"nom\"}\n\t}\n\treturn e // même quand e est nil, l'erreur renvoyée n'est PAS nil\n}\n```\n\nL'appelant voit `err != nil` et traite une erreur fantôme (et `err.Error()` peut paniquer si la méthode déréférence le\nreceveur).\n\nLes règles pour l'éviter :\n- **renvoyer `nil` explicitement** dans le chemin sans erreur (`return nil`), jamais une variable de type concret ;\n- déclarer les variables d'erreur avec le type **`error`**, pas `*MonErreur` ;\n- même logique pour toute interface (`io.Reader`, `http.Handler`) remplie par un pointeur typé nil.\n\n`go vet` ne détecte pas tous les cas ; les linters `nilnil` ou `nilaway` aident.\n\n**Piège classique** : un « constructeur » qui renvoie `(MonInterface, error)` avec un `*Impl` nil en cas d'erreur ;\nl'appelant qui teste l'interface contre nil se trompe.\n\n**En entretien** : « Une interface est nil seulement si son type et sa valeur le sont ; un pointeur typé nil dans une\ninterface donne une interface non nil ; on renvoie nil explicitement et l'on déclare les erreurs avec le type error. »"
 cards:
   - key: quand-interface-vaut-nil
     format: course
@@ -28,3 +29,166 @@ cards:
       output: |-
         true
         false
+  - key: deux-mots
+    format: course
+    question: De quoi une valeur d'interface est-elle faite ?
+    answer: D'un type dynamique et d'une valeur ; elle vaut nil seulement si les deux sont absents.
+  - key: vf-pointeur-nil
+    format: true-false
+    question: Une interface qui contient un pointeur nil de type `*T` est égale à nil.
+    truth: false
+    answer: 'Elle contient le type `*T` : elle n''est pas nil.'
+  - key: vf-return-nil
+    format: true-false
+    question: Écrire `return nil` dans une fonction qui renvoie `error` produit une erreur nil.
+    truth: true
+    answer: Le littéral nil converti en interface n'a ni type ni valeur.
+  - key: vf-variable-typee
+    format: true-false
+    question: Renvoyer `var e *MonErreur` (jamais affectée) depuis une fonction `error` renvoie une erreur nil.
+    truth: false
+    answer: 'L''interface reçoit le type `*MonErreur` : elle n''est pas nil.'
+  - key: vf-methode
+    format: true-false
+    question: Appeler `err.Error()` sur une interface qui contient un `*MonErreur` nil panique forcément.
+    truth: false
+    answer: L'appel a lieu ; seule une méthode qui lit un champ à travers le receveur nil panique.
+  - key: qcm-nil
+    format: multiple-choice
+    question: Lesquelles de ces valeurs d'interface valent nil ?
+    choices:
+      - text: '`var err error`'
+        correct: true
+      - text: '`var r io.Reader = nil`'
+        correct: true
+      - text: '`var e *MonErreur; var err error = e`'
+        correct: false
+      - text: '`var w io.Writer = (*bytes.Buffer)(nil)`'
+        correct: false
+    answer: Les deux dernières contiennent un type.
+  - key: qcm-corriger
+    format: multiple-choice
+    question: Comment éviter de renvoyer une erreur non nil par erreur ?
+    choices:
+      - text: Écrire `return nil` dans le chemin sans erreur
+        correct: true
+      - text: Déclarer la variable d'erreur avec le type `error`
+        correct: true
+      - text: Renvoyer toujours un `*MonErreur`
+        correct: false
+      - text: Comparer l'erreur avec `reflect.ValueOf(err).IsNil()` partout
+        correct: false
+    answer: La réflexion masquerait le problème au lieu de le corriger.
+  - key: qcm-symptome
+    format: multiple-choice
+    question: Quel symptôme trahit une erreur « nil typée » ?
+    choices:
+      - text: '`err != nil` est vrai alors qu''aucune erreur n''a eu lieu'
+        correct: true
+      - text: L'erreur affichée vaut `<nil>`
+        correct: true
+      - text: Une erreur de compilation
+        correct: false
+      - text: Le programme ne démarre pas
+        correct: false
+    answer: '`fmt.Println(err)` affiche souvent `<nil>`, signe d''un pointeur nil dans l''interface.'
+  - key: qcm-autres
+    format: multiple-choice
+    question: Ce piège existe-t-il pour d'autres interfaces que `error` ?
+    choices:
+      - text: Oui, pour toute interface remplie par un pointeur typé nil
+        correct: true
+      - text: Non, seulement pour error
+        correct: false
+      - text: Seulement pour les interfaces de la bibliothèque standard
+        correct: false
+      - text: Seulement avec les generics
+        correct: false
+    answer: Un `http.Handler` ou un `io.Reader` fabriqué depuis un pointeur nil a le même défaut.
+  - key: code-pointeur-nil
+    format: code-output
+    question: |-
+      ```go
+      type MonErreur struct{}
+
+      func (*MonErreur) Error() string { return "boum" }
+
+      var p *MonErreur
+      var err error = p
+      fmt.Println(p == nil, err == nil, err)
+      ```
+    answer: '`true false boum` : l''interface contient le type `*MonErreur`, elle n''est pas nil.'
+    check:
+      code: "package main\n\nimport \"fmt\"\n\ntype MonErreur struct{}\n\n\nfunc (*MonErreur) Error() string { return \"boum\" }\n\nfunc main() {\n\tvar p *MonErreur\n\tvar err error = p\n\tfmt.Println(p == nil, err == nil, err)\n}\n"
+      output: true false boum
+  - key: code-fonction
+    format: code-output
+    question: "```go\ntype ErrValidation struct{ Champ string }\n\nfunc (e *ErrValidation) Error() string { return \"invalide\" }\n\nfunc valider(nom string) error {\n\tvar e *ErrValidation\n\tif nom == \"\" {\n\t\te = &ErrValidation{\"nom\"}\n\t}\n\treturn e\n}\n\nfmt.Println(valider(\"Ada\") == nil)\n```"
+    answer: '`false` : même sans erreur, la fonction renvoie une interface qui contient un pointeur typé.'
+    check:
+      code: "package main\n\nimport \"fmt\"\n\ntype ErrValidation struct{ Champ string }\n\n\nfunc (e *ErrValidation) Error() string { return \"invalide\" }\n\n\nfunc valider(nom string) error {\n\tvar e *ErrValidation\n\tif nom == \"\" {\n\t\te = &ErrValidation{\"nom\"}\n\t}\n\treturn e\n}\n\nfunc main() {\n\tfmt.Println(valider(\"Ada\") == nil)\n}\n"
+      output: 'false'
+  - key: code-correction
+    format: code-output
+    question: "```go\ntype ErrValidation struct{ Champ string }\n\nfunc (e *ErrValidation) Error() string { return \"invalide : \" + e.Champ }\n\nfunc valider(nom string) error {\n\tif nom == \"\" {\n\t\treturn &ErrValidation{\"nom\"}\n\t}\n\treturn nil\n}\n\nfmt.Println(valider(\"Ada\") == nil, valider(\"\"))\n```"
+    answer: '`true invalide : nom` : avec `return nil` explicite, l''erreur est vraiment nil.'
+    check:
+      code: "package main\n\nimport \"fmt\"\n\ntype ErrValidation struct{ Champ string }\n\n\nfunc (e *ErrValidation) Error() string { return \"invalide : \" + e.Champ }\n\n\nfunc valider(nom string) error {\n\tif nom == \"\" {\n\t\treturn &ErrValidation{\"nom\"}\n\t}\n\treturn nil\n}\n\nfunc main() {\n\tfmt.Println(valider(\"Ada\") == nil, valider(\"\"))\n}\n"
+      output: 'true invalide : nom'
+  - key: bug-valider
+    format: bug-fix
+    question: "Toutes les commandes sont refusées, même valides :\n```go\nfunc valider(c Commande) error {\n\tvar err *ErrValidation\n\tif c.Total < 0 {\n\t\terr = &ErrValidation{\"total\"}\n\t}\n\treturn err\n}\n```"
+    answer: "```go\nfunc valider(c Commande) error {\n\tif c.Total < 0 {\n\t\treturn &ErrValidation{\"total\"}\n\t}\n\treturn nil\n}\n```\nRenvoyer un `*ErrValidation` nil donnait une `error` non nil ; on renvoie nil explicitement."
+  - key: bug-variable
+    format: bug-fix
+    question: "Une fonction qui agrège les erreurs renvoie toujours une erreur :\n```go\nvar premiere *ErrChamp\nfor _, c := range champs {\n\tif e := verifier(c); e != nil && premiere == nil {\n\t\tpremiere = e\n\t}\n}\nreturn premiere\n```"
+    answer: "```go\nvar premiere error\nfor _, c := range champs {\n\tif e := verifier(c); e != nil && premiere == nil {\n\t\tpremiere = e\n\t}\n}\nreturn premiere\n```\nDéclarée avec le type `error`, la variable reste vraiment nil quand aucune erreur n'a eu lieu."
+  - key: bug-constructeur
+    format: bug-fix
+    question: "L'appelant croit avoir un stockage valide alors que la création a échoué :\n```go\nfunc NouveauStockage(dsn string) (Stockage, error) {\n\tvar s *pgStockage\n\tdb, err := sql.Open(\"pgx\", dsn)\n\tif err == nil {\n\t\ts = &pgStockage{db: db}\n\t}\n\treturn s, err\n}\n\nst, _ := NouveauStockage(dsn)\nif st != nil { st.Lire(...) } // panique\n```"
+    answer: "```go\nfunc NouveauStockage(dsn string) (Stockage, error) {\n\tdb, err := sql.Open(\"pgx\", dsn)\n\tif err != nil {\n\t\treturn nil, err\n\t}\n\treturn &pgStockage{db: db}, nil\n}\n```\nLe `*pgStockage` nil placé dans l'interface la rendait non nil ; en cas d'erreur, on renvoie un nil explicite."
+  - key: bug-handler
+    format: bug-fix
+    question: |-
+      Le routeur croit qu'un handler est enregistré alors qu'il vaut nil :
+      ```go
+      var h *MonHandler // pas encore initialisé
+      mux.Handle("/x", h)
+      ```
+    answer: |-
+      ```go
+      h := &MonHandler{ /* dépendances */ }
+      mux.Handle("/x", h)
+      ```
+      Un `*MonHandler` nil converti en `http.Handler` n'est pas nil : le serveur l'appellera et paniquera à la première
+      requête. On ne passe que des valeurs construites.
+  - key: scenario-expliquer
+    format: scenario
+    question: Explique à un collègue pourquoi `err != nil` est vrai alors que la fonction n'a rencontré aucune erreur.
+    answer: |-
+      Une interface contient un type et une valeur. La fonction renvoie probablement une variable de type pointeur
+      concret (`*MonErreur`) restée nil : à la conversion vers `error`, l'interface reçoit le type `*MonErreur` avec une
+      valeur nil. Elle n'est donc pas nil, puisque son type est renseigné. On le voit avec `fmt.Printf("%T", err)`. La
+      correction : `return nil` explicite, et des variables d'erreur déclarées avec le type `error`.
+  - key: scenario-revue
+    format: scenario
+    question: Quelle règle de revue proposes-tu pour éviter ce piège dans toute une équipe ?
+    answer: |-
+      Une fonction qui renvoie une interface ne renvoie jamais une variable de type concret qui peut être nil : elle
+      renvoie soit une valeur construite, soit le littéral `nil`. Les variables d'erreur sont de type `error`. J'ajoute
+      un linter (nilaway, ou staticcheck pour certains cas) en CI, et des tests qui vérifient `err == nil` dans le cas
+      nominal, pas seulement les cas d'erreur.
+  - key: scenario-diagnostic
+    format: scenario
+    question: Comment confirmerais-tu rapidement qu'une erreur inattendue est un pointeur nil typé ?
+    answer: |-
+      J'affiche `fmt.Printf("%T %v\n", err, err)` : un type concret pointeur (`*pkg.MonErreur`) avec une valeur `<nil>`
+      (ou un message issu d'un receveur nil) signe le problème. Dans un débogueur, l'interface montre un type renseigné
+      et un pointeur de données nul. Je remonte ensuite à la fonction qui renvoie la variable typée.
+  - key: scenario-api
+    format: scenario
+    question: Pourquoi la convention Go dit-elle de renvoyer le type `error` plutôt qu'un type d'erreur concret ?
+    answer: |-
+      Parce qu'un type concret en retour (`func f() *MonErreur`) incite l'appelant à l'affecter à une `error`, ce qui
+      crée le piège du pointeur nil typé ; et il fige le type d'erreur dans l'API. Renvoyer `error` laisse libre de
+      changer d'implémentation ; l'appelant inspecte avec `errors.As` s'il a besoin du type concret.

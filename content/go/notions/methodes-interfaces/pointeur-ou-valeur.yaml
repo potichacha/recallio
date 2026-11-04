@@ -1,4 +1,30 @@
 notion: pointeur-ou-valeur
+lesson: |-
+  Faut-il passer (ou stocker) une valeur ou un pointeur ? Quelques critères :
+
+  **Prendre un pointeur quand :**
+  - la fonction ou la méthode doit **modifier** la valeur de l'appelant ;
+  - la struct est **grosse** (plusieurs centaines d'octets) et copiée souvent ;
+  - le type contient quelque chose qui **ne doit pas être copié** (un `sync.Mutex`, un `strings.Builder`) ;
+  - **nil** a un sens (« absent », « pas encore chargé »).
+
+  **Prendre une valeur quand :**
+  - le type est **petit et immuable** de fait : `time.Time`, un `Point`, un `Montant`, une clé ;
+  - on veut qu'une fonction ne puisse **pas** modifier l'original ;
+  - la valeur sert de **clé de map** ou se compare avec `==`.
+
+  Un pointeur n'est **pas automatiquement plus rapide** : un pointeur partagé fait souvent **échapper** la valeur sur le
+  tas (une allocation, du travail pour le GC), alors qu'une petite struct copiée reste sur la pile et dans le cache du
+  processeur. On mesure avant d'optimiser.
+
+  Les types de référence (slices, maps, channels, fonctions, interfaces) se passent **par valeur** : leur en-tête est
+  petit, et il partage déjà les données. Un `*[]T` ou un `*map[K]V` est presque toujours inutile.
+
+  **Piège classique** : un pointeur vers une valeur qu'on croit protégée. Toute partie du code qui détient le pointeur
+  peut la modifier, et une goroutine aussi.
+
+  **En entretien** : « Pointeur pour modifier, pour les grosses structs, pour ce qui ne se copie pas et quand nil a un
+  sens ; valeur pour les petits types immuables ; un pointeur n'est pas forcément plus rapide à cause du tas. »
 cards:
   - key: pointeur-toujours-plus-rapide-valeur
     format: course
@@ -10,3 +36,203 @@ cards:
     answer: |-
       Valeur. C'est une petite struct, conceptuellement **immuable**, comparable avec `==`, sans identité propre : deux montants de 10 EUR sont interchangeables. Les méthodes `Add`, `Sub` renvoient un nouveau `Money` plutôt que de modifier le receveur, ce qui supprime toute question de partage et de concurrence.
       Pour le montant lui-même, un `int64` en centimes (ou une bibliothèque décimale) et jamais un `float64`. Un pointeur ne se justifierait que pour représenter un montant optionnel, et encore, un booléen explicite est souvent plus lisible.
+  - key: references
+    format: course
+    question: Faut-il passer un `*[]int` ou un `*map[string]int` à une fonction qui modifie leurs éléments ?
+    answer: 'Non : le slice et la map partagent déjà leurs données ; un pointeur ne sert que si la fonction doit remplacer le slice lui-même (append qui change sa longueur).'
+  - key: mutex
+    format: course
+    question: Pourquoi un type qui contient un `sync.Mutex` doit-il circuler par pointeur ?
+    answer: Copier le mutex créerait un second verrou indépendant ; `go vet` (copylocks) signale ces copies.
+  - key: petits-types
+    format: course
+    question: Pourquoi `time.Time` se passe-t-il par valeur ?
+    answer: 'C''est un petit type qui se comporte comme une valeur immuable : ses méthodes renvoient de nouvelles valeurs, et le copier évite tout partage involontaire.'
+  - key: vf-rapide
+    format: true-false
+    question: Passer un pointeur est toujours plus rapide que passer une valeur.
+    truth: false
+    answer: Un pointeur peut faire allouer la valeur sur le tas ; une petite struct copiée sur la pile est souvent plus rapide.
+  - key: vf-modifier
+    format: true-false
+    question: Passer une struct par valeur garantit que la fonction ne modifie pas l'original.
+    truth: true
+    answer: Pour les champs simples ; ses champs slices, maps ou pointeurs restent partagés.
+  - key: vf-cle
+    format: true-false
+    question: Une struct passée par pointeur peut servir de clé de map par son contenu.
+    truth: false
+    answer: Une clé pointeur se compare par adresse ; pour une clé par contenu, on utilise la valeur.
+  - key: vf-nil-sens
+    format: true-false
+    question: Un pointeur permet de représenter une valeur absente par nil.
+    truth: true
+    answer: C'est l'un des bons usages d'un pointeur.
+  - key: qcm-pointeur
+    format: multiple-choice
+    question: Dans quels cas un pointeur est-il le bon choix ?
+    choices:
+      - text: Une méthode qui modifie l'état de l'objet
+        correct: true
+      - text: Une struct qui contient un sync.Mutex
+        correct: true
+      - text: Un type `Point{X, Y int}` utilisé comme clé de map
+        correct: false
+      - text: Un `[]string` qu'on parcourt seulement
+        correct: false
+    answer: Le Point et le slice se passent par valeur.
+  - key: qcm-valeur
+    format: multiple-choice
+    question: Lesquels se passent naturellement par valeur ?
+    choices:
+      - text: '`time.Time`'
+        correct: true
+      - text: Un montant `Money{Centimes int64; Devise string}`
+        correct: true
+      - text: Un `*sql.DB` partagé
+        correct: false
+      - text: Une struct de 4 Ko modifiée par la fonction
+        correct: false
+    answer: '`*sql.DB` est déjà un pointeur partagé, et la grosse struct modifiée demande un pointeur.'
+  - key: qcm-echappement
+    format: multiple-choice
+    question: Pourquoi un pointeur peut-il coûter plus cher qu'une copie ?
+    choices:
+      - text: La valeur pointée peut être allouée sur le tas, puis ramassée par le GC
+        correct: true
+      - text: L'accès indirect peut être moins favorable au cache du processeur
+        correct: true
+      - text: Un pointeur fait 1 Ko
+        correct: false
+      - text: Go copie aussi la valeur pointée
+        correct: false
+    answer: Un pointeur fait 8 octets ; le coût vient de l'allocation et de l'indirection.
+  - key: code-valeur-protege
+    format: code-output
+    question: "```go\ntype Point struct{ X, Y int }\n\nfunc deplacer(p Point) Point {\n\tp.X++\n\treturn p\n}\n\na := Point{1, 1}\nb := deplacer(a)\nfmt.Println(a, b)\n```"
+    answer: '`{1 1} {2 1}` : la valeur d''origine est protégée, le résultat est renvoyé.'
+    check:
+      code: "package main\n\nimport \"fmt\"\n\ntype Point struct{ X, Y int }\n\n\nfunc deplacer(p Point) Point {\n\tp.X++\n\treturn p\n}\n\nfunc main() {\n\ta := Point{1, 1}\n\tb := deplacer(a)\n\tfmt.Println(a, b)\n}\n"
+      output: '{1 1} {2 1}'
+  - key: code-pointeur-partage
+    format: code-output
+    question: |-
+      ```go
+      type Compteur struct{ N int }
+
+      c := &Compteur{}
+      d := c
+      d.N = 5
+      fmt.Println(c.N)
+      ```
+    answer: '`5` : `c` et `d` pointent sur la même struct.'
+    check:
+      code: "package main\n\nimport \"fmt\"\n\ntype Compteur struct{ N int }\n\nfunc main() {\n\tc := &Compteur{}\n\td := c\n\td.N = 5\n\tfmt.Println(c.N)\n}\n"
+      output: '5'
+  - key: code-champ-slice
+    format: code-output
+    question: |-
+      ```go
+      type Liste struct{ Elements []int }
+
+      func vider(l Liste) { l.Elements[0] = 0 }
+
+      l := Liste{Elements: []int{9, 9}}
+      vider(l)
+      fmt.Println(l.Elements)
+      ```
+    answer: '`[0 9]` : la struct est copiée, mais son slice partage le même tableau.'
+    check:
+      code: "package main\n\nimport \"fmt\"\n\ntype Liste struct{ Elements []int }\n\n\nfunc vider(l Liste) { l.Elements[0] = 0 }\n\nfunc main() {\n\tl := Liste{Elements: []int{9, 9}}\n\tvider(l)\n\tfmt.Println(l.Elements)\n}\n"
+      output: '[0 9]'
+  - key: bug-mutex-copie
+    format: bug-fix
+    question: "Le compteur protégé perd des incréments sous charge, et go vet signale « passes lock by value » :\n```go\ntype Stats struct {\n\tmu sync.Mutex\n\tn  int\n}\n\nfunc (s Stats) Incrementer() {\n\ts.mu.Lock()\n\ts.n++\n\ts.mu.Unlock()\n}\n```"
+    answer: "```go\nfunc (s *Stats) Incrementer() {\n\ts.mu.Lock()\n\ts.n++\n\ts.mu.Unlock()\n}\n```\nAvec un receveur valeur, chaque appel verrouillait et incrémentait une copie."
+  - key: bug-pointeur-slice
+    format: bug-fix
+    question: "En revue, simplifiez :\n```go\nfunc normaliser(noms *[]string) {\n\tfor i := range *noms {\n\t\t(*noms)[i] = strings.TrimSpace((*noms)[i])\n\t}\n}\n```"
+    answer: "```go\nfunc normaliser(noms []string) {\n\tfor i := range noms {\n\t\tnoms[i] = strings.TrimSpace(noms[i])\n\t}\n}\n```\nModifier les éléments ne demande pas de pointeur : le slice partage déjà son tableau."
+  - key: bug-partage-goroutine
+    format: bug-fix
+    question: |-
+      Une goroutine modifie la configuration pendant qu'une autre la lit :
+      ```go
+      cfg := &Config{Delai: time.Second}
+      go recharger(cfg) // modifie cfg.Delai
+      go servir(cfg)    // lit cfg.Delai
+      ```
+    answer: |-
+      ```go
+      var cfg atomic.Pointer[Config]
+      cfg.Store(&Config{Delai: time.Second})
+
+      // recharger : construit une nouvelle Config puis cfg.Store(nouvelle)
+      // servir : c := cfg.Load() puis lit c.Delai
+      ```
+      Un pointeur partagé et modifié en place crée une data race ; on remplace la configuration entière de façon
+      atomique, et chaque lecteur garde une version immuable.
+  - key: bug-grosse-copie
+    format: bug-fix
+    question: |-
+      Le profileur montre beaucoup de `runtime.memmove` dans une boucle qui appelle :
+      ```go
+      func score(d Document) int { ... } // Document fait 8 Ko (un tableau de 1000 int64)
+      ```
+    answer: |-
+      ```go
+      func score(d *Document) int { ... }
+      ```
+      Chaque appel copiait 8 Ko ; un pointeur évite la copie d'une grosse struct (si la fonction ne la modifie pas, on le
+      documente).
+  - key: scenario-money
+    format: scenario
+    question: Tu conçois un type `Montant` (centimes et devise) utilisé partout dans l'application. Valeur ou pointeur, et pourquoi ?
+    answer: |-
+      Une valeur. Le type est petit (un int64 et une chaîne courte), il représente une valeur métier immuable : ses
+      méthodes renvoient un nouveau montant (`m.Ajouter(n) Montant`) au lieu de modifier l'original. Il se compare avec
+      `==`, sert de clé si besoin, et aucun appelant ne peut le modifier dans le dos d'un autre. Pas de nil possible non
+      plus, ce qui supprime une classe d'erreurs ; un montant absent se modélise explicitement si nécessaire.
+  - key: scenario-api-repo
+    format: scenario
+    question: Un repository renvoie-t-il des `Client` ou des `*Client` ?
+    answer: |-
+      Plutôt des valeurs `Client` quand la struct est de taille raisonnable : l'appelant reçoit sa copie et ne peut pas
+      modifier un objet partagé (par un cache, par exemple). Des pointeurs se justifient pour de gros objets, ou quand
+      nil sert à dire « non trouvé » ; je préfère alors renvoyer une erreur `ErrNotFound` explicite. L'important est
+      d'être cohérent dans le package et de ne pas mélanger les deux sans raison.
+  - key: scenario-mesurer
+    format: scenario
+    question: Un collègue passe toutes les structs par pointeur « pour la performance ». Comment en discutes-tu ?
+    answer: |-
+      Je propose de mesurer : un benchmark avec `-benchmem` et l'analyse d'échappement (`go build -gcflags=-m`) montrent
+      souvent que les pointeurs font allouer sur le tas, alors que de petites structs copiées restent sur la pile.
+      Au-delà de la performance, le pointeur change la sémantique : partage, mutations à distance, nil possible. Je garde
+      les pointeurs là où ils ont une raison (mutation, taille, non-copiable) et des valeurs ailleurs.
+  - key: scenario-optionnel
+    format: scenario
+    question: Dans une API de mise à jour partielle (PATCH), comment distinguer un champ absent d'un champ mis à zéro ?
+    answer: |-
+      Avec des champs pointeurs dans le DTO : `Nom *string`, `Age *int`. Un pointeur nil signifie « non fourni, ne pas
+      toucher » ; un pointeur vers "" ou 0 signifie « mettre à vide ». Pour pouvoir aussi distinguer « mettre à null »,
+      certaines équipes utilisent un type option dédié. On applique ensuite seulement les champs non nil à l'entité.
+  - key: qcm-references
+    format: multiple-choice
+    question: Quels types se passent naturellement par valeur, même quand la fonction modifie leur contenu ?
+    choices:
+      - text: Un slice, pour modifier ses éléments
+        correct: true
+      - text: Une map, pour ajouter des entrées
+        correct: true
+      - text: Une struct dont on veut changer un champ
+        correct: false
+      - text: Un int qu'on veut incrémenter
+        correct: false
+    answer: Le slice et la map partagent leurs données ; la struct et l'int demandent un pointeur.
+  - key: code-pointeur-nil-sens
+    format: code-output
+    question: "```go\ntype Requete struct{ Limite *int }\n\nfunc limite(r Requete) int {\n\tif r.Limite == nil {\n\t\treturn 20\n\t}\n\treturn *r.Limite\n}\n\nzero := 0\nfmt.Println(limite(Requete{}), limite(Requete{Limite: &zero}))\n```"
+    answer: '`20 0` : le pointeur nil signifie « non fourni », un pointeur vers 0 « zéro demandé ».'
+    check:
+      code: "package main\n\nimport \"fmt\"\n\ntype Requete struct{ Limite *int }\n\n\nfunc limite(r Requete) int {\n\tif r.Limite == nil {\n\t\treturn 20\n\t}\n\treturn *r.Limite\n}\n\nfunc main() {\n\tzero := 0\n\tfmt.Println(limite(Requete{}), limite(Requete{Limite: &zero}))\n}\n"
+      output: 20 0

@@ -1,4 +1,26 @@
 notion: maps-internes
+lesson: |-
+  Une map Go est une **table de hachage** gérée par le runtime ; la variable de type map n'est qu'un **pointeur** vers
+  cette structure (d'où le partage à l'affectation).
+
+  Depuis **Go 1.24**, l'implémentation repose sur les **Swiss Tables** (une technique venue de la bibliothèque Abseil de
+  Google) : les entrées sont rangées par groupes de 8 emplacements, avec un mot de contrôle qui permet de tester
+  plusieurs emplacements à la fois. Résultat : des recherches et insertions plus rapides et une meilleure occupation de
+  la mémoire. Avant 1.24, c'était une table à « buckets » de 8 entrées chaînés par des buckets de débordement.
+
+  Ce qu'il faut savoir en pratique :
+  - les opérations sont en **O(1) en moyenne** ; la fonction de hachage utilise une graine aléatoire par map ;
+  - la map **grandit** en réallouant ses tables quand elle se remplit ; `make(map[K]V, n)` évite ces croissances ;
+  - elle **ne rétrécit jamais** : après des millions de `delete`, la mémoire n'est pas rendue. Pour la récupérer, on
+    recrée une map et l'on y copie les entrées restantes ;
+  - l'**ordre d'itération** est aléatoire, et l'itération reste correcte même si l'on supprime pendant le parcours ;
+  - le runtime détecte (au mieux) les **accès concurrents** et arrête le programme plutôt que de corrompre la table.
+
+  **Piège classique** : un cache qui supprime ses entrées expirées mais dont la mémoire ne baisse jamais. La map garde
+  sa taille maximale ; il faut la reconstruire périodiquement.
+
+  **En entretien** : « Une table de hachage du runtime, Swiss Tables depuis Go 1.24 ; O(1) en moyenne ; elle grandit mais
+  ne rétrécit jamais ; on préalloue avec make et l'on recrée la map pour rendre la mémoire. »
 cards:
   - key: map-rend-memoire-apres-delete
     format: course
@@ -20,3 +42,107 @@ cards:
     format: course
     question: Que désigne « Swiss Table » ?
     answer: Implémentation des maps depuis Go 1.24
+  - key: vf-swiss
+    format: true-false
+    question: Depuis Go 1.24, les maps sont implémentées avec des Swiss Tables.
+    truth: true
+    answer: Une implémentation plus rapide et plus compacte que l'ancienne table à buckets.
+  - key: vf-retrecit
+    format: true-false
+    question: Une map rend sa mémoire au système quand on supprime la plupart de ses entrées.
+    truth: false
+    answer: Elle ne rétrécit jamais ; on recrée une map pour libérer la place.
+  - key: vf-graine
+    format: true-false
+    question: La fonction de hachage des maps utilise une graine aléatoire.
+    truth: true
+    answer: Ce qui protège contre les attaques par collisions et participe à l'ordre d'itération aléatoire.
+  - key: vf-variable
+    format: true-false
+    question: Une variable de type map contient directement toute la table de hachage.
+    truth: false
+    answer: Elle contient un pointeur vers la structure du runtime ; c'est pourquoi l'affectation partage la map.
+  - key: qcm-complexite
+    format: multiple-choice
+    question: Quelle est la complexité moyenne d'une lecture dans une map ?
+    choices:
+      - text: O(1)
+        correct: true
+      - text: O(log n)
+        correct: false
+      - text: O(n)
+        correct: false
+      - text: O(n log n)
+        correct: false
+    answer: En moyenne ; le pire cas dépend des collisions, rendues improbables par la graine aléatoire.
+  - key: qcm-memoire
+    format: multiple-choice
+    question: Comment récupérer la mémoire d'une map qui a beaucoup diminué ?
+    choices:
+      - text: Créer une nouvelle map et y copier les entrées restantes
+        correct: true
+      - text: Appeler `clear(m)`
+        correct: false
+      - text: Appeler `runtime.GC()`
+        correct: false
+      - text: Supprimer les entrées une par une
+        correct: false
+    answer: '`clear` vide la map mais garde ses tables allouées.'
+  - key: qcm-croissance
+    format: multiple-choice
+    question: Que fait `make(map[string]int, 1_000_000)` ?
+    choices:
+      - text: Il réserve la place pour environ un million d'entrées, sans croissance pendant le remplissage
+        correct: true
+      - text: Il crée un million d'entrées à zéro
+        correct: false
+      - text: Il limite la map à un million d'entrées
+        correct: false
+      - text: Il trie les clés
+        correct: false
+    answer: Une indication de taille qui évite les réallocations successives.
+  - key: qcm-concurrence
+    format: multiple-choice
+    question: Que fait le runtime quand il détecte une écriture concurrente dans une map ?
+    choices:
+      - text: Il arrête le programme avec une erreur fatale non récupérable
+        correct: true
+      - text: Il pose un verrou automatiquement
+        correct: false
+      - text: Il ignore l'écriture
+        correct: false
+      - text: Il lève une panique qu'on peut récupérer avec recover
+        correct: false
+    answer: '« fatal error: concurrent map writes » n''est pas une panique : `recover` ne l''attrape pas.'
+  - key: scenario-cache-memoire
+    format: scenario
+    question: Un cache en mémoire supprime bien ses entrées expirées, mais la mémoire du service ne baisse jamais après un pic. Que se passe-t-il et que fais-tu ?
+    answer: |-
+      Une map ne rétrécit pas : après le pic, ses tables gardent leur taille maximale même vides. Je reconstruis la map
+      périodiquement (ou quand elle a perdu une grande part de ses entrées) en copiant les entrées vivantes dans une
+      nouvelle map, sous le verrou du cache. Je borne aussi la taille du cache (LRU) pour que le pic lui-même reste
+      limité. Le profil mémoire (`inuse_space`) confirme que la mémoire est retenue par la map.
+  - key: scenario-performance
+    format: scenario
+    question: Une boucle chaude remplit une map de plusieurs millions d'entrées et le profileur montre beaucoup de temps en croissance de map. Que fais-tu ?
+    answer: |-
+      Je préalloue avec `make(map[K]V, n)` quand je connais (ou j'estime) le nombre d'entrées : plus de réallocations
+      ni de rehachages. Je vérifie aussi le type de clé : une clé chaîne longue coûte plus à hacher qu'un entier ; une
+      clé struct compacte peut aider. Si les clés sont des entiers denses, un slice indexé directement est encore plus
+      rapide qu'une map.
+  - key: scenario-entretien
+    format: scenario
+    question: En entretien, on te demande comment fonctionne une map en Go. Que réponds-tu ?
+    answer: |-
+      C'est une table de hachage gérée par le runtime : la clé est hachée (avec une graine aléatoire par map), le hachage
+      choisit un groupe d'emplacements, et des octets de contrôle permettent de comparer plusieurs emplacements à la
+      fois (Swiss Tables, depuis Go 1.24). Les opérations sont en O(1) en moyenne ; la table double quand elle se
+      remplit, sans jamais rétrécir. L'ordre d'itération est aléatoire, et la map n'est pas sûre entre goroutines.
+  - key: scenario-dense
+    format: scenario
+    question: Tes clés sont des identifiants entiers de 0 à 10 000, presque tous utilisés. Map ou slice ?
+    answer: |-
+      Un slice indexé par l'identifiant : accès direct sans hachage, mémoire contiguë, itération dans l'ordre. Une map
+      est préférable quand les clés sont éparses (quelques valeurs parmi des milliards), non entières, ou quand on doit
+      distinguer facilement « absent ». Ici, un slice de 10 001 éléments, avec un booléen de présence si besoin, est plus
+      simple et plus rapide.
