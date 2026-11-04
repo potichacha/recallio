@@ -42,6 +42,17 @@ public record TourPage(
     }
 
     /**
+     * Le langage d'un programme du Tour, après avoir vérifié ses fichiers : ceux d'une page, ou ceux qu'en a faits
+     * l'utilisateur avant de l'exécuter.
+     *
+     * @throws IllegalArgumentException si les fichiers ne forment pas un programme
+     */
+    public static CodeLanguage programLanguage(List<SourceFile> files) {
+        requireProgram("Le programme", files);
+        return languageOf(files);
+    }
+
+    /**
      * Un programme complet et la sortie qu'il donne. La CI l'exécute dans le bac à sable et compare (ADR 0037).
      *
      * @param output la sortie standard du programme, exacte aux fins de ligne près

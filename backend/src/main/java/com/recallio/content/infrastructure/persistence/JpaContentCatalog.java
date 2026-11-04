@@ -34,6 +34,22 @@ public class JpaContentCatalog implements ContentCatalog {
             order by t.position
             """;
 
+    /**
+     * Le sommaire du Tour, sans lire le contenu des pages : le titre de la première et leur nombre (ADR 0037). Le titre
+     * d'un domaine est celui de son thème ({@code <sujet>-<domaine>}).
+     */
+    private static final String TOUR_ENTRIES = """
+            select n.slug, n.domain, coalesce(t.title, n.domain), n.chapter, n.chapter_title,
+                   coalesce(n.tour -> 0 ->> 'title', n.title), jsonb_array_length(n.tour)
+            from notion n
+            join subject s on s.id = n.subject_id
+            left join theme t on t.subject_id = n.subject_id
+                and t.slug = s.slug || '-' || n.domain
+                and t.retired_at is null
+            where n.subject_id = :subjectId and n.retired_at is null and jsonb_array_length(n.tour) > 0
+            order by n.position
+            """;
+
     private final EntityManager entityManager;
 
     public JpaContentCatalog(EntityManager entityManager) {
@@ -113,6 +129,40 @@ public class JpaContentCatalog implements ContentCatalog {
                         (Integer) row[5]))
                 .toList();
         return new Page<>(cards, page, size, total);
+    }
+
+    @Override
+    public List<TourEntry> tour(UUID subjectId) {
+        List<?> rows = entityManager
+                .createNativeQuery(TOUR_ENTRIES)
+                .setParameter("subjectId", subjectId)
+                .getResultList();
+        return rows.stream()
+                .map(Object[].class::cast)
+                .map(row -> new TourEntry(
+                        (String) row[0],
+                        (String) row[1],
+                        (String) row[2],
+                        (String) row[3],
+                        (String) row[4],
+                        (String) row[5],
+                        ((Number) row[6]).intValue()))
+                .toList();
+    }
+
+    @Override
+    public Optional<TourNotionPages> tourNotion(UUID subjectId, String notionSlug) {
+        return entityManager
+                .createQuery(
+                        "select n from NotionEntity n where n.subjectId = :subjectId and n.slug = :slug"
+                                + " and n.retiredAt is null",
+                        NotionEntity.class)
+                .setParameter("subjectId", subjectId)
+                .setParameter("slug", notionSlug)
+                .getResultStream()
+                .filter(notion -> !notion.tour.isEmpty())
+                .map(notion -> new TourNotionPages(notion.slug, notion.title, notion.chapterTitle, notion.tour))
+                .findFirst();
     }
 
     private static List<Subject.Status> statuses(Visibility visibility) {

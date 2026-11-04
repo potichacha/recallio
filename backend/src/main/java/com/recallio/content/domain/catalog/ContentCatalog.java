@@ -4,6 +4,7 @@ import com.recallio.content.CardBlank;
 import com.recallio.content.CardChoice;
 import com.recallio.content.CardType;
 import com.recallio.content.ExerciseFiles;
+import com.recallio.content.TourPage;
 import com.recallio.content.domain.Subject;
 import com.recallio.platform.domain.Page;
 import java.util.List;
@@ -28,6 +29,38 @@ public interface ContentCatalog {
     Optional<ThemeSummary> themeBySlug(String slug, Visibility visibility);
 
     Page<CardView> activeCards(UUID themeId, int page, int size);
+
+    /**
+     * Le sommaire du Tour d'un sujet (ADR 0037) : ses notions qui ont des pages, dans l'ordre du référentiel, sans le
+     * contenu des pages.
+     */
+    List<TourEntry> tour(UUID subjectId);
+
+    /** Les pages d'une notion du Tour ; vide si la notion est inconnue, retirée ou hors du Tour. */
+    Optional<TourNotionPages> tourNotion(UUID subjectId, String notionSlug);
+
+    /**
+     * Une notion du sommaire du Tour.
+     *
+     * @param domainTitle le titre du domaine, celui de son thème
+     * @param title le titre de sa première page, ou celui de la notion
+     */
+    record TourEntry(
+            String slug,
+            String domain,
+            String domainTitle,
+            String chapter,
+            String chapterTitle,
+            String title,
+            int pageCount) {}
+
+    /** Les pages d'une notion du Tour, dans l'ordre de son fichier. */
+    record TourNotionPages(String slug, String title, String chapterTitle, List<TourPage> pages) {
+
+        public TourNotionPages {
+            pages = List.copyOf(pages);
+        }
+    }
 
     /** Les brouillons ne sont visibles que des admins, qui relisent un sujet avant de le publier (CLAUDE.md, 2.5). */
     enum Visibility {

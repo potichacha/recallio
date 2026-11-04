@@ -17,6 +17,7 @@ import com.recallio.review.domain.exercise.ExerciseRun;
 import com.recallio.review.domain.exercise.ExerciseRun.TestResult;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.PositiveOrZero;
@@ -151,13 +152,16 @@ final class ReviewDtos {
         }
     }
 
-    /** Un fichier d'exercice : envoyé au joueur (code de départ, tests, solution) ou rendu par lui. */
+    /**
+     * Un fichier de code : celui d'un exercice, envoyé au joueur (code de départ, tests, solution) ou rendu par lui, ou
+     * celui d'un programme du Tour qu'il exécute (ADR 0037). Un fichier vide n'est jamais valable.
+     */
     @Schema(name = "ExerciseFile")
     record ExerciseFileDto(
             @Schema(description = "Chemin relatif, avec des /") @NotNull @Pattern(regexp = SourceFile.PATH_PATTERN)
             String path,
 
-            @NotNull @Size(max = SourceFile.MAX_LENGTH) String content) {
+            @NotBlank @Size(max = SourceFile.MAX_LENGTH) String content) {
 
         SourceFile toSourceFile() {
             return new SourceFile(path, content);

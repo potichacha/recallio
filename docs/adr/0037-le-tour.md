@@ -83,8 +83,10 @@ qui sont dans le Tour ont leur page plus tôt.
 - l'isolation et le délai du conteneur sont ceux des exercices, et les deux modes partagent la limite d'exécutions
   simultanées.
 
-**Côté backend**, `POST /api/v1/playground-runs` est réservé aux utilisateurs connectés et limité par utilisateur. Il
-transmet au runner.
+**Côté backend**, `POST /api/v1/playground-runs` est réservé aux utilisateurs connectés et transmet au runner. La limite
+par utilisateur est celle des exercices : une exécution à la fois, exercices et programmes confondus (429 sinon). Un
+utilisateur n'occupe donc jamais plus d'une des places du runner. La lecture du Tour (sommaire et pages) est publique,
+comme le catalogue.
 
 **La CI** joue dans le bac à sable :
 - chaque exemple, dont la sortie doit être celle annoncée ;
