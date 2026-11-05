@@ -1,9 +1,11 @@
+import { Fire, SealCheck } from '@phosphor-icons/react'
 import { useParams } from 'react-router'
 import { ApiError } from '../api/errors'
 import { usePublicProfile, type PublicSubject } from '../api/publicProfile'
 import { ACHIEVEMENT_LABELS } from '../components/questLabels'
 import type { Tier } from '../api/ranked'
-import { rankLabel, TIER_ICONS } from '../components/rankLabels'
+import { RankIcon } from '../components/RankIcon'
+import { rankLabel } from '../components/rankLabels'
 import { ShareButton } from '../components/ShareButton'
 
 const plural = (count: number, one: string, many: string) => `${count} ${count > 1 ? many : one}`
@@ -31,8 +33,10 @@ export function PublicProfilePage() {
     <section className="flex flex-col gap-5">
       <header className="flex flex-col gap-1">
         <h1 className="text-2xl font-bold">{displayName}</h1>
-        <p className="text-sm text-slate-500">
-          /u/{profile.data.handle} · 🔥 série de {plural(streak, 'jour', 'jours')}
+        <p className="inline-flex flex-wrap items-center gap-1 text-sm text-ink-muted">
+          /u/{profile.data.handle} ·
+          <Fire weight="fill" aria-hidden className="text-flame" />
+          série de {plural(streak, 'jour', 'jours')}
         </p>
         <ShareButton
           label="Partager ce profil"
@@ -47,7 +51,7 @@ export function PublicProfilePage() {
           }}
         />
       </header>
-      <p className="text-sm text-slate-600">
+      <p className="text-sm text-ink-muted">
         <strong>Vérifié</strong> : corrigé par le serveur (exercices jugés par leurs tests, réponses
         corrigées, notions du Tour validées). <strong>Déclaré</strong> : la maîtrise en révision
         personnelle, en partie auto-évaluée.
@@ -64,16 +68,18 @@ export function PublicProfilePage() {
             Succès
           </h2>
           <ul className="flex flex-wrap gap-2">
-            {achievements.map(({ achievement }) => (
-              <li
-                key={achievement}
-                className="rounded-full bg-white px-3 py-1 text-sm shadow-sm"
-                title={ACHIEVEMENT_LABELS[achievement].description}
-              >
-                <span aria-hidden="true">{ACHIEVEMENT_LABELS[achievement].icon}</span>{' '}
-                {ACHIEVEMENT_LABELS[achievement].title}
-              </li>
-            ))}
+            {achievements.map(({ achievement }) => {
+              const { title, description, icon: Icon } = ACHIEVEMENT_LABELS[achievement]
+              return (
+                <li
+                  key={achievement}
+                  className="inline-flex items-center gap-1.5 rounded-full bg-surface px-3 py-1 text-sm shadow-sm"
+                  title={description}
+                >
+                  <Icon weight="fill" aria-hidden className="text-warning" /> {title}
+                </li>
+              )
+            })}
           </ul>
         </section>
       )}
@@ -84,21 +90,21 @@ export function PublicProfilePage() {
 function SubjectSkills({ subject }: { subject: PublicSubject }) {
   const { verified, declared } = subject
   return (
-    <li className="flex flex-col gap-3 rounded-xl bg-white p-4 shadow-sm">
+    <li className="flex flex-col gap-3 rounded-xl bg-surface p-4 shadow-sm">
       <div className="flex items-center gap-2">
         <h2 className="text-lg font-semibold">{subject.title}</h2>
-        <span className="rounded-full bg-orange-50 px-2 py-0.5 text-xs font-medium text-orange-700">
+        <span className="rounded-full bg-warning-soft px-2 py-0.5 text-xs font-medium text-warning">
           Niveau {subject.level}
         </span>
       </div>
       <div className="grid gap-3 sm:grid-cols-2">
         <dl aria-label={`${subject.title} : vérifié`} className="flex flex-col gap-1 text-sm">
-          <dt className="text-xs font-medium tracking-wide text-emerald-700 uppercase">
-            ✓ Vérifié
+          <dt className="inline-flex items-center gap-1 text-sm font-semibold text-success">
+            <SealCheck weight="fill" aria-hidden /> Vérifié
           </dt>
           {subject.rank && (
             <dd>
-              Classé : <span aria-hidden="true">{TIER_ICONS[subject.rank.tier as Tier]}</span>{' '}
+              Classé : <RankIcon tier={subject.rank.tier as Tier} />{' '}
               {rankLabel({ tier: subject.rank.tier as Tier, division: subject.rank.division })}
             </dd>
           )}
@@ -115,7 +121,7 @@ function SubjectSkills({ subject }: { subject: PublicSubject }) {
           </dd>
         </dl>
         <dl aria-label={`${subject.title} : déclaré`} className="flex flex-col gap-1 text-sm">
-          <dt className="text-xs font-medium tracking-wide text-slate-500 uppercase">Déclaré</dt>
+          <dt className="text-xs font-medium tracking-wide text-ink-muted uppercase">Déclaré</dt>
           {declared.notions > 0 ? (
             <>
               <dd>

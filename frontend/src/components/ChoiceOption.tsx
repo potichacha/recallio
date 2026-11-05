@@ -2,10 +2,10 @@ import type { ChoiceOutcome } from './choices'
 import { Markdown } from './Markdown'
 
 const OUTCOME_STYLES: Record<ChoiceOutcome, string> = {
-  correct: 'border-emerald-300 bg-emerald-50',
-  missed: 'border-emerald-300 bg-white',
-  wrong: 'border-rose-300 bg-rose-50',
-  neutral: 'border-slate-200 bg-white',
+  correct: 'border-success-line bg-success-soft',
+  missed: 'border-success-line bg-surface',
+  wrong: 'border-danger-line bg-danger-soft',
+  neutral: 'border-line bg-surface',
 }
 
 const OUTCOME_LABELS: Record<ChoiceOutcome, string | undefined> = {
@@ -36,9 +36,7 @@ export function ChoiceOption({
   disabled?: boolean
   name?: string
 }) {
-  const style = outcome
-    ? OUTCOME_STYLES[outcome]
-    : 'border-slate-200 bg-white hover:border-indigo-300'
+  const style = outcome ? OUTCOME_STYLES[outcome] : 'border-line bg-surface hover:border-brand-line'
   const label = outcome && OUTCOME_LABELS[outcome]
   return (
     <label className={`flex items-start gap-3 rounded-lg border px-3 py-2 ${style}`}>
@@ -52,7 +50,7 @@ export function ChoiceOption({
       />
       <span className="flex flex-1 flex-col">
         <Markdown>{text}</Markdown>
-        {label && <span className="text-xs font-medium text-slate-600">{label}</span>}
+        {label && <span className="text-xs font-medium text-ink-muted">{label}</span>}
       </span>
     </label>
   )

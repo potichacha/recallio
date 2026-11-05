@@ -54,17 +54,14 @@ function SubjectRow({
   )
 
   return (
-    <li className="flex flex-col gap-3 rounded-xl bg-white p-4 shadow-sm">
+    <li className="flex flex-col gap-3 rounded-xl bg-surface p-4 shadow-sm">
       <div className="flex items-center justify-between gap-3">
         <span className="flex items-center gap-2">
-          <Link
-            to={`/subjects/${subject.slug}`}
-            className="text-lg font-semibold hover:text-indigo-600"
-          >
+          <Link to={`/subjects/${subject.slug}`} className="text-lg font-semibold hover:text-brand">
             {subject.title}
           </Link>
           {level && (
-            <span className="rounded-full bg-orange-50 px-2 py-0.5 text-xs font-medium text-orange-700">
+            <span className="rounded-full bg-warning-soft px-2 py-0.5 text-xs font-medium text-warning">
               Niveau {level.level}
             </span>
           )}
@@ -79,11 +76,11 @@ function SubjectRow({
       {subject.notions.total > 0 && (
         <div className="flex flex-col gap-1">
           <MasteryBar counts={subject.notions} label={`Notions ${subject.title}`} />
-          <p className="text-xs text-slate-500">
+          <p className="text-xs text-ink-muted">
             {masterySummary(subject.notions)} ·{' '}
             <Link
               to={`/subjects/${subject.slug}/path`}
-              className="font-medium text-indigo-700 hover:underline"
+              className="font-medium text-brand-strong hover:underline"
             >
               Carte des compétences
             </Link>
@@ -98,7 +95,7 @@ function SubjectRow({
         />
       )}
       <details open={expanded} className="group">
-        <summary className="cursor-pointer text-sm font-medium text-indigo-700">
+        <summary className="cursor-pointer text-sm font-medium text-brand-strong">
           {plural(subject.themes.length, 'thème')}
           {started.length > 0 && ` · ${plural(started.length, 'commencé')}`}
         </summary>
@@ -114,9 +111,9 @@ function SubjectRow({
 
 function ThemeRow({ theme }: { theme: ThemeStats }) {
   return (
-    <li className="flex flex-col gap-2 rounded-lg border border-slate-100 p-3">
+    <li className="flex flex-col gap-2 rounded-lg border border-line p-3">
       <div className="flex items-center justify-between gap-3">
-        <Link to={`/themes/${theme.slug}`} className="font-medium hover:text-indigo-600">
+        <Link to={`/themes/${theme.slug}`} className="font-medium hover:text-brand">
           {theme.title}
         </Link>
         <DueLink counts={theme.counts} to={`/review?theme=${encodeURIComponent(theme.slug)}`} />
@@ -131,7 +128,7 @@ function DueLink({ counts, to }: { counts: CardCounts; to: string }) {
   return (
     <Link
       to={to}
-      className="shrink-0 rounded-lg bg-indigo-50 px-2.5 py-1 text-sm font-medium text-indigo-700 hover:bg-indigo-100"
+      className="shrink-0 rounded-lg bg-brand-soft px-2.5 py-1 text-sm font-medium text-brand-strong hover:bg-brand-soft"
     >
       {counts.dueNow} à revoir
     </Link>
@@ -148,9 +145,9 @@ function LevelProgress({ label, level }: { label: string; level: SubjectXp }) {
         value={gained}
         max={needed}
         aria-label={`${label} : ${gained} / ${needed} XP vers le niveau ${level.level + 1}`}
-        className="h-1.5 w-full overflow-hidden rounded-full [&::-moz-progress-bar]:bg-orange-400 [&::-webkit-progress-bar]:bg-slate-200 [&::-webkit-progress-value]:bg-orange-400"
+        className="h-1.5 w-full overflow-hidden rounded-full [&::-moz-progress-bar]:bg-sun [&::-webkit-progress-bar]:bg-surface-sunken [&::-webkit-progress-value]:bg-sun"
       />
-      <span className="shrink-0 text-xs text-slate-500">
+      <span className="shrink-0 text-xs text-ink-muted">
         {gained} / {needed} XP
       </span>
     </div>
@@ -165,9 +162,9 @@ function Progress({ label, counts }: { label: string; counts: CardCounts }) {
         value={seen}
         max={total}
         aria-label={`${label} : ${seen} cartes vues sur ${total}`}
-        className="h-1.5 w-full overflow-hidden rounded-full [&::-moz-progress-bar]:bg-indigo-500 [&::-webkit-progress-bar]:bg-slate-200 [&::-webkit-progress-value]:bg-indigo-500"
+        className="h-1.5 w-full overflow-hidden rounded-full [&::-moz-progress-bar]:bg-brand [&::-webkit-progress-bar]:bg-surface-sunken [&::-webkit-progress-value]:bg-brand"
       />
-      <p className="text-xs text-slate-500">
+      <p className="text-xs text-ink-muted">
         {seen} / {total} vues · {plural(mastered, 'maîtrisée')}
       </p>
     </div>

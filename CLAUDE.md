@@ -93,7 +93,7 @@ Recallio n'est pas une application « Java » : c'est un **catalogue de sujets d
 | Build | **Maven** avec le wrapper `mvnw`, multi-modules si nécessaire | versions centralisées dans le pom parent |
 | Base de données | **PostgreSQL** | migrations **Flyway**, jamais `generation` automatique du schéma hors tests |
 | Authentification | **OIDC standard**, backend agnostique du fournisseur | Keycloak via Dev Services en local ; fournisseur managé en production (à choisir, voir section 10) ; le backend valide des JWT avec `quarkus-oidc` |
-| Frontend | **React + TypeScript + Vite**, PWA | TanStack Query (appels API), React Router, Tailwind CSS, client API **généré** depuis l'OpenAPI, CodeMirror 6 (éditeur des exercices, chargé à la demande) |
+| Frontend | **React + TypeScript + Vite**, PWA | TanStack Query (appels API), React Router, Tailwind CSS, client API **généré** depuis l'OpenAPI, CodeMirror 6 (éditeur des exercices, chargé à la demande) ; design system « Coach » (ADR 0049) : tokens Tailwind clairs et sombres, Lexend et JetBrains Mono servies par l'application, icônes Phosphor |
 | Tests backend | JUnit 6, AssertJ, Mockito, `@QuarkusTest`, REST Assured, **Testcontainers** (via Dev Services), **ArchUnit** | |
 | Tests frontend | Vitest, Testing Library ; Playwright pour quelques parcours de bout en bout | |
 | Qualité | Spotless (formatage), Error Prone + NullAway avec JSpecify (dès la phase 0, voir ADR 0004), ESLint + Prettier côté front | |
@@ -158,6 +158,7 @@ Si une règle devient gênante, on en discute et on consigne l'exception dans un
 - Logs : SLF4J/JBoss Logging, messages paramétrés, aucune donnée personnelle ni jeton dans les logs.
 - Nommage en anglais dans le code (classes, méthodes, tables) ; documentation et ADR en français.
 - Pas de nombre magique, pas de méthode de plus d'une quarantaine de lignes sans raison, pas de classe "fourre-tout".
+- Front : seulement les tokens du design system (ADR 0049), jamais la palette par défaut de Tailwind, ni dégradé, ni émoji (un test le vérifie) ; les boutons passent par `button()` ; on tutoie l'utilisateur.
 
 ### 4.4 API
 - REST, ressources au pluriel, codes HTTP corrects, pagination bornée côté serveur.
@@ -491,6 +492,22 @@ Apprendre un langage pas à pas, comme sur le Go Tour, et valider chaque page, c
 Le propriétaire a testé l'application en local avant de la déployer ; ses retours passent avant le déploiement.
 
 1. ✅ **Session de révision** : un sujet à la fois, une durée, un mode « questions corrigées », un quota de nouvelles cartes par sujet, et des cartes qui se retournent, avec « Je savais » ou « Je ne savais pas » (ADR 0048).
+2. **Refonte du front**, pour une interface qui n'ait pas l'air générée et qui retienne les utilisateurs : la piste « Coach », choisie parmi trois.
+   1. ✅ **Design system** :
+      - tokens sémantiques, clairs et sombres, à la place de la palette par défaut ;
+      - Lexend et JetBrains Mono servies par l'application ;
+      - icônes Phosphor à la place des émojis ;
+      - une recette de bouton ;
+      - un test qui garde ces règles (ADR 0049).
+   2. **Navigation** : une barre en bas sur mobile, un menu sur ordinateur, le Tour dans le menu.
+   3. **Accueil** à une seule action (« Continuer : Java · 10 min »), et une fin de session qui marque.
+   4. **Révision** dans le nouveau style : cartes, gestes et raccourcis clavier, retours de réponse.
+   5. **Le Tour en deux colonnes** : le cours à gauche, avec des questions à retourner ; le code à droite.
+   6. **Essai sans compte** et objectif choisi à l'inscription.
+   7. **Notifications et installation** de la PWA, demandées au bon moment.
+   8. **Les autres écrans** dans le nouveau style, avec le tutoiement partout.
+   9. **Accessibilité et performances** contrôlées en CI.
+   10. **Mesure de la rétention** à 1, 7 et 30 jours.
 
 Le **déploiement** (phase 1, étape 7) vient après ces phases.
 

@@ -8,6 +8,7 @@ import {
   type GroupSettings,
   type LeaderboardVisibility,
 } from '../api/groups'
+import { button } from '../components/ui/button'
 
 const FORMAT_LABELS: Record<CardType, string> = {
   FLASHCARD: 'Questions techniques',
@@ -38,7 +39,7 @@ export function GroupSettingsPanel({ group }: { group: Group }) {
   return (
     <section
       aria-labelledby="settings-title"
-      className="flex flex-col gap-3 rounded-xl bg-white p-4 shadow-sm"
+      className="flex flex-col gap-3 rounded-xl bg-surface p-4 shadow-sm"
     >
       <h2 id="settings-title" className="text-lg font-semibold">
         Réglages
@@ -50,10 +51,7 @@ export function GroupSettingsPanel({ group }: { group: Group }) {
           <SettingsSummary settings={group.settings} />
           <div className="flex flex-wrap items-center gap-4">
             {group.settings.subjects.length > 0 && (
-              <Link
-                to={`/review?group=${group.id}`}
-                className="rounded-lg bg-indigo-600 px-4 py-2 font-medium text-white hover:bg-indigo-700"
-              >
+              <Link to={`/review?group=${group.id}`} className={button()}>
                 Réviser avec le groupe
               </Link>
             )}
@@ -61,7 +59,7 @@ export function GroupSettingsPanel({ group }: { group: Group }) {
               <button
                 type="button"
                 onClick={() => setEditing(true)}
-                className="text-sm font-medium text-indigo-600 hover:underline"
+                className="text-sm font-medium text-brand hover:underline"
               >
                 Modifier les réglages
               </button>
@@ -78,7 +76,7 @@ function SettingsSummary({ settings }: { settings: GroupSettings }) {
 
   return (
     <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
-      <dt className="text-slate-500">Sujets</dt>
+      <dt className="text-ink-muted">Sujets</dt>
       <dd>
         {settings.subjects.length > 0 ? (
           <SubjectTitles slugs={settings.subjects} />
@@ -86,21 +84,21 @@ function SettingsSummary({ settings }: { settings: GroupSettings }) {
           'Aucun sujet choisi pour le moment'
         )}
       </dd>
-      <dt className="text-slate-500">Thèmes</dt>
+      <dt className="text-ink-muted">Thèmes</dt>
       <dd>
         {themeCount > 0
           ? `${themeCount} thème${themeCount > 1 ? 's' : ''} sélectionné${themeCount > 1 ? 's' : ''}`
           : 'Tous les thèmes'}
       </dd>
-      <dt className="text-slate-500">Formats</dt>
+      <dt className="text-ink-muted">Formats</dt>
       <dd>
         {settings.cardTypes.length > 0
           ? settings.cardTypes.map((type) => FORMAT_LABELS[type]).join(', ')
           : 'Tous les formats'}
       </dd>
-      <dt className="text-slate-500">Objectif quotidien</dt>
+      <dt className="text-ink-muted">Objectif quotidien</dt>
       <dd>{settings.dailyGoal} cartes</dd>
-      <dt className="text-slate-500">Classement</dt>
+      <dt className="text-ink-muted">Classement</dt>
       <dd>{VISIBILITY_LABELS[settings.leaderboardVisibility]}</dd>
     </dl>
   )
@@ -156,11 +154,11 @@ function SettingsForm({ group, onDone }: { group: Group; onDone: () => void }) {
       {draft.subjects.length > 0 && (
         <fieldset className="flex flex-col gap-1">
           <legend className="text-sm font-medium">Thèmes</legend>
-          <p className="text-xs text-slate-500">
+          <p className="text-xs text-ink-muted">
             Un sujet dont aucun thème n'est coché garde tous ses thèmes.
           </p>
           {draft.subjects.map((slug) => (
-            <details key={slug} className="rounded-lg border border-slate-200 px-3 py-2">
+            <details key={slug} className="rounded-lg border border-line px-3 py-2">
               <summary className="cursor-pointer text-sm">
                 {published.find((subject) => subject.slug === slug)?.title ?? slug}
               </summary>
@@ -187,7 +185,7 @@ function SettingsForm({ group, onDone }: { group: Group; onDone: () => void }) {
 
       <fieldset className="flex flex-col gap-1">
         <legend className="text-sm font-medium">Formats de carte</legend>
-        <p className="text-xs text-slate-500">Aucun coché : tous les formats.</p>
+        <p className="text-xs text-ink-muted">Aucun coché : tous les formats.</p>
         {(Object.keys(FORMAT_LABELS) as CardType[]).map((type) => (
           <label key={type} className="flex items-center gap-2">
             <input
@@ -210,7 +208,7 @@ function SettingsForm({ group, onDone }: { group: Group; onDone: () => void }) {
           // Champ vidé : NaN, affiché vide ; `required` empêche alors l'enregistrement.
           value={Number.isNaN(draft.dailyGoal) ? '' : draft.dailyGoal}
           onChange={(event) => setDraft({ ...draft, dailyGoal: event.target.valueAsNumber })}
-          className="w-28 rounded-lg border border-slate-300 px-3 py-2"
+          className="w-28 rounded-lg border border-line-strong px-3 py-2"
         />
       </label>
 
@@ -230,14 +228,10 @@ function SettingsForm({ group, onDone }: { group: Group; onDone: () => void }) {
       </fieldset>
 
       <div className="flex flex-wrap items-center gap-3">
-        <button
-          type="submit"
-          disabled={update.isPending || themesPending}
-          className="rounded-lg bg-indigo-600 px-4 py-2 font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
-        >
+        <button type="submit" disabled={update.isPending || themesPending} className={button()}>
           Enregistrer les réglages
         </button>
-        <button type="button" onClick={onDone} className="text-sm text-slate-600 hover:underline">
+        <button type="button" onClick={onDone} className="text-sm text-ink-muted hover:underline">
           Annuler
         </button>
       </div>

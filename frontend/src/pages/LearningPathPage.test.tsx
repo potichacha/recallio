@@ -136,7 +136,7 @@ describe('LearningPathPage', () => {
     renderAt('/subjects/java/path', SIGNED_IN)
 
     const firstSteps = await screen.findByRole('region', { name: 'Premiers pas' })
-    expect(firstSteps).toHaveTextContent('🏆 Maîtrisé')
+    expect(firstSteps).toHaveTextContent('Maîtrisé')
     expect(within(firstSteps).getByRole('button', { name: 'Partager' })).toBeInTheDocument()
     const object = screen.getByRole('region', { name: 'Objet' })
     expect(within(object).queryByRole('button', { name: 'Partager' })).not.toBeInTheDocument()

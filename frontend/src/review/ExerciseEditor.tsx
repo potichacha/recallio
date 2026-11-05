@@ -45,12 +45,12 @@ export function ExerciseEditor({
             onClick={() => setSelected(file.path)}
             className={`rounded-t-lg border-b-2 px-3 py-1.5 font-mono text-xs ${
               file.path === selected
-                ? 'border-indigo-600 text-indigo-700'
-                : 'border-transparent text-slate-500 hover:text-slate-700'
+                ? 'border-brand text-brand-strong'
+                : 'border-transparent text-ink-muted hover:text-ink-soft'
             }`}
           >
             {file.path}
-            {!editable && <span className="ml-1 font-sans text-slate-400">(test)</span>}
+            {!editable && <span className="ml-1 font-sans text-ink-faint">(test)</span>}
           </button>
         ))}
       </div>
@@ -62,7 +62,7 @@ export function ExerciseEditor({
           aria-labelledby={`${id}-tab-${index}`}
           hidden={file.path !== selected}
         >
-          <Suspense fallback={<p className="text-sm text-slate-500">Chargement de l’éditeur…</p>}>
+          <Suspense fallback={<p className="text-sm text-ink-muted">Chargement de l’éditeur…</p>}>
             <CodeEditor
               label={file.path}
               value={file.content}

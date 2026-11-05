@@ -13,27 +13,26 @@ export function AchievementList() {
       <h2 id="achievements-title" className="text-lg font-semibold">
         Mes succès
       </h2>
-      <p className="text-sm text-slate-600">
+      <p className="text-sm text-ink-muted">
         {unlocked} / {achievements.data.length} débloqués
       </p>
       <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         {achievements.data.map(({ achievement, unlockedAt }) => {
-          const { title, description, icon } = ACHIEVEMENT_LABELS[achievement]
+          const { title, description, icon: Icon } = ACHIEVEMENT_LABELS[achievement]
           return (
             <li
               key={achievement}
-              className={`flex items-start gap-3 rounded-xl p-3 shadow-sm ${unlockedAt ? 'bg-white' : 'bg-slate-50'}`}
+              className={`flex items-start gap-3 rounded-xl p-3 shadow-sm ${unlockedAt ? 'bg-surface' : 'bg-surface-muted'}`}
             >
               <span
-                aria-hidden="true"
-                className={`text-2xl ${unlockedAt ? '' : 'opacity-40 grayscale'}`}
+                className={`flex size-10 shrink-0 items-center justify-center rounded-full text-2xl ${unlockedAt ? 'bg-sun-soft text-warning' : 'bg-surface-sunken text-ink-faint'}`}
               >
-                {icon}
+                <Icon weight={unlockedAt ? 'fill' : 'regular'} aria-hidden />
               </span>
               <div className="flex flex-col">
-                <span className={`font-medium ${unlockedAt ? '' : 'text-slate-500'}`}>{title}</span>
-                <span className="text-sm text-slate-600">{description}</span>
-                <span className="text-xs text-slate-500">
+                <span className={`font-medium ${unlockedAt ? '' : 'text-ink-muted'}`}>{title}</span>
+                <span className="text-sm text-ink-muted">{description}</span>
+                <span className="text-xs text-ink-muted">
                   {unlockedAt ? `Débloqué le ${DATE.format(new Date(unlockedAt))}` : 'À débloquer'}
                 </span>
               </div>

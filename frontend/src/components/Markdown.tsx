@@ -12,7 +12,7 @@ const REHYPE_PLUGINS = [rehypeHighlight]
  */
 export function Markdown({ children }: { children: string }) {
   return (
-    <div className="prose prose-slate max-w-none prose-pre:bg-slate-900 prose-pre:text-slate-100 prose-code:before:content-none prose-code:after:content-none">
+    <div className="prose max-w-none prose-code:before:content-none prose-code:after:content-none">
       <ReactMarkdown rehypePlugins={REHYPE_PLUGINS}>{children}</ReactMarkdown>
     </div>
   )

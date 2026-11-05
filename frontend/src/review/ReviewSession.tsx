@@ -8,14 +8,13 @@ import { ReportButton } from '../components/ReportButton'
 import { formatDelay } from './formatDelay'
 import { ReviewCard } from './ReviewCard'
 import type { SessionMinutes } from './sessionSettings'
+import { button } from '../components/ui/button'
 
 const MINUTE_MS = 60_000
 const CLOCK_TICK_MS = 1_000
 
-const PRIMARY =
-  'rounded-lg bg-indigo-600 px-4 py-2 font-medium text-white hover:bg-indigo-700 disabled:opacity-50'
-const SECONDARY =
-  'rounded-lg border border-indigo-200 px-4 py-2 font-medium text-indigo-700 hover:bg-indigo-50'
+const PRIMARY = button()
+const SECONDARY = button({ variant: 'secondary' })
 
 /** Pourquoi une session s'arrête : le temps est écoulé, il ne reste rien à réviser, ou on l'a terminée. */
 type SessionEnd = 'time' | 'done' | 'stopped'
@@ -101,7 +100,7 @@ export function ReviewSession({
     <section className="flex flex-col gap-4">
       <header className="flex flex-wrap items-baseline justify-between gap-2">
         <h1 className="text-2xl font-bold">{title}</h1>
-        <p className="flex items-baseline gap-3 text-sm text-slate-500">
+        <p className="flex items-baseline gap-3 text-sm text-ink-muted">
           {endsAt !== null && !end && <SessionClock endsAt={endsAt} />}
           <span>{cardsReviewed(tally.reviewed)}</span>
         </p>
@@ -124,14 +123,14 @@ export function ReviewSession({
             <button
               type="button"
               onClick={() => setStopped('stopped')}
-              className="text-sm text-slate-500 underline hover:text-slate-700"
+              className="text-sm text-ink-muted underline hover:text-ink-soft"
             >
               Terminer la session
             </button>
           </div>
         </>
       ) : (
-        <p className="text-slate-500">Chargement des cartes suivantes…</p>
+        <p className="text-ink-muted">Chargement des cartes suivantes…</p>
       )}
     </section>
   )
@@ -148,7 +147,7 @@ function SessionClock({ endsAt }: { endsAt: number }) {
 
   if (remaining <= 0) {
     return (
-      <span role="timer" aria-label="Temps restant" className="font-medium text-amber-700">
+      <span role="timer" aria-label="Temps restant" className="font-medium text-warning">
         Temps écoulé : finissez cette carte
       </span>
     )
@@ -189,17 +188,17 @@ function SessionSummary({
   return (
     <section
       aria-label="Bilan de la session"
-      className="flex flex-col items-start gap-3 rounded-xl bg-white p-5 shadow-sm"
+      className="flex flex-col items-start gap-3 rounded-xl bg-surface p-5 shadow-sm"
     >
       <h2 className="font-medium">{heading}</h2>
       {tally.reviewed > 0 && (
-        <p className="text-slate-600">
+        <p className="text-ink-muted">
           {cardsReviewed(tally.reviewed)}, dont {tally.recalled} réussie
           {tally.recalled > 1 ? 's' : ''}.
         </p>
       )}
       {end === 'done' && nextDueAt && (
-        <p className="text-slate-600">
+        <p className="text-ink-muted">
           Prochaine carte à revoir dans {formatDelay(Date.parse(nextDueAt) - now)}.
         </p>
       )}

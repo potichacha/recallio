@@ -6,7 +6,7 @@ export function ProgramOutput({ run }: { run: ProgramRun }) {
     <section aria-label="Sortie du programme" className="flex flex-col gap-2">
       <Outcome run={run} />
       {run.status === 'COMPILATION_ERROR' ? (
-        <pre className="overflow-x-auto rounded-lg bg-slate-900 p-3 font-mono text-xs text-rose-200">
+        <pre className="overflow-x-auto rounded-lg bg-code p-3 font-mono text-xs text-code-error">
           {run.message}
         </pre>
       ) : (
@@ -14,17 +14,17 @@ export function ProgramOutput({ run }: { run: ProgramRun }) {
           {run.stdout ? (
             <pre
               aria-label="Sortie standard"
-              className="overflow-x-auto rounded-lg bg-slate-900 p-3 font-mono text-sm text-slate-100"
+              className="overflow-x-auto rounded-lg bg-code p-3 font-mono text-sm text-code-ink"
             >
               {run.stdout}
             </pre>
           ) : (
-            <p className="text-sm text-slate-500">Le programme n’a rien affiché.</p>
+            <p className="text-sm text-ink-muted">Le programme n’a rien affiché.</p>
           )}
           {run.stderr && (
             <pre
               aria-label="Sortie d'erreur"
-              className="overflow-x-auto rounded-lg bg-slate-900 p-3 font-mono text-xs text-rose-200"
+              className="overflow-x-auto rounded-lg bg-code p-3 font-mono text-xs text-code-error"
             >
               {run.stderr}
             </pre>
@@ -32,7 +32,7 @@ export function ProgramOutput({ run }: { run: ProgramRun }) {
         </>
       )}
       {run.truncated && (
-        <p className="text-xs text-slate-500">La sortie a été coupée : 64 Kio au plus.</p>
+        <p className="text-xs text-ink-muted">La sortie a été coupée : 64 Kio au plus.</p>
       )}
     </section>
   )
@@ -48,5 +48,5 @@ function Outcome({ run }: { run: ProgramRun }) {
         : run.exitCode !== 0
           ? `Le programme s’est arrêté avec le code ${run.exitCode}.`
           : undefined
-  return problem ? <p className="font-medium text-rose-700">{problem}</p> : null
+  return problem ? <p className="font-medium text-danger">{problem}</p> : null
 }

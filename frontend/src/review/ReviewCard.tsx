@@ -10,20 +10,21 @@ import { ExerciseCard } from './ExerciseCard'
 import { FillInCard } from './FillInCard'
 import { LessonCard } from './LessonCard'
 import { MultipleChoiceCard } from './MultipleChoiceCard'
+import { button } from '../components/ui/button'
 
-const FACE = 'flex flex-col gap-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm'
+const FACE = 'flex flex-col gap-4 rounded-xl border border-line bg-surface p-5 shadow-sm'
 
 /** Les deux réponses d'une carte à auto-évaluer (ADR 0048) : les notes « À revoir » et « Bien » de FSRS. */
 const SELF_ASSESSMENTS: { rating: Rating; label: string; style: string }[] = [
   {
     rating: 'AGAIN',
     label: 'Je ne savais pas',
-    style: 'border-rose-200 text-rose-700 hover:bg-rose-50',
+    style: 'border-danger-line text-danger hover:bg-danger-soft',
   },
   {
     rating: 'GOOD',
     label: 'Je savais',
-    style: 'border-emerald-200 text-emerald-700 hover:bg-emerald-50',
+    style: 'border-success-line text-success hover:bg-success-soft',
   },
 ]
 
@@ -89,11 +90,7 @@ function SelfAssessedCard({
           <CardHeader card={card} />
           <Markdown>{card.prompt}</Markdown>
           <AnswerDraft type={card.type} value={draft} onChange={setDraft} />
-          <button
-            type="button"
-            onClick={() => setRevealed(true)}
-            className="rounded-lg bg-indigo-600 px-4 py-2 font-medium text-white hover:bg-indigo-700"
-          >
+          <button type="button" onClick={() => setRevealed(true)} className={button()}>
             Voir la réponse
           </button>
         </article>
@@ -101,16 +98,16 @@ function SelfAssessedCard({
       back={
         <article className={FACE}>
           <CardHeader card={card} />
-          <div className="text-slate-600">
+          <div className="text-ink-muted">
             <Markdown>{card.prompt}</Markdown>
           </div>
           <DraftEcho type={card.type} value={draft} />
-          <section aria-label="Réponse attendue" className="border-t border-slate-100 pt-4">
+          <section aria-label="Réponse attendue" className="border-t border-line pt-4">
             <Markdown>{card.answer ?? ''}</Markdown>
           </section>
           <SelfAssessmentButtons disabled={chosen !== undefined} onRate={rate} />
           {record.isError && chosen && (
-            <div role="alert" className="flex items-center gap-3 text-sm text-rose-700">
+            <div role="alert" className="flex items-center gap-3 text-sm text-danger">
               <span>
                 {record.error instanceof ApiError
                   ? record.error.message

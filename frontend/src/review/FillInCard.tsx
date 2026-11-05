@@ -4,6 +4,7 @@ import { useRecordReview, type QueuedCard, type ReviewResult } from '../api/revi
 import { Markdown } from '../components/Markdown'
 import { numberBlanks } from './blanks'
 import { CardHeader } from './CardHeader'
+import { button } from '../components/ui/button'
 
 /**
  * Un code à trous : on remplit chaque trou, on valide, et le serveur corrige trou par trou (ADR 0027). Comme pour un
@@ -37,7 +38,7 @@ export function FillInCard({
   }
 
   return (
-    <article className="flex flex-col gap-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+    <article className="flex flex-col gap-4 rounded-xl border border-line bg-surface p-5 shadow-sm">
       <CardHeader card={card} />
       <Markdown>{numberBlanks(card.prompt)}</Markdown>
       <form onSubmit={submit} className="flex flex-col gap-3">
@@ -51,12 +52,10 @@ export function FillInCard({
               spellCheck={false}
               autoCapitalize="off"
               autoComplete="off"
-              className="rounded-lg border border-slate-300 px-3 py-2 font-mono text-sm"
+              className="rounded-lg border border-line-strong px-3 py-2 font-mono text-sm"
             />
             {blanks?.[index] && (
-              <span
-                className={`text-sm ${blanks[index].correct ? 'text-emerald-700' : 'text-rose-700'}`}
-              >
+              <span className={`text-sm ${blanks[index].correct ? 'text-success' : 'text-danger'}`}>
                 {blanks[index].correct ? 'Juste' : `Attendu : ${blanks[index].expected}`}
               </span>
             )}
@@ -66,7 +65,7 @@ export function FillInCard({
           <button
             type="submit"
             disabled={filled.some((value) => value.trim() === '') || record.isPending}
-            className="self-start rounded-lg bg-indigo-600 px-4 py-2 font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+            className={`self-start ${button()}`}
           >
             Valider
           </button>
@@ -74,7 +73,7 @@ export function FillInCard({
       </form>
 
       {record.isError && (
-        <div role="alert" className="flex items-center gap-3 text-sm text-rose-700">
+        <div role="alert" className="flex items-center gap-3 text-sm text-danger">
           <span>
             {record.error instanceof ApiError
               ? record.error.message
@@ -87,10 +86,10 @@ export function FillInCard({
       )}
 
       {result?.correction && (
-        <div className="flex flex-col gap-3 border-t border-slate-100 pt-4">
+        <div className="flex flex-col gap-3 border-t border-line pt-4">
           <p
             role="status"
-            className={`font-medium ${result.rating === 'GOOD' ? 'text-emerald-700' : 'text-rose-700'}`}
+            className={`font-medium ${result.rating === 'GOOD' ? 'text-success' : 'text-danger'}`}
           >
             {result.rating === 'GOOD'
               ? 'Tous les trous sont justes !'
@@ -100,7 +99,7 @@ export function FillInCard({
           <button
             type="button"
             onClick={() => onReviewed(result)}
-            className="self-start rounded-lg bg-indigo-600 px-4 py-2 font-medium text-white hover:bg-indigo-700"
+            className={`self-start ${button()}`}
           >
             Carte suivante
           </button>

@@ -25,7 +25,7 @@ test.describe('Streak', () => {
     await expect(page.getByLabel('Série : 1 jour')).toBeVisible()
 
     await page.getByRole('link', { name: 'Recallio' }).click()
-    await expect(page.getByText('Série', { exact: true }).locator('..')).toContainText('🔥 1 jour')
+    await expect(page.getByText('Série', { exact: true }).locator('..')).toContainText('1 jour')
     // Les derniers jours : seul aujourd'hui a l'objectif atteint.
     await expect(page.getByLabel(/ : objectif atteint$/)).toHaveCount(1)
   })

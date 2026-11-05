@@ -5,6 +5,7 @@ import { useRunProgram, type ProgramFile } from '../api/tour'
 import { useSession } from '../auth/session'
 import { ExerciseEditor } from '../review/ExerciseEditor'
 import { ProgramOutput } from './ProgramOutput'
+import { button } from '../components/ui/button'
 
 /**
  * Le programme d'une page du Tour (ADR 0037) : on le modifie, on l'exécute dans le bac à sable, on lit ce qu'il écrit.
@@ -43,7 +44,7 @@ export function Playground({ files }: { files: ProgramFile[] }) {
             type="button"
             disabled={run.isPending}
             onClick={() => run.mutate(edited)}
-            className="rounded-lg bg-indigo-600 px-4 py-2 font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+            className={button()}
           >
             {run.isPending ? 'Exécution…' : 'Exécuter'}
           </button>
@@ -51,7 +52,7 @@ export function Playground({ files }: { files: ProgramFile[] }) {
           <button
             type="button"
             onClick={() => session.login(location.pathname + location.search)}
-            className="rounded-lg bg-indigo-600 px-4 py-2 font-medium text-white hover:bg-indigo-700"
+            className={button()}
           >
             Se connecter pour exécuter
           </button>
@@ -59,13 +60,13 @@ export function Playground({ files }: { files: ProgramFile[] }) {
         <button
           type="button"
           onClick={reset}
-          className="rounded-lg border border-slate-200 px-4 py-2 font-medium text-slate-700 hover:bg-slate-50"
+          className="rounded-lg border border-line px-4 py-2 font-medium text-ink-soft hover:bg-surface-muted"
         >
           Réinitialiser
         </button>
       </div>
       {run.error && (
-        <p role="alert" className="text-sm text-rose-700">
+        <p role="alert" className="text-sm text-danger">
           {run.error instanceof ApiError ? run.error.message : 'L’exécution a échoué.'}
         </p>
       )}

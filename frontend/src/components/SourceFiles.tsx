@@ -9,10 +9,10 @@ export type SourceFile = { path: string; content: string }
 export function SourceFiles({ title, files }: { title: string; files: SourceFile[] }) {
   return (
     <section aria-label={title} className="flex flex-col gap-2">
-      <h3 className="text-sm font-medium text-slate-700">{title}</h3>
+      <h3 className="text-sm font-medium text-ink-soft">{title}</h3>
       {files.map((file) => (
         <figure key={file.path} className="flex flex-col gap-1">
-          <figcaption className="font-mono text-xs text-slate-500">{file.path}</figcaption>
+          <figcaption className="font-mono text-xs text-ink-muted">{file.path}</figcaption>
           <Markdown>{'````java\n' + file.content + '\n````'}</Markdown>
         </figure>
       ))}

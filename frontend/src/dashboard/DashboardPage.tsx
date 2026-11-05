@@ -1,3 +1,5 @@
+import { Fire } from '@phosphor-icons/react'
+import type { ReactNode } from 'react'
 import { Link } from 'react-router'
 import { useProfile } from '../api/profile'
 import { useProgress } from '../api/progress'
@@ -31,7 +33,7 @@ export function DashboardPage() {
       {stats.isError && <p role="alert">Impossible de charger vos statistiques.</p>}
       {stats.data && <TodayCard stats={stats.data} />}
       {progress.data && (
-        <div className="rounded-xl bg-white p-5 shadow-sm">
+        <div className="rounded-xl bg-surface p-5 shadow-sm">
           <DailyGoal progress={progress.data} />
         </div>
       )}
@@ -40,7 +42,12 @@ export function DashboardPage() {
         <dl className="grid grid-cols-3 gap-3 text-center">
           <Tile
             label="Série"
-            value={`🔥 ${plural(progress.data.streak, 'jour')}`}
+            value={
+              <span className="inline-flex items-center gap-1">
+                <Fire weight="fill" aria-hidden className="text-flame" />
+                {plural(progress.data.streak, 'jour')}
+              </span>
+            }
             hint={freezeSummary(progress.data)}
           />
           <Tile label="XP" value={String(progress.data.totalXp)} />
@@ -67,7 +74,7 @@ function TodayCard({ stats }: { stats: ReviewStats }) {
   const { dueNow, dueToday } = stats.overall
   const toReview = dueNow + stats.newToday
   return (
-    <div className="flex flex-col items-start gap-3 rounded-xl bg-indigo-600 p-5 text-white shadow-sm">
+    <div className="flex flex-col items-start gap-3 rounded-xl bg-brand p-5 text-on-brand shadow-sm">
       {toReview > 0 ? (
         <>
           <p className="text-lg font-semibold">
@@ -75,7 +82,7 @@ function TodayCard({ stats }: { stats: ReviewStats }) {
           </p>
           <Link
             to="/review"
-            className="rounded-lg bg-white px-4 py-2 font-medium text-indigo-700 hover:bg-indigo-50"
+            className="rounded-lg bg-surface px-4 py-2 font-medium text-brand-strong hover:bg-brand-soft"
           >
             Réviser maintenant
           </Link>
@@ -90,12 +97,12 @@ function TodayCard({ stats }: { stats: ReviewStats }) {
   )
 }
 
-function Tile({ label, value, hint }: { label: string; value: string; hint?: string }) {
+function Tile({ label, value, hint }: { label: string; value: ReactNode; hint?: string }) {
   return (
-    <div className="flex flex-col gap-1 rounded-xl bg-white p-4 shadow-sm">
-      <dt className="text-xs font-medium tracking-wide text-slate-500 uppercase">{label}</dt>
+    <div className="flex flex-col gap-1 rounded-xl bg-surface p-4 shadow-sm">
+      <dt className="text-xs font-medium tracking-wide text-ink-muted uppercase">{label}</dt>
       <dd className="text-lg font-semibold">{value}</dd>
-      {hint && <dd className="text-xs text-slate-500">{hint}</dd>}
+      {hint && <dd className="text-xs text-ink-muted">{hint}</dd>}
     </div>
   )
 }

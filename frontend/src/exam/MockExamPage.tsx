@@ -18,13 +18,13 @@ import {
   type AnswerDraft,
 } from '../components/gradedAnswers'
 import { useCountdown } from '../components/useCountdown'
+import { button } from '../components/ui/button'
 
 const DATE = new Intl.DateTimeFormat('fr-FR', { dateStyle: 'medium' })
 
 /** Une copie notée, avec les réponses données, pour les montrer à côté du corrigé. */
 type Graded = { result: MockExamResult; drafts: Record<string, AnswerDraft> }
-const PRIMARY =
-  'self-start rounded-lg bg-indigo-600 px-4 py-2 font-medium text-white hover:bg-indigo-700 disabled:opacity-50'
+const PRIMARY = `self-start ${button()}`
 
 /**
  * L'examen blanc d'un sujet (ADR 0044) : des questions corrigées par le serveur, un temps limité, puis la note et le
@@ -65,7 +65,7 @@ export function MockExamPage() {
           alreadySubmitted={exam?.submitted ?? false}
         />
       )}
-      <Link to="/" className="self-start text-sm text-indigo-600 hover:underline">
+      <Link to="/" className="self-start text-sm text-brand hover:underline">
         Retour au tableau de bord
       </Link>
     </section>
@@ -88,7 +88,7 @@ function Intro({
   const history = useMockExamHistory(subject)
   return (
     <div className="flex flex-col gap-4">
-      <p className="text-slate-700">
+      <p className="text-ink-soft">
         Jusqu’à 20 questions corrigées par le serveur, une minute par question, les notions
         essentielles d’abord, comme en entretien. À la fin, la note et le corrigé. Rien n’entre dans
         vos révisions.
@@ -162,13 +162,13 @@ function Running({
       <p
         role="timer"
         aria-label="Temps restant"
-        className="sticky top-0 self-start rounded-lg bg-white px-3 py-1 font-mono text-lg shadow-sm"
+        className="sticky top-0 self-start rounded-lg bg-surface px-3 py-1 font-mono text-lg shadow-sm"
       >
         {clock(remaining)}
       </p>
       <ol className="flex flex-col gap-4">
         {exam.questions.map((question, index) => (
-          <li key={question.cardId} className="rounded-xl bg-white p-4 shadow-sm">
+          <li key={question.cardId} className="rounded-xl bg-surface p-4 shadow-sm">
             <GradedQuestion
               question={question}
               label={`Question ${index + 1} sur ${exam.questions.length}`}
@@ -179,7 +179,7 @@ function Running({
           </li>
         ))}
       </ol>
-      <p className="text-sm text-slate-600">
+      <p className="text-sm text-ink-muted">
         {answered} / {exam.questions.length} questions répondues
       </p>
       <button type="button" onClick={hand} disabled={submit.isPending} className={PRIMARY}>
@@ -210,7 +210,7 @@ function Result({
   const questions = new Map(exam?.questions.map((question) => [question.cardId, question]))
   return (
     <div className="flex flex-col gap-5">
-      <div role="status" className="flex flex-col gap-1 rounded-xl bg-indigo-600 p-5 text-white">
+      <div role="status" className="flex flex-col gap-1 rounded-xl bg-brand p-5 text-on-brand">
         <p className="text-2xl font-bold">
           {result.correct} / {result.total}
         </p>
@@ -224,7 +224,7 @@ function Result({
           const question = questions.get(correction.cardId)
           if (!question) return null
           return (
-            <li key={correction.cardId} className="rounded-xl bg-white p-4 shadow-sm">
+            <li key={correction.cardId} className="rounded-xl bg-surface p-4 shadow-sm">
               <GradedQuestion
                 question={question}
                 label={`Question ${index + 1} : ${correction.correct ? 'juste' : 'fausse'}`}

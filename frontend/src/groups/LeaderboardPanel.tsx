@@ -11,7 +11,7 @@ export function LeaderboardPanel({ groupId }: { groupId: string }) {
   return (
     <section
       aria-labelledby="leaderboard-title"
-      className="flex flex-col gap-3 rounded-xl bg-white p-4 shadow-sm"
+      className="flex flex-col gap-3 rounded-xl bg-surface p-4 shadow-sm"
     >
       <h2 id="leaderboard-title" className="text-lg font-semibold">
         Classement de la semaine
@@ -25,11 +25,11 @@ export function LeaderboardPanel({ groupId }: { groupId: string }) {
 
 function LeaderboardContent({ leaderboard }: { leaderboard: Leaderboard }) {
   if (leaderboard.visibility === 'HIDDEN') {
-    return <p className="text-slate-600">Le créateur a désactivé le classement de ce groupe.</p>
+    return <p className="text-ink-muted">Le créateur a désactivé le classement de ce groupe.</p>
   }
   return (
     <>
-      <p className="text-sm text-slate-500">
+      <p className="text-sm text-ink-muted">
         Du {formatDay(leaderboard.weekStart)} au {formatDay(leaderboard.weekEnd)}. Un jour est
         régulier à partir de {leaderboard.dailyGoal} cartes révisées.
       </p>
@@ -47,17 +47,17 @@ function LeaderboardRow({ entry }: { entry: LeaderboardEntry }) {
   return (
     <li
       className={`flex items-center justify-between gap-3 rounded-lg px-3 py-2 ${
-        entry.me ? 'bg-indigo-50 font-medium' : 'bg-slate-50'
+        entry.me ? 'bg-brand-soft font-medium' : 'bg-surface-muted'
       }`}
     >
       <span className="flex items-center gap-3">
-        <span className="w-6 text-right text-slate-500">{entry.rank}</span>
+        <span className="w-6 text-right text-ink-muted">{entry.rank}</span>
         <span>
           {entry.displayName ?? 'Membre anonyme'}
-          {entry.me && <span className="text-slate-500"> (vous)</span>}
+          {entry.me && <span className="text-ink-muted"> (vous)</span>}
         </span>
       </span>
-      <span className="text-sm text-slate-600">
+      <span className="text-sm text-ink-muted">
         {days} jour{days > 1 ? 's' : ''} régulier{days > 1 ? 's' : ''} · {entry.xp} XP
       </span>
     </li>

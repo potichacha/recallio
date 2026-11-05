@@ -45,7 +45,7 @@ export function AnswerDraft({
         onChange={(event) => onChange(event.target.value)}
         rows={draft.rows}
         spellCheck={!draft.code}
-        className={`rounded-lg border border-slate-300 px-3 py-2 ${draft.code ? 'font-mono text-sm' : ''}`}
+        className={`rounded-lg border border-line-strong px-3 py-2 ${draft.code ? 'font-mono text-sm' : ''}`}
       />
     </label>
   )
@@ -56,8 +56,11 @@ export function DraftEcho({ type, value }: { type: CardType; value: string }) {
   if (value.trim() === '') return null
   const draft = draftOf(type)
   return (
-    <section aria-label={draft.echo} className="flex flex-col gap-1 rounded-lg bg-slate-50 p-3">
-      <h3 className="text-xs font-medium tracking-wide text-slate-500 uppercase">{draft.echo}</h3>
+    <section
+      aria-label={draft.echo}
+      className="flex flex-col gap-1 rounded-lg bg-surface-muted p-3"
+    >
+      <h3 className="text-xs font-medium tracking-wide text-ink-muted uppercase">{draft.echo}</h3>
       <p className={`whitespace-pre-wrap ${draft.code ? 'font-mono text-sm' : ''}`}>{value}</p>
     </section>
   )

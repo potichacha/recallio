@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router'
 import { ApiError } from '../api/errors'
 import { useCreateGroup, useMyGroups } from '../api/groups'
+import { button } from '../components/ui/button'
 
 const NAME_MAX_LENGTH = 60
 
@@ -15,7 +16,7 @@ export function GroupsPage() {
       {groups.isPending && <p>Chargement des groupes…</p>}
       {groups.isError && <p role="alert">Impossible de charger vos groupes.</p>}
       {groups.isSuccess && groups.data.length === 0 && (
-        <p className="text-slate-600">
+        <p className="text-ink-muted">
           Vous ne faites partie d'aucun groupe. Créez-en un pour réviser avec votre équipe.
         </p>
       )}
@@ -25,10 +26,10 @@ export function GroupsPage() {
             <li key={group.id}>
               <Link
                 to={`/groups/${group.id}`}
-                className="flex h-full flex-col gap-1 rounded-xl border border-slate-200 bg-white p-4 shadow-sm hover:border-indigo-300"
+                className="flex h-full flex-col gap-1 rounded-xl border border-line bg-surface p-4 shadow-sm hover:border-brand-line"
               >
                 <span className="font-semibold">{group.name}</span>
-                <span className="text-sm text-slate-500">
+                <span className="text-sm text-ink-muted">
                   {group.memberCount} membre{group.memberCount > 1 ? 's' : ''}
                   {group.myRole === 'OWNER' && ' · Vous l’avez créé'}
                 </span>
@@ -56,7 +57,7 @@ function CreateGroupForm() {
     <form
       onSubmit={submit}
       aria-labelledby="create-group-title"
-      className="flex max-w-md flex-col gap-3 rounded-xl bg-white p-4 shadow-sm"
+      className="flex max-w-md flex-col gap-3 rounded-xl bg-surface p-4 shadow-sm"
     >
       <h2 id="create-group-title" className="text-lg font-semibold">
         Créer un groupe
@@ -68,13 +69,13 @@ function CreateGroupForm() {
           onChange={(event) => setName(event.target.value)}
           maxLength={NAME_MAX_LENGTH}
           required
-          className="rounded-lg border border-slate-300 px-3 py-2"
+          className="rounded-lg border border-line-strong px-3 py-2"
         />
       </label>
       <button
         type="submit"
         disabled={name.trim() === '' || create.isPending}
-        className="self-start rounded-lg bg-indigo-600 px-4 py-2 font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+        className={`self-start ${button()}`}
       >
         Créer
       </button>

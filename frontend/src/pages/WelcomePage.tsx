@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router'
 import { useFollowSubjects, useProfile } from '../api/profile'
 import { SubjectPicker } from '../components/SubjectPicker'
+import { button } from '../components/ui/button'
 
 /** Premier login : l'utilisateur choisit les sujets qu'il veut réviser, parmi tous ceux qui sont publiés. */
 export function WelcomePage() {
@@ -10,7 +11,7 @@ export function WelcomePage() {
   return (
     <section className="flex flex-col gap-4">
       <h1 className="text-2xl font-bold">Quels sujets voulez-vous réviser ?</h1>
-      <p className="text-slate-600">
+      <p className="text-ink-muted">
         Vos révisions puiseront dans ces sujets. Vous pourrez en changer à tout moment dans votre
         profil.
       </p>
@@ -35,7 +36,7 @@ function WelcomeForm({ initial }: { initial: string[] }) {
         type="button"
         onClick={start}
         disabled={selected.length === 0 || follow.isPending}
-        className="self-start rounded-lg bg-indigo-600 px-4 py-2 font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+        className={`self-start ${button()}`}
       >
         Commencer à réviser
       </button>

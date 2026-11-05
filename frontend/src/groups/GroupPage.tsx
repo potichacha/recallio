@@ -27,7 +27,7 @@ export function GroupPage() {
     return (
       <section className="flex flex-col gap-3">
         <h1 className="text-2xl font-bold">Groupe introuvable</h1>
-        <Link to="/groups" className="text-indigo-600 hover:underline">
+        <Link to="/groups" className="text-brand hover:underline">
           Retour à mes groupes
         </Link>
       </section>
@@ -36,7 +36,7 @@ export function GroupPage() {
 
   return (
     <section className="flex flex-col gap-4">
-      <Link to="/groups" className="text-sm text-indigo-600 hover:underline">
+      <Link to="/groups" className="text-sm text-brand hover:underline">
         ← Mes groupes
       </Link>
       <h1 className="text-2xl font-bold">{group.data?.name ?? 'Chargement…'}</h1>
@@ -76,11 +76,11 @@ function MemberList({ group }: { group: Group }) {
         {group.members.map((member) => (
           <li
             key={member.userId}
-            className="flex items-center justify-between gap-3 rounded-xl bg-white p-3 shadow-sm"
+            className="flex items-center justify-between gap-3 rounded-xl bg-surface p-3 shadow-sm"
           >
             <span>
               {member.displayName}
-              {member.me && <span className="text-slate-500"> (vous)</span>}
+              {member.me && <span className="text-ink-muted"> (vous)</span>}
               <RoleBadge member={member} />
             </span>
             {isOwner && member.role !== 'OWNER' && (
@@ -89,7 +89,7 @@ function MemberList({ group }: { group: Group }) {
                 onClick={() => remove.mutate({ groupId: group.id, userId: member.userId })}
                 disabled={remove.isPending}
                 aria-label={`Retirer ${member.displayName}`}
-                className="text-sm text-red-700 hover:underline disabled:opacity-50"
+                className="text-sm text-danger hover:underline disabled:opacity-50"
               >
                 Retirer
               </button>
@@ -105,7 +105,7 @@ function MemberList({ group }: { group: Group }) {
 function RoleBadge({ member }: { member: GroupMember }) {
   if (member.role !== 'OWNER') return null
   return (
-    <span className="ml-2 rounded bg-indigo-50 px-1.5 py-0.5 text-xs font-medium text-indigo-700">
+    <span className="ml-2 rounded bg-brand-soft px-1.5 py-0.5 text-xs font-medium text-brand-strong">
       Créateur
     </span>
   )
@@ -121,7 +121,7 @@ function LeaveGroup({ groupId }: { groupId: string }) {
         type="button"
         onClick={() => leave.mutate(groupId, { onSuccess: () => navigate('/groups') })}
         disabled={leave.isPending}
-        className="rounded-lg border border-red-200 px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-50"
+        className="rounded-lg border border-danger-line px-3 py-1.5 text-sm font-medium text-danger hover:bg-danger-soft disabled:opacity-50"
       >
         Quitter le groupe
       </button>
@@ -145,14 +145,14 @@ function DeleteGroup({ groupId }: { groupId: string }) {
             type="button"
             onClick={() => remove.mutate(groupId, { onSuccess: () => navigate('/groups') })}
             disabled={remove.isPending}
-            className="rounded-lg bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
+            className="rounded-lg bg-danger px-3 py-1.5 text-sm font-medium text-white hover:bg-danger-strong disabled:opacity-50"
           >
             Confirmer la suppression
           </button>
           <button
             type="button"
             onClick={() => setConfirming(false)}
-            className="text-sm text-slate-600 hover:underline"
+            className="text-sm text-ink-muted hover:underline"
           >
             Annuler
           </button>
@@ -161,7 +161,7 @@ function DeleteGroup({ groupId }: { groupId: string }) {
         <button
           type="button"
           onClick={() => setConfirming(true)}
-          className="rounded-lg border border-red-200 px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-50"
+          className="rounded-lg border border-danger-line px-3 py-1.5 text-sm font-medium text-danger hover:bg-danger-soft"
         >
           Supprimer le groupe
         </button>

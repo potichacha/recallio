@@ -28,20 +28,20 @@ export function SubjectPicker({
         if (inCategory.length === 0) return null
         return (
           <fieldset key={category} className="flex flex-col gap-2">
-            <legend className="mb-1 text-sm font-semibold text-slate-600">{label}</legend>
+            <legend className="mb-1 text-sm font-semibold text-ink-muted">{label}</legend>
             {inCategory.map((subject) => (
               <label
                 key={subject.slug}
-                className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white p-3 has-checked:border-indigo-400"
+                className="flex items-center gap-3 rounded-xl border border-line bg-surface p-3 has-checked:border-brand"
               >
                 <input
                   type="checkbox"
                   checked={selected.includes(subject.slug)}
                   onChange={(event) => toggle(subject.slug, event.target.checked)}
-                  className="size-4 accent-indigo-600"
+                  className="size-4 accent-brand"
                 />
                 <span className="font-medium">{subject.title}</span>
-                <span className="ml-auto text-sm text-slate-500">{subject.cardCount} cartes</span>
+                <span className="ml-auto text-sm text-ink-muted">{subject.cardCount} cartes</span>
               </label>
             ))}
           </fieldset>

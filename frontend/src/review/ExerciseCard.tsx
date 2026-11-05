@@ -12,6 +12,7 @@ import { SourceFiles } from '../components/SourceFiles'
 import { CardHeader } from './CardHeader'
 import { ExerciseEditor } from './ExerciseEditor'
 import { ExerciseRunResult } from './ExerciseRunResult'
+import { button } from '../components/ui/button'
 
 /**
  * Un exercice de code (ADR 0029, 0030) : on modifie le code de départ dans l'éditeur, un onglet par fichier, on lance
@@ -47,7 +48,7 @@ export function ExerciseCard({
   const error = run.error ?? record.error
 
   return (
-    <article className="flex flex-col gap-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+    <article className="flex flex-col gap-4 rounded-xl border border-line bg-surface p-5 shadow-sm">
       <CardHeader card={card} />
       <Markdown>{card.prompt}</Markdown>
 
@@ -64,23 +65,18 @@ export function ExerciseCard({
             type="button"
             disabled={busy}
             onClick={() => run.mutate({ cardId: card.cardId, files })}
-            className="rounded-lg border border-indigo-200 px-4 py-2 font-medium text-indigo-700 hover:bg-indigo-50 disabled:opacity-50"
+            className={button({ variant: 'secondary' })}
           >
             {run.isPending ? 'Exécution…' : 'Lancer les tests'}
           </button>
-          <button
-            type="button"
-            disabled={busy}
-            onClick={submit}
-            className="rounded-lg bg-indigo-600 px-4 py-2 font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
-          >
+          <button type="button" disabled={busy} onClick={submit} className={button()}>
             {record.isPending ? 'Correction…' : 'Rendre'}
           </button>
         </div>
       )}
 
       {error && (
-        <p role="alert" className="text-sm text-rose-700">
+        <p role="alert" className="text-sm text-danger">
           {error instanceof ApiError ? error.message : 'L’exécution a échoué.'}
         </p>
       )}
@@ -88,7 +84,7 @@ export function ExerciseCard({
       {!correction && run.data && <ExerciseRunResult run={run.data} />}
 
       {correction && (
-        <div className="flex flex-col gap-3 border-t border-slate-100 pt-4">
+        <div className="flex flex-col gap-3 border-t border-line pt-4">
           <p role="status" className="font-medium">
             {result?.rating === 'GOOD'
               ? 'Exercice réussi !'
@@ -100,7 +96,7 @@ export function ExerciseCard({
           <button
             type="button"
             onClick={() => result && onReviewed(result)}
-            className="self-start rounded-lg bg-indigo-600 px-4 py-2 font-medium text-white hover:bg-indigo-700"
+            className={`self-start ${button()}`}
           >
             Carte suivante
           </button>

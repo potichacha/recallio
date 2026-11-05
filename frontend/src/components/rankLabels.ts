@@ -1,3 +1,4 @@
+import { Crown, Diamond, Medal, ShieldStar, type Icon } from '@phosphor-icons/react'
 import type { Rank, Tier } from '../api/ranked'
 
 /** Les rangs du classé (ADR 0046), du plus bas au plus haut. */
@@ -10,13 +11,14 @@ export const TIER_LABELS: Record<Tier, string> = {
   MASTER: 'Maître',
 }
 
-export const TIER_ICONS: Record<Tier, string> = {
-  BRONZE: '🥉',
-  SILVER: '🥈',
-  GOLD: '🥇',
-  PLATINUM: '💠',
-  DIAMOND: '💎',
-  MASTER: '👑',
+/** L'insigne de chaque rang (ADR 0049) : une icône et la couleur de son métal ou de sa pierre. */
+export const TIER_ICONS: Record<Tier, { icon: Icon; className: string }> = {
+  BRONZE: { icon: Medal, className: 'text-tier-bronze' },
+  SILVER: { icon: Medal, className: 'text-tier-silver' },
+  GOLD: { icon: Medal, className: 'text-tier-gold' },
+  PLATINUM: { icon: ShieldStar, className: 'text-tier-platinum' },
+  DIAMOND: { icon: Diamond, className: 'text-tier-diamond' },
+  MASTER: { icon: Crown, className: 'text-tier-master' },
 }
 
 const DIVISIONS = ['', 'I', 'II', 'III', 'IV']

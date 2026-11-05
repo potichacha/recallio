@@ -11,13 +11,13 @@ function SubjectLink({ subject }: { subject: Subject }) {
   return (
     <Link
       to={`/subjects/${subject.slug}`}
-      className="flex h-full flex-col gap-1 rounded-xl border border-slate-200 bg-white p-4 shadow-sm hover:border-indigo-300"
+      className="flex h-full flex-col gap-1 rounded-xl border border-line bg-surface p-4 shadow-sm hover:border-brand-line"
     >
       <span className="flex items-center gap-2 font-semibold">
         {subject.title}
         {subject.status === 'DRAFT' && <DraftBadge />}
       </span>
-      <span className="text-sm text-slate-500">
+      <span className="text-sm text-ink-muted">
         {plural(subject.themeCount, 'thème')} · {plural(subject.cardCount, 'carte')}
       </span>
     </Link>

@@ -3,9 +3,10 @@ import { useProfile } from '../api/profile'
 import { useProgress } from '../api/progress'
 import { useSession } from '../auth/session'
 import { ProgressBadge } from './ProgressBadge'
+import { button } from './ui/button'
 
 function navClass({ isActive }: { isActive: boolean }) {
-  return isActive ? 'font-semibold text-indigo-600' : 'text-slate-600 hover:text-indigo-600'
+  return isActive ? 'font-semibold text-brand' : 'text-ink-muted hover:text-brand'
 }
 
 function SessionControls() {
@@ -23,7 +24,7 @@ function SessionControls() {
       <button
         type="button"
         onClick={() => session.login(location.pathname + location.search)}
-        className="rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700"
+        className={button({ size: 'sm' })}
       >
         Se connecter
       </button>
@@ -38,7 +39,7 @@ function SessionControls() {
       <button
         type="button"
         onClick={session.logout}
-        className="text-sm text-slate-500 hover:text-slate-800"
+        className="text-sm text-ink-muted hover:text-ink"
       >
         Se déconnecter
       </button>
@@ -48,10 +49,10 @@ function SessionControls() {
 
 export function Layout() {
   return (
-    <div className="min-h-dvh bg-slate-50 text-slate-900">
-      <header className="border-b border-slate-200 bg-white">
+    <div className="min-h-dvh bg-canvas text-ink">
+      <header className="border-b border-line bg-surface">
         <nav className="mx-auto flex max-w-3xl flex-wrap items-center gap-x-6 gap-y-2 px-4 py-3">
-          <NavLink to="/" className="text-lg font-bold text-indigo-600">
+          <NavLink to="/" className="text-lg font-bold text-brand">
             Recallio
           </NavLink>
           <NavLink to="/review" className={navClass}>

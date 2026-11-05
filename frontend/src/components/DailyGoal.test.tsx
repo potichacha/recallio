@@ -10,7 +10,7 @@ describe('DailyGoal', () => {
     render(<DailyGoal progress={{ ...goalReached, streak: 7, freezeEarnedToday: true }} />)
 
     expect(screen.getByRole('status')).toHaveTextContent(
-      'Objectif atteint ! Votre série passe à 7 jours. Elle vous rapporte un gel de streak ❄️, qui couvrira un jour manqué.',
+      'Objectif atteint ! Votre série passe à 7 jours. Elle vous rapporte un gel de streak, qui couvrira un jour manqué.',
     )
   })
 

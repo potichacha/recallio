@@ -127,8 +127,8 @@ describe('DashboardPage', () => {
     renderAt('/', signedIn())
 
     const streak = await screen.findByText('Série')
-    expect(streak.nextElementSibling).toHaveTextContent('🔥 3 jours')
-    expect(streak.parentElement).toHaveTextContent('❄️ 1 gel · prochain dans 4 jours')
+    expect(streak.nextElementSibling).toHaveTextContent('3 jours')
+    expect(streak.parentElement).toHaveTextContent('1 gel · prochain dans 4 jours')
     expect(screen.getByText('XP').nextElementSibling).toHaveTextContent('120')
     expect(screen.getByText('Maîtrisées').nextElementSibling).toHaveTextContent('4 / 30')
   })
@@ -142,7 +142,7 @@ describe('DashboardPage', () => {
     const quests = within(today).getAllByRole('listitem')
     expect(quests).toHaveLength(3)
     expect(quests[0]).toHaveTextContent('Réviser 15 cartes')
-    expect(quests[0]).toHaveTextContent('✓ +20 XP')
+    expect(quests[0]).toHaveTextContent('+20 XP')
     expect(
       within(today).getByRole('progressbar', { name: 'Réviser 3 cartes de code : 1 / 3' }),
     ).toBeInTheDocument()
@@ -161,9 +161,9 @@ describe('DashboardPage', () => {
       await screen.findByLabelText('dimanche 25 octobre 2026 : objectif atteint'),
     ).toBeInTheDocument()
     expect(screen.getByLabelText('jeudi 29 octobre 2026 : 4 carte(s)')).toBeInTheDocument()
-    expect(
-      screen.getByLabelText('samedi 24 octobre 2026 : jour manqué couvert par un gel'),
-    ).toHaveTextContent('❄️')
+    // Le jour couvert par un gel montre un flocon, et rien à lire : son nom accessible dit déjà tout.
+    const frozen = screen.getByLabelText('samedi 24 octobre 2026 : jour manqué couvert par un gel')
+    expect(frozen.querySelector('svg')).not.toBeNull()
   })
 
   it('shows the progress of each followed subject, with a shortcut to review its due cards', async () => {
@@ -242,7 +242,7 @@ describe('DashboardPage', () => {
       '3 / 6 notions essentielles acquises, dont 1 maîtrisée : prêt à partir de 80 %.',
     )
     const goRow = within(section).getByRole('link', { name: 'Go' }).closest('li') as HTMLElement
-    expect(goRow).toHaveTextContent('✓ 83 %')
+    expect(goRow).toHaveTextContent('83 %')
     expect(goRow).toHaveTextContent('dont 4 maîtrisées : vous êtes prêt.')
   })
 

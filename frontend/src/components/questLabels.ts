@@ -1,3 +1,17 @@
+import {
+  Books,
+  CalendarCheck,
+  CheckCircle,
+  Compass,
+  Fire,
+  Globe,
+  MapTrifold,
+  Plant,
+  Stack,
+  Target,
+  Trophy,
+  type Icon,
+} from '@phosphor-icons/react'
 import type { Achievement, Quest } from '../api/quests'
 
 const count = (value: number, one: string, many: string) => `${value} ${value > 1 ? many : one}`
@@ -29,32 +43,36 @@ export const QUEST_LABELS: Record<Quest, { title: (target: number) => string; hi
   WEEKLY_TOUR: { title: (target) => `Valider ${count(target, 'notion', 'notions')} du Tour` },
 }
 
-/** Les succès (ADR 0040) : un nom, ce qui les débloque, et un emoji. */
+/** Les succès (ADR 0040) : un nom, ce qui les débloque, et une icône (ADR 0049). */
 export const ACHIEVEMENT_LABELS: Record<
   Achievement,
-  { title: string; description: string; icon: string }
+  { title: string; description: string; icon: Icon }
 > = {
-  FIRST_REVIEW: { title: 'Premier pas', description: 'Réviser une première carte.', icon: '🌱' },
-  HUNDRED_REVIEWS: { title: 'Centurion', description: 'Réviser 100 cartes.', icon: '💯' },
-  THOUSAND_REVIEWS: { title: 'Mille cartes', description: 'Réviser 1 000 cartes.', icon: '🏛️' },
-  STREAK_7: { title: 'Une semaine', description: 'Tenir une série de 7 jours.', icon: '🔥' },
-  STREAK_30: { title: 'Un mois', description: 'Tenir une série de 30 jours.', icon: '🌋' },
+  FIRST_REVIEW: { title: 'Premier pas', description: 'Réviser une première carte.', icon: Plant },
+  HUNDRED_REVIEWS: { title: 'Centurion', description: 'Réviser 100 cartes.', icon: Stack },
+  THOUSAND_REVIEWS: { title: 'Mille cartes', description: 'Réviser 1 000 cartes.', icon: Books },
+  STREAK_7: { title: 'Une semaine', description: 'Tenir une série de 7 jours.', icon: Fire },
+  STREAK_30: { title: 'Un mois', description: 'Tenir une série de 30 jours.', icon: CalendarCheck },
   FIRST_EXERCISE: {
     title: 'Tous les tests passent',
     description: 'Réussir un premier exercice de code, jugé par ses tests.',
-    icon: '✅',
+    icon: CheckCircle,
   },
-  POLYGLOT: { title: 'Polyglotte', description: 'Réviser dans trois sujets.', icon: '🌍' },
+  POLYGLOT: { title: 'Polyglotte', description: 'Réviser dans trois sujets.', icon: Globe },
   FIRST_TOUR_NOTION: {
     title: 'En route',
     description: 'Valider une première notion du Tour.',
-    icon: '🧭',
+    icon: Compass,
   },
-  TOUR_EXPLORER: { title: 'Explorateur', description: 'Valider dix notions du Tour.', icon: '🗺️' },
-  FIRST_QUEST: { title: 'Première quête', description: 'Terminer une quête.', icon: '🎯' },
+  TOUR_EXPLORER: {
+    title: 'Explorateur',
+    description: 'Valider dix notions du Tour.',
+    icon: MapTrifold,
+  },
+  FIRST_QUEST: { title: 'Première quête', description: 'Terminer une quête.', icon: Target },
   WEEKLY_QUEST: {
     title: 'Quête de la semaine',
     description: 'Terminer une quête de la semaine.',
-    icon: '🏆',
+    icon: Trophy,
   },
 }

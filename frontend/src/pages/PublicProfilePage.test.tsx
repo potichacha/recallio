@@ -29,7 +29,7 @@ describe('PublicProfilePage', () => {
     expect(await screen.findByRole('heading', { name: 'Alice' })).toBeInTheDocument()
     expect(screen.getByText(/série de 12 jours/)).toBeInTheDocument()
     const goVerified = screen.getByLabelText('Go : vérifié')
-    expect(goVerified).toHaveTextContent('Classé : 🥇 Or II')
+    expect(goVerified).toHaveTextContent('Classé : Or II')
     expect(goVerified).toHaveTextContent('3 exercices réussis')
     expect(goVerified).toHaveTextContent('41 réponses corrigées justes')
     expect(goVerified).toHaveTextContent('1 notion du Tour validée')

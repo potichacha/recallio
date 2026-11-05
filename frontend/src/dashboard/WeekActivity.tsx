@@ -1,3 +1,4 @@
+import { Snowflake } from '@phosphor-icons/react'
 import type { DayActivity } from '../api/stats'
 
 const WEEKDAY = new Intl.DateTimeFormat('fr-FR', { weekday: 'short', timeZone: 'UTC' })
@@ -26,21 +27,21 @@ export function WeekActivity({ days }: { days: DayActivity[] }) {
             <li
               key={day}
               aria-label={`${FULL_DATE.format(date)} : ${status}`}
-              className="flex flex-col items-center gap-1 text-xs text-slate-500"
+              className="flex flex-col items-center gap-1 text-xs text-ink-muted"
             >
               <span
                 aria-hidden="true"
                 className={`flex size-9 items-center justify-center rounded-full font-medium ${
                   frozen
-                    ? 'bg-sky-100'
+                    ? 'bg-info-soft'
                     : goalReached
-                      ? 'bg-emerald-500 text-white'
+                      ? 'bg-success text-on-success'
                       : cardsReviewed > 0
-                        ? 'bg-emerald-100 text-emerald-800'
-                        : 'bg-slate-100 text-slate-400'
+                        ? 'bg-success-soft text-success'
+                        : 'bg-surface-muted text-ink-faint'
                 }`}
               >
-                {frozen ? '❄️' : cardsReviewed}
+                {frozen ? <Snowflake weight="bold" className="text-info" /> : cardsReviewed}
               </span>
               <span aria-hidden="true">{WEEKDAY.format(date)}</span>
             </li>

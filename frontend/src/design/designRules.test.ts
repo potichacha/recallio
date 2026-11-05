@@ -1,0 +1,40 @@
+import { describe, expect, it } from 'vitest'
+
+/**
+ * Les règles du design system « Coach » (ADR 0049), vérifiées à chaque `npm test` : elles empêchent de retomber dans
+ * les réflexes qui donnent l'air d'une interface générée (la palette par défaut de Tailwind, les dégradés, les émojis
+ * en guise d'icônes). Les tests eux-mêmes ne sont pas concernés.
+ */
+const sources = import.meta.glob(
+  ['../**/*.{ts,tsx}', '!../**/*.test.{ts,tsx}', '!../api/schema.d.ts'],
+  { query: '?raw', import: 'default', eager: true },
+) as Record<string, string>
+
+const DEFAULT_PALETTE =
+  /\b(?:bg|text|border|ring|fill|stroke|outline|divide|decoration|from|via|to|shadow|accent|caret|placeholder)-(?:slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-\d{2,3}\b/
+const GRADIENT = /\bbg-(?:linear|radial|conic|gradient)-|create(?:Linear|Radial|Conic)Gradient/
+const EMOJI = /\p{Extended_Pictographic}/u
+
+function offenders(pattern: RegExp) {
+  return Object.entries(sources)
+    .filter(([, text]) => pattern.test(text))
+    .map(([path]) => path)
+}
+
+describe('design system', () => {
+  it('reads the source files it checks', () => {
+    expect(Object.keys(sources).length).toBeGreaterThan(50)
+  })
+
+  it('uses the tokens of the theme, never the default Tailwind palette', () => {
+    expect(offenders(DEFAULT_PALETTE)).toEqual([])
+  })
+
+  it('draws no gradient', () => {
+    expect(offenders(GRADIENT)).toEqual([])
+  })
+
+  it('uses real icons rather than emoji', () => {
+    expect(offenders(EMOJI)).toEqual([])
+  })
+})

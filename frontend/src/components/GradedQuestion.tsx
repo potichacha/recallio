@@ -20,7 +20,7 @@ export function GradedQuestion({
 }) {
   return (
     <fieldset className="flex flex-col gap-2">
-      <legend className="text-sm font-medium text-slate-500">{label}</legend>
+      <legend className="text-sm font-medium text-ink-muted">{label}</legend>
       {question.type === 'FILL_IN' ? (
         <>
           <Markdown>{numberBlanks(question.prompt)}</Markdown>
@@ -41,11 +41,11 @@ export function GradedQuestion({
                 spellCheck={false}
                 autoCapitalize="off"
                 autoComplete="off"
-                className="rounded-lg border border-slate-300 px-3 py-2 font-mono text-sm"
+                className="rounded-lg border border-line-strong px-3 py-2 font-mono text-sm"
               />
               {correction?.blanks[index] && (
                 <span
-                  className={`text-sm ${correction.blanks[index].correct ? 'text-emerald-700' : 'text-rose-700'}`}
+                  className={`text-sm ${correction.blanks[index].correct ? 'text-success' : 'text-danger'}`}
                 >
                   {correction.blanks[index].correct
                     ? 'Juste'
@@ -82,7 +82,7 @@ export function GradedQuestion({
       )}
       {correction && (
         <div
-          className={`rounded-lg p-3 text-sm ${correction.correct ? 'bg-emerald-50' : 'bg-rose-50'}`}
+          className={`rounded-lg p-3 text-sm ${correction.correct ? 'bg-success-soft' : 'bg-danger-soft'}`}
         >
           <p className="font-medium">{correction.correct ? 'Juste !' : 'Pas tout à fait.'}</p>
           <Markdown>{correction.explanation}</Markdown>

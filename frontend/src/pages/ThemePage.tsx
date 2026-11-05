@@ -2,6 +2,7 @@ import { Link, useParams, useSearchParams } from 'react-router'
 import { useTheme, useThemeCards } from '../api/content'
 import { ApiError } from '../api/errors'
 import { CardItem } from './CardItem'
+import { button } from '../components/ui/button'
 
 export function ThemePage() {
   const { slug = '' } = useParams()
@@ -14,7 +15,7 @@ export function ThemePage() {
     return (
       <section className="flex flex-col gap-3">
         <h1 className="text-2xl font-bold">Thème introuvable</h1>
-        <Link to="/subjects" className="text-indigo-600 hover:underline">
+        <Link to="/subjects" className="text-brand hover:underline">
           Retour aux sujets
         </Link>
       </section>
@@ -27,21 +28,18 @@ export function ThemePage() {
     <section className="flex flex-col gap-4">
       <Link
         to={theme.data ? `/subjects/${theme.data.subjectSlug}` : '/subjects'}
-        className="text-sm text-indigo-600 hover:underline"
+        className="text-sm text-brand hover:underline"
       >
         ← {theme.data ? `Thèmes ${theme.data.subjectTitle}` : 'Tous les sujets'}
       </Link>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-col">
           {theme.data && (
-            <span className="text-sm font-medium text-indigo-600">{theme.data.subjectTitle}</span>
+            <span className="text-sm font-medium text-brand">{theme.data.subjectTitle}</span>
           )}
           <h1 className="text-2xl font-bold">{theme.data?.title ?? 'Chargement…'}</h1>
         </div>
-        <Link
-          to={`/review?theme=${encodeURIComponent(slug)}`}
-          className="rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700"
-        >
+        <Link to={`/review?theme=${encodeURIComponent(slug)}`} className={button({ size: 'sm' })}>
           Réviser ce thème
         </Link>
       </div>
@@ -61,18 +59,18 @@ export function ThemePage() {
                 type="button"
                 disabled={page === 0}
                 onClick={() => goTo(page - 1)}
-                className="rounded-lg px-3 py-1.5 text-indigo-700 disabled:text-slate-300"
+                className="rounded-lg px-3 py-1.5 text-brand-strong disabled:text-ink-faint"
               >
                 Précédent
               </button>
-              <span className="text-sm text-slate-500">
+              <span className="text-sm text-ink-muted">
                 Page {page + 1} / {cards.data.totalPages}
               </span>
               <button
                 type="button"
                 disabled={page + 1 >= cards.data.totalPages}
                 onClick={() => goTo(page + 1)}
-                className="rounded-lg px-3 py-1.5 text-indigo-700 disabled:text-slate-300"
+                className="rounded-lg px-3 py-1.5 text-brand-strong disabled:text-ink-faint"
               >
                 Suivant
               </button>
