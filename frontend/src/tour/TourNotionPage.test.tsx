@@ -1,4 +1,4 @@
-import { screen, within } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 import { fakeSession, renderAt, sentRequests, SIGNED_IN_API, stubApi } from '../test/render'
@@ -20,7 +20,12 @@ const TOUR_API = {
   '/api/v1/me/tour/go/hello-world': { body: checkpoint() },
   '/api/v1/me/tour/go/packages-imports': { body: checkpoint() },
   '/api/v1/me/tour/go/valeur-zero': { body: checkpoint() },
+  'PUT /api/v1/me/tour/go/last-page': { status: 204, body: null },
 }
+
+/** Les pages notées pour « Reprendre le Tour ». */
+const lastPages = (fetchMock: ReturnType<typeof stubApi>) =>
+  sentRequests(fetchMock).filter((request) => request.method === 'PUT')
 
 const COMPLETED = {
   status: 'COMPLETED',
@@ -86,6 +91,31 @@ describe('TourNotionPage', () => {
       'href',
       '/subjects/go/tour',
     )
+  })
+
+  it('remembers each page that a signed-in user opens, to resume there from the outline', async () => {
+    const fetchMock = stubApi({ ...SIGNED_IN_API, ...TOUR_API })
+    renderAt('/subjects/go/tour/packages-imports', signedIn())
+
+    await userEvent.click(await screen.findByRole('link', { name: 'Page suivante' }))
+    expect(await screen.findByRole('heading', { name: 'Les alias' })).toBeInTheDocument()
+
+    await waitFor(() => expect(lastPages(fetchMock)).toHaveLength(2))
+    expect(await Promise.all(lastPages(fetchMock).map((request) => request.json()))).toEqual([
+      { notion: 'packages-imports', page: 1 },
+      { notion: 'packages-imports', page: 2 },
+    ])
+  })
+
+  it('remembers no page for a visitor', async () => {
+    const fetchMock = stubApi(TOUR_API)
+    renderAt('/subjects/go/tour/packages-imports')
+
+    // Une fois sur la page suivante, la première a fini de s'afficher : elle aurait déjà noté sa place.
+    await userEvent.click(await screen.findByRole('link', { name: 'Page suivante' }))
+    expect(await screen.findByRole('heading', { name: 'Les alias' })).toBeInTheDocument()
+
+    expect(lastPages(fetchMock)).toHaveLength(0)
   })
 
   it('asks a visitor to sign in before running the program', async () => {

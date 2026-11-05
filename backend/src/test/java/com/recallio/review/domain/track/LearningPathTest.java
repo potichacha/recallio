@@ -88,6 +88,7 @@ class LearningPathTest {
                 1,
                 requires,
                 0,
-                cards);
+                cards,
+                0);
     }
 }

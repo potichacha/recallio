@@ -15,12 +15,13 @@ test.describe('Le Tour', () => {
     await expect(page.getByRole('button', { name: 'Se connecter pour exécuter' })).toBeVisible()
   })
 
-  test('runs the program of a page in the sandbox, then goes to the next page', async ({
+  test('runs the program of a page in the sandbox, goes to the next page, then resumes there', async ({
     page,
   }) => {
     await signIn(page, USERS.alice, '/subjects/go')
     await page.getByRole('link', { name: 'Le Tour', exact: true }).click()
-    await page.getByRole('link', { name: 'Commencer le Tour' }).click()
+    // Le lien de la première notion : « Commencer le Tour » devient « Reprendre le Tour » dès la première page ouverte.
+    await page.getByRole('link', { name: 'Bienvenue', exact: true }).click()
     await expect(page.getByRole('heading', { name: 'Bienvenue' })).toBeVisible()
 
     await page.getByRole('button', { name: 'Exécuter' }).click()
@@ -31,13 +32,19 @@ test.describe('Le Tour', () => {
     )
     await page.getByRole('link', { name: 'Page suivante' }).click()
     await expect(page.getByRole('heading', { name: 'Le premier programme' })).toBeVisible()
+
+    await page.getByRole('navigation', { name: 'Fil d’Ariane' }).getByRole('link').click()
+    await expect(page.getByRole('link', { name: 'Reprendre le Tour' })).toHaveAttribute(
+      'href',
+      '/subjects/go/tour/hello-world',
+    )
   })
 
   test('validates the first notion with its questions, retrying with the corrections', async ({
     page,
   }) => {
     await signIn(page, USERS.alice, '/subjects/go/tour')
-    await page.getByRole('link', { name: 'Commencer le Tour' }).click()
+    await page.getByRole('link', { name: 'Bienvenue', exact: true }).click()
     const check = page.getByRole('region', { name: 'Valider la notion' })
     // La première notion du Tour Go n'a que des vrai ou faux et des QCM : on y répond en cochant.
     const questions = check.getByRole('group')

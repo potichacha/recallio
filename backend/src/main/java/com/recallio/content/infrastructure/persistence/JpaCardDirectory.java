@@ -146,7 +146,8 @@ public class JpaCardDirectory implements CardDirectory {
                         .map(slug -> CardIdentity.notionId(subject, slug))
                         .toList(),
                 notion.position,
-                cardCounts.getOrDefault(notion.id, 0L).intValue());
+                cardCounts.getOrDefault(notion.id, 0L).intValue(),
+                notion.tour.size());
     }
 
     @Override

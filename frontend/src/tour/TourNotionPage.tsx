@@ -1,6 +1,7 @@
+import { useEffect } from 'react'
 import { Link, useLocation, useParams, useSearchParams } from 'react-router'
 import { ApiError } from '../api/errors'
-import { useTour, useTourNotion } from '../api/tour'
+import { useSaveTourLastPage, useTour, useTourNotion } from '../api/tour'
 import { useSession } from '../auth/session'
 import { Markdown } from '../components/Markdown'
 import { NotionCheck } from './NotionCheck'
@@ -17,6 +18,9 @@ export function TourNotionPage() {
   const pageNumber = Math.max(1, Number(params.get('page')) || 1)
   const outline = useTour(slug)
   const pages = useTourNotion(slug, notion)
+  const session = useSession()
+  const pageExists = pages.data !== undefined && pageNumber <= pages.data.pages.length
+  useRememberPage(slug, notion, pageNumber, session.status === 'authenticated' && pageExists)
   const tourLink = `/subjects/${encodeURIComponent(slug)}/tour`
 
   if (pages.isError) {
@@ -74,6 +78,14 @@ export function TourNotionPage() {
       <TourNavigation subject={slug} previous={previous} next={next} tourLink={tourLink} />
     </article>
   )
+}
+
+/** Note la page ouverte par un utilisateur connecté : le sommaire lui proposera d'y reprendre (ADR 0037). */
+function useRememberPage(subject: string, notion: string, page: number, enabled: boolean) {
+  const { mutate } = useSaveTourLastPage(subject)
+  useEffect(() => {
+    if (enabled) mutate({ notion, page })
+  }, [enabled, mutate, notion, page])
 }
 
 /** Les questions de la notion, sur sa dernière page : il faut être connecté pour les valider (ADR 0037). */

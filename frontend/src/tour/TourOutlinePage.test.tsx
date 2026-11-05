@@ -32,17 +32,41 @@ describe('TourOutlinePage', () => {
       ...SIGNED_IN_API,
       '/api/v1/subjects/go/tour': { body: TEST_TOUR },
       // « ancienne » : validée, puis sortie du Tour.
-      '/api/v1/me/tour/go': { body: { validatedNotions: ['hello-world', 'ancienne'] } },
+      '/api/v1/me/tour/go': {
+        body: { validatedNotions: ['hello-world', 'ancienne'], lastPage: null },
+      },
     })
 
     renderAt('/subjects/go/tour', fakeSession({ status: 'authenticated', userName: 'Alice' }))
 
     expect(await screen.findByText('1 / 3 notions validées')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Commencer le Tour' })).toBeInTheDocument()
     const firstSteps = screen.getByRole('list', { name: 'Premiers pas' })
     expect(within(firstSteps).getAllByRole('listitem')[0]).toHaveTextContent(
       'Le premier programme · validée',
     )
     expect(within(firstSteps).getAllByRole('listitem')[1]).not.toHaveTextContent('validée')
+  })
+
+  it('offers to resume the Tour at the last page that a signed-in user opened', async () => {
+    stubApi({
+      ...SIGNED_IN_API,
+      '/api/v1/subjects/go/tour': { body: TEST_TOUR },
+      '/api/v1/me/tour/go': {
+        body: { validatedNotions: [], lastPage: { notion: 'packages-imports', page: 2 } },
+      },
+    })
+
+    renderAt('/subjects/go/tour', fakeSession({ status: 'authenticated', userName: 'Alice' }))
+
+    expect(await screen.findByRole('link', { name: 'Reprendre le Tour' })).toHaveAttribute(
+      'href',
+      '/subjects/go/tour/packages-imports?page=2',
+    )
+    expect(
+      screen.getByText('Tu en étais à « Packages et imports », page 2 sur 2.'),
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Commencer le Tour' })).not.toBeInTheDocument()
   })
 
   it('says when a subject has no Tour yet', async () => {

@@ -5,19 +5,24 @@ import com.recallio.content.CardDirectory.CardSnapshot;
 import com.recallio.content.CardType;
 import com.recallio.platform.api.ProblemDetail;
 import com.recallio.review.api.ReviewDtos.BlankCorrectionDto;
-import com.recallio.review.application.TourValidationService;
-import com.recallio.review.application.TourValidationService.CheckOutcome;
-import com.recallio.review.application.TourValidationService.Checkpoint;
-import com.recallio.review.application.TourValidationService.QuestionResult;
-import com.recallio.review.application.TourValidationService.TourAnswer;
+import com.recallio.review.application.TourProgressService;
+import com.recallio.review.application.TourProgressService.CheckOutcome;
+import com.recallio.review.application.TourProgressService.Checkpoint;
+import com.recallio.review.application.TourProgressService.Progress;
+import com.recallio.review.application.TourProgressService.QuestionResult;
+import com.recallio.review.application.TourProgressService.Step;
+import com.recallio.review.application.TourProgressService.TourAnswer;
 import com.recallio.user.CurrentUser;
 import io.quarkus.security.Authenticated;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.POST;
+import jakarta.ws.rs.PUT;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
@@ -34,8 +39,8 @@ import org.eclipse.microprofile.openapi.annotations.tags.Tag;
 import org.jspecify.annotations.Nullable;
 
 /**
- * La progression de l'utilisateur connecté dans le Tour d'un sujet (ADR 0037) : les notions qu'il a validées, et les
- * questions qui valident une notion. Ces réponses ne sont pas des révisions.
+ * La progression de l'utilisateur connecté dans le Tour d'un sujet (ADR 0037) : les notions qu'il a validées, la dernière
+ * page qu'il a ouverte, et les questions qui valident une notion. Ces réponses ne sont pas des révisions.
  */
 @Path("/api/v1/me/tour/{subject}")
 @Authenticated
@@ -47,21 +52,47 @@ public class TourProgressResource {
     /** Bien au-delà des questions d'une notion : une borne contre les requêtes démesurées, pas une règle du Tour. */
     static final int MAX_ANSWERS = 10;
 
-    private final TourValidationService validation;
+    private final TourProgressService tour;
     private final CurrentUser currentUser;
 
-    public TourProgressResource(TourValidationService validation, CurrentUser currentUser) {
-        this.validation = validation;
+    public TourProgressResource(TourProgressService tour, CurrentUser currentUser) {
+        this.tour = tour;
         this.currentUser = currentUser;
     }
 
     @GET
     @Operation(
             operationId = "getMyTourProgress",
-            summary = "Les notions du Tour d'un sujet que l'utilisateur a validées")
-    @APIResponse(responseCode = "200", description = "La progression ; aucune notion si le sujet est inconnu")
+            summary =
+                    "Les notions du Tour d'un sujet que l'utilisateur a validées, et la dernière page qu'il a ouverte")
+    @APIResponse(responseCode = "200", description = "La progression ; vide si le sujet est inconnu")
     public TourProgressDto getMyTourProgress(@PathParam("subject") String subject) {
-        return new TourProgressDto(validation.validatedNotions(currentUser.get(), subject));
+        return TourProgressDto.from(tour.progress(currentUser.get(), subject));
+    }
+
+    @PUT
+    @Path("/last-page")
+    @Consumes(MediaType.APPLICATION_JSON)
+    @Operation(
+            operationId = "saveTourLastPage",
+            summary = "Note la page du Tour que l'utilisateur vient d'ouvrir : le sommaire lui proposera d'y reprendre")
+    @APIResponse(responseCode = "204", description = "La page est notée")
+    @APIResponse(
+            responseCode = "400",
+            description = "Paramètre invalide",
+            content =
+                    @Content(
+                            mediaType = ProblemDetail.MEDIA_TYPE,
+                            schema = @Schema(implementation = ProblemDetail.class)))
+    @APIResponse(
+            responseCode = "404",
+            description = "Page hors du Tour : notion inconnue, sans pages, ou qui n'en a pas autant",
+            content =
+                    @Content(
+                            mediaType = ProblemDetail.MEDIA_TYPE,
+                            schema = @Schema(implementation = ProblemDetail.class)))
+    public void saveTourLastPage(@PathParam("subject") String subject, @Valid @NotNull TourStepDto lastPage) {
+        tour.openPage(currentUser.get(), subject, lastPage.notion(), lastPage.page());
     }
 
     @GET
@@ -79,7 +110,7 @@ public class TourProgressResource {
                             schema = @Schema(implementation = ProblemDetail.class)))
     public TourCheckpointDto getTourCheckpoint(
             @PathParam("subject") String subject, @PathParam("notion") String notion) {
-        return TourCheckpointDto.from(validation.checkpoint(currentUser.get(), subject, notion));
+        return TourCheckpointDto.from(tour.checkpoint(currentUser.get(), subject, notion));
     }
 
     @POST
@@ -110,13 +141,40 @@ public class TourProgressResource {
             @Valid @NotNull TourCheckRequest request) {
         List<TourAnswer> answers =
                 request.answers().stream().map(TourAnswerDto::toAnswer).toList();
-        return TourCheckDto.from(validation.check(currentUser.get(), subject, notion, answers));
+        return TourCheckDto.from(tour.check(currentUser.get(), subject, notion, answers));
     }
 
     @Schema(name = "TourProgress")
     public record TourProgressDto(
             @Schema(description = "Les notions validées, dans l'ordre du référentiel")
-            List<String> validatedNotions) {}
+            List<String> validatedNotions,
+
+            @Schema(
+                    description = "La dernière page ouverte, pour y reprendre ; absente si aucune, ou si elle n'est"
+                            + " plus dans le Tour",
+                    nullable = true)
+            @Nullable
+            TourStepDto lastPage) {
+
+        static TourProgressDto from(Progress progress) {
+            @Nullable Step lastPage = progress.lastPage();
+            return new TourProgressDto(
+                    progress.validatedNotions(),
+                    lastPage == null ? null : new TourStepDto(lastPage.notion(), lastPage.page()));
+        }
+    }
+
+    // Liste explicite : @NotBlank en ferait une avec la seule notion, et le filtre NonNullByDefaultSchemas la
+    // garderait.
+    @Schema(
+            name = "TourStep",
+            requiredProperties = {"notion", "page"})
+    public record TourStepDto(
+            @Schema(description = "Le slug de la notion") @NotBlank
+            String notion,
+
+            @Schema(description = "Le rang de la page dans sa notion, à partir de 1") @Min(1)
+            int page) {}
 
     @Schema(name = "TourCheckpoint")
     public record TourCheckpointDto(

@@ -69,7 +69,8 @@ qui sont dans le Tour ont leur page plus tôt.
   de ces formats dans chaque notion du Tour ;
 - la notion est validée quand toutes sont justes. On peut réessayer, et une notion validée le reste ;
 - ces réponses ne sont pas enregistrées comme des révisions ;
-- la progression garde, par utilisateur, les notions validées et la dernière page ouverte.
+- la progression garde, par utilisateur, les notions validées et la dernière page ouverte, que le sommaire propose
+  de reprendre.
 
 **À la fin d'un chapitre**, on trouve ses exercices (ADR 0029), jugés par leurs tests. **Depuis chaque page**,
 « S'entraîner » ouvre les cartes de la notion.

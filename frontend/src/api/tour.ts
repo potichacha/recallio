@@ -11,6 +11,7 @@ export type ProgramFile = components['schemas']['ExerciseFile']
 export type TourQuestion = components['schemas']['TourQuestion']
 export type TourAnswer = components['schemas']['TourAnswer']
 export type TourCheck = components['schemas']['TourCheck']
+export type TourLastPage = components['schemas']['TourStep']
 
 /** Le sommaire du Tour d'un sujet (ADR 0037) : public, comme le catalogue. */
 export function useTour(subject: string) {
@@ -65,6 +66,23 @@ export function useTourProgress(subject: string, enabled: boolean) {
       if (data === undefined) throw ApiError.from(response, error)
       return data
     },
+  })
+}
+
+/** Note la page ouverte, que « Reprendre le Tour » rouvrira. Un échec ne s'affiche pas : ce n'est qu'un marque-page. */
+export function useSaveTourLastPage(subject: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (lastPage: TourLastPage) => {
+      const { error, response } = await api.PUT('/api/v1/me/tour/{subject}/last-page', {
+        params: { path: { subject } },
+        body: lastPage,
+      })
+      if (!response.ok) throw ApiError.from(response, error)
+    },
+    // La progression du sujet seulement : les questions de la notion ouverte n'ont pas changé.
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ['tour-progress', subject], exact: true }),
   })
 }
 

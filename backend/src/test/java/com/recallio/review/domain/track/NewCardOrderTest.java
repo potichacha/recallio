@@ -93,7 +93,8 @@ class NewCardOrderTest {
                 priority,
                 List.of(),
                 0,
-                1);
+                1,
+                0);
     }
 
     private static Map<UUID, NotionInfo> byId(NotionInfo... notions) {
