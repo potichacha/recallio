@@ -2,6 +2,8 @@ package com.recallio.gamification.domain;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /** Activité quotidienne : nombre de cartes révisées par jour local, base du streak. */
@@ -26,6 +28,9 @@ public interface ActivityRepository {
 
     /** Jours où l'objectif a été atteint (au plus un par jour : quelques centaines de lignes par an). */
     List<LocalDate> goalDays(UUID userId);
+
+    /** Les jours actifs de chaque joueur, pour mesurer la rétention (ADR 0050). */
+    Map<UUID, Set<LocalDate>> activeDays();
 
     record DailyActivity(LocalDate day, int cardsReviewed, boolean goalReached) {}
 }

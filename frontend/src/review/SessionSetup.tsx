@@ -1,7 +1,9 @@
-import { useState, type FormEvent, type ReactNode } from 'react'
+import { useState, type FormEvent } from 'react'
 import { useSubjects } from '../api/content'
 import { useProfile } from '../api/profile'
 import { useReviewStats } from '../api/stats'
+import { Chip, Choices } from '../components/ChoiceChips'
+import { button } from '../components/ui/button'
 import {
   DEFAULT_MINUTES,
   DEFAULT_MODE,
@@ -70,7 +72,7 @@ export function SessionSetup({
             >
               <span className="font-medium">{titleOf(slug)}</span>
               {counts && (
-                <span className="text-xs text-slate-500">
+                <span className="text-xs text-ink-muted">
                   {counts.counts.dueNow} à revoir · {plural(counts.newToday, 'nouvelle')}
                 </span>
               )}
@@ -93,22 +95,18 @@ export function SessionSetup({
       <Choices legend="Questions">
         <Chip name="mode" checked={mode === 'all'} onChange={() => setMode('all')}>
           <span className="font-medium">Toutes les questions</span>
-          <span className="text-xs text-slate-500">
+          <span className="text-xs text-ink-muted">
             Mises en situation et questions à auto-évaluer comprises
           </span>
         </Chip>
         <Chip name="mode" checked={mode === 'graded'} onChange={() => setMode('graded')}>
           <span className="font-medium">Questions corrigées</span>
-          <span className="text-xs text-slate-500">
+          <span className="text-xs text-ink-muted">
             QCM, vrai ou faux, code à compléter et exercices
           </span>
         </Chip>
       </Choices>
-      <button
-        type="submit"
-        disabled={!subject}
-        className="self-start rounded-lg bg-indigo-600 px-6 py-3 font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
-      >
+      <button type="submit" disabled={!subject} className={`self-start ${button()}`}>
         Commencer
       </button>
     </form>
@@ -120,33 +118,4 @@ function defaultSubject(choices: string[], requested?: string, stored?: string) 
   if (requested) return requested
   if (stored && choices.includes(stored)) return stored
   return choices.at(0)
-}
-
-function Choices({ legend, children }: { legend: string; children: ReactNode }) {
-  return (
-    <fieldset className="flex flex-col gap-2">
-      <legend className="mb-2 text-sm font-medium text-slate-700">{legend}</legend>
-      <div className="flex flex-wrap gap-2">{children}</div>
-    </fieldset>
-  )
-}
-
-/** Un choix parmi d'autres : un bouton radio, présenté comme une pastille. */
-function Chip({
-  name,
-  checked,
-  onChange,
-  children,
-}: {
-  name: string
-  checked: boolean
-  onChange: () => void
-  children: ReactNode
-}) {
-  return (
-    <label className="flex cursor-pointer flex-col rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 hover:border-indigo-300 has-checked:border-indigo-600 has-checked:bg-indigo-50 has-checked:text-indigo-900 has-focus-visible:ring-2 has-focus-visible:ring-indigo-500">
-      <input type="radio" name={name} checked={checked} onChange={onChange} className="sr-only" />
-      {children}
-    </label>
-  )
 }

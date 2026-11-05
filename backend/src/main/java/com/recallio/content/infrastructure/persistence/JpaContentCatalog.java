@@ -9,7 +9,9 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.persistence.EntityManager;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @ApplicationScoped
 public class JpaContentCatalog implements ContentCatalog {
@@ -22,6 +24,14 @@ public class JpaContentCatalog implements ContentCatalog {
             where s.status in :statuses %s
             group by s.id, s.slug, s.title, s.category, s.position, s.status
             order by s.position, s.slug
+            """;
+
+    /** Les sujets dont au moins une notion active a des pages dans le Tour (ADR 0037). */
+    private static final String SUBJECTS_WITH_TOUR = """
+            select distinct s.slug
+            from notion n
+            join subject s on s.id = n.subject_id
+            where n.retired_at is null and jsonb_array_length(n.tour) > 0
             """;
 
     private static final String THEME_SUMMARIES = """
@@ -58,11 +68,12 @@ public class JpaContentCatalog implements ContentCatalog {
 
     @Override
     public List<SubjectSummary> subjects(Visibility visibility) {
+        Set<String> withTour = subjectsWithTour();
         return entityManager
                 .createQuery(SUBJECT_SUMMARIES.formatted(""), Object[].class)
                 .setParameter("statuses", statuses(visibility))
                 .getResultStream()
-                .map(JpaContentCatalog::toSubjectSummary)
+                .map(row -> toSubjectSummary(row, withTour))
                 .toList();
     }
 
@@ -73,7 +84,7 @@ public class JpaContentCatalog implements ContentCatalog {
                 .setParameter("statuses", statuses(visibility))
                 .setParameter("slug", slug)
                 .getResultStream()
-                .map(JpaContentCatalog::toSubjectSummary)
+                .map(row -> toSubjectSummary(row, subjectsWithTour()))
                 .findFirst();
     }
 
@@ -193,16 +204,23 @@ public class JpaContentCatalog implements ContentCatalog {
         };
     }
 
-    private static SubjectSummary toSubjectSummary(Object[] row) {
+    private Set<String> subjectsWithTour() {
+        List<?> slugs = entityManager.createNativeQuery(SUBJECTS_WITH_TOUR).getResultList();
+        return slugs.stream().map(String.class::cast).collect(Collectors.toSet());
+    }
+
+    private static SubjectSummary toSubjectSummary(Object[] row, Set<String> withTour) {
+        String slug = (String) row[1];
         return new SubjectSummary(
                 (UUID) row[0],
-                (String) row[1],
+                slug,
                 (String) row[2],
                 (Subject.Category) row[3],
                 (Integer) row[4],
                 (Subject.Status) row[5],
                 (Long) row[6],
-                (Long) row[7]);
+                (Long) row[7],
+                withTour.contains(slug));
     }
 
     private static ThemeSummary toThemeSummary(Object[] row) {

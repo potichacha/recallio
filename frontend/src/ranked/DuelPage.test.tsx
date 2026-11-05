@@ -111,7 +111,7 @@ describe('DuelPage', () => {
     })
     renderAt('/ranked/duels/d1', signedIn())
 
-    expect(await screen.findByText('Vous avez fini : 2 / 5 bonnes réponses.')).toBeInTheDocument()
+    expect(await screen.findByText('Tu as fini : 2 / 5 bonnes réponses.')).toBeInTheDocument()
     expect(screen.getByText(/Un adversaire va rejoindre ce duel/)).toBeInTheDocument()
   })
 })

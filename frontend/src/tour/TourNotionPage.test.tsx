@@ -309,4 +309,37 @@ describe('TourNotionPage', () => {
       '/subjects/go/tour',
     )
   })
+
+  it('lets the reader test themselves on the last page, with cards to flip', async () => {
+    stubApi({
+      ...SIGNED_IN_API,
+      ...TOUR_API,
+      '/api/v1/me/practice/go/valeur-zero': {
+        body: {
+          notionTitle: 'La valeur zéro',
+          cards: [
+            {
+              cardId: 'c1',
+              type: 'FLASHCARD',
+              prompt: 'Que vaut un `int` jamais affecté ?',
+              answer: 'Sa valeur zéro : `0`.',
+              choices: [],
+              multipleAnswers: false,
+              blankCount: 0,
+              exercise: null,
+            },
+          ],
+        },
+      },
+    })
+    renderAt('/subjects/go/tour/valeur-zero', signedIn())
+
+    const test = await screen.findByRole('region', { name: 'Teste-toi' })
+    expect(test).toHaveTextContent('Que vaut un int jamais affecté ?')
+    await userEvent.click(within(test).getByRole('button', { name: 'Voir la réponse' }))
+
+    expect(within(test).getByRole('region', { name: 'Réponse' })).toHaveTextContent(
+      'Sa valeur zéro : 0.',
+    )
+  })
 })

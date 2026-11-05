@@ -6,6 +6,7 @@ import { useSession } from '../auth/session'
 import { Markdown } from '../components/Markdown'
 import { ExerciseEditor } from '../review/ExerciseEditor'
 import { ProgramOutput } from './ProgramOutput'
+import { button } from '../components/ui/button'
 
 /**
  * L'« À toi » d'une page du Tour (ADR 0037) : une consigne et un code de départ à modifier. « Vérifier mon programme »
@@ -42,7 +43,7 @@ export function TaskPanel({
   return (
     <section
       aria-labelledby={headingId}
-      className="flex flex-col gap-3 rounded-xl border border-indigo-100 bg-white p-5 shadow-sm"
+      className="flex flex-col gap-3 rounded-xl border border-brand-line bg-surface p-5 shadow-sm"
     >
       <h2 id={headingId} className="text-lg font-semibold">
         À toi
@@ -62,7 +63,7 @@ export function TaskPanel({
             type="button"
             disabled={check.isPending}
             onClick={() => check.mutate({ page, files: edited })}
-            className="rounded-lg bg-indigo-600 px-4 py-2 font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+            className={button()}
           >
             {check.isPending ? 'Vérification…' : 'Vérifier mon programme'}
           </button>
@@ -70,7 +71,7 @@ export function TaskPanel({
           <button
             type="button"
             onClick={() => session.login(location.pathname + location.search)}
-            className="rounded-lg bg-indigo-600 px-4 py-2 font-medium text-white hover:bg-indigo-700"
+            className={button()}
           >
             Se connecter pour vérifier
           </button>
@@ -78,13 +79,13 @@ export function TaskPanel({
         <button
           type="button"
           onClick={reset}
-          className="rounded-lg border border-slate-200 px-4 py-2 font-medium text-slate-700 hover:bg-slate-50"
+          className="rounded-lg border border-line px-4 py-2 font-medium text-ink-soft hover:bg-surface-muted"
         >
           Réinitialiser
         </button>
       </div>
       {check.error && (
-        <p role="alert" className="text-sm text-rose-700">
+        <p role="alert" className="text-sm text-danger">
           {check.error instanceof ApiError ? check.error.message : 'La vérification a échoué.'}
         </p>
       )}
@@ -92,7 +93,7 @@ export function TaskPanel({
         <>
           <p
             role="status"
-            className={`font-medium ${check.data.passed ? 'text-emerald-700' : 'text-rose-700'}`}
+            className={`font-medium ${check.data.passed ? 'text-success' : 'text-danger'}`}
           >
             {check.data.passed
               ? 'Bravo : c’est la sortie attendue !'

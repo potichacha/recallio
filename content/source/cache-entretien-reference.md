@@ -3,7 +3,7 @@ subject: cache
 title: Cache
 category: data
 position: 90
-status: published
+status: draft
 ---
 
 # Cache : le document de référence pour les entretiens techniques

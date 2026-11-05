@@ -16,7 +16,7 @@ test.describe('Session de révision', () => {
     await expect(page.getByRole('heading', { name: 'Réviser : Java' })).toBeVisible()
     await expect(page.getByRole('timer', { name: 'Temps restant' })).toHaveText('Encore 5 min')
 
-    const answers = page.getByRole('group', { name: 'Connaissiez-vous la réponse ?' })
+    const answers = page.getByRole('group', { name: 'Connaissais-tu la réponse ?' })
     for (const [index, answer] of ['Je savais', 'Je ne savais pas'].entries()) {
       await expect(page.locator('article header')).toContainText('Java ·')
       await page.getByRole('button', { name: 'Voir la réponse' }).click()
@@ -52,6 +52,6 @@ test.describe('Session de révision', () => {
     await expect(page.getByRole('heading', { name: 'Réviser', exact: true })).toBeVisible()
     await expect(page.locator('article header')).toContainText('Bases du langage')
     await page.getByRole('button', { name: 'Voir la réponse' }).click()
-    await expect(page.getByRole('group', { name: 'Connaissiez-vous la réponse ?' })).toBeVisible()
+    await expect(page.getByRole('group', { name: 'Connaissais-tu la réponse ?' })).toBeVisible()
   })
 })

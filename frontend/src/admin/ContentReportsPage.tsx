@@ -42,7 +42,7 @@ export function ContentReportsPage() {
             aria-pressed={status === option}
             onClick={() => choose(option)}
             className={`rounded-lg px-3 py-1.5 text-sm font-medium ${
-              status === option ? 'bg-indigo-600 text-white' : 'bg-white text-slate-700 shadow-sm'
+              status === option ? 'bg-brand text-on-brand' : 'bg-surface text-ink-soft shadow-sm'
             }`}
           >
             {option === 'OPEN' ? 'À traiter' : 'Traités'}
@@ -53,7 +53,7 @@ export function ContentReportsPage() {
       {reports.isError && <p role="alert">Impossible de charger les signalements.</p>}
       {reports.data && (
         <>
-          <p className="text-sm text-slate-600">
+          <p className="text-sm text-ink-muted">
             {reports.data.totalItems} signalement{reports.data.totalItems > 1 ? 's' : ''}
           </p>
           <ul className="flex flex-col gap-3">
@@ -87,22 +87,22 @@ export function ContentReportsPage() {
 function ReportItem({ report }: { report: AdminContentReport }) {
   const resolve = useResolveReport()
   return (
-    <li className="flex flex-col gap-2 rounded-xl bg-white p-4 shadow-sm">
+    <li className="flex flex-col gap-2 rounded-xl bg-surface p-4 shadow-sm">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <span className="font-medium">{REPORT_REASON_LABELS[report.reason]}</span>
-        <span className="text-xs text-slate-500">{DATE.format(new Date(report.createdAt))}</span>
+        <span className="text-xs text-ink-muted">{DATE.format(new Date(report.createdAt))}</span>
       </div>
-      <p className="text-sm text-slate-600">
+      <p className="text-sm text-ink-muted">
         <ContentLink report={report} />
       </p>
       {report.excerpt && (
-        <blockquote className="border-l-2 border-slate-200 pl-3 text-sm text-slate-700">
+        <blockquote className="border-l-2 border-line pl-3 text-sm text-ink-soft">
           {report.excerpt}
         </blockquote>
       )}
       {report.comment && <p className="text-sm whitespace-pre-line">« {report.comment} »</p>}
       {report.resolution ? (
-        <p className="text-sm font-medium text-slate-500">
+        <p className="text-sm font-medium text-ink-muted">
           {report.resolution === 'FIXED' ? 'Corrigé' : 'Rejeté'}
           {report.resolvedAt && ` le ${DATE.format(new Date(report.resolvedAt))}`}
         </p>
@@ -112,7 +112,7 @@ function ReportItem({ report }: { report: AdminContentReport }) {
             type="button"
             disabled={resolve.isPending}
             onClick={() => resolve.mutate({ id: report.id, resolution: 'FIXED' })}
-            className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
+            className="rounded-lg bg-success px-3 py-1.5 text-sm font-medium text-on-success hover:bg-success-strong disabled:opacity-50"
           >
             Corrigé
           </button>
@@ -120,14 +120,14 @@ function ReportItem({ report }: { report: AdminContentReport }) {
             type="button"
             disabled={resolve.isPending}
             onClick={() => resolve.mutate({ id: report.id, resolution: 'REJECTED' })}
-            className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+            className="rounded-lg border border-line-strong px-3 py-1.5 text-sm font-medium text-ink-soft hover:bg-surface-muted disabled:opacity-50"
           >
             Rejeté
           </button>
         </div>
       )}
       {resolve.isError && (
-        <p role="alert" className="text-sm text-rose-700">
+        <p role="alert" className="text-sm text-danger">
           {resolve.error instanceof ApiError
             ? resolve.error.message
             : 'Le signalement n’a pas pu être traité.'}
@@ -144,7 +144,7 @@ function ContentLink({ report }: { report: AdminContentReport }) {
     return (
       <Link
         to={tourPath(report.subject, { notion: report.notion, page: report.page })}
-        className="text-indigo-700 hover:underline"
+        className="text-brand-strong hover:underline"
       >
         {where} · page {report.page} du Tour
       </Link>
@@ -154,7 +154,7 @@ function ContentLink({ report }: { report: AdminContentReport }) {
     return (
       <Link
         to={`/themes/${encodeURIComponent(report.themeSlug)}`}
-        className="text-indigo-700 hover:underline"
+        className="text-brand-strong hover:underline"
       >
         {where} · carte
       </Link>

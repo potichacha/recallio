@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react'
 import { ApiError } from '../api/errors'
 import { useReportContent, type ReportReason } from '../api/reports'
 import { REPORT_REASONS } from './reportReasons'
+import { button } from './ui/button'
 
 /** Ce qu'on signale : une carte, ou une page du Tour. */
 export type ReportTarget = { cardId: string } | { subject: string; notion: string; page: number }
@@ -20,7 +21,7 @@ export function ReportButton({ target }: { target: ReportTarget }) {
 
   if (report.isSuccess) {
     return (
-      <p role="status" className="text-xs text-slate-500">
+      <p role="status" className="text-xs text-ink-muted">
         Merci : le signalement est envoyé, il sera relu.
       </p>
     )
@@ -30,7 +31,7 @@ export function ReportButton({ target }: { target: ReportTarget }) {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="self-start text-xs text-slate-500 underline hover:text-slate-700"
+        className="self-start text-xs text-ink-muted underline hover:text-ink-soft"
       >
         Signaler une erreur
       </button>
@@ -46,7 +47,7 @@ export function ReportButton({ target }: { target: ReportTarget }) {
     <form
       onSubmit={submit}
       aria-label="Signaler une erreur"
-      className="flex flex-col gap-3 rounded-lg border border-slate-200 bg-white p-4 text-sm"
+      className="flex flex-col gap-3 rounded-lg border border-line bg-surface p-4 text-sm"
     >
       <fieldset className="flex flex-col gap-1">
         <legend className="mb-1 font-medium">Qu’est-ce qui ne va pas ?</legend>
@@ -70,27 +71,23 @@ export function ReportButton({ target }: { target: ReportTarget }) {
           onChange={(event) => setComment(event.target.value)}
           maxLength={MAX_COMMENT_LENGTH}
           rows={3}
-          className="rounded-lg border border-slate-300 px-3 py-2"
+          className="rounded-lg border border-line-strong px-3 py-2"
         />
       </label>
       <div className="flex gap-2">
-        <button
-          type="submit"
-          disabled={report.isPending}
-          className="rounded-lg bg-indigo-600 px-3 py-1.5 font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
-        >
+        <button type="submit" disabled={report.isPending} className={button({ size: 'sm' })}>
           Envoyer
         </button>
         <button
           type="button"
           onClick={() => setOpen(false)}
-          className="rounded-lg px-3 py-1.5 font-medium text-slate-600 hover:bg-slate-100"
+          className="rounded-lg px-3 py-1.5 font-medium text-ink-muted hover:bg-surface-muted"
         >
           Annuler
         </button>
       </div>
       {report.isError && (
-        <p role="alert" className="text-rose-700">
+        <p role="alert" className="text-danger">
           {report.error instanceof ApiError
             ? report.error.message
             : 'Le signalement n’a pas pu être envoyé.'}

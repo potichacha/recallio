@@ -4,9 +4,9 @@ import { useTour, useTourProgress } from '../api/tour'
 import { useSession } from '../auth/session'
 import { ChapterExercises } from './ChapterExercises'
 import { tourPath, tourSteps } from './tourSteps'
+import { button } from '../components/ui/button'
 
-const PRIMARY_LINK =
-  'self-start rounded-lg bg-indigo-600 px-4 py-2 font-medium text-white hover:bg-indigo-700'
+const PRIMARY_LINK = `self-start ${button()}`
 
 /**
  * Le sommaire du Tour d'un sujet (ADR 0037) : ses domaines, ses chapitres et ses notions, dans l'ordre où on les
@@ -23,14 +23,14 @@ export function TourOutlinePage() {
     return (
       <section className="flex flex-col gap-3">
         <h1 className="text-2xl font-bold">Sujet introuvable</h1>
-        <Link to="/subjects" className="text-indigo-600 hover:underline">
+        <Link to="/subjects" className="text-brand hover:underline">
           Retour aux sujets
         </Link>
       </section>
     )
   }
   if (tour.isError) return <p role="alert">Impossible de charger le Tour.</p>
-  if (!tour.data) return <p className="text-slate-500">Chargement…</p>
+  if (!tour.data) return <p className="text-ink-muted">Chargement…</p>
 
   const { subjectTitle, domains } = tour.data
   const first = tourSteps(tour.data)[0]
@@ -44,7 +44,7 @@ export function TourOutlinePage() {
     <section className="flex flex-col gap-6">
       <Link
         to={`/subjects/${encodeURIComponent(slug)}`}
-        className="text-sm text-indigo-600 hover:underline"
+        className="text-sm text-brand hover:underline"
       >
         ← {subjectTitle}
       </Link>
@@ -52,7 +52,7 @@ export function TourOutlinePage() {
         <h1 className="text-2xl font-bold">Le Tour de {subjectTitle}</h1>
         {first ? (
           <>
-            <p className="text-slate-600">
+            <p className="text-ink-muted">
               Apprends {subjectTitle} pas à pas. Chaque page explique une notion et propose un
               programme à modifier et à exécuter.
             </p>
@@ -61,7 +61,7 @@ export function TourOutlinePage() {
                 <Link to={tourPath(slug, lastPage)} className={PRIMARY_LINK}>
                   Reprendre le Tour
                 </Link>
-                <p className="text-sm text-slate-600">
+                <p className="text-sm text-ink-muted">
                   Tu en étais à « {resumed.title} »
                   {resumed.pageCount > 1 && `, page ${lastPage.page} sur ${resumed.pageCount}`}.
                 </p>
@@ -72,14 +72,14 @@ export function TourOutlinePage() {
               </Link>
             )}
             {progress.data && (
-              <p className="text-sm text-slate-600">
+              <p className="text-sm text-ink-muted">
                 {validatedCount} / {notions.length} notion{notions.length > 1 ? 's' : ''} validée
                 {notions.length > 1 ? 's' : ''}
               </p>
             )}
           </>
         ) : (
-          <p className="text-slate-600">Ce sujet n’a pas encore de Tour.</p>
+          <p className="text-ink-muted">Ce sujet n’a pas encore de Tour.</p>
         )}
       </div>
       {domains.map((domain) => (
@@ -92,22 +92,25 @@ export function TourOutlinePage() {
             {domain.title}
           </h2>
           {domain.chapters.map((chapter) => (
-            <div key={chapter.id} className="flex flex-col gap-2 rounded-xl bg-white p-4 shadow-sm">
-              <h3 className="font-medium text-slate-700">{chapter.title}</h3>
+            <div
+              key={chapter.id}
+              className="flex flex-col gap-2 rounded-xl bg-surface p-4 shadow-sm"
+            >
+              <h3 className="font-medium text-ink-soft">{chapter.title}</h3>
               <ol aria-label={chapter.title} className="flex flex-col gap-1">
                 {chapter.notions.map((notion) => (
                   <li key={notion.slug}>
                     <Link
                       to={tourPath(slug, { notion: notion.slug, page: 1 })}
-                      className="text-indigo-700 hover:underline"
+                      className="text-brand-strong hover:underline"
                     >
                       {notion.title}
                     </Link>
                     {notion.pageCount > 1 && (
-                      <span className="text-sm text-slate-500"> · {notion.pageCount} pages</span>
+                      <span className="text-sm text-ink-muted"> · {notion.pageCount} pages</span>
                     )}
                     {validated.has(notion.slug) && (
-                      <span className="text-sm font-medium text-emerald-700"> · validée</span>
+                      <span className="text-sm font-medium text-success"> · validée</span>
                     )}
                   </li>
                 ))}

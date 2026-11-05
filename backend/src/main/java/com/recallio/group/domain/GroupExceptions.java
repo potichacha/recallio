@@ -19,7 +19,7 @@ public final class GroupExceptions {
         public static final String CODE = "group.not-found";
 
         public GroupNotFoundException(UUID groupId) {
-            super(CODE, "Aucun groupe " + groupId + " parmi vos groupes.");
+            super(CODE, "Aucun groupe " + groupId + " parmi tes groupes.");
         }
     }
 
@@ -89,7 +89,7 @@ public final class GroupExceptions {
         public static final String CODE = "group.challenge-not-found";
 
         public ChallengeNotFoundException(UUID challengeId) {
-            super(CODE, "Aucun défi " + challengeId + " dans vos groupes.");
+            super(CODE, "Aucun défi " + challengeId + " dans tes groupes.");
         }
     }
 
@@ -108,7 +108,7 @@ public final class GroupExceptions {
         public static final String CODE = "group.challenge-no-pending-card";
 
         public NoPendingCardException(int position) {
-            super(CODE, "La carte " + (position + 1) + " du défi ne vous a pas été présentée.");
+            super(CODE, "La carte " + (position + 1) + " du défi ne t'a pas été présentée.");
         }
     }
 
@@ -117,7 +117,7 @@ public final class GroupExceptions {
         public NotEnoughCardsException(int available) {
             super(
                     "group.not-enough-cards",
-                    "Les sujets du groupe ne comptent que " + available + " QCM : choisissez une série plus courte"
+                    "Les sujets du groupe ne comptent que " + available + " QCM : choisis une série plus courte"
                             + " ou d'autres sujets.");
         }
     }
@@ -127,7 +127,7 @@ public final class GroupExceptions {
         public static final String CODE = "group.too-many-groups";
 
         public TooManyGroupsException(int limit) {
-            super(CODE, "Vous avez déjà créé " + limit + " groupes, le maximum.");
+            super(CODE, "Tu as déjà créé " + limit + " groupes, le maximum.");
         }
     }
 }

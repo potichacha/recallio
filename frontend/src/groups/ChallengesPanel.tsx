@@ -3,6 +3,7 @@ import { Link } from 'react-router'
 import { useCreateChallenge, useGroupChallenges, type ChallengeSummary } from '../api/challenges'
 import { ApiError } from '../api/errors'
 import type { Group } from '../api/groups'
+import { button } from '../components/ui/button'
 
 const MIN_CARDS = 3
 const MAX_CARDS = 20
@@ -18,7 +19,7 @@ export function ChallengesPanel({ group }: { group: Group }) {
   return (
     <section
       aria-labelledby="challenges-title"
-      className="flex flex-col gap-3 rounded-xl bg-white p-4 shadow-sm"
+      className="flex flex-col gap-3 rounded-xl bg-surface p-4 shadow-sm"
     >
       <h2 id="challenges-title" className="text-lg font-semibold">
         Défis
@@ -26,7 +27,7 @@ export function ChallengesPanel({ group }: { group: Group }) {
       {challenges.isPending && <p>Chargement des défis…</p>}
       {challenges.isError && <p role="alert">Impossible de charger les défis.</p>}
       {challenges.data?.length === 0 && (
-        <p className="text-sm text-slate-600">
+        <p className="text-sm text-ink-muted">
           Aucun défi pour le moment. Un défi propose la même série de QCM à tous les membres, avec
           un temps limité par carte.
         </p>
@@ -56,16 +57,16 @@ function ChallengeRow({ challenge }: { challenge: ChallengeSummary }) {
     <li>
       <Link
         to={`/challenges/${challenge.id}`}
-        className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2 hover:border-indigo-300"
+        className="flex items-center justify-between gap-3 rounded-lg border border-line px-3 py-2 hover:border-brand-line"
       >
         <span className="flex flex-col">
           <span className="font-medium">{challenge.title}</span>
-          <span className="text-xs text-slate-500">
+          <span className="text-xs text-ink-muted">
             {challenge.cardCount} QCM · {challenge.secondsPerCard} s par carte
             {challenge.open && ` · jusqu'au ${END.format(new Date(challenge.endsAt))}`}
           </span>
         </span>
-        <span className="text-sm font-medium text-indigo-700">{action}</span>
+        <span className="text-sm font-medium text-brand-strong">{action}</span>
       </Link>
     </li>
   )
@@ -86,7 +87,7 @@ function CreateChallengeForm({ groupId }: { groupId: string }) {
     <form
       onSubmit={submit}
       aria-label="Lancer un défi"
-      className="flex flex-col gap-3 border-t border-slate-100 pt-3"
+      className="flex flex-col gap-3 border-t border-line pt-3"
     >
       <label className="flex flex-col gap-1">
         <span className="text-sm font-medium">Titre du défi</span>
@@ -95,7 +96,7 @@ function CreateChallengeForm({ groupId }: { groupId: string }) {
           onChange={(event) => setTitle(event.target.value)}
           maxLength={80}
           required
-          className="rounded-lg border border-slate-300 px-3 py-2"
+          className="rounded-lg border border-line-strong px-3 py-2"
         />
       </label>
       <div className="flex flex-wrap gap-4">
@@ -117,7 +118,7 @@ function CreateChallengeForm({ groupId }: { groupId: string }) {
       <button
         type="submit"
         disabled={title.trim() === '' || create.isPending}
-        className="self-start rounded-lg bg-indigo-600 px-4 py-2 font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+        className={`self-start ${button()}`}
       >
         Lancer le défi
       </button>
@@ -155,7 +156,7 @@ function NumberField({
         required
         value={Number.isNaN(value) ? '' : value}
         onChange={(event) => onChange(event.target.valueAsNumber)}
-        className="w-28 rounded-lg border border-slate-300 px-3 py-2"
+        className="w-28 rounded-lg border border-line-strong px-3 py-2"
       />
     </label>
   )

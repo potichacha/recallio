@@ -5,6 +5,7 @@ import { ChoiceOption } from '../components/ChoiceOption'
 import { choiceOutcome, toggleChoice } from '../components/choices'
 import { Markdown } from '../components/Markdown'
 import { useCountdown } from '../components/useCountdown'
+import { button } from '../components/ui/button'
 
 const SECOND = 1000
 
@@ -36,9 +37,9 @@ export function LiveRoundView({
   }
 
   return (
-    <article className="flex flex-col gap-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+    <article className="flex flex-col gap-4 rounded-xl border border-line bg-surface p-5 shadow-sm">
       <header className="flex items-center justify-between gap-2 text-sm">
-        <span className="font-medium text-indigo-600">
+        <span className="font-medium text-brand">
           Question {round.index + 1} / {round.total}
         </span>
         {/* Un décompte par étape : chrono de la question, puis attente de la suivante. */}
@@ -51,7 +52,7 @@ export function LiveRoundView({
       <Markdown>{round.prompt}</Markdown>
       <form onSubmit={submit} className="flex flex-col gap-3">
         <fieldset className="flex flex-col gap-2">
-          <legend className="mb-1 text-sm text-slate-500">
+          <legend className="mb-1 text-sm text-ink-muted">
             {round.multipleAnswers ? 'Plusieurs réponses possibles' : 'Une seule réponse'}
           </legend>
           {round.choices.map((choice, index) => (
@@ -76,7 +77,7 @@ export function LiveRoundView({
           <button
             type="submit"
             disabled={selected.length === 0 || answer.isPending}
-            className="self-start rounded-lg bg-indigo-600 px-4 py-2 font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+            className={`self-start ${button()}`}
           >
             Valider
           </button>
@@ -90,14 +91,14 @@ export function LiveRoundView({
         </p>
       )}
       {!reveal && answered && (
-        <p role="status" className="text-slate-600">
+        <p role="status" className="text-ink-muted">
           Réponse envoyée. {round.answeredCount} / {game.players.length} joueurs ont répondu.
         </p>
       )}
       {reveal && (
-        <div className="flex flex-col gap-2 border-t border-slate-100 pt-4">
+        <div className="flex flex-col gap-2 border-t border-line pt-4">
           {myPoints !== undefined && (
-            <p className="text-lg font-semibold text-indigo-700">
+            <p className="text-lg font-semibold text-brand-strong">
               {myPoints > 0 ? `+${myPoints} points` : 'Aucun point sur cette question'}
             </p>
           )}
@@ -115,7 +116,7 @@ export function LiveRoundView({
 function Countdown({ remainingMs, label }: { remainingMs: number; label: string }) {
   const remaining = useCountdown(remainingMs)
   return (
-    <span role="timer" aria-label={label} className="font-mono text-slate-700">
+    <span role="timer" aria-label={label} className="font-mono text-ink-soft">
       {Math.ceil(remaining / SECOND)} s
     </span>
   )

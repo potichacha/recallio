@@ -4,16 +4,15 @@ import { CARD_TYPE_LABELS } from '../components/cardTypeLabels'
 import { Markdown } from '../components/Markdown'
 import { SourceFiles } from '../components/SourceFiles'
 import { numberBlanks } from '../review/blanks'
+import { button } from '../components/ui/button'
 
 /** Une carte en consultation : la réponse reste masquée jusqu'à ce qu'on choisisse de la révéler. */
 export function CardItem({ card }: { card: Card }) {
   const [revealed, setRevealed] = useState(false)
 
   return (
-    <article className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-      <span className="text-xs font-medium tracking-wide text-indigo-600 uppercase">
-        {CARD_TYPE_LABELS[card.type]}
-      </span>
+    <article className="flex flex-col gap-3 rounded-xl border border-line bg-surface p-4 shadow-sm">
+      <span className="text-sm font-semibold text-brand">{CARD_TYPE_LABELS[card.type]}</span>
       <Markdown>{card.blanks.length > 0 ? numberBlanks(card.prompt) : card.prompt}</Markdown>
       {card.exercise && (
         <>
@@ -27,7 +26,7 @@ export function CardItem({ card }: { card: Card }) {
             <li
               key={index}
               className={`rounded-lg border px-3 py-1.5 text-sm ${
-                revealed && choice.correct ? 'border-emerald-300 bg-emerald-50' : 'border-slate-200'
+                revealed && choice.correct ? 'border-success-line bg-success-soft' : 'border-line'
               }`}
             >
               <Markdown>{choice.text}</Markdown>
@@ -37,7 +36,7 @@ export function CardItem({ card }: { card: Card }) {
         </ul>
       )}
       {revealed ? (
-        <div className="flex flex-col gap-2 border-t border-slate-100 pt-3">
+        <div className="flex flex-col gap-2 border-t border-line pt-3">
           {card.blanks.length > 0 && (
             <ol className="flex flex-col gap-1 text-sm">
               {card.blanks.map((accepted, index) => (
@@ -54,7 +53,7 @@ export function CardItem({ card }: { card: Card }) {
         <button
           type="button"
           onClick={() => setRevealed(true)}
-          className="self-start rounded-lg border border-indigo-200 px-3 py-1.5 text-sm font-medium text-indigo-700 hover:bg-indigo-50"
+          className={`self-start ${button({ variant: 'secondary', size: 'sm' })}`}
         >
           Voir la réponse
         </button>

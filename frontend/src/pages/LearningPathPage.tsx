@@ -1,3 +1,4 @@
+import { Trophy } from '@phosphor-icons/react'
 import { Link, useParams } from 'react-router'
 import { useSubject } from '../api/content'
 import { ApiError } from '../api/errors'
@@ -35,7 +36,7 @@ export function LearningPathPage() {
     return (
       <section className="flex flex-col gap-3">
         <h1 className="text-2xl font-bold">Sujet introuvable</h1>
-        <Link to="/subjects" className="text-indigo-600 hover:underline">
+        <Link to="/subjects" className="text-brand hover:underline">
           Retour aux sujets
         </Link>
       </section>
@@ -48,7 +49,7 @@ export function LearningPathPage() {
 
   return (
     <section className="flex flex-col gap-4">
-      <Link to={`/subjects/${slug}`} className="text-sm text-indigo-600 hover:underline">
+      <Link to={`/subjects/${slug}`} className="text-sm text-brand hover:underline">
         ← {subject.data?.title ?? 'Le sujet'}
       </Link>
       <h1 className="text-2xl font-bold">Mon parcours {subject.data?.title}</h1>
@@ -57,17 +58,17 @@ export function LearningPathPage() {
         <p role="alert">Impossible de charger le parcours.</p>
       )}
       {path.isSuccess && domains.length === 0 && (
-        <p className="text-slate-600">
+        <p className="text-ink-muted">
           Ce sujet n’a pas encore de référentiel de notions : ses cartes se révisent dans l’ordre de
           son document.
         </p>
       )}
       {path.isSuccess && domains.length > 0 && (
         <>
-          <div className="flex flex-col gap-2 rounded-xl bg-white p-4 shadow-sm">
-            <p className="text-sm text-slate-600">
+          <div className="flex flex-col gap-2 rounded-xl bg-surface p-4 shadow-sm">
+            <p className="text-sm text-ink-muted">
               Parcours <strong>{track?.label}</strong> ·{' '}
-              <Link to="/profile" className="text-indigo-600 hover:underline">
+              <Link to="/profile" className="text-brand hover:underline">
                 changer de parcours
               </Link>
             </p>
@@ -107,15 +108,15 @@ function DomainSection({
   return (
     <section
       aria-labelledby={`domain-${domain.id}`}
-      className="flex flex-col gap-3 rounded-xl bg-white p-4 shadow-sm"
+      className="flex flex-col gap-3 rounded-xl bg-surface p-4 shadow-sm"
     >
       <h2 id={`domain-${domain.id}`} className="text-lg font-semibold">
         {domain.title}
       </h2>
       <MasteryBar counts={domain.counts} label={domain.title} />
-      <p className="text-xs text-slate-500">{masterySummary(domain.counts)}</p>
+      <p className="text-xs text-ink-muted">{masterySummary(domain.counts)}</p>
       <details open={open}>
-        <summary className="cursor-pointer text-sm font-medium text-indigo-700">
+        <summary className="cursor-pointer text-sm font-medium text-brand-strong">
           {plural(domain.chapters.length, 'chapitre')} · {plural(notions, 'notion')}
         </summary>
         <div className="mt-3 flex flex-col gap-4">
@@ -131,7 +132,9 @@ function DomainSection({
                 </h3>
                 {isMastered(chapter.notions) && (
                   <span className="flex items-center gap-2">
-                    <span className="text-xs font-medium text-emerald-700">🏆 Maîtrisé</span>
+                    <span className="inline-flex items-center gap-1 text-xs font-medium text-success">
+                      <Trophy weight="fill" aria-hidden className="text-sun" /> Maîtrisé
+                    </span>
                     <ShareButton
                       card={{
                         kicker: 'Carte des compétences',
@@ -169,23 +172,23 @@ function NotionItem({ subject, notion }: { subject: string; notion: PathNotion }
   const badge = blocked
     ? {
         label: notion.status === 'LOCKED' ? 'Verrouillée' : 'À venir',
-        style: 'bg-slate-100 text-slate-400',
+        style: 'bg-surface-muted text-ink-faint',
       }
     : { label: MASTERY_LABELS[notion.mastery], style: MASTERY_STYLES[notion.mastery] }
   return (
-    <li className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2">
+    <li className="flex items-center justify-between gap-3 rounded-lg border border-line px-3 py-2">
       <span className="flex flex-col">
         <span>{notion.title}</span>
-        <span className="text-xs text-slate-500">
+        <span className="text-xs text-ink-muted">
           {LEVEL_LABELS[notion.level]} · {notion.seenCount} / {notion.cardCount} cartes vues
         </span>
         {!blocked && notion.nextLevel && (
-          <span className="text-xs text-slate-500">{nextLevelHint(notion.nextLevel)}</span>
+          <span className="text-xs text-ink-muted">{nextLevelHint(notion.nextLevel)}</span>
         )}
         {notion.status !== 'NO_CARDS' && (
           <Link
             to={practicePath(subject, notion.slug)}
-            className="text-xs font-medium text-indigo-700 hover:underline"
+            className="text-xs font-medium text-brand-strong hover:underline"
           >
             S’entraîner
           </Link>

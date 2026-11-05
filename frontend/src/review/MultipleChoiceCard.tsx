@@ -1,10 +1,12 @@
 import { useState, type FormEvent } from 'react'
 import { ApiError } from '../api/errors'
 import { useRecordReview, type QueuedCard, type ReviewResult } from '../api/review'
+import { AnswerVerdict } from '../components/AnswerVerdict'
 import { ChoiceOption } from '../components/ChoiceOption'
 import { choiceOutcome, toggleChoice } from '../components/choices'
 import { Markdown } from '../components/Markdown'
 import { CardHeader } from './CardHeader'
+import { button } from '../components/ui/button'
 
 /**
  * Un QCM : on coche, on valide, et le serveur corrige (ADR 0019). La note n'est pas choisie : juste, la carte est
@@ -37,12 +39,12 @@ export function MultipleChoiceCard({
   }
 
   return (
-    <article className="flex flex-col gap-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+    <article className="flex flex-col gap-4 rounded-xl border border-line bg-surface p-5 shadow-sm">
       <CardHeader card={card} />
       <Markdown>{card.prompt}</Markdown>
       <form onSubmit={submit} className="flex flex-col gap-3">
         <fieldset className="flex flex-col gap-2">
-          <legend className="mb-1 text-sm text-slate-500">
+          <legend className="mb-1 text-sm text-ink-muted">
             {card.multipleAnswers ? 'Plusieurs réponses possibles' : 'Une seule réponse'}
           </legend>
           {card.choices.map((choice, index) => (
@@ -64,7 +66,7 @@ export function MultipleChoiceCard({
           <button
             type="submit"
             disabled={selected.length === 0 || record.isPending}
-            className="self-start rounded-lg bg-indigo-600 px-4 py-2 font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+            className={`self-start ${button()}`}
           >
             Valider
           </button>
@@ -72,7 +74,7 @@ export function MultipleChoiceCard({
       </form>
 
       {record.isError && (
-        <div role="alert" className="flex items-center gap-3 text-sm text-rose-700">
+        <div role="alert" className="flex items-center gap-3 text-sm text-danger">
           <span>
             {record.error instanceof ApiError
               ? record.error.message
@@ -85,20 +87,17 @@ export function MultipleChoiceCard({
       )}
 
       {result?.correction && (
-        <div className="flex flex-col gap-3 border-t border-slate-100 pt-4">
-          <p
-            role="status"
-            className={`font-medium ${result.rating === 'GOOD' ? 'text-emerald-700' : 'text-rose-700'}`}
-          >
+        <div className="flex flex-col gap-3 border-t border-line pt-4">
+          <AnswerVerdict correct={result.rating === 'GOOD'}>
             {result.rating === 'GOOD'
               ? 'Bonne réponse !'
               : 'Pas tout à fait : les bonnes réponses sont marquées.'}
-          </p>
+          </AnswerVerdict>
           <Markdown>{result.correction.explanation}</Markdown>
           <button
             type="button"
             onClick={() => onReviewed(result)}
-            className="self-start rounded-lg bg-indigo-600 px-4 py-2 font-medium text-white hover:bg-indigo-700"
+            className={`self-start ${button()}`}
           >
             Carte suivante
           </button>

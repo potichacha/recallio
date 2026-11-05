@@ -103,7 +103,7 @@ describe('LearningPathPage', () => {
         name: 'Java : 1 / 4 notions acquises · 1 maîtrisée · 0 experte',
       }),
     ).toBeInTheDocument()
-    expect(screen.getByText('Apprendre')).toBeInTheDocument()
+    expect(within(screen.getByRole('main')).getByText('Apprendre')).toBeInTheDocument()
     const basics = screen.getByRole('region', { name: 'Les bases' })
     expect(basics).toHaveTextContent('1 / 3 notions acquises · 1 maîtrisée · 0 experte')
 
@@ -136,7 +136,7 @@ describe('LearningPathPage', () => {
     renderAt('/subjects/java/path', SIGNED_IN)
 
     const firstSteps = await screen.findByRole('region', { name: 'Premiers pas' })
-    expect(firstSteps).toHaveTextContent('🏆 Maîtrisé')
+    expect(firstSteps).toHaveTextContent('Maîtrisé')
     expect(within(firstSteps).getByRole('button', { name: 'Partager' })).toBeInTheDocument()
     const object = screen.getByRole('region', { name: 'Objet' })
     expect(within(object).queryByRole('button', { name: 'Partager' })).not.toBeInTheDocument()

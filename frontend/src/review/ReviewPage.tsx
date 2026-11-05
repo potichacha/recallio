@@ -7,12 +7,14 @@ import { RequireFollowedSubjects } from '../auth/RequireFollowedSubjects'
 import { CARD_TYPE_LABELS } from '../components/cardTypeLabels'
 import { ReviewSession } from './ReviewSession'
 import { SessionSetup } from './SessionSetup'
-import { sessionTypes, type SessionSettings } from './sessionSettings'
+import { SESSION_MINUTES, sessionTypes, type SessionSettings } from './sessionSettings'
 
 /**
  * Page de révision. On y lance une session sur un sujet à la fois, pour une durée choisie (ADR 0048) : un sujet
- * (`?subject=go`) est proposé d'emblée, même s'il n'est pas suivi. Un groupe (`?group=...`, selon ses réglages), un thème
- * (`?theme=...`) ou un format (`?type=CODING_EXERCISE`) ouvrent directement une session sans limite de durée.
+ * (`?subject=go`) est proposé d'emblée, même s'il n'est pas suivi ; avec sa durée et ses questions
+ * (`?subject=go&minutes=10&mode=all`, le bouton « Continuer » de l'accueil), la session démarre aussitôt (ADR 0050). Un
+ * groupe (`?group=...`, selon ses réglages), un thème (`?theme=...`) ou un format (`?type=CODING_EXERCISE`) ouvrent
+ * directement une session sans limite de durée.
  */
 export function ReviewPage() {
   const [searchParams] = useSearchParams()
@@ -23,7 +25,19 @@ export function ReviewPage() {
   if (direct) {
     return <DirectSession key={JSON.stringify(direct)} filter={direct} />
   }
-  return <SubjectSession key={subject ?? ''} subject={subject} />
+  const ready = readySettings(searchParams)
+  return <SubjectSession key={searchParams.toString()} subject={subject} ready={ready} />
+}
+
+/** Un sujet, une durée et des questions donnés par le lien : la session n'a plus rien à demander. */
+function readySettings(params: URLSearchParams): SessionSettings | undefined {
+  const subject = params.get('subject')
+  const minutes = params.get('minutes')
+  const mode = params.get('mode')
+  if (!subject || minutes === null || (mode !== 'all' && mode !== 'graded')) return undefined
+  if (minutes === 'none') return { subject, minutes: null, mode }
+  const timed = SESSION_MINUTES.find((allowed) => allowed === Number(minutes))
+  return timed === undefined ? undefined : { subject, minutes: timed, mode }
 }
 
 /** Un groupe, un thème ou un format précis : ce qu'il faut réviser est déjà dit par le lien. */
@@ -64,9 +78,11 @@ function GroupSessionTitle({ groupId }: { groupId: string }) {
 }
 
 /** Le lancement d'une session, puis la session, puis, au bilan, une autre session ou d'autres réglages. */
-function SubjectSession({ subject }: { subject?: string }) {
+function SubjectSession({ subject, ready }: { subject?: string; ready?: SessionSettings }) {
   const subjects = useSubjects()
-  const [session, setSession] = useState<{ settings: SessionSettings; run: number }>()
+  const [session, setSession] = useState<{ settings: SessionSettings; run: number } | undefined>(
+    ready && { settings: ready, run: 0 },
+  )
 
   if (!session) {
     const setup = (
@@ -87,6 +103,7 @@ function SubjectSession({ subject }: { subject?: string }) {
       filter={{ subject: settings.subject, types: sessionTypes(settings.mode) }}
       minutes={settings.minutes}
       onRestart={() => setSession({ settings, run: run + 1 })}
+      onMore={() => setSession({ settings: { ...settings, minutes: 5 }, run: run + 1 })}
       onChangeSettings={() => setSession(undefined)}
     />
   )

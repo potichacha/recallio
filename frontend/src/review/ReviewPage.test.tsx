@@ -210,7 +210,7 @@ describe('ReviewPage', () => {
     expect(screen.getByRole('region', { name: 'Réponse attendue' })).toHaveTextContent(
       'La machine virtuelle qui exécute le bytecode.',
     )
-    const choices = screen.getByRole('group', { name: 'Connaissiez-vous la réponse ?' })
+    const choices = screen.getByRole('group', { name: 'Connaissais-tu la réponse ?' })
     expect(
       within(choices)
         .getAllByRole('button')
@@ -233,11 +233,11 @@ describe('ReviewPage', () => {
     renderAt('/review', signedIn())
     await startSession()
 
-    const draft = await screen.findByRole('textbox', { name: 'Votre réponse (facultatif)' })
+    const draft = await screen.findByRole('textbox', { name: 'Ta réponse (facultatif)' })
     await userEvent.type(draft, 'Elle exécute le bytecode.')
     await userEvent.click(screen.getByRole('button', { name: 'Voir la réponse' }))
 
-    expect(screen.getByRole('region', { name: 'Votre réponse' })).toHaveTextContent(
+    expect(screen.getByRole('region', { name: 'Ta réponse' })).toHaveTextContent(
       'Elle exécute le bytecode.',
     )
     expect(screen.getByRole('region', { name: 'Réponse attendue' })).toBeInTheDocument()
@@ -676,14 +676,14 @@ describe('ReviewPage', () => {
     renderAt('/review', signedIn())
     await startSession()
 
-    const draft = await screen.findByRole('textbox', { name: 'Votre correction (facultatif)' })
+    const draft = await screen.findByRole('textbox', { name: 'Ta correction (facultatif)' })
     await userEvent.type(draft, 'if ("oui".equals(s))')
     await userEvent.click(screen.getByRole('button', { name: 'Voir la réponse' }))
 
-    expect(screen.getByRole('region', { name: 'Votre correction' })).toHaveTextContent(
+    expect(screen.getByRole('region', { name: 'Ta correction' })).toHaveTextContent(
       'if ("oui".equals(s))',
     )
-    expect(screen.getByRole('group', { name: 'Connaissiez-vous la réponse ?' })).toBeInTheDocument()
+    expect(screen.getByRole('group', { name: 'Connaissais-tu la réponse ?' })).toBeInTheDocument()
   })
 
   it('shows the progress towards the daily goal, refreshed after each review', async () => {
@@ -707,11 +707,81 @@ describe('ReviewPage', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Je savais' }))
 
     expect(
-      await screen.findByText('Objectif atteint ! Votre série passe à 4 jours.'),
+      await screen.findByText('Objectif atteint ! Ta série passe à 4 jours.'),
     ).toBeInTheDocument()
     expect(
       sentRequests(fetchMock).filter((request) => request.url.endsWith('/api/v1/me/progress'))
         .length,
     ).toBeGreaterThanOrEqual(2)
+  })
+
+  it('starts at once from a link that gives the subject, the length and the questions', async () => {
+    const fetchMock = stubApi({ ...PROFILE, [QUEUE]: { body: queue([queuedCard()]) } })
+    renderAt('/review?subject=java&minutes=5&mode=graded', signedIn())
+
+    expect(await screen.findByText("Qu'est-ce que la JVM ?")).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Commencer' })).not.toBeInTheDocument()
+    expect(screen.getByRole('timer', { name: 'Temps restant' })).toHaveTextContent('Encore 5 min')
+    const [query] = queueRequests(fetchMock)
+    expect(query?.get('subject')).toBe('java')
+    expect(query?.getAll('type')).toContain('MULTIPLE_CHOICE')
+  })
+
+  it('flips a self-assessed card and records the answer from the keyboard', async () => {
+    const fetchMock = stubApi({
+      ...PROFILE,
+      [QUEUE]: {
+        body: queue([queuedCard(), queuedCard({ cardId: 'card-2', prompt: 'Taille d’un int ?' })]),
+      },
+      [REVIEWS]: { status: 201, ...recorded },
+    })
+    renderAt('/review', signedIn())
+    await startSession()
+
+    expect(await screen.findByText("Qu'est-ce que la JVM ?")).toBeInTheDocument()
+    await userEvent.keyboard(' ')
+    expect(screen.getByRole('region', { name: 'Réponse attendue' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Je savais' })).toHaveAttribute(
+      'aria-keyshortcuts',
+      '2',
+    )
+    await userEvent.keyboard('2')
+
+    expect(await screen.findByText('Taille d’un int ?')).toBeInTheDocument()
+    const post = sentRequests(fetchMock).find((request) => request.method === 'POST')
+    expect(await post?.json()).toMatchObject({ cardId: 'card-1', rating: 'GOOD' })
+  })
+
+  it('leaves Enter to the button that has the focus', async () => {
+    stubApi({ ...PROFILE, [QUEUE]: { body: queue([queuedCard()]) } })
+    renderAt('/review', signedIn())
+    await startSession()
+
+    expect(await screen.findByText("Qu'est-ce que la JVM ?")).toBeInTheDocument()
+    screen.getByRole('button', { name: 'Terminer la session' }).focus()
+    await userEvent.keyboard('{Enter}')
+
+    expect(screen.getByRole('region', { name: 'Bilan de la session' })).toHaveTextContent(
+      'Session terminée',
+    )
+  })
+
+  it('offers five more minutes once the time is up', async () => {
+    stubApi({
+      ...PROFILE,
+      [QUEUE]: { body: queue([queuedCard(), queuedCard({ cardId: 'card-2' })]) },
+      [REVIEWS]: { status: 201, ...recorded },
+    })
+    renderAt('/review', signedIn())
+    await startSession()
+    await userEvent.click(await screen.findByRole('button', { name: 'Voir la réponse' }))
+    vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 11 * MINUTE)
+    await userEvent.click(screen.getByRole('button', { name: 'Je savais' }))
+
+    const summary = await screen.findByRole('region', { name: 'Bilan de la session' })
+    await userEvent.click(within(summary).getByRole('button', { name: 'Encore 5 minutes' }))
+
+    expect(await screen.findByText("Qu'est-ce que la JVM ?")).toBeInTheDocument()
+    expect(screen.getByRole('timer', { name: 'Temps restant' })).toHaveTextContent('Encore 5 min')
   })
 })

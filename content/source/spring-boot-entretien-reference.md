@@ -3,7 +3,7 @@ subject: spring-boot
 title: Spring Boot
 category: frameworks
 position: 30
-status: published
+status: draft
 ---
 
 # Spring Boot : le document de référence pour les entretiens techniques

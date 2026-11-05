@@ -4,7 +4,11 @@ import com.recallio.gamification.domain.ActivityRepository;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.persistence.EntityManager;
 import java.time.LocalDate;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /** Requêtes natives : le compteur doit être incrémenté en une seule instruction, sans lecture préalable. */
@@ -94,6 +98,19 @@ public class JpaActivityRepository implements ActivityRepository {
     }
 
     /** Selon le pilote, une colonne {@code date} arrive en {@link LocalDate} ou en {@link java.sql.Date}. */
+    @Override
+    public Map<UUID, Set<LocalDate>> activeDays() {
+        List<?> rows = entityManager
+                .createNativeQuery("select user_id, local_date from daily_activity where cards_reviewed > 0")
+                .getResultList();
+        Map<UUID, Set<LocalDate>> days = new HashMap<>();
+        for (Object row : rows) {
+            Object[] columns = (Object[]) row;
+            days.computeIfAbsent((UUID) columns[0], _ -> new HashSet<>()).add(toLocalDate(columns[1]));
+        }
+        return days;
+    }
+
     private static LocalDate toLocalDate(Object value) {
         return value instanceof java.sql.Date date ? date.toLocalDate() : (LocalDate) value;
     }

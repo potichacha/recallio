@@ -11,11 +11,11 @@ export const MASTERY_LABELS: Record<MasteryLevel, string> = {
 }
 
 export const MASTERY_STYLES: Record<MasteryLevel, string> = {
-  NEW: 'bg-slate-100 text-slate-600',
-  DISCOVERED: 'bg-amber-50 text-amber-700',
-  ACQUIRED: 'bg-sky-50 text-sky-700',
-  MASTERED: 'bg-emerald-50 text-emerald-700',
-  EXPERT: 'bg-violet-50 text-violet-700',
+  NEW: 'bg-surface-muted text-ink-muted',
+  DISCOVERED: 'bg-warning-soft text-warning',
+  ACQUIRED: 'bg-info-soft text-info',
+  MASTERED: 'bg-success-soft text-success',
+  EXPERT: 'bg-brand-soft text-brand',
 }
 
 /** Un format, tel qu'on le nomme dans une phrase : « il reste à réussir un QCM et l'exercice de code ». */

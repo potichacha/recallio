@@ -8,6 +8,7 @@ import {
   toGradedAnswer,
   type AnswerDraft,
 } from '../components/gradedAnswers'
+import { button } from '../components/ui/button'
 
 /**
  * Les questions qui valident une notion du Tour (ADR 0037) : on y répond, le serveur corrige, et la notion est validée
@@ -41,17 +42,17 @@ export function NotionCheck({ subject, notion }: { subject: string; notion: stri
   return (
     <section
       aria-labelledby={`check-${notion}`}
-      className="flex flex-col gap-4 rounded-xl bg-white p-5 shadow-sm"
+      className="flex flex-col gap-4 rounded-xl bg-surface p-5 shadow-sm"
     >
       <h2 id={`check-${notion}`} className="text-lg font-semibold">
         Valider la notion
       </h2>
       {validated ? (
-        <p role="status" className="font-medium text-emerald-700">
+        <p role="status" className="font-medium text-success">
           Notion validée !
         </p>
       ) : (
-        <p className="text-sm text-slate-600">
+        <p className="text-sm text-ink-muted">
           Réponds juste à ces questions pour valider la notion. Elles ne comptent pas dans tes
           révisions.
         </p>
@@ -72,7 +73,7 @@ export function NotionCheck({ subject, notion }: { subject: string; notion: stri
             <button
               type="button"
               onClick={() => check.reset()}
-              className="self-start rounded-lg border border-indigo-200 px-4 py-2 font-medium text-indigo-700 hover:bg-indigo-50"
+              className={`self-start ${button({ variant: 'secondary' })}`}
             >
               Réessayer
             </button>
@@ -81,14 +82,14 @@ export function NotionCheck({ subject, notion }: { subject: string; notion: stri
           <button
             type="submit"
             disabled={!complete || check.isPending}
-            className="self-start rounded-lg bg-indigo-600 px-4 py-2 font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+            className={`self-start ${button()}`}
           >
             {check.isPending ? 'Vérification…' : 'Vérifier'}
           </button>
         )}
       </form>
       {check.error && (
-        <p role="alert" className="text-sm text-rose-700">
+        <p role="alert" className="text-sm text-danger">
           {check.error instanceof ApiError ? check.error.message : 'La vérification a échoué.'}
         </p>
       )}

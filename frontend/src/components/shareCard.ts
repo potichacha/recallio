@@ -20,32 +20,42 @@ export function shareText(card: ShareCard): string {
   return `${card.title} : ${card.detail}. ${card.kicker} sur ${BRAND}.`
 }
 
-/** Dessine la carte : un fond indigo, le nom de l'application, puis l'exploit, en gros. */
-export function drawShareCard(context: CanvasRenderingContext2D, card: ShareCard) {
-  const background = context.createLinearGradient(0, 0, SHARE_WIDTH, SHARE_HEIGHT)
-  background.addColorStop(0, '#4f46e5')
-  background.addColorStop(1, '#7c3aed')
-  context.fillStyle = background
-  context.fillRect(0, 0, SHARE_WIDTH, SHARE_HEIGHT)
+/** Les couleurs du design system « Coach » (ADR 0049) : une image ne lit pas les variables CSS. */
+const COACH = {
+  brand: '#0e6b63',
+  sun: '#ffc83d',
+  soft: '#ddf1ee',
+  line: '#a8d8d1',
+  white: '#ffffff',
+}
+const FONT = '"Lexend Variable", system-ui, sans-serif'
 
-  context.fillStyle = '#ffffff'
+/** Dessine la carte : un fond sarcelle, le nom de l'application, puis l'exploit, en gros, souligné de jaune. */
+export function drawShareCard(context: CanvasRenderingContext2D, card: ShareCard) {
+  context.fillStyle = COACH.brand
+  context.fillRect(0, 0, SHARE_WIDTH, SHARE_HEIGHT)
+  context.fillStyle = COACH.sun
+  context.fillRect(MARGIN, 380, 120, 10)
+
+  context.fillStyle = COACH.white
   context.textBaseline = 'top'
-  context.font = 'bold 40px system-ui, sans-serif'
+  context.font = `bold 40px ${FONT}`
   context.fillText(BRAND, MARGIN, MARGIN)
 
-  context.font = '600 36px system-ui, sans-serif'
-  context.fillStyle = '#c7d2fe'
-  context.fillText(card.kicker.toUpperCase(), MARGIN, 220)
+  context.font = `500 36px ${FONT}`
+  context.fillStyle = COACH.sun
+  context.fillText(card.kicker, MARGIN, 220)
 
-  context.fillStyle = '#ffffff'
-  context.font = 'bold 88px system-ui, sans-serif'
-  context.fillText(card.title, MARGIN, 280, SHARE_WIDTH - 2 * MARGIN)
+  context.fillStyle = COACH.white
+  context.font = `bold 88px ${FONT}`
+  context.fillText(card.title, MARGIN, 270, SHARE_WIDTH - 2 * MARGIN)
 
-  context.font = '48px system-ui, sans-serif'
-  context.fillText(card.detail, MARGIN, 400, SHARE_WIDTH - 2 * MARGIN)
+  context.font = `48px ${FONT}`
+  context.fillStyle = COACH.soft
+  context.fillText(card.detail, MARGIN, 410, SHARE_WIDTH - 2 * MARGIN)
 
-  context.font = '32px system-ui, sans-serif'
-  context.fillStyle = '#e0e7ff'
+  context.font = `32px ${FONT}`
+  context.fillStyle = COACH.line
   context.fillText(new URL(card.url).host, MARGIN, SHARE_HEIGHT - MARGIN - 32)
 }
 

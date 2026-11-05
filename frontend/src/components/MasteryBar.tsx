@@ -8,16 +8,16 @@ import { masterySummary } from './mastery'
  */
 export function MasteryBar({ counts, label }: { counts: MasteryCounts; label: string }) {
   const segments = [
-    { level: 'expert', count: counts.expert, className: 'bg-violet-500' },
-    { level: 'mastered', count: counts.mastered - counts.expert, className: 'bg-emerald-500' },
-    { level: 'acquired', count: counts.acquired - counts.mastered, className: 'bg-sky-400' },
-    { level: 'discovered', count: counts.discovered - counts.acquired, className: 'bg-amber-300' },
+    { level: 'expert', count: counts.expert, className: 'bg-brand' },
+    { level: 'mastered', count: counts.mastered - counts.expert, className: 'bg-success' },
+    { level: 'acquired', count: counts.acquired - counts.mastered, className: 'bg-info' },
+    { level: 'discovered', count: counts.discovered - counts.acquired, className: 'bg-sun' },
   ]
   return (
     <div
       role="img"
       aria-label={`${label} : ${masterySummary(counts)}`}
-      className="flex h-2 w-full overflow-hidden rounded-full bg-slate-200"
+      className="flex h-2 w-full overflow-hidden rounded-full bg-surface-sunken"
     >
       {counts.total > 0 &&
         segments

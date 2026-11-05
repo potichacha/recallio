@@ -1,3 +1,4 @@
+import { Check } from '@phosphor-icons/react'
 import { Link } from 'react-router'
 import type { Readiness } from '../api/stats'
 
@@ -19,23 +20,26 @@ export function ReadinessGauge({
     <div className="flex flex-col gap-1">
       <div className="flex items-baseline justify-between gap-3 text-sm">
         <span className="font-medium">Prêt pour l’entretien</span>
-        <span className={ready ? 'font-semibold text-emerald-700' : 'text-slate-500'}>
-          {ready ? `✓ ${percent} %` : `${percent} %`}
+        <span
+          className={`inline-flex items-center gap-1 ${ready ? 'font-semibold text-success' : 'text-ink-muted'}`}
+        >
+          {ready && <Check weight="bold" aria-hidden />}
+          {percent} %
         </span>
       </div>
       <progress
         value={percent}
         max={100}
         aria-label={`${title} : prêt pour l’entretien à ${percent} %`}
-        className="h-1.5 w-full overflow-hidden rounded-full [&::-moz-progress-bar]:bg-teal-500 [&::-webkit-progress-bar]:bg-slate-200 [&::-webkit-progress-value]:bg-teal-500"
+        className="h-1.5 w-full overflow-hidden rounded-full [&::-moz-progress-bar]:bg-brand [&::-webkit-progress-bar]:bg-surface-sunken [&::-webkit-progress-value]:bg-brand"
       />
-      <p className="text-xs text-slate-500">
+      <p className="text-xs text-ink-muted">
         {acquired} / {essentials} notions essentielles acquises, dont {mastered} maîtrisée
         {mastered > 1 ? 's' : ''}
-        {ready ? ' : vous êtes prêt.' : ' : prêt à partir de 80 %.'}{' '}
+        {ready ? ' : c’est bon, tu as passé les 80 %.' : ' : prêt à partir de 80 %.'}{' '}
         <Link
           to={`/subjects/${encodeURIComponent(subject)}/exam`}
-          className="font-medium text-indigo-700 hover:underline"
+          className="font-medium text-brand-strong hover:underline"
         >
           Passer un examen blanc
         </Link>

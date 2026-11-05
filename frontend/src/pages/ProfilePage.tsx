@@ -10,11 +10,15 @@ import {
   type LearningTrack,
   type Profile,
 } from '../api/profile'
+import { useSession } from '../auth/session'
 import { AchievementList } from '../components/AchievementList'
+import { FeedbackSettingsForm } from '../components/FeedbackSettingsForm'
+import { InstallApp } from '../components/InstallApp'
 import { PublicProfileForm } from '../components/PublicProfileForm'
 import { RemindersForm } from '../components/RemindersForm'
 import { SubjectPicker } from '../components/SubjectPicker'
 import { TRACKS } from '../components/trackLabels'
+import { button } from '../components/ui/button'
 
 function timezones(current: string): string[] {
   const all = Intl.supportedValuesOf('timeZone')
@@ -40,7 +44,7 @@ function ProfileForm({ profile }: { profile: Profile }) {
           onChange={(event) => setDisplayName(event.target.value)}
           maxLength={50}
           required
-          className="rounded-lg border border-slate-300 px-3 py-2"
+          className="rounded-lg border border-line-strong px-3 py-2"
         />
       </label>
       <div className="flex flex-col gap-1">
@@ -50,7 +54,7 @@ function ProfileForm({ profile }: { profile: Profile }) {
             value={timezone}
             onChange={(event) => setTimezone(event.target.value)}
             aria-describedby="timezone-help"
-            className="rounded-lg border border-slate-300 px-3 py-2"
+            className="rounded-lg border border-line-strong px-3 py-2"
           >
             {timezones(profile.timezone).map((zone) => (
               <option key={zone} value={zone}>
@@ -59,15 +63,11 @@ function ProfileForm({ profile }: { profile: Profile }) {
             ))}
           </select>
         </label>
-        <span id="timezone-help" className="text-xs text-slate-500">
-          Il détermine à quelle heure commence une nouvelle journée pour votre série (streak).
+        <span id="timezone-help" className="text-xs text-ink-muted">
+          Il détermine à quelle heure commence une nouvelle journée pour ta série (streak).
         </span>
       </div>
-      <button
-        type="submit"
-        disabled={update.isPending}
-        className="self-start rounded-lg bg-indigo-600 px-4 py-2 font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
-      >
+      <button type="submit" disabled={update.isPending} className={`self-start ${button()}`}>
         Enregistrer
       </button>
       {update.isSuccess && <p role="status">Profil enregistré.</p>}
@@ -100,20 +100,20 @@ function FollowedSubjectsForm({ profile }: { profile: Profile }) {
       <h2 id="followed-subjects-title" className="text-lg font-semibold">
         Mes sujets
       </h2>
-      <p className="text-sm text-slate-600">
-        Vos révisions puisent dans ces sujets. Arrêter d'en suivre un ne supprime pas votre
+      <p className="text-sm text-ink-muted">
+        Tes révisions puisent dans ces sujets. Arrêter d’en suivre un ne supprime pas ta
         progression.
       </p>
       <SubjectPicker selected={selected} onChange={setSelected} />
       <button
         type="submit"
         disabled={selected.length === 0 || follow.isPending}
-        className="self-start rounded-lg bg-indigo-600 px-4 py-2 font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+        className={`self-start ${button()}`}
       >
         Enregistrer mes sujets
       </button>
       {follow.isSuccess && <p role="status">Sujets enregistrés.</p>}
-      {follow.isError && <p role="alert">Vos sujets n'ont pas pu être enregistrés.</p>}
+      {follow.isError && <p role="alert">Tes sujets n’ont pas pu être enregistrés.</p>}
     </form>
   )
 }
@@ -131,10 +131,10 @@ function TracksForm({ profile }: { profile: Profile }) {
       <h2 id="tracks-title" className="text-lg font-semibold">
         Mes parcours
       </h2>
-      <dl className="flex flex-col gap-1 text-sm text-slate-600">
+      <dl className="flex flex-col gap-1 text-sm text-ink-muted">
         {TRACKS.map(({ track, label, description }) => (
           <div key={track}>
-            <dt className="inline font-medium text-slate-800">{label}</dt> :{' '}
+            <dt className="inline font-medium text-ink">{label} :</dt>{' '}
             <dd className="inline">{description}</dd>
           </div>
         ))}
@@ -148,7 +148,7 @@ function TracksForm({ profile }: { profile: Profile }) {
             onChange={(event) =>
               choose.mutate({ subject: slug, track: event.target.value as LearningTrack })
             }
-            className="rounded-lg border border-slate-300 px-3 py-2"
+            className="rounded-lg border border-line-strong px-3 py-2"
           >
             {TRACKS.map(({ track, label }) => (
               <option key={track} value={track}>
@@ -172,6 +172,7 @@ function TracksForm({ profile }: { profile: Profile }) {
 
 export function ProfilePage() {
   const profile = useProfile()
+  const session = useSession()
 
   return (
     <section className="flex flex-col gap-4">
@@ -181,10 +182,13 @@ export function ProfilePage() {
       {profile.isSuccess && (
         <>
           {profile.data.roles.includes('admin') && (
-            <p className="text-sm text-slate-500">
-              Vous êtes administrateur.{' '}
-              <Link to="/admin/reports" className="font-medium text-indigo-700 hover:underline">
+            <p className="flex flex-wrap gap-x-3 text-sm text-ink-muted">
+              Tu es administrateur :
+              <Link to="/admin/reports" className="font-medium text-brand-strong hover:underline">
                 Signalements à traiter
+              </Link>
+              <Link to="/admin/retention" className="font-medium text-brand-strong hover:underline">
+                Rétention
               </Link>
             </p>
           )}
@@ -193,7 +197,16 @@ export function ProfilePage() {
           <TracksForm profile={profile.data} />
           <PublicProfileForm />
           <RemindersForm />
+          <InstallApp />
+          <FeedbackSettingsForm />
           <AchievementList />
+          <button
+            type="button"
+            onClick={session.logout}
+            className={`self-start ${button({ variant: 'ghost' })}`}
+          >
+            Se déconnecter
+          </button>
         </>
       )}
     </section>

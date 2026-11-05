@@ -93,9 +93,9 @@ Recallio n'est pas une application « Java » : c'est un **catalogue de sujets d
 | Build | **Maven** avec le wrapper `mvnw`, multi-modules si nécessaire | versions centralisées dans le pom parent |
 | Base de données | **PostgreSQL** | migrations **Flyway**, jamais `generation` automatique du schéma hors tests |
 | Authentification | **OIDC standard**, backend agnostique du fournisseur | Keycloak via Dev Services en local ; fournisseur managé en production (à choisir, voir section 10) ; le backend valide des JWT avec `quarkus-oidc` |
-| Frontend | **React + TypeScript + Vite**, PWA | TanStack Query (appels API), React Router, Tailwind CSS, client API **généré** depuis l'OpenAPI, CodeMirror 6 (éditeur des exercices, chargé à la demande) |
+| Frontend | **React + TypeScript + Vite**, PWA | TanStack Query (appels API), React Router, Tailwind CSS, client API **généré** depuis l'OpenAPI, CodeMirror 6 (éditeur des exercices, chargé à la demande) ; design system « Coach » (ADR 0049) : tokens Tailwind clairs et sombres, Lexend et JetBrains Mono servies par l'application, icônes Phosphor |
 | Tests backend | JUnit 6, AssertJ, Mockito, `@QuarkusTest`, REST Assured, **Testcontainers** (via Dev Services), **ArchUnit** | |
-| Tests frontend | Vitest, Testing Library ; Playwright pour quelques parcours de bout en bout | |
+| Tests frontend | Vitest, Testing Library ; Playwright pour quelques parcours de bout en bout, axe-core pour l'accessibilité (ADR 0050) | |
 | Qualité | Spotless (formatage), Error Prone + NullAway avec JSpecify (dès la phase 0, voir ADR 0004), ESLint + Prettier côté front | |
 | CI | **GitHub Actions** | build, tests, analyse, image Docker |
 | Conteneurs | Docker, `docker compose` pour le local | une image backend, une image frontend (fichiers statiques servis par un serveur web) |
@@ -158,6 +158,7 @@ Si une règle devient gênante, on en discute et on consigne l'exception dans un
 - Logs : SLF4J/JBoss Logging, messages paramétrés, aucune donnée personnelle ni jeton dans les logs.
 - Nommage en anglais dans le code (classes, méthodes, tables) ; documentation et ADR en français.
 - Pas de nombre magique, pas de méthode de plus d'une quarantaine de lignes sans raison, pas de classe "fourre-tout".
+- Front : seulement les tokens du design system (ADR 0049), jamais la palette par défaut de Tailwind, ni dégradé, ni émoji (un test le vérifie) ; les boutons passent par `button()` ; on tutoie l'utilisateur.
 
 ### 4.4 API
 - REST, ressources au pluriel, codes HTTP corrects, pagination bornée côté serveur.
@@ -166,7 +167,7 @@ Si une règle devient gênante, on en discute et on consigne l'exception dans un
 - Les endpoints qui modifient la progression (enregistrer une réponse) sont **idempotents** (identifiant de requête côté client) pour supporter les retries sur mobile.
 
 ### 4.5 Sécurité
-- Toutes les routes sauf la santé et le contenu public nécessitent un JWT valide.
+- Toutes les routes sauf la santé, le contenu public (catalogue, Tour) et l'essai sans compte (ADR 0050) nécessitent un JWT valide.
 - Autorisation vérifiée **côté serveur pour chaque ressource** (un utilisateur ne lit que sa progression, un membre ne voit que ses groupes).
 - Secrets uniquement en variables d'environnement, jamais dans le dépôt.
 - Dépendances surveillées (Renovate ou Dependabot), scan des images en CI.
@@ -271,10 +272,10 @@ Les sujets s'ajoutent un par un, au rythme de la rédaction, indépendamment des
 |---|---|---|
 | Java | Langages | ✅ rédigé, migré vers son dossier de notions (ADR 0026), complet : 347 notions, 7 072 cartes, 39 exercices |
 | Go | Langages | ✅ rédigé, migré vers son dossier de notions (ADR 0026), complet : 223 notions, 4 893 cartes, 21 exercices jugés dans le bac à sable Go (ADR 0033) |
-| Spring Boot, Quarkus, Jakarta EE, JPA & Hibernate | Frameworks | ✅ sortis du document Java (ADR 0025), à enrichir |
-| SQL, Kafka, Cache | Données | ✅ sortis du document Java, à enrichir |
-| Docker, Kubernetes, CI/CD, Observabilité, Cloud, Git | Cloud & DevOps | ✅ sortis du document Java, à enrichir |
-| API REST, Sécurité, Réseau & Linux, Algorithmes, Conception, Entretien comportemental | Fondamentaux | ✅ sortis du document Java, à enrichir |
+| Spring Boot, Quarkus, Jakarta EE, JPA & Hibernate | Frameworks | sortis du document Java (ADR 0025), en brouillon jusqu'à leur réécriture en dossier de notions (ADR 0050) |
+| SQL, Kafka, Cache | Données | sortis du document Java, en brouillon jusqu'à leur réécriture |
+| Docker, Kubernetes, CI/CD, Observabilité, Cloud, Git | Cloud & DevOps | sortis du document Java, en brouillon jusqu'à leur réécriture |
+| API REST, Sécurité, Réseau & Linux, Algorithmes, Conception, Entretien comportemental | Fondamentaux | sortis du document Java, en brouillon jusqu'à leur réécriture |
 | Python | Langages | à rédiger |
 | C, C++, C# | Langages | à rédiger |
 | IA : machine learning, LLM & prompting | IA | à rédiger |
@@ -287,7 +288,7 @@ Les sujets s'ajoutent un par un, au rythme de la rédaction, indépendamment des
 ### 6.1 Révision
 - Une **session** propose les cartes **dues** (selon la planification) puis de nouvelles cartes, dans la limite d'un nombre quotidien de nouvelles cartes réglable.
 - Une session porte sur **un sujet**, pour une **durée** choisie (5, 10, 15 ou 20 minutes, ou sans limite), avec toutes les questions ou seulement celles que corrige le serveur (ADR 0048). La durée borne la session sans presser la réponse : la carte en cours n'est jamais coupée.
-- Pour une carte en auto-évaluation : l'utilisateur voit la question, réfléchit (ou écrit sa réponse), **retourne la carte**, puis répond **« Je savais »** ou **« Je ne savais pas »** : les notes Bien et À revoir de FSRS (ADR 0048 ; l'API accepte aussi Difficile et Facile).
+- Pour une carte en auto-évaluation : l'utilisateur voit la question, réfléchit (ou écrit sa réponse), **retourne la carte**, puis répond **« Je savais »** ou **« Je ne savais pas »** : les notes Bien et À revoir de FSRS (ADR 0048 ; l'API accepte aussi Difficile et Facile). Au clavier, Espace retourne la carte, 1 et 2 répondent ; sur un écran tactile, on la glisse à droite si l'on savait, à gauche sinon (ADR 0050).
 - Les cartes proposées viennent des **sujets suivis** par l'utilisateur ; filtrage possible par sujet, par thème (chapitre) et par type de carte.
 - Le quota quotidien de nouvelles cartes est **propre à chaque sujet** (ADR 0048) : finir sa session de Java ne prive pas Go de ses nouvelles cartes. Dans un sujet, les cartes dues passent toujours en premier.
 - Une seule carte d'une même notion par jour : ses sœurs attendent le lendemain, sans que leur état FSRS change (ADR 0031).
@@ -319,6 +320,7 @@ Les sujets s'ajoutent un par un, au rythme de la rédaction, indépendamment des
 ### 6.6 Le Tour (phase 3 quater, ADR 0037)
 - Deux publics : quelqu'un qui programme déjà dans un autre langage suit le Tour de ce langage, au niveau du Go Tour ; quelqu'un qui n'a jamais programmé suit « Programmer de zéro ».
 - Une page appartient à une notion : un texte pour découvrir, un exemple à modifier et à exécuter, et parfois un « À toi » dont le serveur compare la sortie à celle attendue. L'ordre est celui du référentiel.
+- Sur un écran large, la page a deux colonnes : le cours à gauche, avec « Teste-toi » (des questions de la notion à retourner), le code à droite (ADR 0050).
 - Une notion se valide à la fin de sa dernière page, en répondant juste à 2 ou 3 de ses questions, corrigées par le serveur ; elle reste validée. Ces réponses ne sont pas enregistrées comme des révisions : FSRS ne voit que les vraies révisions, espacées.
 - En fin de chapitre, ses exercices ; depuis chaque page, « S'entraîner » ouvre toutes les cartes de la notion, corrigées par le serveur quand leur format le permet, sans rien enregistrer (ADR 0038).
 - Chaque langage a son Tour, fait de contenu seulement ; un nouveau langage demande aussi son image de bac à sable.
@@ -353,7 +355,7 @@ Toute évolution du schéma passe par une migration Flyway versionnée, rétroco
 | Intégration | repositories, migrations, endpoints REST, sécurité (accès refusé aux ressources d'autrui) | `@QuarkusTest`, REST Assured, PostgreSQL réel via Dev Services/Testcontainers |
 | Architecture | règles de dépendances entre couches et modules | ArchUnit |
 | Frontend | composants et hooks | Vitest, Testing Library |
-| Bout en bout | 2 ou 3 parcours critiques (se connecter, réviser une session, voir son streak) | Playwright |
+| Bout en bout | quelques parcours critiques (se connecter, essayer sans compte, réviser une session, voir son streak), et l'accessibilité des pages principales | Playwright, axe-core |
 
 Règles : chaque bug corrigé reçoit un test qui le reproduit ; pas de `Thread.sleep` dans les tests ; le temps est piloté par un `Clock` fixe ; la couverture est un indicateur, pas un objectif.
 
@@ -491,6 +493,23 @@ Apprendre un langage pas à pas, comme sur le Go Tour, et valider chaque page, c
 Le propriétaire a testé l'application en local avant de la déployer ; ses retours passent avant le déploiement.
 
 1. ✅ **Session de révision** : un sujet à la fois, une durée, un mode « questions corrigées », un quota de nouvelles cartes par sujet, et des cartes qui se retournent, avec « Je savais » ou « Je ne savais pas » (ADR 0048).
+2. ✅ **Refonte du front**, pour une interface qui n'ait pas l'air générée et qui retienne les utilisateurs : la piste « Coach », choisie parmi trois (ADR 0049, 0050).
+   1. ✅ **Design system** :
+      - tokens sémantiques, clairs et sombres, à la place de la palette par défaut ;
+      - Lexend et JetBrains Mono servies par l'application ;
+      - icônes Phosphor à la place des émojis ;
+      - une recette de bouton ;
+      - un test qui garde ces règles (ADR 0049).
+   2. ✅ **Navigation** : une barre en bas sur mobile, un menu sur ordinateur, le Tour dans « Apprendre » ; le profil sous son nom, la déconnexion dans le profil.
+   3. ✅ **Accueil** à une seule action (« Continuer : Java · 10 min ») autour de l'anneau de l'objectif du jour, et une fin de session qui marque (célébration, XP gagnée, « Encore 5 minutes »).
+   4. ✅ **Révision** dans le nouveau style : cartes, gestes et raccourcis clavier, verdict animé, sons et vibrations à activer dans le profil.
+   5. ✅ **Le Tour en deux colonnes** : le cours à gauche, avec des questions à retourner (« Teste-toi ») ; le code à droite.
+   6. ✅ **Essai sans compte** (cinq questions corrigées par le serveur, rien d'enregistré), et le temps par jour choisi à l'inscription : la première session part aussitôt.
+   7. ✅ **Notifications et installation** de la PWA, demandées à la fin d'une session : notre question d'abord, celle du navigateur ensuite ; l'installation à partir de la deuxième visite.
+   8. ✅ **Les autres écrans** dans le nouveau style, avec le tutoiement partout, messages d'erreur du backend compris.
+   9. ✅ **Accessibilité et performances** contrôlées en CI : axe-core dans les parcours de bout en bout, la compression par nginx, un budget de 300 Ko pour le JavaScript de l'ouverture.
+   10. ✅ **Mesure de la rétention** à 1, 7 et 30 jours, sur une page des admins.
+3. ✅ **Sujets en brouillon** : les 19 sujets sortis du document Java ne sont visibles que des admins jusqu'à leur réécriture en dossiers de notions (ADR 0050).
 
 Le **déploiement** (phase 1, étape 7) vient après ces phases.
 

@@ -4,6 +4,7 @@ import { useSubjects } from '../api/content'
 import { ApiError } from '../api/errors'
 import type { Group } from '../api/groups'
 import { useGroupLiveGame, useGroupLiveResults, useOpenLiveGame } from '../api/live'
+import { button } from '../components/ui/button'
 
 /** La partie live du groupe (ADR 0021) : la rejoindre si elle est ouverte, sinon en lancer une. */
 export function LivePanel({ group }: { group: Group }) {
@@ -15,7 +16,7 @@ export function LivePanel({ group }: { group: Group }) {
   return (
     <section
       aria-labelledby="live-title"
-      className="flex flex-col gap-3 rounded-xl bg-white p-4 shadow-sm"
+      className="flex flex-col gap-3 rounded-xl bg-surface p-4 shadow-sm"
     >
       <h2 id="live-title" className="text-lg font-semibold">
         Partie live
@@ -28,10 +29,7 @@ export function LivePanel({ group }: { group: Group }) {
             Une partie sur <strong>{titleOf(live.data.subject)}</strong> est ouverte (
             {live.data.players.length} joueur{live.data.players.length > 1 ? 's' : ''}).
           </p>
-          <Link
-            to={`/live/${live.data.id}`}
-            className="rounded-lg bg-indigo-600 px-4 py-2 font-medium text-white hover:bg-indigo-700"
-          >
+          <Link to={`/live/${live.data.id}`} className={button()}>
             Rejoindre la partie
           </Link>
         </div>
@@ -52,17 +50,17 @@ function LastResults({ groupId, titleOf }: { groupId: string; titleOf: (slug: st
   const results = useGroupLiveResults(groupId)
   if (!results.data || results.data.length === 0) return null
   return (
-    <div className="flex flex-col gap-2 border-t border-slate-100 pt-3">
+    <div className="flex flex-col gap-2 border-t border-line pt-3">
       <h3 className="text-sm font-semibold">Dernières parties</h3>
       <ul className="flex flex-col gap-2">
         {results.data.map((result) => (
-          <li key={result.gameId} className="rounded-lg bg-slate-50 px-3 py-2 text-sm">
+          <li key={result.gameId} className="rounded-lg bg-surface-muted px-3 py-2 text-sm">
             <span className="font-medium">{titleOf(result.subject)}</span>
-            <span className="text-slate-500">
+            <span className="text-ink-muted">
               {' '}
               · {FINISHED_ON.format(new Date(result.finishedAt))}
             </span>
-            <span className="block text-slate-600">
+            <span className="block text-ink-muted">
               {result.standings
                 .filter((standing) => standing.rank <= PODIUM_SIZE)
                 .map(
@@ -97,9 +95,9 @@ function OpenLiveGameForm({
 
   return (
     <form onSubmit={submit} aria-label="Lancer une partie live" className="flex flex-col gap-3">
-      <p className="text-sm text-slate-600">
+      <p className="text-sm text-ink-muted">
         Une partie live réunit les membres connectés autour des mêmes QCM, au même moment, avec un
-        chrono court. Vous en serez l’hôte.
+        chrono court. Tu en seras l’hôte.
       </p>
       <div className="flex flex-wrap items-end gap-3">
         <label className="flex flex-col gap-1">
@@ -107,7 +105,7 @@ function OpenLiveGameForm({
           <select
             value={subject}
             onChange={(event) => setSubject(event.target.value)}
-            className="rounded-lg border border-slate-300 px-3 py-2"
+            className="rounded-lg border border-line-strong px-3 py-2"
           >
             {subjects.map((slug) => (
               <option key={slug} value={slug}>
@@ -116,11 +114,7 @@ function OpenLiveGameForm({
             ))}
           </select>
         </label>
-        <button
-          type="submit"
-          disabled={open.isPending}
-          className="rounded-lg bg-indigo-600 px-4 py-2 font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
-        >
+        <button type="submit" disabled={open.isPending} className={button()}>
           Lancer une partie live
         </button>
       </div>

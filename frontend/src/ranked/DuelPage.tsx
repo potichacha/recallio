@@ -16,9 +16,9 @@ import { emptyDraft, isDraftComplete, type AnswerDraft } from '../components/gra
 import { rankLabel, TIER_LABELS } from '../components/rankLabels'
 import { ShareButton } from '../components/ShareButton'
 import { useCountdown } from '../components/useCountdown'
+import { button } from '../components/ui/button'
 
-const PRIMARY =
-  'self-start rounded-lg bg-indigo-600 px-4 py-2 font-medium text-white hover:bg-indigo-700 disabled:opacity-50'
+const PRIMARY = `self-start ${button()}`
 
 const OUTCOMES = { WIN: 'Victoire !', LOSS: 'Défaite', DRAW: 'Match nul' } as const
 
@@ -44,7 +44,7 @@ export function DuelPage() {
       ) : (
         <Outcome duel={duel.data} />
       )}
-      <Link to="/ranked" className="self-start text-sm text-indigo-600 hover:underline">
+      <Link to="/ranked" className="self-start text-sm text-brand hover:underline">
         Retour au classé
       </Link>
     </section>
@@ -140,9 +140,9 @@ function Question({
     )
 
   return (
-    <div className="flex flex-col gap-4 rounded-xl bg-white p-5 shadow-sm">
+    <div className="flex flex-col gap-4 rounded-xl bg-surface p-5 shadow-sm">
       <div className="flex items-center justify-between gap-3">
-        <span className="text-sm text-slate-500">
+        <span className="text-sm text-ink-muted">
           Question {position + 1} sur {total}
         </span>
         {!result && (
@@ -161,12 +161,12 @@ function Question({
       {result ? (
         <>
           {result.late && (
-            <p role="status" className="text-rose-700">
+            <p role="status" className="text-danger">
               Trop tard : la réponse compte fausse.
             </p>
           )}
           {last ? (
-            <p className="text-sm text-slate-600">C’était la dernière question.</p>
+            <p className="text-sm text-ink-muted">C’était la dernière question.</p>
           ) : (
             <button type="button" onClick={onNext} disabled={loadingNext} className={PRIMARY}>
               Question suivante
@@ -184,7 +184,7 @@ function Question({
         </button>
       )}
       {answer.isError && (
-        <p role="alert" className="text-sm text-rose-700">
+        <p role="alert" className="text-sm text-danger">
           {answer.error instanceof ApiError
             ? answer.error.message
             : 'La réponse n’a pas pu partir.'}
@@ -206,27 +206,27 @@ function Outcome({ duel }: { duel: Duel }) {
   }
   if (!result) {
     return (
-      <div role="status" className="flex flex-col gap-1 rounded-xl bg-white p-5 shadow-sm">
+      <div role="status" className="flex flex-col gap-1 rounded-xl bg-surface p-5 shadow-sm">
         <p className="font-medium">
-          Vous avez fini : {me.correct} / {duel.questionCount} bonnes réponses.
+          Tu as fini : {me.correct} / {duel.questionCount} bonnes réponses.
         </p>
-        <p className="text-sm text-slate-600">
+        <p className="text-sm text-ink-muted">
           {opponent
-            ? `${opponent.displayName ?? 'Votre adversaire'} en est à ${opponent.answered} / ${duel.questionCount}.`
+            ? `${opponent.displayName ?? 'Ton adversaire'} en est à ${opponent.answered} / ${duel.questionCount}.`
             : 'Un adversaire va rejoindre ce duel : le résultat arrivera quand il aura joué.'}
         </p>
       </div>
     )
   }
   return (
-    <div role="status" className="flex flex-col gap-2 rounded-xl bg-indigo-600 p-5 text-white">
+    <div role="status" className="flex flex-col gap-2 rounded-xl bg-brand p-5 text-on-brand">
       <p className="text-2xl font-bold">{OUTCOMES[result.outcome]}</p>
       <p>
         {result.myCorrect} / {duel.questionCount} contre {result.opponentCorrect} /{' '}
         {duel.questionCount} ({seconds(result.myTimeMs)} contre {seconds(result.opponentTimeMs)})
       </p>
       {result.placing ? (
-        <p>Match de placement : votre rang apparaîtra après le cinquième duel de la saison.</p>
+        <p>Match de placement : ton rang apparaîtra après le cinquième duel de la saison.</p>
       ) : (
         result.rankAfter && <p>Rang : {rankLabel(result.rankAfter)}</p>
       )}

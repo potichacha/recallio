@@ -3,7 +3,7 @@ subject: kafka
 title: Messaging & Kafka
 category: data
 position: 80
-status: published
+status: draft
 ---
 
 # Messaging & Kafka : le document de référence pour les entretiens techniques

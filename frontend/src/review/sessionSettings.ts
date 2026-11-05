@@ -4,15 +4,18 @@ import { SERVER_GRADED_TYPES } from '../components/cardTypeLabels'
 /** Les durées proposées pour une session, en minutes (ADR 0048). */
 export const SESSION_MINUTES = [5, 10, 15, 20] as const
 
+/** Une durée limitée, en minutes. */
+export type TimedMinutes = (typeof SESSION_MINUTES)[number]
+
 /** La durée d'une session, en minutes ; `null` : sans limite. */
-export type SessionMinutes = (typeof SESSION_MINUTES)[number] | null
+export type SessionMinutes = TimedMinutes | null
 
 /** Toutes les questions, ou seulement celles que le serveur corrige (ADR 0048). */
 export type SessionMode = 'all' | 'graded'
 
 export type SessionSettings = { subject: string; minutes: SessionMinutes; mode: SessionMode }
 
-export const DEFAULT_MINUTES: SessionMinutes = 10
+export const DEFAULT_MINUTES: TimedMinutes = 10
 export const DEFAULT_MODE: SessionMode = 'all'
 
 const STORAGE_KEY = 'recallio.review-session'

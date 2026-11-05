@@ -3,7 +3,7 @@ subject: api-rest
 title: API REST
 category: fundamentals
 position: 160
-status: published
+status: draft
 ---
 
 # API REST : le document de référence pour les entretiens techniques

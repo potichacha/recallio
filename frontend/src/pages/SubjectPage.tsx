@@ -4,6 +4,7 @@ import { ApiError } from '../api/errors'
 import { useTour } from '../api/tour'
 import { DraftBadge } from '../components/DraftBadge'
 import { categoryLabel } from '../components/subjectCategories'
+import { button } from '../components/ui/button'
 
 /**
  * Un sujet : ses thèmes (les chapitres de son document), dans l'ordre du document, et son Tour s'il en a un
@@ -20,7 +21,7 @@ export function SubjectPage() {
     return (
       <section className="flex flex-col gap-3">
         <h1 className="text-2xl font-bold">Sujet introuvable</h1>
-        <Link to="/subjects" className="text-indigo-600 hover:underline">
+        <Link to="/subjects" className="text-brand hover:underline">
           Retour aux sujets
         </Link>
       </section>
@@ -29,13 +30,13 @@ export function SubjectPage() {
 
   return (
     <section className="flex flex-col gap-4">
-      <Link to="/subjects" className="text-sm text-indigo-600 hover:underline">
+      <Link to="/subjects" className="text-sm text-brand hover:underline">
         ← Tous les sujets
       </Link>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-col">
           {subject.data && (
-            <span className="text-sm font-medium text-indigo-600">
+            <span className="text-sm font-medium text-brand">
               {categoryLabel(subject.data.category)}
             </span>
           )}
@@ -48,20 +49,20 @@ export function SubjectPage() {
           {hasTour && (
             <Link
               to={`/subjects/${encodeURIComponent(slug)}/tour`}
-              className="rounded-lg border border-indigo-200 px-3 py-1.5 text-sm font-medium text-indigo-700 hover:bg-indigo-50"
+              className={button({ variant: 'secondary', size: 'sm' })}
             >
               Le Tour
             </Link>
           )}
           <Link
             to={`/subjects/${encodeURIComponent(slug)}/path`}
-            className="rounded-lg border border-indigo-200 px-3 py-1.5 text-sm font-medium text-indigo-700 hover:bg-indigo-50"
+            className={button({ variant: 'secondary', size: 'sm' })}
           >
             Mon parcours
           </Link>
           <Link
             to={`/review?subject=${encodeURIComponent(slug)}`}
-            className="rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700"
+            className={button({ size: 'sm' })}
           >
             Réviser ce sujet
           </Link>
@@ -74,10 +75,10 @@ export function SubjectPage() {
             <li key={theme.id}>
               <Link
                 to={`/themes/${theme.slug}`}
-                className="flex h-full flex-col gap-1 rounded-xl border border-slate-200 bg-white p-4 shadow-sm hover:border-indigo-300"
+                className="flex h-full flex-col gap-1 rounded-xl border border-line bg-surface p-4 shadow-sm hover:border-brand-line"
               >
                 <span className="font-semibold">{theme.title}</span>
-                <span className="text-sm text-slate-500">
+                <span className="text-sm text-ink-muted">
                   {theme.cardCount} carte{theme.cardCount > 1 ? 's' : ''}
                 </span>
               </Link>

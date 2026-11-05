@@ -1,3 +1,4 @@
+import { Check } from '@phosphor-icons/react'
 import type { QuestBoard, QuestProgress } from '../api/quests'
 import { QUEST_LABELS } from '../components/questLabels'
 
@@ -27,8 +28,8 @@ export function QuestsPanel({ board }: { board: QuestBoard }) {
 
 function QuestList({ title, quests }: { title: string; quests: QuestProgress[] }) {
   return (
-    <div className="flex flex-col gap-2 rounded-xl bg-white p-4 shadow-sm">
-      <h3 className="text-sm font-medium text-slate-500">{title}</h3>
+    <div className="flex flex-col gap-2 rounded-xl bg-surface p-4 shadow-sm">
+      <h3 className="text-sm font-medium text-ink-muted">{title}</h3>
       <ul aria-label={title} className="flex flex-col gap-3">
         {quests.map((quest) => (
           <QuestItem key={quest.quest} quest={quest} />
@@ -44,24 +45,26 @@ function QuestItem({ quest }: { quest: QuestProgress }) {
   return (
     <li className="flex flex-col gap-1">
       <div className="flex items-baseline justify-between gap-3 text-sm">
-        <span className={quest.completed ? 'text-slate-500 line-through' : 'font-medium'}>
+        <span className={quest.completed ? 'text-ink-muted line-through' : 'font-medium'}>
           {label}
         </span>
         <span
-          className={`shrink-0 text-xs font-medium ${quest.completed ? 'text-emerald-700' : 'text-indigo-700'}`}
+          className={`shrink-0 text-xs font-medium ${quest.completed ? 'text-success' : 'text-brand-strong'}`}
         >
-          {quest.completed ? `✓ +${quest.xp} XP` : `+${quest.xp} XP`}
+          <span className="inline-flex items-center gap-1">
+            {quest.completed && <Check weight="bold" aria-hidden />}+{quest.xp} XP
+          </span>
         </span>
       </div>
-      {hint && !quest.completed && <p className="text-xs text-slate-500">{hint}</p>}
+      {hint && !quest.completed && <p className="text-xs text-ink-muted">{hint}</p>}
       <div className="flex items-center gap-2">
         <progress
           value={quest.progress}
           max={quest.target}
           aria-label={`${label} : ${quest.progress} / ${quest.target}`}
-          className="h-1.5 w-full overflow-hidden rounded-full [&::-moz-progress-bar]:bg-emerald-500 [&::-webkit-progress-bar]:bg-slate-200 [&::-webkit-progress-value]:bg-emerald-500"
+          className="h-1.5 w-full overflow-hidden rounded-full [&::-moz-progress-bar]:bg-success [&::-webkit-progress-bar]:bg-surface-sunken [&::-webkit-progress-value]:bg-success"
         />
-        <span className="shrink-0 text-xs text-slate-500">
+        <span className="shrink-0 text-xs text-ink-muted">
           {quest.progress} / {quest.target}
         </span>
       </div>

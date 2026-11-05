@@ -86,8 +86,8 @@ describe('ChallengePage', () => {
     }
     await userEvent.click(screen.getByRole('button', { name: 'Carte suivante' }))
 
-    expect(await screen.findByText('Votre score : 1 / 2')).toBeInTheDocument()
-    expect(screen.getByRole('listitem')).toHaveTextContent('1Bob (vous)1 / 2 · 4 s')
+    expect(await screen.findByText('Ton score : 1 / 2')).toBeInTheDocument()
+    expect(screen.getByRole('listitem')).toHaveTextContent('1Bob (toi)1 / 2 · 4 s')
     expect(screen.queryByRole('button', { name: 'Commencer' })).not.toBeInTheDocument()
   })
 

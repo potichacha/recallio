@@ -6,6 +6,7 @@ import { LIVE_CLOSE, useLiveGameSocket, useStartLiveGame, type LiveGame } from '
 import { useProfile } from '../api/profile'
 import { LiveRoundView } from './LiveRound'
 import { LivePodium, LiveStandings, SharePodium } from './LiveStandings'
+import { button } from '../components/ui/button'
 
 /** Entre deux questions, les premiers seulement (et soi-même) : la correction reste lisible. */
 const STANDINGS_DURING_GAME = 5
@@ -36,7 +37,7 @@ function LiveConnectionView({ gameId, onReconnect }: { gameId: string; onReconne
       return (
         <ClosedMessage
           title="Partie introuvable"
-          detail="Elle est terminée, ou elle n'appartient pas à l'un de vos groupes."
+          detail="Elle est terminée, ou elle n’appartient pas à l’un de tes groupes."
         />
       )
     }
@@ -46,11 +47,7 @@ function LiveConnectionView({ gameId, onReconnect }: { gameId: string; onReconne
     return (
       <section className="flex flex-col items-start gap-3">
         <h1 className="text-2xl font-bold">Connexion perdue</h1>
-        <button
-          type="button"
-          onClick={onReconnect}
-          className="rounded-lg bg-indigo-600 px-4 py-2 font-medium text-white hover:bg-indigo-700"
-        >
+        <button type="button" onClick={onReconnect} className={button()}>
           Se reconnecter
         </button>
       </section>
@@ -68,7 +65,7 @@ function LiveGameView({ game }: { game: LiveGame }) {
 
   return (
     <section className="flex flex-col gap-4">
-      <Link to={`/groups/${game.groupId}`} className="text-sm text-indigo-600 hover:underline">
+      <Link to={`/groups/${game.groupId}`} className="text-sm text-brand hover:underline">
         ← Le groupe
       </Link>
       <h1 className="text-2xl font-bold">Partie live : {subjectTitle}</h1>
@@ -103,8 +100,8 @@ function ClosedMessage({ title, detail }: { title: string; detail: string }) {
   return (
     <section className="flex flex-col items-start gap-3">
       <h1 className="text-2xl font-bold">{title}</h1>
-      <p className="text-slate-600">{detail}</p>
-      <Link to="/groups" className="text-indigo-600 hover:underline">
+      <p className="text-ink-muted">{detail}</p>
+      <Link to="/groups" className="text-brand hover:underline">
         Mes groupes
       </Link>
     </section>
@@ -114,19 +111,19 @@ function ClosedMessage({ title, detail }: { title: string; detail: string }) {
 function Lobby({ game, me }: { game: LiveGame; me: string | undefined }) {
   const start = useStartLiveGame(game.id)
   if (me === undefined || me !== game.hostId) {
-    return <p className="text-slate-600">En attente du lancement par l’hôte.</p>
+    return <p className="text-ink-muted">En attente du lancement par l’hôte.</p>
   }
   return (
     <div className="flex flex-col items-start gap-2">
-      <p className="text-slate-600">
-        Vous êtes l’hôte : démarrez la partie quand tout le monde est là. Chaque question dure
-        quelques secondes, la même pour tous.
+      <p className="text-ink-muted">
+        Tu es l’hôte : démarre la partie quand tout le monde est là. Chaque question dure quelques
+        secondes, la même pour tous.
       </p>
       <button
         type="button"
         onClick={() => start.mutate()}
         disabled={start.isPending}
-        className="rounded-lg bg-indigo-600 px-4 py-2 font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+        className={button()}
       >
         Démarrer la partie
       </button>
@@ -144,7 +141,7 @@ function Players({ game, me }: { game: LiveGame; me: string | undefined }) {
   return (
     <section
       aria-labelledby="players-title"
-      className="flex flex-col gap-2 rounded-xl bg-white p-4 shadow-sm"
+      className="flex flex-col gap-2 rounded-xl bg-surface p-4 shadow-sm"
     >
       <h2 id="players-title" className="text-lg font-semibold">
         Joueurs ({game.players.length})
@@ -153,17 +150,17 @@ function Players({ game, me }: { game: LiveGame; me: string | undefined }) {
         {game.players.map((player) => (
           <li
             key={player.userId}
-            className="flex items-center gap-2 rounded-lg bg-slate-50 px-3 py-2"
+            className="flex items-center gap-2 rounded-lg bg-surface-muted px-3 py-2"
           >
             {player.displayName}
-            {player.userId === me && <span className="text-slate-500">(vous)</span>}
+            {player.userId === me && <span className="text-ink-muted">(toi)</span>}
             {player.host && (
-              <span className="rounded bg-indigo-50 px-1.5 py-0.5 text-xs font-medium text-indigo-700">
+              <span className="rounded bg-brand-soft px-1.5 py-0.5 text-xs font-medium text-brand-strong">
                 Hôte
               </span>
             )}
             {playing && player.answered && (
-              <span className="ml-auto text-xs font-medium text-emerald-700">A répondu</span>
+              <span className="ml-auto text-xs font-medium text-success">A répondu</span>
             )}
           </li>
         ))}

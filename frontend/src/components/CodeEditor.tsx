@@ -1,7 +1,9 @@
 import { go } from '@codemirror/lang-go'
 import { java } from '@codemirror/lang-java'
+import { HighlightStyle, syntaxHighlighting } from '@codemirror/language'
 import { Compartment, EditorState } from '@codemirror/state'
 import { EditorView } from '@codemirror/view'
+import { tags } from '@lezer/highlight'
 import { basicSetup } from 'codemirror'
 import { useEffect, useRef } from 'react'
 
@@ -14,11 +16,55 @@ export type CodeEditorProps = {
   onChange?: (value: string) => void
 }
 
-const theme = EditorView.theme({
-  '&': { fontSize: '0.875rem' },
-  '.cm-content, .cm-gutters': { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' },
-  '.cm-scroller': { maxHeight: '28rem' },
-})
+/** L'éditeur sur la palette du code (ADR 0049) : sombre dans les deux thèmes, comme les blocs de code. */
+const theme = EditorView.theme(
+  {
+    '&': {
+      fontSize: '0.875rem',
+      backgroundColor: 'var(--color-code)',
+      color: 'var(--color-code-ink)',
+    },
+    '.cm-content, .cm-gutters': { fontFamily: 'var(--font-mono)' },
+    '.cm-content': { caretColor: 'var(--color-code-ink)' },
+    '.cm-cursor, .cm-dropCursor': { borderLeftColor: 'var(--color-code-ink)' },
+    '.cm-gutters': {
+      backgroundColor: 'var(--color-code)',
+      color: 'var(--color-code-muted)',
+      border: 'none',
+    },
+    '.cm-activeLine': { backgroundColor: 'rgb(255 255 255 / 0.04)' },
+    '.cm-activeLineGutter': { backgroundColor: 'rgb(255 255 255 / 0.06)' },
+    '&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection':
+      { backgroundColor: 'rgb(94 207 194 / 0.28)' },
+    '.cm-scroller': { maxHeight: '28rem' },
+  },
+  { dark: true },
+)
+
+/** La coloration syntaxique, aux couleurs des blocs de code (index.css). */
+const highlight = syntaxHighlighting(
+  HighlightStyle.define([
+    {
+      tag: [tags.keyword, tags.modifier, tags.operatorKeyword, tags.controlKeyword],
+      color: 'var(--color-code-keyword)',
+    },
+    {
+      tag: [tags.string, tags.regexp, tags.special(tags.string)],
+      color: 'var(--color-code-string)',
+    },
+    { tag: [tags.number, tags.bool, tags.null, tags.atom], color: 'var(--color-code-number)' },
+    {
+      tag: [tags.typeName, tags.className, tags.function(tags.variableName)],
+      color: 'var(--color-code-title)',
+    },
+    {
+      tag: [tags.comment, tags.lineComment, tags.blockComment],
+      color: 'var(--color-code-comment)',
+      fontStyle: 'italic',
+    },
+    { tag: tags.invalid, color: 'var(--color-code-error)' },
+  ]),
+)
 
 /** La coloration d'un fichier, d'après son extension (ADR 0033) : Go pour un `.go`, Java sinon. */
 function language(path: string) {
@@ -53,6 +99,7 @@ export default function CodeEditor({ label, value, readOnly = false, onChange }:
           basicSetup,
           language(label),
           theme,
+          highlight,
           editable.current.of(editability(initial.current.readOnly)),
           EditorView.contentAttributes.of({ 'aria-label': label }),
           EditorView.updateListener.of((update) => {
@@ -69,7 +116,7 @@ export default function CodeEditor({ label, value, readOnly = false, onChange }:
     view.current?.dispatch({ effects: editable.current.reconfigure(editability(readOnly)) })
   }, [readOnly])
 
-  return <div ref={host} className="overflow-hidden rounded-lg border border-slate-300" />
+  return <div ref={host} className="overflow-hidden rounded-lg border border-line-strong" />
 }
 
 function editability(readOnly: boolean) {

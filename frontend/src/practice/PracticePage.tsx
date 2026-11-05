@@ -12,12 +12,11 @@ import { Markdown } from '../components/Markdown'
 import { ReportButton } from '../components/ReportButton'
 import { ExerciseEditor } from '../review/ExerciseEditor'
 import { ExerciseRunResult } from '../review/ExerciseRunResult'
+import { button } from '../components/ui/button'
 
-const CARD_STYLE = 'flex flex-col gap-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm'
-const PRIMARY =
-  'self-start rounded-lg bg-indigo-600 px-4 py-2 font-medium text-white hover:bg-indigo-700 disabled:opacity-50'
-const SECONDARY =
-  'self-start rounded-lg border border-indigo-200 px-4 py-2 font-medium text-indigo-700 hover:bg-indigo-50 disabled:opacity-50'
+const CARD_STYLE = 'flex flex-col gap-4 rounded-xl border border-line bg-surface p-5 shadow-sm'
+const PRIMARY = `self-start ${button()}`
+const SECONDARY = `self-start ${button({ variant: 'secondary' })}`
 
 /** Les formats que le serveur corrige d'après la réponse : des choix cochés ou des trous remplis. */
 const ANSWERED_FORMATS: ReadonlySet<PracticeCard['type']> = new Set([
@@ -50,14 +49,14 @@ export function PracticePage() {
     return (
       <section className="flex flex-col gap-3">
         <h1 className="text-2xl font-bold">Notion introuvable</h1>
-        <Link to={subjectPath} className="text-indigo-600 hover:underline">
+        <Link to={subjectPath} className="text-brand hover:underline">
           Retour au sujet
         </Link>
       </section>
     )
   }
   if (practice.isError) return <p role="alert">Impossible de charger l’entraînement.</p>
-  if (!practice.data) return <p className="text-slate-500">Chargement…</p>
+  if (!practice.data) return <p className="text-ink-muted">Chargement…</p>
 
   const { notionTitle, cards } = practice.data
   // Un lien vers une carte, comme un exercice de fin de chapitre, commence l'entraînement par elle.
@@ -81,14 +80,14 @@ export function PracticePage() {
     <section className="flex flex-col gap-5">
       <header className="flex flex-col gap-1">
         <h1 className="text-2xl font-bold">S’entraîner : {notionTitle}</h1>
-        <p className="text-sm text-slate-600">
+        <p className="text-sm text-ink-muted">
           Rien n’est enregistré : ces cartes reviendront dans tes révisions, une par jour.
         </p>
       </header>
       {cards.length === 0 && <p>Cette notion n’a pas encore de cartes.</p>}
       {card && (
         <>
-          <p className="text-sm text-slate-500">
+          <p className="text-sm text-ink-muted">
             Carte {current + 1} sur {cards.length}
           </p>
           <PracticeCardView
@@ -102,7 +101,7 @@ export function PracticePage() {
         </>
       )}
       {cards.length > 0 && !card && <Summary outcomes={outcomes} onRestart={restart} />}
-      <Link to={back.to} className="self-start text-sm text-indigo-600 hover:underline">
+      <Link to={back.to} className="self-start text-sm text-brand hover:underline">
         {back.label}
       </Link>
     </section>
@@ -118,7 +117,7 @@ function Summary({ outcomes, onRestart }: { outcomes: Outcome[]; onRestart: () =
         Entraînement terminé !
       </p>
       {graded.length > 0 && (
-        <p className="text-slate-600">
+        <p className="text-ink-muted">
           {right} / {graded.length} juste{right > 1 ? 's' : ''} parmi les cartes corrigées par le
           serveur.
         </p>
@@ -192,7 +191,7 @@ function AnsweredCard({
         </button>
       )}
       {check.error && (
-        <p role="alert" className="text-sm text-rose-700">
+        <p role="alert" className="text-sm text-danger">
           {check.error instanceof ApiError ? check.error.message : 'La vérification a échoué.'}
         </p>
       )}
@@ -213,7 +212,7 @@ function SelfAssessedCard({
 }) {
   const [revealed, setRevealed] = useState(false)
   const [draft, setDraft] = useState('')
-  const label = <p className="text-sm font-medium text-slate-500">{CARD_TYPE_LABELS[card.type]}</p>
+  const label = <p className="text-sm font-medium text-ink-muted">{CARD_TYPE_LABELS[card.type]}</p>
   return (
     <FlipCard
       flipped={revealed}
@@ -230,11 +229,11 @@ function SelfAssessedCard({
       back={
         <article className={CARD_STYLE}>
           {label}
-          <div className="text-slate-600">
+          <div className="text-ink-muted">
             <Markdown>{card.prompt}</Markdown>
           </div>
           <DraftEcho type={card.type} value={draft} />
-          <section aria-label="Réponse" className="rounded-lg bg-slate-50 p-3">
+          <section aria-label="Réponse" className="rounded-lg bg-surface-muted p-3">
             <Markdown>{card.answer ?? ''}</Markdown>
           </section>
           <button type="button" onClick={() => onNext(undefined)} className={PRIMARY}>
@@ -254,7 +253,7 @@ function ExerciseTry({ card, onNext }: { card: PracticeCard; onNext: (outcome: O
     setFiles((current) => current.map((file) => (file.path === path ? { path, content } : file)))
   return (
     <article className={CARD_STYLE}>
-      <p className="text-sm font-medium text-slate-500">{CARD_TYPE_LABELS[card.type]}</p>
+      <p className="text-sm font-medium text-ink-muted">{CARD_TYPE_LABELS[card.type]}</p>
       <Markdown>{card.prompt}</Markdown>
       <ExerciseEditor
         files={files}
@@ -280,7 +279,7 @@ function ExerciseTry({ card, onNext }: { card: PracticeCard; onNext: (outcome: O
         </button>
       </div>
       {run.error && (
-        <p role="alert" className="text-sm text-rose-700">
+        <p role="alert" className="text-sm text-danger">
           {run.error instanceof ApiError ? run.error.message : 'L’exécution a échoué.'}
         </p>
       )}

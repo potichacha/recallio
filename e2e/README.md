@@ -6,11 +6,14 @@ d'intégration, sans les remplacer : un parcours par fonctionnalité clé, pas u
 
 | Parcours                                                                                               | Fichier                        |
 | ------------------------------------------------------------------------------------------------------ | ------------------------------ |
-| Se connecter par Keycloak, revenir sur la page demandée, se déconnecter                                | `tests/sign-in.spec.ts`        |
+| Se connecter par Keycloak, revenir sur la page demandée, se déconnecter depuis son profil              | `tests/sign-in.spec.ts`        |
+| Essayer un sujet sans compte, puis être invité à créer son compte                                      | `tests/trial.spec.ts`          |
+| Choisir ses sujets et son temps par jour au premier login, puis réviser aussitôt                       | `tests/onboarding.spec.ts`     |
 | Réviser un sujet pour une durée choisie (aussi sur mobile), réviser un seul thème, voir sa progression | `tests/review-session.spec.ts` |
 | Atteindre l'objectif du jour et démarrer son streak                                                    | `tests/streak.spec.ts`         |
 | Lire le Tour sans compte, exécuter une page et y reprendre, valider une notion                         | `tests/tour.spec.ts`           |
 | Passer un examen blanc, jouer un duel classé à deux et en voir le résultat                             | `tests/ranked.spec.ts`         |
+| Aucune violation grave d'accessibilité (axe-core, WCAG 2.2 A et AA) sur les pages principales          | `tests/accessibility.spec.ts`  |
 
 ## Lancer en local
 

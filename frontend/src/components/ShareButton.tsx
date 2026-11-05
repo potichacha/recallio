@@ -1,12 +1,13 @@
 import { useState } from 'react'
 import { shareCardImage, shareText, type ShareCard } from './shareCard'
+import { button } from './ui/button'
 
 type Outcome = 'shared' | 'downloaded' | 'copied' | 'failed'
 
 const OUTCOMES: Record<Outcome, string> = {
   shared: 'Partagé !',
-  downloaded: 'Image téléchargée : à vous de la publier.',
-  copied: 'Texte copié : à vous de le coller.',
+  downloaded: 'Image téléchargée : à toi de la publier.',
+  copied: 'Texte copié : à toi de le coller.',
   failed: 'Le partage n’a pas fonctionné.',
 }
 
@@ -38,12 +39,12 @@ export function ShareButton({ card, label = 'Partager' }: { card: ShareCard; lab
         type="button"
         onClick={share}
         disabled={busy}
-        className="rounded-lg border border-indigo-200 px-3 py-1 text-sm font-medium text-indigo-700 hover:bg-indigo-50 disabled:opacity-50"
+        className={button({ variant: 'secondary', size: 'sm' })}
       >
         {label}
       </button>
       {outcome && (
-        <span role="status" className="text-xs text-slate-500">
+        <span role="status" className="text-xs text-ink-muted">
           {OUTCOMES[outcome]}
         </span>
       )}

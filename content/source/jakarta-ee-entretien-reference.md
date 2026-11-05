@@ -3,7 +3,7 @@ subject: jakarta-ee
 title: Jakarta EE & MicroProfile
 category: frameworks
 position: 50
-status: published
+status: draft
 ---
 
 # Jakarta EE & MicroProfile : le document de référence pour les entretiens techniques

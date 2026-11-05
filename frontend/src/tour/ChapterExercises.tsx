@@ -17,13 +17,13 @@ export function ChapterExercises({
 }) {
   return (
     <section aria-label={`Exercices du chapitre ${title}`} className="flex flex-col gap-1">
-      <p className="text-sm font-medium text-slate-600">Exercices du chapitre</p>
+      <p className="text-sm font-medium text-ink-muted">Exercices du chapitre</p>
       <ul className="flex flex-col gap-1">
         {exercises.map((exercise) => (
           <li key={exercise.cardId}>
             <Link
               to={practicePath(subject, exercise.notion, { from: 'tour', card: exercise.cardId })}
-              className="text-sm text-indigo-700 hover:underline"
+              className="text-sm text-brand-strong hover:underline"
             >
               {exercise.summary.replaceAll('`', '')}
             </Link>

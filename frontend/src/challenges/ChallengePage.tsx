@@ -12,6 +12,7 @@ import { ChoiceOption } from '../components/ChoiceOption'
 import { choiceOutcome, toggleChoice } from '../components/choices'
 import { Markdown } from '../components/Markdown'
 import { useCountdown } from '../components/useCountdown'
+import { button } from '../components/ui/button'
 
 const SECOND = 1000
 
@@ -26,7 +27,7 @@ export function ChallengePage() {
     return (
       <section className="flex flex-col items-start gap-3">
         <h1 className="text-2xl font-bold">Défi introuvable</h1>
-        <Link to="/groups" className="text-indigo-600 hover:underline">
+        <Link to="/groups" className="text-brand hover:underline">
           Mes groupes
         </Link>
       </section>
@@ -39,13 +40,13 @@ export function ChallengePage() {
   const canPlay = summary.open && summary.myStatus !== 'FINISHED'
   return (
     <section className="flex flex-col gap-4">
-      <Link to={`/groups/${groupId}`} className="text-sm text-indigo-600 hover:underline">
+      <Link to={`/groups/${groupId}`} className="text-sm text-brand hover:underline">
         ← {groupName}
       </Link>
       <h1 className="text-2xl font-bold">{summary.title}</h1>
-      <p className="text-slate-600">
+      <p className="text-ink-muted">
         {summary.cardCount} QCM, {summary.secondsPerCard} secondes par carte. Une réponse hors délai
-        compte comme fausse ; le chrono continue si vous quittez la page.
+        compte comme fausse ; le chrono continue si tu quittes la page.
       </p>
       {playing ? (
         <ChallengePlay challengeId={challengeId} onFinished={stopPlaying} />
@@ -55,7 +56,7 @@ export function ChallengePage() {
             <button
               type="button"
               onClick={() => setPlaying(true)}
-              className="self-start rounded-lg bg-indigo-600 px-4 py-2 font-medium text-white hover:bg-indigo-700"
+              className={`self-start ${button()}`}
             >
               {summary.myStatus === 'IN_PROGRESS' ? 'Reprendre' : 'Commencer'}
             </button>
@@ -136,13 +137,13 @@ function ChallengeCardPlay({
   }
 
   return (
-    <article className="flex flex-col gap-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+    <article className="flex flex-col gap-4 rounded-xl border border-line bg-surface p-5 shadow-sm">
       <header className="flex items-center justify-between gap-2 text-sm">
-        <span className="font-medium text-indigo-600">
+        <span className="font-medium text-brand">
           Carte {card.position + 1} / {cardCount}
         </span>
         {!result && (
-          <span role="timer" aria-label="Temps restant" className="font-mono text-slate-700">
+          <span role="timer" aria-label="Temps restant" className="font-mono text-ink-soft">
             {Math.ceil(remaining / SECOND)} s
           </span>
         )}
@@ -150,7 +151,7 @@ function ChallengeCardPlay({
       <Markdown>{card.prompt}</Markdown>
       <form onSubmit={submit} className="flex flex-col gap-3">
         <fieldset className="flex flex-col gap-2">
-          <legend className="mb-1 text-sm text-slate-500">
+          <legend className="mb-1 text-sm text-ink-muted">
             {card.multipleAnswers ? 'Plusieurs réponses possibles' : 'Une seule réponse'}
           </legend>
           {card.choices.map((choice, index) => (
@@ -175,7 +176,7 @@ function ChallengeCardPlay({
           <button
             type="submit"
             disabled={selected.length === 0 || answer.isPending}
-            className="self-start rounded-lg bg-indigo-600 px-4 py-2 font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+            className={`self-start ${button()}`}
           >
             Valider
           </button>
@@ -215,16 +216,12 @@ function NextStep({
   onNext: () => void
 }) {
   return (
-    <div className="flex flex-col gap-3 border-t border-slate-100 pt-4">
+    <div className="flex flex-col gap-3 border-t border-line pt-4">
       <p role="status" className="font-medium">
         {message}
       </p>
       {explanation && <Markdown>{explanation}</Markdown>}
-      <button
-        type="button"
-        onClick={onNext}
-        className="self-start rounded-lg bg-indigo-600 px-4 py-2 font-medium text-white hover:bg-indigo-700"
-      >
+      <button type="button" onClick={onNext} className={`self-start ${button()}`}>
         {last ? 'Voir les résultats' : 'Carte suivante'}
       </button>
     </div>
@@ -241,30 +238,30 @@ function Results({ challenge }: { challenge: Challenge }) {
       </h2>
       {summary.myScore != null && (
         <p className="font-medium">
-          Votre score : {summary.myScore} / {summary.cardCount}
+          Ton score : {summary.myScore} / {summary.cardCount}
         </p>
       )}
       {visibility === 'HIDDEN' ? (
-        <p className="text-sm text-slate-600">Le classement de ce groupe est désactivé.</p>
+        <p className="text-sm text-ink-muted">Le classement de ce groupe est désactivé.</p>
       ) : standings.length === 0 ? (
-        <p className="text-sm text-slate-600">Personne n’a encore terminé ce défi.</p>
+        <p className="text-sm text-ink-muted">Personne n’a encore terminé ce défi.</p>
       ) : (
         <ol className="flex flex-col gap-2">
           {standings.map((standing, index) => (
             <li
               key={index}
               className={`flex items-center justify-between gap-3 rounded-lg px-3 py-2 ${
-                standing.me ? 'bg-indigo-50 font-medium' : 'bg-slate-50'
+                standing.me ? 'bg-brand-soft font-medium' : 'bg-surface-muted'
               }`}
             >
               <span className="flex items-center gap-3">
-                <span className="w-6 text-right text-slate-500">{standing.rank}</span>
+                <span className="w-6 text-right text-ink-muted">{standing.rank}</span>
                 <span>
                   {standing.displayName ?? 'Membre anonyme'}
-                  {standing.me && <span className="text-slate-500"> (vous)</span>}
+                  {standing.me && <span className="text-ink-muted"> (toi)</span>}
                 </span>
               </span>
-              <span className="text-sm text-slate-600">
+              <span className="text-sm text-ink-muted">
                 {standing.score} / {summary.cardCount} · {Math.round(standing.timeMs / SECOND)} s
               </span>
             </li>

@@ -35,7 +35,7 @@ test.describe('Mode live', () => {
     await alice.getByRole('button', { name: 'Lancer une partie live' }).click()
     await expect(alice.getByRole('heading', { name: 'Partie live : Go' })).toBeVisible()
     await expect(alice.getByRole('region', { name: 'Joueurs (1)' })).toContainText(
-      `${USERS.alice.displayName}(vous)Hôte`,
+      `${USERS.alice.displayName}(toi)Hôte`,
     )
 
     await bob.reload()

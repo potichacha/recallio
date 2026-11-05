@@ -59,7 +59,7 @@ test.describe('Examen blanc et classé', () => {
       .locator('xpath=ancestor::li')
     await goForAlice.getByRole('button', { name: 'Duel', exact: true }).click()
     await playDuel(alice)
-    await expect(alice.getByText(/Vous avez fini : \d \/ 5 bonnes réponses\./)).toBeVisible()
+    await expect(alice.getByText(/Tu as fini : \d \/ 5 bonnes réponses\./)).toBeVisible()
 
     await signIn(bob, USERS.bob)
     await followSubjects(bob, ['Go'])

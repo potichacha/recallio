@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ApiError } from '../api/errors'
 import { useRecordReview, type QueuedCard, type Rating, type ReviewResult } from '../api/review'
 import { AnswerDraft, DraftEcho } from '../components/AnswerDraft'
@@ -10,20 +10,24 @@ import { ExerciseCard } from './ExerciseCard'
 import { FillInCard } from './FillInCard'
 import { LessonCard } from './LessonCard'
 import { MultipleChoiceCard } from './MultipleChoiceCard'
+import { onControl, swipeRating, typingIn } from './swipe'
+import { button } from '../components/ui/button'
 
-const FACE = 'flex flex-col gap-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm'
+const FACE = 'flex flex-col gap-4 rounded-xl border border-line bg-surface p-5 shadow-sm'
 
 /** Les deux réponses d'une carte à auto-évaluer (ADR 0048) : les notes « À revoir » et « Bien » de FSRS. */
-const SELF_ASSESSMENTS: { rating: Rating; label: string; style: string }[] = [
+const SELF_ASSESSMENTS: { rating: Rating; label: string; style: string; shortcut: string }[] = [
   {
     rating: 'AGAIN',
     label: 'Je ne savais pas',
-    style: 'border-rose-200 text-rose-700 hover:bg-rose-50',
+    style: 'border-danger-line text-danger hover:bg-danger-soft',
+    shortcut: '1',
   },
   {
     rating: 'GOOD',
     label: 'Je savais',
-    style: 'border-emerald-200 text-emerald-700 hover:bg-emerald-50',
+    style: 'border-success-line text-success hover:bg-success-soft',
+    shortcut: '2',
   },
 ]
 
@@ -56,7 +60,8 @@ export function ReviewCard({
 
 /**
  * Une carte en auto-évaluation (CLAUDE.md, section 6.1) : au recto la question, avec de quoi écrire sa réponse ; on la
- * retourne, puis on dit si on savait (ADR 0048).
+ * retourne, puis on dit si on savait (ADR 0048). Au doigt, on glisse la carte ; au clavier, Espace la retourne, puis 1 ou
+ * 2 répond (ADR 0050).
  */
 function SelfAssessedCard({
   card,
@@ -71,6 +76,8 @@ function SelfAssessedCard({
   const [revealed, setRevealed] = useState(false)
   const [draft, setDraft] = useState('')
   const [chosen, setChosen] = useState<Rating>()
+  const [drag, setDrag] = useState(0)
+  const dragStart = useRef<number | null>(null)
   const record = useRecordReview()
 
   const rate = (rating: Rating) => {
@@ -79,6 +86,28 @@ function SelfAssessedCard({
       { requestId, cardId: card.cardId, rating, elapsedMs: Date.now() - shownAt },
       { onSuccess: onReviewed },
     )
+  }
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.altKey || event.ctrlKey || event.metaKey || typingIn(event.target)) return
+      if (!revealed && (event.key === ' ' || event.key === 'Enter') && !onControl(event.target)) {
+        event.preventDefault()
+        setRevealed(true)
+      } else if (revealed && chosen === undefined && (event.key === '1' || event.key === '2')) {
+        event.preventDefault()
+        rate(event.key === '1' ? 'AGAIN' : 'GOOD')
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  })
+
+  const endDrag = (answer: boolean) => {
+    const rating = answer ? swipeRating(drag) : undefined
+    dragStart.current = null
+    setDrag(0)
+    if (rating && chosen === undefined) rate(rating)
   }
 
   return (
@@ -92,25 +121,41 @@ function SelfAssessedCard({
           <button
             type="button"
             onClick={() => setRevealed(true)}
-            className="rounded-lg bg-indigo-600 px-4 py-2 font-medium text-white hover:bg-indigo-700"
+            aria-keyshortcuts="Space"
+            className={button()}
           >
             Voir la réponse
           </button>
         </article>
       }
       back={
-        <article className={FACE}>
+        <article
+          className={`${FACE} touch-pan-y`}
+          style={drag ? { transform: `translateX(${drag}px) rotate(${drag / 24}deg)` } : undefined}
+          onPointerDown={(event) => {
+            if (event.pointerType !== 'mouse' && chosen === undefined)
+              dragStart.current = event.clientX
+          }}
+          onPointerMove={(event) => {
+            if (dragStart.current !== null) setDrag(event.clientX - dragStart.current)
+          }}
+          onPointerUp={() => endDrag(true)}
+          onPointerCancel={() => endDrag(false)}
+        >
           <CardHeader card={card} />
-          <div className="text-slate-600">
+          <div className="text-ink-muted">
             <Markdown>{card.prompt}</Markdown>
           </div>
           <DraftEcho type={card.type} value={draft} />
-          <section aria-label="Réponse attendue" className="border-t border-slate-100 pt-4">
+          <section aria-label="Réponse attendue" className="border-t border-line pt-4">
             <Markdown>{card.answer ?? ''}</Markdown>
           </section>
           <SelfAssessmentButtons disabled={chosen !== undefined} onRate={rate} />
+          <p className="text-center text-xs text-ink-muted">
+            Glisse la carte : à droite si tu savais, à gauche sinon. Au clavier : 1 ou 2.
+          </p>
           {record.isError && chosen && (
-            <div role="alert" className="flex items-center gap-3 text-sm text-rose-700">
+            <div role="alert" className="flex items-center gap-3 text-sm text-danger">
               <span>
                 {record.error instanceof ApiError
                   ? record.error.message
@@ -135,14 +180,15 @@ function SelfAssessmentButtons({
   onRate: (rating: Rating) => void
 }) {
   return (
-    <div role="group" aria-label="Connaissiez-vous la réponse ?" className="grid grid-cols-2 gap-2">
-      {SELF_ASSESSMENTS.map(({ rating, label, style }) => (
+    <div role="group" aria-label="Connaissais-tu la réponse ?" className="grid grid-cols-2 gap-2">
+      {SELF_ASSESSMENTS.map(({ rating, label, style, shortcut }) => (
         <button
           key={rating}
           type="button"
           disabled={disabled}
           onClick={() => onRate(rating)}
-          className={`rounded-lg border px-3 py-3 font-medium disabled:opacity-50 ${style}`}
+          aria-keyshortcuts={shortcut}
+          className={`min-h-12 rounded-lg border-2 px-3 py-3 font-semibold transition-transform active:translate-y-0.5 disabled:opacity-50 motion-reduce:transition-none ${style}`}
         >
           {label}
         </button>

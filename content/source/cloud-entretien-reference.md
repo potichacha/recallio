@@ -3,7 +3,7 @@ subject: cloud
 title: Cloud & Infrastructure as Code
 category: cloud-devops
 position: 140
-status: published
+status: draft
 ---
 
 # Cloud & Infrastructure as Code : le document de référence pour les entretiens techniques

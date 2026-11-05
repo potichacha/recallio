@@ -15,14 +15,16 @@ export default defineConfig({
       manifest: {
         name: 'Recallio',
         short_name: 'Recallio',
-        description: 'Révisez vos entretiens techniques chaque jour, par répétition espacée.',
+        description: 'Révise tes entretiens techniques chaque jour, par répétition espacée.',
         lang: 'fr',
-        theme_color: '#4f46e5',
+        theme_color: '#0e6b63',
         background_color: '#ffffff',
         display: 'standalone',
         icons: [{ src: 'favicon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any' }],
       },
       workbox: {
+        // Les polices sont hébergées avec l'application (ADR 0049) : elles servent aussi hors ligne.
+        globPatterns: ['**/*.{js,css,html,svg,woff2}'],
         // Les appels API ne sont jamais servis depuis le cache du service worker.
         navigateFallbackDenylist: [/^\/api\//],
         // Les rappels (ADR 0047) : la réception d'une notification et le clic dessus.

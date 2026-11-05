@@ -51,7 +51,7 @@ describe('GroupsPage', () => {
 
     const owned = await screen.findByRole('link', { name: /Équipe backend/ })
     expect(owned).toHaveAttribute('href', '/groups/g1')
-    expect(owned).toHaveTextContent('4 membres · Vous l’avez créé')
+    expect(owned).toHaveTextContent('4 membres · Tu l’as créé')
     expect(screen.getByRole('link', { name: /Promo 2026/ })).toHaveTextContent('1 membre')
   })
 
@@ -59,7 +59,7 @@ describe('GroupsPage', () => {
     stubApi({ ...SIGNED_IN_API, '/api/v1/groups': { body: [] } })
     renderAt('/groups', signedIn())
 
-    expect(await screen.findByText(/Vous ne faites partie d'aucun groupe/)).toBeInTheDocument()
+    expect(await screen.findByText(/Tu ne fais partie d’aucun groupe/)).toBeInTheDocument()
   })
 
   it('creates a group and opens it', async () => {

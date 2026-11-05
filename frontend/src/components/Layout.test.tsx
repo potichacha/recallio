@@ -1,4 +1,4 @@
-import { screen } from '@testing-library/react'
+import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 import { fakeSession, renderAt, SIGNED_IN_API, stubApi, TEST_PROFILE } from '../test/render'
@@ -16,7 +16,7 @@ describe('Layout', () => {
     expect(session.login).toHaveBeenCalledWith('/subjects')
   })
 
-  it('shows the display name of the profile with a link to it, and signs out', async () => {
+  it('links to the profile under the display name of the user', async () => {
     stubApi({
       ...SUBJECTS,
       ...SIGNED_IN_API,
@@ -29,9 +29,24 @@ describe('Layout', () => {
       'href',
       '/profile',
     )
-    await userEvent.click(screen.getByRole('button', { name: 'Se déconnecter' }))
+    // Se déconnecter se fait depuis le profil : l'en-tête garde la place pour la progression.
+    expect(screen.queryByRole('button', { name: 'Se déconnecter' })).not.toBeInTheDocument()
+  })
 
-    expect(session.logout).toHaveBeenCalled()
+  it('offers the five destinations in a single navigation, the current one marked', async () => {
+    stubApi({ ...SUBJECTS, ...SIGNED_IN_API })
+    renderAt('/subjects', fakeSession({ status: 'authenticated', userName: 'Alice' }))
+
+    const navigation = screen.getByRole('navigation', { name: 'Navigation principale' })
+    expect(
+      within(navigation)
+        .getAllByRole('link')
+        .map((link) => link.textContent),
+    ).toEqual(['Accueil', 'Réviser', 'Apprendre', 'Classé', 'Groupes'])
+    expect(within(navigation).getByRole('link', { name: 'Apprendre' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    )
   })
 
   it('shows the streak, its freezes and the XP of the signed-in user', async () => {
