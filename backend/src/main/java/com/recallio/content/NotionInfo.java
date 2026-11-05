@@ -5,7 +5,8 @@ import java.util.UUID;
 
 /**
  * Une notion du référentiel d'un sujet (ADR 0025), vue par les autres modules : ce qu'il faut pour ordonner les
- * nouvelles cartes selon un parcours, débloquer les notions (ADR 0032), et les présenter par domaine et chapitre.
+ * nouvelles cartes selon un parcours, débloquer les notions (ADR 0032), les présenter par domaine et chapitre, et savoir
+ * si elles sont dans le Tour (ADR 0037).
  *
  * @param slug l'identifiant de la notion dans son sujet
  * @param domain l'identifiant de son domaine dans le référentiel
@@ -15,6 +16,7 @@ import java.util.UUID;
  * @param requires les notions prérequises du même sujet
  * @param position l'ordre de la notion dans le référentiel du sujet
  * @param cardCount les cartes actives de la notion
+ * @param tourPages ses pages dans le Tour (ADR 0037) ; aucune si elle n'y est pas
  */
 public record NotionInfo(
         UUID id,
@@ -29,10 +31,16 @@ public record NotionInfo(
         int priority,
         List<UUID> requires,
         int position,
-        int cardCount) {
+        int cardCount,
+        int tourPages) {
 
     public NotionInfo {
         requires = List.copyOf(requires);
+    }
+
+    /** Vrai si la notion a des pages dans le Tour. */
+    public boolean isInTour() {
+        return tourPages > 0;
     }
 
     /** Le public visé par la notion, du plus débutant au plus expert. */

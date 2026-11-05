@@ -5,7 +5,9 @@ import com.recallio.content.CardDirectory.CardSnapshot;
 import com.recallio.content.NotionInfo;
 import com.recallio.review.application.ReviewRecordingService.BlankCorrection;
 import com.recallio.review.domain.AnswerMismatchException;
+import com.recallio.review.domain.tour.TourLastPage;
 import com.recallio.review.domain.tour.TourNotionNotFoundException;
+import com.recallio.review.domain.tour.TourPageNotFoundException;
 import com.recallio.review.domain.tour.TourProgressRepository;
 import com.recallio.user.UserRef;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -22,38 +24,63 @@ import java.util.stream.IntStream;
 import org.jspecify.annotations.Nullable;
 
 /**
- * Cas d'usage : valider une notion du Tour en répondant juste à ses questions, corrigées par le serveur (ADR 0037). Ces
- * réponses ne sont pas des révisions : ni le journal, ni FSRS, ni l'XP ne les voient. Une notion validée le reste.
+ * Cas d'usage : la progression d'un utilisateur dans le Tour (ADR 0037). Il valide une notion en répondant juste à ses
+ * questions, corrigées par le serveur. Ces réponses ne sont pas des révisions : ni le journal, ni FSRS, ni l'XP ne les
+ * voient, et une notion validée le reste. La dernière page qu'il a ouverte lui permet de reprendre où il s'était arrêté.
  */
 @ApplicationScoped
 @Transactional(Transactional.TxType.SUPPORTS)
-public class TourValidationService {
+public class TourProgressService {
 
     private final CardDirectory cards;
     private final TourProgressRepository progress;
     private final Clock clock;
 
-    public TourValidationService(CardDirectory cards, TourProgressRepository progress, Clock clock) {
+    public TourProgressService(CardDirectory cards, TourProgressRepository progress, Clock clock) {
         this.cards = cards;
         this.progress = progress;
         this.clock = clock;
     }
 
-    /** Les notions d'un sujet que l'utilisateur a validées, dans l'ordre de son référentiel. */
-    public List<String> validatedNotions(UserRef user, String subjectSlug) {
+    /** Les notions validées, dans l'ordre du référentiel, et la dernière page ouverte, si elle est encore dans le Tour. */
+    public Progress progress(UserRef user, String subjectSlug) {
         List<NotionInfo> notions = cards.notions(Set.of(subjectSlug));
         Set<UUID> validated = progress.validated(
                 user.id(), notions.stream().map(NotionInfo::id).toList());
-        return notions.stream()
+        List<String> validatedNotions = notions.stream()
                 .filter(notion -> validated.contains(notion.id()))
                 .map(NotionInfo::slug)
                 .toList();
+        @Nullable
+        Step lastPage = progress.lastPage(user.id(), subjectSlug)
+                .flatMap(last -> notions.stream()
+                        .filter(notion -> notion.id().equals(last.notionId()) && last.page() <= notion.tourPages())
+                        .findFirst()
+                        .map(notion -> new Step(notion.slug(), last.page())))
+                .orElse(null);
+        return new Progress(validatedNotions, lastPage);
+    }
+
+    /**
+     * Note la page qu'un utilisateur vient d'ouvrir : le sommaire lui proposera d'y reprendre.
+     *
+     * @param page le rang de la page dans sa notion, à partir de 1
+     * @throws TourPageNotFoundException si la notion n'est pas dans le Tour, ou n'a pas cette page
+     */
+    @Transactional
+    public void openPage(UserRef user, String subjectSlug, String notionSlug, int page) {
+        NotionInfo notion = cards.notions(Set.of(subjectSlug)).stream()
+                .filter(candidate -> candidate.slug().equals(notionSlug))
+                .filter(candidate -> page >= 1 && page <= candidate.tourPages())
+                .findFirst()
+                .orElseThrow(() -> new TourPageNotFoundException(subjectSlug, notionSlug, page));
+        progress.saveLastPage(user.id(), subjectSlug, new TourLastPage(notion.id(), page), clock.instant());
     }
 
     /**
      * Les questions d'une notion, et si l'utilisateur l'a déjà validée.
      *
-     * @throws TourNotionNotFoundException si la notion n'a pas de questions
+     * @throws TourNotionNotFoundException si la notion n'est pas dans le Tour, ou n'a pas de questions
      */
     public Checkpoint checkpoint(UserRef user, String subjectSlug, String notionSlug) {
         NotionInfo notion = notion(subjectSlug, notionSlug);
@@ -64,7 +91,7 @@ public class TourValidationService {
      * Corrige une réponse à chaque question de la notion. Toutes justes, la notion est validée ; on peut réessayer
      * autant de fois qu'on veut.
      *
-     * @throws TourNotionNotFoundException si la notion n'a pas de questions
+     * @throws TourNotionNotFoundException si la notion n'est pas dans le Tour, ou n'a pas de questions
      * @throws AnswerMismatchException s'il manque une réponse, s'il y en a en trop, ou si l'une ne convient pas au format
      */
     @Transactional
@@ -92,7 +119,7 @@ public class TourValidationService {
 
     private NotionInfo notion(String subjectSlug, String notionSlug) {
         return cards.notions(Set.of(subjectSlug)).stream()
-                .filter(notion -> notion.slug().equals(notionSlug))
+                .filter(notion -> notion.slug().equals(notionSlug) && notion.isInTour())
                 .findFirst()
                 .orElseThrow(() -> new TourNotionNotFoundException(subjectSlug, notionSlug));
     }
@@ -133,6 +160,26 @@ public class TourValidationService {
                 .toList();
         return new QuestionResult(question.cardId(), !checks.contains(false), Set.of(), blanks, question.answer());
     }
+
+    /**
+     * @param validatedNotions dans l'ordre du référentiel
+     * @param lastPage la dernière page ouverte ; {@code null} si aucune, ou si elle n'est plus dans le Tour
+     */
+    public record Progress(
+            List<String> validatedNotions, @Nullable Step lastPage) {
+
+        public Progress {
+            validatedNotions = List.copyOf(validatedNotions);
+        }
+    }
+
+    /**
+     * Une page du Tour.
+     *
+     * @param notion le slug de sa notion
+     * @param page son rang dans la notion, à partir de 1
+     */
+    public record Step(String notion, int page) {}
 
     /**
      * @param selectedChoices les positions cochées d'un QCM ou d'un vrai ou faux, à partir de 0 ; absentes sinon

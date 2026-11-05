@@ -4,6 +4,9 @@ import { useTour, useTourProgress } from '../api/tour'
 import { useSession } from '../auth/session'
 import { tourPath, tourSteps } from './tourSteps'
 
+const PRIMARY_LINK =
+  'self-start rounded-lg bg-indigo-600 px-4 py-2 font-medium text-white hover:bg-indigo-700'
+
 /**
  * Le sommaire du Tour d'un sujet (ADR 0037) : ses domaines, ses chapitres et ses notions, dans l'ordre où on les
  * découvre. Public, comme le catalogue.
@@ -33,6 +36,8 @@ export function TourOutlinePage() {
   const notions = domains.flatMap((domain) => domain.chapters).flatMap((chapter) => chapter.notions)
   // Une notion validée puis sortie du Tour ne compte plus.
   const validatedCount = notions.filter((notion) => validated.has(notion.slug)).length
+  const lastPage = progress.data?.lastPage
+  const resumed = lastPage ? notions.find((notion) => notion.slug === lastPage.notion) : undefined
 
   return (
     <section className="flex flex-col gap-6">
@@ -50,12 +55,21 @@ export function TourOutlinePage() {
               Apprends {subjectTitle} pas à pas. Chaque page explique une notion et propose un
               programme à modifier et à exécuter.
             </p>
-            <Link
-              to={tourPath(slug, first)}
-              className="self-start rounded-lg bg-indigo-600 px-4 py-2 font-medium text-white hover:bg-indigo-700"
-            >
-              Commencer le Tour
-            </Link>
+            {lastPage && resumed ? (
+              <>
+                <Link to={tourPath(slug, lastPage)} className={PRIMARY_LINK}>
+                  Reprendre le Tour
+                </Link>
+                <p className="text-sm text-slate-600">
+                  Tu en étais à « {resumed.title} »
+                  {resumed.pageCount > 1 && `, page ${lastPage.page} sur ${resumed.pageCount}`}.
+                </p>
+              </>
+            ) : (
+              <Link to={tourPath(slug, first)} className={PRIMARY_LINK}>
+                Commencer le Tour
+              </Link>
+            )}
             {progress.data && (
               <p className="text-sm text-slate-600">
                 {validatedCount} / {notions.length} notion{notions.length > 1 ? 's' : ''} validée

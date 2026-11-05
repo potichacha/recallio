@@ -6,6 +6,7 @@ import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.nullValue;
 
 import com.recallio.content.application.ContentImportService;
 import com.recallio.content.domain.source.SubjectFolder;
@@ -51,7 +52,10 @@ class TourProgressTest {
                   - {id: hors-tour, title: "Une notion sans page", level: beginner, priority: 1}
             """;
 
-    /** Un vrai ou faux (la réponse juste est « Faux »), un QCM (la première) et un code à trous (« main »). */
+    /**
+     * Deux pages (la seconde à la place du {@code %s}), puis un vrai ou faux (la réponse juste est « Faux »), un QCM (la
+     * première) et un code à trous (« main »).
+     */
     private static final String BONJOUR = """
             notion: bonjour
             tour:
@@ -63,6 +67,7 @@ class TourProgressTest {
 
                       func main() {}
                   output: rien
+            %s
             cards:
               - {key: cours, format: course, question: "Où commence un programme ?", answer: Dans main.}
               - {key: vrai-faux, format: true-false, question: "main prend des paramètres.", truth: false, answer: "Non."}
@@ -78,6 +83,19 @@ class TourProgressTest {
                 question: "`package ___`"
                 blanks: [[main]]
                 answer: "Le package main."
+            """;
+
+    /** La seconde page de « bonjour » : un test la retire, pour sortir cette page du Tour. */
+    private static final String SECOND_PAGE = """
+              - title: La suite
+                text: Encore une page.
+                example:
+                  files:
+                    main.go: |-
+                      package main
+
+                      func main() {}
+                  output: rien
             """;
 
     /** Des cartes corrigées par le serveur, mais pas de page : la notion n'est pas dans le Tour. */
@@ -99,16 +117,21 @@ class TourProgressTest {
 
     @BeforeEach
     void importSubject() {
+        importBonjour(SECOND_PAGE);
+    }
+
+    private void importBonjour(String secondPage) {
         contentImport.importFolder(new SubjectFolder(
                 SUBJECT,
                 Map.of("01-bases.yaml", REFERENTIAL),
-                Map.of("bases/bonjour.yaml", BONJOUR, "bases/hors-tour.yaml", HORS_TOUR)));
+                Map.of("bases/bonjour.yaml", BONJOUR.formatted(secondPage), "bases/hors-tour.yaml", HORS_TOUR)));
     }
 
     @Test
     void shouldRequireAuthentication() {
         given().get(TOUR).then().statusCode(401);
         given().get(TOUR + "/bonjour").then().statusCode(401);
+        openPage("bonjour", 1).statusCode(401);
     }
 
     @Test
@@ -175,6 +198,48 @@ class TourProgressTest {
                 .then()
                 .statusCode(404);
         given().get(TOUR).then().statusCode(200).body("validatedNotions", empty());
+    }
+
+    @Test
+    @TestSecurity(user = "alice")
+    @OidcSecurity(claims = @Claim(key = "sub", value = "tour-last-page"))
+    void shouldRememberTheLastPageOpenedToResumeThere() {
+        given().get(TOUR).then().statusCode(200).body("lastPage", nullValue());
+
+        openPage("bonjour", 2).statusCode(204);
+        openPage("bonjour", 1).statusCode(204);
+
+        given().get(TOUR).then().body("lastPage.notion", equalTo("bonjour")).body("lastPage.page", is(1));
+    }
+
+    @Test
+    @TestSecurity(user = "alice")
+    @OidcSecurity(claims = @Claim(key = "sub", value = "tour-missing-page"))
+    void shouldRefuseAPageThatIsNotInTheTour() {
+        openPage("bonjour", 3).statusCode(404).body("code", equalTo("review.tour-page-not-found"));
+        openPage("hors-tour", 1).statusCode(404).body("code", equalTo("review.tour-page-not-found"));
+        openPage("inconnue", 1).statusCode(404).body("code", equalTo("review.tour-page-not-found"));
+        openPage("bonjour", 0).statusCode(400);
+
+        given().get(TOUR).then().body("lastPage", nullValue());
+    }
+
+    @Test
+    @TestSecurity(user = "alice")
+    @OidcSecurity(claims = @Claim(key = "sub", value = "tour-page-removed"))
+    void shouldForgetALastPageThatLeftTheTour() {
+        openPage("bonjour", 2).statusCode(204);
+
+        importBonjour("");
+
+        given().get(TOUR).then().statusCode(200).body("lastPage", nullValue());
+    }
+
+    private static ValidatableResponse openPage(String notion, int page) {
+        return given().contentType(ContentType.JSON)
+                .body(Map.of("notion", notion, "page", page))
+                .put(TOUR + "/last-page")
+                .then();
     }
 
     private static List<String> questionIds() {
