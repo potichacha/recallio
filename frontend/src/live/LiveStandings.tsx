@@ -1,3 +1,4 @@
+import { ShareButton } from '../components/ShareButton'
 import type { LiveStanding } from '../api/live'
 
 const RANK_LABELS = ['1er', '2e', '3e']
@@ -45,6 +46,31 @@ export function LiveStandings({
         ))}
       </ol>
     </section>
+  )
+}
+
+/** Partager sa place sur le podium d'une partie finie (ADR 0045) ; rien hors du podium. */
+export function SharePodium({
+  standings,
+  me,
+}: {
+  standings: LiveStanding[]
+  me: string | undefined
+}) {
+  const mine = standings.find(
+    (standing) => standing.userId === me && standing.rank <= RANK_LABELS.length,
+  )
+  if (!mine) return null
+  return (
+    <ShareButton
+      label="Partager mon podium"
+      card={{
+        kicker: 'Mode live',
+        title: `${RANK_LABELS[mine.rank - 1]} place`,
+        detail: `${mine.score} pts · ${mine.correctCount} bonne${mine.correctCount > 1 ? 's' : ''} réponse${mine.correctCount > 1 ? 's' : ''}`,
+        url: window.location.origin,
+      }}
+    />
   )
 }
 

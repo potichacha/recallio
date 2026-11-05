@@ -1,21 +1,13 @@
 import { useState, type FormEvent } from 'react'
 import { ApiError } from '../api/errors'
+import { useCheckTourNotion, useTourCheckpoint, type TourQuestion } from '../api/tour'
+import { GradedQuestion } from '../components/GradedQuestion'
 import {
-  useCheckTourNotion,
-  useTourCheckpoint,
-  type TourAnswer,
-  type TourCheck,
-  type TourQuestion,
-} from '../api/tour'
-import { ChoiceOption } from '../components/ChoiceOption'
-import { choiceOutcome, toggleChoice } from '../components/choices'
-import { Markdown } from '../components/Markdown'
-import { numberBlanks } from '../review/blanks'
-
-type QuestionResult = TourCheck['results'][number]
-
-/** Une réponse en cours : les choix cochés d'un QCM ou d'un vrai ou faux, ou les trous d'un code à compléter. */
-type Answer = { choices: number[]; blanks: string[] }
+  emptyDraft,
+  isDraftComplete,
+  toGradedAnswer,
+  type AnswerDraft,
+} from '../components/gradedAnswers'
 
 /**
  * Les questions qui valident une notion du Tour (ADR 0037) : on y répond, le serveur corrige, et la notion est validée
@@ -25,7 +17,7 @@ type Answer = { choices: number[]; blanks: string[] }
 export function NotionCheck({ subject, notion }: { subject: string; notion: string }) {
   const checkpoint = useTourCheckpoint(subject, notion)
   const check = useCheckTourNotion(subject, notion)
-  const [answers, setAnswers] = useState<Record<string, Answer>>({})
+  const [drafts, setDrafts] = useState<Record<string, AnswerDraft>>({})
 
   if (checkpoint.isError) {
     return <p role="alert">Impossible de charger les questions de cette notion.</p>
@@ -33,21 +25,17 @@ export function NotionCheck({ subject, notion }: { subject: string; notion: stri
   if (!checkpoint.data) return null
 
   const { questions } = checkpoint.data
-  const answerOf = (question: TourQuestion): Answer =>
-    answers[question.cardId] ?? { choices: [], blanks: Array(question.blankCount).fill('') }
-  const update = (question: TourQuestion, answer: Answer) =>
-    setAnswers((current) => ({ ...current, [question.cardId]: answer }))
+  const draftOf = (question: TourQuestion): AnswerDraft =>
+    drafts[question.cardId] ?? emptyDraft(question)
+  const update = (question: TourQuestion, draft: AnswerDraft) =>
+    setDrafts((current) => ({ ...current, [question.cardId]: draft }))
   const results = new Map(check.data?.results.map((result) => [result.cardId, result]))
   const validated = check.data?.validated ?? checkpoint.data.validated
-  const complete = questions.every((question) =>
-    question.type === 'FILL_IN'
-      ? answerOf(question).blanks.every((blank) => blank.trim() !== '')
-      : answerOf(question).choices.length > 0,
-  )
+  const complete = questions.every((question) => isDraftComplete(question, draftOf(question)))
 
   const submit = (event: FormEvent) => {
     event.preventDefault()
-    check.mutate(questions.map((question) => toAnswer(question, answerOf(question))))
+    check.mutate(questions.map((question) => toGradedAnswer(question, draftOf(question))))
   }
 
   return (
@@ -70,13 +58,13 @@ export function NotionCheck({ subject, notion }: { subject: string; notion: stri
       )}
       <form onSubmit={submit} className="flex flex-col gap-5">
         {questions.map((question, index) => (
-          <QuestionField
+          <GradedQuestion
             key={question.cardId}
             question={question}
-            number={index + 1}
-            answer={answerOf(question)}
-            result={results.get(question.cardId)}
-            onChange={(answer) => update(question, answer)}
+            label={`Question ${index + 1}`}
+            draft={draftOf(question)}
+            correction={results.get(question.cardId)}
+            onChange={(draft) => update(question, draft)}
           />
         ))}
         {check.data ? (
@@ -106,98 +94,4 @@ export function NotionCheck({ subject, notion }: { subject: string; notion: stri
       )}
     </section>
   )
-}
-
-function QuestionField({
-  question,
-  number,
-  answer,
-  result,
-  onChange,
-}: {
-  question: TourQuestion
-  number: number
-  answer: Answer
-  result: QuestionResult | undefined
-  onChange: (answer: Answer) => void
-}) {
-  const label = `Question ${number}`
-  return (
-    <fieldset className="flex flex-col gap-2">
-      <legend className="text-sm font-medium text-slate-500">{label}</legend>
-      {question.type === 'FILL_IN' ? (
-        <>
-          <Markdown>{numberBlanks(question.prompt)}</Markdown>
-          {answer.blanks.map((value, index) => (
-            <label key={index} className="flex flex-col gap-1">
-              <span className="text-sm font-medium">Trou {index + 1}</span>
-              <input
-                value={value}
-                onChange={(event) =>
-                  onChange({
-                    ...answer,
-                    blanks: answer.blanks.map((other, at) =>
-                      at === index ? event.target.value : other,
-                    ),
-                  })
-                }
-                readOnly={result !== undefined}
-                spellCheck={false}
-                autoCapitalize="off"
-                autoComplete="off"
-                className="rounded-lg border border-slate-300 px-3 py-2 font-mono text-sm"
-              />
-              {result?.blanks[index] && (
-                <span
-                  className={`text-sm ${result.blanks[index].correct ? 'text-emerald-700' : 'text-rose-700'}`}
-                >
-                  {result.blanks[index].correct
-                    ? 'Juste'
-                    : `Attendu : ${result.blanks[index].expected}`}
-                </span>
-              )}
-            </label>
-          ))}
-        </>
-      ) : (
-        <>
-          <Markdown>{question.prompt}</Markdown>
-          {question.choices.map((choice, index) => (
-            <ChoiceOption
-              key={index}
-              name={question.cardId}
-              text={choice}
-              type={question.multipleAnswers ? 'checkbox' : 'radio'}
-              checked={answer.choices.includes(index)}
-              onChange={() =>
-                onChange({
-                  ...answer,
-                  choices: toggleChoice(answer.choices, index, question.multipleAnswers),
-                })
-              }
-              outcome={
-                result
-                  ? choiceOutcome(result.correctChoices, index, answer.choices.includes(index))
-                  : undefined
-              }
-            />
-          ))}
-        </>
-      )}
-      {result && (
-        <div
-          className={`rounded-lg p-3 text-sm ${result.correct ? 'bg-emerald-50' : 'bg-rose-50'}`}
-        >
-          <p className="font-medium">{result.correct ? 'Juste !' : 'Pas tout à fait.'}</p>
-          <Markdown>{result.explanation}</Markdown>
-        </div>
-      )}
-    </fieldset>
-  )
-}
-
-function toAnswer(question: TourQuestion, answer: Answer): TourAnswer {
-  return question.type === 'FILL_IN'
-    ? { cardId: question.cardId, filledBlanks: answer.blanks }
-    : { cardId: question.cardId, selectedChoices: answer.choices }
 }

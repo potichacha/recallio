@@ -39,6 +39,9 @@ public interface ContentCatalog {
     /** Les pages d'une notion du Tour ; vide si la notion est inconnue, retirée ou hors du Tour. */
     Optional<TourNotionPages> tourNotion(UUID subjectId, String notionSlug);
 
+    /** Les exercices de code d'un sujet, dans l'ordre du référentiel : le Tour les propose à la fin de leur chapitre. */
+    List<TourExercise> tourExercises(UUID subjectId);
+
     /**
      * Une notion du sommaire du Tour.
      *
@@ -53,6 +56,27 @@ public interface ContentCatalog {
             String chapterTitle,
             String title,
             int pageCount) {}
+
+    /**
+     * Un exercice de code, proposé à la fin de son chapitre dans le Tour (ADR 0029, 0037).
+     *
+     * @param summary la première ligne de son énoncé, sans les deux-points qui annoncent la suite
+     */
+    record TourExercise(String domain, String chapter, String notionSlug, UUID cardId, String summary) {
+
+        static final int MAX_SUMMARY_LENGTH = 120;
+
+        /** La première ligne d'un énoncé, assez courte pour une liste. */
+        public static String summary(String statement) {
+            String first = statement.strip().lines().findFirst().orElse("").strip();
+            if (first.endsWith(":")) {
+                first = first.substring(0, first.length() - 1).strip();
+            }
+            return first.length() <= MAX_SUMMARY_LENGTH
+                    ? first
+                    : first.substring(0, MAX_SUMMARY_LENGTH - 1).strip() + "…";
+        }
+    }
 
     /** Les pages d'une notion du Tour, dans l'ordre de son fichier. */
     record TourNotionPages(String slug, String title, String chapterTitle, List<TourPage> pages) {

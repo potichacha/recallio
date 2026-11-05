@@ -63,6 +63,9 @@ export function Layout() {
           <NavLink to="/groups" className={navClass}>
             Groupes
           </NavLink>
+          <NavLink to="/ranked" className={navClass}>
+            Classé
+          </NavLink>
           <div className="ml-auto">
             <SessionControls />
           </div>

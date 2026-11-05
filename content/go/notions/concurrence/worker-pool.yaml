@@ -1,5 +1,57 @@
 notion: worker-pool
 lesson: "Un **pool de workers** traite une file de tâches avec un **nombre fixe** de goroutines, au lieu d'une goroutine par\ntâche. On borne ainsi la concurrence : connexions à une base, appels à une API limitée, mémoire, processeur.\n\n```go\nfunc traiterTout(ctx context.Context, taches []Tache, nWorkers int) []Resultat {\n\tjobs := make(chan int)                 // indices des tâches\n\tresultats := make([]Resultat, len(taches))\n\tvar wg sync.WaitGroup\n\tfor range nWorkers {\n\t\twg.Go(func() {\n\t\t\tfor i := range jobs {          // chaque worker prend la tâche suivante\n\t\t\t\tresultats[i] = executer(ctx, taches[i]) // chacun écrit son propre indice\n\t\t\t}\n\t\t})\n\t}\n\tfor i := range taches {\n\t\tjobs <- i                          // distribuer\n\t}\n\tclose(jobs)                            // plus de tâches : les workers sortent de leur range\n\twg.Wait()\n\treturn resultats\n}\n```\n\nLes éléments du motif :\n- un channel **`jobs`**, alimenté par un producteur qui le **ferme** à la fin ;\n- **N workers** qui font `for job := range jobs` ;\n- les **résultats** écrits à l'indice de chaque tâche (pas de verrou nécessaire) ou envoyés sur un channel `resultats`\n  fermé après `wg.Wait()` ;\n- un **contexte** pour arrêter les workers en cas d'erreur ou d'annulation.\n\nCombien de workers ? Pour du **calcul**, de l'ordre de `runtime.GOMAXPROCS(0)` ; pour des **entrées-sorties**, selon la\nlimite de la ressource (connexions du pool SQL, quota de l'API), à mesurer.\n\n`errgroup.Group` avec `SetLimit(n)` fournit le même motif en quelques lignes, avec la gestion de l'erreur.\n\n**Piège classique** : oublier de fermer `jobs`. Les workers attendent pour toujours dans leur `range`, et `wg.Wait()`\naussi.\n\n**En entretien** : « N goroutines qui lisent un channel de tâches fermé par le producteur, un WaitGroup pour attendre ;\nle nombre de workers dépend de la ressource limitante ; errgroup.SetLimit pour une version courte. »"
+tour:
+  - title: Le pool de workers
+    text: |-
+      Un **pool de workers** répartit des tâches entre un nombre fixe de goroutines : un channel de tâches, quelques
+      workers qui le lisent avec `range`, et un channel de résultats.
+
+      Le nombre de workers borne le parallélisme : on traite mille tâches avec trois goroutines. On ferme le channel des
+      tâches une fois toutes envoyées, et on attend les workers avec un `WaitGroup` avant de fermer celui des résultats.
+
+      Les résultats arrivent dans le désordre : on les trie ici avant de les afficher.
+    example:
+      files:
+        main.go: |-
+          package main
+
+          import (
+          	"fmt"
+          	"slices"
+          	"sync"
+          )
+
+          func main() {
+          	taches := make(chan int)
+          	resultats := make(chan int)
+          	var wg sync.WaitGroup
+          	for range 3 {
+          		wg.Go(func() {
+          			for n := range taches {
+          				resultats <- n * n
+          			}
+          		})
+          	}
+          	go func() {
+          		for n := 1; n <= 6; n++ {
+          			taches <- n
+          		}
+          		close(taches)
+          	}()
+          	go func() {
+          		wg.Wait()
+          		close(resultats)
+          	}()
+
+          	var carres []int
+          	for r := range resultats {
+          		carres = append(carres, r)
+          	}
+          	slices.Sort(carres)
+          	fmt.Println(carres)
+          }
+      output: |-
+        [1 4 9 16 25 36]
 cards:
   - key: pourquoi
     format: course

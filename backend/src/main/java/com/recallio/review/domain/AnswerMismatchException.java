@@ -44,6 +44,11 @@ public class AnswerMismatchException extends DomainException {
                 "Une notion du Tour se valide en répondant à chacune de ses questions, une fois chacune.");
     }
 
+    public static AnswerMismatchException notGradedByServer() {
+        return new AnswerMismatchException(
+                "Cette carte s'auto-évalue : seuls un vrai ou faux, un QCM et un code à trous se corrigent.");
+    }
+
     public static AnswerMismatchException ratingExpected() {
         return new AnswerMismatchException("Cette carte se note par auto-évaluation, sans choix cochés.");
     }

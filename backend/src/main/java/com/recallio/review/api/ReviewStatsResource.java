@@ -5,6 +5,7 @@ import com.recallio.review.application.ReviewStatsService.ReviewStats;
 import com.recallio.review.application.ReviewStatsService.SubjectStats;
 import com.recallio.review.application.ReviewStatsService.ThemeStats;
 import com.recallio.review.domain.stats.CardCounts;
+import com.recallio.review.domain.track.Readiness;
 import com.recallio.user.CurrentUser;
 import io.quarkus.security.Authenticated;
 import jakarta.ws.rs.GET;
@@ -73,6 +74,9 @@ public class ReviewStatsResource {
                             + " référentiel")
             MasteryCountsDto notions,
 
+            @Schema(description = "L'indice de préparation du sujet (ADR 0041)")
+            ReadinessDto readiness,
+
             @Schema(description = "Les thèmes du sujet, dans l'ordre du document")
             List<ThemeStatsDto> themes) {
         static SubjectStatsDto from(SubjectStats subject) {
@@ -81,7 +85,37 @@ public class ReviewStatsResource {
                     subject.title(),
                     CardCountsDto.from(subject.counts()),
                     MasteryCountsDto.from(subject.notions()),
+                    ReadinessDto.from(subject.readiness()),
                     subject.themes().stream().map(ThemeStatsDto::from).toList());
+        }
+    }
+
+    @Schema(
+            name = "Readiness",
+            description = "L'indice de préparation d'un sujet : une notion essentielle acquise compte pour moitié, une"
+                    + " notion maîtrisée en entier")
+    public record ReadinessDto(
+            @Schema(description = "Les notions essentielles (priorité 1) du sujet ; aucune sans référentiel")
+            int essentials,
+
+            @Schema(description = "Les notions essentielles au moins acquises")
+            int acquired,
+
+            @Schema(description = "Les notions essentielles au moins maîtrisées")
+            int mastered,
+
+            @Schema(description = "L'indice, de 0 à 100") int percent,
+
+            @Schema(description = "Vrai à partir de 80 : le sujet est prêt pour un entretien")
+            boolean ready) {
+
+        static ReadinessDto from(Readiness readiness) {
+            return new ReadinessDto(
+                    readiness.essentials(),
+                    readiness.acquired(),
+                    readiness.mastered(),
+                    readiness.percent(),
+                    readiness.ready());
         }
     }
 

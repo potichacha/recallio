@@ -13,6 +13,7 @@ import com.recallio.live.domain.LiveGameStatus;
 import com.recallio.live.domain.LiveQuestion;
 import com.recallio.live.domain.LiveResultRepository;
 import com.recallio.live.infrastructure.InMemoryLiveGameRepository;
+import com.recallio.user.UserDirectory;
 import com.recallio.user.UserRef;
 import java.time.Clock;
 import java.time.Instant;
@@ -22,6 +23,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -75,7 +77,7 @@ class LiveGameServiceTest {
             },
             (_, _) -> {},
             (_, _) -> new GroupReviewScope(Set.of("go"), Set.of(), Set.of()),
-            _ -> Map.of(),
+            new NoUsers(),
             UUID::randomUUID,
             CONFIG,
             clock);
@@ -257,6 +259,20 @@ class LiveGameServiceTest {
         @Override
         public List<CardSnapshot> tourQuestions(String subjectSlug, String notionSlug) {
             throw new UnsupportedOperationException();
+        }
+    }
+
+    /** Aucun nom affiché : le test ne regarde que les identifiants. */
+    private static final class NoUsers implements UserDirectory {
+
+        @Override
+        public Map<UUID, String> displayNames(Collection<UUID> userIds) {
+            return Map.of();
+        }
+
+        @Override
+        public Optional<UserRef> user(UUID userId) {
+            return Optional.empty();
         }
     }
 }

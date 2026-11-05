@@ -1,5 +1,46 @@
 notion: client-http
 lesson: "Pour appeler une API depuis Go, on utilise un **`http.Client`** configuré, et non `http.Get` :\n\n```go\nvar client = &http.Client{Timeout: 10 * time.Second} // un seul, partagé\n\nfunc (c *Catalogue) Produit(ctx context.Context, id string) (Produit, error) {\n\treq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base+\"/produits/\"+url.PathEscape(id), nil)\n\tif err != nil {\n\t\treturn Produit{}, err\n\t}\n\treq.Header.Set(\"Accept\", \"application/json\")\n\n\tresp, err := c.http.Do(req)\n\tif err != nil {\n\t\treturn Produit{}, fmt.Errorf(\"appel du catalogue : %w\", err) // réseau, délai, annulation\n\t}\n\tdefer resp.Body.Close() // toujours\n\n\tif resp.StatusCode != http.StatusOK { // un 404 ou un 500 n'est pas une erreur de Do\n\t\tio.Copy(io.Discard, io.LimitReader(resp.Body, 4096))\n\t\treturn Produit{}, fmt.Errorf(\"catalogue : statut %d\", resp.StatusCode)\n\t}\n\tvar p Produit\n\tif err := json.NewDecoder(resp.Body).Decode(&p); err != nil {\n\t\treturn Produit{}, fmt.Errorf(\"réponse du catalogue : %w\", err)\n\t}\n\treturn p, nil\n}\n```\n\nLes règles :\n- **toujours fermer** `resp.Body` (quand `err == nil`), sinon la connexion fuit ; le **lire jusqu'au bout** permet de\n  réutiliser la connexion ;\n- `client.Do` ne renvoie une erreur que pour un problème de **transport** : un statut 4xx ou 5xx arrive avec\n  `err == nil`, il faut **tester `resp.StatusCode`** ;\n- le **contexte** de la requête (`NewRequestWithContext`) porte l'annulation et l'échéance de l'appelant ;\n  `Client.Timeout` borne en plus tout l'échange, lecture du corps comprise ;\n- `http.Get` et `http.DefaultClient` n'ont **aucun délai** ;\n- échapper les morceaux d'URL (`url.PathEscape`, `url.Values` pour la query).\n\n**En entretien** : « Un client avec Timeout, NewRequestWithContext, defer resp.Body.Close(), tester StatusCode, lire\nle corps pour réutiliser la connexion ; http.Get n'a pas de délai. »"
+tour:
+  - title: Le client HTTP
+    text: |-
+      `http.Get` envoie une requête, mais en production on crée son propre `http.Client` avec un **délai** : le client
+      par défaut n'en a aucun, et attendrait indéfiniment un serveur muet.
+
+      Le corps de la réponse est un flux à **fermer** : `defer resp.Body.Close()`, sans quoi la connexion n'est pas
+      réutilisée. On vérifie aussi `resp.StatusCode` : pour le client, une réponse 404 n'est pas une erreur.
+
+      Ici, `httptest.NewServer` démarre un vrai petit serveur, sur la machine elle-même, le temps du programme.
+    example:
+      files:
+        main.go: |-
+          package main
+
+          import (
+          	"fmt"
+          	"io"
+          	"net/http"
+          	"net/http/httptest"
+          	"time"
+          )
+
+          func main() {
+          	serveur := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+          		fmt.Fprint(w, "pong")
+          	}))
+          	defer serveur.Close()
+
+          	client := &http.Client{Timeout: 2 * time.Second}
+          	resp, err := client.Get(serveur.URL + "/ping")
+          	if err != nil {
+          		fmt.Println("erreur :", err)
+          		return
+          	}
+          	defer resp.Body.Close()
+          	corps, err := io.ReadAll(resp.Body)
+          	fmt.Println(resp.StatusCode, string(corps), err)
+          }
+      output: |-
+        200 pong <nil>
 cards:
   - key: corps-reponse-http
     format: course

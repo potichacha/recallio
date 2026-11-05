@@ -34,6 +34,11 @@ public class JpaUserProfileRepository implements UserProfileRepository {
                 .map(JpaUserProfileRepository::toDomain);
     }
 
+    @Override
+    public Optional<UserProfile> findById(UUID id) {
+        return Optional.ofNullable(entityManager.find(AppUserEntity.class, id)).map(JpaUserProfileRepository::toDomain);
+    }
+
     /**
      * {@code ON CONFLICT DO NOTHING} rend la création atomique : si deux requêtes créent le même profil en même temps,
      * l'une insère, l'autre ne fait rien, et les deux relisent la même ligne.

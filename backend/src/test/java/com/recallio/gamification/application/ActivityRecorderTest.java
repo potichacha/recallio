@@ -127,6 +127,11 @@ class ActivityRecorderTest {
         }
 
         @Override
+        public long totalReviews(UUID userId) {
+            return cards.values().stream().mapToLong(Integer::longValue).sum();
+        }
+
+        @Override
         public List<DailyActivity> between(UUID userId, LocalDate from, LocalDate to) {
             return List.of();
         }

@@ -1,20 +1,26 @@
 import { Link } from 'react-router'
 import { useProfile } from '../api/profile'
 import { useProgress } from '../api/progress'
+import { useQuests } from '../api/quests'
 import { useRecentActivity, useReviewStats, type ReviewStats } from '../api/stats'
 import { DailyGoal } from '../components/DailyGoal'
 import { freezeSummary } from '../components/streak'
+import { QuestsPanel } from './QuestsPanel'
 import { SubjectProgressList } from './SubjectProgressList'
 import { WeekActivity } from './WeekActivity'
 
 const plural = (count: number, word: string) => `${count} ${word}${count > 1 ? 's' : ''}`
 
-/** Tableau de bord personnel (CLAUDE.md, phase 1) : quoi réviser aujourd'hui, série, progression par sujet et par thème. */
+/**
+ * Tableau de bord personnel (CLAUDE.md, phase 1) : quoi réviser aujourd'hui, série, quêtes (ADR 0040), progression par
+ * sujet et par thème.
+ */
 export function DashboardPage() {
   const profile = useProfile()
   const progress = useProgress()
   const stats = useReviewStats()
   const activity = useRecentActivity()
+  const quests = useQuests()
 
   return (
     <section className="flex flex-col gap-6">
@@ -45,6 +51,7 @@ export function DashboardPage() {
         </dl>
       )}
 
+      {quests.data && <QuestsPanel board={quests.data} />}
       {activity.data && <WeekActivity days={activity.data} />}
       {stats.data && (
         <SubjectProgressList

@@ -72,6 +72,42 @@ test.describe('Le Tour', () => {
       'validée',
     )
   })
+
+  test('practices every card of a notion, the server correcting what it can', async ({ page }) => {
+    await signIn(page, USERS.alice, '/subjects/go/tour')
+    await page.getByRole('link', { name: 'Bienvenue', exact: true }).click()
+    await page.getByRole('link', { name: 'S’entraîner sur cette notion' }).click()
+
+    await expect(page.getByRole('heading', { name: /^S’entraîner : / })).toBeVisible()
+    await expect(page.getByText(/^Carte 1 sur \d+$/)).toBeVisible()
+    // Les formats alternent : une question de cours, qu'on retourne, puis un vrai ou faux, corrigé par le serveur.
+    await page.getByRole('button', { name: 'Voir la réponse' }).click()
+    await expect(page.getByRole('region', { name: 'Réponse' })).toBeVisible()
+    await page.getByRole('button', { name: 'Carte suivante' }).click()
+
+    await expect(page.getByText(/^Carte 2 sur \d+$/)).toBeVisible()
+    await page.getByRole('radio').first().check()
+    await page.getByRole('button', { name: 'Vérifier' }).click()
+    await expect(page.getByText(/^(Juste !|Pas tout à fait\.)$/)).toBeVisible()
+    await page.getByRole('link', { name: 'Revenir au Tour' }).click()
+    await expect(page.getByRole('heading', { name: 'Bienvenue' })).toBeVisible()
+  })
+
+  test('checks the program of an « À toi » in the sandbox, without revealing the output', async ({
+    page,
+  }) => {
+    await signIn(page, USERS.alice, '/subjects/go/tour')
+    await page.getByRole('link', { name: 'Le premier programme', exact: true }).click()
+    const task = page.getByRole('region', { name: 'À toi' })
+
+    // Le code de départ, tel quel, ne donne pas la sortie attendue.
+    await task.getByRole('button', { name: 'Vérifier mon programme' }).click()
+
+    await expect(
+      task.getByText('Pas encore : la sortie ne correspond pas à celle attendue.'),
+    ).toBeVisible({ timeout: RUN_TIMEOUT })
+    await expect(task.getByLabel('Sortie standard')).toContainText('Go a été rendu public en ...')
+  })
 })
 
 /** Ce que la correction dit de chaque choix, question par question : fallait-il le cocher ? */

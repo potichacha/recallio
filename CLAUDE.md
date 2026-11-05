@@ -70,7 +70,7 @@ Recallio n'est pas une application « Java » : c'est un **catalogue de sujets d
 | Frameworks | Spring Boot, Quarkus, Angular, React |
 | Cloud & DevOps | Docker, Kubernetes, CI/CD |
 | Données | SQL & PostgreSQL, NoSQL, Kafka |
-| Fondamentaux | Algorithmes & structures de données, architecture & design, sécurité |
+| Fondamentaux | Programmer de zéro, algorithmes & structures de données, architecture & design, sécurité |
 | IA | Machine learning, LLM & prompting |
 
 - **Ce que voit l'utilisateur** :
@@ -124,6 +124,9 @@ Modules prévus (créés au fur et à mesure des phases, pas tous dès le dépar
 | `gamification` | XP, streaks, succès | 1 |
 | `group` | groupes, membres, invitations, réglages, classements | 2 |
 | `live` | parties synchronisées en temps réel | 3 |
+| `feedback` | signalements d'erreurs dans le contenu (ADR 0042) | 3 ter |
+| `ranked` | classé : cotes Glicko-2 des joueurs et des cartes, rangs, duels, saisons (ADR 0046) | 3 ter |
+| `notification` | rappels par notification Web Push, sur acceptation (ADR 0047) | 3 ter |
 | `organization` | multi-entreprise, administration, statistiques agrégées | 4 |
 
 ### 4.2 Organisation du code : par fonctionnalité, puis par couche
@@ -275,6 +278,7 @@ Les sujets s'ajoutent un par un, au rythme de la rédaction, indépendamment des
 | Python | Langages | à rédiger |
 | C, C++, C# | Langages | à rédiger |
 | IA : machine learning, LLM & prompting | IA | à rédiger |
+| Programmer de zéro | Fondamentaux | ✅ rédigé en brouillon, en Java 25 (ADR 0039) : 23 notions, 115 cartes, un Tour de 23 pages ; à relire dans l'application avant de le publier |
 
 ---
 
@@ -315,7 +319,7 @@ Les sujets s'ajoutent un par un, au rythme de la rédaction, indépendamment des
 - Deux publics : quelqu'un qui programme déjà dans un autre langage suit le Tour de ce langage, au niveau du Go Tour ; quelqu'un qui n'a jamais programmé suit « Programmer de zéro ».
 - Une page appartient à une notion : un texte pour découvrir, un exemple à modifier et à exécuter, et parfois un « À toi » dont le serveur compare la sortie à celle attendue. L'ordre est celui du référentiel.
 - Une notion se valide à la fin de sa dernière page, en répondant juste à 2 ou 3 de ses questions, corrigées par le serveur ; elle reste validée. Ces réponses ne sont pas enregistrées comme des révisions : FSRS ne voit que les vraies révisions, espacées.
-- En fin de chapitre, ses exercices ; depuis chaque page, « S'entraîner » ouvre les cartes de la notion.
+- En fin de chapitre, ses exercices ; depuis chaque page, « S'entraîner » ouvre toutes les cartes de la notion, corrigées par le serveur quand leur format le permet, sans rien enregistrer (ADR 0038).
 - Chaque langage a son Tour, fait de contenu seulement ; un nouveau langage demande aussi son image de bac à sable.
 
 ---
@@ -421,7 +425,7 @@ WebSockets, parties synchronisées, chrono, classement en direct, tests de charg
 4. ✅ **Robustesse et charge** : départ de l'hôte, déconnexions, parties abandonnées, limites ; test de charge simple et métriques (ADR 0024).
 - **Terminé quand** : les membres d'un groupe jouent ensemble une partie live de bout en bout, sur mobile, et le classement s'affiche en direct.
 
-### Phase 3 bis : refonte du contenu (ADR 0025)
+### Phase 3 bis : refonte du contenu (ADR 0025) ✅
 Faire du contenu un référentiel complet, pour apprendre, préparer un entretien ou entretenir son niveau (5.5).
 
 1. **Référentiel et modèle** : ✅ le référentiel Java (toutes les notions, niveaux, priorités, prérequis) vérifié en CI ; ✅ découpage des chapitres hors Java en sujets propres ; ✅ dossier de sujet, un fichier YAML par notion, cartes à clé explicite (ADR 0026) ; ✅ migration sans perte des cartes Java vers les notions.
@@ -432,7 +436,7 @@ Faire du contenu un référentiel complet, pour apprendre, préparer un entretie
 6. ✅ **Pilote** : deux ou trois chapitres Java complets en priorité 1, pour valider la matrice et la qualité des brouillons (✅ « Premiers pas », « Types et variables » et « Opérateurs », 20 notions déclarées complètes et vérifiées en CI ; bilan dans `docs/retro/pilote-contenu.md`) ; puis la production (✅ Java : toutes les notions complètes, toutes priorités, 4 cartes par format ; bilan dans `docs/retro/production-java.md`).
 - **Terminé quand** : un débutant suit le parcours Java de bout en bout sur les notions de priorité 1, en codant dans l'application.
 
-### Phase 3 ter : gamification v2, partage, classé (ADR 0025)
+### Phase 3 ter : gamification v2, partage, classé (ADR 0025) ✅
 Carte des compétences, maîtrise par notion, XP, quêtes, succès, gel de streak ; indice de préparation, examen blanc, signalement des erreurs, rappels ; cartes de partage et profil public (privé par défaut) ; classé par sujet : duels asynchrones, rangs, placement, cotes des cartes, puis saisons et classé en direct.
 
 **Gamification v2, en révision personnelle**
@@ -443,43 +447,43 @@ Carte des compétences, maîtrise par notion, XP, quêtes, succès, gel de strea
 
 **Le Tour** (phase 3 quater, ci-dessous) **s'intercale ici** : les quêtes et les succès pourront le récompenser (« lire 3 pages », « finir le chapitre Concurrence »).
 
-5. **Quêtes du jour et de la semaine**, qui font varier les formats.
-6. **Succès**, débloqués une seule fois.
+5. ✅ **Quêtes du jour et de la semaine** (ADR 0040) : trois par jour, deux par semaine, calculées pour chaque utilisateur ; elles font varier les formats et récompensent le Tour, jamais la vitesse, et rapportent leur XP une fois.
+6. ✅ **Succès**, débloqués une seule fois (ADR 0040) : régularité, exercices, sujets, Tour et quêtes ; sur le profil.
 
 **Préparation et qualité**
 
-7. **Indice de préparation** par sujet : la part des notions essentielles (priorité 1) acquises et maîtrisées, comme le « prêt pour l'examen » d'Ornikar.
-8. **Examen blanc** : une simulation d'entretien chronométrée, sur des formats corrigés par le serveur, avec une note et le corrigé à la fin.
-9. **Signaler une erreur** sur chaque carte et chaque page du Tour : le contenu rédigé par Claude aura des erreurs, les utilisateurs doivent pouvoir les remonter.
-10. **Rappels** : des notifications de la PWA, sur acceptation, pour garder l'habitude (« Ta série de 12 jours t'attend »).
+7. ✅ **Indice de préparation** par sujet (ADR 0041) : la part des notions essentielles (priorité 1) acquises et maîtrisées, comme le « prêt pour l'examen » d'Ornikar ; prêt à partir de 80 %, sur le tableau de bord.
+8. ✅ **Examen blanc** : une simulation d'entretien chronométrée, sur des formats corrigés par le serveur, avec une note et le corrigé à la fin (ADR 0044) : 20 questions au plus, une minute chacune, les notions essentielles d'abord ; rien dans FSRS.
+9. ✅ **Signaler une erreur** sur chaque carte et chaque page du Tour : le contenu rédigé par Claude aura des erreurs, les utilisateurs doivent pouvoir les remonter (ADR 0042, module `feedback`) ; les admins les traitent depuis leur profil.
+10. ✅ **Rappels** : des notifications de la PWA, sur acceptation, pour garder l'habitude (« Ta série de 12 jours t'attend ») ; Web Push implémenté avec le JDK (RFC 8291, 8292), un rappel par jour au plus, à l'heure choisie, si l'objectif n'est pas atteint (ADR 0047, module `notification`).
 
 **Partage**
 
-11. **Profil public de compétences**, privé par défaut ; le vérifié séparé du déclaré.
-12. **Cartes de partage** : chapitre maîtrisé, podium, promotion.
+11. ✅ **Profil public de compétences**, privé par défaut ; le vérifié séparé du déclaré (ADR 0043) : une adresse choisie, `/u/<adresse>`, lisible sans compte.
+12. ✅ **Cartes de partage** : chapitre maîtrisé, podium, promotion (ADR 0045) : une image dessinée dans le navigateur, confiée au partage du téléphone ; la promotion arrive avec le classé.
 
-**Classé** (ADR à venir)
+**Classé** (ADR 0046, module `ranked`)
 
-13. **Cote de difficulté des cartes**, sur les réponses corrigées par le serveur.
-14. **Cote et rang par sujet, duels asynchrones** (backend) : cote Glicko-2 cachée, rangs en divisions, matchs de placement.
-15. **Duels dans la PWA**.
-16. **Saisons**.
-17. **Classé en direct**.
+13. ✅ **Cote de difficulté des cartes**, sur les réponses corrigées par le serveur : une cote Glicko-2 par carte, qui apprend des révisions et des duels.
+14. ✅ **Cote et rang par sujet, duels asynchrones** (backend) : cote Glicko-2 cachée, rangs en divisions, matchs de placement ; 5 questions près du niveau, 30 secondes chacune mesurées par le serveur.
+15. ✅ **Duels dans la PWA** : la page « Classé » (rangs, placement, insignes, derniers duels) et le duel ; la promotion se partage.
+16. ✅ **Saisons** : un trimestre civil ; la cote se rapproche de 1500 de moitié, le placement recommence, le meilleur rang reste en insigne.
+17. ✅ **Classé en direct** : une file par sujet, deux joueurs présents appariés dans un duel joué en même temps, suivi par interrogation du serveur.
 - **Terminé quand** : un utilisateur suit sa maîtrise notion par notion, gagne de l'XP et des succès, sait s'il est prêt pour son entretien, partage un profil de compétences, et monte de rang en duel sur un sujet.
 
-### Phase 3 quater : le Tour, apprendre un langage (ADR 0037)
+### Phase 3 quater : le Tour, apprendre un langage (ADR 0037) ✅
 Apprendre un langage pas à pas, comme sur le Go Tour, et valider chaque page, comme sur Ornikar (6.6). Elle passe entre les étapes 4 et 5 de la phase 3 ter.
 
 1. ✅ **Le mode « programme » du runner** : compiler et lancer un programme, renvoyer ses sorties et son code de sortie, dans le même bac à sable ; en Go, tout paquet standard est permis (index des modules désactivé).
 2. ✅ **Le format des pages** : le bloc `tour` des notions (texte, exemple, « À toi »), leur import, et la CI qui joue chaque exemple et chaque « À toi » dans le bac à sable ; les pages du premier chapitre Go (6 pages, 3 « À toi »), pour éprouver le format.
 3. ✅ **L'API du Tour** : le sommaire et les pages d'un sujet, publics comme le catalogue, et `POST /api/v1/playground-runs`, une exécution à la fois par utilisateur, exercices compris.
 4. ✅ **Le Tour dans la PWA** : le sommaire et la page (texte, éditeur, « Exécuter », sortie, précédent et suivant), sur mobile aussi ; lisible sans compte, « Exécuter » demande de se connecter.
-5. **Valider une notion** : ✅ les questions de vérification, corrigées par le serveur, et les notions validées, marquées dans le sommaire ; ✅ la reprise où l'on s'est arrêté (« Reprendre le Tour ») ; « S'entraîner sur cette notion » (un filtre par notion dans la file de révision).
-6. **« À toi » et exercices** : la sortie de l'utilisateur comparée à celle attendue, et les exercices de fin de chapitre dans le Tour.
-7. **Le Tour Go** : une page par notion débutante, et les premières notions de concurrence (une centaine de pages).
-8. **Le Tour Java** : de même (un peu plus d'une centaine de pages).
-9. **Programmer de zéro** : le sujet, son référentiel et son Tour, dans un langage à choisir à cette étape.
-10. **Parcours de bout en bout et rétrospective.**
+5. ✅ **Valider une notion** : ✅ les questions de vérification, corrigées par le serveur, et les notions validées, marquées dans le sommaire ; ✅ la reprise où l'on s'est arrêté (« Reprendre le Tour ») ; ✅ « S'entraîner sur cette notion » : un entraînement libre, non enregistré, plutôt qu'un filtre de la file de révision qui contredirait l'ADR 0031 (ADR 0038).
+6. ✅ **« À toi » et exercices** : la sortie de l'utilisateur comparée sur le serveur à celle attendue, qui ne quitte pas le backend (`POST /api/v1/me/tour/{s}/{notion}/tasks`) ; les exercices de fin de chapitre dans le sommaire et sur la dernière page du chapitre, ouverts dans l'entraînement de leur notion (ADR 0038).
+7. ✅ **Le Tour Go** : une page par notion débutante, et les premières notions de concurrence (channels fermés, `select`, délais, pool de workers, pipelines, sémaphores) : 81 notions, 81 pages, 29 « À toi », toutes jouées dans le bac à sable par `TourTest`.
+8. ✅ **Le Tour Java** : une page par notion débutante, de « Bienvenue » aux annotations : 106 notions, 106 pages, 19 « À toi », en fichiers source compacts Java 25 quand c'est possible, toutes jouées dans le bac à sable.
+9. ✅ **Programmer de zéro** : le sujet (en brouillon), son référentiel de 23 notions, leurs leçons et leurs cartes, et son Tour, en Java 25 (ADR 0039).
+10. ✅ **Parcours de bout en bout et rétrospective** : l'e2e lit, exécute, reprend, valide, s'entraîne et vérifie un « À toi » ; bilan dans `docs/retro/le-tour.md`.
 - **Terminé quand** : quelqu'un qui programme dans un autre langage apprend Go ou Java dans le Tour, en exécutant chaque exemple et en validant chaque notion, et quelqu'un qui n'a jamais programmé suit « Programmer de zéro ».
 
 Le **déploiement** (phase 1, étape 7) vient après ces phases.
@@ -506,7 +510,7 @@ Correction des réponses ouvertes par IA, paiement. L'exécution de code en bac 
 9. ~~Répartition du quota de nouvelles cartes entre sujets suivis : parts égales, ou pondération choisie par l'utilisateur (phase 1 bis, étape 3).~~ **Tranché** : parts égales, en alternant les sujets (ADR 0014).
 10. ~~Bac à sable d'exécution du code des joueurs : service existant (Judge0, Piston) ou exécuteur maison à conteneurs jetables (phase 3 bis, étape 4).~~ **Tranché** : exécuteur maison à conteneurs jetables, un service `runner` séparé (ADR 0030).
 11. ~~Rédaction du contenu à l'échelle.~~ **Tranché** : brouillons rédigés par Claude, chaque PR de contenu relue par le propriétaire avant le merge (ADR 0025).
-12. Le langage du Tour « Programmer de zéro » (phase 3 quater, étape 9) : Python est le choix classique, mais il demande son contenu et son image de bac à sable ; Go ou Java sont déjà prêts.
+12. ~~Le langage du Tour « Programmer de zéro » (phase 3 quater, étape 9).~~ **Tranché** : Java 25, ses fichiers source compacts étant faits pour débuter (ADR 0039).
 
 ---
 

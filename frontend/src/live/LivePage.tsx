@@ -5,7 +5,7 @@ import { ApiError } from '../api/errors'
 import { LIVE_CLOSE, useLiveGameSocket, useStartLiveGame, type LiveGame } from '../api/live'
 import { useProfile } from '../api/profile'
 import { LiveRoundView } from './LiveRound'
-import { LivePodium, LiveStandings } from './LiveStandings'
+import { LivePodium, LiveStandings, SharePodium } from './LiveStandings'
 
 /** Entre deux questions, les premiers seulement (et soi-même) : la correction reste lisible. */
 const STANDINGS_DURING_GAME = 5
@@ -90,6 +90,7 @@ function LiveGameView({ game }: { game: LiveGame }) {
             Partie terminée : merci d’avoir joué !
           </p>
           <LivePodium standings={game.standings} me={me} />
+          <SharePodium standings={game.standings} me={me} />
           <LiveStandings standings={game.standings} me={me} title="Classement final" />
         </>
       )}

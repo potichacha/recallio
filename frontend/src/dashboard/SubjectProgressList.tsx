@@ -2,14 +2,15 @@ import { Link } from 'react-router'
 import type { SubjectXp } from '../api/progress'
 import type { CardCounts, SubjectStats, ThemeStats } from '../api/stats'
 import { MasteryBar } from '../components/MasteryBar'
+import { ReadinessGauge } from '../components/ReadinessGauge'
 import { masterySummary } from '../components/mastery'
 
 const plural = (count: number, word: string) => `${count} ${word}${count > 1 ? 's' : ''}`
 
 /**
  * Progression par sujet suivi, dans l'ordre du catalogue : son niveau (ADR 0035), ses cartes, la maîtrise de ses
- * notions quand il a un référentiel (ADR 0034), puis ses thèmes (dépliables). Avec un seul sujet, ses thèmes sont
- * dépliés d'emblée.
+ * notions et son indice de préparation quand il a un référentiel (ADR 0034, 0041), puis ses thèmes (dépliables). Avec
+ * un seul sujet, ses thèmes sont dépliés d'emblée.
  */
 export function SubjectProgressList({
   subjects,
@@ -88,6 +89,13 @@ function SubjectRow({
             </Link>
           </p>
         </div>
+      )}
+      {subject.readiness.essentials > 0 && (
+        <ReadinessGauge
+          subject={subject.slug}
+          title={subject.title}
+          readiness={subject.readiness}
+        />
       )}
       <details open={expanded} className="group">
         <summary className="cursor-pointer text-sm font-medium text-indigo-700">

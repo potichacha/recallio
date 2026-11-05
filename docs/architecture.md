@@ -73,7 +73,7 @@ flowchart TB
 | `platform` est utilisable par tous | Évite de dupliquer le transverse dans chaque module. |
 
 **Modules prévus** : `content`, `review`, `user` et `gamification` (phase 1), `group` (phase 2),
-`live` (phase 3), `organization` (phase 4).
+`live` (phase 3), `feedback`, `ranked` et `notification` (phase 3 ter), `organization` (phase 4).
 
 ### Module `content` (en place)
 
@@ -98,11 +98,12 @@ flowchart LR
 | `application.ContentImportService` | Transaction d'import et journalisation du rapport. |
 | `api.SubjectsResource`, `api.ThemesResource` | Catalogue public (brouillons visibles des seuls admins), pagination bornée (100 cartes maximum par page). |
 | `api.TourResource` | Le Tour d'un sujet, public comme le catalogue (ADR 0037) : `GET /api/v1/subjects/{s}/tour`, le sommaire par domaine et chapitre sans le contenu des pages, puis `/tour/{notion}`, les pages d'une notion. La solution et la sortie attendue d'un « À toi » restent sur le serveur. |
+| `TourDirectory` (package racine), `infrastructure.persistence.JpaTourDirectory` | **API publique** : une page du Tour, « À toi » compris, pour que le module `review` le juge sans que sa sortie attendue ne quitte le backend. |
 | `TourPage` (package racine) | Une page du Tour et ses règles : un programme d'un seul langage, `Main.java` en Java, un « À toi » aux fichiers de son code de départ (ADR 0037). |
 | `domain.TourQuestions` | Les questions qui valident une notion du Tour : ses cartes corrigées par le serveur, une par format d'abord, trois au plus, dans l'ordre du fichier. Le parseur en exige deux (ADR 0037). |
 | `api.ContentImportResource` | Import d'un document à la demande, rôle `admin`. |
 | `infrastructure.ContentStartupImport` | En dev et dans le compose : importe tous les documents du dossier, un sujet par transaction. |
-| `CardDirectory` (package racine) | **API publique** pour les autres modules : cartes actives filtrées (sujets, thème, format) ou par thème, version courante, questions qui valident une notion du Tour. |
+| `CardDirectory` (package racine) | **API publique** pour les autres modules : cartes actives filtrées (sujets, thème, format) ou par thème, version courante, notions d'un sujet ou une seule, questions qui valident une notion du Tour. |
 | `SubjectDirectory` (package racine) | **API publique** : les sujets publiés, dans l'ordre du catalogue. |
 | `CardType`, `CardChoice` (package racine) | Formats de carte et choix d'un QCM, partagés avec les autres modules. |
 
@@ -118,6 +119,8 @@ flowchart LR
 | `api.MeResource` | `GET` et `PUT /api/v1/me`, `PUT /api/v1/me/followed-subjects`, réservés à l'utilisateur connecté. |
 | `CurrentUser` (package racine) | **API publique** : l'utilisateur de la requête (`UserRef` : identifiant, fuseau). |
 | `FollowedSubjects` (package racine) | **API publique** : les sujets suivis par un utilisateur, qui alimentent ses révisions. |
+| `application.PublicProfileService`, `api.PublicProfileSettingsResource` | L'adresse et la visibilité du profil public (ADR 0043), privé par défaut : `GET` et `PUT /api/v1/me/public-profile`, table `public_profile`. |
+| `PublicProfiles` (package racine) | **API publique** : un profil public par son adresse ; un profil privé ou inconnu est absent. |
 
 Le flux complet est décrit dans l'ADR 0010 : la PWA obtient un jeton par Authorization Code + PKCE, et le backend
 vérifie sa signature, son émetteur, son expiration et son audience (`recallio-api`).
@@ -146,10 +149,16 @@ flowchart LR
 | `api.ReviewsResource` | `GET /api/v1/review-queue` et `POST /api/v1/reviews` (201, ou 200 si rejouée). |
 | `application.NewCardQuota` | Quota quotidien de nouvelles cartes, partagé par la file et les statistiques. |
 | `domain.stats.CardCounts` | Cartes vues, maîtrisées (stabilité ≥ 21 jours, seuil « mature » d'Anki), dues maintenant et aujourd'hui. |
-| `api.ReviewStatsResource` | `GET /api/v1/me/review-stats` : totaux, puis progression par sujet suivi et par thème (tableau de bord). |
+| `api.ReviewStatsResource` | `GET /api/v1/me/review-stats` : totaux, puis progression par sujet suivi et par thème (tableau de bord), avec la maîtrise des notions et l'indice de préparation de chaque sujet. |
+| `SkillProfiles` (package racine), `application.SkillProfileService` | **API publique** : les compétences d'un utilisateur par sujet, le vérifié (exercices réussis, réponses corrigées, notions du Tour) séparé du déclaré (maîtrise, préparation), pour le profil public (ADR 0043). |
+| `application.MockExamService`, `api.MockExamsResource`, `domain.exam.MockExamDraw` | L'examen blanc (ADR 0044) : `POST /api/v1/me/mock-exams`, une question par notion à chaque tour, les essentielles d'abord ; une minute par question, mesurée par le serveur ; `POST …/{id}/submission`, la note et le corrigé. Tables `mock_exam` et `mock_exam_question` ; ni le journal, ni FSRS, ni l'XP ne voient les réponses. |
+| `domain.track.Readiness` | L'indice de préparation d'un sujet (ADR 0041) : ses notions essentielles acquises comptent pour moitié, maîtrisées en entier ; prêt à partir de 80 %. |
 | `application.ExerciseRunService`, `application.PlaygroundRunService` | Exécuter un exercice contre ses tests (ADR 0030), ou un programme du Tour (`POST /api/v1/playground-runs`, ADR 0037). Rien n'est enregistré. |
 | `application.RunLock` | Une exécution à la fois par utilisateur, exercices et programmes confondus : 429 sinon. |
 | `infrastructure.runner.HttpCodeRunner`, `HttpProgramRunner` | Les deux modes du runner, derrière les ports `CodeRunner` et `ProgramRunner` ; une panne du runner répond 503. |
+| `application.PracticeService`, `api.PracticeResource`, `domain.practice.PracticeOrder` | S'entraîner sur une notion (ADR 0038) : `GET /api/v1/me/practice/{s}/{notion}`, toutes ses cartes, formats alternés, exercices à la fin ; `POST …/checks`, la correction d'un vrai ou faux, d'un QCM ou d'un code à trous. Rien n'est enregistré. |
+| `application.TourTaskService` | Juger un « À toi » (`POST /api/v1/me/tour/{s}/{notion}/tasks`) : le programme passe par le runner, une exécution à la fois par utilisateur, et sa sortie est comparée à celle attendue comme le fait la CI (fins de ligne, blancs finaux). Rien n'est enregistré. |
+| `application.AnswerCorrection` | La correction sans enregistrement, partagée par le Tour et l'entraînement. |
 | `application.TourProgressService`, `api.TourProgressResource` | La progression dans le Tour (ADR 0037). `GET /api/v1/me/tour/{s}` : les notions validées, et la dernière page ouverte (`PUT /api/v1/me/tour/{s}/last-page`, table `tour_last_page`), oubliée si elle sort du Tour. `GET /api/v1/me/tour/{s}/{notion}` : ses questions sans leurs réponses ; `POST /api/v1/me/tour/{s}/{notion}/checks` : la correction. Toutes justes, la notion est validée (table `tour_progress`) et le reste. Ni le journal, ni FSRS, ni l'XP ne voient ces réponses. |
 
 Le module `review` ne lit aucune table des autres modules : il passe par `content.CardDirectory`,
@@ -185,9 +194,15 @@ flowchart LR
 | `domain.leaderboard.WeeklyRanking` | Le rang de la semaine : jours réguliers, puis XP, puis cartes ; ex æquo au même rang (ADR 0018). |
 | `application.GroupLeaderboardService` | Le classement d'un groupe : membres et réglages par `group.GroupLeaderboards`, activité par `WeeklyActivity`. |
 | `api.LeaderboardResource` | `GET /api/v1/groups/{id}/leaderboard`, rangé sous le groupe mais servi par ce module. |
+| `domain.quest.Quest`, `QuestBoard` | Le catalogue des quêtes et le choix de la période : trois par jour, deux par semaine, calculés depuis l'utilisateur et la période, rien n'est tiré ni planifié (ADR 0040). |
+| `application.QuestTracker` | Observe `CardReviewed`, `TourPageOpened` et `TourNotionValidated` dans leur transaction ; une quête terminée écrit son XP (`QUEST`) une fois et publie `QuestCompleted`. |
+| `application.AchievementTracker` | Débloque les succès au fil des mêmes événements et de `QuestCompleted` ; table `achievement`, une ligne par succès, jamais retirée. |
+| `api.QuestsResource`, `api.AchievementsResource` | `GET /api/v1/me/quests` et `GET /api/v1/me/achievements`. |
+| `application.PublicSkillProfileService`, `api.PublicProfilesResource` | Le profil public (ADR 0043), `GET /api/v1/public-profiles/{adresse}` sans compte : `user.PublicProfiles`, le vérifié et le déclaré par `review.SkillProfiles`, puis le niveau, la série et les succès. |
 
-Le tableau de bord de la PWA (accueil, une fois connecté) assemble trois lectures indépendantes :
-`/api/v1/me/review-stats` (review), `/api/v1/me/progress` et `/api/v1/me/progress/activity` (gamification). Aucun
+Le tableau de bord de la PWA (accueil, une fois connecté) assemble des lectures indépendantes :
+`/api/v1/me/review-stats` (review), `/api/v1/me/progress`, `/api/v1/me/progress/activity` et `/api/v1/me/quests`
+(gamification). Aucun
 module « tableau de bord » côté serveur : chaque module expose ce qu'il sait.
 
 ### Module `group` (en place)
@@ -240,9 +255,43 @@ flowchart LR
     socket -- "état de la partie, à chaque arrivée et départ" --> pwa
 ```
 
+### Module `feedback` (en place, phase 3 ter)
+
+| Élément | Rôle |
+|---|---|
+| `domain.ContentReport`, `ReportTarget` | Un signalement (ADR 0042) : une carte, ou une page d'une notion du Tour, une raison, des précisions ; ouvert jusqu'à ce qu'un admin le traite (corrigé ou rejeté). |
+| `application.ContentReportService` | Vérifie le contenu signalé par `content.CardDirectory` (publié seulement), un signalement ouvert par contenu et par utilisateur, 20 ouverts au plus ; traite un signalement en une instruction. |
+| `infrastructure.JpaContentReportRepository` | Table `content_report`, sans clé étrangère vers les autres modules. |
+| `api.ContentReportsResource` | `POST /api/v1/content-reports`. |
+| `api.AdminContentReportsResource` | `GET /api/v1/admin/content-reports` (ouverts ou traités, paginé) et `PUT …/{id}/resolution`, rôle admin ; l'auteur d'un signalement n'est pas montré. |
+
+### Module `ranked` (en place, phase 3 ter)
+
+| Élément | Rôle |
+|---|---|
+| `domain.glicko.Glicko2`, `Rating` | Glicko-2 (Glickman, 2012) en Java pur : une période de notation par duel, ou par réponse pour une carte (ADR 0046). Les cotes ne quittent pas le serveur. |
+| `domain.Rank`, `Season`, `Standing` | Le rang d'une cote (Bronze à Maître, quatre divisions), la saison (un trimestre, remise à mi-chemin de 1500), la place d'un joueur dans un sujet : placement de 5 duels, meilleur rang de la saison. |
+| `domain.Duel`, `DuelScore`, `DuelDraw`, `DuelGrading` | Un duel : deux joueurs, 5 questions tirées près de leur niveau, 30 secondes chacune ; le plus de bonnes réponses gagne, puis le temps ; la correction par les règles de la carte. |
+| `application.CardDifficulty` | La cote de difficulté des cartes : observe `review.CardReviewed` (formats corrigés par le serveur) et les réponses des duels. |
+| `application.DuelService`, `DuelResolution` | Chercher un duel (asynchrone : le sien, le plus proche en cote, ou un nouveau ; direct : une file, `ranked_queue`), servir une question une fois, corriger, régler : les expirations se règlent à la lecture. |
+| `application.RankedViews`, `RankedProfiles` (package racine) | Les rangs, insignes et duels de l'utilisateur ; **API publique** : son rang par sujet, pour le profil public (ADR 0043). |
+| `api.DuelsResource`, `api.MyRankedResource` | `POST /api/v1/ranked/duels`, `POST` et `DELETE /api/v1/ranked/live-queue`, `GET /api/v1/ranked/duels/{id}`, `POST …/next`, `POST …/answers` ; `GET /api/v1/me/ranked` et `/duels`. |
+
+### Module `notification` (en place, phase 3 ter)
+
+| Élément | Rôle |
+|---|---|
+| `domain.PushSubscription`, `Reminder` | Un abonnement Web Push par appareil, vers un service de notification connu (liste fermée, contre le SSRF) ; le rappel : un par jour au plus, à partir de l'heure choisie, le message selon la série (ADR 0047). |
+| `application.ReminderPlanner`, `ReminderService` | Réserve en base les rappels dus (si l'objectif du jour, lu par `gamification.DailyGoals`, n'est pas atteint), puis les envoie hors transaction ; un appareil désabonné est oublié. |
+| `infrastructure.push.WebPushEncryption`, `Vapid`, `HttpPushSender` | Le chiffrement aes128gcm de la RFC 8291, le jeton VAPID ES256 de la RFC 8292, l'envoi par le client HTTP du JDK ; clés VAPID en variables d'environnement. |
+| `infrastructure.ReminderTimer` | Un minuteur Vert.x toutes les 10 minutes, désactivé en test. |
+| `api.PushSubscriptionsResource`, `api.PushPublicKeyResource` | `PUT` et `DELETE /api/v1/me/push-subscription`, `GET /api/v1/push/public-key`. |
+
 Les dépendances entre modules vont dans un seul sens : `gamification` → `review` (événement) → `content`, `user` ;
 `review` → `group` → `content`, `user` ;
-`gamification` → `group` (classement des groupes) ; `live` → `group`, `user`.
+`gamification` → `group` (classement des groupes), `ranked` (le rang du profil public) ; `live` → `group`, `user` ;
+`feedback` → `content`, `user` ; `ranked` → `content`, `user`, `review` (événement) ;
+`notification` → `user`, `gamification`.
 
 Le module transverse `platform` fournit les identifiants (`IdGenerator`, UUID v7), l'horloge (`Clock`),
 la pagination (`Page`) et la traduction des erreurs en Problem Details (RFC 9457).
@@ -276,6 +325,7 @@ flowchart LR
 |---|---|---|
 | PostgreSQL | Dev Services (conteneur automatique) | `DB_URL`, `DB_USERNAME`, `DB_PASSWORD` |
 | OIDC | Dev Services Keycloak | `OIDC_AUTH_SERVER_URL`, `OIDC_CLIENT_ID` |
+| Rappels (Web Push, ADR 0047) | paire VAPID éphémère, tirée au démarrage ; aucun minuteur en test | `RECALLIO_PUSH_VAPID_PUBLIC_KEY`, `RECALLIO_PUSH_VAPID_PRIVATE_KEY`, `RECALLIO_PUSH_SUBJECT` |
 | `/q/*` (Dev UI, Swagger) | public | non exposé |
 | Santé | `/api/v1/health` (public) | `/api/v1/health` (public) |
 

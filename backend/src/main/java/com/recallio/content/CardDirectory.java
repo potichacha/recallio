@@ -33,6 +33,13 @@ public interface CardDirectory {
     /** Les notions actives de ces sujets publiés, dans l'ordre de leur référentiel (ADR 0032). */
     List<NotionInfo> notions(Collection<String> subjectSlugs);
 
+    /** La notion active de ce slug dans ce sujet publié ; vide si elle n'existe pas. */
+    default Optional<NotionInfo> notion(String subjectSlug, String notionSlug) {
+        return notions(Set.of(subjectSlug)).stream()
+                .filter(notion -> notion.slug().equals(notionSlug))
+                .findFirst();
+    }
+
     /** Tous les thèmes publiés, dans l'ordre du programme, avec les identifiants de leurs cartes actives. */
     List<ThemeCards> activeCardsByTheme();
 

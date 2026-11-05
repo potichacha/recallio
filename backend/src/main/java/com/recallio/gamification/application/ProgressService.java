@@ -1,5 +1,6 @@
 package com.recallio.gamification.application;
 
+import com.recallio.gamification.DailyGoals;
 import com.recallio.gamification.domain.ActivityRepository;
 import com.recallio.gamification.domain.ActivityRepository.DailyActivity;
 import com.recallio.gamification.domain.Streak;
@@ -22,7 +23,7 @@ import java.util.stream.Collectors;
 /** Cas d'usage : la progression de l'utilisateur (XP et niveau de ses sujets, streak et ses gels, objectif du jour). */
 @ApplicationScoped
 @Transactional(Transactional.TxType.SUPPORTS)
-public class ProgressService {
+public class ProgressService implements DailyGoals {
 
     private final ActivityRepository activity;
     private final XpLedger ledger;
@@ -41,6 +42,12 @@ public class ProgressService {
         this.followedSubjects = followedSubjects;
         this.rules = config.rules();
         this.clock = clock;
+    }
+
+    @Override
+    public DailyStatus status(UserRef user) {
+        Progress progress = progress(user);
+        return new DailyStatus(progress.streak().days(), progress.goalReachedToday());
     }
 
     public Progress progress(UserRef user) {

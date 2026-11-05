@@ -109,6 +109,32 @@ describe('ReviewPage', () => {
     expect(body.elapsedMs).toBeGreaterThanOrEqual(0)
   })
 
+  it('reports an error on the card being reviewed', async () => {
+    const fetchMock = stubApi({
+      ...PROFILE,
+      [QUEUE]: { body: queue([queuedCard()]) },
+      'POST /api/v1/content-reports': {
+        status: 201,
+        body: { id: 'r1', reason: 'TYPO', createdAt: '2026-11-05T08:00:00Z' },
+      },
+    })
+    renderAt('/review', signedIn())
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Signaler une erreur' }))
+    const form = screen.getByRole('form', { name: 'Signaler une erreur' })
+    await userEvent.click(within(form).getByRole('radio', { name: 'Une faute de frappe' }))
+    await userEvent.type(within(form).getByLabelText('Précisions (facultatif)'), '  « bytecode »  ')
+    await userEvent.click(within(form).getByRole('button', { name: 'Envoyer' }))
+
+    expect(await screen.findByRole('status')).toHaveTextContent('Merci : le signalement est envoyé')
+    const post = sentRequests(fetchMock).find((request) => request.url.endsWith('/content-reports'))
+    expect(await post?.json()).toEqual({
+      cardId: 'card-1',
+      reason: 'TYPO',
+      comment: '« bytecode »',
+    })
+  })
+
   it('sends the same request id again when retrying after an error', async () => {
     const responses = {
       ...PROFILE,

@@ -18,6 +18,9 @@ public interface ActivityRepository {
     /** Nombre de cartes révisées ce jour-là (0 si aucune). */
     int cardsReviewed(UUID userId, LocalDate day);
 
+    /** Toutes les cartes révisées par l'utilisateur, depuis toujours. */
+    long totalReviews(UUID userId);
+
     /** Les jours actifs entre {@code from} et {@code to} inclus ; les jours sans révision sont absents. */
     List<DailyActivity> between(UUID userId, LocalDate from, LocalDate to);
 

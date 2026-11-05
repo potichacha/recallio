@@ -3,6 +3,7 @@ import { useSubject } from '../api/content'
 import { ApiError } from '../api/errors'
 import { useLearningPath, type PathDomain, type PathNotion } from '../api/learningPath'
 import { MasteryBar } from '../components/MasteryBar'
+import { ShareButton } from '../components/ShareButton'
 import {
   MASTERY_LABELS,
   MASTERY_STYLES,
@@ -10,6 +11,7 @@ import {
   nextLevelHint,
 } from '../components/mastery'
 import { TRACKS } from '../components/trackLabels'
+import { practicePath } from '../practice/practicePath'
 
 const LEVEL_LABELS: Record<PathNotion['level'], string> = {
   BEGINNER: 'débutant',
@@ -73,7 +75,12 @@ export function LearningPathPage() {
             <p className="text-sm font-medium">{masterySummary(path.data.counts)}</p>
           </div>
           {domains.map((domain) => (
-            <DomainSection key={domain.id} domain={domain} open={domain.id === current} />
+            <DomainSection
+              key={domain.id}
+              subject={slug}
+              domain={domain}
+              open={domain.id === current}
+            />
           ))}
         </>
       )}
@@ -87,7 +94,15 @@ function currentDomain(domains: PathDomain[]): string | undefined {
   return domains.find((domain) => domain.counts.acquired < domain.counts.total)?.id
 }
 
-function DomainSection({ domain, open }: { domain: PathDomain; open: boolean }) {
+function DomainSection({
+  subject,
+  domain,
+  open,
+}: {
+  subject: string
+  domain: PathDomain
+  open: boolean
+}) {
   const notions = domain.chapters.reduce((count, chapter) => count + chapter.notions.length, 0)
   return (
     <section
@@ -110,12 +125,27 @@ function DomainSection({ domain, open }: { domain: PathDomain; open: boolean }) 
               aria-labelledby={`chapter-${chapter.id}`}
               className="flex flex-col gap-2"
             >
-              <h3 id={`chapter-${chapter.id}`} className="font-semibold">
-                {chapter.title}
-              </h3>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h3 id={`chapter-${chapter.id}`} className="font-semibold">
+                  {chapter.title}
+                </h3>
+                {isMastered(chapter.notions) && (
+                  <span className="flex items-center gap-2">
+                    <span className="text-xs font-medium text-emerald-700">🏆 Maîtrisé</span>
+                    <ShareButton
+                      card={{
+                        kicker: 'Carte des compétences',
+                        title: 'Chapitre maîtrisé',
+                        detail: chapter.title,
+                        url: `${window.location.origin}/subjects/${encodeURIComponent(subject)}`,
+                      }}
+                    />
+                  </span>
+                )}
+              </div>
               <ul className="flex flex-col gap-1">
                 {chapter.notions.map((notion) => (
-                  <NotionItem key={notion.slug} notion={notion} />
+                  <NotionItem key={notion.slug} subject={subject} notion={notion} />
                 ))}
               </ul>
             </section>
@@ -126,7 +156,15 @@ function DomainSection({ domain, open }: { domain: PathDomain; open: boolean }) 
   )
 }
 
-function NotionItem({ notion }: { notion: PathNotion }) {
+/** Un chapitre est maîtrisé quand chacune de ses notions l'est, ou mieux (ADR 0034). */
+function isMastered(notions: PathNotion[]) {
+  return (
+    notions.length > 0 &&
+    notions.every((notion) => notion.mastery === 'MASTERED' || notion.mastery === 'EXPERT')
+  )
+}
+
+function NotionItem({ subject, notion }: { subject: string; notion: PathNotion }) {
   const blocked = notion.status === 'LOCKED' || notion.status === 'NO_CARDS'
   const badge = blocked
     ? {
@@ -143,6 +181,14 @@ function NotionItem({ notion }: { notion: PathNotion }) {
         </span>
         {!blocked && notion.nextLevel && (
           <span className="text-xs text-slate-500">{nextLevelHint(notion.nextLevel)}</span>
+        )}
+        {notion.status !== 'NO_CARDS' && (
+          <Link
+            to={practicePath(subject, notion.slug)}
+            className="text-xs font-medium text-indigo-700 hover:underline"
+          >
+            S’entraîner
+          </Link>
         )}
       </span>
       <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${badge.style}`}>

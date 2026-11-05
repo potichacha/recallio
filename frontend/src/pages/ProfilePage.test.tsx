@@ -129,4 +129,53 @@ describe('ProfilePage', () => {
     const put = sentRequests(fetchMock).find((request) => request.url.endsWith('/java/track'))
     expect(await put?.json()).toEqual({ track: 'LEARN' })
   })
+
+  it('lists the achievements, unlocked or not, and what unlocks them', async () => {
+    stubApi({
+      ...SIGNED_IN_API,
+      ...SUBJECTS,
+      '/api/v1/me': { body: PROFILE },
+      '/api/v1/me/achievements': {
+        body: [
+          { achievement: 'FIRST_REVIEW', unlockedAt: '2026-11-02T08:00:00Z' },
+          { achievement: 'STREAK_7', unlockedAt: null },
+        ],
+      },
+    })
+    renderAt('/profile', SIGNED_IN)
+
+    const section = await screen.findByRole('region', { name: 'Mes succès' })
+    expect(section).toHaveTextContent('1 / 2 débloqués')
+    const [first, streak] = within(section).getAllByRole('listitem')
+    expect(first).toHaveTextContent('Premier pas')
+    expect(first).toHaveTextContent('Débloqué le 2 novembre 2026')
+    expect(streak).toHaveTextContent('Tenir une série de 7 jours.')
+    expect(streak).toHaveTextContent('À débloquer')
+  })
+
+  it('keeps the public profile private until the user makes it public', async () => {
+    const fetchMock = stubApi({
+      ...SIGNED_IN_API,
+      ...SUBJECTS,
+      '/api/v1/me': { body: PROFILE },
+      '/api/v1/me/public-profile': { body: { handle: null, visible: false } },
+      'PUT /api/v1/me/public-profile': { body: { handle: 'alice-dev', visible: true } },
+    })
+    renderAt('/profile', SIGNED_IN)
+
+    const form = await screen.findByRole('form', { name: 'Profil public' })
+    const visible = within(form).getByRole('checkbox', { name: 'Rendre mon profil public' })
+    expect(visible).not.toBeChecked()
+    await userEvent.type(within(form).getByLabelText('Adresse du profil'), 'Alice-Dev')
+    await userEvent.click(visible)
+    await userEvent.click(
+      within(form).getByRole('button', { name: 'Enregistrer mon profil public' }),
+    )
+
+    expect(await within(form).findByRole('status')).toHaveTextContent('Votre profil est public.')
+    const put = sentRequests(fetchMock).find(
+      (request) => request.method === 'PUT' && request.url.endsWith('/public-profile'),
+    )
+    expect(await put?.json()).toEqual({ handle: 'alice-dev', visible: true })
+  })
 })

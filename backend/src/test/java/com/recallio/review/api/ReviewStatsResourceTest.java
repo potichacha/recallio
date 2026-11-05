@@ -133,7 +133,13 @@ class ReviewStatsResourceTest {
                 .body(odin + ".notions.discovered", is(1))
                 .body(odin + ".notions.acquired", is(1))
                 .body(odin + ".notions.mastered", is(0))
-                .body(odin + ".notions.expert", is(0));
+                .body(odin + ".notions.expert", is(0))
+                // Seule « bases » est essentielle : acquise, elle compte pour moitié.
+                .body(odin + ".readiness.essentials", is(1))
+                .body(odin + ".readiness.acquired", is(1))
+                .body(odin + ".readiness.mastered", is(0))
+                .body(odin + ".readiness.percent", is(50))
+                .body(odin + ".readiness.ready", is(false));
     }
 
     @Test

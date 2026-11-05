@@ -82,6 +82,13 @@ class UserProfileServiceTest {
         }
 
         @Override
+        public Optional<UserProfile> findById(UUID id) {
+            return bySubject.values().stream()
+                    .filter(profile -> profile.id().equals(id))
+                    .findFirst();
+        }
+
+        @Override
         public UserProfile createIfAbsent(UserProfile candidate) {
             return bySubject.computeIfAbsent(candidate.oidcSubject(), subject -> candidate);
         }

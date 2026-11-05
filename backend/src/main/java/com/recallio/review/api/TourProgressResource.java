@@ -3,15 +3,20 @@ package com.recallio.review.api;
 import com.recallio.content.CardChoice;
 import com.recallio.content.CardDirectory.CardSnapshot;
 import com.recallio.content.CardType;
+import com.recallio.content.TourPage;
 import com.recallio.platform.api.ProblemDetail;
+import com.recallio.review.api.PlaygroundResource.ProgramRunDto;
 import com.recallio.review.api.ReviewDtos.BlankCorrectionDto;
+import com.recallio.review.api.ReviewDtos.ExerciseFileDto;
+import com.recallio.review.application.AnswerCorrection;
+import com.recallio.review.application.GradedAnswer;
 import com.recallio.review.application.TourProgressService;
 import com.recallio.review.application.TourProgressService.CheckOutcome;
 import com.recallio.review.application.TourProgressService.Checkpoint;
 import com.recallio.review.application.TourProgressService.Progress;
-import com.recallio.review.application.TourProgressService.QuestionResult;
 import com.recallio.review.application.TourProgressService.Step;
-import com.recallio.review.application.TourProgressService.TourAnswer;
+import com.recallio.review.application.TourTaskService;
+import com.recallio.review.application.TourTaskService.TaskCheck;
 import com.recallio.user.CurrentUser;
 import io.quarkus.security.Authenticated;
 import jakarta.validation.Valid;
@@ -53,10 +58,12 @@ public class TourProgressResource {
     static final int MAX_ANSWERS = 10;
 
     private final TourProgressService tour;
+    private final TourTaskService tasks;
     private final CurrentUser currentUser;
 
-    public TourProgressResource(TourProgressService tour, CurrentUser currentUser) {
+    public TourProgressResource(TourProgressService tour, TourTaskService tasks, CurrentUser currentUser) {
         this.tour = tour;
+        this.tasks = tasks;
         this.currentUser = currentUser;
     }
 
@@ -139,9 +146,81 @@ public class TourProgressResource {
             @PathParam("subject") String subject,
             @PathParam("notion") String notion,
             @Valid @NotNull TourCheckRequest request) {
-        List<TourAnswer> answers =
+        List<GradedAnswer> answers =
                 request.answers().stream().map(TourAnswerDto::toAnswer).toList();
         return TourCheckDto.from(tour.check(currentUser.get(), subject, notion, answers));
+    }
+
+    @POST
+    @Path("/{notion}/tasks")
+    @Consumes(MediaType.APPLICATION_JSON)
+    @Operation(
+            operationId = "checkTourTask",
+            summary = "Exécute le programme d'un « À toi » et compare sa sortie à celle attendue, qui reste sur le"
+                    + " serveur")
+    @APIResponse(responseCode = "200", description = "Le verdict, avec l'exécution")
+    @APIResponse(
+            responseCode = "404",
+            description = "Page sans « À toi » : notion inconnue, page absente, ou sans « À toi »",
+            content =
+                    @Content(
+                            mediaType = ProblemDetail.MEDIA_TYPE,
+                            schema = @Schema(implementation = ProblemDetail.class)))
+    @APIResponse(
+            responseCode = "422",
+            description = "Les fichiers ne sont pas ceux du code de départ",
+            content =
+                    @Content(
+                            mediaType = ProblemDetail.MEDIA_TYPE,
+                            schema = @Schema(implementation = ProblemDetail.class)))
+    @APIResponse(
+            responseCode = "429",
+            description = "Une exécution est déjà en cours pour cet utilisateur",
+            content =
+                    @Content(
+                            mediaType = ProblemDetail.MEDIA_TYPE,
+                            schema = @Schema(implementation = ProblemDetail.class)))
+    @APIResponse(
+            responseCode = "503",
+            description = "Le runner ne répond pas",
+            content =
+                    @Content(
+                            mediaType = ProblemDetail.MEDIA_TYPE,
+                            schema = @Schema(implementation = ProblemDetail.class)))
+    public TourTaskCheckDto checkTourTask(
+            @PathParam("subject") String subject,
+            @PathParam("notion") String notion,
+            @Valid @NotNull TourTaskRequest request) {
+        return TourTaskCheckDto.from(tasks.check(
+                currentUser.get(),
+                subject,
+                notion,
+                request.page(),
+                request.files().stream().map(ExerciseFileDto::toSourceFile).toList()));
+    }
+
+    @Schema(
+            name = "TourTaskRequest",
+            requiredProperties = {"page", "files"})
+    public record TourTaskRequest(
+            @Schema(description = "Le rang de la page dans sa notion, à partir de 1") @Min(1)
+            int page,
+
+            @Schema(description = "Les fichiers du code de départ, modifiés")
+            @NotNull
+            @Size(min = 1, max = TourPage.MAX_FILES)
+            List<@NotNull @Valid ExerciseFileDto> files) {}
+
+    @Schema(name = "TourTaskCheck")
+    public record TourTaskCheckDto(
+            @Schema(description = "Vrai si le programme a écrit la sortie attendue")
+            boolean passed,
+
+            ProgramRunDto run) {
+
+        static TourTaskCheckDto from(TaskCheck check) {
+            return new TourTaskCheckDto(check.passed(), ProgramRunDto.from(check.run()));
+        }
     }
 
     @Schema(name = "TourProgress")
@@ -229,14 +308,14 @@ public class TourProgressResource {
 
             @Schema(description = "Les positions cochées d'un QCM ou d'un vrai ou faux, à partir de 0", nullable = true)
             @Nullable
-            List<Integer> selectedChoices,
+            List<@NotNull Integer> selectedChoices,
 
             @Schema(description = "Les réponses d'un code à trous, une par trou", nullable = true) @Nullable
-            List<String> filledBlanks) {
+            List<@NotNull String> filledBlanks) {
 
-        TourAnswer toAnswer() {
+        GradedAnswer toAnswer() {
             List<Integer> selected = selectedChoices;
-            return new TourAnswer(cardId, selected == null ? null : Set.copyOf(selected), filledBlanks);
+            return new GradedAnswer(cardId, selected == null ? null : Set.copyOf(selected), filledBlanks);
         }
     }
 
@@ -268,7 +347,7 @@ public class TourProgressResource {
             @Schema(description = "L'explication, en Markdown")
             String explanation) {
 
-        static TourQuestionResultDto from(QuestionResult result) {
+        static TourQuestionResultDto from(AnswerCorrection result) {
             return new TourQuestionResultDto(
                     result.cardId(),
                     result.correct(),

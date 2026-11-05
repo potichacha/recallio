@@ -12,6 +12,9 @@ export type TourQuestion = components['schemas']['TourQuestion']
 export type TourAnswer = components['schemas']['TourAnswer']
 export type TourCheck = components['schemas']['TourCheck']
 export type TourLastPage = components['schemas']['TourStep']
+export type TourTask = NonNullable<TourPage['task']>
+export type TourTaskCheck = components['schemas']['TourTaskCheck']
+export type TourExercise = components['schemas']['TourExercise']
 
 /** Le sommaire du Tour d'un sujet (ADR 0037) : public, comme le catalogue. */
 export function useTour(subject: string) {
@@ -83,6 +86,20 @@ export function useSaveTourLastPage(subject: string) {
     // La progression du sujet seulement : les questions de la notion ouverte n'ont pas changé.
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: ['tour-progress', subject], exact: true }),
+  })
+}
+
+/** Juge l'« À toi » d'une page : le serveur exécute le programme et compare sa sortie à celle attendue. */
+export function useCheckTourTask(subject: string, notion: string) {
+  return useMutation({
+    mutationFn: async (task: { page: number; files: ProgramFile[] }) => {
+      const { data, error, response } = await api.POST('/api/v1/me/tour/{subject}/{notion}/tasks', {
+        params: { path: { subject, notion } },
+        body: task,
+      })
+      if (data === undefined) throw ApiError.from(response, error)
+      return data
+    },
   })
 }
 

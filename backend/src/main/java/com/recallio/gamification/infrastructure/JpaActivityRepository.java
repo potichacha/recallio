@@ -41,6 +41,16 @@ public class JpaActivityRepository implements ActivityRepository {
     }
 
     @Override
+    public long totalReviews(UUID userId) {
+        return ((Number) entityManager
+                        .createNativeQuery(
+                                "select coalesce(sum(cards_reviewed), 0) from daily_activity where user_id = :userId")
+                        .setParameter("userId", userId)
+                        .getSingleResult())
+                .longValue();
+    }
+
+    @Override
     public int cardsReviewed(UUID userId, LocalDate day) {
         List<?> rows = entityManager
                 .createNativeQuery(
