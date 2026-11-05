@@ -3,6 +3,8 @@ package com.recallio.content.infrastructure.folder;
 import com.recallio.content.CodeLanguage;
 import com.recallio.content.ExerciseFiles.SourceFile;
 import com.recallio.content.TourPage;
+import com.recallio.content.domain.TourQuestions;
+import com.recallio.content.domain.source.ParsedContent.ParsedCard;
 import com.recallio.content.domain.source.ParsedContent.ParsedNotion;
 import com.recallio.content.domain.source.ParsedContent.SourceIssue;
 import com.recallio.content.infrastructure.folder.FolderFiles.ProgramEntry;
@@ -71,6 +73,27 @@ final class NotionTour {
         if (languages.size() > 1) {
             issues.add(
                     new SourceIssue(0, "Tour : les pages d'un sujet sont dans un seul langage, pas " + languages, ""));
+        }
+    }
+
+    /**
+     * Une notion du Tour se valide par ses questions (ADR 0037) : il lui faut au moins {@value TourQuestions#MIN} cartes
+     * corrigées par le serveur parmi ses cartes valides.
+     */
+    static void requireQuestions(ParsedNotion notion, List<ParsedCard> cards, List<SourceIssue> issues) {
+        if (notion.tour().isEmpty()) {
+            return;
+        }
+        long graded = cards.stream()
+                .filter(card -> TourQuestions.FORMATS.contains(card.content().type()))
+                .count();
+        if (graded < TourQuestions.MIN) {
+            issues.add(new SourceIssue(
+                    0,
+                    ("Tour : la notion « %s » a %d carte(s) corrigée(s) par le serveur (vrai ou faux, QCM, code à "
+                                    + "compléter) ; il en faut au moins %d pour la valider")
+                            .formatted(notion.slug(), graded, TourQuestions.MIN),
+                    notion.slug()));
         }
     }
 

@@ -42,3 +42,51 @@ export function tourNotion(slug: string, title: string, ...pageTitles: string[])
     })),
   }
 }
+
+/** Les questions d'une notion : un vrai ou faux (la réponse juste est « Faux ») et un code à trous (« main »). */
+export function checkpoint(validated = false) {
+  return {
+    validated,
+    questions: [
+      {
+        cardId: 'q1',
+        type: 'TRUE_FALSE',
+        prompt: '`main` prend des paramètres.',
+        choices: ['Vrai', 'Faux'],
+        multipleAnswers: false,
+        blankCount: 0,
+      },
+      {
+        cardId: 'q2',
+        type: 'FILL_IN',
+        prompt: '`package ___`',
+        choices: [],
+        multipleAnswers: false,
+        blankCount: 1,
+      },
+    ],
+  }
+}
+
+/** La correction de ces deux questions, justes ou non. */
+export function checkResult(correct: boolean) {
+  return {
+    validated: correct,
+    results: [
+      {
+        cardId: 'q1',
+        correct,
+        correctChoices: [1],
+        blanks: [],
+        explanation: 'Non : `main` ne prend rien.',
+      },
+      {
+        cardId: 'q2',
+        correct,
+        correctChoices: [],
+        blanks: [{ expected: 'main', correct }],
+        explanation: 'Le package `main`.',
+      },
+    ],
+  }
+}

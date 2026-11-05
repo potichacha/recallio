@@ -1,7 +1,9 @@
-import { Link, useParams, useSearchParams } from 'react-router'
+import { Link, useLocation, useParams, useSearchParams } from 'react-router'
 import { ApiError } from '../api/errors'
 import { useTour, useTourNotion } from '../api/tour'
+import { useSession } from '../auth/session'
 import { Markdown } from '../components/Markdown'
+import { NotionCheck } from './NotionCheck'
 import { Playground } from './Playground'
 import { neighbours, tourPath, tourSteps, type TourStep } from './tourSteps'
 
@@ -68,8 +70,34 @@ export function TourNotionPage() {
       <Markdown>{page.text}</Markdown>
       {/* Une page neuve, un programme neuf : la clé recrée l'éditeur et oublie la sortie de la page précédente. */}
       <Playground key={`${notion}/${pageNumber}`} files={page.example} />
+      {pageNumber === pages.data.pages.length && <Validation subject={slug} notion={notion} />}
       <TourNavigation subject={slug} previous={previous} next={next} tourLink={tourLink} />
     </article>
+  )
+}
+
+/** Les questions de la notion, sur sa dernière page : il faut être connecté pour les valider (ADR 0037). */
+function Validation({ subject, notion }: { subject: string; notion: string }) {
+  const session = useSession()
+  const location = useLocation()
+  if (session.status === 'authenticated') {
+    return <NotionCheck key={notion} subject={subject} notion={notion} />
+  }
+  if (session.status !== 'anonymous') return null
+  return (
+    <section className="flex flex-col items-start gap-3 rounded-xl bg-white p-5 shadow-sm">
+      <h2 className="text-lg font-semibold">Valider la notion</h2>
+      <p className="text-sm text-slate-600">
+        Connecte-toi pour répondre aux questions et suivre ta progression dans le Tour.
+      </p>
+      <button
+        type="button"
+        onClick={() => session.login(location.pathname + location.search)}
+        className="rounded-lg border border-indigo-200 px-4 py-2 font-medium text-indigo-700 hover:bg-indigo-50"
+      >
+        Se connecter pour valider
+      </button>
+    </section>
   )
 }
 

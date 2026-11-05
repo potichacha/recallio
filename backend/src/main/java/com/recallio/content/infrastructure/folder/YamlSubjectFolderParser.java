@@ -63,12 +63,14 @@ public class YamlSubjectFolderParser implements SubjectFolderParser {
         Map<String, ThemeCards> themes = new LinkedHashMap<>();
         for (Referential.Entry entry : referential.entries()) {
             NotionFile file = files.get(entry.notion().slug());
-            notions.add(withSource(entry, file, issues));
+            ParsedNotion notion = withSource(entry, file, issues);
+            notions.add(notion);
             List<ParsedCard> cards = new ArrayList<>();
             if (file != null) {
                 cards.addAll(new NotionCards(entry, path(entry), issues).read(file));
             }
             addExercises(cards, exercises.getOrDefault(entry.notion().slug(), List.of()), issues);
+            NotionTour.requireQuestions(notion, cards, issues);
             if (!cards.isEmpty()) {
                 themes.computeIfAbsent(entry.notion().domain(), _ -> new ThemeCards(entry))
                         .cards

@@ -9,7 +9,7 @@ d'intégration, sans les remplacer : un parcours par fonctionnalité clé, pas u
 | Se connecter par Keycloak, revenir sur la page demandée, se déconnecter            | `tests/sign-in.spec.ts`        |
 | Réviser une session (aussi sur mobile), réviser un seul thème, voir sa progression | `tests/review-session.spec.ts` |
 | Atteindre l'objectif du jour et démarrer son streak                                | `tests/streak.spec.ts`         |
-| Lire le Tour sans compte, puis exécuter une page et passer à la suivante           | `tests/tour.spec.ts`           |
+| Lire le Tour sans compte, exécuter une page, valider une notion par ses questions  | `tests/tour.spec.ts`           |
 
 ## Lancer en local
 

@@ -8,6 +8,7 @@ import com.recallio.content.ExerciseFiles;
 import com.recallio.content.NotionInfo;
 import com.recallio.content.domain.CardIdentity;
 import com.recallio.content.domain.Subject;
+import com.recallio.content.domain.TourQuestions;
 import com.recallio.content.domain.catalog.ThemeNotFoundException;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.persistence.EntityManager;
@@ -201,6 +202,29 @@ public class JpaCardDirectory implements CardDirectory {
                 .distinct()
                 .flatMap(id -> Stream.ofNullable(found.get(id)))
                 .toList();
+    }
+
+    @Override
+    public List<CardSnapshot> tourQuestions(String subjectSlug, String notionSlug) {
+        List<ActiveCard> cards = entityManager
+                .createQuery("""
+                        select c.id, s.slug, c.notionId, c.type from CardEntity c
+                        join NotionEntity n on n.id = c.notionId
+                        join SubjectEntity s on s.id = n.subjectId
+                        join ThemeEntity t on t.id = c.themeId
+                        where c.retiredAt is null and n.retiredAt is null and s.status = :published
+                          and s.slug = :subject and n.slug = :notion and function('jsonb_array_length', n.tour) > 0
+                        order by t.position, c.position
+                        """, Object[].class)
+                .setParameter("published", Subject.Status.PUBLISHED)
+                .setParameter("subject", subjectSlug)
+                .setParameter("notion", notionSlug)
+                .getResultStream()
+                .map(row -> new ActiveCard((UUID) row[0], (String) row[1], (UUID) row[2], (CardType) row[3]))
+                .toList();
+        return currentVersions(TourQuestions.pick(cards, ActiveCard::type).stream()
+                .map(ActiveCard::cardId)
+                .toList());
     }
 
     @Override

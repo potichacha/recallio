@@ -15,7 +15,10 @@ const OUTCOME_LABELS: Record<ChoiceOutcome, string | undefined> = {
   neutral: undefined,
 }
 
-/** Un choix de QCM : bouton radio ou case à cocher, puis, après correction, son verdict. */
+/**
+ * Un choix de QCM : bouton radio ou case à cocher, puis, après correction, son verdict. Plusieurs questions sur une même
+ * page ont chacune leur `name`, pour que leurs boutons radio ne forment pas un seul groupe.
+ */
 export function ChoiceOption({
   text,
   type,
@@ -23,6 +26,7 @@ export function ChoiceOption({
   onChange,
   outcome,
   disabled = false,
+  name = 'choice',
 }: {
   text: string
   type: 'radio' | 'checkbox'
@@ -30,6 +34,7 @@ export function ChoiceOption({
   onChange: () => void
   outcome?: ChoiceOutcome
   disabled?: boolean
+  name?: string
 }) {
   const style = outcome
     ? OUTCOME_STYLES[outcome]
@@ -39,7 +44,7 @@ export function ChoiceOption({
     <label className={`flex items-start gap-3 rounded-lg border px-3 py-2 ${style}`}>
       <input
         type={type}
-        name="choice"
+        name={name}
         checked={checked}
         onChange={onChange}
         disabled={disabled || outcome !== undefined}

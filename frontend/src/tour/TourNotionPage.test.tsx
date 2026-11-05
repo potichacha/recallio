@@ -2,7 +2,7 @@ import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 import { fakeSession, renderAt, sentRequests, SIGNED_IN_API, stubApi } from '../test/render'
-import { HELLO_CODE, TEST_TOUR, tourNotion } from './tourFixtures'
+import { checkpoint, checkResult, HELLO_CODE, TEST_TOUR, tourNotion } from './tourFixtures'
 
 const signedIn = () => fakeSession({ status: 'authenticated', userName: 'Alice' })
 
@@ -17,6 +17,9 @@ const TOUR_API = {
   '/api/v1/subjects/go/tour/valeur-zero': {
     body: tourNotion('valeur-zero', 'La valeur zéro', 'La valeur zéro'),
   },
+  '/api/v1/me/tour/go/hello-world': { body: checkpoint() },
+  '/api/v1/me/tour/go/packages-imports': { body: checkpoint() },
+  '/api/v1/me/tour/go/valeur-zero': { body: checkpoint() },
 }
 
 const COMPLETED = {
@@ -129,6 +132,65 @@ describe('TourNotionPage', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(
       'L’exécution du code est indisponible pour l’instant.',
     )
+  })
+
+  it('validates the notion once every answer is right, after a retry', async () => {
+    const responses: Parameters<typeof stubApi>[0] = {
+      ...SIGNED_IN_API,
+      ...TOUR_API,
+      'POST /api/v1/me/tour/go/hello-world/checks': { body: checkResult(false) },
+    }
+    const fetchMock = stubApi(responses)
+    renderAt('/subjects/go/tour/hello-world', signedIn())
+
+    const check = await screen.findByRole('region', { name: 'Valider la notion' })
+    await userEvent.click(within(check).getByRole('radio', { name: 'Vrai' }))
+    await userEvent.type(within(check).getByRole('textbox', { name: 'Trou 1' }), 'fmt')
+    await userEvent.click(within(check).getByRole('button', { name: 'Vérifier' }))
+
+    expect(await within(check).findByText('Attendu : main')).toBeInTheDocument()
+    expect(within(check).getAllByText('Pas tout à fait.')).toHaveLength(2)
+    expect(within(check).getByText('Bonne réponse, non cochée')).toBeInTheDocument()
+    const sent = sentRequests(fetchMock).find((request) => request.url.endsWith('/checks'))
+    expect(await sent?.json()).toEqual({
+      answers: [
+        { cardId: 'q1', selectedChoices: [0] },
+        { cardId: 'q2', filledBlanks: ['fmt'] },
+      ],
+    })
+
+    responses['POST /api/v1/me/tour/go/hello-world/checks'] = { body: checkResult(true) }
+    await userEvent.click(within(check).getByRole('button', { name: 'Réessayer' }))
+    await userEvent.click(within(check).getByRole('radio', { name: 'Faux' }))
+    const blank = within(check).getByRole('textbox', { name: 'Trou 1' })
+    await userEvent.clear(blank)
+    await userEvent.type(blank, 'main')
+    await userEvent.click(within(check).getByRole('button', { name: 'Vérifier' }))
+
+    expect(await within(check).findByRole('status')).toHaveTextContent('Notion validée !')
+    expect(within(check).queryByRole('button', { name: 'Réessayer' })).not.toBeInTheDocument()
+  })
+
+  it('says when the notion is already validated', async () => {
+    stubApi({
+      ...SIGNED_IN_API,
+      ...TOUR_API,
+      '/api/v1/me/tour/go/hello-world': { body: checkpoint(true) },
+    })
+    renderAt('/subjects/go/tour/hello-world', signedIn())
+
+    const check = await screen.findByRole('region', { name: 'Valider la notion' })
+    expect(await within(check).findByRole('status')).toHaveTextContent('Notion validée !')
+  })
+
+  it('asks a visitor to sign in to validate the notion', async () => {
+    stubApi(TOUR_API)
+    const session = fakeSession()
+    renderAt('/subjects/go/tour/hello-world', session)
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Se connecter pour valider' }))
+
+    expect(session.login).toHaveBeenCalledWith('/subjects/go/tour/hello-world')
   })
 
   it('shows a not-found page for a notion outside the Tour', async () => {
