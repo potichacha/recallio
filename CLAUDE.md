@@ -286,9 +286,10 @@ Les sujets s'ajoutent un par un, au rythme de la rédaction, indépendamment des
 
 ### 6.1 Révision
 - Une **session** propose les cartes **dues** (selon la planification) puis de nouvelles cartes, dans la limite d'un nombre quotidien de nouvelles cartes réglable.
-- Pour une carte en auto-évaluation : l'utilisateur voit la question, réfléchit (ou écrit sa réponse), révèle la réponse, puis note : **À revoir / Difficile / Bien / Facile** (les quatre notes de FSRS).
+- Une session porte sur **un sujet**, pour une **durée** choisie (5, 10, 15 ou 20 minutes, ou sans limite), avec toutes les questions ou seulement celles que corrige le serveur (ADR 0048). La durée borne la session sans presser la réponse : la carte en cours n'est jamais coupée.
+- Pour une carte en auto-évaluation : l'utilisateur voit la question, réfléchit (ou écrit sa réponse), **retourne la carte**, puis répond **« Je savais »** ou **« Je ne savais pas »** : les notes Bien et À revoir de FSRS (ADR 0048 ; l'API accepte aussi Difficile et Facile).
 - Les cartes proposées viennent des **sujets suivis** par l'utilisateur ; filtrage possible par sujet, par thème (chapitre) et par type de carte.
-- Le quota quotidien de nouvelles cartes est **global**, réparti entre les sujets suivis (un nouveau sujet ne noie pas les autres). Les cartes dues passent toujours en premier, quel que soit leur sujet.
+- Le quota quotidien de nouvelles cartes est **propre à chaque sujet** (ADR 0048) : finir sa session de Java ne prive pas Go de ses nouvelles cartes. Dans un sujet, les cartes dues passent toujours en premier.
 - Une seule carte d'une même notion par jour : ses sœurs attendent le lendemain, sans que leur état FSRS change (ADR 0031).
 - Chaque sujet suivi a son **parcours** (ADR 0032) : *apprendre* (seulement les notions dont les prérequis sont acquis, du débutant vers l'expert), *préparer un entretien* (par priorité, le défaut) ou *entretenir son niveau* (intermédiaire et expert d'abord). Il range les nouvelles cartes, jamais les dues.
 - Arrêter de suivre un sujet ne supprime pas la progression : ses cartes ne sont plus proposées, et elles reviennent si on le suit de nouveau.
@@ -486,6 +487,11 @@ Apprendre un langage pas à pas, comme sur le Go Tour, et valider chaque page, c
 10. ✅ **Parcours de bout en bout et rétrospective** : l'e2e lit, exécute, reprend, valide, s'entraîne et vérifie un « À toi » ; bilan dans `docs/retro/le-tour.md`.
 - **Terminé quand** : quelqu'un qui programme dans un autre langage apprend Go ou Java dans le Tour, en exécutant chaque exemple et en validant chaque notion, et quelqu'un qui n'a jamais programmé suit « Programmer de zéro ».
 
+### Avant le déploiement : retours du test local
+Le propriétaire a testé l'application en local avant de la déployer ; ses retours passent avant le déploiement.
+
+1. ✅ **Session de révision** : un sujet à la fois, une durée, un mode « questions corrigées », un quota de nouvelles cartes par sujet, et des cartes qui se retournent, avec « Je savais » ou « Je ne savais pas » (ADR 0048).
+
 Le **déploiement** (phase 1, étape 7) vient après ces phases.
 
 ### Phase 4 : offre entreprise
@@ -507,7 +513,7 @@ Correction des réponses ouvertes par IA, paiement. L'exécution de code en bac 
 6. Hébergeur (phase 1).
 7. Nom du projet. **Provisoire** : Recallio (ADR 0005), à confirmer avant le premier déploiement public. Il ne doit pas évoquer Java seul.
 8. ~~Format du manifeste des sujets (phase 1 bis, étape 1).~~ **Tranché** : pas de manifeste, un en-tête dans chaque document (ADR 0013).
-9. ~~Répartition du quota de nouvelles cartes entre sujets suivis : parts égales, ou pondération choisie par l'utilisateur (phase 1 bis, étape 3).~~ **Tranché** : parts égales, en alternant les sujets (ADR 0014).
+9. ~~Répartition du quota de nouvelles cartes entre sujets suivis : parts égales, ou pondération choisie par l'utilisateur (phase 1 bis, étape 3).~~ **Tranché** : parts égales, en alternant les sujets (ADR 0014) ; revu par l'ADR 0048 : un quota par sujet, et une session par sujet.
 10. ~~Bac à sable d'exécution du code des joueurs : service existant (Judge0, Piston) ou exécuteur maison à conteneurs jetables (phase 3 bis, étape 4).~~ **Tranché** : exécuteur maison à conteneurs jetables, un service `runner` séparé (ADR 0030).
 11. ~~Rédaction du contenu à l'échelle.~~ **Tranché** : brouillons rédigés par Claude, chaque PR de contenu relue par le propriétaire avant le merge (ADR 0025).
 12. ~~Le langage du Tour « Programmer de zéro » (phase 3 quater, étape 9).~~ **Tranché** : Java 25, ses fichiers source compacts étant faits pour débuter (ADR 0039).

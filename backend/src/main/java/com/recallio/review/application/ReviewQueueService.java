@@ -9,11 +9,9 @@ import com.recallio.content.SubjectDirectory;
 import com.recallio.group.GroupReviewScopes;
 import com.recallio.group.GroupReviewScopes.GroupReviewScope;
 import com.recallio.review.domain.LearningState;
-import com.recallio.review.domain.Rating;
 import com.recallio.review.domain.ReviewLogRepository;
 import com.recallio.review.domain.ReviewState;
 import com.recallio.review.domain.ReviewStateRepository;
-import com.recallio.review.domain.fsrs.FsrsScheduler;
 import com.recallio.review.domain.queue.ReviewQueuePlanner;
 import com.recallio.review.domain.queue.ReviewQueuePlanner.Candidate;
 import com.recallio.review.domain.queue.ReviewQueuePlanner.QueuePlan;
@@ -26,7 +24,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.transaction.Transactional;
 import java.time.Clock;
 import java.time.Instant;
-import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -36,9 +34,9 @@ import java.util.stream.Collectors;
 import org.jspecify.annotations.Nullable;
 
 /**
- * Cas d'usage : quelles cartes réviser maintenant (CLAUDE.md, section 6.1). Sans filtre, les cartes viennent des sujets
- * suivis ; un sujet ou un thème demandé explicitement est révisable même s'il n'est pas suivi. Avec un groupe, elles
- * viennent de ses réglages (ADR 0017).
+ * Cas d'usage : quelles cartes réviser maintenant (CLAUDE.md, section 6.1). La PWA révise un sujet à la fois (ADR 0048) ;
+ * sans filtre, les cartes viennent des sujets suivis. Un sujet ou un thème demandé explicitement est révisable même s'il
+ * n'est pas suivi. Avec un groupe, elles viennent de ses réglages (ADR 0017).
  */
 @ApplicationScoped
 @Transactional(Transactional.TxType.SUPPORTS)
@@ -50,7 +48,6 @@ public class ReviewQueueService {
     private final GroupReviewScopes groupScopes;
     private final ReviewStateRepository states;
     private final ReviewLogRepository log;
-    private final FsrsScheduler scheduler;
     private final NewCardQuota quota;
     private final Clock clock;
 
@@ -61,7 +58,6 @@ public class ReviewQueueService {
             GroupReviewScopes groupScopes,
             ReviewStateRepository states,
             ReviewLogRepository log,
-            FsrsScheduler scheduler,
             NewCardQuota quota,
             Clock clock) {
         this.cards = cards;
@@ -70,7 +66,6 @@ public class ReviewQueueService {
         this.groupScopes = groupScopes;
         this.states = states;
         this.log = log;
-        this.scheduler = scheduler;
         this.quota = quota;
         this.clock = clock;
     }
@@ -86,15 +81,22 @@ public class ReviewQueueService {
                         .map(card -> new Candidate(card.cardId(), card.subjectSlug(), card.notionId()))
                         .toList(),
                 memory.keySet());
+        Set<String> subjectsInQueue =
+                eligible.stream().map(Candidate::subjectSlug).collect(Collectors.toSet());
         QueuePlan plan = ReviewQueuePlanner.plan(
-                eligible, memory, reviewedToday(user, now), now, quota.remainingToday(user, now), size);
+                eligible,
+                memory,
+                reviewedToday(user, now),
+                now,
+                quota.remainingToday(user, subjectsInQueue, now),
+                size);
         Lessons lessons = new Lessons(tracks, memory.keySet(), eligible);
         List<QueuedCard> queued = cards.currentVersions(plan.cardIds()).stream()
-                .map(card -> queuedCard(
+                .map(card -> new QueuedCard(
                         card,
-                        memory.getOrDefault(card.cardId(), ReviewState.newCard(now)),
-                        lessons.lessonFor(card),
-                        now))
+                        memory.getOrDefault(card.cardId(), ReviewState.newCard(now))
+                                .state(),
+                        lessons.lessonFor(card)))
                 .toList();
         return new ReviewQueue(queued, plan.dueCount(), plan.newCount(), plan.nextDueAt());
     }
@@ -180,59 +182,55 @@ public class ReviewQueueService {
         if (group != null) {
             return groupFilter(groupScopes.of(user, group), filter);
         }
-        Set<CardType> types = filter.type() == null ? Set.of() : Set.of(filter.type());
         String subject = filter.subject();
         if (subject != null) {
             subjects.requirePublished(subject);
-            return new CardFilter(Set.of(subject), filter.theme(), Set.of(), types);
+            return new CardFilter(Set.of(subject), filter.theme(), Set.of(), filter.types());
         }
         if (filter.theme() != null) {
-            return new CardFilter(null, filter.theme(), Set.of(), types);
+            return new CardFilter(null, filter.theme(), Set.of(), filter.types());
         }
-        return new CardFilter(Set.copyOf(followedSubjects.of(user)), null, Set.of(), types);
+        return new CardFilter(Set.copyOf(followedSubjects.of(user)), null, Set.of(), filter.types());
     }
 
-    /** Les cartes du groupe ; un sujet, un thème ou un format demandé en plus restreint encore la file. */
+    /**
+     * Les cartes du groupe ; un sujet, un thème ou des formats demandés en plus restreignent encore la file. Des formats
+     * que le groupe ne révise pas ne laissent passer aucune carte.
+     */
     private static CardFilter groupFilter(GroupReviewScope scope, QueueFilter filter) {
         Set<String> groupSubjects = scope.subjectSlugs();
         String subject = filter.subject();
-        CardType type = filter.type();
-        boolean typeOutsideGroup = type != null
-                && !scope.cardTypes().isEmpty()
-                && !scope.cardTypes().contains(type);
-        if ((subject != null && !groupSubjects.contains(subject)) || typeOutsideGroup) {
+        Set<CardType> types = new HashSet<>(filter.types().isEmpty() ? scope.cardTypes() : filter.types());
+        if (!filter.types().isEmpty() && !scope.cardTypes().isEmpty()) {
+            types.retainAll(scope.cardTypes());
+        }
+        boolean typesOutsideGroup = !filter.types().isEmpty() && types.isEmpty();
+        if ((subject != null && !groupSubjects.contains(subject)) || typesOutsideGroup) {
             return new CardFilter(Set.of(), null, Set.of(), Set.of());
         }
         return new CardFilter(
-                subject == null ? groupSubjects : Set.of(subject),
-                filter.theme(),
-                scope.themeSlugs(),
-                type == null ? scope.cardTypes() : Set.of(type));
-    }
-
-    private QueuedCard queuedCard(CardSnapshot card, ReviewState state, @Nullable String lesson, Instant now) {
-        List<RatingPreview> previews = Arrays.stream(Rating.values())
-                .map(rating -> new RatingPreview(
-                        rating, scheduler.review(state, rating, now).dueAt()))
-                .toList();
-        return new QueuedCard(card, state.state(), previews, lesson);
+                subject == null ? groupSubjects : Set.of(subject), filter.theme(), scope.themeSlugs(), types);
     }
 
     /**
      * @param group les cartes de ce groupe, dont l'utilisateur est membre, au lieu de ses sujets suivis
      * @param subject restreint à un sujet, suivi ou non
      * @param theme restreint à un thème, suivi ou non
-     * @param type restreint à un format de carte
+     * @param types restreint à ces formats de carte (le mode « questions corrigées », ADR 0048) ; vide : tous
      */
     public record QueueFilter(
             @Nullable UUID group,
             @Nullable String subject,
             @Nullable String theme,
-            @Nullable CardType type) {
+            Set<CardType> types) {
+
+        public QueueFilter {
+            types = Set.copyOf(types);
+        }
 
         /** Aucun filtre : les cartes des sujets suivis. */
         public static QueueFilter followedSubjects() {
-            return new QueueFilter(null, null, null, null);
+            return new QueueFilter(null, null, null, Set.of());
         }
     }
 
@@ -247,13 +245,13 @@ public class ReviewQueueService {
             int newCount,
             @Nullable Instant nextDueAt) {}
 
-    /** Une carte à réviser, avec l'échéance que donnerait chaque note (affichée sur les boutons). */
-    /** @param lesson la leçon de la notion, à lire avant la carte ; {@code null} le plus souvent */
+    /**
+     * Une carte à réviser.
+     *
+     * @param lesson la leçon de la notion, à lire avant la carte ; {@code null} le plus souvent
+     */
     public record QueuedCard(
             CardSnapshot card,
             LearningState state,
-            List<RatingPreview> previews,
             @Nullable String lesson) {}
-
-    public record RatingPreview(Rating rating, Instant dueAt) {}
 }

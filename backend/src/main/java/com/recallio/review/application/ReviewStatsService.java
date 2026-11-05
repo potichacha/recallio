@@ -68,11 +68,13 @@ public class ReviewStatsService {
         Map<NotionInfo, NotionMastery> mastery = masteries.of(user.id(), Set.copyOf(followed), memory);
         Map<String, MasteryCounts> notions = notionsBySubject(mastery);
         Map<String, Readiness> readiness = readinessBySubject(mastery);
+        Map<String, Integer> newAllowed = quota.remainingToday(user, followed, now);
         List<SubjectStats> perSubject = bySubject.values().stream()
-                .map(subjectThemes -> subjectStats(subjectThemes, memory, now, endOfDay, notions, readiness))
+                .map(subjectThemes ->
+                        subjectStats(subjectThemes, memory, now, endOfDay, notions, readiness, newAllowed))
                 .toList();
         CardCounts overall = CardCounts.of(cardIds(themes), memory, now, endOfDay);
-        int newToday = Math.min(quota.remainingToday(user, now), overall.total() - overall.seen());
+        int newToday = perSubject.stream().mapToInt(SubjectStats::newToday).sum();
         return new ReviewStats(overall, newToday, perSubject);
     }
 
@@ -82,16 +84,19 @@ public class ReviewStatsService {
             Instant now,
             Instant endOfDay,
             Map<String, MasteryCounts> notions,
-            Map<String, Readiness> readiness) {
+            Map<String, Readiness> readiness,
+            Map<String, Integer> newAllowed) {
         List<ThemeStats> perTheme = themes.stream()
                 .map(theme -> new ThemeStats(
                         theme.slug(), theme.title(), CardCounts.of(theme.cardIds(), memory, now, endOfDay)))
                 .toList();
         ThemeCards first = themes.getFirst();
+        CardCounts counts = CardCounts.of(cardIds(themes), memory, now, endOfDay);
         return new SubjectStats(
                 first.subjectSlug(),
                 first.subjectTitle(),
-                CardCounts.of(cardIds(themes), memory, now, endOfDay),
+                counts,
+                Math.min(newAllowed.getOrDefault(first.subjectSlug(), 0), counts.total() - counts.seen()),
                 notions.getOrDefault(first.subjectSlug(), MasteryCounts.NONE),
                 readiness.getOrDefault(first.subjectSlug(), Readiness.NONE),
                 perTheme);
@@ -121,12 +126,14 @@ public class ReviewStatsService {
     }
 
     /**
-     * @param newToday nouvelles cartes encore proposées aujourd'hui (quota restant, dans la limite du catalogue)
+     * @param newToday nouvelles cartes encore proposées aujourd'hui, tous sujets suivis confondus
      * @param subjects les sujets suivis, dans l'ordre du catalogue
      */
     public record ReviewStats(CardCounts overall, int newToday, List<SubjectStats> subjects) {}
 
     /**
+     * @param newToday nouvelles cartes encore proposées aujourd'hui dans ce sujet (son quota restant, ADR 0048, dans la
+     *     limite de ses cartes jamais vues)
      * @param notions les notions du sujet par niveau de maîtrise ; aucune pour un sujet sans référentiel
      * @param readiness son indice de préparation ; vide pour un sujet sans référentiel
      * @param themes les thèmes du sujet, dans l'ordre du document
@@ -135,6 +142,7 @@ public class ReviewStatsService {
             String slug,
             String title,
             CardCounts counts,
+            int newToday,
             MasteryCounts notions,
             Readiness readiness,
             List<ThemeStats> themes) {}

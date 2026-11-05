@@ -1,6 +1,6 @@
 # 0014. Sujets suivis : choix de l'utilisateur, quota de nouvelles cartes à parts égales
 
-- Statut : accepté
+- Statut : accepté ; le partage du quota est revu par l'ADR 0048 (un quota par sujet, une session par sujet)
 - Date : 2026-10-31
 
 ## Contexte

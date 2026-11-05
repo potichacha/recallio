@@ -195,6 +195,24 @@ public class JpaCardDirectory implements CardDirectory {
     }
 
     @Override
+    public Map<UUID, String> subjectsOf(Collection<UUID> cardIds) {
+        if (cardIds.isEmpty()) {
+            return Map.of();
+        }
+        return entityManager
+                .createQuery("""
+                        select c.id, s.slug
+                        from CardEntity c
+                        join ThemeEntity t on t.id = c.themeId
+                        join SubjectEntity s on s.id = t.subjectId
+                        where c.id in :ids
+                        """, Object[].class)
+                .setParameter("ids", cardIds)
+                .getResultStream()
+                .collect(Collectors.toMap(row -> (UUID) row[0], row -> (String) row[1]));
+    }
+
+    @Override
     public List<CardSnapshot> currentVersions(Collection<UUID> cardIds) {
         if (cardIds.isEmpty()) {
             return List.of();

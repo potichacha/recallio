@@ -1,6 +1,12 @@
 import { useState } from 'react'
 import { ApiError } from '../api/errors'
-import { useRecordReview, useRunExercise, type ExerciseFile, type QueuedCard } from '../api/review'
+import {
+  useRecordReview,
+  useRunExercise,
+  type ExerciseFile,
+  type QueuedCard,
+  type ReviewResult,
+} from '../api/review'
 import { Markdown } from '../components/Markdown'
 import { SourceFiles } from '../components/SourceFiles'
 import { CardHeader } from './CardHeader'
@@ -11,13 +17,20 @@ import { ExerciseRunResult } from './ExerciseRunResult'
  * Un exercice de code (ADR 0029, 0030) : on modifie le code de départ dans l'éditeur, un onglet par fichier, on lance
  * les tests autant de fois qu'on veut, puis on rend son code. Les tests le jugent, et la solution apparaît avec la correction.
  */
-export function ExerciseCard({ card, onReviewed }: { card: QueuedCard; onReviewed: () => void }) {
+export function ExerciseCard({
+  card,
+  onReviewed,
+}: {
+  card: QueuedCard
+  onReviewed: (result: ReviewResult) => void
+}) {
   const [shownAt] = useState(() => Date.now())
   const [requestId] = useState(() => crypto.randomUUID())
   const [files, setFiles] = useState<ExerciseFile[]>(() => card.exercise?.starter ?? [])
   const run = useRunExercise()
   const record = useRecordReview()
-  const correction = record.data?.correction
+  const result = record.data
+  const correction = result?.correction
   const busy = run.isPending || record.isPending
 
   const edit = (path: string, content: string) =>
@@ -77,7 +90,7 @@ export function ExerciseCard({ card, onReviewed }: { card: QueuedCard; onReviewe
       {correction && (
         <div className="flex flex-col gap-3 border-t border-slate-100 pt-4">
           <p role="status" className="font-medium">
-            {record.data?.rating === 'GOOD'
+            {result?.rating === 'GOOD'
               ? 'Exercice réussi !'
               : 'Pas encore : compare avec la solution.'}
           </p>
@@ -86,7 +99,7 @@ export function ExerciseCard({ card, onReviewed }: { card: QueuedCard; onReviewe
           <Markdown>{correction.explanation}</Markdown>
           <button
             type="button"
-            onClick={onReviewed}
+            onClick={() => result && onReviewed(result)}
             className="self-start rounded-lg bg-indigo-600 px-4 py-2 font-medium text-white hover:bg-indigo-700"
           >
             Carte suivante

@@ -19,6 +19,8 @@ class ReviewQueuePlannerTest {
 
     private static final Instant NOW = Instant.parse("2026-10-29T08:00:00Z");
     private static final int LARGE = 100;
+    /** Un quota qui ne limite rien, dans chacun des sujets des tests. */
+    private static final Map<String, Integer> UNLIMITED = Map.of("java", LARGE, "go", LARGE);
 
     private final UUID first = UUID.randomUUID();
     private final UUID second = UUID.randomUUID();
@@ -29,7 +31,7 @@ class ReviewQueuePlannerTest {
     void shouldPresentDueCardsBeforeNewCards() {
         Map<UUID, ReviewState> states = Map.of(third, dueSince(Duration.ofHours(1)));
 
-        QueuePlan plan = ReviewQueuePlanner.plan(java(first, second, third), states, Map.of(), NOW, LARGE, LARGE);
+        QueuePlan plan = ReviewQueuePlanner.plan(java(first, second, third), states, Map.of(), NOW, UNLIMITED, LARGE);
 
         assertThat(plan.cardIds()).containsExactly(third, first, second);
         assertThat(plan.dueCount()).isEqualTo(1);
@@ -43,7 +45,7 @@ class ReviewQueuePlannerTest {
                 second, dueSince(Duration.ofDays(3)),
                 third, dueSince(Duration.ofHours(2)));
 
-        QueuePlan plan = ReviewQueuePlanner.plan(java(first, second, third), states, Map.of(), NOW, LARGE, LARGE);
+        QueuePlan plan = ReviewQueuePlanner.plan(java(first, second, third), states, Map.of(), NOW, UNLIMITED, LARGE);
 
         assertThat(plan.cardIds()).containsExactly(second, third, first);
     }
@@ -52,7 +54,7 @@ class ReviewQueuePlannerTest {
     void shouldNotPresentCardsThatAreNotDueYet() {
         Map<UUID, ReviewState> states = Map.of(first, dueIn(Duration.ofDays(2)));
 
-        QueuePlan plan = ReviewQueuePlanner.plan(java(first), states, Map.of(), NOW, LARGE, LARGE);
+        QueuePlan plan = ReviewQueuePlanner.plan(java(first), states, Map.of(), NOW, UNLIMITED, LARGE);
 
         assertThat(plan.cardIds()).isEmpty();
         assertThat(plan.nextDueAt()).isEqualTo(NOW.plus(Duration.ofDays(2)));
@@ -60,7 +62,8 @@ class ReviewQueuePlannerTest {
 
     @Test
     void shouldRespectTheDailyLimitOfNewCards() {
-        QueuePlan plan = ReviewQueuePlanner.plan(java(first, second, third, fourth), Map.of(), Map.of(), NOW, 2, LARGE);
+        QueuePlan plan = ReviewQueuePlanner.plan(
+                java(first, second, third, fourth), Map.of(), Map.of(), NOW, Map.of("java", 2), LARGE);
 
         assertThat(plan.cardIds()).containsExactly(first, second);
         assertThat(plan.newCount()).isEqualTo(2);
@@ -70,7 +73,7 @@ class ReviewQueuePlannerTest {
     void shouldStillPresentDueCardsWhenTheNewCardQuotaIsExhausted() {
         Map<UUID, ReviewState> states = Map.of(second, dueSince(Duration.ofHours(1)));
 
-        QueuePlan plan = ReviewQueuePlanner.plan(java(first, second), states, Map.of(), NOW, 0, LARGE);
+        QueuePlan plan = ReviewQueuePlanner.plan(java(first, second), states, Map.of(), NOW, Map.of("java", 0), LARGE);
 
         assertThat(plan.cardIds()).containsExactly(second);
         assertThat(plan.newCount()).isZero();
@@ -82,7 +85,8 @@ class ReviewQueuePlannerTest {
                 first, dueSince(Duration.ofHours(3)),
                 second, dueSince(Duration.ofHours(2)));
 
-        QueuePlan plan = ReviewQueuePlanner.plan(java(first, second, third, fourth), states, Map.of(), NOW, LARGE, 1);
+        QueuePlan plan =
+                ReviewQueuePlanner.plan(java(first, second, third, fourth), states, Map.of(), NOW, UNLIMITED, 1);
 
         assertThat(plan.cardIds()).containsExactly(first);
         assertThat(plan.dueCount()).isEqualTo(2);
@@ -96,7 +100,7 @@ class ReviewQueuePlannerTest {
                 otherTheme, dueSince(Duration.ofDays(1)),
                 first, dueIn(Duration.ofMinutes(10)));
 
-        QueuePlan plan = ReviewQueuePlanner.plan(java(first), states, Map.of(), NOW, LARGE, LARGE);
+        QueuePlan plan = ReviewQueuePlanner.plan(java(first), states, Map.of(), NOW, UNLIMITED, LARGE);
 
         assertThat(plan.cardIds()).isEmpty();
         assertThat(plan.dueCount()).isZero();
@@ -109,20 +113,32 @@ class ReviewQueuePlannerTest {
         UUID go2 = UUID.randomUUID();
         List<Candidate> eligible = concat(java(first, second, third), subject("go", go1, go2));
 
-        QueuePlan plan = ReviewQueuePlanner.plan(eligible, Map.of(), Map.of(), NOW, 4, LARGE);
+        QueuePlan plan = ReviewQueuePlanner.plan(eligible, Map.of(), Map.of(), NOW, Map.of("java", 2, "go", 2), LARGE);
 
         assertThat(plan.cardIds()).containsExactly(first, go1, second, go2);
     }
 
+    /** Chaque sujet a son quota (ADR 0048) : celui d'un sujet ne déborde pas sur un autre. */
     @Test
-    void shouldGiveTheShareOfAnExhaustedSubjectToTheOthers() {
+    void shouldGiveEachSubjectItsOwnQuotaOfNewCards() {
         UUID go1 = UUID.randomUUID();
-        List<Candidate> eligible = concat(java(first, second, third, fourth), subject("go", go1));
+        UUID go2 = UUID.randomUUID();
+        List<Candidate> eligible = concat(java(first, second, third, fourth), subject("go", go1, go2));
 
-        QueuePlan plan = ReviewQueuePlanner.plan(eligible, Map.of(), Map.of(), NOW, 4, LARGE);
+        QueuePlan plan = ReviewQueuePlanner.plan(eligible, Map.of(), Map.of(), NOW, Map.of("java", 3, "go", 1), LARGE);
 
         assertThat(plan.cardIds()).containsExactly(first, go1, second, third);
         assertThat(plan.newCount()).isEqualTo(4);
+    }
+
+    @Test
+    void shouldOfferNoNewCardOfASubjectWithoutQuota() {
+        UUID go1 = UUID.randomUUID();
+        List<Candidate> eligible = concat(java(first, second), subject("go", go1));
+
+        QueuePlan plan = ReviewQueuePlanner.plan(eligible, Map.of(), Map.of(), NOW, Map.of("go", 1), LARGE);
+
+        assertThat(plan.cardIds()).containsExactly(go1);
     }
 
     @Test
@@ -132,8 +148,8 @@ class ReviewQueuePlannerTest {
                 first, dueSince(Duration.ofHours(1)),
                 go1, dueSince(Duration.ofDays(1)));
 
-        QueuePlan plan =
-                ReviewQueuePlanner.plan(concat(java(first), subject("go", go1)), states, Map.of(), NOW, 0, LARGE);
+        QueuePlan plan = ReviewQueuePlanner.plan(
+                concat(java(first), subject("go", go1)), states, Map.of(), NOW, Map.of(), LARGE);
 
         assertThat(plan.cardIds()).containsExactly(go1, first);
     }
@@ -144,7 +160,7 @@ class ReviewQueuePlannerTest {
         List<Candidate> eligible =
                 List.of(inNotion(first, notion), inNotion(second, notion), inNotion(third, UUID.randomUUID()));
 
-        QueuePlan plan = ReviewQueuePlanner.plan(eligible, Map.of(), Map.of(), NOW, LARGE, LARGE);
+        QueuePlan plan = ReviewQueuePlanner.plan(eligible, Map.of(), Map.of(), NOW, UNLIMITED, LARGE);
 
         assertThat(plan.cardIds()).containsExactly(first, third);
         assertThat(plan.newCount()).isEqualTo(2);
@@ -158,7 +174,7 @@ class ReviewQueuePlannerTest {
                 second, dueSince(Duration.ofDays(2)));
 
         QueuePlan plan = ReviewQueuePlanner.plan(
-                List.of(inNotion(first, notion), inNotion(second, notion)), states, Map.of(), NOW, LARGE, LARGE);
+                List.of(inNotion(first, notion), inNotion(second, notion)), states, Map.of(), NOW, UNLIMITED, LARGE);
 
         assertThat(plan.cardIds()).containsExactly(second);
         assertThat(plan.dueCount()).isEqualTo(1);
@@ -174,7 +190,8 @@ class ReviewQueuePlannerTest {
                 inNotion(third, notion),
                 java(fourth).getFirst());
 
-        QueuePlan plan = ReviewQueuePlanner.plan(eligible, states, Map.of(notion, Set.of(first)), NOW, LARGE, LARGE);
+        QueuePlan plan =
+                ReviewQueuePlanner.plan(eligible, states, Map.of(notion, Set.of(first)), NOW, UNLIMITED, LARGE);
 
         assertThat(plan.cardIds()).containsExactly(fourth);
     }
@@ -190,7 +207,7 @@ class ReviewQueuePlannerTest {
                 states,
                 Map.of(notion, Set.of(first)),
                 NOW,
-                LARGE,
+                UNLIMITED,
                 LARGE);
 
         assertThat(plan.cardIds()).containsExactly(first);

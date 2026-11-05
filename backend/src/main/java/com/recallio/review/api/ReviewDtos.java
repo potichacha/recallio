@@ -6,7 +6,6 @@ import com.recallio.content.CardType;
 import com.recallio.content.ExerciseFiles;
 import com.recallio.content.ExerciseFiles.SourceFile;
 import com.recallio.review.application.ReviewQueueService.QueuedCard;
-import com.recallio.review.application.ReviewQueueService.RatingPreview;
 import com.recallio.review.application.ReviewQueueService.ReviewQueue;
 import com.recallio.review.application.ReviewRecordingService.BlankCorrection;
 import com.recallio.review.application.ReviewRecordingService.Correction;
@@ -107,15 +106,9 @@ final class ReviewDtos {
             @Nullable
             String lesson,
 
-            LearningState state,
-
-            @Schema(description = "Échéance obtenue pour chacune des quatre notes")
-            List<RatingPreviewDto> previews) {
+            LearningState state) {
         static QueuedCardDto from(QueuedCard queued) {
             var card = queued.card();
-            boolean gradedByServer = card.type().isGradedByChoices()
-                    || card.type() == CardType.FILL_IN
-                    || card.type() == CardType.CODING_EXERCISE;
             return new QueuedCardDto(
                     card.cardId(),
                     card.type(),
@@ -124,15 +117,14 @@ final class ReviewDtos {
                     card.themeSlug(),
                     card.themeTitle(),
                     card.prompt(),
-                    gradedByServer ? null : card.answer(),
+                    card.type().isGradedByServer() ? null : card.answer(),
                     card.choices().stream().map(CardChoice::text).toList(),
                     card.correctChoices().size() > 1,
                     card.blanks().size(),
                     card.exercise() == null ? null : ExerciseToSolveDto.from(card.exercise()),
                     card.notionTitle(),
                     queued.lesson(),
-                    queued.state(),
-                    queued.previews().stream().map(RatingPreviewDto::from).toList());
+                    queued.state());
         }
     }
 
@@ -171,13 +163,6 @@ final class ReviewDtos {
             return files.stream()
                     .map(file -> new ExerciseFileDto(file.path(), file.content()))
                     .toList();
-        }
-    }
-
-    @Schema(name = "RatingPreview")
-    record RatingPreviewDto(Rating rating, Instant dueAt) {
-        static RatingPreviewDto from(RatingPreview preview) {
-            return new RatingPreviewDto(preview.rating(), preview.dueAt());
         }
     }
 

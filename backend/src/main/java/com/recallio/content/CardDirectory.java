@@ -30,6 +30,9 @@ public interface CardDirectory {
     /** La notion de chaque carte demandée qui en a une (ADR 0026) ; les cartes d'un document Markdown n'en ont pas. */
     Map<UUID, UUID> notionsOf(Collection<UUID> cardIds);
 
+    /** Le slug du sujet de chaque carte demandée, retirée ou non : de quoi compter un quota par sujet (ADR 0048). */
+    Map<UUID, String> subjectsOf(Collection<UUID> cardIds);
+
     /** Les notions actives de ces sujets publiés, dans l'ordre de leur référentiel (ADR 0032). */
     List<NotionInfo> notions(Collection<String> subjectSlugs);
 

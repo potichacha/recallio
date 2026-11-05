@@ -9,6 +9,7 @@ import java.time.Instant;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -64,14 +65,15 @@ public class JpaReviewStateRepository implements ReviewStateRepository {
     }
 
     @Override
-    public long countIntroducedSince(UUID userId, Instant since) {
-        return entityManager
+    public Set<UUID> cardsIntroducedSince(UUID userId, Instant since) {
+        return Set.copyOf(entityManager
                 .createQuery(
-                        "select count(s) from ReviewStateEntity s where s.key.userId = :userId and s.introducedAt >= :since",
-                        Long.class)
+                        "select s.key.cardId from ReviewStateEntity s where s.key.userId = :userId"
+                                + " and s.introducedAt >= :since",
+                        UUID.class)
                 .setParameter("userId", userId)
                 .setParameter("since", since)
-                .getSingleResult();
+                .getResultList());
     }
 
     private static ReviewState toDomain(ReviewStateEntity entity) {

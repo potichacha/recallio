@@ -3,7 +3,9 @@ import { Link, useParams, useSearchParams } from 'react-router'
 import { ApiError } from '../api/errors'
 import { useCheckPracticeAnswer, usePractice, type PracticeCard } from '../api/practice'
 import { useRunExercise, type ExerciseFile } from '../api/review'
+import { AnswerDraft, DraftEcho } from '../components/AnswerDraft'
 import { CARD_TYPE_LABELS } from '../components/cardTypeLabels'
+import { FlipCard } from '../components/FlipCard'
 import { GradedQuestion } from '../components/GradedQuestion'
 import { emptyDraft, isDraftComplete, toGradedAnswer } from '../components/gradedAnswers'
 import { Markdown } from '../components/Markdown'
@@ -198,7 +200,10 @@ function AnsweredCard({
   )
 }
 
-/** Une carte qui s'auto-évalue : on y réfléchit (une mise en situation ou un bug s'écrivent), puis on la retourne. */
+/**
+ * Une carte qui s'auto-évalue : on y réfléchit, on peut écrire sa réponse, puis on la retourne pour la comparer à celle
+ * attendue (ADR 0048).
+ */
 function SelfAssessedCard({
   card,
   onNext,
@@ -208,38 +213,36 @@ function SelfAssessedCard({
 }) {
   const [revealed, setRevealed] = useState(false)
   const [draft, setDraft] = useState('')
-  const writes = card.type === 'OPEN_SCENARIO' || card.type === 'BUG_FIX'
+  const label = <p className="text-sm font-medium text-slate-500">{CARD_TYPE_LABELS[card.type]}</p>
   return (
-    <article className={CARD_STYLE}>
-      <p className="text-sm font-medium text-slate-500">{CARD_TYPE_LABELS[card.type]}</p>
-      <Markdown>{card.prompt}</Markdown>
-      {writes && (
-        <label className="flex flex-col gap-1">
-          <span className="text-sm font-medium">Ta réponse</span>
-          <textarea
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-            readOnly={revealed}
-            rows={5}
-            className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
-          />
-        </label>
-      )}
-      {revealed ? (
-        <>
+    <FlipCard
+      flipped={revealed}
+      front={
+        <article className={CARD_STYLE}>
+          {label}
+          <Markdown>{card.prompt}</Markdown>
+          <AnswerDraft type={card.type} value={draft} onChange={setDraft} />
+          <button type="button" onClick={() => setRevealed(true)} className={PRIMARY}>
+            Voir la réponse
+          </button>
+        </article>
+      }
+      back={
+        <article className={CARD_STYLE}>
+          {label}
+          <div className="text-slate-600">
+            <Markdown>{card.prompt}</Markdown>
+          </div>
+          <DraftEcho type={card.type} value={draft} />
           <section aria-label="Réponse" className="rounded-lg bg-slate-50 p-3">
             <Markdown>{card.answer ?? ''}</Markdown>
           </section>
           <button type="button" onClick={() => onNext(undefined)} className={PRIMARY}>
             Carte suivante
           </button>
-        </>
-      ) : (
-        <button type="button" onClick={() => setRevealed(true)} className={PRIMARY}>
-          Voir la réponse
-        </button>
-      )}
-    </article>
+        </article>
+      }
+    />
   )
 }
 

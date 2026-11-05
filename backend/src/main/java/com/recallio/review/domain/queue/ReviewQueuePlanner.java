@@ -20,8 +20,9 @@ import org.jspecify.annotations.Nullable;
  * Compose la file de révision (CLAUDE.md, section 6.1) : d'abord les cartes dues, de la plus en retard à la moins en
  * retard, quel que soit leur sujet, puis des cartes nouvelles, sans dépasser le quota quotidien de nouvelles cartes.
  *
- * <p>Les nouvelles cartes alternent entre les sujets (ADR 0014) : le quota est partagé à parts égales, et la part d'un
- * sujet qui n'a plus de cartes nouvelles revient aux autres. Dans chaque sujet, elles suivent l'ordre du programme.
+ * <p>Chaque sujet a son propre quota (ADR 0048) : finir sa session de Java ne prive pas Go de ses nouvelles cartes.
+ * Quand la file réunit plusieurs sujets (celle d'un groupe), les nouvelles cartes alternent entre eux. Dans chaque
+ * sujet, elles suivent l'ordre du programme.
  *
  * <p>Une seule carte d'une même notion par jour (ADR 0031) : deux cartes sœurs révisées coup sur coup, la seconde l'est
  * avec la réponse de la première en tête. La file ne propose donc qu'une carte par notion, et aucune d'une notion dont
@@ -36,7 +37,7 @@ public final class ReviewQueuePlanner {
      * @param eligibleCards cartes actives correspondant au filtre (sujets, thème, format), dans l'ordre du programme
      * @param states mémoire de l'utilisateur, par carte (les cartes absentes sont nouvelles)
      * @param reviewedToday les cartes déjà révisées aujourd'hui, par notion : leurs sœurs attendent le lendemain
-     * @param newCardsAllowed nouvelles cartes encore autorisées aujourd'hui
+     * @param newCardsAllowed nouvelles cartes encore autorisées aujourd'hui, par sujet ; aucune pour un sujet absent
      * @param size nombre maximal de cartes renvoyées
      */
     public static QueuePlan plan(
@@ -44,7 +45,7 @@ public final class ReviewQueuePlanner {
             Map<UUID, ReviewState> states,
             Map<UUID, Set<UUID>> reviewedToday,
             Instant now,
-            int newCardsAllowed,
+            Map<String, Integer> newCardsAllowed,
             int size) {
         var siblings = new Siblings(reviewedToday);
         List<Scheduled> scheduled = eligibleCards.stream()
@@ -62,7 +63,7 @@ public final class ReviewQueuePlanner {
                         .filter(card -> !states.containsKey(card.cardId()))
                         .filter(siblings::takeIfFirstOfItsNotion)
                         .toList(),
-                Math.max(0, newCardsAllowed));
+                newCardsAllowed);
         @Nullable
         Instant nextDueAt = scheduled.stream()
                 .map(card -> card.state().dueAt())
@@ -74,16 +75,22 @@ public final class ReviewQueuePlanner {
         return new QueuePlan(cards, due.size(), fresh.size(), nextDueAt);
     }
 
-    /** Prend une carte de chaque sujet à tour de rôle, dans l'ordre des sujets, jusqu'à {@code limit} cartes. */
-    private static List<UUID> alternateSubjects(List<Candidate> fresh, int limit) {
+    /**
+     * Prend une carte de chaque sujet à tour de rôle, dans l'ordre des sujets, chacun dans la limite de son quota.
+     */
+    private static List<UUID> alternateSubjects(List<Candidate> fresh, Map<String, Integer> allowed) {
         Map<String, Deque<UUID>> bySubject = new LinkedHashMap<>();
-        fresh.forEach(card -> bySubject
-                .computeIfAbsent(card.subjectSlug(), _ -> new ArrayDeque<>())
-                .add(card.cardId()));
+        for (Candidate card : fresh) {
+            Deque<UUID> cards = bySubject.computeIfAbsent(card.subjectSlug(), _ -> new ArrayDeque<>());
+            if (cards.size() < allowed.getOrDefault(card.subjectSlug(), 0)) {
+                cards.add(card.cardId());
+            }
+        }
+        bySubject.values().removeIf(Deque::isEmpty);
         List<UUID> picked = new ArrayList<>();
-        while (picked.size() < limit && !bySubject.isEmpty()) {
+        while (!bySubject.isEmpty()) {
             Iterator<Deque<UUID>> subjects = bySubject.values().iterator();
-            while (subjects.hasNext() && picked.size() < limit) {
+            while (subjects.hasNext()) {
                 Deque<UUID> cards = subjects.next();
                 picked.add(cards.removeFirst());
                 if (cards.isEmpty()) {
