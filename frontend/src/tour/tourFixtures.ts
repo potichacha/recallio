@@ -14,11 +14,19 @@ export const TEST_TOUR = {
             { slug: 'hello-world', title: 'Le premier programme', pageCount: 1 },
             { slug: 'packages-imports', title: 'Packages et imports', pageCount: 2 },
           ],
+          exercises: [],
         },
         {
           id: 'variables-types',
           title: 'Variables, types et constantes',
           notions: [{ slug: 'valeur-zero', title: 'La valeur zéro', pageCount: 1 }],
+          exercises: [
+            {
+              notion: 'valeur-zero',
+              cardId: 'ex1',
+              summary: 'Écris `Zero`, qui renvoie la valeur zéro',
+            },
+          ],
         },
       ],
     },

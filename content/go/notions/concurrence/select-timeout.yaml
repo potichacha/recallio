@@ -1,5 +1,47 @@
 notion: select-timeout
 lesson: "Un délai s'ajoute à une attente avec un cas **`time.After`** ou, mieux, un **contexte** :\n\n```go\nselect {\ncase r := <-resultat:\n\treturn r, nil\ncase <-time.After(2 * time.Second):\n\treturn Resultat{}, ErrDelai\n}\n\n// avec un contexte, le délai se propage aussi aux appels sous-jacents\nctx, cancel := context.WithTimeout(ctx, 2*time.Second)\ndefer cancel()\nselect {\ncase r := <-resultat:\n\treturn r, nil\ncase <-ctx.Done():\n\treturn Resultat{}, ctx.Err() // context.DeadlineExceeded\n}\n```\n\n- **`time.After(d)`** renvoie un channel qui reçoit l'heure après `d`. Depuis **Go 1.23**, un timer non référencé est\n  libéré même s'il n'a pas expiré : l'ancien problème de mémoire de `time.After` dans une boucle a disparu.\n- Pour un délai **global** sur une boucle (et non à chaque tour), on crée le timer **avant** la boucle\n  (`time.NewTimer`, ou un contexte avec délai).\n- Un **ticker** (`time.NewTicker`) envoie à intervalle régulier : pour une action périodique dans un select. On\n  l'arrête avec `Stop()`.\n- Un délai ne **stoppe pas** le travail en cours : la goroutine qui calcule le résultat continue. Elle doit surveiller\n  le même contexte, et le channel de résultat doit avoir une capacité de 1 pour qu'elle puisse se terminer.\n\n**Piège classique** : `case <-time.After(5 * time.Second)` dans une boucle `for`/`select` qui reçoit des messages\nfréquents. Le délai **repart à chaque tour** et n'expire jamais ; ce n'est pas un délai global.\n\n**En entretien** : « Un cas time.After ou ctx.Done dans un select ; le contexte se propage aux appels ; un délai global\nse crée avant la boucle ; la goroutine qui travaille doit aussi s'arrêter. »"
+tour:
+  - title: Les délais
+    text: |-
+      `time.After(d)` renvoie un channel qui reçoit une valeur au bout de la durée `d`. Dans un `select`, il fixe un
+      **délai** : si rien n'arrive à temps, c'est son cas qui s'exécute.
+
+      C'est la façon simple de ne pas attendre indéfiniment une réponse. Dans un vrai service, on préfère souvent un
+      `context.Context` avec un délai, qui se propage à tous les appels.
+
+      Ici, la première réponse arrive en 10 ms, avant le délai de 100 ms ; la seconde, en 500 ms, trop tard.
+    example:
+      files:
+        main.go: |-
+          package main
+
+          import (
+          	"fmt"
+          	"time"
+          )
+
+          func appel(duree time.Duration) <-chan string {
+          	reponse := make(chan string, 1)
+          	go func() {
+          		time.Sleep(duree)
+          		reponse <- fmt.Sprint("réponse en ", duree)
+          	}()
+          	return reponse
+          }
+
+          func main() {
+          	for _, duree := range []time.Duration{10 * time.Millisecond, 500 * time.Millisecond} {
+          		select {
+          		case r := <-appel(duree):
+          			fmt.Println(r)
+          		case <-time.After(100 * time.Millisecond):
+          			fmt.Println("délai dépassé pour un appel de", duree)
+          		}
+          	}
+          }
+      output: |-
+        réponse en 10ms
+        délai dépassé pour un appel de 500ms
 cards:
   - key: contexte
     format: course

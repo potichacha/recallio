@@ -2,6 +2,7 @@ import { Link, useParams } from 'react-router'
 import { ApiError } from '../api/errors'
 import { useTour, useTourProgress } from '../api/tour'
 import { useSession } from '../auth/session'
+import { ChapterExercises } from './ChapterExercises'
 import { tourPath, tourSteps } from './tourSteps'
 
 const PRIMARY_LINK =
@@ -111,6 +112,13 @@ export function TourOutlinePage() {
                   </li>
                 ))}
               </ol>
+              {chapter.exercises.length > 0 && (
+                <ChapterExercises
+                  subject={slug}
+                  title={chapter.title}
+                  exercises={chapter.exercises}
+                />
+              )}
             </div>
           ))}
         </section>

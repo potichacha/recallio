@@ -72,8 +72,9 @@ qui sont dans le Tour ont leur page plus tôt.
 - la progression garde, par utilisateur, les notions validées et la dernière page ouverte, que le sommaire propose
   de reprendre.
 
-**À la fin d'un chapitre**, on trouve ses exercices (ADR 0029), jugés par leurs tests. **Depuis chaque page**,
-« S'entraîner » ouvre les cartes de la notion.
+**À la fin d'un chapitre**, on trouve ses exercices (ADR 0029), jugés par leurs tests : le sommaire les liste sous le
+chapitre, sa dernière page aussi, et chacun s'ouvre dans l'entraînement de sa notion (ADR 0038). **Depuis chaque
+page**, « S'entraîner » ouvre les cartes de la notion.
 
 **Le mode « programme » du runner** (`POST /api/v1/programs`, réservé au backend comme le reste de son API) :
 - il reçoit les fichiers d'un langage :

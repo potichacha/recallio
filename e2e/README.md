@@ -10,6 +10,7 @@ d'intégration, sans les remplacer : un parcours par fonctionnalité clé, pas u
 | Réviser une session (aussi sur mobile), réviser un seul thème, voir sa progression | `tests/review-session.spec.ts` |
 | Atteindre l'objectif du jour et démarrer son streak                                | `tests/streak.spec.ts`         |
 | Lire le Tour sans compte, exécuter une page et y reprendre, valider une notion     | `tests/tour.spec.ts`           |
+| Passer un examen blanc, jouer un duel classé à deux et en voir le résultat         | `tests/ranked.spec.ts`         |
 
 ## Lancer en local
 

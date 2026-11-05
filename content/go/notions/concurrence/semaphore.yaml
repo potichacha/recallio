@@ -1,5 +1,51 @@
 notion: semaphore
 lesson: "Un **sémaphore** borne le nombre de goroutines qui font une chose **en même temps**, sans changer la façon dont elles\nsont lancées. En Go, le plus simple est un **channel bufferisé** de capacité n :\n\n```go\nsem := make(chan struct{}, 5) // au plus 5 téléchargements simultanés\n\nfor _, url := range urls {\n\twg.Go(func() {\n\t\tsem <- struct{}{}        // acquérir : bloque si 5 jetons sont pris\n\t\tdefer func() { <-sem }() // libérer\n\t\ttelecharger(url)\n\t})\n}\nwg.Wait()\n```\n\nVariantes :\n- **`golang.org/x/sync/semaphore`** : un sémaphore **pondéré** (`Acquire(ctx, poids)`), qui accepte un contexte pour\n  abandonner l'attente ;\n- **`errgroup.SetLimit(n)`**, quand on veut en plus la première erreur ;\n- un **pool de workers**, qui limite aussi mais crée seulement n goroutines au lieu d'une par tâche.\n\nPour que l'attente s'arrête avec le contexte, l'acquisition se fait dans un `select` :\n\n```go\nselect {\ncase sem <- struct{}{}:\ncase <-ctx.Done():\n\treturn ctx.Err()\n}\n```\n\n**Piège classique** : libérer sans `defer`. Un retour anticipé ou une panique garde le jeton, et la capacité fond\njusqu'à bloquer tout le monde.\n\n**En entretien** : « Un channel bufferisé de capacité n : envoyer pour acquérir, recevoir en defer pour libérer ;\nx/sync/semaphore pour des poids ou un contexte. »"
+tour:
+  - title: Limiter la concurrence
+    text: |-
+      Un channel avec tampon sert de **sémaphore** : `sem := make(chan struct{}, 2)` autorise deux tâches à la fois. On
+      prend une place avant le travail en envoyant dans le channel, et on la rend après en recevant : au-delà de deux,
+      l'envoi bloque.
+
+      Utile pour lancer une goroutine par tâche tout en bornant l'accès à une ressource : des connexions, des fichiers,
+      un service. Ici, un mutex (page suivante) protège les compteurs qui mesurent combien de tâches tournent ensemble.
+    example:
+      files:
+        main.go: |-
+          package main
+
+          import (
+          	"fmt"
+          	"sync"
+          	"time"
+          )
+
+          func main() {
+          	sem := make(chan struct{}, 2)
+          	var mu sync.Mutex
+          	enCours, maximum := 0, 0
+          	var wg sync.WaitGroup
+          	for range 5 {
+          		wg.Go(func() {
+          			sem <- struct{}{}
+          			mu.Lock()
+          			enCours++
+          			maximum = max(maximum, enCours)
+          			mu.Unlock()
+
+          			time.Sleep(20 * time.Millisecond)
+
+          			mu.Lock()
+          			enCours--
+          			mu.Unlock()
+          			<-sem
+          		})
+          	}
+          	wg.Wait()
+          	fmt.Println("au plus", maximum, "tâches en même temps")
+          }
+      output: |-
+        au plus 2 tâches en même temps
 cards:
   - key: limiter-concurrence
     format: course

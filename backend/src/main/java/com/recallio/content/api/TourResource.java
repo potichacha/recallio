@@ -4,6 +4,7 @@ import com.recallio.content.TourPage;
 import com.recallio.content.api.ContentDtos.SourceFileDto;
 import com.recallio.content.application.ContentBrowsingService;
 import com.recallio.content.domain.catalog.ContentCatalog.TourEntry;
+import com.recallio.content.domain.catalog.ContentCatalog.TourExercise;
 import com.recallio.content.domain.catalog.ContentCatalog.TourNotionPages;
 import com.recallio.content.domain.catalog.TourOutline;
 import com.recallio.platform.api.ProblemDetail;
@@ -13,6 +14,7 @@ import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
 import java.util.List;
+import java.util.UUID;
 import org.eclipse.microprofile.openapi.annotations.Operation;
 import org.eclipse.microprofile.openapi.annotations.media.Content;
 import org.eclipse.microprofile.openapi.annotations.media.Schema;
@@ -97,13 +99,34 @@ public class TourResource {
     }
 
     @Schema(name = "TourChapter")
-    public record TourChapterDto(String id, String title, List<TourEntryDto> notions) {
+    public record TourChapterDto(
+            String id,
+            String title,
+            List<TourEntryDto> notions,
+
+            @Schema(description = "Les exercices de code du chapitre, à faire à la fin de ses pages")
+            List<TourExerciseDto> exercises) {
 
         static TourChapterDto from(TourOutline.Chapter chapter) {
             return new TourChapterDto(
                     chapter.id(),
                     chapter.title(),
-                    chapter.notions().stream().map(TourEntryDto::from).toList());
+                    chapter.notions().stream().map(TourEntryDto::from).toList(),
+                    chapter.exercises().stream().map(TourExerciseDto::from).toList());
+        }
+    }
+
+    @Schema(name = "TourExercise")
+    public record TourExerciseDto(
+            @Schema(description = "La notion de l'exercice") String notion,
+
+            UUID cardId,
+
+            @Schema(description = "La première ligne de son énoncé, en Markdown")
+            String summary) {
+
+        static TourExerciseDto from(TourExercise exercise) {
+            return new TourExerciseDto(exercise.notionSlug(), exercise.cardId(), exercise.summary());
         }
     }
 

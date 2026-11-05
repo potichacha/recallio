@@ -1,6 +1,7 @@
 package com.recallio.content.domain.catalog;
 
 import com.recallio.content.domain.catalog.ContentCatalog.TourEntry;
+import com.recallio.content.domain.catalog.ContentCatalog.TourExercise;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -18,8 +19,12 @@ public record TourOutline(String subjectSlug, String subjectTitle, List<Domain> 
         domains = List.copyOf(domains);
     }
 
-    /** Range les notions, déjà dans l'ordre du référentiel, sous leur domaine puis leur chapitre. */
-    public static TourOutline of(String subjectSlug, String subjectTitle, List<TourEntry> entries) {
+    /**
+     * Range les notions, déjà dans l'ordre du référentiel, sous leur domaine puis leur chapitre. Chaque chapitre reçoit
+     * ses exercices de code ; ceux des chapitres absents du Tour sont écartés.
+     */
+    public static TourOutline of(
+            String subjectSlug, String subjectTitle, List<TourEntry> entries, List<TourExercise> exercises) {
         Map<String, DomainBuilder> domains = new LinkedHashMap<>();
         for (TourEntry entry : entries) {
             domains.computeIfAbsent(entry.domain(), _ -> new DomainBuilder(entry))
@@ -30,7 +35,7 @@ public record TourOutline(String subjectSlug, String subjectTitle, List<Domain> 
         return new TourOutline(
                 subjectSlug,
                 subjectTitle,
-                domains.values().stream().map(DomainBuilder::build).toList());
+                domains.values().stream().map(domain -> domain.build(exercises)).toList());
     }
 
     public record Domain(String id, String title, List<Chapter> chapters) {
@@ -40,10 +45,12 @@ public record TourOutline(String subjectSlug, String subjectTitle, List<Domain> 
         }
     }
 
-    public record Chapter(String id, String title, List<TourEntry> notions) {
+    /** @param exercises les exercices de code du chapitre, à la fin de ses pages */
+    public record Chapter(String id, String title, List<TourEntry> notions, List<TourExercise> exercises) {
 
         public Chapter {
             notions = List.copyOf(notions);
+            exercises = List.copyOf(exercises);
         }
     }
 
@@ -55,7 +62,7 @@ public record TourOutline(String subjectSlug, String subjectTitle, List<Domain> 
             this.first = first;
         }
 
-        Domain build() {
+        Domain build(List<TourExercise> exercises) {
             return new Domain(
                     first.domain(),
                     first.domainTitle(),
@@ -63,7 +70,14 @@ public record TourOutline(String subjectSlug, String subjectTitle, List<Domain> 
                             .map(notions -> new Chapter(
                                     notions.getFirst().chapter(),
                                     notions.getFirst().chapterTitle(),
-                                    notions))
+                                    notions,
+                                    exercises.stream()
+                                            .filter(exercise ->
+                                                    exercise.domain().equals(first.domain())
+                                                            && exercise.chapter()
+                                                                    .equals(notions.getFirst()
+                                                                            .chapter()))
+                                            .toList()))
                             .toList());
         }
     }

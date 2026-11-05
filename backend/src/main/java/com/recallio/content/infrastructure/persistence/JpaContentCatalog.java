@@ -151,6 +151,27 @@ public class JpaContentCatalog implements ContentCatalog {
     }
 
     @Override
+    public List<TourExercise> tourExercises(UUID subjectId) {
+        return entityManager
+                .createQuery("""
+                        select n.domain, n.chapter, n.slug, c.id, v.prompt
+                        from CardEntity c
+                        join NotionEntity n on n.id = c.notionId
+                        join CardVersionEntity v on v.cardId = c.id and v.version = c.currentVersion
+                        where n.subjectId = :subjectId and n.retiredAt is null and c.retiredAt is null
+                          and c.type = :exercise
+                        order by n.position, c.position
+                        """, Object[].class)
+                .setParameter("subjectId", subjectId)
+                .setParameter("exercise", CardType.CODING_EXERCISE)
+                .getResultStream()
+                .map(row -> new TourExercise(
+                        (String) row[0], (String) row[1], (String) row[2], (UUID) row[3], TourExercise.summary((String)
+                                row[4])))
+                .toList();
+    }
+
+    @Override
     public Optional<TourNotionPages> tourNotion(UUID subjectId, String notionSlug) {
         return entityManager
                 .createQuery(

@@ -4,6 +4,7 @@ import static io.restassured.RestAssured.given;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.nullValue;
@@ -111,6 +112,18 @@ class TourResourceTest {
               - {key: naissance, format: course, question: "Où est né Lua ?", answer: Au Brésil.}
             """;
 
+    /** Un exercice de la notion « fonctions » : le Tour le propose à la fin de son chapitre. */
+    private static final Map<String, String> CARRE = Map.of(
+            "bases/fonctions/carre/exercise.yaml",
+            "statement: |-\n  Écris `Carre`, qui renvoie le carré d'un entier :\n\n  - `Carre(3)` renvoie 9.\n"
+                    + "explanation: Une multiplication.\n",
+            "bases/fonctions/carre/starter/carre.go",
+            "package carre\n\nfunc Carre(n int) int { return 0 }\n",
+            "bases/fonctions/carre/solution/carre.go",
+            "package carre\n\nfunc Carre(n int) int { return n * n }\n",
+            "bases/fonctions/carre/tests/carre_test.go",
+            "package carre\n\nimport \"testing\"\n\nfunc TestCarre(t *testing.T) {}\n");
+
     @Inject
     ContentImportService contentImport;
 
@@ -125,7 +138,21 @@ class TourResourceTest {
                         "bases/fonctions.yaml",
                         FONCTIONS,
                         "bases/histoire.yaml",
-                        HISTOIRE)));
+                        HISTOIRE),
+                CARRE));
+    }
+
+    @Test
+    @TestSecurity(user = "admin", roles = "admin")
+    void shouldOfferTheExercisesOfAChapterAtItsEnd() {
+        given().get(TOUR)
+                .then()
+                .statusCode(200)
+                .body("domains[0].chapters[0].exercises", empty())
+                .body("domains[0].chapters[1].exercises.notion", contains("fonctions"))
+                .body(
+                        "domains[0].chapters[1].exercises[0].summary",
+                        equalTo("Écris `Carre`, qui renvoie le carré d'un entier"));
     }
 
     @Test

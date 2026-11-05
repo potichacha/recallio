@@ -23,6 +23,14 @@ const TOUR_API = {
   'PUT /api/v1/me/tour/go/last-page': { status: 204, body: null },
 }
 
+/** Un « À toi » sur la page de « hello-world » ; le serveur garde la sortie attendue. */
+const TASK = {
+  instructions: 'Fais afficher **Salut**.',
+  starter: [{ path: 'main.go', content: HELLO_CODE }],
+}
+const HELLO_PAGES = tourNotion('hello-world', 'Le premier programme', 'Le premier programme')
+const HELLO_WITH_TASK = { ...HELLO_PAGES, pages: [{ ...HELLO_PAGES.pages[0], task: TASK }] }
+
 /** Les pages notées pour « Reprendre le Tour ». */
 const lastPages = (fetchMock: ReturnType<typeof stubApi>) =>
   sentRequests(fetchMock).filter((request) => request.method === 'PUT')
@@ -50,6 +58,10 @@ describe('TourNotionPage', () => {
     expect(await screen.findByText('Page 1 sur 4')).toBeInTheDocument()
     expect(await screen.findByRole('textbox', { name: 'main.go' })).toHaveTextContent(
       'fmt.Println("Bonjour, Go !")',
+    )
+    expect(screen.getByRole('link', { name: 'S’entraîner sur cette notion' })).toHaveAttribute(
+      'href',
+      '/subjects/go/practice/hello-world?from=tour',
     )
 
     await userEvent.click(screen.getByRole('button', { name: 'Exécuter' }))
@@ -91,6 +103,64 @@ describe('TourNotionPage', () => {
       'href',
       '/subjects/go/tour',
     )
+    const exercises = screen.getByRole('region', {
+      name: 'Exercices du chapitre Variables, types et constantes',
+    })
+    expect(
+      within(exercises).getByRole('link', { name: 'Écris Zero, qui renvoie la valeur zéro' }),
+    ).toHaveAttribute('href', '/subjects/go/practice/valeur-zero?from=tour&card=ex1')
+  })
+
+  it('checks the program of an « À toi » on the server, which keeps the expected output', async () => {
+    const fetchMock = stubApi({
+      ...SIGNED_IN_API,
+      ...TOUR_API,
+      '/api/v1/subjects/go/tour/hello-world': { body: HELLO_WITH_TASK },
+      'POST /api/v1/me/tour/go/hello-world/tasks': { body: { passed: true, run: COMPLETED } },
+    })
+    renderAt('/subjects/go/tour/hello-world', signedIn())
+
+    const task = await screen.findByRole('region', { name: 'À toi' })
+    expect(within(task).getByText('Salut', { selector: 'strong' })).toBeInTheDocument()
+    await userEvent.click(within(task).getByRole('button', { name: 'Vérifier mon programme' }))
+
+    expect(await within(task).findByText('Bravo : c’est la sortie attendue !')).toBeInTheDocument()
+    const sent = sentRequests(fetchMock).find((request) => request.url.endsWith('/tasks'))
+    expect(await sent?.json()).toEqual({
+      page: 1,
+      files: [{ path: 'main.go', content: HELLO_CODE }],
+    })
+  })
+
+  it('says when the output of an « À toi » is not the expected one yet', async () => {
+    stubApi({
+      ...SIGNED_IN_API,
+      ...TOUR_API,
+      '/api/v1/subjects/go/tour/hello-world': { body: HELLO_WITH_TASK },
+      'POST /api/v1/me/tour/go/hello-world/tasks': {
+        body: { passed: false, run: { ...COMPLETED, stdout: 'Bonjour\n' } },
+      },
+    })
+    renderAt('/subjects/go/tour/hello-world', signedIn())
+
+    const task = await screen.findByRole('region', { name: 'À toi' })
+    await userEvent.click(within(task).getByRole('button', { name: 'Vérifier mon programme' }))
+
+    expect(
+      await within(task).findByText('Pas encore : la sortie ne correspond pas à celle attendue.'),
+    ).toBeInTheDocument()
+    expect(within(task).getByLabelText('Sortie standard')).toHaveTextContent('Bonjour')
+  })
+
+  it('asks a visitor to sign in before checking an « À toi »', async () => {
+    stubApi({ ...TOUR_API, '/api/v1/subjects/go/tour/hello-world': { body: HELLO_WITH_TASK } })
+    const session = fakeSession()
+    renderAt('/subjects/go/tour/hello-world', session)
+
+    const task = await screen.findByRole('region', { name: 'À toi' })
+    await userEvent.click(within(task).getByRole('button', { name: 'Se connecter pour vérifier' }))
+
+    expect(session.login).toHaveBeenCalledWith('/subjects/go/tour/hello-world')
   })
 
   it('remembers each page that a signed-in user opens, to resume there from the outline', async () => {

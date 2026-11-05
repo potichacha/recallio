@@ -25,6 +25,12 @@ describe('TourOutlinePage', () => {
       'href',
       '/subjects/go/tour/valeur-zero',
     )
+    const exercises = within(domain).getByRole('region', {
+      name: 'Exercices du chapitre Variables, types et constantes',
+    })
+    expect(
+      within(exercises).getByRole('link', { name: 'Écris Zero, qui renvoie la valeur zéro' }),
+    ).toHaveAttribute('href', '/subjects/go/practice/valeur-zero?from=tour&card=ex1')
   })
 
   it('marks the notions that a signed-in user has validated', async () => {

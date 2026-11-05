@@ -23,17 +23,27 @@ public class JpaTourProgressRepository implements TourProgressRepository {
 
     /** {@code ON CONFLICT DO NOTHING} : la date de la première validation reste. */
     @Override
-    public void markValidated(UUID userId, UUID notionId, Instant validatedAt) {
-        entityManager
-                .createNativeQuery("""
+    public boolean markValidated(UUID userId, UUID notionId, Instant validatedAt) {
+        return entityManager
+                        .createNativeQuery("""
                         insert into tour_progress (user_id, notion_id, validated_at)
                         values (:userId, :notionId, :validatedAt)
                         on conflict (user_id, notion_id) do nothing
                         """)
-                .setParameter("userId", userId)
-                .setParameter("notionId", notionId)
-                .setParameter("validatedAt", validatedAt)
-                .executeUpdate();
+                        .setParameter("userId", userId)
+                        .setParameter("notionId", notionId)
+                        .setParameter("validatedAt", validatedAt)
+                        .executeUpdate()
+                > 0;
+    }
+
+    @Override
+    public long validatedCount(UUID userId) {
+        return ((Number) entityManager
+                        .createNativeQuery("select count(*) from tour_progress where user_id = :userId")
+                        .setParameter("userId", userId)
+                        .getSingleResult())
+                .longValue();
     }
 
     @Override

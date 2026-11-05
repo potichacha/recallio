@@ -25,6 +25,8 @@ export default defineConfig({
       workbox: {
         // Les appels API ne sont jamais servis depuis le cache du service worker.
         navigateFallbackDenylist: [/^\/api\//],
+        // Les rappels (ADR 0047) : la réception d'une notification et le clic dessus.
+        importScripts: ['push-sw.js'],
       },
     }),
   ],

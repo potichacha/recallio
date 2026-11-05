@@ -7,5 +7,7 @@ public enum XpReason {
     /** Une réussite corrigée par le serveur : un QCM, un vrai ou faux, un code à compléter juste, un exercice résolu. */
     VERIFIED_SUCCESS,
     /** L'objectif quotidien vient d'être atteint. */
-    DAILY_GOAL
+    DAILY_GOAL,
+    /** Une quête du jour ou de la semaine vient d'être terminée (ADR 0040). */
+    QUEST
 }

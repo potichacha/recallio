@@ -7,6 +7,7 @@ export type ReviewStats = components['schemas']['ReviewStats']
 export type SubjectStats = components['schemas']['SubjectStats']
 export type ThemeStats = components['schemas']['ThemeStats']
 export type CardCounts = components['schemas']['CardCounts']
+export type Readiness = components['schemas']['Readiness']
 export type DayActivity = components['schemas']['DayActivity']
 
 export const ACTIVITY_DAYS = 7

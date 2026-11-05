@@ -124,6 +124,11 @@ class ReviewQueueServiceTest {
                     }
 
                     @Override
+                    public Map<String, String> publishedTitles() {
+                        return Map.of(SUBJECT, "Java");
+                    }
+
+                    @Override
                     public void requirePublished(String slug) {}
 
                     @Override

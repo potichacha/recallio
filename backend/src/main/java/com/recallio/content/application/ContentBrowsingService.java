@@ -53,7 +53,8 @@ public class ContentBrowsingService {
     /** Le sommaire du Tour d'un sujet (ADR 0037) ; sans domaine si le sujet n'a pas encore de Tour. */
     public TourOutline tour(String subjectSlug, Visibility visibility) {
         SubjectSummary subject = subject(subjectSlug, visibility);
-        return TourOutline.of(subject.slug(), subject.title(), catalog.tour(subject.id()));
+        return TourOutline.of(
+                subject.slug(), subject.title(), catalog.tour(subject.id()), catalog.tourExercises(subject.id()));
     }
 
     /** @throws TourNotionNotFoundException si la notion n'a pas de page dans le Tour de ce sujet */

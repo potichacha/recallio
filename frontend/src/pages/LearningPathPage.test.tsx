@@ -124,6 +124,24 @@ describe('LearningPathPage', () => {
     expect(object).not.toHaveTextContent('Pour la découvrir')
   })
 
+  it('offers to share a chapter once each of its notions is mastered', async () => {
+    const mastered = { ...PATH.domains[0].chapters[0] }
+    mastered.notions = mastered.notions.map((entry) => ({ ...entry, mastery: 'MASTERED' }))
+    const path = {
+      ...PATH,
+      domains: [{ ...PATH.domains[0], chapters: [mastered, ...PATH.domains[0].chapters.slice(1)] }],
+    }
+    stubApi({ ...SIGNED_IN_API, ...JAVA, '/api/v1/learning-paths/java': { body: path } })
+
+    renderAt('/subjects/java/path', SIGNED_IN)
+
+    const firstSteps = await screen.findByRole('region', { name: 'Premiers pas' })
+    expect(firstSteps).toHaveTextContent('🏆 Maîtrisé')
+    expect(within(firstSteps).getByRole('button', { name: 'Partager' })).toBeInTheDocument()
+    const object = screen.getByRole('region', { name: 'Objet' })
+    expect(within(object).queryByRole('button', { name: 'Partager' })).not.toBeInTheDocument()
+  })
+
   it('unfolds the domain where the user stands, and folds the others', async () => {
     stubApi({ ...SIGNED_IN_API, ...JAVA, '/api/v1/learning-paths/java': { body: PATH } })
 

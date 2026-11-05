@@ -19,6 +19,7 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
@@ -148,6 +149,35 @@ public class JpaCardDirectory implements CardDirectory {
                 notion.position,
                 cardCounts.getOrDefault(notion.id, 0L).intValue(),
                 notion.tour.size());
+    }
+
+    /** Une seule notion, sans lire toutes celles du sujet : le Tour et l'entraînement en cherchent une à chaque appel. */
+    @Override
+    public Optional<NotionInfo> notion(String subjectSlug, String notionSlug) {
+        return entityManager
+                .createQuery("""
+                        select n from NotionEntity n join SubjectEntity s on s.id = n.subjectId
+                        where s.slug = :subject and n.slug = :notion and n.retiredAt is null and %s
+                        """.formatted(PUBLISHED), NotionEntity.class)
+                .setParameter("subject", subjectSlug)
+                .setParameter("notion", notionSlug)
+                .setParameter("published", Subject.Status.PUBLISHED)
+                .getResultStream()
+                .findFirst()
+                .map(notion -> notionInfo(
+                        notion,
+                        subjectSlug,
+                        Map.of(notion.id, activeCardCount(notion.id)),
+                        themeTitles(Set.of(subjectSlug))));
+    }
+
+    private long activeCardCount(UUID notionId) {
+        return entityManager
+                .createQuery(
+                        "select count(c) from CardEntity c where c.notionId = :notion and c.retiredAt is null",
+                        Long.class)
+                .setParameter("notion", notionId)
+                .getSingleResult();
     }
 
     @Override

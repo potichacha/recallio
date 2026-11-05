@@ -9,6 +9,7 @@ import { useReviewQueue, type ReviewFilter, type ReviewQueue } from '../api/revi
 import { RequireFollowedSubjects } from '../auth/RequireFollowedSubjects'
 import { CARD_TYPE_LABELS } from '../components/cardTypeLabels'
 import { DailyGoal } from '../components/DailyGoal'
+import { ReportButton } from '../components/ReportButton'
 import { formatDelay } from './formatDelay'
 import { ReviewCard } from './ReviewCard'
 
@@ -139,14 +140,17 @@ function ReviewSession({ filter }: { filter: ReviewFilter }) {
       </header>
       {progress.data && <DailyGoal progress={progress.data} />}
       {card ? (
-        <ReviewCard
-          key={card.cardId}
-          card={card}
-          onReviewed={() => {
-            setReviewed((count) => count + 1)
-            setPosition((current) => current + 1)
-          }}
-        />
+        <>
+          <ReviewCard
+            key={card.cardId}
+            card={card}
+            onReviewed={() => {
+              setReviewed((count) => count + 1)
+              setPosition((current) => current + 1)
+            }}
+          />
+          <ReportButton key={`report-${card.cardId}`} target={{ cardId: card.cardId }} />
+        </>
       ) : (
         <SessionPause
           queue={queue.data}

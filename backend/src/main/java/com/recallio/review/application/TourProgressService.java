@@ -3,7 +3,8 @@ package com.recallio.review.application;
 import com.recallio.content.CardDirectory;
 import com.recallio.content.CardDirectory.CardSnapshot;
 import com.recallio.content.NotionInfo;
-import com.recallio.review.application.ReviewRecordingService.BlankCorrection;
+import com.recallio.review.TourNotionValidated;
+import com.recallio.review.TourPageOpened;
 import com.recallio.review.domain.AnswerMismatchException;
 import com.recallio.review.domain.tour.TourLastPage;
 import com.recallio.review.domain.tour.TourNotionNotFoundException;
@@ -11,8 +12,10 @@ import com.recallio.review.domain.tour.TourPageNotFoundException;
 import com.recallio.review.domain.tour.TourProgressRepository;
 import com.recallio.user.UserRef;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.event.Event;
 import jakarta.transaction.Transactional;
 import java.time.Clock;
+import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -20,7 +23,6 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
-import java.util.stream.IntStream;
 import org.jspecify.annotations.Nullable;
 
 /**
@@ -35,11 +37,20 @@ public class TourProgressService {
     private final CardDirectory cards;
     private final TourProgressRepository progress;
     private final Clock clock;
+    private final Event<TourPageOpened> pageOpened;
+    private final Event<TourNotionValidated> notionValidated;
 
-    public TourProgressService(CardDirectory cards, TourProgressRepository progress, Clock clock) {
+    public TourProgressService(
+            CardDirectory cards,
+            TourProgressRepository progress,
+            Clock clock,
+            Event<TourPageOpened> pageOpened,
+            Event<TourNotionValidated> notionValidated) {
         this.cards = cards;
         this.progress = progress;
         this.clock = clock;
+        this.pageOpened = pageOpened;
+        this.notionValidated = notionValidated;
     }
 
     /** Les notions validées, dans l'ordre du référentiel, et la dernière page ouverte, si elle est encore dans le Tour. */
@@ -69,12 +80,12 @@ public class TourProgressService {
      */
     @Transactional
     public void openPage(UserRef user, String subjectSlug, String notionSlug, int page) {
-        NotionInfo notion = cards.notions(Set.of(subjectSlug)).stream()
-                .filter(candidate -> candidate.slug().equals(notionSlug))
-                .filter(candidate -> page >= 1 && page <= candidate.tourPages())
-                .findFirst()
+        NotionInfo notion = cards.notion(subjectSlug, notionSlug)
+                .filter(found -> page >= 1 && page <= found.tourPages())
                 .orElseThrow(() -> new TourPageNotFoundException(subjectSlug, notionSlug, page));
-        progress.saveLastPage(user.id(), subjectSlug, new TourLastPage(notion.id(), page), clock.instant());
+        Instant now = clock.instant();
+        progress.saveLastPage(user.id(), subjectSlug, new TourLastPage(notion.id(), page), now);
+        pageOpened.fire(new TourPageOpened(user, subjectSlug, notionSlug, page, now));
     }
 
     /**
@@ -95,11 +106,11 @@ public class TourProgressService {
      * @throws AnswerMismatchException s'il manque une réponse, s'il y en a en trop, ou si l'une ne convient pas au format
      */
     @Transactional
-    public CheckOutcome check(UserRef user, String subjectSlug, String notionSlug, List<TourAnswer> answers) {
+    public CheckOutcome check(UserRef user, String subjectSlug, String notionSlug, List<GradedAnswer> answers) {
         NotionInfo notion = notion(subjectSlug, notionSlug);
         List<CardSnapshot> questions = questions(subjectSlug, notionSlug);
-        Map<UUID, TourAnswer> byCard = new HashMap<>();
-        for (TourAnswer answer : answers) {
+        Map<UUID, GradedAnswer> byCard = new HashMap<>();
+        for (GradedAnswer answer : answers) {
             if (byCard.put(answer.cardId(), answer) != null) {
                 throw AnswerMismatchException.tourAnswersExpected();
             }
@@ -107,20 +118,24 @@ public class TourProgressService {
         if (!byCard.keySet().equals(questions.stream().map(CardSnapshot::cardId).collect(Collectors.toSet()))) {
             throw AnswerMismatchException.tourAnswersExpected();
         }
-        List<QuestionResult> results = questions.stream()
-                .map(question -> grade(question, Objects.requireNonNull(byCard.get(question.cardId()))))
+        List<AnswerCorrection> results = questions.stream()
+                .map(question ->
+                        AnswerCorrection.grade(question, Objects.requireNonNull(byCard.get(question.cardId()))))
                 .toList();
-        if (results.stream().allMatch(QuestionResult::correct)) {
-            progress.markValidated(user.id(), notion.id(), clock.instant());
+        if (results.stream().allMatch(AnswerCorrection::correct)) {
+            Instant now = clock.instant();
+            if (progress.markValidated(user.id(), notion.id(), now)) {
+                notionValidated.fire(new TourNotionValidated(
+                        user, subjectSlug, notionSlug, progress.validatedCount(user.id()), now));
+            }
             return new CheckOutcome(true, results);
         }
         return new CheckOutcome(isValidated(user, notion), results);
     }
 
     private NotionInfo notion(String subjectSlug, String notionSlug) {
-        return cards.notions(Set.of(subjectSlug)).stream()
-                .filter(notion -> notion.slug().equals(notionSlug) && notion.isInTour())
-                .findFirst()
+        return cards.notion(subjectSlug, notionSlug)
+                .filter(NotionInfo::isInTour)
                 .orElseThrow(() -> new TourNotionNotFoundException(subjectSlug, notionSlug));
     }
 
@@ -134,31 +149,6 @@ public class TourProgressService {
 
     private boolean isValidated(UserRef user, NotionInfo notion) {
         return progress.validated(user.id(), List.of(notion.id())).contains(notion.id());
-    }
-
-    private static QuestionResult grade(CardSnapshot question, TourAnswer answer) {
-        if (question.type().isGradedByChoices()) {
-            Set<Integer> selected = answer.selectedChoices();
-            if (selected == null || answer.filledBlanks() != null) {
-                throw AnswerMismatchException.choicesExpected();
-            }
-            return new QuestionResult(
-                    question.cardId(),
-                    question.isCorrectSelection(selected),
-                    question.correctChoices(),
-                    List.of(),
-                    question.answer());
-        }
-        List<String> filled = answer.filledBlanks();
-        if (filled == null || filled.size() != question.blanks().size() || answer.selectedChoices() != null) {
-            throw AnswerMismatchException.blanksExpected(question.blanks().size());
-        }
-        List<Boolean> checks = question.checkBlanks(filled);
-        List<BlankCorrection> blanks = IntStream.range(0, checks.size())
-                .mapToObj(index ->
-                        new BlankCorrection(question.blanks().get(index).expected(), checks.get(index)))
-                .toList();
-        return new QuestionResult(question.cardId(), !checks.contains(false), Set.of(), blanks, question.answer());
     }
 
     /**
@@ -181,21 +171,6 @@ public class TourProgressService {
      */
     public record Step(String notion, int page) {}
 
-    /**
-     * @param selectedChoices les positions cochées d'un QCM ou d'un vrai ou faux, à partir de 0 ; absentes sinon
-     * @param filledBlanks les réponses d'un code à trous, une par trou ; absentes sinon
-     */
-    public record TourAnswer(
-            UUID cardId,
-            @Nullable Set<Integer> selectedChoices,
-            @Nullable List<String> filledBlanks) {
-
-        public TourAnswer {
-            selectedChoices = selectedChoices == null ? null : Set.copyOf(selectedChoices);
-            filledBlanks = filledBlanks == null ? null : List.copyOf(filledBlanks);
-        }
-    }
-
     /** @param questions dans l'ordre du fichier de la notion */
     public record Checkpoint(boolean validated, List<CardSnapshot> questions) {
 
@@ -205,27 +180,10 @@ public class TourProgressService {
     }
 
     /** @param validated si la notion est validée, par cette réponse ou par une précédente */
-    public record CheckOutcome(boolean validated, List<QuestionResult> results) {
+    public record CheckOutcome(boolean validated, List<AnswerCorrection> results) {
 
         public CheckOutcome {
             results = List.copyOf(results);
-        }
-    }
-
-    /**
-     * @param correctChoices les bonnes réponses d'un QCM ou d'un vrai ou faux ; aucune pour un code à trous
-     * @param blanks la correction de chaque trou d'un code à trous ; aucune pour les autres formats
-     */
-    public record QuestionResult(
-            UUID cardId,
-            boolean correct,
-            Set<Integer> correctChoices,
-            List<BlankCorrection> blanks,
-            String explanation) {
-
-        public QuestionResult {
-            correctChoices = Set.copyOf(correctChoices);
-            blanks = List.copyOf(blanks);
         }
     }
 }

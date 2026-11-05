@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from 'react'
+import { Link } from 'react-router'
 import { ApiError } from '../api/errors'
 import { useSubjects } from '../api/content'
 import {
@@ -9,6 +10,9 @@ import {
   type LearningTrack,
   type Profile,
 } from '../api/profile'
+import { AchievementList } from '../components/AchievementList'
+import { PublicProfileForm } from '../components/PublicProfileForm'
+import { RemindersForm } from '../components/RemindersForm'
 import { SubjectPicker } from '../components/SubjectPicker'
 import { TRACKS } from '../components/trackLabels'
 
@@ -177,11 +181,19 @@ export function ProfilePage() {
       {profile.isSuccess && (
         <>
           {profile.data.roles.includes('admin') && (
-            <p className="text-sm text-slate-500">Vous êtes administrateur.</p>
+            <p className="text-sm text-slate-500">
+              Vous êtes administrateur.{' '}
+              <Link to="/admin/reports" className="font-medium text-indigo-700 hover:underline">
+                Signalements à traiter
+              </Link>
+            </p>
           )}
           <ProfileForm profile={profile.data} />
           <FollowedSubjectsForm profile={profile.data} />
           <TracksForm profile={profile.data} />
+          <PublicProfileForm />
+          <RemindersForm />
+          <AchievementList />
         </>
       )}
     </section>

@@ -4,8 +4,12 @@ import { ApiError } from '../api/errors'
 import { useSaveTourLastPage, useTour, useTourNotion } from '../api/tour'
 import { useSession } from '../auth/session'
 import { Markdown } from '../components/Markdown'
+import { ReportButton } from '../components/ReportButton'
+import { practicePath } from '../practice/practicePath'
+import { ChapterExercises } from './ChapterExercises'
 import { NotionCheck } from './NotionCheck'
 import { Playground } from './Playground'
+import { TaskPanel } from './TaskPanel'
 import { neighbours, tourPath, tourSteps, type TourStep } from './tourSteps'
 
 /**
@@ -53,6 +57,12 @@ export function TourNotionPage() {
 
   const steps = outline.data ? tourSteps(outline.data) : []
   const { index, previous, next } = neighbours(steps, { notion, page: pageNumber })
+  const lastPage = pageNumber === pages.data.pages.length
+  const chapter = outline.data?.domains
+    .flatMap((domain) => domain.chapters)
+    .find((candidate) => candidate.notions.some((entry) => entry.slug === notion))
+  // Les exercices d'un chapitre viennent après sa dernière page.
+  const endsChapter = lastPage && chapter?.notions.at(-1)?.slug === notion
 
   return (
     <article className="flex flex-col gap-5">
@@ -74,7 +84,31 @@ export function TourNotionPage() {
       <Markdown>{page.text}</Markdown>
       {/* Une page neuve, un programme neuf : la clé recrée l'éditeur et oublie la sortie de la page précédente. */}
       <Playground key={`${notion}/${pageNumber}`} files={page.example} />
-      {pageNumber === pages.data.pages.length && <Validation subject={slug} notion={notion} />}
+      {page.task && (
+        <TaskPanel
+          key={`${notion}/${pageNumber}/task`}
+          subject={slug}
+          notion={notion}
+          page={pageNumber}
+          task={page.task}
+        />
+      )}
+      <Link
+        to={practicePath(slug, notion, { from: 'tour' })}
+        className="self-start text-sm font-medium text-indigo-700 hover:underline"
+      >
+        S’entraîner sur cette notion
+      </Link>
+      {session.status === 'authenticated' && (
+        <ReportButton
+          key={`report-${notion}/${pageNumber}`}
+          target={{ subject: slug, notion, page: pageNumber }}
+        />
+      )}
+      {lastPage && <Validation subject={slug} notion={notion} />}
+      {chapter && endsChapter && chapter.exercises.length > 0 && (
+        <ChapterExercises subject={slug} title={chapter.title} exercises={chapter.exercises} />
+      )}
       <TourNavigation subject={slug} previous={previous} next={next} tourLink={tourLink} />
     </article>
   )
