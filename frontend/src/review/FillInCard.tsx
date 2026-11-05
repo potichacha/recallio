@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { ApiError } from '../api/errors'
-import { useRecordReview, type QueuedCard } from '../api/review'
+import { useRecordReview, type QueuedCard, type ReviewResult } from '../api/review'
 import { Markdown } from '../components/Markdown'
 import { numberBlanks } from './blanks'
 import { CardHeader } from './CardHeader'
@@ -9,7 +9,13 @@ import { CardHeader } from './CardHeader'
  * Un code à trous : on remplit chaque trou, on valide, et le serveur corrige trou par trou (ADR 0027). Comme pour un
  * QCM, la note n'est pas choisie ; la correction reste affichée jusqu'à ce qu'on passe à la suite.
  */
-export function FillInCard({ card, onReviewed }: { card: QueuedCard; onReviewed: () => void }) {
+export function FillInCard({
+  card,
+  onReviewed,
+}: {
+  card: QueuedCard
+  onReviewed: (result: ReviewResult) => void
+}) {
   const [shownAt] = useState(() => Date.now())
   const [requestId] = useState(() => crypto.randomUUID())
   const [filled, setFilled] = useState<string[]>(() => Array(card.blankCount).fill(''))
@@ -93,7 +99,7 @@ export function FillInCard({ card, onReviewed }: { card: QueuedCard; onReviewed:
           <Markdown>{result.correction.explanation}</Markdown>
           <button
             type="button"
-            onClick={onReviewed}
+            onClick={() => onReviewed(result)}
             className="self-start rounded-lg bg-indigo-600 px-4 py-2 font-medium text-white hover:bg-indigo-700"
           >
             Carte suivante

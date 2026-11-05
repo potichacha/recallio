@@ -7,9 +7,12 @@ import io.smallrye.config.WithDefault;
 @ConfigMapping(prefix = "recallio.review")
 public interface ReviewConfig {
 
-    /** Nombre maximal de cartes vues pour la première fois par jour (dans le fuseau de l'utilisateur). */
+    /**
+     * Nombre maximal de cartes vues pour la première fois par jour (dans le fuseau de l'utilisateur), dans chaque sujet
+     * (ADR 0048).
+     */
     @WithDefault("20")
-    int newCardsPerDay();
+    int newCardsPerSubjectPerDay();
 
     /** Probabilité de se souvenir visée par FSRS au moment de chaque révision. */
     @WithDefault("0.9")

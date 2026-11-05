@@ -1,46 +1,43 @@
-import { useState, type ReactNode } from 'react'
-import { Link, useSearchParams } from 'react-router'
+import { useState } from 'react'
+import { useSearchParams } from 'react-router'
 import { useSubjects, type CardType } from '../api/content'
-import { ApiError } from '../api/errors'
 import { useGroup } from '../api/groups'
-import { useProfile } from '../api/profile'
-import { useProgress } from '../api/progress'
-import { useReviewQueue, type ReviewFilter, type ReviewQueue } from '../api/review'
+import type { ReviewFilter } from '../api/review'
 import { RequireFollowedSubjects } from '../auth/RequireFollowedSubjects'
 import { CARD_TYPE_LABELS } from '../components/cardTypeLabels'
-import { DailyGoal } from '../components/DailyGoal'
-import { ReportButton } from '../components/ReportButton'
-import { formatDelay } from './formatDelay'
-import { ReviewCard } from './ReviewCard'
+import { ReviewSession } from './ReviewSession'
+import { SessionSetup } from './SessionSetup'
+import { sessionTypes, type SessionSettings } from './sessionSettings'
 
 /**
- * Page de révision. Sans filtre, elle puise dans les sujets suivis (il faut donc en suivre au moins un) ; un sujet
- * (`?subject=go`) ou un thème (`?theme=...`) se révise même s'il n'est pas suivi, et un groupe (`?group=...`) selon ses
- * réglages. Un format (`?type=CODING_EXERCISE`) restreint encore la file.
+ * Page de révision. On y lance une session sur un sujet à la fois, pour une durée choisie (ADR 0048) : un sujet
+ * (`?subject=go`) est proposé d'emblée, même s'il n'est pas suivi. Un groupe (`?group=...`, selon ses réglages), un thème
+ * (`?theme=...`) ou un format (`?type=CODING_EXERCISE`) ouvrent directement une session sans limite de durée.
  */
 export function ReviewPage() {
   const [searchParams] = useSearchParams()
-  const filter: ReviewFilter = {
-    group: searchParams.get('group') ?? undefined,
-    subject: searchParams.get('subject') ?? undefined,
-    theme: searchParams.get('theme') ?? undefined,
-    type: cardType(searchParams.get('type')),
-  }
-  // Changer de filtre démarre une nouvelle session : la position et le compteur repartent de zéro.
-  const session = (
-    <ReviewSession
-      key={`${filter.group}|${filter.subject}|${filter.theme}|${filter.type}`}
-      filter={filter}
-    />
-  )
+  const subject = searchParams.get('subject') ?? undefined
+  const direct = directFilter(searchParams)
 
-  if (filter.group || filter.theme) return session
-  // Les onglets restent en place d'un sujet à l'autre : seule la session change.
-  return (
-    <SubjectTabs current={filter.subject}>
-      {filter.subject ? session : <RequireFollowedSubjects>{session}</RequireFollowedSubjects>}
-    </SubjectTabs>
-  )
+  // Changer de lien démarre une nouvelle session : la position et les compteurs repartent de zéro.
+  if (direct) {
+    return <DirectSession key={JSON.stringify(direct)} filter={direct} />
+  }
+  return <SubjectSession key={subject ?? ''} subject={subject} />
+}
+
+/** Un groupe, un thème ou un format précis : ce qu'il faut réviser est déjà dit par le lien. */
+function directFilter(params: URLSearchParams): ReviewFilter | undefined {
+  const group = params.get('group') ?? undefined
+  const theme = params.get('theme') ?? undefined
+  const type = cardType(params.get('type'))
+  if (!group && !theme && !type) return undefined
+  return {
+    group,
+    theme,
+    subject: params.get('subject') ?? undefined,
+    types: type ? [type] : undefined,
+  }
 }
 
 /** Un format connu, ou aucun : un format inconnu dans l'URL est ignoré plutôt que refusé par l'API. */
@@ -48,169 +45,49 @@ function cardType(value: string | null): CardType | undefined {
   return value !== null && value in CARD_TYPE_LABELS ? (value as CardType) : undefined
 }
 
-/** Le choix du sujet révisé (tous les sujets suivis, ou l'un d'eux), dès qu'il y a plus d'un sujet. */
-function SubjectTabs({ current, children }: { current?: string; children: ReactNode }) {
-  const profile = useProfile()
-  const followed = profile.data?.followedSubjects ?? []
-  // Un sujet non suivi, ouvert depuis le catalogue, apparaît aussi : on voit ce qu'on révise.
-  const tabs = current && !followed.includes(current) ? [...followed, current] : followed
-
+function DirectSession({ filter }: { filter: ReviewFilter }) {
+  const [run, setRun] = useState(0)
   return (
-    <div className="flex flex-col gap-4">
-      {tabs.length > 1 && <SubjectTabsNav tabs={tabs} current={current} />}
-      {children}
-    </div>
-  )
-}
-
-function SubjectTabsNav({ tabs, current }: { tabs: string[]; current?: string }) {
-  const subjects = useSubjects()
-  const titleOf = (slug: string) =>
-    subjects.data?.find((subject) => subject.slug === slug)?.title ?? slug
-  const tabClass = (active: boolean) =>
-    active
-      ? 'rounded-full bg-indigo-600 px-3 py-1 text-sm font-medium text-white'
-      : 'rounded-full border border-slate-200 bg-white px-3 py-1 text-sm text-slate-700 hover:border-indigo-300'
-
-  return (
-    <nav aria-label="Sujet révisé" className="flex flex-wrap gap-2">
-      <Link
-        to="/review"
-        aria-current={!current ? 'page' : undefined}
-        className={tabClass(!current)}
-      >
-        Tous mes sujets
-      </Link>
-      {tabs.map((slug) => (
-        <Link
-          key={slug}
-          to={`/review?subject=${encodeURIComponent(slug)}`}
-          aria-current={current === slug ? 'page' : undefined}
-          className={tabClass(current === slug)}
-        >
-          {titleOf(slug)}
-        </Link>
-      ))}
-    </nav>
-  )
-}
-
-/**
- * Session de révision : on parcourt la file reçue carte par carte, puis on en demande une nouvelle. Les cartes notées
- * « À revoir » reviennent quelques minutes plus tard, dans une file suivante.
- */
-function ReviewSession({ filter }: { filter: ReviewFilter }) {
-  const queue = useReviewQueue(filter)
-  const progress = useProgress()
-  const [position, setPosition] = useState(0)
-  const [reviewed, setReviewed] = useState(0)
-
-  if (queue.isPending) {
-    return <p>Préparation de la session…</p>
-  }
-  if (queue.isError) {
-    const notFound = queue.error instanceof ApiError && queue.error.status === 404
-    const missing = filter.group ? 'groupe' : filter.theme ? 'thème' : 'sujet'
-    return (
-      <p role="alert">
-        {notFound
-          ? `Ce ${missing} est introuvable.`
-          : 'Impossible de charger les cartes à réviser.'}
-      </p>
-    )
-  }
-
-  const card = queue.data.cards.at(position)
-  const continueSession = async () => {
-    await queue.refetch()
-    setPosition(0)
-  }
-
-  return (
-    <section className="flex flex-col gap-4">
-      <header className="flex items-baseline justify-between gap-2">
-        {filter.group ? (
-          <GroupSessionTitle groupId={filter.group} />
-        ) : (
-          <h1 className="text-2xl font-bold">Réviser</h1>
-        )}
-        <p className="text-sm text-slate-500">
-          {reviewed} carte{reviewed > 1 ? 's' : ''} révisée{reviewed > 1 ? 's' : ''}
-        </p>
-      </header>
-      {progress.data && <DailyGoal progress={progress.data} />}
-      {card ? (
-        <>
-          <ReviewCard
-            key={card.cardId}
-            card={card}
-            onReviewed={() => {
-              setReviewed((count) => count + 1)
-              setPosition((current) => current + 1)
-            }}
-          />
-          <ReportButton key={`report-${card.cardId}`} target={{ cardId: card.cardId }} />
-        </>
-      ) : (
-        <SessionPause
-          queue={queue.data}
-          batchFinished={position > 0}
-          loading={queue.isFetching}
-          onContinue={continueSession}
-        />
-      )}
-    </section>
+    <ReviewSession
+      key={run}
+      title={filter.group ? <GroupSessionTitle groupId={filter.group} /> : 'Réviser'}
+      filter={filter}
+      minutes={null}
+      onRestart={() => setRun((current) => current + 1)}
+    />
   )
 }
 
 function GroupSessionTitle({ groupId }: { groupId: string }) {
   const group = useGroup(groupId)
-  return (
-    <h1 className="text-2xl font-bold">
-      {group.data ? `Réviser avec « ${group.data.name} »` : 'Réviser avec le groupe'}
-    </h1>
-  )
+  return group.data ? `Réviser avec « ${group.data.name} »` : 'Réviser avec le groupe'
 }
 
-function SessionPause({
-  queue,
-  batchFinished,
-  loading,
-  onContinue,
-}: {
-  queue: ReviewQueue
-  batchFinished: boolean
-  loading: boolean
-  onContinue: () => void
-}) {
-  // Instant figé à l'affichage : le rendu reste pur (le délai n'a pas besoin d'être rafraîchi en continu).
-  const [now] = useState(() => Date.now())
-  if (batchFinished) {
-    return (
-      <div className="flex flex-col items-start gap-3 rounded-xl bg-white p-5 shadow-sm">
-        <p className="font-medium">Série terminée, bravo !</p>
-        <button
-          type="button"
-          onClick={onContinue}
-          disabled={loading}
-          className="rounded-lg bg-indigo-600 px-4 py-2 font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
-        >
-          Continuer
-        </button>
-      </div>
+/** Le lancement d'une session, puis la session, puis, au bilan, une autre session ou d'autres réglages. */
+function SubjectSession({ subject }: { subject?: string }) {
+  const subjects = useSubjects()
+  const [session, setSession] = useState<{ settings: SessionSettings; run: number }>()
+
+  if (!session) {
+    const setup = (
+      <SessionSetup subject={subject} onStart={(settings) => setSession({ settings, run: 0 })} />
     )
+    return subject ? setup : <RequireFollowedSubjects>{setup}</RequireFollowedSubjects>
   }
+
+  const { settings, run } = session
+  const subjectTitle =
+    subjects.data?.find((candidate) => candidate.slug === settings.subject)?.title ??
+    settings.subject
   return (
-    <div className="flex flex-col items-start gap-3 rounded-xl bg-white p-5 shadow-sm">
-      <p className="font-medium">Tout est à jour pour le moment.</p>
-      {queue.nextDueAt && (
-        <p className="text-slate-600">
-          Prochaine carte à revoir dans {formatDelay(Date.parse(queue.nextDueAt) - now)}.
-        </p>
-      )}
-      <Link to="/subjects" className="text-indigo-600 hover:underline">
-        Parcourir les sujets
-      </Link>
-    </div>
+    <ReviewSession
+      key={run}
+      title={`Réviser : ${subjectTitle}`}
+      subjectTitle={subjectTitle}
+      filter={{ subject: settings.subject, types: sessionTypes(settings.mode) }}
+      minutes={settings.minutes}
+      onRestart={() => setSession({ settings, run: run + 1 })}
+      onChangeSettings={() => setSession(undefined)}
+    />
   )
 }

@@ -15,7 +15,6 @@ import com.recallio.review.domain.ReviewLogRepository;
 import com.recallio.review.domain.ReviewState;
 import com.recallio.review.domain.ReviewStateRepository;
 import com.recallio.review.domain.fsrs.FsrsParameters;
-import com.recallio.review.domain.fsrs.FsrsScheduler;
 import com.recallio.user.FollowedSubjects;
 import com.recallio.user.LearningTrack;
 import com.recallio.user.UserRef;
@@ -32,12 +31,13 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import org.junit.jupiter.api.Test;
 
 class ReviewQueueServiceTest {
 
-    private static final int NEW_CARDS_PER_DAY = 2;
+    private static final int NEW_CARDS_PER_SUBJECT_PER_DAY = 2;
     private static final String SUBJECT = "java";
     private static final ZoneId PARIS = ZoneId.of("Europe/Paris");
 
@@ -71,29 +71,36 @@ class ReviewQueueServiceTest {
         var queue =
                 serviceAt(justAfterMidnightInParis).queue(user, ReviewQueueService.QueueFilter.followedSubjects(), 10);
 
-        assertThat(queue.newCount()).isEqualTo(NEW_CARDS_PER_DAY);
+        assertThat(queue.newCount()).isEqualTo(NEW_CARDS_PER_SUBJECT_PER_DAY);
+    }
+
+    /** Finir sa session de Go ne prive pas Java de ses nouvelles cartes (ADR 0048). */
+    @Test
+    void shouldCountTheNewCardsOfEachSubjectAgainstItsOwnQuota() {
+        Instant now = Instant.parse("2026-10-29T08:00:00Z");
+        states.introduce(UUID.randomUUID(), now.minus(Duration.ofMinutes(20)));
+        states.introduce(UUID.randomUUID(), now.minus(Duration.ofMinutes(10)));
+
+        var queue = serviceAt(now).queue(user, new QueueFilter(null, SUBJECT, null, Set.of()), 10);
+
+        assertThat(queue.newCount()).isEqualTo(NEW_CARDS_PER_SUBJECT_PER_DAY);
+        assertThat(queue.cards()).extracting(card -> card.state()).containsOnly(LearningState.NEW);
     }
 
     @Test
-    void shouldPreviewTheDueDateOfEachRating() {
-        Instant now = Instant.parse("2026-10-29T08:00:00Z");
+    void shouldReviewOnlyTheRequestedFormats() {
+        var requested = Set.of(CardType.MULTIPLE_CHOICE, CardType.TRUE_FALSE);
 
-        var queue = serviceAt(now).queue(user, ReviewQueueService.QueueFilter.followedSubjects(), 1);
+        serviceAt(Instant.parse("2026-10-29T08:00:00Z"))
+                .queue(user, new QueueFilter(null, SUBJECT, null, requested), 10);
 
-        var card = queue.cards().getFirst();
-        assertThat(card.state()).isEqualTo(LearningState.NEW);
-        assertThat(card.previews())
-                .extracting(ReviewQueueService.RatingPreview::dueAt)
-                .containsExactly(
-                        now.plus(Duration.ofMinutes(1)),
-                        now.plus(Duration.ofSeconds(330)),
-                        now.plus(Duration.ofMinutes(10)),
-                        now.plus(Duration.ofDays(8)));
+        assertThat(filters).containsExactly(new CardFilter(Set.of(SUBJECT), null, Set.of(), requested));
     }
 
     @Test
     void shouldReviewTheSubjectsThemesAndFormatsChosenByTheGroup() {
-        serviceAt(Instant.parse("2026-10-29T08:00:00Z")).queue(user, new QueueFilter(groupId, null, null, null), 10);
+        serviceAt(Instant.parse("2026-10-29T08:00:00Z"))
+                .queue(user, new QueueFilter(groupId, null, null, Set.of()), 10);
 
         assertThat(filters)
                 .containsExactly(new CardFilter(
@@ -104,19 +111,30 @@ class ReviewQueueServiceTest {
     void shouldNarrowTheGroupCardsToARequestedSubject() {
         var service = serviceAt(Instant.parse("2026-10-29T08:00:00Z"));
 
-        service.queue(user, new QueueFilter(groupId, "go", null, null), 10);
-        var outside = service.queue(user, new QueueFilter(groupId, "rust", null, null), 10);
-        service.queue(user, new QueueFilter(groupId, null, null, CardType.DEFINITION), 10);
+        service.queue(user, new QueueFilter(groupId, "go", null, Set.of()), 10);
+        var outside = service.queue(user, new QueueFilter(groupId, "rust", null, Set.of()), 10);
 
         assertThat(filters.get(0).subjectSlugs()).containsExactly("go");
         assertThat(filters.get(1).subjectSlugs()).isEmpty();
-        assertThat(filters.get(2).subjectSlugs()).isEmpty();
+        assertThat(outside.cards()).isEmpty();
+    }
+
+    @Test
+    void shouldKeepOnlyTheRequestedFormatsThatTheGroupReviews() {
+        var service = serviceAt(Instant.parse("2026-10-29T08:00:00Z"));
+
+        service.queue(user, new QueueFilter(groupId, null, null, Set.of(CardType.FLASHCARD, CardType.DEFINITION)), 10);
+        var outside = service.queue(user, new QueueFilter(groupId, null, null, Set.of(CardType.DEFINITION)), 10);
+
+        assertThat(filters.get(0).types()).containsExactly(CardType.FLASHCARD);
+        assertThat(filters.get(1).subjectSlugs()).isEmpty();
         assertThat(outside.cards()).isEmpty();
     }
 
     private ReviewQueueService serviceAt(Instant now) {
+        var directory = new FixedCatalog(catalog, filters);
         return new ReviewQueueService(
-                new FixedCatalog(catalog, filters),
+                directory,
                 new SubjectDirectory() {
                     @Override
                     public List<String> publishedSubjectSlugs() {
@@ -140,15 +158,14 @@ class ReviewQueueServiceTest {
                 (_, _) -> groupScope,
                 states,
                 new NoReviewsToday(),
-                new FsrsScheduler(FsrsParameters.DEFAULT),
-                new NewCardQuota(states, new TestConfig()),
+                new NewCardQuota(states, directory, new TestConfig()),
                 Clock.fixed(now, ZoneOffset.UTC));
     }
 
     private record TestConfig() implements ReviewConfig {
         @Override
-        public int newCardsPerDay() {
-            return NEW_CARDS_PER_DAY;
+        public int newCardsPerSubjectPerDay() {
+            return NEW_CARDS_PER_SUBJECT_PER_DAY;
         }
 
         @Override
@@ -157,7 +174,10 @@ class ReviewQueueServiceTest {
         }
     }
 
-    /** Toujours les mêmes cartes, sauf pour un filtre qui n'admet aucun sujet ; garde les filtres reçus. */
+    /**
+     * Toujours les mêmes cartes Java, sauf pour un filtre qui n'admet aucun sujet ; garde les filtres reçus. Une carte
+     * hors du catalogue est une carte de Go.
+     */
     private record FixedCatalog(List<UUID> ids, List<CardFilter> filters) implements CardDirectory {
         @Override
         public List<ActiveCard> activeCards(CardFilter filter) {
@@ -174,6 +194,13 @@ class ReviewQueueServiceTest {
         @Override
         public Map<UUID, UUID> notionsOf(Collection<UUID> cardIds) {
             return Map.of();
+        }
+
+        @Override
+        public Map<UUID, String> subjectsOf(Collection<UUID> cardIds) {
+            Map<UUID, String> subjects = new HashMap<>();
+            cardIds.forEach(id -> subjects.put(id, ids.contains(id) ? SUBJECT : "go"));
+            return subjects;
         }
 
         @Override
@@ -253,12 +280,12 @@ class ReviewQueueServiceTest {
     private static final class InMemoryStates implements ReviewStateRepository {
 
         private final Map<UUID, ReviewState> states = new HashMap<>();
-        private final List<Instant> introductions = new ArrayList<>();
+        private final Map<UUID, Instant> introductions = new HashMap<>();
 
         void introduce(UUID cardId, Instant at) {
             states.put(
                     cardId, new ReviewState(LearningState.REVIEW, 0, 300, 5, at.plus(Duration.ofDays(365)), 1, 0, at));
-            introductions.add(at);
+            introductions.put(cardId, at);
         }
 
         @Override
@@ -277,8 +304,11 @@ class ReviewQueueServiceTest {
         }
 
         @Override
-        public long countIntroducedSince(UUID userId, Instant since) {
-            return introductions.stream().filter(at -> !at.isBefore(since)).count();
+        public Set<UUID> cardsIntroducedSince(UUID userId, Instant since) {
+            return introductions.entrySet().stream()
+                    .filter(introduction -> !introduction.getValue().isBefore(since))
+                    .map(Map.Entry::getKey)
+                    .collect(Collectors.toSet());
         }
     }
 }

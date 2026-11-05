@@ -9,13 +9,14 @@ test.describe('Streak', () => {
     await signIn(page, USERS.alice, '/profile')
     await followSubjects(page, ['Java'])
     await page.goto('/review')
+    await page.getByRole('button', { name: 'Commencer' }).click()
 
     const reached = page.getByRole('status').filter({ hasText: 'Objectif atteint' })
     for (let review = 0; review < DAILY_GOAL && !(await reached.isVisible()); review++) {
       await page.getByRole('button', { name: 'Voir la réponse' }).click()
       await page
-        .getByRole('group', { name: 'Noter la carte' })
-        .getByRole('button', { name: 'Bien' })
+        .getByRole('group', { name: 'Connaissiez-vous la réponse ?' })
+        .getByRole('button', { name: 'Je savais' })
         .click()
       await expect(page.getByText(/\d+ cartes? révisées?/)).toContainText(String(review + 1))
     }

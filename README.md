@@ -7,7 +7,8 @@ Application web (PWA) de révision des entretiens techniques par répétition es
 ## Ce que fait l'application
 
 - **Réviser** un catalogue de sujets (Java, Go, frameworks, cloud, données, fondamentaux) en cartes de neuf formats,
-  planifiées par FSRS ; les QCM, vrais ou faux, codes à compléter et exercices de code sont corrigés par le serveur.
+  planifiées par FSRS : un sujet par session, pour la durée choisie. Les QCM, vrais ou faux, codes à compléter et
+  exercices de code sont corrigés par le serveur ; les autres cartes se retournent, et l'on dit si l'on savait.
 - **Apprendre** un langage dans le Tour, page par page, en exécutant chaque exemple dans un bac à sable ; « Programmer
   de zéro » pour qui n'a jamais programmé.
 - **Se préparer** : la maîtrise notion par notion, l'indice de préparation, l'examen blanc chronométré.

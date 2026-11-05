@@ -105,10 +105,15 @@ public class ReviewsResource {
                     String subject,
             @Parameter(description = "Slug du thème, pour ne réviser que ce thème") @QueryParam("theme") @Nullable
                     String theme,
-            @Parameter(description = "Format de carte, pour ne réviser que ce format") @QueryParam("type") @Nullable
-                    CardType type,
+            @Parameter(
+                            description = "Formats de carte, pour ne réviser qu'eux (répétable : le mode « questions"
+                                    + " corrigées » de la PWA en demande quatre, ADR 0048) ; aucun : tous les formats")
+                    @QueryParam("type")
+                    @Nullable
+                    List<CardType> types,
             @QueryParam("size") @DefaultValue("20") @Min(1) @Max(MAX_QUEUE_SIZE) int size) {
-        return ReviewQueueDto.from(queues.queue(currentUser.get(), new QueueFilter(group, subject, theme, type), size));
+        var filter = new QueueFilter(group, subject, theme, types == null ? Set.of() : Set.copyOf(types));
+        return ReviewQueueDto.from(queues.queue(currentUser.get(), filter, size));
     }
 
     @POST

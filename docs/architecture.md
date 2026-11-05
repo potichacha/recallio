@@ -142,8 +142,8 @@ flowchart LR
 | Élément | Rôle |
 |---|---|
 | `domain.fsrs.FsrsScheduler` | FSRS-6 sans aléa : étapes d'apprentissage, intervalles en jours, oublis (ADR 0011). |
-| `domain.queue.ReviewQueuePlanner` | Cartes dues (les plus en retard d'abord), puis nouvelles dans le quota du jour, en alternant les sujets (ADR 0014). |
-| `application.ReviewQueueService` | File de révision, quota de nouvelles cartes remis à zéro à minuit dans le fuseau de l'utilisateur. |
+| `domain.queue.ReviewQueuePlanner` | Cartes dues (les plus en retard d'abord), puis nouvelles dans le quota du jour de chaque sujet (ADR 0048), en alternant les sujets quand la file en réunit plusieurs. |
+| `application.ReviewQueueService` | File de révision, filtrée par sujet, thème, groupe ou formats ; quota de nouvelles cartes par sujet (`NewCardQuota`), remis à zéro à minuit dans le fuseau de l'utilisateur. |
 | `application.ReviewRecordingService` | Réponse idempotente : verrou sur l'état, puis `requestId` unique dans le journal. Corrige un QCM et en déduit la note (ADR 0019). |
 | `infrastructure.*Entity` | Entités JPA séparées du domaine (domaine riche, CLAUDE.md section 4.3). |
 | `api.ReviewsResource` | `GET /api/v1/review-queue` et `POST /api/v1/reviews` (201, ou 200 si rejouée). |

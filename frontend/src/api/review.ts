@@ -11,8 +11,11 @@ export type Rating = components['schemas']['Rating']
 export type ReviewResult = components['schemas']['ReviewResult']
 export type RecordReviewRequest = components['schemas']['RecordReviewRequest']
 
-/** Sans groupe, sujet ni thème, la file puise dans les sujets suivis ; avec un groupe, dans ses réglages. */
-export type ReviewFilter = { group?: string; subject?: string; theme?: string; type?: CardType }
+/**
+ * Sans groupe, sujet ni thème, la file puise dans les sujets suivis ; avec un groupe, dans ses réglages. Des formats
+ * (`types`) la restreignent encore : le mode « questions corrigées » d'une session (ADR 0048).
+ */
+export type ReviewFilter = { group?: string; subject?: string; theme?: string; types?: CardType[] }
 
 const QUEUE_KEY = ['review-queue']
 export const QUEUE_SIZE = 20
@@ -22,8 +25,9 @@ export function useReviewQueue(filter: ReviewFilter) {
   return useQuery({
     queryKey: [...QUEUE_KEY, filter],
     queryFn: async () => {
+      const { types, ...scope } = filter
       const { data, error, response } = await api.GET('/api/v1/review-queue', {
-        params: { query: { ...filter, size: QUEUE_SIZE } },
+        params: { query: { ...scope, type: types, size: QUEUE_SIZE } },
       })
       if (data === undefined) throw ApiError.from(response, error)
       return data

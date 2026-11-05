@@ -4,13 +4,13 @@ Quelques parcours critiques joués dans un vrai navigateur, contre la pile compl
 servie par nginx, backend, PostgreSQL et Keycloak (CLAUDE.md, section 8). Ils complètent les tests unitaires et
 d'intégration, sans les remplacer : un parcours par fonctionnalité clé, pas un test par écran.
 
-| Parcours                                                                           | Fichier                        |
-| ---------------------------------------------------------------------------------- | ------------------------------ |
-| Se connecter par Keycloak, revenir sur la page demandée, se déconnecter            | `tests/sign-in.spec.ts`        |
-| Réviser une session (aussi sur mobile), réviser un seul thème, voir sa progression | `tests/review-session.spec.ts` |
-| Atteindre l'objectif du jour et démarrer son streak                                | `tests/streak.spec.ts`         |
-| Lire le Tour sans compte, exécuter une page et y reprendre, valider une notion     | `tests/tour.spec.ts`           |
-| Passer un examen blanc, jouer un duel classé à deux et en voir le résultat         | `tests/ranked.spec.ts`         |
+| Parcours                                                                                               | Fichier                        |
+| ------------------------------------------------------------------------------------------------------ | ------------------------------ |
+| Se connecter par Keycloak, revenir sur la page demandée, se déconnecter                                | `tests/sign-in.spec.ts`        |
+| Réviser un sujet pour une durée choisie (aussi sur mobile), réviser un seul thème, voir sa progression | `tests/review-session.spec.ts` |
+| Atteindre l'objectif du jour et démarrer son streak                                                    | `tests/streak.spec.ts`         |
+| Lire le Tour sans compte, exécuter une page et y reprendre, valider une notion                         | `tests/tour.spec.ts`           |
+| Passer un examen blanc, jouer un duel classé à deux et en voir le résultat                             | `tests/ranked.spec.ts`         |
 
 ## Lancer en local
 

@@ -3,6 +3,7 @@ package com.recallio.review.domain;
 import java.time.Instant;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 /** Mémoire des cartes par utilisateur. Une carte sans état est nouvelle pour cet utilisateur. */
@@ -15,6 +16,6 @@ public interface ReviewStateRepository {
 
     void save(UUID userId, UUID cardId, ReviewState state);
 
-    /** Nombre de cartes révisées pour la première fois depuis {@code since} : base du quota quotidien de nouvelles. */
-    long countIntroducedSince(UUID userId, Instant since);
+    /** Les cartes révisées pour la première fois depuis {@code since} : base du quota quotidien de nouvelles. */
+    Set<UUID> cardsIntroducedSince(UUID userId, Instant since);
 }

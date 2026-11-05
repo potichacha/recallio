@@ -42,6 +42,7 @@ function stats(overrides: Partial<ReviewStats> = {}): ReviewStats {
         slug: 'java',
         title: 'Java',
         counts: counts({ total: 30, seen: 12, mastered: 4, dueNow: 5 }),
+        newToday: 8,
         notions: notions({ total: 12, discovered: 5, acquired: 3, mastered: 1 }),
         readiness: readiness({ essentials: 6, acquired: 3, mastered: 1, percent: 33 }),
         themes: [
@@ -170,6 +171,7 @@ describe('DashboardPage', () => {
       slug: 'go',
       title: 'Go',
       counts: counts({ total: 40, seen: 2 }),
+      newToday: 20,
       notions: notions(),
       readiness: readiness(),
       themes: [

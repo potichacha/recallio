@@ -73,7 +73,6 @@ class ReviewsResourceTest {
                 .body("cards[0].prompt", containsString("JVM"))
                 .body("cards[0].state", equalTo("NEW"))
                 .body("cards[0].themeSlug", equalTo(THEME))
-                .body("cards[0].previews.rating", contains("AGAIN", "HARD", "GOOD", "EASY"))
                 .body("nextDueAt", nullValue());
     }
 
@@ -283,17 +282,31 @@ class ReviewsResourceTest {
                 .body("cards.subjectSlug", everyItem(equalTo("go")));
     }
 
+    /** Chaque sujet a son quota de nouvelles cartes (ADR 0048), 3 en test ; une file qui en réunit plusieurs alterne. */
     @Test
     @TestSecurity(user = "alice")
     @OidcSecurity(claims = @Claim(key = "sub", value = "review-two-subjects"))
-    void shouldShareTheNewCardQuotaBetweenFollowedSubjects() {
+    void shouldGiveEachFollowedSubjectItsOwnNewCardQuota() {
         follow("java", "go");
 
         given().get(QUEUE)
                 .then()
                 .statusCode(200)
-                .body("newCount", is(3))
-                .body("cards.subjectSlug", contains("java", "go", "java"));
+                .body("newCount", is(6))
+                .body("cards.subjectSlug", contains("java", "go", "java", "go", "java", "go"));
+    }
+
+    /** Le mode « questions corrigées » de la PWA (ADR 0048) : le document Go de test n'en a qu'une, son QCM. */
+    @Test
+    @TestSecurity(user = "alice")
+    @OidcSecurity(claims = @Claim(key = "sub", value = "review-graded-only"))
+    void shouldReviewOnlyTheRequestedFormats() {
+        given().queryParam("subject", "go")
+                .queryParam("type", "MULTIPLE_CHOICE", "TRUE_FALSE", "FILL_IN", "CODING_EXERCISE")
+                .get(QUEUE)
+                .then()
+                .statusCode(200)
+                .body("cards.type", contains("MULTIPLE_CHOICE"));
     }
 
     @Test

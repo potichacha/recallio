@@ -14,7 +14,9 @@ test.describe('Premier login', () => {
     await start.click()
 
     await expect(page).toHaveURL(/\/review$/)
-    await page.getByRole('button', { name: 'Voir la réponse' }).click()
+    await expect(page.getByRole('group', { name: 'Sujet' }).getByRole('radio')).toBeChecked()
+    await page.getByRole('button', { name: 'Commencer' }).click()
     await expect(page.locator('article header')).toContainText('Go ·')
+    await page.getByRole('button', { name: 'Voir la réponse' }).click()
   })
 })

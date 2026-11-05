@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { ApiError } from '../api/errors'
-import { useRecordReview, type QueuedCard } from '../api/review'
+import { useRecordReview, type QueuedCard, type ReviewResult } from '../api/review'
 import { ChoiceOption } from '../components/ChoiceOption'
 import { choiceOutcome, toggleChoice } from '../components/choices'
 import { Markdown } from '../components/Markdown'
@@ -15,7 +15,7 @@ export function MultipleChoiceCard({
   onReviewed,
 }: {
   card: QueuedCard
-  onReviewed: () => void
+  onReviewed: (result: ReviewResult) => void
 }) {
   const [shownAt] = useState(() => Date.now())
   const [requestId] = useState(() => crypto.randomUUID())
@@ -97,7 +97,7 @@ export function MultipleChoiceCard({
           <Markdown>{result.correction.explanation}</Markdown>
           <button
             type="button"
-            onClick={onReviewed}
+            onClick={() => onReviewed(result)}
             className="self-start rounded-lg bg-indigo-600 px-4 py-2 font-medium text-white hover:bg-indigo-700"
           >
             Carte suivante

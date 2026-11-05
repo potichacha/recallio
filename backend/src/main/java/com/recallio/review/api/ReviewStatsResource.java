@@ -49,7 +49,7 @@ public class ReviewStatsResource {
     public record ReviewStatsDto(
             CardCountsDto overall,
 
-            @Schema(description = "Nouvelles cartes encore proposées aujourd'hui")
+            @Schema(description = "Nouvelles cartes encore proposées aujourd'hui, tous sujets suivis confondus")
             int newToday,
 
             @Schema(description = "Les sujets suivis, dans l'ordre du catalogue")
@@ -69,6 +69,9 @@ public class ReviewStatsResource {
             String title,
             CardCountsDto counts,
 
+            @Schema(description = "Nouvelles cartes encore proposées aujourd'hui dans ce sujet (son quota, ADR 0048)")
+            int newToday,
+
             @Schema(
                     description = "Les notions du sujet par niveau de maîtrise (ADR 0034) ; aucune pour un sujet sans"
                             + " référentiel")
@@ -84,6 +87,7 @@ public class ReviewStatsResource {
                     subject.slug(),
                     subject.title(),
                     CardCountsDto.from(subject.counts()),
+                    subject.newToday(),
                     MasteryCountsDto.from(subject.notions()),
                     ReadinessDto.from(subject.readiness()),
                     subject.themes().stream().map(ThemeStatsDto::from).toList());
