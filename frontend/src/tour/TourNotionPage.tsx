@@ -4,20 +4,24 @@ import { ApiError } from '../api/errors'
 import { useSaveTourLastPage, useTour, useTourNotion } from '../api/tour'
 import { useSession } from '../auth/session'
 import { Markdown } from '../components/Markdown'
+import { useLayoutMode } from '../components/layoutMode'
 import { ReportButton } from '../components/ReportButton'
 import { practicePath } from '../practice/practicePath'
 import { ChapterExercises } from './ChapterExercises'
 import { NotionCheck } from './NotionCheck'
 import { Playground } from './Playground'
 import { TaskPanel } from './TaskPanel'
+import { TestYourself } from './TestYourself'
 import { neighbours, tourPath, tourSteps, type TourStep } from './tourSteps'
 import { button } from '../components/ui/button'
 
 /**
  * Une page du Tour (ADR 0037) : son texte, puis son programme à modifier et à exécuter, puis les pages voisines. Le
- * rang de la page dans sa notion est dans l'adresse (`?page=2`), pour qu'un lien mène à la bonne page.
+ * rang de la page dans sa notion est dans l'adresse (`?page=2`), pour qu'un lien mène à la bonne page. Sur un grand
+ * écran, deux colonnes (ADR 0050) : le cours à gauche, le code à droite, qui reste en vue pendant la lecture.
  */
 export function TourNotionPage() {
+  useLayoutMode({ wide: true })
   const { slug = '', notion = '' } = useParams()
   const [params] = useSearchParams()
   const pageNumber = Math.max(1, Number(params.get('page')) || 1)
@@ -82,35 +86,47 @@ export function TourNotionPage() {
           </p>
         )}
       </header>
-      <Markdown>{page.text}</Markdown>
-      {/* Une page neuve, un programme neuf : la clé recrée l'éditeur et oublie la sortie de la page précédente. */}
-      <Playground key={`${notion}/${pageNumber}`} files={page.example} />
-      {page.task && (
-        <TaskPanel
-          key={`${notion}/${pageNumber}/task`}
-          subject={slug}
-          notion={notion}
-          page={pageNumber}
-          task={page.task}
-        />
+      <div className="grid gap-6 lg:grid-cols-2 lg:items-start">
+        <div className="flex min-w-0 flex-col gap-5">
+          <Markdown>{page.text}</Markdown>
+          {session.status === 'authenticated' && lastPage && (
+            <TestYourself key={notion} subject={slug} notion={notion} />
+          )}
+          <Link
+            to={practicePath(slug, notion, { from: 'tour' })}
+            className="self-start text-sm font-medium text-brand-strong hover:underline"
+          >
+            S’entraîner sur cette notion
+          </Link>
+          {session.status === 'authenticated' && (
+            <ReportButton
+              key={`report-${notion}/${pageNumber}`}
+              target={{ subject: slug, notion, page: pageNumber }}
+            />
+          )}
+          {lastPage && <Validation subject={slug} notion={notion} />}
+          {chapter && endsChapter && chapter.exercises.length > 0 && (
+            <ChapterExercises subject={slug} title={chapter.title} exercises={chapter.exercises} />
+          )}
+        </div>
+        <div className="flex min-w-0 flex-col gap-5 lg:sticky lg:top-20">
+          {/* Une page neuve, un programme neuf : la clé recrée l'éditeur et oublie la sortie de la page précédente. */}
+          <Playground key={`${notion}/${pageNumber}`} files={page.example} />
+          {page.task && (
+            <TaskPanel
+              key={`${notion}/${pageNumber}/task`}
+              subject={slug}
+              notion={notion}
+              page={pageNumber}
+              task={page.task}
+            />
+          )}
+        </div>
+      </div>
+      {/* Sans le sommaire, on ne sait pas s'il y a une page suivante : rien plutôt qu'un « Retour au sommaire » faux. */}
+      {outline.data && (
+        <TourNavigation subject={slug} previous={previous} next={next} tourLink={tourLink} />
       )}
-      <Link
-        to={practicePath(slug, notion, { from: 'tour' })}
-        className="self-start text-sm font-medium text-brand-strong hover:underline"
-      >
-        S’entraîner sur cette notion
-      </Link>
-      {session.status === 'authenticated' && (
-        <ReportButton
-          key={`report-${notion}/${pageNumber}`}
-          target={{ subject: slug, notion, page: pageNumber }}
-        />
-      )}
-      {lastPage && <Validation subject={slug} notion={notion} />}
-      {chapter && endsChapter && chapter.exercises.length > 0 && (
-        <ChapterExercises subject={slug} title={chapter.title} exercises={chapter.exercises} />
-      )}
-      <TourNavigation subject={slug} previous={previous} next={next} tourLink={tourLink} />
     </article>
   )
 }

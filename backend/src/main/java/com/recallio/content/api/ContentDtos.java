@@ -36,7 +36,10 @@ final class ContentDtos {
             SubjectStatus status,
 
             long themeCount,
-            long cardCount) {
+            long cardCount,
+
+            @Schema(description = "Vrai si le sujet a un Tour (ADR 0037) ; son essai sans compte aussi (ADR 0050)")
+            boolean hasTour) {
         static SubjectDto from(SubjectSummary subject) {
             return new SubjectDto(
                     subject.id(),
@@ -46,7 +49,8 @@ final class ContentDtos {
                     subject.position(),
                     SubjectStatus.valueOf(subject.status().name()),
                     subject.themeCount(),
-                    subject.cardCount());
+                    subject.cardCount(),
+                    subject.hasTour());
         }
     }
 

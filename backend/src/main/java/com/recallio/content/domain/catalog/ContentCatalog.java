@@ -100,7 +100,8 @@ public interface ContentCatalog {
             int position,
             Subject.Status status,
             long themeCount,
-            long cardCount) {}
+            long cardCount,
+            boolean hasTour) {}
 
     record ThemeSummary(
             UUID id,

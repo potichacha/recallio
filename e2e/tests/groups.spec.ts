@@ -61,12 +61,12 @@ test.describe('Groupes', () => {
     await expect(bob.getByRole('heading', { name: `Rejoindre « ${name} »` })).toBeVisible()
     await bob.getByRole('button', { name: 'Rejoindre le groupe' }).click()
     await expect(bob.getByRole('region', { name: 'Membres (2)' })).toContainText(
-      `${USERS.bob.displayName} (vous)`,
+      `${USERS.bob.displayName} (toi)`,
     )
 
     const leaderboard = bob.getByRole('region', { name: 'Classement de la semaine' })
     await expect(leaderboard.getByRole('listitem')).toHaveCount(2)
-    await expect(leaderboard).toContainText(`${USERS.bob.displayName} (vous)`)
+    await expect(leaderboard).toContainText(`${USERS.bob.displayName} (toi)`)
 
     await alice.reload()
     await expect(alice.getByRole('region', { name: 'Membres (2)' })).toContainText(
@@ -127,9 +127,9 @@ test.describe('Groupes', () => {
         .click()
     }
 
-    await expect(bob.getByText(/Votre score : \d \/ 3/)).toBeVisible()
+    await expect(bob.getByText(/Ton score : \d \/ 3/)).toBeVisible()
     const results = bob.getByRole('region', { name: 'Résultats' })
-    await expect(results.getByRole('listitem')).toContainText(`${USERS.bob.displayName} (vous)`)
+    await expect(results.getByRole('listitem')).toContainText(`${USERS.bob.displayName} (toi)`)
 
     await alice.getByRole('button', { name: 'Supprimer le groupe' }).click()
     await alice.getByRole('button', { name: 'Confirmer la suppression' }).click()

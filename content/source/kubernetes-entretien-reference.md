@@ -3,7 +3,7 @@ subject: kubernetes
 title: Kubernetes & OpenShift
 category: cloud-devops
 position: 110
-status: published
+status: draft
 ---
 
 # Kubernetes & OpenShift : le document de référence pour les entretiens techniques

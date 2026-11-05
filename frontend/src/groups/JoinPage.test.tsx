@@ -82,7 +82,7 @@ describe('JoinPage', () => {
     stubApi({ ...SIGNED_IN_API, [INVITATION]: { body: invitation(true) } })
     renderAt(`/join/${TOKEN}`, signedIn())
 
-    expect(await screen.findByText('Vous faites déjà partie de ce groupe.')).toBeInTheDocument()
+    expect(await screen.findByText('Tu fais déjà partie de ce groupe.')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Ouvrir le groupe' })).toHaveAttribute(
       'href',
       '/groups/g1',

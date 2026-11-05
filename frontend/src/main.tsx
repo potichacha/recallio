@@ -7,6 +7,11 @@ import { createRoot } from 'react-dom/client'
 import { App } from './App'
 import { OidcSessionProvider } from './auth/OidcSessionProvider'
 import './index.css'
+import { countVisit, listenForInstallPrompt } from './pwa/installPrompt'
+
+// Le navigateur n'annonce qu'une fois que l'application est installable : on garde l'annonce dès le démarrage.
+listenForInstallPrompt()
+countVisit()
 
 const queryClient = new QueryClient()
 const root = document.getElementById('root')

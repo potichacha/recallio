@@ -110,9 +110,9 @@ describe('LivePage', () => {
     connection.receive(game([player('u1', 'Alice', true)]))
 
     expect(await screen.findByRole('heading', { name: 'Partie live : Java' })).toBeInTheDocument()
-    expect(screen.getByText(/Vous êtes l’hôte/)).toBeInTheDocument()
+    expect(screen.getByText(/Tu es l’hôte/)).toBeInTheDocument()
     const players = screen.getByRole('region', { name: 'Joueurs (1)' })
-    expect(within(players).getByRole('listitem')).toHaveTextContent('Alice(vous)Hôte')
+    expect(within(players).getByRole('listitem')).toHaveTextContent('Alice(toi)Hôte')
 
     connection.receive(game([player('u1', 'Alice', true), player('u2', 'Bob')]))
     expect(await screen.findByRole('region', { name: 'Joueurs (2)' })).toHaveTextContent('Bob')
@@ -158,7 +158,7 @@ describe('LivePage', () => {
       within(standings)
         .getAllByRole('listitem')
         .map((row) => row.textContent),
-    ).toEqual(['1Bob875 pts', '2Alice (vous)0 pts'])
+    ).toEqual(['1Bob875 pts', '2Alice (toi)0 pts'])
     expect(screen.getByRole('radio', { name: /Dans le tas/ }).closest('label')).toHaveTextContent(
       'Bonne réponse, non cochée',
     )
@@ -173,7 +173,7 @@ describe('LivePage', () => {
     expect(await screen.findByText('Partie terminée : merci d’avoir joué !')).toBeInTheDocument()
     const podium = screen.getByRole('region', { name: 'Podium' })
     expect(within(podium).getAllByRole('listitem')[0]).toHaveTextContent('1erBob1875 pts')
-    expect(within(podium).getAllByRole('listitem')[1]).toHaveTextContent('2eAlice (vous)900 pts')
+    expect(within(podium).getAllByRole('listitem')[1]).toHaveTextContent('2eAlice (toi)900 pts')
     expect(screen.getByRole('region', { name: 'Classement final' })).toBeInTheDocument()
   })
 

@@ -3,7 +3,7 @@ subject: ci-cd
 title: CI/CD & GitOps
 category: cloud-devops
 position: 120
-status: published
+status: draft
 ---
 
 # CI/CD & GitOps : le document de référence pour les entretiens techniques

@@ -15,7 +15,7 @@ export function JoinPage() {
       <section className="flex flex-col items-start gap-3">
         <h1 className="text-2xl font-bold">Invitation invalide</h1>
         <p className="text-ink-muted">
-          Ce lien n'est plus valide : il a expiré ou a été remplacé. Demandez-en un nouveau au
+          Ce lien n'est plus valide : il a expiré ou a été remplacé. Demandes-en un nouveau au
           créateur du groupe.
         </p>
         <Link to="/groups" className="text-brand hover:underline">
@@ -37,11 +37,11 @@ export function JoinPage() {
       <h1 className="text-2xl font-bold">Rejoindre « {groupName} »</h1>
       <p className="text-ink-muted">
         Ce groupe compte {memberCount} membre{memberCount > 1 ? 's' : ''}. En le rejoignant, ses
-        membres verront votre nom.
+        membres verront ton nom.
       </p>
       {alreadyMember ? (
         <>
-          <p>Vous faites déjà partie de ce groupe.</p>
+          <p>Tu fais déjà partie de ce groupe.</p>
           <Link to={`/groups/${groupId}`} className="text-brand hover:underline">
             Ouvrir le groupe
           </Link>
@@ -64,7 +64,7 @@ export function JoinPage() {
         <p role="alert">
           {accept.error instanceof ApiError
             ? accept.error.message
-            : "Vous n'avez pas pu rejoindre le groupe."}
+            : 'Tu n’as pas pu rejoindre le groupe.'}
         </p>
       )}
     </section>

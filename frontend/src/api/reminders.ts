@@ -13,7 +13,7 @@ export function useEnableReminders() {
       if (data === undefined) throw ApiError.from(response, error)
       if ((await Notification.requestPermission()) !== 'granted') {
         throw new Error(
-          'Les notifications sont refusées pour ce site : autorisez-les dans le navigateur.',
+          'Les notifications sont refusées pour ce site : autorise-les dans le navigateur.',
         )
       }
       const registration = await navigator.serviceWorker.ready

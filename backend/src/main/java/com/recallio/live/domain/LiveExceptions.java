@@ -17,7 +17,7 @@ public final class LiveExceptions {
         public static final String CODE = "live.game-not-found";
 
         public LiveGameNotFoundException(UUID gameId) {
-            super(CODE, "Aucune partie live " + gameId + " dans vos groupes.");
+            super(CODE, "Aucune partie live " + gameId + " dans tes groupes.");
         }
     }
 
@@ -27,7 +27,7 @@ public final class LiveExceptions {
         public static final String CODE = "live.game-already-open";
 
         public LiveGameAlreadyOpenException() {
-            super(CODE, "Une partie live est déjà ouverte dans ce groupe : rejoignez-la.");
+            super(CODE, "Une partie live est déjà ouverte dans ce groupe : rejoins-la.");
         }
     }
 
@@ -37,7 +37,7 @@ public final class LiveExceptions {
         public static final String CODE = "live.too-many-games";
 
         public TooManyLiveGamesException() {
-            super(CODE, "Trop de parties live sont en cours : réessayez dans quelques minutes.");
+            super(CODE, "Trop de parties live sont en cours : réessaie dans quelques minutes.");
         }
     }
 
@@ -74,7 +74,7 @@ public final class LiveExceptions {
         public static final String CODE = "live.not-in-game";
 
         public NotInGameException() {
-            super(CODE, "Rejoignez la partie pour répondre.");
+            super(CODE, "Rejoins la partie pour répondre.");
         }
     }
 

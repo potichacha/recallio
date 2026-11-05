@@ -208,11 +208,11 @@ function Outcome({ duel }: { duel: Duel }) {
     return (
       <div role="status" className="flex flex-col gap-1 rounded-xl bg-surface p-5 shadow-sm">
         <p className="font-medium">
-          Vous avez fini : {me.correct} / {duel.questionCount} bonnes réponses.
+          Tu as fini : {me.correct} / {duel.questionCount} bonnes réponses.
         </p>
         <p className="text-sm text-ink-muted">
           {opponent
-            ? `${opponent.displayName ?? 'Votre adversaire'} en est à ${opponent.answered} / ${duel.questionCount}.`
+            ? `${opponent.displayName ?? 'Ton adversaire'} en est à ${opponent.answered} / ${duel.questionCount}.`
             : 'Un adversaire va rejoindre ce duel : le résultat arrivera quand il aura joué.'}
         </p>
       </div>
@@ -226,7 +226,7 @@ function Outcome({ duel }: { duel: Duel }) {
         {duel.questionCount} ({seconds(result.myTimeMs)} contre {seconds(result.opponentTimeMs)})
       </p>
       {result.placing ? (
-        <p>Match de placement : votre rang apparaîtra après le cinquième duel de la saison.</p>
+        <p>Match de placement : ton rang apparaîtra après le cinquième duel de la saison.</p>
       ) : (
         result.rankAfter && <p>Rang : {rankLabel(result.rankAfter)}</p>
       )}

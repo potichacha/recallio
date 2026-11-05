@@ -10,12 +10,13 @@ test.describe('Connexion', () => {
 
     await expect(page).toHaveURL(/\/profile$/)
     await expect(page.getByRole('heading', { name: 'Mon profil' })).toBeVisible()
-    await expect(page.getByText('Vous êtes administrateur.')).toBeVisible()
+    await expect(page.getByText('Tu es administrateur')).toBeVisible()
   })
 
-  test('signs out through the identity provider', async ({ page }) => {
+  test('signs out from the profile, through the identity provider', async ({ page }) => {
     await signIn(page, USERS.bob)
 
+    await page.getByRole('link', { name: USERS.bob.displayName }).click()
     await page.getByRole('button', { name: 'Se déconnecter' }).click()
 
     await expect(page.getByRole('button', { name: 'Se connecter' })).toBeVisible()

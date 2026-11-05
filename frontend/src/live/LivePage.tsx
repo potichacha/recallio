@@ -37,7 +37,7 @@ function LiveConnectionView({ gameId, onReconnect }: { gameId: string; onReconne
       return (
         <ClosedMessage
           title="Partie introuvable"
-          detail="Elle est terminée, ou elle n'appartient pas à l'un de vos groupes."
+          detail="Elle est terminée, ou elle n’appartient pas à l’un de tes groupes."
         />
       )
     }
@@ -116,8 +116,8 @@ function Lobby({ game, me }: { game: LiveGame; me: string | undefined }) {
   return (
     <div className="flex flex-col items-start gap-2">
       <p className="text-ink-muted">
-        Vous êtes l’hôte : démarrez la partie quand tout le monde est là. Chaque question dure
-        quelques secondes, la même pour tous.
+        Tu es l’hôte : démarre la partie quand tout le monde est là. Chaque question dure quelques
+        secondes, la même pour tous.
       </p>
       <button
         type="button"
@@ -153,7 +153,7 @@ function Players({ game, me }: { game: LiveGame; me: string | undefined }) {
             className="flex items-center gap-2 rounded-lg bg-surface-muted px-3 py-2"
           >
             {player.displayName}
-            {player.userId === me && <span className="text-ink-muted">(vous)</span>}
+            {player.userId === me && <span className="text-ink-muted">(toi)</span>}
             {player.host && (
               <span className="rounded bg-brand-soft px-1.5 py-0.5 text-xs font-medium text-brand-strong">
                 Hôte

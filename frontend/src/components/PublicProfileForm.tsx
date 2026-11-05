@@ -36,8 +36,8 @@ function SettingsForm({ settings }: { settings: PublicProfileSettings }) {
         Profil public
       </h2>
       <p className="text-sm text-ink-muted">
-        Privé par défaut. Rendu public, il montre à quiconque a son adresse vos sujets, votre
-        niveau, ce que le serveur a vérifié et la maîtrise que vous déclarez en révision.
+        Privé par défaut. Rendu public, il montre à quiconque a son adresse tes sujets, ton niveau,
+        ce que le serveur a vérifié et la maîtrise que tu déclares en révision.
       </p>
       <div className="flex flex-col gap-1">
         <label htmlFor={handleId} className="text-sm font-medium">
@@ -73,7 +73,7 @@ function SettingsForm({ settings }: { settings: PublicProfileSettings }) {
       </button>
       {update.isSuccess && (
         <p role="status">
-          {update.data.visible ? 'Votre profil est public.' : 'Votre profil est privé.'}
+          {update.data.visible ? 'Ton profil est public.' : 'Ton profil est privé.'}
         </p>
       )}
       {update.isError && (

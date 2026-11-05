@@ -56,14 +56,15 @@ function testSubject(slug: string, title: string, overrides: Record<string, unkn
     status: 'PUBLISHED',
     themeCount: 2,
     cardCount: 20,
+    hasTour: false,
     ...overrides,
   }
 }
 
-/** Le catalogue des tests : Java et Go publiés, Rust en brouillon (visible des seuls admins). */
+/** Le catalogue des tests : Java et Go publiés, avec leur Tour ; Rust en brouillon (visible des seuls admins). */
 export const TEST_SUBJECTS = [
-  testSubject('java', 'Java'),
-  testSubject('go', 'Go', { position: 20 }),
+  testSubject('java', 'Java', { hasTour: true }),
+  testSubject('go', 'Go', { position: 20, hasTour: true }),
   testSubject('rust', 'Rust', { position: 30, status: 'DRAFT' }),
 ]
 

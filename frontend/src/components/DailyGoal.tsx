@@ -22,10 +22,10 @@ export function DailyGoal({ progress }: { progress: Progress }) {
       />
       {progress.goalReachedToday && (
         <p role="status" className="text-sm font-medium text-success">
-          Objectif atteint ! Votre série passe à {progress.streak} jour
+          Objectif atteint ! Ta série passe à {progress.streak} jour
           {progress.streak > 1 ? 's' : ''}.
           {progress.freezeEarnedToday &&
-            ' Elle vous rapporte un gel de streak, qui couvrira un jour manqué.'}
+            ' Elle te rapporte un gel de streak, qui couvrira un jour manqué.'}
         </p>
       )}
     </div>

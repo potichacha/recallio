@@ -6,8 +6,8 @@ type Outcome = 'shared' | 'downloaded' | 'copied' | 'failed'
 
 const OUTCOMES: Record<Outcome, string> = {
   shared: 'Partagé !',
-  downloaded: 'Image téléchargée : à vous de la publier.',
-  copied: 'Texte copié : à vous de le coller.',
+  downloaded: 'Image téléchargée : à toi de la publier.',
+  copied: 'Texte copié : à toi de le coller.',
   failed: 'Le partage n’a pas fonctionné.',
 }
 

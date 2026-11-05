@@ -38,7 +38,7 @@ describe('ProfilePage', () => {
 
     expect(await screen.findByLabelText('Nom affiché')).toHaveValue('Alice Martin')
     expect(screen.getByLabelText('Fuseau horaire')).toHaveValue('Europe/Paris')
-    expect(screen.getByText('Vous êtes administrateur.')).toBeInTheDocument()
+    expect(screen.getByText('Tu es administrateur :')).toBeInTheDocument()
     expect(sentRequests(fetchMock)[0].headers.get('X-Timezone')).toBeTruthy()
   })
 
@@ -172,10 +172,47 @@ describe('ProfilePage', () => {
       within(form).getByRole('button', { name: 'Enregistrer mon profil public' }),
     )
 
-    expect(await within(form).findByRole('status')).toHaveTextContent('Votre profil est public.')
+    expect(await within(form).findByRole('status')).toHaveTextContent('Ton profil est public.')
     const put = sentRequests(fetchMock).find(
       (request) => request.method === 'PUT' && request.url.endsWith('/public-profile'),
     )
     expect(await put?.json()).toEqual({ handle: 'alice-dev', visible: true })
+  })
+
+  it('signs out from the profile', async () => {
+    stubApi({ ...SIGNED_IN_API, ...SUBJECTS, '/api/v1/me': { body: PROFILE } })
+    const session = fakeSession({ status: 'authenticated', userName: 'Alice Martin' })
+    renderAt('/profile', session)
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Se déconnecter' }))
+
+    expect(session.logout).toHaveBeenCalled()
+  })
+
+  it('leads an admin to the reports to handle and to the retention', async () => {
+    stubApi({ ...SIGNED_IN_API, ...SUBJECTS, '/api/v1/me': { body: PROFILE } })
+    renderAt('/profile', SIGNED_IN)
+
+    expect(await screen.findByRole('link', { name: 'Rétention' })).toHaveAttribute(
+      'href',
+      '/admin/retention',
+    )
+    expect(screen.getByRole('link', { name: 'Signalements à traiter' })).toHaveAttribute(
+      'href',
+      '/admin/reports',
+    )
+  })
+
+  it('turns on the sound of the answers on this device, the vibration staying off', async () => {
+    stubApi({ ...SIGNED_IN_API, ...SUBJECTS, '/api/v1/me': { body: PROFILE } })
+    renderAt('/profile', SIGNED_IN)
+
+    const feedback = await screen.findByRole('group', { name: 'Sons et vibrations' })
+    await userEvent.click(within(feedback).getByRole('checkbox', { name: 'Jouer un son' }))
+
+    expect(JSON.parse(localStorage.getItem('recallio.feedback') ?? 'null')).toEqual({
+      sound: true,
+      vibration: false,
+    })
   })
 })

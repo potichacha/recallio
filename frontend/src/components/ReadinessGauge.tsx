@@ -36,7 +36,7 @@ export function ReadinessGauge({
       <p className="text-xs text-ink-muted">
         {acquired} / {essentials} notions essentielles acquises, dont {mastered} maîtrisée
         {mastered > 1 ? 's' : ''}
-        {ready ? ' : vous êtes prêt.' : ' : prêt à partir de 80 %.'}{' '}
+        {ready ? ' : c’est bon, tu as passé les 80 %.' : ' : prêt à partir de 80 %.'}{' '}
         <Link
           to={`/subjects/${encodeURIComponent(subject)}/exam`}
           className="font-medium text-brand-strong hover:underline"

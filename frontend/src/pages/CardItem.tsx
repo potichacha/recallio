@@ -12,9 +12,7 @@ export function CardItem({ card }: { card: Card }) {
 
   return (
     <article className="flex flex-col gap-3 rounded-xl border border-line bg-surface p-4 shadow-sm">
-      <span className="text-xs font-medium tracking-wide text-brand uppercase">
-        {CARD_TYPE_LABELS[card.type]}
-      </span>
+      <span className="text-sm font-semibold text-brand">{CARD_TYPE_LABELS[card.type]}</span>
       <Markdown>{card.blanks.length > 0 ? numberBlanks(card.prompt) : card.prompt}</Markdown>
       {card.exercise && (
         <>

@@ -1,5 +1,6 @@
 import type { RouteObject } from 'react-router'
 import { ContentReportsPage } from './admin/ContentReportsPage'
+import { RetentionPage } from './admin/RetentionPage'
 import { RequireAuth } from './auth/RequireAuth'
 import { Layout } from './components/Layout'
 import { GroupPage } from './groups/GroupPage'
@@ -16,6 +17,7 @@ import { PublicProfilePage } from './pages/PublicProfilePage'
 import { SubjectPage } from './pages/SubjectPage'
 import { SubjectsPage } from './pages/SubjectsPage'
 import { ThemePage } from './pages/ThemePage'
+import { TrialPage } from './pages/TrialPage'
 import { WelcomePage } from './pages/WelcomePage'
 import { PracticePage } from './practice/PracticePage'
 import { DuelPage } from './ranked/DuelPage'
@@ -148,8 +150,17 @@ export const routes: RouteObject[] = [
           </RequireAuth>
         ),
       },
-      // Un profil public se lit sans compte (ADR 0043).
+      {
+        path: 'admin/retention',
+        element: (
+          <RequireAuth>
+            <RetentionPage />
+          </RequireAuth>
+        ),
+      },
+      // Un profil public se lit sans compte (ADR 0043), et l'essai se fait sans compte (ADR 0050).
       { path: 'u/:handle', element: <PublicProfilePage /> },
+      { path: 'try/:slug', element: <TrialPage /> },
       { path: 'auth/callback', element: <AuthCallbackPage /> },
     ],
   },

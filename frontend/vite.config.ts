@@ -15,7 +15,7 @@ export default defineConfig({
       manifest: {
         name: 'Recallio',
         short_name: 'Recallio',
-        description: 'Révisez vos entretiens techniques chaque jour, par répétition espacée.',
+        description: 'Révise tes entretiens techniques chaque jour, par répétition espacée.',
         lang: 'fr',
         theme_color: '#0e6b63',
         background_color: '#ffffff',

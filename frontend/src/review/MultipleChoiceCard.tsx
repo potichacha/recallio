@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { ApiError } from '../api/errors'
 import { useRecordReview, type QueuedCard, type ReviewResult } from '../api/review'
+import { AnswerVerdict } from '../components/AnswerVerdict'
 import { ChoiceOption } from '../components/ChoiceOption'
 import { choiceOutcome, toggleChoice } from '../components/choices'
 import { Markdown } from '../components/Markdown'
@@ -87,14 +88,11 @@ export function MultipleChoiceCard({
 
       {result?.correction && (
         <div className="flex flex-col gap-3 border-t border-line pt-4">
-          <p
-            role="status"
-            className={`font-medium ${result.rating === 'GOOD' ? 'text-success' : 'text-danger'}`}
-          >
+          <AnswerVerdict correct={result.rating === 'GOOD'}>
             {result.rating === 'GOOD'
               ? 'Bonne réponse !'
               : 'Pas tout à fait : les bonnes réponses sont marquées.'}
-          </p>
+          </AnswerVerdict>
           <Markdown>{result.correction.explanation}</Markdown>
           <button
             type="button"

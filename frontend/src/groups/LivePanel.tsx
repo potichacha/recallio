@@ -97,7 +97,7 @@ function OpenLiveGameForm({
     <form onSubmit={submit} aria-label="Lancer une partie live" className="flex flex-col gap-3">
       <p className="text-sm text-ink-muted">
         Une partie live réunit les membres connectés autour des mêmes QCM, au même moment, avec un
-        chrono court. Vous en serez l’hôte.
+        chrono court. Tu en seras l’hôte.
       </p>
       <div className="flex flex-wrap items-end gap-3">
         <label className="flex flex-col gap-1">

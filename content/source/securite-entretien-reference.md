@@ -3,7 +3,7 @@ subject: securite
 title: Sécurité
 category: fundamentals
 position: 170
-status: published
+status: draft
 ---
 
 # Sécurité : le document de référence pour les entretiens techniques

@@ -3,7 +3,7 @@ subject: jpa-hibernate
 title: JPA & Hibernate
 category: frameworks
 position: 60
-status: published
+status: draft
 ---
 
 # JPA & Hibernate : le document de référence pour les entretiens techniques

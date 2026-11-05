@@ -57,7 +57,7 @@ describe('LeaderboardPanel', () => {
     const rows = within(panel).getAllByRole('listitem')
     expect(rows.map((row) => row.textContent)).toEqual([
       '1Alice3 jours réguliers · 30 XP',
-      '2Bob (vous)1 jour régulier · 500 XP',
+      '2Bob (toi)1 jour régulier · 500 XP',
       '3Carol0 jour régulier · 0 XP',
     ])
   })
@@ -70,7 +70,7 @@ describe('LeaderboardPanel', () => {
 
     const rows = await within(panel).findAllByRole('listitem')
     expect(rows[0]).toHaveTextContent('Membre anonyme')
-    expect(rows[1]).toHaveTextContent('Bob (vous)')
+    expect(rows[1]).toHaveTextContent('Bob (toi)')
   })
 
   it('says when the owner disabled the leaderboard', async () => {

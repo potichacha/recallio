@@ -2,7 +2,7 @@ import { screen, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import type { QuestBoard } from '../api/quests'
 import type { DayActivity, ReviewStats } from '../api/stats'
-import { fakeSession, renderAt, SIGNED_IN_API, stubApi } from '../test/render'
+import { fakeSession, renderAt, SIGNED_IN_API, stubApi, TEST_SUBJECTS } from '../test/render'
 
 const signedIn = () => fakeSession({ status: 'authenticated', userName: 'Alice' })
 
@@ -86,6 +86,7 @@ const QUESTS: QuestBoard = {
 function stubDashboard(reviewStats: ReviewStats = stats()) {
   return stubApi({
     ...SIGNED_IN_API,
+    '/api/v1/subjects': { body: TEST_SUBJECTS },
     '/api/v1/me/review-stats': { body: reviewStats },
     '/api/v1/me/progress/activity': { body: WEEK },
     '/api/v1/me/quests': { body: QUESTS },
@@ -98,31 +99,67 @@ describe('DashboardPage', () => {
     renderAt('/', signedIn())
 
     expect(await screen.findByRole('heading', { name: 'Bonjour Alice' })).toBeInTheDocument()
-    expect(screen.queryByText('Parcourir les sujets')).not.toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: 'Essaie sans compte' })).not.toBeInTheDocument()
   })
 
-  it('tells what to review today and links to the session', async () => {
+  it('shows the goal of the day as a ring, and what is left to keep the streak', async () => {
     stubDashboard()
     renderAt('/', signedIn())
 
-    expect(await screen.findByText('5 cartes à revoir, 8 nouvelles')).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'Réviser maintenant' })).toHaveAttribute(
-      'href',
-      '/review',
-    )
+    expect(
+      await screen.findByRole('img', { name: 'Objectif du jour : 4 cartes sur 10' }),
+    ).toBeInTheDocument()
+    expect(screen.getByText('Encore 6 cartes pour tenir ta série.')).toBeInTheDocument()
   })
 
-  it('says when everything is up to date for now', async () => {
-    stubDashboard(stats({ overall: counts({ total: 30, seen: 30, dueToday: 2 }), newToday: 0 }))
+  it('continues the review in a single action, with the default settings', async () => {
+    stubDashboard()
+    renderAt('/', signedIn())
+
+    const next = await screen.findByRole('region', { name: 'Java' })
+    expect(next).toHaveTextContent('5 à revoir · 8 nouvelles')
+    expect(
+      within(next).getByRole('link', { name: 'Continuer 10 min · toutes les questions' }),
+    ).toHaveAttribute('href', '/review?subject=java&minutes=10&mode=all')
+    expect(
+      within(next).getByRole('link', { name: 'Changer de sujet ou de durée' }),
+    ).toHaveAttribute('href', '/review')
+  })
+
+  it('continues with the settings of the last session on this device', async () => {
+    localStorage.setItem(
+      'recallio.review-session',
+      JSON.stringify({ subject: 'java', minutes: 5, mode: 'graded' }),
+    )
+    stubDashboard()
     renderAt('/', signedIn())
 
     expect(
-      await screen.findByText("Tout est à jour : encore 2 cartes à revoir plus tard aujourd'hui."),
-    ).toBeInTheDocument()
-    expect(screen.queryByRole('link', { name: 'Réviser maintenant' })).not.toBeInTheDocument()
+      await screen.findByRole('link', { name: 'Continuer 5 min · questions corrigées' }),
+    ).toHaveAttribute('href', '/review?subject=java&minutes=5&mode=graded')
   })
 
-  it('shows the streak and its freezes, the XP and the mastered cards', async () => {
+  it('says when everything is up to date for today', async () => {
+    const java = { ...stats().subjects[0], counts: counts({ total: 30, seen: 30 }), newToday: 0 }
+    stubDashboard(stats({ subjects: [java] }))
+    renderAt('/', signedIn())
+
+    expect(await screen.findByText('Tout est à jour en Java pour aujourd’hui.')).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /^Continuer/ })).not.toBeInTheDocument()
+  })
+
+  it('offers the Tour of the followed subjects', async () => {
+    stubDashboard()
+    renderAt('/', signedIn())
+
+    expect(
+      await screen.findByRole('link', { name: 'Le Tour de Java Reprendre là où tu t’es arrêté' }),
+    ).toHaveAttribute('href', '/subjects/java/tour')
+    // Go a un Tour, mais n'est pas suivi.
+    expect(screen.queryByRole('link', { name: /Le Tour de Go/ })).not.toBeInTheDocument()
+  })
+
+  it('shows the streak and its freezes, and the XP', async () => {
     stubDashboard()
     renderAt('/', signedIn())
 
@@ -130,7 +167,6 @@ describe('DashboardPage', () => {
     expect(streak.nextElementSibling).toHaveTextContent('3 jours')
     expect(streak.parentElement).toHaveTextContent('1 gel · prochain dans 4 jours')
     expect(screen.getByText('XP').nextElementSibling).toHaveTextContent('120')
-    expect(screen.getByText('Maîtrisées').nextElementSibling).toHaveTextContent('4 / 30')
   })
 
   it('shows the quests of the day and of the week, with their XP', async () => {
@@ -243,7 +279,7 @@ describe('DashboardPage', () => {
     )
     const goRow = within(section).getByRole('link', { name: 'Go' }).closest('li') as HTMLElement
     expect(goRow).toHaveTextContent('83 %')
-    expect(goRow).toHaveTextContent('dont 4 maîtrisées : vous êtes prêt.')
+    expect(goRow).toHaveTextContent('dont 4 maîtrisées : c’est bon, tu as passé les 80 %.')
   })
 
   it('sums up the mastery of the notions of a subject, with a link to its skill map', async () => {

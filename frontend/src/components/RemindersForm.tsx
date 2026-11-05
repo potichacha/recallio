@@ -38,7 +38,7 @@ export function RemindersForm() {
       </h2>
       {!supported ? (
         <p className="text-sm text-ink-muted">
-          Ce navigateur ne reçoit pas de notifications. Sur iPhone, ajoutez d’abord Recallio à
+          Ce navigateur ne reçoit pas de notifications. Sur iPhone, ajoute d’abord Recallio à
           l’écran d’accueil.
         </p>
       ) : subscription ? (

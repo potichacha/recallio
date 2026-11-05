@@ -3,7 +3,7 @@ subject: git
 title: Git
 category: cloud-devops
 position: 150
-status: published
+status: draft
 ---
 
 # Git : le document de référence pour les entretiens techniques

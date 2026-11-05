@@ -57,7 +57,7 @@ export function RankedPage() {
       )}
       {subjects.length === 0 && (
         <p>
-          Suivez un sujet depuis votre <Link to="/profile">profil</Link> pour jouer en classé.
+          Suis un sujet depuis ton <Link to="/profile">profil</Link> pour jouer en classé.
         </p>
       )}
       {badges.length > 0 && (
@@ -168,7 +168,7 @@ function LiveQueue({ subject, onCancel }: { subject: string; onCancel: () => voi
     >
       <p className="font-medium">Recherche d’un adversaire en direct…</p>
       <p className="text-sm text-ink-muted">
-        Restez sur cette page : dès qu’un autre joueur cherche aussi, le duel commence.
+        Reste sur cette page : dès qu’un autre joueur cherche aussi, le duel commence.
       </p>
       {queue.isError && (
         <p className="text-sm text-danger">

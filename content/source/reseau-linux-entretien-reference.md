@@ -3,7 +3,7 @@ subject: reseau-linux
 title: Réseau & Linux
 category: fundamentals
 position: 180
-status: published
+status: draft
 ---
 
 # Réseau & Linux : le document de référence pour les entretiens techniques

@@ -17,7 +17,7 @@ public final class FeedbackExceptions {
         public static final String CODE = "feedback.invalid-target";
 
         public InvalidReportTargetException() {
-            super(CODE, "Signalez une carte (cardId), ou une page du Tour (subject, notion et page).");
+            super(CODE, "Signale une carte (cardId), ou une page du Tour (subject, notion et page).");
         }
     }
 
@@ -36,7 +36,7 @@ public final class FeedbackExceptions {
         public static final String CODE = "feedback.report-already-open";
 
         public ReportAlreadyOpenException() {
-            super(CODE, "Vous avez déjà signalé ce contenu : votre signalement attend d'être traité.");
+            super(CODE, "Tu as déjà signalé ce contenu : ton signalement attend d'être traité.");
         }
     }
 
@@ -45,10 +45,7 @@ public final class FeedbackExceptions {
         public static final String CODE = "feedback.too-many-open-reports";
 
         public TooManyOpenReportsException(int limit) {
-            super(
-                    CODE,
-                    "Vous avez déjà %d signalements en attente : merci de patienter qu'ils soient traités."
-                            .formatted(limit));
+            super(CODE, "Tu as déjà %d signalements en attente : attends qu'ils soient traités.".formatted(limit));
         }
     }
 

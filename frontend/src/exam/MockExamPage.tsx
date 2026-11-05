@@ -91,7 +91,7 @@ function Intro({
       <p className="text-ink-soft">
         Jusqu’à 20 questions corrigées par le serveur, une minute par question, les notions
         essentielles d’abord, comme en entretien. À la fin, la note et le corrigé. Rien n’entre dans
-        vos révisions.
+        tes révisions.
       </p>
       {alreadySubmitted && <p role="status">Cette copie est déjà rendue.</p>}
       <button type="button" onClick={onStart} disabled={starting} className={PRIMARY}>
@@ -189,7 +189,7 @@ function Running({
         <p role="alert">
           {submit.error instanceof ApiError
             ? submit.error.message
-            : 'La copie n’a pas pu partir : réessayez.'}
+            : 'La copie n’a pas pu partir : réessaie.'}
         </p>
       )}
     </div>

@@ -121,7 +121,7 @@ function SubjectSkills({ subject }: { subject: PublicSubject }) {
           </dd>
         </dl>
         <dl aria-label={`${subject.title} : déclaré`} className="flex flex-col gap-1 text-sm">
-          <dt className="text-xs font-medium tracking-wide text-ink-muted uppercase">Déclaré</dt>
+          <dt className="text-sm font-semibold text-ink-muted">Déclaré</dt>
           {declared.notions > 0 ? (
             <>
               <dd>

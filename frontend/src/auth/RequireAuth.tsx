@@ -15,7 +15,7 @@ export function RequireAuth({ children }: { children: ReactNode }) {
     return (
       <section className="flex flex-col items-start gap-4">
         <h1 className="text-2xl font-bold">Connexion requise</h1>
-        <p className="text-ink-muted">Connectez-vous pour accéder à cette page.</p>
+        <p className="text-ink-muted">Connecte-toi pour accéder à cette page.</p>
         <button
           type="button"
           onClick={() => session.login(location.pathname + location.search)}

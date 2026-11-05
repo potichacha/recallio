@@ -1,7 +1,9 @@
-import { useState, type FormEvent, type ReactNode } from 'react'
+import { useState, type FormEvent } from 'react'
 import { useSubjects } from '../api/content'
 import { useProfile } from '../api/profile'
 import { useReviewStats } from '../api/stats'
+import { Chip, Choices } from '../components/ChoiceChips'
+import { button } from '../components/ui/button'
 import {
   DEFAULT_MINUTES,
   DEFAULT_MODE,
@@ -104,11 +106,7 @@ export function SessionSetup({
           </span>
         </Chip>
       </Choices>
-      <button
-        type="submit"
-        disabled={!subject}
-        className="self-start rounded-lg bg-brand px-6 py-3 font-medium text-on-brand hover:bg-brand-strong disabled:opacity-50"
-      >
+      <button type="submit" disabled={!subject} className={`self-start ${button()}`}>
         Commencer
       </button>
     </form>
@@ -120,33 +118,4 @@ function defaultSubject(choices: string[], requested?: string, stored?: string) 
   if (requested) return requested
   if (stored && choices.includes(stored)) return stored
   return choices.at(0)
-}
-
-function Choices({ legend, children }: { legend: string; children: ReactNode }) {
-  return (
-    <fieldset className="flex flex-col gap-2">
-      <legend className="mb-2 text-sm font-medium text-ink-soft">{legend}</legend>
-      <div className="flex flex-wrap gap-2">{children}</div>
-    </fieldset>
-  )
-}
-
-/** Un choix parmi d'autres : un bouton radio, présenté comme une pastille. */
-function Chip({
-  name,
-  checked,
-  onChange,
-  children,
-}: {
-  name: string
-  checked: boolean
-  onChange: () => void
-  children: ReactNode
-}) {
-  return (
-    <label className="flex cursor-pointer flex-col rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink-soft hover:border-brand-line has-checked:border-brand has-checked:bg-brand-soft has-checked:text-brand-strong has-focus-visible:ring-2 has-focus-visible:ring-brand">
-      <input type="radio" name={name} checked={checked} onChange={onChange} className="sr-only" />
-      {children}
-    </label>
-  )
 }

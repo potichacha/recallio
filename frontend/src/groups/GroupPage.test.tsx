@@ -53,7 +53,7 @@ describe('GroupPage', () => {
 
     const members = await screen.findByRole('region', { name: /Membres \(2\)/ })
     expect(within(members).getByText('Alice').closest('li')).toHaveTextContent(
-      'Alice (vous)Créateur',
+      'Alice (toi)Créateur',
     )
     expect(within(members).queryByRole('button', { name: 'Retirer Alice' })).not.toBeInTheDocument()
     await userEvent.click(within(members).getByRole('button', { name: 'Retirer Bob' }))

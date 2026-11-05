@@ -54,7 +54,7 @@ function LeaderboardRow({ entry }: { entry: LeaderboardEntry }) {
         <span className="w-6 text-right text-ink-muted">{entry.rank}</span>
         <span>
           {entry.displayName ?? 'Membre anonyme'}
-          {entry.me && <span className="text-ink-muted"> (vous)</span>}
+          {entry.me && <span className="text-ink-muted"> (toi)</span>}
         </span>
       </span>
       <span className="text-sm text-ink-muted">

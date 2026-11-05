@@ -46,7 +46,7 @@ export function ChallengePage() {
       <h1 className="text-2xl font-bold">{summary.title}</h1>
       <p className="text-ink-muted">
         {summary.cardCount} QCM, {summary.secondsPerCard} secondes par carte. Une réponse hors délai
-        compte comme fausse ; le chrono continue si vous quittez la page.
+        compte comme fausse ; le chrono continue si tu quittes la page.
       </p>
       {playing ? (
         <ChallengePlay challengeId={challengeId} onFinished={stopPlaying} />
@@ -238,7 +238,7 @@ function Results({ challenge }: { challenge: Challenge }) {
       </h2>
       {summary.myScore != null && (
         <p className="font-medium">
-          Votre score : {summary.myScore} / {summary.cardCount}
+          Ton score : {summary.myScore} / {summary.cardCount}
         </p>
       )}
       {visibility === 'HIDDEN' ? (
@@ -258,7 +258,7 @@ function Results({ challenge }: { challenge: Challenge }) {
                 <span className="w-6 text-right text-ink-muted">{standing.rank}</span>
                 <span>
                   {standing.displayName ?? 'Membre anonyme'}
-                  {standing.me && <span className="text-ink-muted"> (vous)</span>}
+                  {standing.me && <span className="text-ink-muted"> (toi)</span>}
                 </span>
               </span>
               <span className="text-sm text-ink-muted">

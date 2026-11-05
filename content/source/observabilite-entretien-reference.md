@@ -3,7 +3,7 @@ subject: observabilite
 title: Observabilité
 category: cloud-devops
 position: 130
-status: published
+status: draft
 ---
 
 # Observabilité : le document de référence pour les entretiens techniques

@@ -38,7 +38,7 @@ public final class RankedExceptions {
         public static final String CODE = "ranked.duel-over";
 
         public DuelOverException(UUID id) {
-            super(CODE, "Le duel " + id + " n'attend plus de réponse de votre part.");
+            super(CODE, "Le duel " + id + " n'attend plus de réponse de ta part.");
         }
     }
 
@@ -50,7 +50,7 @@ public final class RankedExceptions {
         public QuestionNotServedException(int position) {
             super(
                     CODE,
-                    "La question %d n'attend pas de réponse : demandez la question suivante.".formatted(position + 1));
+                    "La question %d n'attend pas de réponse : demande la question suivante.".formatted(position + 1));
         }
     }
 

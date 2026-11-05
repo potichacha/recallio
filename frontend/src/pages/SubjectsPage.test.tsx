@@ -55,4 +55,26 @@ describe('SubjectsPage', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Impossible de charger les sujets.')
   })
+
+  it('opens with the Tours, to learn a language page by page', async () => {
+    stubApi({
+      '/api/v1/subjects': {
+        body: [
+          subject({ slug: 'java', title: 'Java', hasTour: true }),
+          subject({ slug: 'kafka', title: 'Kafka', category: 'DATA', hasTour: false }),
+        ],
+      },
+    })
+
+    renderAt('/subjects')
+
+    expect(await screen.findByRole('heading', { name: 'Apprendre' })).toBeInTheDocument()
+    const tours = await screen.findByRole('region', { name: 'Le Tour' })
+    expect(
+      within(tours).getByRole('link', {
+        name: 'Le Tour de Java Pas à pas, en codant à chaque page.',
+      }),
+    ).toHaveAttribute('href', '/subjects/java/tour')
+    expect(tours).not.toHaveTextContent('Kafka')
+  })
 })

@@ -3,7 +3,7 @@ subject: conception
 title: Conception & qualité logicielle
 category: fundamentals
 position: 200
-status: published
+status: draft
 ---
 
 # Conception & qualité logicielle : le document de référence pour les entretiens techniques

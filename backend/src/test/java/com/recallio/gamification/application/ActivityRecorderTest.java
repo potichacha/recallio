@@ -143,6 +143,11 @@ class ActivityRecorderTest {
                     .map(Map.Entry::getKey)
                     .toList();
         }
+
+        @Override
+        public java.util.Map<UUID, java.util.Set<LocalDate>> activeDays() {
+            throw new UnsupportedOperationException();
+        }
     }
 
     private static final class InMemoryLedger implements XpLedger {

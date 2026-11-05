@@ -38,7 +38,7 @@ export function LiveStandings({
               <span className="w-8 text-right text-ink-muted">{standing.rank}</span>
               <span>
                 {standing.displayName}
-                {standing.userId === me && <span className="text-ink-muted"> (vous)</span>}
+                {standing.userId === me && <span className="text-ink-muted"> (toi)</span>}
               </span>
             </span>
             <span className="text-sm text-ink-muted">{standing.score} pts</span>
@@ -97,7 +97,7 @@ export function LivePodium({
             </span>
             <span className="font-medium">
               {standing.displayName}
-              {standing.userId === me && ' (vous)'}
+              {standing.userId === me && ' (toi)'}
             </span>
             <span className="text-sm text-ink-muted">
               {standing.score} pts · {standing.correctCount} bonne

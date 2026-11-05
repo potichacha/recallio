@@ -3,8 +3,8 @@ import type { CardType } from '../api/content'
 type Draft = { label: string; echo: string; code: boolean; rows: number }
 
 const ANSWER: Draft = {
-  label: 'Votre réponse (facultatif)',
-  echo: 'Votre réponse',
+  label: 'Ta réponse (facultatif)',
+  echo: 'Ta réponse',
   code: false,
   rows: 3,
 }
@@ -14,8 +14,8 @@ const DRAFTS: Partial<Record<CardType, Draft>> = {
   OPEN_SCENARIO: { ...ANSWER, rows: 5 },
   CODE_OUTPUT: { ...ANSWER, label: 'Ce que le code affiche (facultatif)', code: true },
   BUG_FIX: {
-    label: 'Votre correction (facultatif)',
-    echo: 'Votre correction',
+    label: 'Ta correction (facultatif)',
+    echo: 'Ta correction',
     code: true,
     rows: 5,
   },
@@ -60,7 +60,7 @@ export function DraftEcho({ type, value }: { type: CardType; value: string }) {
       aria-label={draft.echo}
       className="flex flex-col gap-1 rounded-lg bg-surface-muted p-3"
     >
-      <h3 className="text-xs font-medium tracking-wide text-ink-muted uppercase">{draft.echo}</h3>
+      <h3 className="text-sm font-semibold text-ink-muted">{draft.echo}</h3>
       <p className={`whitespace-pre-wrap ${draft.code ? 'font-mono text-sm' : ''}`}>{value}</p>
     </section>
   )

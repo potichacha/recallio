@@ -30,7 +30,7 @@ export function InvitationPanel({ groupId }: { groupId: string }) {
       {invitation.data === null && (
         <>
           <p className="text-sm text-ink-muted">
-            Créez un lien et partagez-le : toute personne connectée qui l'ouvre peut rejoindre le
+            Crée un lien et partage-le : toute personne connectée qui l'ouvre peut rejoindre le
             groupe pendant 7 jours.
           </p>
           <button

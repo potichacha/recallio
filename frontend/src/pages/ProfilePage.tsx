@@ -10,7 +10,10 @@ import {
   type LearningTrack,
   type Profile,
 } from '../api/profile'
+import { useSession } from '../auth/session'
 import { AchievementList } from '../components/AchievementList'
+import { FeedbackSettingsForm } from '../components/FeedbackSettingsForm'
+import { InstallApp } from '../components/InstallApp'
 import { PublicProfileForm } from '../components/PublicProfileForm'
 import { RemindersForm } from '../components/RemindersForm'
 import { SubjectPicker } from '../components/SubjectPicker'
@@ -61,7 +64,7 @@ function ProfileForm({ profile }: { profile: Profile }) {
           </select>
         </label>
         <span id="timezone-help" className="text-xs text-ink-muted">
-          Il détermine à quelle heure commence une nouvelle journée pour votre série (streak).
+          Il détermine à quelle heure commence une nouvelle journée pour ta série (streak).
         </span>
       </div>
       <button type="submit" disabled={update.isPending} className={`self-start ${button()}`}>
@@ -98,7 +101,7 @@ function FollowedSubjectsForm({ profile }: { profile: Profile }) {
         Mes sujets
       </h2>
       <p className="text-sm text-ink-muted">
-        Vos révisions puisent dans ces sujets. Arrêter d'en suivre un ne supprime pas votre
+        Tes révisions puisent dans ces sujets. Arrêter d’en suivre un ne supprime pas ta
         progression.
       </p>
       <SubjectPicker selected={selected} onChange={setSelected} />
@@ -110,7 +113,7 @@ function FollowedSubjectsForm({ profile }: { profile: Profile }) {
         Enregistrer mes sujets
       </button>
       {follow.isSuccess && <p role="status">Sujets enregistrés.</p>}
-      {follow.isError && <p role="alert">Vos sujets n'ont pas pu être enregistrés.</p>}
+      {follow.isError && <p role="alert">Tes sujets n’ont pas pu être enregistrés.</p>}
     </form>
   )
 }
@@ -131,7 +134,7 @@ function TracksForm({ profile }: { profile: Profile }) {
       <dl className="flex flex-col gap-1 text-sm text-ink-muted">
         {TRACKS.map(({ track, label, description }) => (
           <div key={track}>
-            <dt className="inline font-medium text-ink">{label}</dt> :{' '}
+            <dt className="inline font-medium text-ink">{label} :</dt>{' '}
             <dd className="inline">{description}</dd>
           </div>
         ))}
@@ -169,6 +172,7 @@ function TracksForm({ profile }: { profile: Profile }) {
 
 export function ProfilePage() {
   const profile = useProfile()
+  const session = useSession()
 
   return (
     <section className="flex flex-col gap-4">
@@ -178,10 +182,13 @@ export function ProfilePage() {
       {profile.isSuccess && (
         <>
           {profile.data.roles.includes('admin') && (
-            <p className="text-sm text-ink-muted">
-              Vous êtes administrateur.{' '}
+            <p className="flex flex-wrap gap-x-3 text-sm text-ink-muted">
+              Tu es administrateur :
               <Link to="/admin/reports" className="font-medium text-brand-strong hover:underline">
                 Signalements à traiter
+              </Link>
+              <Link to="/admin/retention" className="font-medium text-brand-strong hover:underline">
+                Rétention
               </Link>
             </p>
           )}
@@ -190,7 +197,16 @@ export function ProfilePage() {
           <TracksForm profile={profile.data} />
           <PublicProfileForm />
           <RemindersForm />
+          <InstallApp />
+          <FeedbackSettingsForm />
           <AchievementList />
+          <button
+            type="button"
+            onClick={session.logout}
+            className={`self-start ${button({ variant: 'ghost' })}`}
+          >
+            Se déconnecter
+          </button>
         </>
       )}
     </section>

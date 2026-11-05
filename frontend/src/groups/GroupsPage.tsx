@@ -14,10 +14,10 @@ export function GroupsPage() {
     <section className="flex flex-col gap-6">
       <h1 className="text-2xl font-bold">Mes groupes</h1>
       {groups.isPending && <p>Chargement des groupes…</p>}
-      {groups.isError && <p role="alert">Impossible de charger vos groupes.</p>}
+      {groups.isError && <p role="alert">Impossible de charger tes groupes.</p>}
       {groups.isSuccess && groups.data.length === 0 && (
         <p className="text-ink-muted">
-          Vous ne faites partie d'aucun groupe. Créez-en un pour réviser avec votre équipe.
+          Tu ne fais partie d’aucun groupe. Crées-en un pour réviser avec ton équipe.
         </p>
       )}
       {groups.isSuccess && groups.data.length > 0 && (
@@ -31,7 +31,7 @@ export function GroupsPage() {
                 <span className="font-semibold">{group.name}</span>
                 <span className="text-sm text-ink-muted">
                   {group.memberCount} membre{group.memberCount > 1 ? 's' : ''}
-                  {group.myRole === 'OWNER' && ' · Vous l’avez créé'}
+                  {group.myRole === 'OWNER' && ' · Tu l’as créé'}
                 </span>
               </Link>
             </li>

@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { ApiError } from '../api/errors'
 import { useRecordReview, type QueuedCard, type ReviewResult } from '../api/review'
+import { AnswerVerdict } from '../components/AnswerVerdict'
 import { Markdown } from '../components/Markdown'
 import { numberBlanks } from './blanks'
 import { CardHeader } from './CardHeader'
@@ -87,14 +88,11 @@ export function FillInCard({
 
       {result?.correction && (
         <div className="flex flex-col gap-3 border-t border-line pt-4">
-          <p
-            role="status"
-            className={`font-medium ${result.rating === 'GOOD' ? 'text-success' : 'text-danger'}`}
-          >
+          <AnswerVerdict correct={result.rating === 'GOOD'}>
             {result.rating === 'GOOD'
               ? 'Tous les trous sont justes !'
               : 'Pas tout à fait : la réponse attendue est indiquée sous chaque trou faux.'}
-          </p>
+          </AnswerVerdict>
           <Markdown>{result.correction.explanation}</Markdown>
           <button
             type="button"

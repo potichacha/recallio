@@ -80,7 +80,7 @@ function MemberList({ group }: { group: Group }) {
           >
             <span>
               {member.displayName}
-              {member.me && <span className="text-ink-muted"> (vous)</span>}
+              {member.me && <span className="text-ink-muted"> (toi)</span>}
               <RoleBadge member={member} />
             </span>
             {isOwner && member.role !== 'OWNER' && (
@@ -125,7 +125,7 @@ function LeaveGroup({ groupId }: { groupId: string }) {
       >
         Quitter le groupe
       </button>
-      {leave.isError && <p role="alert">Vous n'avez pas pu quitter le groupe.</p>}
+      {leave.isError && <p role="alert">Tu n’as pas pu quitter le groupe.</p>}
     </div>
   )
 }
