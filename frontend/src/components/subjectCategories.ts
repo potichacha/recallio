@@ -6,6 +6,7 @@ export const SUBJECT_CATEGORIES: { category: SubjectCategory; label: string }[] 
   { category: 'FRAMEWORKS', label: 'Frameworks' },
   { category: 'CLOUD_DEVOPS', label: 'Cloud & DevOps' },
   { category: 'DATA', label: 'Données' },
+  { category: 'SECURITY', label: 'Cybersécurité' },
   { category: 'FUNDAMENTALS', label: 'Fondamentaux' },
   { category: 'AI', label: 'IA' },
 ]

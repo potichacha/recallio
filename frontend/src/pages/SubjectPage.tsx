@@ -55,10 +55,10 @@ export function SubjectPage() {
             </Link>
           )}
           <Link
-            to={`/subjects/${encodeURIComponent(slug)}/path`}
+            to={`/subjects/${encodeURIComponent(slug)}/course`}
             className={button({ variant: 'secondary', size: 'sm' })}
           >
-            Mon parcours
+            Le cours
           </Link>
           <Link
             to={`/review?subject=${encodeURIComponent(slug)}`}

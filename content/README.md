@@ -39,7 +39,7 @@ status: draft
 |---|---|
 | `subject` | Le **slug** : minuscules, chiffres et tirets (`spring-boot`, `ia-llm`). **Définitif** : il entre dans l'identité de toutes les cartes du sujet, le changer ferait perdre leur progression à tous les utilisateurs. |
 | `title` | Le nom affiché (`Spring Boot`). Modifiable librement. |
-| `category` | `languages`, `frameworks`, `cloud-devops`, `data`, `fundamentals` ou `ai`. Une nouvelle catégorie passe par un ADR. |
+| `category` | `languages`, `frameworks`, `cloud-devops`, `data`, `security`, `fundamentals` ou `ai`. Une nouvelle catégorie passe par un ADR. |
 | `position` | L'ordre d'affichage dans le catalogue. Java vaut 10 et Go 20 : laisser des trous permet d'en intercaler. |
 | `status` | `draft` (importé, visible des seuls admins) ou `published` (visible de tous). |
 
@@ -194,10 +194,16 @@ signale une renumérotation.
 
    La réponse est le rapport d'import (cartes ajoutées, modifiées, retirées, anomalies).
 5. **Relire dans l'application.** Connecté avec un compte admin, le sujet apparaît dans le catalogue avec le badge
-   **Brouillon** : on parcourt ses thèmes et ses cartes en conditions réelles (rendu du Markdown, coloration du code). Il
-   reste invisible des autres utilisateurs et n'entre dans aucune révision.
+   **Brouillon** : on parcourt ses thèmes et ses cartes en conditions réelles (rendu du Markdown, coloration du code). Les
+   autres utilisateurs le voient seulement annoncé, grisé, dans les pages Cours, Tour et Révisions (ADR 0052) : son
+   contenu leur reste caché, et il n'entre dans aucune révision.
 6. **Publier** : une seconde pull request passe l'en-tête en `status: published`, puis on réimporte. Les
    utilisateurs le voient dans le catalogue et peuvent le suivre depuis leur profil.
+
+Pour **annoncer** un sujet avant de l'écrire (ADR 0052), un dossier `content/<slug>/` qui n'a que son `subject.yaml`, en
+`status: draft`, suffit : les pages Cours, Tour et Révisions le montrent en « work in progress ». Le dossier se remplit
+ensuite, référentiel et notions, comme celui de Java. Un sujet sans référentiel ne peut pas être publié (la CI le
+refuse). Son logo, s'il en a un, va dans `frontend/public/logos/` (voir le README de ce dossier).
 
 Pour **retirer temporairement** un sujet publié, repasser en `status: draft` et réimporter : il disparaît du catalogue
 et des révisions, sans perte de progression, et revient tel quel s'il est republié.

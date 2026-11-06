@@ -23,6 +23,39 @@ export function useSubjects() {
   })
 }
 
+/**
+ * Tous les sujets, ceux en préparation compris (ADR 0052) : les pages Cours, Tour et Révisions les annoncent, mais seul
+ * un admin ouvre un brouillon.
+ */
+export function useCatalogSubjects() {
+  return useQuery({
+    queryKey: ['catalog-subjects'],
+    queryFn: async () => {
+      const { data, error, response } = await api.GET('/api/v1/subjects', {
+        params: { query: { upcoming: true } },
+      })
+      if (data === undefined) throw ApiError.from(response, error)
+      return data
+    },
+  })
+}
+
+export type NotionLesson = components['schemas']['NotionLesson']
+
+/** La leçon d'une notion et ses voisines, pour la page Cours (ADR 0052). */
+export function useNotionLesson(subject: string, notion: string) {
+  return useQuery({
+    queryKey: ['notion-lessons', subject, notion],
+    queryFn: async () => {
+      const { data, error, response } = await api.GET('/api/v1/subjects/{slug}/notions/{notion}', {
+        params: { path: { slug: subject, notion } },
+      })
+      if (data === undefined) throw ApiError.from(response, error)
+      return data
+    },
+  })
+}
+
 export function useSubject(slug: string) {
   return useQuery({
     queryKey: ['subjects', slug],

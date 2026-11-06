@@ -12,6 +12,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
+import org.jspecify.annotations.Nullable;
 
 @ApplicationScoped
 public class JpaContentCatalog implements ContentCatalog {
@@ -195,6 +196,45 @@ public class JpaContentCatalog implements ContentCatalog {
                 .filter(notion -> !notion.tour.isEmpty())
                 .map(notion -> new TourNotionPages(notion.slug, notion.title, notion.chapterTitle, notion.tour))
                 .findFirst();
+    }
+
+    @Override
+    public Optional<NotionLesson> notionLesson(UUID subjectId, String notionSlug) {
+        return entityManager
+                .createQuery(
+                        "select n from NotionEntity n where n.subjectId = :subjectId and n.slug = :slug"
+                                + " and n.retiredAt is null",
+                        NotionEntity.class)
+                .setParameter("subjectId", subjectId)
+                .setParameter("slug", notionSlug)
+                .getResultStream()
+                .findFirst()
+                .map(notion -> new NotionLesson(
+                        notion.slug,
+                        notion.title,
+                        notion.chapterTitle,
+                        notion.lesson,
+                        !notion.tour.isEmpty(),
+                        neighbour(subjectId, notion.position, false),
+                        neighbour(subjectId, notion.position, true)));
+    }
+
+    /** La notion active la plus proche avant ({@code after} faux) ou après cette position, dans le référentiel. */
+    private @Nullable NotionLink neighbour(UUID subjectId, int position, boolean after) {
+        String query = after
+                ? "select n.slug, n.title from NotionEntity n where n.subjectId = :subjectId and n.retiredAt is null"
+                        + " and n.position > :position order by n.position"
+                : "select n.slug, n.title from NotionEntity n where n.subjectId = :subjectId and n.retiredAt is null"
+                        + " and n.position < :position order by n.position desc";
+        return entityManager
+                .createQuery(query, Object[].class)
+                .setParameter("subjectId", subjectId)
+                .setParameter("position", position)
+                .setMaxResults(1)
+                .getResultStream()
+                .map(row -> new NotionLink((String) row[0], (String) row[1]))
+                .findFirst()
+                .orElse(null);
     }
 
     private static List<Subject.Status> statuses(Visibility visibility) {

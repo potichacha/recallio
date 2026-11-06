@@ -1,7 +1,7 @@
 ---
 subject: securite
 title: Sécurité
-category: fundamentals
+category: security
 position: 170
 status: draft
 ---

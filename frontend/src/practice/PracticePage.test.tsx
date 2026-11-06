@@ -125,9 +125,9 @@ describe('PracticePage', () => {
     renderAt('/subjects/go/practice/hello-world', signedIn())
 
     expect(await screen.findByText('Cette notion n’a pas encore de cartes.')).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'Voir mon parcours' })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: 'Voir le cours' })).toHaveAttribute(
       'href',
-      '/subjects/go/path',
+      '/subjects/go/course',
     )
   })
 

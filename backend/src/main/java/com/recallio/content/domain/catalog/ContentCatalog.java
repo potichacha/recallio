@@ -42,6 +42,29 @@ public interface ContentCatalog {
     /** Les exercices de code d'un sujet, dans l'ordre du référentiel : le Tour les propose à la fin de leur chapitre. */
     List<TourExercise> tourExercises(UUID subjectId);
 
+    /** La leçon d'une notion active, et ses voisines dans le référentiel (ADR 0052) ; vide si elle est inconnue. */
+    Optional<NotionLesson> notionLesson(UUID subjectId, String notionSlug);
+
+    /**
+     * La leçon d'une notion, lue dans la page Cours (ADR 0052).
+     *
+     * @param lesson la leçon, en Markdown ; {@code null} si la notion n'en a pas encore
+     * @param inTour vrai si la notion a des pages dans le Tour (ADR 0037)
+     * @param previous la notion d'avant, dans l'ordre du référentiel ; {@code null} pour la première
+     * @param next la notion d'après ; {@code null} pour la dernière
+     */
+    record NotionLesson(
+            String slug,
+            String title,
+            String chapterTitle,
+            @Nullable String lesson,
+            boolean inTour,
+            @Nullable NotionLink previous,
+            @Nullable NotionLink next) {}
+
+    /** Une notion vers laquelle on passe d'une leçon à l'autre. */
+    record NotionLink(String slug, String title) {}
+
     /**
      * Une notion du sommaire du Tour.
      *

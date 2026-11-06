@@ -10,6 +10,7 @@ test.describe('Streak', () => {
     await signIn(page, USERS.alice, '/profile')
     await followSubjects(page, ['Java'])
     await page.goto('/review')
+    await page.getByRole('region', { name: 'Langages' }).getByRole('link', { name: 'Java' }).click()
     await page.getByRole('button', { name: 'Commencer' }).click()
 
     const reached = page.getByRole('status').filter({ hasText: 'Objectif atteint' })

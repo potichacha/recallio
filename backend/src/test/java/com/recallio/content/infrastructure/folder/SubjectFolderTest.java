@@ -3,6 +3,7 @@ package com.recallio.content.infrastructure.folder;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.recallio.content.CardType;
+import com.recallio.content.domain.Subject;
 import com.recallio.content.domain.source.ParsedContent;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -38,7 +39,9 @@ class SubjectFolderTest {
         ParsedContent parsed = parse(folder);
 
         assertThat(parsed.issues()).isEmpty();
-        assertThat(parsed.cardCount()).isPositive();
+        if (!isAnnounced(folder)) {
+            assertThat(parsed.cardCount()).isPositive();
+        }
     }
 
     /**
@@ -62,7 +65,19 @@ class SubjectFolderTest {
         Path document = CONTENT.resolve("source").resolve(folder.getFileName() + "-entretien-reference.md");
 
         assertThat(document).doesNotExist();
-        assertThat(Files.isDirectory(folder.resolve("referentiel"))).isTrue();
+        assertThat(Files.isDirectory(folder.resolve("referentiel")) || isAnnounced(folder))
+                .as("%s : un référentiel, sauf pour un sujet annoncé", folder.getFileName())
+                .isTrue();
+    }
+
+    /**
+     * Un sujet annoncé (ADR 0052) : un brouillon qui n'a encore que son {@code subject.yaml}, pour que les pages Cours,
+     * Tour et Révisions le montrent en préparation. Il n'a ni référentiel ni carte ; un sujet publié en a toujours.
+     */
+    private static boolean isAnnounced(Path folder) {
+        return !Files.isDirectory(folder.resolve("referentiel"))
+                && !Files.isDirectory(folder.resolve("notions"))
+                && parse(folder).subject().status() == Subject.Status.DRAFT;
     }
 
     /**

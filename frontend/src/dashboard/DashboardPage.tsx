@@ -26,7 +26,8 @@ const TOUR_SHORTCUTS = 2
 
 /**
  * L'accueil d'un utilisateur connecté (ADR 0050) : une seule action en tête, continuer à réviser là où il s'était
- * arrêté, avec l'anneau de l'objectif du jour ; puis le Tour, les quêtes, et sa progression plus bas.
+ * arrêté, avec l'anneau de l'objectif du jour ; puis le Tour, les quêtes, et sa progression plus bas. Qui apprend son
+ * sujet reprend d'abord le Tour (ADR 0052).
  */
 export function DashboardPage() {
   const profile = useProfile()
@@ -45,6 +46,29 @@ export function DashboardPage() {
     .filter((subject) => subject.hasTour && followed.includes(subject.slug))
     .slice(0, TOUR_SHORTCUTS)
   const firstName = profile.data?.displayName.split(' ')[0]
+  // Qui apprend (ADR 0032, 0052) reprend d'abord son Tour ; qui prépare un entretien, d'abord sa révision.
+  const learning =
+    current !== undefined &&
+    profile.data?.tracks[current] === 'LEARN' &&
+    tours.some((tour) => tour.slug === current)
+  const tourShortcuts = tours.length > 0 && (
+    <ul className="grid gap-3 sm:grid-cols-2">
+      {tours.map((subject) => (
+        <li key={subject.slug}>
+          <Link
+            to={`/subjects/${encodeURIComponent(subject.slug)}/tour`}
+            className="flex items-center gap-3 rounded-xl bg-surface p-4 shadow-sm hover:bg-brand-soft"
+          >
+            <Path weight="bold" aria-hidden className="size-7 shrink-0 text-brand" />
+            <span className="flex flex-col">
+              <span className="font-semibold">Le Tour de {subject.title}</span>{' '}
+              <span className="text-sm text-ink-muted">Reprendre là où tu t’es arrêté</span>
+            </span>
+          </Link>
+        </li>
+      ))}
+    </ul>
+  )
 
   return (
     <section className="flex flex-col gap-6">
@@ -59,6 +83,7 @@ export function DashboardPage() {
       </header>
 
       {stats.isError && <p role="alert">Impossible de charger tes statistiques.</p>}
+      {learning && tourShortcuts}
       {stats.data && current && (
         <ContinueCard
           subject={current}
@@ -69,24 +94,7 @@ export function DashboardPage() {
         />
       )}
 
-      {tours.length > 0 && (
-        <ul className="grid gap-3 sm:grid-cols-2">
-          {tours.map((subject) => (
-            <li key={subject.slug}>
-              <Link
-                to={`/subjects/${encodeURIComponent(subject.slug)}/tour`}
-                className="flex items-center gap-3 rounded-xl bg-surface p-4 shadow-sm hover:bg-brand-soft"
-              >
-                <Path weight="bold" aria-hidden className="size-7 shrink-0 text-brand" />
-                <span className="flex flex-col">
-                  <span className="font-semibold">Le Tour de {subject.title}</span>{' '}
-                  <span className="text-sm text-ink-muted">Reprendre là où tu t’es arrêté</span>
-                </span>
-              </Link>
-            </li>
-          ))}
-        </ul>
-      )}
+      {!learning && tourShortcuts}
 
       {quests.data && <QuestsPanel board={quests.data} />}
 

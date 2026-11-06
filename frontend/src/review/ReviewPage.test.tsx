@@ -113,18 +113,32 @@ describe('ReviewPage', () => {
     expect(screen.getByRole('heading', { name: 'Connexion requise' })).toBeInTheDocument()
   })
 
-  it('offers one subject at a time, with a length and the kind of questions', async () => {
-    stubApi({ ...PROFILE, '/api/v1/me': FOLLOWING_JAVA_AND_GO })
+  it('opens on the subjects, by category, the ones in preparation greyed out', async () => {
+    stubApi(PROFILE)
     renderAt('/review', signedIn())
 
-    const subjects = await screen.findByRole('group', { name: 'Sujet' })
-    const java = await within(subjects).findByRole('radio', { name: /Java/ })
-    expect(java).toBeChecked()
-    expect(java.closest('label')).toHaveTextContent('3 à revoir · 20 nouvelles')
-    expect(within(subjects).getByRole('radio', { name: /Go/ }).closest('label')).toHaveTextContent(
-      '2 à revoir · 1 nouvelle',
+    // Rust est en brouillon dans le catalogue des tests : il est annoncé, mais ne s'ouvre pas.
+    const languages = await screen.findByRole('region', { name: 'Langages' })
+    expect(within(languages).getByRole('link', { name: 'Java' })).toHaveAttribute(
+      'href',
+      '/review?subject=java',
     )
-    expect(screen.queryByText('Tous mes sujets')).not.toBeInTheDocument()
+    const rust = within(languages).getByRole('button', { name: /Rust/ })
+    expect(rust).toHaveTextContent('En préparation')
+    await userEvent.click(rust)
+    expect(rust).toHaveTextContent('Work in progress')
+  })
+
+  it('asks the length and the kind of questions for the chosen subject', async () => {
+    stubApi({ ...PROFILE, '/api/v1/me': FOLLOWING_JAVA_AND_GO })
+    renderAt('/review?subject=java', signedIn())
+
+    expect(await screen.findByRole('heading', { name: 'Réviser Java' })).toBeInTheDocument()
+    expect(await screen.findByText('3 à revoir · 20 nouvelles')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /Changer de sujet/ })).toHaveAttribute(
+      'href',
+      '/review',
+    )
     const durations = screen.getByRole('group', { name: 'Durée' })
     expect(
       within(durations)
@@ -135,7 +149,7 @@ describe('ReviewPage', () => {
     expect(screen.getByRole('radio', { name: /Toutes les questions/ })).toBeChecked()
   })
 
-  it('starts a session on the chosen subject, for the questions graded by the server', async () => {
+  it('starts a session on the subject chosen in the gallery, for the questions graded by the server', async () => {
     const fetchMock = stubApi({
       ...PROFILE,
       '/api/v1/me': FOLLOWING_JAVA_AND_GO,
@@ -143,8 +157,8 @@ describe('ReviewPage', () => {
     })
     renderAt('/review', signedIn())
 
-    await userEvent.click(await screen.findByRole('radio', { name: /Go/ }))
-    await userEvent.click(screen.getByRole('radio', { name: '15 min' }))
+    await userEvent.click(await screen.findByRole('link', { name: 'Go' }))
+    await userEvent.click(await screen.findByRole('radio', { name: '15 min' }))
     await userEvent.click(screen.getByRole('radio', { name: /Questions corrigées/ }))
     await startSession()
 
@@ -160,34 +174,41 @@ describe('ReviewPage', () => {
     ])
   })
 
-  it('remembers the last settings on this device', async () => {
+  it('remembers the last length and questions on this device', async () => {
     localStorage.setItem(
       'recallio.review-session',
       JSON.stringify({ subject: 'go', minutes: null, mode: 'graded' }),
     )
-    const fetchMock = stubApi({
+    stubApi({
       ...PROFILE,
       '/api/v1/me': FOLLOWING_JAVA_AND_GO,
       [QUEUE]: { body: queue([queuedCard()]) },
     })
-    renderAt('/review', signedIn())
+    renderAt('/review?subject=go', signedIn())
 
-    expect(await screen.findByRole('radio', { name: /Go/ })).toBeChecked()
-    expect(screen.getByRole('radio', { name: 'Sans limite' })).toBeChecked()
+    expect(await screen.findByRole('radio', { name: 'Sans limite' })).toBeChecked()
     expect(screen.getByRole('radio', { name: /Questions corrigées/ })).toBeChecked()
     await startSession()
 
     await screen.findByText("Qu'est-ce que la JVM ?")
     expect(screen.queryByRole('timer')).not.toBeInTheDocument()
-    expect(queueRequests(fetchMock)[0]?.get('subject')).toBe('go')
   })
 
-  it('proposes a subject opened from the catalogue, even if it is not followed', async () => {
-    stubApi(PROFILE)
+  it('follows a subject reviewed for the first time, so that it joins the dashboard', async () => {
+    const fetchMock = stubApi({
+      ...PROFILE,
+      'PUT /api/v1/me/followed-subjects': {
+        body: { ...TEST_PROFILE, followedSubjects: ['java', 'go'] },
+      },
+      [QUEUE]: { body: queue([queuedCard({ subjectSlug: 'go', subjectTitle: 'Go' })]) },
+    })
     renderAt('/review?subject=go', signedIn())
 
-    expect(await screen.findByRole('radio', { name: /Go/ })).toBeChecked()
-    expect(screen.getByRole('radio', { name: /Java/ })).not.toBeChecked()
+    await startSession()
+
+    expect(await screen.findByRole('heading', { name: 'Réviser : Go' })).toBeInTheDocument()
+    const put = sentRequests(fetchMock).find((request) => request.method === 'PUT')
+    expect(await put?.json()).toEqual({ subjects: ['java', 'go'] })
   })
 
   it('flips a self-assessed card to show the answer, then records what the candidate says', async () => {
@@ -198,7 +219,7 @@ describe('ReviewPage', () => {
       },
       [REVIEWS]: { status: 201, ...recorded },
     })
-    renderAt('/review', signedIn())
+    renderAt('/review?subject=java', signedIn())
     await startSession()
 
     expect(await screen.findByText("Qu'est-ce que la JVM ?")).toBeInTheDocument()
@@ -230,7 +251,7 @@ describe('ReviewPage', () => {
 
   it('lets the candidate write an answer, then shows it next to the expected one', async () => {
     stubApi({ ...PROFILE, [QUEUE]: { body: queue([queuedCard()]) } })
-    renderAt('/review', signedIn())
+    renderAt('/review?subject=java', signedIn())
     await startSession()
 
     const draft = await screen.findByRole('textbox', { name: 'Ta réponse (facultatif)' })
@@ -252,7 +273,7 @@ describe('ReviewPage', () => {
         body: { id: 'r1', reason: 'TYPO', createdAt: '2026-11-05T08:00:00Z' },
       },
     })
-    renderAt('/review', signedIn())
+    renderAt('/review?subject=java', signedIn())
     await startSession()
 
     await userEvent.click(await screen.findByRole('button', { name: 'Signaler une erreur' }))
@@ -286,7 +307,7 @@ describe('ReviewPage', () => {
       },
     }
     const fetchMock = stubApi(responses)
-    renderAt('/review', signedIn())
+    renderAt('/review?subject=java', signedIn())
     await startSession()
 
     await userEvent.click(await screen.findByRole('button', { name: 'Voir la réponse' }))
@@ -316,7 +337,7 @@ describe('ReviewPage', () => {
       [QUEUE]: { body: queue([queuedCard()]) },
       [REVIEWS]: { status: 201, ...recorded },
     })
-    renderAt('/review', signedIn())
+    renderAt('/review?subject=java', signedIn())
     await startSession()
 
     await userEvent.click(await screen.findByRole('button', { name: 'Voir la réponse' }))
@@ -329,7 +350,7 @@ describe('ReviewPage', () => {
   it('tells when the subject is up to date, and when the next card is due', async () => {
     const nextDueAt = new Date(Date.now() + 10 * MINUTE).toISOString()
     stubApi({ ...PROFILE, [QUEUE]: { body: queue([], { nextDueAt }) } })
-    renderAt('/review', signedIn())
+    renderAt('/review?subject=java', signedIn())
     await startSession()
 
     const summary = await screen.findByRole('region', { name: 'Bilan de la session' })
@@ -349,7 +370,7 @@ describe('ReviewPage', () => {
       [QUEUE]: { body: queue([queuedCard(), queuedCard({ cardId: 'card-2' })]) },
       [REVIEWS]: { status: 201, ...recorded },
     })
-    renderAt('/review', signedIn())
+    renderAt('/review?subject=java', signedIn())
     await startSession()
     await userEvent.click(await screen.findByRole('button', { name: 'Voir la réponse' }))
 
@@ -371,7 +392,7 @@ describe('ReviewPage', () => {
 
   it('lets the candidate end the session, then change its settings', async () => {
     stubApi({ ...PROFILE, [QUEUE]: { body: queue([queuedCard()]) } })
-    renderAt('/review', signedIn())
+    renderAt('/review?subject=java', signedIn())
     await startSession()
 
     await userEvent.click(await screen.findByRole('button', { name: 'Terminer la session' }))
@@ -450,7 +471,7 @@ describe('ReviewPage', () => {
         },
       },
     })
-    renderAt('/review', signedIn())
+    renderAt('/review?subject=java', signedIn())
     await startSession()
 
     const validate = await screen.findByRole('button', { name: 'Valider' })
@@ -497,7 +518,7 @@ describe('ReviewPage', () => {
         },
       },
     })
-    renderAt('/review', signedIn())
+    renderAt('/review?subject=java', signedIn())
     await startSession()
 
     expect(await screen.findByText('Vrai ou faux')).toBeInTheDocument()
@@ -536,7 +557,7 @@ describe('ReviewPage', () => {
         },
       },
     })
-    renderAt('/review', signedIn())
+    renderAt('/review?subject=java', signedIn())
     await startSession()
 
     await userEvent.click(await screen.findByRole('radio', { name: /Les deux/ }))
@@ -582,7 +603,7 @@ describe('ReviewPage', () => {
         },
       },
     })
-    renderAt('/review', signedIn())
+    renderAt('/review?subject=java', signedIn())
     await startSession()
 
     // Le code est découpé en éléments par la coloration syntaxique : on lit le texte de toute la carte.
@@ -615,7 +636,7 @@ describe('ReviewPage', () => {
         ]),
       },
     })
-    renderAt('/review', signedIn())
+    renderAt('/review?subject=java', signedIn())
     await startSession()
 
     const lesson = await screen.findByRole('article', { name: 'Leçon : La JVM' })
@@ -681,7 +702,7 @@ describe('ReviewPage', () => {
         },
       },
     })
-    renderAt('/review', signedIn())
+    renderAt('/review?subject=java', signedIn())
     await startSession()
 
     await userEvent.click(await screen.findByRole('tab', { name: /DoublonsTest\.java/ }))
@@ -714,7 +735,7 @@ describe('ReviewPage', () => {
       ...PROFILE,
       [QUEUE]: { body: queue([queuedCard({ type: 'BUG_FIX', answer: 'Utiliser `equals`.' })]) },
     })
-    renderAt('/review', signedIn())
+    renderAt('/review?subject=java', signedIn())
     await startSession()
 
     const draft = await screen.findByRole('textbox', { name: 'Ta correction (facultatif)' })
@@ -734,7 +755,7 @@ describe('ReviewPage', () => {
       [REVIEWS]: { status: 201, ...recorded },
     }
     const fetchMock = stubApi(responses)
-    renderAt('/review', signedIn())
+    renderAt('/review?subject=java', signedIn())
     await startSession()
 
     const goal = await screen.findByRole('progressbar', { name: 'Objectif du jour' })
@@ -776,7 +797,7 @@ describe('ReviewPage', () => {
       },
       [REVIEWS]: { status: 201, ...recorded },
     })
-    renderAt('/review', signedIn())
+    renderAt('/review?subject=java', signedIn())
     await startSession()
 
     expect(await screen.findByText("Qu'est-ce que la JVM ?")).toBeInTheDocument()
@@ -795,7 +816,7 @@ describe('ReviewPage', () => {
 
   it('leaves Enter to the button that has the focus', async () => {
     stubApi({ ...PROFILE, [QUEUE]: { body: queue([queuedCard()]) } })
-    renderAt('/review', signedIn())
+    renderAt('/review?subject=java', signedIn())
     await startSession()
 
     expect(await screen.findByText("Qu'est-ce que la JVM ?")).toBeInTheDocument()
@@ -813,7 +834,7 @@ describe('ReviewPage', () => {
       [QUEUE]: { body: queue([queuedCard(), queuedCard({ cardId: 'card-2' })]) },
       [REVIEWS]: { status: 201, ...recorded },
     })
-    renderAt('/review', signedIn())
+    renderAt('/review?subject=java', signedIn())
     await startSession()
     await userEvent.click(await screen.findByRole('button', { name: 'Voir la réponse' }))
     vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 11 * MINUTE)

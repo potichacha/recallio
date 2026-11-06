@@ -70,15 +70,17 @@ Recallio n'est pas une application « Java » : c'est un **catalogue de sujets d
 | Frameworks | Spring Boot, Quarkus, Angular, React |
 | Cloud & DevOps | Docker, Kubernetes, CI/CD |
 | Données | SQL & PostgreSQL, NoSQL, Kafka |
-| Fondamentaux | Programmer de zéro, algorithmes & structures de données, architecture & design, sécurité |
+| Cybersécurité | sécurité des applications (ADR 0052) |
+| Fondamentaux | Programmer de zéro, algorithmes & structures de données, architecture & design |
 | IA | Machine learning, LLM & prompting |
 
 - **Ce que voit l'utilisateur** :
-  - il **choisit les sujets qu'il suit** (au premier login, puis dans son profil) ;
+  - il **suit un sujet en l'ouvrant** : au premier login, guidé par son but (débuter, apprendre un autre langage, préparer un entretien), ou depuis les pages Cours, Tour et Révisions ; son profil les liste (ADR 0052) ;
   - ses révisions puisent dans ces sujets uniquement ;
   - il peut aussi réviser un sujet ou un thème en particulier.
 - **Progression** : par sujet et par thème (tableau de bord), et streak global (un seul objectif quotidien, tous sujets confondus).
 - **Publication** : un sujet peut exister en **brouillon** (importé, visible seulement par les admins) avant d'être **publié**. On peut ainsi relire un nouveau document en conditions réelles.
+- **Annonce** : les pages Cours, Tour et Révisions montrent aussi les brouillons à tous, grisés, « work in progress » ; leur contenu reste réservé aux admins. Un sujet annoncé peut n'avoir encore que son `subject.yaml` (ADR 0052).
 - **Ajouter un sujet ne demande aucun code** : un nouveau fichier dans `content/source/`, décrit par son en-tête (5.4), relu par pull request. Si un sujet a besoin d'un comportement particulier, c'est un signe que le format doit évoluer (ADR), pas qu'il faut un cas spécial dans le parseur.
 - **Groupes et mode live** (phases 2 et 3) : un groupe choisit ses sujets (puis ses thèmes) ; une partie live porte sur un sujet.
 
@@ -235,7 +237,7 @@ Chaque document commence par un **en-tête** qui décrit son sujet (ADR 0013). I
 ---
 subject: go           # slug, identifiant stable : il entre dans l'identité des cartes, ne jamais le changer
 title: Go
-category: languages   # languages, frameworks, cloud-devops, data, fundamentals, ai
+category: languages   # languages, frameworks, cloud-devops, data, security, fundamentals, ai
 position: 20          # ordre d'affichage dans le catalogue (de 10 en 10, pour pouvoir intercaler)
 status: published     # draft (importé mais invisible) ou published
 ---
@@ -275,9 +277,9 @@ Les sujets s'ajoutent un par un, au rythme de la rédaction, indépendamment des
 | Spring Boot, Quarkus, Jakarta EE, JPA & Hibernate | Frameworks | sortis du document Java (ADR 0025), en brouillon jusqu'à leur réécriture en dossier de notions (ADR 0050) |
 | SQL, Kafka, Cache | Données | sortis du document Java, en brouillon jusqu'à leur réécriture |
 | Docker, Kubernetes, CI/CD, Observabilité, Cloud, Git | Cloud & DevOps | sortis du document Java, en brouillon jusqu'à leur réécriture |
-| API REST, Sécurité, Réseau & Linux, Algorithmes, Conception, Entretien comportemental | Fondamentaux | sortis du document Java, en brouillon jusqu'à leur réécriture |
-| Python | Langages | à rédiger |
-| C, C++, C# | Langages | à rédiger |
+| API REST, Réseau & Linux, Algorithmes, Conception, Entretien comportemental | Fondamentaux | sortis du document Java, en brouillon jusqu'à leur réécriture |
+| Sécurité | Cybersécurité | sortie du document Java, en brouillon jusqu'à sa réécriture |
+| Python, TypeScript, Kotlin, C#, C, C++, Rust | Langages | annoncés (un dossier sans contenu, ADR 0052), à rédiger |
 | IA : machine learning, LLM & prompting | IA | à rédiger |
 | Programmer de zéro | Fondamentaux | ✅ rédigé en brouillon, en Java 25 (ADR 0039) : 23 notions, 115 cartes, un Tour de 23 pages ; à relire dans l'application avant de le publier |
 
@@ -515,6 +517,13 @@ Le propriétaire a testé l'application en local avant de la déployer ; ses ret
    1. ✅ **Pilote** : les choix sur tous les formats, mélangés à l'affichage, vérifiés en CI pour le code ; « Programmer de zéro » et le chapitre Java « Premiers pas » convertis.
    2. **Java** : toutes les cartes à convertir, au tutoiement.
    3. **Go**, puis la fin de l'auto-évaluation : choix obligatoires, mode « questions corrigées » retiré, défis, live, duels et examen blanc ouverts à tous les formats.
+5. ✅ **Les pages Cours, Tour et Révisions** (ADR 0052) :
+   - la navigation devient Accueil, Cours, Tour, Révisions et Jouer ;
+   - chaque page s'ouvre sur les sujets par catégorie, avec leur logo, ceux en préparation en « work in progress » ;
+   - le cours d'un sujet, leçon par leçon ;
+   - la catégorie Cybersécurité, et les langages annoncés ;
+   - un premier login guidé par le but, qui conduit qui apprend au Tour.
+6. **Relier le Tour à la révision** : qui apprend révise une notion une fois sa page du Tour lue.
 
 Le **déploiement** (phase 1, étape 7) vient après ces phases.
 

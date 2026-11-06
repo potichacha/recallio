@@ -30,7 +30,9 @@ test.describe('Accessibilité', () => {
   test('the pages of a visitor have no serious violation', async ({ page }) => {
     const pages: [string, string | RegExp][] = [
       ['/', 'Prépare tes entretiens techniques, dix minutes par jour.'],
-      ['/subjects', 'Apprendre'],
+      ['/learn', 'Cours'],
+      ['/tours', 'Le Tour'],
+      ['/subjects', 'Toutes les cartes'],
       ['/try/go', 'Essai : Go'],
       ['/subjects/go/tour/hello-world', /premier programme/],
     ]
@@ -51,6 +53,8 @@ test.describe('Accessibilité', () => {
     expect(await seriousViolations(page), '/').toEqual([])
 
     await page.goto('/review')
+    expect(await seriousViolations(page), '/review').toEqual([])
+    await page.getByRole('region', { name: 'Langages' }).getByRole('link', { name: 'Java' }).click()
     await page.getByRole('button', { name: 'Commencer' }).click()
     const card = page.locator('article').first()
     await expect(card).toBeVisible()

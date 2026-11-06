@@ -32,6 +32,8 @@ public record Subject(String slug, String title, Category category, int position
         FRAMEWORKS,
         CLOUD_DEVOPS,
         DATA,
+        /** La cybersécurité (ADR 0052). */
+        SECURITY,
         FUNDAMENTALS,
         AI
     }

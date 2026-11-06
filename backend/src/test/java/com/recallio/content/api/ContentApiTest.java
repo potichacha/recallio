@@ -267,6 +267,18 @@ class ContentApiTest {
                     .body("totalItems", is(1));
         }
 
+        /** Les pages Cours, Tour et Révisions annoncent les sujets en préparation, sans en ouvrir le contenu (ADR 0052). */
+        @Test
+        void shouldAnnounceADraftSubjectToEveryoneWithoutOpeningIt() {
+            given().queryParam("upcoming", true)
+                    .get("/api/v1/subjects")
+                    .then()
+                    .statusCode(200)
+                    .body("find { it.slug == 'go' }.status", equalTo("DRAFT"));
+            given().get("/api/v1/subjects/go/themes").then().statusCode(404);
+            given().get("/api/v1/themes/go-fondamentaux/cards").then().statusCode(404);
+        }
+
         @Test
         void shouldShowASubjectOnceItIsPublished() {
             importService.importContent(goDocument("published"));

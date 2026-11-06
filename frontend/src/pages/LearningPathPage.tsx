@@ -23,9 +23,9 @@ const LEVEL_LABELS: Record<PathNotion['level'], string> = {
 const plural = (count: number, word: string) => `${count} ${word}${count > 1 ? 's' : ''}`
 
 /**
- * La carte des compétences d'un sujet : ses domaines, chacun avec la maîtrise de ses notions (ADR 0034), puis ses
- * chapitres et leurs notions. En parcours « apprendre », une notion se débloque quand ses prérequis sont acquis
- * (ADR 0032). Le domaine où l'on en est se déplie d'emblée.
+ * Le cours d'un sujet (ADR 0052), qui est aussi sa carte des compétences : ses domaines, chacun avec la maîtrise de ses
+ * notions (ADR 0034), puis ses chapitres et leurs notions, dont on ouvre la leçon. En parcours « apprendre », une notion
+ * se débloque quand ses prérequis sont acquis (ADR 0032). Le domaine où l'on en est se déplie d'emblée.
  */
 export function LearningPathPage() {
   const { slug = '' } = useParams()
@@ -49,10 +49,10 @@ export function LearningPathPage() {
 
   return (
     <section className="flex flex-col gap-4">
-      <Link to={`/subjects/${slug}`} className="text-sm text-brand hover:underline">
-        ← {subject.data?.title ?? 'Le sujet'}
+      <Link to="/learn" className="text-sm text-brand hover:underline">
+        ← Cours
       </Link>
-      <h1 className="text-2xl font-bold">Mon parcours {subject.data?.title}</h1>
+      <h1 className="text-2xl font-bold">Le cours de {subject.data?.title}</h1>
       {path.isPending && <p>Chargement du parcours…</p>}
       {path.isError && !(path.error instanceof ApiError && path.error.status === 404) && (
         <p role="alert">Impossible de charger le parcours.</p>
@@ -178,7 +178,12 @@ function NotionItem({ subject, notion }: { subject: string; notion: PathNotion }
   return (
     <li className="flex items-center justify-between gap-3 rounded-lg border border-line px-3 py-2">
       <span className="flex flex-col">
-        <span>{notion.title}</span>
+        <Link
+          to={`/subjects/${encodeURIComponent(subject)}/course/${encodeURIComponent(notion.slug)}`}
+          className="font-medium hover:text-brand hover:underline"
+        >
+          {notion.title}
+        </Link>
         <span className="text-xs text-ink-muted">
           {LEVEL_LABELS[notion.level]} · {notion.seenCount} / {notion.cardCount} cartes vues
         </span>
