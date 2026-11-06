@@ -510,6 +510,47 @@ describe('ReviewPage', () => {
     expect(body.selectedChoices).toEqual([1])
   })
 
+  it('grades a course question that received choices like a multiple-choice card, with no self-assessment', async () => {
+    const fetchMock = stubApi({
+      ...PROFILE,
+      [QUEUE]: {
+        body: queue([
+          queuedCard({
+            prompt: 'Java est-il compilé ou interprété ?',
+            answer: null,
+            choices: ['Compilé', 'Interprété', 'Les deux'],
+          }),
+        ]),
+      },
+      [REVIEWS]: {
+        status: 201,
+        body: {
+          cardId: 'card-1',
+          rating: 'GOOD',
+          state: 'LEARNING',
+          dueAt: '2026-10-29T10:10:00Z',
+          correction: {
+            correctChoices: [2],
+            explanation: 'Compilé en bytecode, puis interprété et compilé à la volée par la JVM.',
+          },
+        },
+      },
+    })
+    renderAt('/review', signedIn())
+    await startSession()
+
+    await userEvent.click(await screen.findByRole('radio', { name: /Les deux/ }))
+    expect(screen.queryByRole('button', { name: 'Voir la réponse' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Valider' }))
+
+    expect(await screen.findByRole('status')).toHaveTextContent('Bonne réponse')
+    const post = sentRequests(fetchMock).find((request) => request.method === 'POST')
+    const body = await post?.json()
+    expect(body.selectedChoices).toEqual([2])
+    expect(body.rating).toBeUndefined()
+  })
+
   it('grades each blank of a fill-in card on the server and shows the expected answers', async () => {
     const fetchMock = stubApi({
       ...PROFILE,

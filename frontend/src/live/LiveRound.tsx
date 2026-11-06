@@ -5,6 +5,7 @@ import { ChoiceOption } from '../components/ChoiceOption'
 import { choiceOutcome, toggleChoice } from '../components/choices'
 import { Markdown } from '../components/Markdown'
 import { useCountdown } from '../components/useCountdown'
+import { useShuffledChoices } from '../components/useShuffledChoices'
 import { button } from '../components/ui/button'
 
 const SECOND = 1000
@@ -23,6 +24,7 @@ export function LiveRoundView({
   me: string | undefined
 }) {
   const [selected, setSelected] = useState<number[]>([])
+  const choices = useShuffledChoices(`${game.id}:${round.index}`, round.choices)
   const answer = useAnswerLiveQuestion(game.id)
   const reveal = round.reveal
   // Après une reconnexion, la sélection est perdue, mais le serveur sait que l'on a répondu.
@@ -55,10 +57,10 @@ export function LiveRoundView({
           <legend className="mb-1 text-sm text-ink-muted">
             {round.multipleAnswers ? 'Plusieurs réponses possibles' : 'Une seule réponse'}
           </legend>
-          {round.choices.map((choice, index) => (
+          {choices.map(({ index, text }) => (
             <ChoiceOption
               key={index}
-              text={choice}
+              text={text}
               type={round.multipleAnswers ? 'checkbox' : 'radio'}
               checked={selected.includes(index)}
               onChange={() =>

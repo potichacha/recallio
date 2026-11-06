@@ -48,6 +48,14 @@ class XpRulesTest {
                         new XpAward(XpReason.VERIFIED_SUCCESS, bonus, "java"));
     }
 
+    /** Une carte d'un autre format qui a reçu des choix est corrigée par le serveur : sa réussite est vérifiée (ADR 0051). */
+    @Test
+    void shouldAddTheBonusForACardOfAnotherFormatGradedOnItsChoices() {
+        assertThat(rules.awardsFor(new ReviewedCard("java", CardType.OPEN_SCENARIO, true, true), 1))
+                .containsExactly(
+                        new XpAward(XpReason.REVIEW, 20, "java"), new XpAward(XpReason.VERIFIED_SUCCESS, 10, "java"));
+    }
+
     @ParameterizedTest
     @EnumSource(
             value = CardType.class,
@@ -82,6 +90,6 @@ class XpRulesTest {
     }
 
     private static ReviewedCard card(CardType type, boolean recalled) {
-        return new ReviewedCard("java", type, recalled);
+        return new ReviewedCard("java", type, type.isGradedByServer(), recalled);
     }
 }

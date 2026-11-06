@@ -54,13 +54,14 @@ public record XpRules(int xpPerReview, int dailyGoal, int dailyGoalBonus) {
     }
 
     /**
-     * @param recalled si la carte est réussie : notée au moins « Bien », ou juste pour un format corrigé par le serveur
+     * @param gradedByServer si le serveur a corrigé la réponse (ses choix, ses trous ou ses tests)
+     * @param recalled si la carte est réussie : notée au moins « Bien », ou juste pour une carte corrigée par le serveur
      */
-    public record ReviewedCard(String subjectSlug, CardType type, boolean recalled) {
+    public record ReviewedCard(String subjectSlug, CardType type, boolean gradedByServer, boolean recalled) {
 
         /** Une réussite vérifiée par le serveur, et non déclarée par l'utilisateur. */
         boolean verifiedSuccess() {
-            return recalled && type.isGradedByServer();
+            return recalled && gradedByServer;
         }
     }
 

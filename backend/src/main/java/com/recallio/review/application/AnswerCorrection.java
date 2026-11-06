@@ -31,7 +31,7 @@ public record AnswerCorrection(
      * @throws AnswerMismatchException si la carte s'auto-évalue, ou si la réponse ne convient pas à son format
      */
     public static AnswerCorrection grade(CardSnapshot card, GradedAnswer answer) {
-        if (card.type().isGradedByChoices()) {
+        if (card.isGradedByChoices()) {
             Set<Integer> selected = answer.selectedChoices();
             if (selected == null || answer.filledBlanks() != null) {
                 throw AnswerMismatchException.choicesExpected();

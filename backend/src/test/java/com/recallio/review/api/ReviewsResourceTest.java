@@ -196,6 +196,57 @@ class ReviewsResourceTest {
                 .body("correction.explanation", equalTo("Non."));
     }
 
+    /** Une question de cours qui a reçu des choix se corrige comme un QCM : on ne peut plus s'auto-évaluer (ADR 0051). */
+    @Test
+    @TestSecurity(user = "alice")
+    @OidcSecurity(claims = @Claim(key = "sub", value = "review-course-with-choices"))
+    void shouldGradeACourseQuestionOnItsChoicesAndRefuseASelfAssessment() {
+        contentImport.importFolder(
+                new SubjectFolder("""
+                subject: kotlin
+                title: Kotlin
+                category: languages
+                position: 930
+                status: published
+                """, Map.of("01-bases.yaml", """
+                        domain: bases
+                        title: Les bases
+                        position: 10
+                        chapters:
+                          - id: execution
+                            title: Exécution
+                            notions:
+                              - {id: compilation, title: "La compilation", level: beginner, priority: 1}
+                        """), Map.of("bases/compilation.yaml", """
+                        notion: compilation
+                        cards:
+                          - key: compile-ou-interprete
+                            format: course
+                            question: Kotlin sur la JVM est-il compilé ou interprété ?
+                            choices:
+                              - {text: Compilé, correct: false}
+                              - {text: Interprété, correct: false}
+                              - {text: Les deux, correct: true}
+                            answer: Compilé en bytecode, que la JVM interprète puis compile à la volée.
+                        """)));
+        String cardId = given().queryParam("subject", "kotlin")
+                .get(QUEUE)
+                .then()
+                .statusCode(200)
+                .body("cards[0].type", equalTo("FLASHCARD"))
+                .body("cards[0].choices", contains("Compilé", "Interprété", "Les deux"))
+                .body("cards[0].answer", nullValue())
+                .extract()
+                .path("cards[0].cardId");
+
+        record(UUID.randomUUID(), cardId, "GOOD").statusCode(422).body("code", equalTo("review.answer-mismatch"));
+        answer(UUID.randomUUID(), cardId, "[2]")
+                .statusCode(201)
+                .body("rating", equalTo("GOOD"))
+                .body("correction.correctChoices", contains(2))
+                .body("correction.explanation", containsString("bytecode"));
+    }
+
     /** Les deux cartes de la notion « val » (ADR 0031) : une par jour, la seconde attend le lendemain. */
     @Test
     @TestSecurity(user = "alice")

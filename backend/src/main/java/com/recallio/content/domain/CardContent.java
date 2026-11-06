@@ -19,10 +19,16 @@ public sealed interface CardContent {
     /** Le recto : ce qu'on montre avant de révéler la réponse. */
     String prompt();
 
-    /** Le verso : la réponse attendue ou la réponse modèle ; pour un QCM, l'explication montrée après la correction. */
+    /**
+     * Le verso : la réponse attendue ou la réponse modèle ; pour une carte à choix, l'explication montrée après la
+     * correction.
+     */
     String answer();
 
-    /** Les choix d'un QCM ; aucun pour les autres formats. */
+    /**
+     * Les choix d'une carte qui se corrige sur eux : ceux d'un QCM, « Vrai » et « Faux », ou ceux qu'a reçus une carte
+     * d'un autre format (ADR 0051) ; aucun pour une carte qui s'auto-évalue, un code à trous ou un exercice.
+     */
     default List<CardChoice> choices() {
         return List.of();
     }
@@ -51,26 +57,62 @@ public sealed interface CardContent {
         };
     }
 
-    record Flashcard(String prompt, String answer) implements CardContent {}
+    /**
+     * Une question de cours. Sans choix, elle s'auto-évalue ; avec, elle se corrige comme un QCM (ADR 0051), et
+     * {@code answer} devient l'explication. Il en va de même des autres formats qui reçoivent des choix.
+     */
+    record Flashcard(String prompt, String answer, List<CardChoice> choices) implements CardContent {
 
-    /** {@code prompt} contient le code (bloc Markdown) dont il faut prédire la sortie. */
-    record CodeOutput(String prompt, String answer) implements CardContent {}
+        public Flashcard {
+            choices = CardChoice.checkedIfAny(choices);
+        }
 
-    record OpenScenario(String prompt, String answer) implements CardContent {}
+        public Flashcard(String prompt, String answer) {
+            this(prompt, answer, List.of());
+        }
+    }
 
-    /** {@code prompt} est le terme, {@code answer} sa définition. */
-    record Definition(String prompt, String answer) implements CardContent {}
+    /** {@code prompt} contient le code (bloc Markdown) dont il faut prédire la sortie ; ses choix, des sorties. */
+    record CodeOutput(String prompt, String answer, List<CardChoice> choices) implements CardContent {
+
+        public CodeOutput {
+            choices = CardChoice.checkedIfAny(choices);
+        }
+
+        public CodeOutput(String prompt, String answer) {
+            this(prompt, answer, List.of());
+        }
+    }
+
+    /** Une mise en situation ; ses choix, des façons d'y répondre. */
+    record OpenScenario(String prompt, String answer, List<CardChoice> choices) implements CardContent {
+
+        public OpenScenario {
+            choices = CardChoice.checkedIfAny(choices);
+        }
+
+        public OpenScenario(String prompt, String answer) {
+            this(prompt, answer, List.of());
+        }
+    }
+
+    /** {@code prompt} est le terme, {@code answer} sa définition ; ses choix, des définitions. */
+    record Definition(String prompt, String answer, List<CardChoice> choices) implements CardContent {
+
+        public Definition {
+            choices = CardChoice.checkedIfAny(choices);
+        }
+
+        public Definition(String prompt, String answer) {
+            this(prompt, answer, List.of());
+        }
+    }
 
     /** Au moins deux choix, dont au moins un correct ; plusieurs peuvent l'être. */
     record MultipleChoice(String prompt, String answer, List<CardChoice> choices) implements CardContent {
 
         public MultipleChoice {
-            choices = List.copyOf(choices);
-            if (choices.size() < CardChoice.MIN_PER_CARD
-                    || choices.size() > CardChoice.MAX_PER_CARD
-                    || choices.stream().noneMatch(CardChoice::correct)) {
-                throw new IllegalArgumentException("Un QCM a de 2 à 8 choix, dont au moins un correct");
-            }
+            choices = CardChoice.checked(choices);
         }
     }
 
@@ -93,8 +135,20 @@ public sealed interface CardContent {
         }
     }
 
-    /** {@code prompt} contient le code bogué, {@code answer} le code corrigé et l'explication du bug. */
-    record BugFix(String prompt, String answer) implements CardContent {}
+    /**
+     * {@code prompt} contient le code bogué, {@code answer} le code corrigé et l'explication du bug ; ses choix, des
+     * corrections.
+     */
+    record BugFix(String prompt, String answer, List<CardChoice> choices) implements CardContent {
+
+        public BugFix {
+            choices = CardChoice.checkedIfAny(choices);
+        }
+
+        public BugFix(String prompt, String answer) {
+            this(prompt, answer, List.of());
+        }
+    }
 
     /**
      * Du code à trous (ADR 0027) : chaque {@link CardBlank#MARKER} de la question est un trou, dans l'ordre de
@@ -130,17 +184,26 @@ public sealed interface CardContent {
     }
 
     /**
-     * Un contenu sans choix, trous ni fichiers ; un QCM, un vrai ou faux, un code à trous ou un exercice se construit
-     * avec eux.
+     * Un contenu sans choix, trous ni fichiers : il s'auto-évalue. Un QCM, un vrai ou faux, un code à trous ou un
+     * exercice se construit avec eux.
      */
     static CardContent of(CardType type, String prompt, String answer) {
+        return of(type, prompt, answer, List.of());
+    }
+
+    /**
+     * Un contenu qui se corrige sur ses choix, ou qui s'auto-évalue s'il n'en a pas (ADR 0051).
+     *
+     * @throws IllegalArgumentException pour un format qui n'en reçoit pas, ou des choix invalides
+     */
+    static CardContent of(CardType type, String prompt, String answer, List<CardChoice> choices) {
         return switch (type) {
-            case FLASHCARD -> new Flashcard(prompt, answer);
-            case CODE_OUTPUT -> new CodeOutput(prompt, answer);
-            case OPEN_SCENARIO -> new OpenScenario(prompt, answer);
-            case DEFINITION -> new Definition(prompt, answer);
-            case BUG_FIX -> new BugFix(prompt, answer);
-            case MULTIPLE_CHOICE -> throw new IllegalArgumentException("Un QCM se construit avec ses choix");
+            case FLASHCARD -> new Flashcard(prompt, answer, choices);
+            case CODE_OUTPUT -> new CodeOutput(prompt, answer, choices);
+            case OPEN_SCENARIO -> new OpenScenario(prompt, answer, choices);
+            case DEFINITION -> new Definition(prompt, answer, choices);
+            case BUG_FIX -> new BugFix(prompt, answer, choices);
+            case MULTIPLE_CHOICE -> new MultipleChoice(prompt, answer, choices);
             case TRUE_FALSE -> throw new IllegalArgumentException("Un vrai ou faux se construit avec sa valeur");
             case FILL_IN -> throw new IllegalArgumentException("Un code à trous se construit avec ses trous");
             case CODING_EXERCISE -> throw new IllegalArgumentException("Un exercice se construit avec ses fichiers");

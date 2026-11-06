@@ -83,6 +83,7 @@ class ActivityRecorderTest {
                 "go",
                 CardType.CODING_EXERCISE,
                 true,
+                true,
                 Instant.parse("2026-10-29T08:00:00Z")));
 
         assertThat(ledger.entries)
@@ -92,7 +93,7 @@ class ActivityRecorderTest {
 
     private static CardReviewed reviewed(UserRef user, String at) {
         return new CardReviewed(
-                user, UUID.randomUUID(), UUID.randomUUID(), "java", CardType.FLASHCARD, true, Instant.parse(at));
+                user, UUID.randomUUID(), UUID.randomUUID(), "java", CardType.FLASHCARD, false, true, Instant.parse(at));
     }
 
     private record TestConfig() implements GamificationConfig {

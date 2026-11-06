@@ -5,12 +5,14 @@ import { AnswerVerdict } from '../components/AnswerVerdict'
 import { ChoiceOption } from '../components/ChoiceOption'
 import { choiceOutcome, toggleChoice } from '../components/choices'
 import { Markdown } from '../components/Markdown'
+import { useShuffledChoices } from '../components/useShuffledChoices'
 import { CardHeader } from './CardHeader'
 import { button } from '../components/ui/button'
 
 /**
- * Un QCM : on coche, on valide, et le serveur corrige (ADR 0019). La note n'est pas choisie : juste, la carte est
- * « retrouvée » ; fausse, elle est à revoir. La correction reste affichée jusqu'à ce qu'on passe à la suite.
+ * Une carte à choix (un QCM, un vrai ou faux, ou une carte d'un autre format qui a reçu des choix, ADR 0051) : on coche,
+ * on valide, et le serveur corrige (ADR 0019). La note n'est pas choisie : juste, la carte est « retrouvée » ; fausse,
+ * elle est à revoir. Les choix sont mélangés, et la correction reste affichée jusqu'à ce qu'on passe à la suite.
  */
 export function MultipleChoiceCard({
   card,
@@ -22,6 +24,7 @@ export function MultipleChoiceCard({
   const [shownAt] = useState(() => Date.now())
   const [requestId] = useState(() => crypto.randomUUID())
   const [selected, setSelected] = useState<number[]>([])
+  const choices = useShuffledChoices(card.cardId, card.choices)
   const record = useRecordReview()
   const result = record.data
 
@@ -47,10 +50,10 @@ export function MultipleChoiceCard({
           <legend className="mb-1 text-sm text-ink-muted">
             {card.multipleAnswers ? 'Plusieurs réponses possibles' : 'Une seule réponse'}
           </legend>
-          {card.choices.map((choice, index) => (
+          {choices.map(({ index, text }) => (
             <ChoiceOption
               key={index}
-              text={choice}
+              text={text}
               type={card.multipleAnswers ? 'checkbox' : 'radio'}
               checked={selected.includes(index)}
               onChange={() => toggle(index)}

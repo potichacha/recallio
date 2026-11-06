@@ -1,23 +1,15 @@
 package com.recallio.content.infrastructure.folder;
 
+import static com.recallio.content.infrastructure.folder.CodeOutputCards.lines;
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 import com.recallio.content.infrastructure.folder.FolderFiles.CardEntry;
 import com.recallio.content.infrastructure.folder.FolderFiles.CheckEntry;
-import com.recallio.content.infrastructure.folder.FolderFiles.NotionFile;
 import com.recallio.content.infrastructure.folder.SnippetRunner.Execution;
-import java.io.IOException;
-import java.io.UncheckedIOException;
-import java.nio.file.Path;
-import java.util.Map;
 import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import java.util.stream.Collectors;
 import java.util.stream.Stream;
-import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.parallel.ExecutionMode;
@@ -35,9 +27,6 @@ import org.junit.jupiter.params.provider.MethodSource;
  */
 class CodeOutputTest {
 
-    private static final Path CONTENT = Path.of("..", "content");
-    private static final ObjectMapper YAML = new ObjectMapper(new YAMLFactory());
-    private static final String CODE_OUTPUT = "code-output";
     /** Le premier bloc de code de la question : le code exécuté quand la vérification n'en donne pas. */
     private static final Pattern CODE_BLOCK = Pattern.compile("```(java|go)\\n(.*?)```", Pattern.DOTALL);
 
@@ -56,24 +45,12 @@ class CodeOutputTest {
 
     /** Les cartes Java : une seule JVM JShell pour toutes, qui ne se partage pas entre deux threads. */
     static Stream<Arguments> javaCards() {
-        return cards(false);
+        return CodeOutputCards.matching(card -> !isGo(card));
     }
 
     /** Les cartes Go : chacune se compile dans son propre dossier, et le cache de {@code go} se partage sans risque. */
     static Stream<Arguments> goCards() {
-        return cards(true);
-    }
-
-    private static Stream<Arguments> cards(boolean go) {
-        return SubjectFolders.in(CONTENT).stream().flatMap(folder -> {
-            Map<String, String> notions = SubjectFolders.read(folder).notions();
-            return notions.entrySet().stream()
-                    .sorted(Map.Entry.comparingByKey())
-                    .flatMap(file -> read(file.getValue()).cards().stream()
-                            .filter(card -> card.format().equals(CODE_OUTPUT) && isGo(card) == go)
-                            .map(card ->
-                                    Arguments.of(folder.getFileName() + "/" + file.getKey() + "#" + card.key(), card)));
-        });
+        return CodeOutputCards.matching(CodeOutputTest::isGo);
     }
 
     @ParameterizedTest(name = "{0}")
@@ -187,27 +164,5 @@ class CodeOutputTest {
                 .as("%s : la question n'a pas de bloc de code, la vérification doit donner son code", name)
                 .isTrue();
         return new Snippet(block.group(2), block.group(1).equals(GO));
-    }
-
-    /**
-     * La sortie aux fins de ligne près : {@code \r\n} comme {@code \n}, sans les espaces invisibles en fin de ligne, sans
-     * la dernière ligne vide.
-     */
-    private static String lines(@Nullable String output) {
-        return output == null
-                ? ""
-                : output.replace("\r\n", "\n")
-                        .lines()
-                        .map(String::stripTrailing)
-                        .collect(Collectors.joining("\n"))
-                        .stripTrailing();
-    }
-
-    private static NotionFile read(String content) {
-        try {
-            return YAML.readValue(content, NotionFile.class);
-        } catch (IOException e) {
-            throw new UncheckedIOException(e);
-        }
     }
 }

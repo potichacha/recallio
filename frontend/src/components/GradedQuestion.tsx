@@ -3,6 +3,7 @@ import { ChoiceOption } from './ChoiceOption'
 import { choiceOutcome, toggleChoice } from './choices'
 import type { AnswerDraft, GradedCorrection, GradedQuestionData } from './gradedAnswers'
 import { Markdown } from './Markdown'
+import { useShuffledChoices } from './useShuffledChoices'
 
 /** Une question à répondre, puis sa correction : le verdict de chaque choix ou de chaque trou, et l'explication. */
 export function GradedQuestion({
@@ -18,6 +19,7 @@ export function GradedQuestion({
   correction: GradedCorrection | undefined
   onChange: (draft: AnswerDraft) => void
 }) {
+  const choices = useShuffledChoices(question.cardId, question.choices)
   return (
     <fieldset className="flex flex-col gap-2">
       <legend className="text-sm font-medium text-ink-muted">{label}</legend>
@@ -58,11 +60,11 @@ export function GradedQuestion({
       ) : (
         <>
           <Markdown>{question.prompt}</Markdown>
-          {question.choices.map((choice, index) => (
+          {choices.map(({ index, text }) => (
             <ChoiceOption
               key={index}
               name={question.cardId}
-              text={choice}
+              text={text}
               type={question.multipleAnswers ? 'checkbox' : 'radio'}
               checked={draft.choices.includes(index)}
               onChange={() =>

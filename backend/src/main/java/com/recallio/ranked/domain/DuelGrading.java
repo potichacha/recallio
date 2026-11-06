@@ -36,7 +36,7 @@ public final class DuelGrading {
     /** @throws AnswerShapeException si la réponse ne convient pas au format de la carte */
     public static Correction grade(
             CardSnapshot card, @Nullable Set<Integer> selectedChoices, @Nullable List<String> filledBlanks) {
-        if (card.type().isGradedByChoices()) {
+        if (card.isGradedByChoices()) {
             if (selectedChoices == null || filledBlanks != null) {
                 throw new AnswerShapeException();
             }
