@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react'
 import { ApiError } from '../api/errors'
 import { useRecordReview, type QueuedCard, type Rating, type ReviewResult } from '../api/review'
 import { AnswerDraft, DraftEcho } from '../components/AnswerDraft'
-import { GRADED_BY_CHOICES } from '../components/cardTypeLabels'
 import { FlipCard } from '../components/FlipCard'
 import { Markdown } from '../components/Markdown'
 import { CardHeader } from './CardHeader'
@@ -32,8 +31,9 @@ const SELF_ASSESSMENTS: { rating: Rating; label: string; style: string; shortcut
 ]
 
 /**
- * Une carte à réviser : un QCM, un vrai ou faux ou un code à trous est corrigé par le serveur, un exercice de code
- * jugé par ses tests ; les autres formats s'auto-évaluent. La leçon de la notion, s'il faut la lire, passe avant.
+ * Une carte à réviser : une carte à choix (un QCM, un vrai ou faux, ou une carte d'un autre format qui en a reçu, ADR
+ * 0051) ou un code à trous est corrigé par le serveur, un exercice de code jugé par ses tests ; une carte qui n'a pas
+ * encore de choix s'auto-évalue. La leçon de la notion, s'il faut la lire, passe avant.
  */
 export function ReviewCard({
   card,
@@ -46,7 +46,7 @@ export function ReviewCard({
   if (card.lesson && !lessonRead) {
     return <LessonCard card={card} onRead={() => setLessonRead(true)} />
   }
-  if (GRADED_BY_CHOICES.has(card.type)) {
+  if (card.choices.length > 0) {
     return <MultipleChoiceCard card={card} onReviewed={onReviewed} />
   }
   if (card.type === 'FILL_IN') {

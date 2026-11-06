@@ -9,6 +9,7 @@ import {
 } from '../api/challenges'
 import { ApiError } from '../api/errors'
 import { ChoiceOption } from '../components/ChoiceOption'
+import { useShuffledChoices } from '../components/useShuffledChoices'
 import { choiceOutcome, toggleChoice } from '../components/choices'
 import { Markdown } from '../components/Markdown'
 import { useCountdown } from '../components/useCountdown'
@@ -127,6 +128,7 @@ function ChallengeCardPlay({
 }) {
   const remaining = useCountdown(card.remainingMs)
   const [selected, setSelected] = useState<number[]>([])
+  const choices = useShuffledChoices(`${challengeId}:${card.position}`, card.choices)
   const answer = useAnswerChallengeCard(challengeId)
   const result = answer.data
   const timeUp = remaining === 0 && !result && !answer.isPending
@@ -154,10 +156,10 @@ function ChallengeCardPlay({
           <legend className="mb-1 text-sm text-ink-muted">
             {card.multipleAnswers ? 'Plusieurs réponses possibles' : 'Une seule réponse'}
           </legend>
-          {card.choices.map((choice, index) => (
+          {choices.map(({ index, text }) => (
             <ChoiceOption
               key={index}
-              text={choice}
+              text={text}
               type={card.multipleAnswers ? 'checkbox' : 'radio'}
               checked={selected.includes(index)}
               onChange={() =>

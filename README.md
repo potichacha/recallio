@@ -9,8 +9,8 @@ Application web (PWA) de révision des entretiens techniques par répétition es
 - **Essayer sans compte** : cinq questions corrigées tout de suite, depuis l'accueil, avant de s'inscrire.
 - **Réviser** un catalogue de sujets (Java et Go publiés ; frameworks, cloud, données et fondamentaux en brouillon) en
   cartes de neuf formats, planifiées par FSRS : un sujet par session, pour la durée choisie, reprise d'un geste depuis
-  l'accueil. Les QCM, vrais ou faux, codes à compléter et exercices de code sont corrigés par le serveur ; les autres
-  cartes se retournent, au clic, au clavier ou d'un glissement, et l'on dit si l'on savait.
+  l'accueil. Chaque question se corrige : on choisit sa réponse parmi des choix mélangés, on complète le code, ou les
+  tests jugent l'exercice. Les cartes pas encore converties (ADR 0051) se retournent, et l'on dit si l'on savait.
 - **Apprendre** un langage dans le Tour, page par page, le cours d'un côté et le code de l'autre, en exécutant chaque
   exemple dans un bac à sable ; « Programmer de zéro » pour qui n'a jamais programmé.
 - **Se préparer** : la maîtrise notion par notion, l'indice de préparation, l'examen blanc chronométré.

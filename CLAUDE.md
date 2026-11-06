@@ -214,13 +214,13 @@ Chaque sujet a son document de référence, `content/source/<sujet>-entretien-re
 ### 5.3 Types de cartes
 | Type | Origine | Évaluation |
 |---|---|---|
-| `FLASHCARD` | questions techniques | auto-évaluation (voir 6.1) |
-| `CODE_OUTPUT` | questions pièges avec code (chapitre « qu'affiche ce code ? ») | auto-évaluation en V1 ; QCM généré ou saisie libre plus tard |
+| `FLASHCARD` | questions techniques | correction par le serveur sur ses choix (ADR 0051) ; auto-évaluation tant qu'elle n'en a pas (voir 6.1) |
+| `CODE_OUTPUT` | questions pièges avec code (chapitre « qu'affiche ce code ? ») | correction sur ses choix, dont la CI vérifie le bon (ADR 0051) ; auto-évaluation tant qu'il n'en a pas |
 | `MULTIPLE_CHOICE` | section `### QCM` des chapitres | correction automatique par le serveur (ADR 0019) |
-| `OPEN_SCENARIO` | questions de situation | rédaction libre puis comparaison avec la réponse modèle et auto-évaluation |
-| `DEFINITION` | glossaire | auto-évaluation |
+| `OPEN_SCENARIO` | questions de situation | correction sur ses choix (ADR 0051) ; sans eux, rédaction libre, comparaison avec la réponse modèle et auto-évaluation |
+| `DEFINITION` | glossaire | correction sur ses choix (ADR 0051) ; auto-évaluation tant qu'elle n'en a pas |
 | `TRUE_FALSE` | fichiers de notion (`true-false`) | correction automatique : un QCM à deux choix fixes (ADR 0027) |
-| `BUG_FIX` | fichiers de notion (`bug-fix`) | rédaction de la correction puis auto-évaluation, en attendant l'exécution (ADR 0027) |
+| `BUG_FIX` | fichiers de notion (`bug-fix`) | correction sur ses choix (ADR 0051) ; sans eux, rédaction de la correction puis auto-évaluation (ADR 0027) |
 | `FILL_IN` | fichiers de notion (`fill-in`) | correction automatique de chaque trou, aux espaces près (ADR 0027) |
 | `CODING_EXERCISE` | dossiers d'exercice (`exercices/`) | jugé par ses tests dans le bac à sable (ADR 0029, 0030) |
 
@@ -288,7 +288,8 @@ Les sujets s'ajoutent un par un, au rythme de la rédaction, indépendamment des
 ### 6.1 Révision
 - Une **session** propose les cartes **dues** (selon la planification) puis de nouvelles cartes, dans la limite d'un nombre quotidien de nouvelles cartes réglable.
 - Une session porte sur **un sujet**, pour une **durée** choisie (5, 10, 15 ou 20 minutes, ou sans limite), avec toutes les questions ou seulement celles que corrige le serveur (ADR 0048). La durée borne la session sans presser la réponse : la carte en cours n'est jamais coupée.
-- Pour une carte en auto-évaluation : l'utilisateur voit la question, réfléchit (ou écrit sa réponse), **retourne la carte**, puis répond **« Je savais »** ou **« Je ne savais pas »** : les notes Bien et À revoir de FSRS (ADR 0048 ; l'API accepte aussi Difficile et Facile). Au clavier, Espace retourne la carte, 1 et 2 répondent ; sur un écran tactile, on la glisse à droite si l'on savait, à gauche sinon (ADR 0050).
+- **Chaque question se corrige** : on choisit parmi des réponses propres à la carte, mélangées à chaque affichage, et le serveur corrige ; juste, la carte est retrouvée (Bien), fausse, elle est à revoir (ADR 0051). Personne ne se note soi-même.
+- Le temps de la migration (ADR 0051), une carte qui n'a pas encore ses choix s'auto-évalue : l'utilisateur voit la question, réfléchit (ou écrit sa réponse), **retourne la carte**, puis répond **« Je savais »** ou **« Je ne savais pas »** : les notes Bien et À revoir de FSRS (ADR 0048 ; l'API accepte aussi Difficile et Facile). Au clavier, Espace retourne la carte, 1 et 2 répondent ; sur un écran tactile, on la glisse à droite si l'on savait, à gauche sinon (ADR 0050).
 - Les cartes proposées viennent des **sujets suivis** par l'utilisateur ; filtrage possible par sujet, par thème (chapitre) et par type de carte.
 - Le quota quotidien de nouvelles cartes est **propre à chaque sujet** (ADR 0048) : finir sa session de Java ne prive pas Go de ses nouvelles cartes. Dans un sujet, les cartes dues passent toujours en premier.
 - Une seule carte d'une même notion par jour : ses sœurs attendent le lendemain, sans que leur état FSRS change (ADR 0031).
@@ -510,6 +511,10 @@ Le propriétaire a testé l'application en local avant de la déployer ; ses ret
    9. ✅ **Accessibilité et performances** contrôlées en CI : axe-core dans les parcours de bout en bout, la compression par nginx, un budget de 300 Ko pour le JavaScript de l'ouverture.
    10. ✅ **Mesure de la rétention** à 1, 7 et 30 jours, sur une page des admins.
 3. ✅ **Sujets en brouillon** : les 19 sujets sortis du document Java ne sont visibles que des admins jusqu'à leur réécriture en dossiers de notions (ADR 0050).
+4. **Des choix pour toutes les questions** (ADR 0051) : le serveur corrige chaque carte, plus d'auto-évaluation.
+   1. ✅ **Pilote** : les choix sur tous les formats, mélangés à l'affichage, vérifiés en CI pour le code ; « Programmer de zéro » et le chapitre Java « Premiers pas » convertis.
+   2. **Java** : toutes les cartes à convertir, au tutoiement.
+   3. **Go**, puis la fin de l'auto-évaluation : choix obligatoires, mode « questions corrigées » retiré, défis, live, duels et examen blanc ouverts à tous les formats.
 
 Le **déploiement** (phase 1, étape 7) vient après ces phases.
 

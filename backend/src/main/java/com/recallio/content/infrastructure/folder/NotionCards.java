@@ -104,8 +104,12 @@ final class NotionCards {
             return "question ou réponse vide";
         }
         CardType type = SUPPORTED.get(card.format());
-        if ((type == CardType.MULTIPLE_CHOICE) != (card.choices() != null)) {
-            return type == CardType.MULTIPLE_CHOICE ? "un QCM a besoin de ses choix" : "seul un QCM a des choix";
+        if (type == CardType.MULTIPLE_CHOICE && card.choices() == null) {
+            return "un QCM a besoin de ses choix";
+        }
+        if (card.choices() != null && (type == CardType.TRUE_FALSE || type == CardType.FILL_IN)) {
+            return "un vrai ou faux ou un code à trous n'a pas de choix : sa réponse est sa valeur (truth) ou ses"
+                    + " trous (blanks)";
         }
         if ((type == CardType.TRUE_FALSE) != (card.truth() != null)) {
             return type == CardType.TRUE_FALSE
@@ -154,19 +158,20 @@ final class NotionCards {
         if (truth != null) {
             return new CardContent.TrueFalse(question, answer, truth);
         }
-        List<ChoiceEntry> choices = card.choices();
-        if (choices != null) {
-            return new CardContent.MultipleChoice(
-                    question,
-                    answer,
-                    choices.stream()
-                            .map(choice -> new CardChoice(choice.text().strip(), choice.correct()))
-                            .toList());
-        }
         CardType type = SUPPORTED.get(card.format());
         if (type == null) {
             throw new IllegalArgumentException("format non pris en charge : " + card.format());
         }
-        return CardContent.of(type, question, answer);
+        // Une carte d'un autre format que le QCM peut recevoir des choix : elle se corrige alors comme lui (ADR 0051).
+        List<ChoiceEntry> choices = card.choices();
+        return CardContent.of(
+                type,
+                question,
+                answer,
+                choices == null
+                        ? List.of()
+                        : choices.stream()
+                                .map(choice -> new CardChoice(choice.text().strip(), choice.correct()))
+                                .toList());
     }
 }

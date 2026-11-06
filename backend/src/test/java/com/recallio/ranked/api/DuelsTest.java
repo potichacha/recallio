@@ -330,8 +330,15 @@ class DuelsTest {
 
     private void review(UUID cardId, CardType type, boolean recalled) {
         QuarkusTransaction.requiringNew()
-                .run(() -> reviewed.fire(
-                        new CardReviewed(player(), UUID.randomUUID(), cardId, SUBJECT, type, recalled, Instant.now())));
+                .run(() -> reviewed.fire(new CardReviewed(
+                        player(),
+                        UUID.randomUUID(),
+                        cardId,
+                        SUBJECT,
+                        type,
+                        type.isGradedByServer(),
+                        recalled,
+                        Instant.now())));
     }
 
     private Optional<Double> cardRating(UUID cardId) {

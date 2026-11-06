@@ -328,7 +328,7 @@ public class JpaCardDirectory implements CardDirectory {
         return column == null ? List.of() : (List<CardBlank>) column;
     }
 
-    /** La colonne JSON {@code choices}, lue par Hibernate dans le type de l'attribut ; absente hors QCM. */
+    /** La colonne JSON {@code choices}, lue par Hibernate dans le type de l'attribut ; absente sans choix. */
     @SuppressWarnings("unchecked")
     static List<CardChoice> choices(@Nullable Object column) {
         return column == null ? List.of() : (List<CardChoice>) column;

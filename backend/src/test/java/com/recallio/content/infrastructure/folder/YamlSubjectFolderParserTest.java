@@ -360,6 +360,8 @@ class YamlSubjectFolderParserTest {
                   - {key: inconnu, format: quiz, question: "Q ?", answer: "R."}
                   - {key: qcm-sans-choix, format: multiple-choice, question: "Q ?", answer: "R."}
                   - {key: qcm-un-choix, format: multiple-choice, question: "Q ?", answer: "R.", choices: [{text: a, correct: true}]}
+                  - {key: choix-sur-vrai-faux, format: true-false, question: "Q ?", answer: "R.", truth: true, choices: [{text: a, correct: true}, {text: b, correct: false}]}
+                  - {key: choix-en-double, format: course, question: "Q ?", answer: "R.", choices: [{text: a, correct: true}, {text: a, correct: false}]}
                   - {key: vide, format: course, question: " ", answer: "R."}
                   - {key: verification-hors-format, format: course, question: "Q ?", answer: "R.", check: {output: "1"}}
                   - {key: verification-et-raison, format: code-output, question: "Q ?", answer: "R.", check: {output: "1"}, unverifiable: threads}
@@ -385,6 +387,8 @@ class YamlSubjectFolderParserTest {
                         "inconnu",
                         "qcm-sans-choix",
                         "qcm-un-choix",
+                        "choix-sur-vrai-faux",
+                        "choix-en-double",
                         "vide",
                         "verification-hors-format",
                         "verification-et-raison",
@@ -392,6 +396,44 @@ class YamlSubjectFolderParserTest {
                         "compile-et-affiche");
         assertThat(parsed.issues().get(2).reason())
                 .contains("son propre dossier : exercices/api-de-base/string-bases/");
+    }
+
+    @Test
+    void shouldGradeACardOfAnotherFormatOnTheChoicesItReceives() {
+        String notion = """
+                notion: string-bases
+                cards:
+                  - key: cours
+                    format: course
+                    question: Java est-il compilé ou interprété ?
+                    choices:
+                      - {text: Compilé, correct: false}
+                      - {text: Interprété, correct: false}
+                      - {text: Les deux, correct: true}
+                    answer: Compilé en bytecode par javac, puis interprété et compilé à la volée par la JVM.
+                  - key: situation
+                    format: scenario
+                    question: Ton programme échoue sur le serveur avec `UnsupportedClassVersionError`. Pourquoi ?
+                    choices:
+                      - {text: Il vise une version de Java plus récente que celle du serveur., correct: true}
+                      - {text: Une classe manque au classpath., correct: false}
+                    answer: Le bytecode a été produit pour une JVM plus récente.
+                  - {key: pas-encore, format: course, question: "Qu'est-ce qu'une chaîne ?", answer: "Une suite de caractères."}
+                """;
+
+        var cards = parse(Map.of("api-de-base/string-bases.yaml", notion))
+                .themes()
+                .getFirst()
+                .cards();
+
+        assertThat(cards.get(0).content()).isInstanceOf(CardContent.Flashcard.class);
+        assertThat(cards.get(0).content().choices())
+                .extracting(CardChoice::correct)
+                .containsExactly(false, false, true);
+        assertThat(cards.get(1).content().type()).isEqualTo(CardType.OPEN_SCENARIO);
+        assertThat(cards.get(1).content().choices()).hasSize(2);
+        // Une carte qui n'a pas encore reçu de choix s'auto-évalue, le temps de la migration (ADR 0051).
+        assertThat(cards.get(2).content().choices()).isEmpty();
     }
 
     @Test

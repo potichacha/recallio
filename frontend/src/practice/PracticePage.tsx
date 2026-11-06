@@ -7,7 +7,12 @@ import { AnswerDraft, DraftEcho } from '../components/AnswerDraft'
 import { CARD_TYPE_LABELS } from '../components/cardTypeLabels'
 import { FlipCard } from '../components/FlipCard'
 import { GradedQuestion } from '../components/GradedQuestion'
-import { emptyDraft, isDraftComplete, toGradedAnswer } from '../components/gradedAnswers'
+import {
+  emptyDraft,
+  isAnsweredOnServer,
+  isDraftComplete,
+  toGradedAnswer,
+} from '../components/gradedAnswers'
 import { Markdown } from '../components/Markdown'
 import { ReportButton } from '../components/ReportButton'
 import { ExerciseEditor } from '../review/ExerciseEditor'
@@ -17,13 +22,6 @@ import { button } from '../components/ui/button'
 const CARD_STYLE = 'flex flex-col gap-4 rounded-xl border border-line bg-surface p-5 shadow-sm'
 const PRIMARY = `self-start ${button()}`
 const SECONDARY = `self-start ${button({ variant: 'secondary' })}`
-
-/** Les formats que le serveur corrige d'après la réponse : des choix cochés ou des trous remplis. */
-const ANSWERED_FORMATS: ReadonlySet<PracticeCard['type']> = new Set([
-  'TRUE_FALSE',
-  'MULTIPLE_CHOICE',
-  'FILL_IN',
-])
 
 /** Une carte passée : juste ou non quand le serveur l'a corrigée, `undefined` quand elle s'auto-évalue. */
 type Outcome = boolean | undefined
@@ -140,14 +138,14 @@ function PracticeCardView({
   card: PracticeCard
   onNext: (outcome: Outcome) => void
 }) {
-  if (ANSWERED_FORMATS.has(card.type)) {
+  if (isAnsweredOnServer(card)) {
     return <AnsweredCard subject={subject} notion={notion} card={card} onNext={onNext} />
   }
   if (card.type === 'CODING_EXERCISE') return <ExerciseTry card={card} onNext={onNext} />
   return <SelfAssessedCard card={card} onNext={onNext} />
 }
 
-/** Un vrai ou faux, un QCM ou un code à trous : le serveur corrige, sans rien enregistrer. */
+/** Une carte à choix ou un code à trous : le serveur corrige, sans rien enregistrer. */
 function AnsweredCard({
   subject,
   notion,

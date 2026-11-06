@@ -100,8 +100,8 @@ public final class CardIdentity {
 
     /**
      * Empreinte exacte du contenu : toute modification du texte (même de forme) crée une nouvelle version. Les choix
-     * d'un QCM, les trous d'un code à trous et les fichiers d'un exercice en font partie ; les autres formats n'en ont pas, et leur empreinte ne
-     * change pas.
+     * d'une carte, les trous d'un code à trous et les fichiers d'un exercice en font partie : donner des choix à une
+     * carte qui s'auto-évaluait en crée une nouvelle version (ADR 0051).
      */
     public static String contentHash(CardContent content) {
         StringBuilder canonical = new StringBuilder()

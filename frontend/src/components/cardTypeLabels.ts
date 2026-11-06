@@ -13,12 +13,10 @@ export const CARD_TYPE_LABELS: Record<CardType, string> = {
   CODING_EXERCISE: 'Exercice de code',
 }
 
-/** Les formats corrigés par le serveur d'après les choix cochés (ADR 0019, 0027) ; les autres s'auto-évaluent. */
-export const GRADED_BY_CHOICES: ReadonlySet<CardType> = new Set(['MULTIPLE_CHOICE', 'TRUE_FALSE'])
-
 /**
- * Tous les formats que le serveur corrige : des choix cochés, des trous remplis, ou des tests qui passent. Ce sont ceux
- * du mode « questions corrigées » d'une session (ADR 0048).
+ * Les formats que le serveur corrige toujours : des choix cochés, des trous remplis, ou des tests qui passent. Ce sont
+ * ceux du mode « questions corrigées » d'une session (ADR 0048) ; les cartes des autres formats qui ont reçu des choix
+ * (ADR 0051) le rejoindront à la fin de la migration.
  */
 export const SERVER_GRADED_TYPES: readonly CardType[] = [
   'MULTIPLE_CHOICE',

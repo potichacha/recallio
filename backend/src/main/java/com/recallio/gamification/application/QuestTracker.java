@@ -58,7 +58,7 @@ public class QuestTracker {
         LocalDate week = QuestPeriod.WEEK.start(day);
         List<QuestEvent> happened = new ArrayList<>();
         happened.add(QuestEvent.REVIEW);
-        if (event.recalled() && event.cardType().isGradedByServer()) {
+        if (event.recalled() && event.gradedByServer()) {
             happened.add(QuestEvent.VERIFIED_SUCCESS);
         }
         if (CODE_FORMATS.contains(event.cardType())) {

@@ -103,7 +103,8 @@ public interface CardDirectory {
     /**
      * Une carte dans sa version courante : {@code versionId} est l'identifiant de la version révisée.
      *
-     * @param choices les choix d'un QCM, dans l'ordre de la source ; aucun pour les autres formats
+     * @param choices les choix de la carte, dans l'ordre de la source ; aucun pour une carte qui ne se corrige pas sur
+     *     eux
      * @param blanks les trous d'un code à trous, dans l'ordre de la question ; aucun pour les autres formats
      * @param notionTitle le titre de la notion de la carte ; {@code null} pour une carte d'un document Markdown
      * @param lesson la leçon de cette notion, en Markdown ; {@code null} si elle n'en a pas encore
@@ -155,6 +156,19 @@ public interface CardDirectory {
         /** Une réponse à un QCM est juste si elle coche toutes les bonnes réponses, et elles seules. */
         public boolean isCorrectSelection(Set<Integer> selected) {
             return selected.equals(correctChoices());
+        }
+
+        /**
+         * Vrai si la carte se corrige sur ses choix : un QCM, un vrai ou faux, ou une carte d'un autre format qui en a
+         * reçu (ADR 0051). Sans eux, une question de cours, un code, un bug ou une situation s'auto-évalue.
+         */
+        public boolean isGradedByChoices() {
+            return !choices.isEmpty();
+        }
+
+        /** Vrai si le serveur corrige la réponse : sur ses choix, ses trous, ou les tests d'un exercice (ADR 0035). */
+        public boolean isGradedByServer() {
+            return isGradedByChoices() || type.isGradedByServer();
         }
     }
 }

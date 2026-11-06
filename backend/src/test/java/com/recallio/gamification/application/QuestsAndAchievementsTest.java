@@ -176,7 +176,14 @@ class QuestsAndAchievementsTest {
     private void review(UserRef user, String subject, CardType type, boolean recalled) {
         QuarkusTransaction.requiringNew()
                 .run(() -> cardReviewed.fire(new CardReviewed(
-                        user, UUID.randomUUID(), UUID.randomUUID(), subject, type, recalled, clock.instant())));
+                        user,
+                        UUID.randomUUID(),
+                        UUID.randomUUID(),
+                        subject,
+                        type,
+                        type.isGradedByServer(),
+                        recalled,
+                        clock.instant())));
     }
 
     private void openPage(UserRef user, int page) {

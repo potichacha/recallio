@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test'
 import { followSubjects, signIn, USERS } from './support/auth'
 
 test.describe('Session de révision', () => {
+  // Go n'a pas encore reçu ses choix (ADR 0051) : ses premières cartes s'auto-évaluent encore.
   test('reviews one subject for a chosen length, flipping self-assessed cards @mobile', async ({
     page,
   }) => {
@@ -10,15 +11,15 @@ test.describe('Session de révision', () => {
     await page.goto('/review')
 
     // Un sujet à la fois, pour une durée choisie (ADR 0048).
-    await page.getByRole('group', { name: 'Sujet' }).getByText('Java', { exact: true }).click()
+    await page.getByRole('group', { name: 'Sujet' }).getByText('Go', { exact: true }).click()
     await page.getByRole('group', { name: 'Durée' }).getByText('5 min', { exact: true }).click()
     await page.getByRole('button', { name: 'Commencer' }).click()
-    await expect(page.getByRole('heading', { name: 'Réviser : Java' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Réviser : Go' })).toBeVisible()
     await expect(page.getByRole('timer', { name: 'Temps restant' })).toHaveText('Encore 5 min')
 
     const answers = page.getByRole('group', { name: 'Connaissais-tu la réponse ?' })
     for (const [index, answer] of ['Je savais', 'Je ne savais pas'].entries()) {
-      await expect(page.locator('article header')).toContainText('Java ·')
+      await expect(page.locator('article header')).toContainText('Go ·')
       await page.getByRole('button', { name: 'Voir la réponse' }).click()
       await answers.getByRole('button', { name: answer }).click()
       await expect(
@@ -37,7 +38,7 @@ test.describe('Session de révision', () => {
     await expect(page.getByLabel(/Série : \d+ jours?/)).toBeVisible()
   })
 
-  test('reviews a single theme from its page', async ({ page }) => {
+  test('reviews a single theme from its page, answering by choosing (ADR 0051)', async ({ page }) => {
     await signIn(page, USERS.bob, '/subjects')
     await page
       .getByRole('region', { name: 'Langages' })
@@ -50,8 +51,13 @@ test.describe('Session de révision', () => {
     await expect(page).toHaveURL(/\/review\?theme=/)
     // L'URL change avant l'affichage de la page : on attend la page de révision elle-même.
     await expect(page.getByRole('heading', { name: 'Réviser', exact: true })).toBeVisible()
-    await expect(page.locator('article header')).toContainText('Bases du langage')
-    await page.getByRole('button', { name: 'Voir la réponse' }).click()
-    await expect(page.getByRole('group', { name: 'Connaissais-tu la réponse ?' })).toBeVisible()
+    const card = page.locator('article').first()
+    await expect(card.locator('header')).toContainText('Bases du langage')
+    // Les cartes de « Premiers pas » ont leurs choix : plus de carte à retourner ni d'auto-évaluation.
+    await expect(card.getByRole('button', { name: 'Voir la réponse' })).toHaveCount(0)
+    await card.getByRole('radio').or(card.getByRole('checkbox')).first().check()
+    await card.getByRole('button', { name: 'Valider' }).click()
+    await expect(card.getByRole('status')).toHaveText(/Bonne réponse|Pas tout à fait/)
+    await expect(card.getByRole('button', { name: 'Carte suivante' })).toBeVisible()
   })
 })

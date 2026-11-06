@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { followSubjects, signIn, USERS } from './support/auth'
+import { answerCard } from './support/review'
 
 /** L'objectif quotidien vaut 3 cartes dans la pile de test (infra/compose.e2e.yaml). */
 const DAILY_GOAL = 3
@@ -13,11 +14,7 @@ test.describe('Streak', () => {
 
     const reached = page.getByRole('status').filter({ hasText: 'Objectif atteint' })
     for (let review = 0; review < DAILY_GOAL && !(await reached.isVisible()); review++) {
-      await page.getByRole('button', { name: 'Voir la réponse' }).click()
-      await page
-        .getByRole('group', { name: 'Connaissais-tu la réponse ?' })
-        .getByRole('button', { name: 'Je savais' })
-        .click()
+      await answerCard(page)
       await expect(page.getByText(/\d+ cartes? révisées?/)).toContainText(String(review + 1))
     }
 

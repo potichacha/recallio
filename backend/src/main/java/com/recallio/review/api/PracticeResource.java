@@ -112,15 +112,15 @@ public class PracticeResource {
             @Schema(description = "Recto, en Markdown") String prompt,
 
             @Schema(
-                    description = "Verso, en Markdown ; absent pour un format corrigé par le serveur (vrai ou faux,"
-                            + " QCM, code à trous, exercice), dont l'explication arrive avec la correction",
+                    description = "Verso, en Markdown ; absent pour une carte corrigée par le serveur (une carte à"
+                            + " choix, un code à trous, un exercice), dont l'explication arrive avec la correction",
                     nullable = true)
             @Nullable
             String answer,
 
             @Schema(
-                    description =
-                            "Les choix d'un QCM ou d'un vrai ou faux, sans dire lesquels sont justes ; vide sinon")
+                    description = "Les choix de la carte, sans dire lesquels sont justes ; vide pour une carte qui"
+                            + " s'auto-évalue, un code à trous ou un exercice (ADR 0051)")
             List<String> choices,
 
             @Schema(description = "Vrai si plusieurs choix sont justes")
@@ -140,7 +140,7 @@ public class PracticeResource {
                     card.cardId(),
                     card.type(),
                     card.prompt(),
-                    card.type().isGradedByServer() ? null : card.answer(),
+                    card.isGradedByServer() ? null : card.answer(),
                     card.choices().stream().map(CardChoice::text).toList(),
                     card.correctChoices().size() > 1,
                     card.blanks().size(),

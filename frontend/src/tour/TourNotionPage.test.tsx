@@ -342,4 +342,48 @@ describe('TourNotionPage', () => {
       'Sa valeur zéro : 0.',
     )
   })
+
+  it('lets the reader choose the answer to a course question, graded by the server', async () => {
+    const fetchMock = stubApi({
+      ...SIGNED_IN_API,
+      ...TOUR_API,
+      '/api/v1/me/practice/go/valeur-zero': {
+        body: {
+          notionTitle: 'La valeur zéro',
+          cards: [
+            {
+              cardId: 'c1',
+              type: 'FLASHCARD',
+              prompt: 'Que vaut un `int` jamais affecté ?',
+              answer: null,
+              choices: ['`0`', '`nil`', 'Rien : le code ne compile pas'],
+              multipleAnswers: false,
+              blankCount: 0,
+              exercise: null,
+            },
+          ],
+        },
+      },
+      'POST /api/v1/me/practice/go/valeur-zero/checks': {
+        body: {
+          cardId: 'c1',
+          correct: true,
+          correctChoices: [0],
+          blanks: [],
+          explanation: 'Sa valeur zéro.',
+        },
+      },
+    })
+    renderAt('/subjects/go/tour/valeur-zero', signedIn())
+
+    const test = await screen.findByRole('region', { name: 'Teste-toi' })
+    expect(within(test).queryByRole('button', { name: 'Voir la réponse' })).not.toBeInTheDocument()
+    await userEvent.click(within(test).getByRole('radio', { name: '0' }))
+    await userEvent.click(within(test).getByRole('button', { name: 'Vérifier' }))
+
+    expect(await within(test).findByText('Juste !')).toBeInTheDocument()
+    const post = sentRequests(fetchMock).find((request) => request.method === 'POST')
+    const body = await post?.json()
+    expect(body.selectedChoices).toEqual([0])
+  })
 })

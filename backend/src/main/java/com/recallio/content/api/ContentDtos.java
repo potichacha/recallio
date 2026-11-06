@@ -100,10 +100,12 @@ final class ContentDtos {
             CardType type,
             @Schema(description = "Recto, en Markdown") String prompt,
 
-            @Schema(description = "Verso, en Markdown ; pour un QCM, l'explication")
+            @Schema(description = "Verso, en Markdown ; pour une carte à choix, l'explication")
             String answer,
 
-            @Schema(description = "Les choix d'un QCM, bonnes réponses marquées ; vide pour les autres formats")
+            @Schema(
+                    description = "Les choix de la carte, bonnes réponses marquées ; vide pour une carte qui"
+                            + " s'auto-évalue, un code à trous ou un exercice (ADR 0051)")
             List<ChoiceDto> choices,
 
             @Schema(

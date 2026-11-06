@@ -107,7 +107,14 @@ public class ReviewRecordingService {
         states.save(user.id(), card.cardId(), next);
         // Seulement pour une réponse nouvelle : une requête rejouée ne rapporte rien une seconde fois.
         cardReviewed.fire(new CardReviewed(
-                user, entry.id(), card.cardId(), card.subjectSlug(), card.type(), rating.isRecalled(), now));
+                user,
+                entry.id(),
+                card.cardId(),
+                card.subjectSlug(),
+                card.type(),
+                card.isGradedByServer(),
+                rating.isRecalled(),
+                now));
         return ReviewOutcome.of(entry, false, correction);
     }
 
@@ -122,7 +129,7 @@ public class ReviewRecordingService {
         List<String> filled = command.filledBlanks();
         ExerciseRun run = command.exerciseRun();
         Rating chosen = command.rating();
-        if (card.type().isGradedByChoices()) {
+        if (card.isGradedByChoices()) {
             if (selected == null || chosen != null || filled != null || run != null) {
                 throw AnswerMismatchException.choicesExpected();
             }
@@ -155,7 +162,7 @@ public class ReviewRecordingService {
      * enregistrée. À appeler après {@link #rating}, qui vérifie la forme de la réponse.
      */
     private static @Nullable Correction correction(CardSnapshot card, RecordReview command) {
-        if (card.type().isGradedByChoices()) {
+        if (card.isGradedByChoices()) {
             return new Correction(card.correctChoices(), List.of(), card.answer(), null, List.of());
         }
         ExerciseRun run = command.exerciseRun();

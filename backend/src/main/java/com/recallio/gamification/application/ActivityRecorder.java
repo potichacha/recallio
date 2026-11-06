@@ -38,7 +38,7 @@ public class ActivityRecorder {
         // « Le jour » est celui du fuseau de l'utilisateur, pas celui du serveur (CLAUDE.md, section 4.3).
         LocalDate day = LocalDate.ofInstant(event.reviewedAt(), event.user().timezone());
         int cardsToday = activity.recordReview(event.user().id(), day, rules.dailyGoal());
-        var card = new ReviewedCard(event.subjectSlug(), event.cardType(), event.recalled());
+        var card = new ReviewedCard(event.subjectSlug(), event.cardType(), event.gradedByServer(), event.recalled());
         for (XpAward award : rules.awardsFor(card, cardsToday)) {
             ledger.append(new XpEntry(
                     idGenerator.newId(),

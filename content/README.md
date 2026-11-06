@@ -251,7 +251,11 @@ cards:
   - key: emplacement-du-pool        # définitive : la progression s'y rattache
     format: course
     question: Où se trouve le pool de chaînes ?
-    answer: Dans le tas (heap) depuis Java 7.
+    choices:                        # ADR 0051 : chaque question se corrige sur ses choix
+      - {text: "Dans le tas (heap)", correct: true}
+      - {text: "Dans la pile du thread", correct: false}
+      - {text: "Dans le Metaspace", correct: false}
+    answer: Dans le tas (heap) depuis Java 7 ; avant, dans la PermGen.   # l'explication, après la correction
   - key: comparer-deux-chaines
     format: multiple-choice
     question: Comment tester que deux chaînes ont le même contenu ?
@@ -265,6 +269,33 @@ cards:
   question et la réponse librement : la carte et la progression restent. Changer la clé crée une autre carte.
 - **Formats acceptés dans un fichier de notion** : `course`, `multiple-choice`, `code-output`, `scenario`, `definition`,
   `true-false`, `bug-fix`, `fill-in`. Les exercices de code (`exercise`) ont leur propre dossier (ci-dessous).
+- **Des choix pour chaque question** (ADR 0051) : une carte `course`, `definition`, `code-output`, `bug-fix` ou
+  `scenario` a des `choices`, écrits comme ceux d'un QCM. Le serveur la corrige : personne ne se note soi-même. Sa
+  réponse (`answer`) devient l'explication, montrée après la correction. Le temps de la migration, une carte qui n'a pas
+  encore ses choix s'auto-évalue. Pour de bons choix :
+  - **De 2 à 8 choix**, le plus souvent 3 ou 4, jamais deux fois le même texte (la CI le refuse).
+  - **Une seule réponse défendable**. Quand plusieurs sont justes, la question le dit (« Lesquelles... ? ») et chacune
+    est marquée `correct: true`.
+  - **Les mauvais choix sont des erreurs qu'on fait vraiment** : la confusion `print` / `println`, l'indice qui commence
+    à 1, la concaténation prise pour une addition. Pas de choix absurde, ni « toutes les réponses ci-dessus ».
+  - **Des choix de même forme et de longueur voisine** : le bon ne doit pas se repérer à ce qu'il est le plus long ou le
+    seul précis.
+  - **L'ordre n'a pas d'importance** : l'application mélange les choix à chaque affichage. Un vrai ou faux garde l'ordre
+    Vrai, Faux.
+  - **La question se comprend seule** et finit par une vraie question : « Pourquoi ? », « Que lui réponds-tu ? »,
+    « Quelle correction est la bonne ? ». Elle tutoie, comme toute l'application (ADR 0050) : « Complète », « Ton
+    collègue », jamais « Complétez » ni « vous ».
+  - **L'explication dit pourquoi** le bon choix est juste et, si possible, pourquoi l'erreur la plus tentante est fausse.
+  - Un choix sur plusieurs lignes (une sortie, un morceau de code) s'écrit en bloc :
+    ```yaml
+    choices:
+      - text: |-
+          ```
+          AB
+          C
+          ```
+        correct: true
+    ```
 - **Exercice de code** (`exercise`, ADR 0029) : un dossier `exercices/<domaine>/<notion>/<clé>/`, à côté de `notions/` :
   ```
   exercices/collections/choisir-collection/sans-doublons/
@@ -293,8 +324,9 @@ cards:
 - **Vrai ou faux** (`true-false`, ADR 0027) : la question est une affirmation, `truth: true` ou `truth: false` dit si
   elle est vraie, la réponse explique pourquoi. Le serveur corrige. Une affirmation sans ambiguïté : pas de « toujours »
   ni de « jamais » qui souffrent d'exceptions, pas de double négation.
-- **Bug à corriger** (`bug-fix`) : la question montre le code bogué (et le symptôme), la réponse donne le code corrigé
-  puis l'explication. Auto-évalué tant que le code n'est pas exécuté.
+- **Bug à corriger** (`bug-fix`) : la question montre le code bogué (et le symptôme), et demande la cause (« Pourquoi ? »)
+  ou la correction (« Quelle correction est la bonne ? ») ; ses choix sont des causes ou des corrections. La réponse
+  donne le code corrigé puis l'explication.
 - **Compléter le code** (`fill-in`) : chaque `___` de la question est un trou ; `blanks` liste, dans l'ordre, les
   réponses acceptées par chaque trou (`blanks: [[equals], [compareTo, compareToIgnoreCase]]`). Le serveur corrige, aux
   espaces près, en respectant la casse. Prévoir toutes les variantes justes ; un trou porte sur un mot-clé, une méthode
@@ -331,6 +363,11 @@ cards:
     `main`. Une sortie concurrente reste déterministe (résultats rangés par indice, sommes, `WaitGroup`) ; l'ordre
     d'une `map` affichée par `fmt` est trié, mais pas celui d'un `range`.
   - `./mvnw test -Dtest='CodeOutputTest'` exécute toutes ces cartes, comme la CI.
+  - **Ses choix** (ADR 0051) : le bon est la sortie de `check`, écrite comme du code (`` `123` ``, ou un bloc pour
+    plusieurs lignes), et aucun autre choix n'affiche la même chose. Pour une exception, le bon choix la nomme (« Une
+    `NullPointerException` ») ; pour une panic Go, il dit « panic » ; pour un code qui ne compile pas, il le dit
+    (« Ça ne compile pas ») ; pour un code qui n'affiche rien, il dit « Rien ». `./mvnw test
+    -Dtest='CodeOutputChoicesTest'` le vérifie, sans rien exécuter.
 - En YAML, une valeur qui contient « : » (la typographie française en met partout) doit être entre guillemets, ou
   écrite en bloc `|-`.
 - Un format exclu par le référentiel pour la notion (`formats`) est refusé.
@@ -396,6 +433,8 @@ tour:
 - [ ] Chaque chapitre a ses sections, et au moins une question.
 - [ ] Les questions techniques ont une réponse courte, les questions de situation une réponse rédigée.
 - [ ] Chaque QCM a de 2 à 8 choix, au moins une bonne réponse et une explication.
+- [ ] Dans un dossier de sujet, chaque carte (sauf vrai ou faux et code à trous) a ses choix, avec une seule réponse
+      défendable, et sa question tutoie (ADR 0051).
 - [ ] Chaque bloc de code indique son langage ; le code des questions pièges a été exécuté.
 - [ ] Dans un dossier de sujet, chaque « qu'affiche ce code ? » a sa vérification `check` (ou `unverifiable`).
 - [ ] Chaque page du Tour s'exécute dans le bac à sable avec la sortie annoncée (`TourTest`), et chaque « À toi » part
