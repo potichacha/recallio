@@ -96,7 +96,7 @@ flowchart LR
 | `infrastructure.markdown.SubjectHeader` | Lit l'en-tête `---` d'un document : le sujet qu'il décrit. |
 | `domain.importing.ImportPlanner` | Compare un document à son sujet en base : ajouts, nouvelles versions, retraits (dans ce sujet seulement), réactivations. |
 | `application.ContentImportService` | Transaction d'import et journalisation du rapport. |
-| `api.SubjectsResource`, `api.ThemesResource` | Catalogue public (brouillons visibles des seuls admins), pagination bornée (100 cartes maximum par page). Chaque sujet dit s'il a un Tour (`hasTour`), et donc un essai sans compte (ADR 0050). |
+| `api.SubjectsResource`, `api.ThemesResource` | Catalogue public (contenu des brouillons visible des seuls admins), pagination bornée (100 cartes maximum par page). Chaque sujet dit s'il a un Tour (`hasTour`), et donc un essai sans compte (ADR 0050). `?upcoming=true` annonce aussi les brouillons, pour les pages Cours, Tour et Révisions ; `GET /api/v1/subjects/{s}/notions/{n}` sert la leçon d'une notion et ses voisines (ADR 0052). |
 | `api.TourResource` | Le Tour d'un sujet, public comme le catalogue (ADR 0037) : `GET /api/v1/subjects/{s}/tour`, le sommaire par domaine et chapitre sans le contenu des pages, puis `/tour/{notion}`, les pages d'une notion. La solution et la sortie attendue d'un « À toi » restent sur le serveur. |
 | `TourDirectory` (package racine), `infrastructure.persistence.JpaTourDirectory` | **API publique** : une page du Tour, « À toi » compris, pour que le module `review` le juge sans que sa sortie attendue ne quitte le backend. |
 | `TourPage` (package racine) | Une page du Tour et ses règles : un programme d'un seul langage, `Main.java` en Java, un « À toi » aux fichiers de son code de départ (ADR 0037). |

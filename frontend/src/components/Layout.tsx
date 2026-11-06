@@ -1,6 +1,6 @@
-import { Cards, Compass, House, Trophy, User, UsersThree, type Icon } from '@phosphor-icons/react'
+import { BookOpenText, Cards, House, Path, Trophy, User, type Icon } from '@phosphor-icons/react'
 import { useState } from 'react'
-import { NavLink, Outlet, useLocation } from 'react-router'
+import { Link, NavLink, Outlet, useLocation } from 'react-router'
 import { useProfile } from '../api/profile'
 import { useProgress } from '../api/progress'
 import { useSession } from '../auth/session'
@@ -8,16 +8,47 @@ import { DEFAULT_LAYOUT_MODE, LayoutModeContext, type LayoutMode } from './layou
 import { ProgressBadge } from './ProgressBadge'
 import { button } from './ui/button'
 
+/** Une page d'un sujet, sous l'une des destinations : `/subjects/java/course/...` est dans le Cours. */
+const inSubject = (sections: string) => new RegExp(`^/subjects/[^/]+/(${sections})(/|$)`)
+
 /**
- * Les cinq destinations de l'application (ADR 0050) : en bas de l'écran sur un téléphone, à portée de pouce, et en
- * haut sur un ordinateur. Le profil est à part, en haut à droite.
+ * Les cinq destinations de l'application (ADR 0050, 0052) : en bas de l'écran sur un téléphone, à portée de pouce, et
+ * en haut sur un ordinateur. Chacune reste allumée sur les pages qu'elle ouvre ; le profil est à part, en haut à droite.
  */
-const DESTINATIONS: { to: string; label: string; icon: Icon; end?: boolean }[] = [
-  { to: '/', label: 'Accueil', icon: House, end: true },
-  { to: '/review', label: 'Réviser', icon: Cards },
-  { to: '/subjects', label: 'Apprendre', icon: Compass },
-  { to: '/ranked', label: 'Classé', icon: Trophy },
-  { to: '/groups', label: 'Groupes', icon: UsersThree },
+const DESTINATIONS: {
+  to: string
+  label: string
+  icon: Icon
+  matches: (path: string) => boolean
+}[] = [
+  { to: '/', label: 'Accueil', icon: House, matches: (path) => path === '/' },
+  {
+    to: '/learn',
+    label: 'Cours',
+    icon: BookOpenText,
+    matches: (path) => path.startsWith('/learn') || inSubject('course').test(path),
+  },
+  {
+    to: '/tours',
+    label: 'Tour',
+    icon: Path,
+    matches: (path) => path.startsWith('/tours') || inSubject('tour').test(path),
+  },
+  {
+    to: '/review',
+    label: 'Révisions',
+    icon: Cards,
+    matches: (path) => path.startsWith('/review') || inSubject('practice|exam').test(path),
+  },
+  {
+    to: '/play',
+    label: 'Jouer',
+    icon: Trophy,
+    matches: (path) =>
+      ['/play', '/ranked', '/groups', '/challenges', '/live', '/join'].some((prefix) =>
+        path.startsWith(prefix),
+      ),
+  },
 ]
 
 function SessionControls() {
@@ -62,22 +93,17 @@ function SessionControls() {
 }
 
 /** Une destination : icône pleine quand on y est, et toujours son nom écrit (une icône seule ne se devine pas). */
-function Destination({ to, label, icon: Icon, end }: (typeof DESTINATIONS)[number]) {
+function Destination({ to, label, icon: Icon, matches }: (typeof DESTINATIONS)[number]) {
+  const isActive = matches(useLocation().pathname)
   return (
-    <NavLink
+    <Link
       to={to}
-      end={end}
-      className={({ isActive }) =>
-        `flex min-h-14 flex-col items-center justify-center gap-0.5 text-xs font-medium md:min-h-11 md:flex-row md:gap-2 md:rounded-lg md:px-3 md:text-sm ${isActive ? 'text-brand md:bg-brand-soft' : 'text-ink-muted hover:text-brand'}`
-      }
+      aria-current={isActive ? 'page' : undefined}
+      className={`flex min-h-14 flex-col items-center justify-center gap-0.5 text-xs font-medium md:min-h-11 md:flex-row md:gap-2 md:rounded-lg md:px-3 md:text-sm ${isActive ? 'text-brand md:bg-brand-soft' : 'text-ink-muted hover:text-brand'}`}
     >
-      {({ isActive }) => (
-        <>
-          <Icon weight={isActive ? 'fill' : 'bold'} aria-hidden className="size-6 md:size-5" />
-          {label}
-        </>
-      )}
-    </NavLink>
+      <Icon weight={isActive ? 'fill' : 'bold'} aria-hidden className="size-6 md:size-5" />
+      {label}
+    </Link>
   )
 }
 

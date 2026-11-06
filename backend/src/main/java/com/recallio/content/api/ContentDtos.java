@@ -7,6 +7,8 @@ import com.recallio.content.ExerciseFiles;
 import com.recallio.content.ExerciseFiles.SourceFile;
 import com.recallio.content.domain.Subject;
 import com.recallio.content.domain.catalog.ContentCatalog.CardView;
+import com.recallio.content.domain.catalog.ContentCatalog.NotionLesson;
+import com.recallio.content.domain.catalog.ContentCatalog.NotionLink;
 import com.recallio.content.domain.catalog.ContentCatalog.SubjectSummary;
 import com.recallio.content.domain.catalog.ContentCatalog.ThemeSummary;
 import com.recallio.content.domain.importing.ImportReport;
@@ -60,6 +62,7 @@ final class ContentDtos {
         FRAMEWORKS,
         CLOUD_DEVOPS,
         DATA,
+        SECURITY,
         FUNDAMENTALS,
         AI
     }
@@ -161,6 +164,47 @@ final class ContentDtos {
             return files.stream()
                     .map(file -> new SourceFileDto(file.path(), file.content()))
                     .toList();
+        }
+    }
+
+    /** La leçon d'une notion, dans la page Cours (ADR 0052). */
+    @Schema(name = "NotionLesson")
+    record NotionLessonDto(
+            String slug,
+            String title,
+            String chapterTitle,
+
+            @Schema(description = "La leçon, en Markdown ; absente si la notion n'en a pas encore", nullable = true)
+            @Nullable
+            String lesson,
+
+            @Schema(description = "Vrai si la notion a des pages dans le Tour (ADR 0037)")
+            boolean inTour,
+
+            @Schema(
+                    description = "La notion d'avant, dans l'ordre du référentiel ; absente pour la première",
+                    nullable = true)
+            @Nullable
+            NotionLinkDto previous,
+
+            @Schema(description = "La notion d'après ; absente pour la dernière", nullable = true) @Nullable
+            NotionLinkDto next) {
+        static NotionLessonDto from(NotionLesson notion) {
+            return new NotionLessonDto(
+                    notion.slug(),
+                    notion.title(),
+                    notion.chapterTitle(),
+                    notion.lesson(),
+                    notion.inTour(),
+                    NotionLinkDto.from(notion.previous()),
+                    NotionLinkDto.from(notion.next()));
+        }
+    }
+
+    @Schema(name = "NotionLink")
+    record NotionLinkDto(String slug, String title) {
+        static @Nullable NotionLinkDto from(@Nullable NotionLink notion) {
+            return notion == null ? null : new NotionLinkDto(notion.slug(), notion.title());
         }
     }
 

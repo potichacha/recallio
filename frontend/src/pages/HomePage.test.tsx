@@ -45,7 +45,7 @@ describe('HomePage', () => {
 
     expect(screen.getByRole('link', { name: 'Voir ce qu’on peut apprendre' })).toHaveAttribute(
       'href',
-      '/subjects',
+      '/learn',
     )
     await userEvent.click(screen.getByRole('button', { name: 'Me connecter ou créer un compte' }))
     expect(session.login).toHaveBeenCalledWith('/')

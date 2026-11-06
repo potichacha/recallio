@@ -79,7 +79,7 @@ function SubjectRow({
           <p className="text-xs text-ink-muted">
             {masterySummary(subject.notions)} ·{' '}
             <Link
-              to={`/subjects/${subject.slug}/path`}
+              to={`/subjects/${subject.slug}/course`}
               className="font-medium text-brand-strong hover:underline"
             >
               Carte des compétences

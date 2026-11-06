@@ -10,8 +10,9 @@ test.describe('Session de révision', () => {
     await followSubjects(page, ['Java', 'Go'])
     await page.goto('/review')
 
-    // Un sujet à la fois, pour une durée choisie (ADR 0048).
-    await page.getByRole('group', { name: 'Sujet' }).getByText('Go', { exact: true }).click()
+    // Un sujet à la fois, choisi par son logo (ADR 0052), pour une durée choisie (ADR 0048).
+    await page.getByRole('region', { name: 'Langages' }).getByRole('link', { name: 'Go' }).click()
+    await expect(page.getByRole('heading', { name: 'Réviser Go' })).toBeVisible()
     await page.getByRole('group', { name: 'Durée' }).getByText('5 min', { exact: true }).click()
     await page.getByRole('button', { name: 'Commencer' }).click()
     await expect(page.getByRole('heading', { name: 'Réviser : Go' })).toBeVisible()

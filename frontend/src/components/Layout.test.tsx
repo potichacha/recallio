@@ -35,17 +35,31 @@ describe('Layout', () => {
 
   it('offers the five destinations in a single navigation, the current one marked', async () => {
     stubApi({ ...SUBJECTS, ...SIGNED_IN_API })
-    renderAt('/subjects', fakeSession({ status: 'authenticated', userName: 'Alice' }))
+    renderAt('/learn', fakeSession({ status: 'authenticated', userName: 'Alice' }))
 
     const navigation = screen.getByRole('navigation', { name: 'Navigation principale' })
     expect(
       within(navigation)
         .getAllByRole('link')
         .map((link) => link.textContent),
-    ).toEqual(['Accueil', 'Réviser', 'Apprendre', 'Classé', 'Groupes'])
-    expect(within(navigation).getByRole('link', { name: 'Apprendre' })).toHaveAttribute(
+    ).toEqual(['Accueil', 'Cours', 'Tour', 'Révisions', 'Jouer'])
+    expect(within(navigation).getByRole('link', { name: 'Cours' })).toHaveAttribute(
       'aria-current',
       'page',
+    )
+  })
+
+  it('keeps a destination marked on the pages it opens (ADR 0052)', async () => {
+    stubApi({ ...SUBJECTS, ...SIGNED_IN_API })
+    renderAt('/ranked', fakeSession({ status: 'authenticated', userName: 'Alice' }))
+
+    const navigation = screen.getByRole('navigation', { name: 'Navigation principale' })
+    expect(within(navigation).getByRole('link', { name: 'Jouer' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    )
+    expect(within(navigation).getByRole('link', { name: 'Accueil' })).not.toHaveAttribute(
+      'aria-current',
     )
   })
 

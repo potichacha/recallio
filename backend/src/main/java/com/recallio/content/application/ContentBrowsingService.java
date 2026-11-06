@@ -2,10 +2,12 @@ package com.recallio.content.application;
 
 import com.recallio.content.domain.catalog.ContentCatalog;
 import com.recallio.content.domain.catalog.ContentCatalog.CardView;
+import com.recallio.content.domain.catalog.ContentCatalog.NotionLesson;
 import com.recallio.content.domain.catalog.ContentCatalog.SubjectSummary;
 import com.recallio.content.domain.catalog.ContentCatalog.ThemeSummary;
 import com.recallio.content.domain.catalog.ContentCatalog.TourNotionPages;
 import com.recallio.content.domain.catalog.ContentCatalog.Visibility;
+import com.recallio.content.domain.catalog.NotionNotFoundException;
 import com.recallio.content.domain.catalog.SubjectNotFoundException;
 import com.recallio.content.domain.catalog.ThemeNotFoundException;
 import com.recallio.content.domain.catalog.TourNotionNotFoundException;
@@ -55,6 +57,12 @@ public class ContentBrowsingService {
         SubjectSummary subject = subject(subjectSlug, visibility);
         return TourOutline.of(
                 subject.slug(), subject.title(), catalog.tour(subject.id()), catalog.tourExercises(subject.id()));
+    }
+
+    /** @throws NotionNotFoundException si la notion n'existe pas dans ce sujet */
+    public NotionLesson notionLesson(String subjectSlug, String notionSlug, Visibility visibility) {
+        return catalog.notionLesson(subject(subjectSlug, visibility).id(), notionSlug)
+                .orElseThrow(() -> new NotionNotFoundException(subjectSlug, notionSlug));
     }
 
     /** @throws TourNotionNotFoundException si la notion n'a pas de page dans le Tour de ce sujet */

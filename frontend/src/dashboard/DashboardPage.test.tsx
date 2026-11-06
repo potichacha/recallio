@@ -2,7 +2,14 @@ import { screen, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import type { QuestBoard } from '../api/quests'
 import type { DayActivity, ReviewStats } from '../api/stats'
-import { fakeSession, renderAt, SIGNED_IN_API, stubApi, TEST_SUBJECTS } from '../test/render'
+import {
+  fakeSession,
+  renderAt,
+  SIGNED_IN_API,
+  stubApi,
+  TEST_PROFILE,
+  TEST_SUBJECTS,
+} from '../test/render'
 
 const signedIn = () => fakeSession({ status: 'authenticated', userName: 'Alice' })
 
@@ -159,6 +166,23 @@ describe('DashboardPage', () => {
     expect(screen.queryByRole('link', { name: /Le Tour de Go/ })).not.toBeInTheDocument()
   })
 
+  it('puts the Tour before the review for who learns the subject (ADR 0052)', async () => {
+    stubApi({
+      ...SIGNED_IN_API,
+      '/api/v1/me': { body: { ...TEST_PROFILE, tracks: { java: 'LEARN' } } },
+      '/api/v1/subjects': { body: TEST_SUBJECTS },
+      '/api/v1/me/review-stats': { body: stats() },
+      '/api/v1/me/progress/activity': { body: WEEK },
+      '/api/v1/me/quests': { body: QUESTS },
+    })
+    renderAt('/', signedIn())
+
+    const tour = await screen.findByRole('link', { name: /^Le Tour de Java/ })
+    const review = await screen.findByRole('link', { name: /^Continuer/ })
+    // Le Tour vient avant la révision dans l'ordre du document.
+    expect(tour.compareDocumentPosition(review) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
   it('shows the streak and its freezes, and the XP', async () => {
     stubDashboard()
     renderAt('/', signedIn())
@@ -293,7 +317,7 @@ describe('DashboardPage', () => {
     )
     expect(within(java).getByRole('link', { name: 'Carte des compétences' })).toHaveAttribute(
       'href',
-      '/subjects/java/path',
+      '/subjects/java/course',
     )
   })
 

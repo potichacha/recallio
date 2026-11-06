@@ -7,7 +7,10 @@ Application web (PWA) de révision des entretiens techniques par répétition es
 ## Ce que fait l'application
 
 - **Essayer sans compte** : cinq questions corrigées tout de suite, depuis l'accueil, avant de s'inscrire.
-- **Réviser** un catalogue de sujets (Java et Go publiés ; frameworks, cloud, données et fondamentaux en brouillon) en
+- **Commencer par son but** : débuter, apprendre un autre langage ou préparer un entretien ; Recallio conduit au Tour ou
+  à la révision. Les pages Cours, Tour et Révisions s'ouvrent sur les sujets, par catégorie et avec leur logo ; ceux en
+  préparation y sont annoncés.
+- **Réviser** un catalogue de sujets (Java et Go publiés ; frameworks, cloud, données, cybersécurité et fondamentaux en brouillon ; Python, TypeScript, Kotlin, C#, C, C++ et Rust annoncés) en
   cartes de neuf formats, planifiées par FSRS : un sujet par session, pour la durée choisie, reprise d'un geste depuis
   l'accueil. Chaque question se corrige : on choisit sa réponse parmi des choix mélangés, on complète le code, ou les
   tests jugent l'exercice. Les cartes pas encore converties (ADR 0051) se retournent, et l'on dit si l'on savait.

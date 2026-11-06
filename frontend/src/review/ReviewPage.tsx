@@ -3,15 +3,16 @@ import { useSearchParams } from 'react-router'
 import { useSubjects, type CardType } from '../api/content'
 import { useGroup } from '../api/groups'
 import type { ReviewFilter } from '../api/review'
-import { RequireFollowedSubjects } from '../auth/RequireFollowedSubjects'
 import { CARD_TYPE_LABELS } from '../components/cardTypeLabels'
+import { GalleryPage } from '../subjects/GalleryPage'
 import { ReviewSession } from './ReviewSession'
 import { SessionSetup } from './SessionSetup'
 import { SESSION_MINUTES, sessionTypes, type SessionSettings } from './sessionSettings'
 
 /**
- * Page de révision. On y lance une session sur un sujet à la fois, pour une durée choisie (ADR 0048) : un sujet
- * (`?subject=go`) est proposé d'emblée, même s'il n'est pas suivi ; avec sa durée et ses questions
+ * Page de révision. Sans sujet, elle s'ouvre sur les sujets, par catégorie (ADR 0052). On lance une session sur un sujet
+ * à la fois, pour une durée choisie (ADR 0048) : un sujet (`?subject=go`) demande sa durée, même s'il n'est pas encore
+ * suivi ; avec sa durée et ses questions
  * (`?subject=go&minutes=10&mode=all`, le bouton « Continuer » de l'accueil), la session démarre aussitôt (ADR 0050). Un
  * groupe (`?group=...`, selon ses réglages), un thème (`?theme=...`) ou un format (`?type=CODING_EXERCISE`) ouvrent
  * directement une session sans limite de durée.
@@ -85,10 +86,16 @@ function SubjectSession({ subject, ready }: { subject?: string; ready?: SessionS
   )
 
   if (!session) {
-    const setup = (
+    return subject ? (
       <SessionSetup subject={subject} onStart={(settings) => setSession({ settings, run: 0 })} />
+    ) : (
+      <GalleryPage
+        title="Révisions"
+        intro="Choisis un sujet, puis la durée de ta session."
+        offers={(candidate) => candidate.cardCount > 0}
+        linkTo={(candidate) => `/review?subject=${encodeURIComponent(candidate.slug)}`}
+      />
     )
-    return subject ? setup : <RequireFollowedSubjects>{setup}</RequireFollowedSubjects>
   }
 
   const { settings, run } = session

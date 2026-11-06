@@ -80,7 +80,7 @@ function Landing() {
         >
           Me connecter ou créer un compte
         </button>
-        <Link to="/subjects" className={button({ variant: 'ghost' })}>
+        <Link to="/learn" className={button({ variant: 'ghost' })}>
           Voir ce qu’on peut apprendre
         </Link>
       </div>

@@ -19,10 +19,15 @@ import { SubjectsPage } from './pages/SubjectsPage'
 import { ThemePage } from './pages/ThemePage'
 import { TrialPage } from './pages/TrialPage'
 import { WelcomePage } from './pages/WelcomePage'
+import { PlayPage } from './play/PlayPage'
 import { PracticePage } from './practice/PracticePage'
 import { DuelPage } from './ranked/DuelPage'
 import { RankedPage } from './ranked/RankedPage'
 import { ReviewPage } from './review/ReviewPage'
+import { CoursesPage } from './subjects/CoursesPage'
+import { LessonPage } from './subjects/LessonPage'
+import { PathToCourse } from './subjects/PathToCourse'
+import { ToursPage } from './subjects/ToursPage'
 import { TourNotionPage } from './tour/TourNotionPage'
 import { TourOutlinePage } from './tour/TourOutlinePage'
 
@@ -32,16 +37,21 @@ export const routes: RouteObject[] = [
     element: <Layout />,
     children: [
       { index: true, element: <HomePage /> },
+      { path: 'learn', element: <CoursesPage /> },
+      { path: 'tours', element: <ToursPage /> },
+      { path: 'play', element: <PlayPage /> },
       { path: 'subjects', element: <SubjectsPage /> },
       { path: 'subjects/:slug', element: <SubjectPage /> },
       {
-        path: 'subjects/:slug/path',
+        path: 'subjects/:slug/course',
         element: (
           <RequireAuth>
             <LearningPathPage />
           </RequireAuth>
         ),
       },
+      { path: 'subjects/:slug/course/:notion', element: <LessonPage /> },
+      { path: 'subjects/:slug/path', element: <PathToCourse /> },
       { path: 'themes/:slug', element: <ThemePage /> },
       // Le Tour se lit sans compte, comme le catalogue ; seul « Exécuter » demande de se connecter (ADR 0037).
       { path: 'subjects/:slug/tour', element: <TourOutlinePage /> },

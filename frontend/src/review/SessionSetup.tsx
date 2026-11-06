@@ -1,9 +1,11 @@
 import { useState, type FormEvent } from 'react'
-import { useSubjects } from '../api/content'
-import { useProfile } from '../api/profile'
+import { Link } from 'react-router'
+import { useCatalogSubjects } from '../api/content'
+import { useFollowSubjects, useProfile } from '../api/profile'
 import { useReviewStats } from '../api/stats'
 import { Chip, Choices } from '../components/ChoiceChips'
 import { button } from '../components/ui/button'
+import { SubjectLogo } from '../subjects/SubjectLogo'
 import {
   DEFAULT_MINUTES,
   DEFAULT_MODE,
@@ -20,38 +22,34 @@ const DURATIONS: SessionMinutes[] = [...SESSION_MINUTES, null]
 const plural = (count: number, word: string) => `${count} ${word}${count > 1 ? 's' : ''}`
 
 /**
- * Le lancement d'une session (ADR 0048) : un sujet à la fois, une durée, et toutes les questions ou seulement celles que
- * le serveur corrige. Les derniers réglages sont retenus sur l'appareil ; un sujet ouvert depuis le catalogue est
- * proposé, et choisi, même s'il n'est pas suivi.
+ * Le lancement d'une session sur un sujet, choisi dans la page Révisions (ADR 0048, 0052) : une durée, et toutes les
+ * questions ou seulement celles que le serveur corrige. Les derniers réglages sont retenus sur l'appareil. Réviser un
+ * sujet le fait suivre : il entre au tableau de bord.
  */
 export function SessionSetup({
-  subject: requested,
+  subject,
   onStart,
 }: {
-  subject?: string
+  subject: string
   onStart: (settings: SessionSettings) => void
 }) {
   const profile = useProfile()
-  const subjects = useSubjects()
+  const subjects = useCatalogSubjects()
   const stats = useReviewStats()
+  const follow = useFollowSubjects()
   const [stored] = useState(loadSessionSettings)
-  const [picked, setPicked] = useState<string>()
   const [minutes, setMinutes] = useState<SessionMinutes>(
     stored.minutes === undefined ? DEFAULT_MINUTES : stored.minutes,
   )
   const [mode, setMode] = useState<SessionMode>(stored.mode ?? DEFAULT_MODE)
 
-  const followed = profile.data?.followedSubjects ?? []
-  const choices = requested && !followed.includes(requested) ? [...followed, requested] : followed
-  const subject = picked ?? defaultSubject(choices, requested, stored.subject)
-  const titleOf = (slug: string) =>
-    subjects.data?.find((candidate) => candidate.slug === slug)?.title ?? slug
-  const countsOf = (slug: string) =>
-    stats.data?.subjects.find((candidate) => candidate.slug === slug)
+  const info = subjects.data?.find((candidate) => candidate.slug === subject)
+  const counts = stats.data?.subjects.find((candidate) => candidate.slug === subject)
 
   const start = (event: FormEvent) => {
     event.preventDefault()
-    if (!subject) return
+    const followed = profile.data?.followedSubjects
+    if (followed && !followed.includes(subject)) follow.mutate([...followed, subject])
     const settings = { subject, minutes, mode }
     saveSessionSettings(settings)
     onStart(settings)
@@ -59,27 +57,22 @@ export function SessionSetup({
 
   return (
     <form onSubmit={start} className="flex flex-col gap-6">
-      <h1 className="text-2xl font-bold">Réviser</h1>
-      <Choices legend="Sujet">
-        {choices.map((slug) => {
-          const counts = countsOf(slug)
-          return (
-            <Chip
-              key={slug}
-              name="subject"
-              checked={subject === slug}
-              onChange={() => setPicked(slug)}
-            >
-              <span className="font-medium">{titleOf(slug)}</span>
-              {counts && (
-                <span className="text-xs text-ink-muted">
-                  {counts.counts.dueNow} à revoir · {plural(counts.newToday, 'nouvelle')}
-                </span>
-              )}
-            </Chip>
-          )
-        })}
-      </Choices>
+      <header className="flex flex-col gap-3">
+        <Link to="/review" className="self-start text-sm text-brand hover:underline">
+          ← Changer de sujet
+        </Link>
+        <div className="flex items-center gap-3">
+          {info && <SubjectLogo subject={info} />}
+          <div className="flex flex-col">
+            <h1 className="text-2xl font-bold">Réviser {info?.title ?? subject}</h1>
+            {counts && (
+              <p className="text-sm text-ink-muted">
+                {counts.counts.dueNow} à revoir · {plural(counts.newToday, 'nouvelle')}
+              </p>
+            )}
+          </div>
+        </div>
+      </header>
       <Choices legend="Durée">
         {DURATIONS.map((value) => (
           <Chip
@@ -106,16 +99,9 @@ export function SessionSetup({
           </span>
         </Chip>
       </Choices>
-      <button type="submit" disabled={!subject} className={`self-start ${button()}`}>
+      <button type="submit" className={`self-start ${button()}`}>
         Commencer
       </button>
     </form>
   )
-}
-
-/** Le sujet demandé par le lien, sinon celui de la dernière session s'il est encore suivi, sinon le premier suivi. */
-function defaultSubject(choices: string[], requested?: string, stored?: string) {
-  if (requested) return requested
-  if (stored && choices.includes(stored)) return stored
-  return choices.at(0)
 }

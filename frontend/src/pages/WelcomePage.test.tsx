@@ -1,4 +1,4 @@
-import { screen, within } from '@testing-library/react'
+import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 import {
@@ -11,11 +11,20 @@ import {
   TEST_SUBJECTS,
 } from '../test/render'
 
-const NEW_USER = { ...TEST_PROFILE, followedSubjects: [] }
+const NEW_USER = { ...TEST_PROFILE, followedSubjects: [], tracks: {} }
 const signedIn = () => fakeSession({ status: 'authenticated', userName: 'Alice' })
 
+/** « Programmer de zéro », une fois publié : il ouvre le premier but. */
+const BEGINNER = {
+  ...TEST_SUBJECTS[0],
+  id: 'programmer-de-zero',
+  slug: 'programmer-de-zero',
+  title: 'Programmer de zéro',
+  category: 'FUNDAMENTALS',
+}
+
 describe('WelcomePage', () => {
-  it('leads a user who follows no subject to the choice of subjects', async () => {
+  it('leads a user who follows no subject to the question of their goal', async () => {
     stubApi({
       ...SIGNED_IN_API,
       '/api/v1/me': { body: NEW_USER },
@@ -25,69 +34,96 @@ describe('WelcomePage', () => {
     const router = renderAt('/', signedIn())
 
     expect(
-      await screen.findByRole('heading', { name: 'Quels sujets veux-tu réviser ?' }),
+      await screen.findByRole('heading', { name: 'Qu’est-ce qui t’amène ?' }),
     ).toBeInTheDocument()
     expect(router.state.location.pathname).toBe('/welcome')
   })
 
-  it('offers every published subject and starts reviewing the chosen ones', async () => {
+  it('sends who prepares an interview to the length of their first session', async () => {
     const following = { ...NEW_USER, followedSubjects: ['go'] }
-    const api = {
+    const fetchMock = stubApi({
       ...SIGNED_IN_API,
       '/api/v1/me': { body: NEW_USER },
       '/api/v1/subjects': { body: TEST_SUBJECTS },
       'PUT /api/v1/me/followed-subjects': { body: following },
-      '/api/v1/review-queue': {
-        body: { cards: [], dueCount: 0, newCount: 0, nextDueAt: null },
-      },
-    }
-    const fetchMock = stubApi(api)
+    })
     const router = renderAt('/welcome', signedIn())
 
-    const start = await screen.findByRole('button', { name: 'Commencer à réviser' })
+    const start = await screen.findByRole('button', { name: 'C’est parti' })
     expect(start).toBeDisabled()
-    expect(await screen.findByRole('checkbox', { name: /Java/ })).not.toBeChecked()
-    expect(screen.queryByRole('checkbox', { name: /Rust/ })).not.toBeInTheDocument()
-    await userEvent.click(screen.getByRole('checkbox', { name: /Go/ }))
-    // Le serveur renvoie désormais le profil avec ses sujets.
-    api['/api/v1/me'] = { body: following }
+    await userEvent.click(screen.getByRole('radio', { name: /Je prépare un entretien/ }))
+    // Rust est en brouillon : il n'est pas proposé.
+    expect(screen.queryByRole('radio', { name: /Rust/ })).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('radio', { name: /Go/ }))
     await userEvent.click(start)
 
-    // La première session part aussitôt, sur le sujet choisi, pour la durée proposée.
-    expect(await screen.findByText('Tout est à jour en Go pour le moment.')).toBeInTheDocument()
-    expect(router.state.location.pathname).toBe('/review')
-    expect(router.state.location.search).toBe('?subject=go&minutes=10&mode=all')
+    expect(await screen.findByRole('heading', { name: 'Réviser Go' })).toBeInTheDocument()
+    expect(router.state.location.search).toBe('?subject=go')
     const put = sentRequests(fetchMock).find((request) => request.method === 'PUT')
     expect(await put?.json()).toEqual({ subjects: ['go'] })
   })
 
-  it('remembers the daily time chosen as the length of the sessions', async () => {
+  it('sends who knows another language to the Tour of the new one, on the learning track', async () => {
     const following = { ...NEW_USER, followedSubjects: ['java'] }
-    const api = {
+    const fetchMock = stubApi({
       ...SIGNED_IN_API,
       '/api/v1/me': { body: NEW_USER },
       '/api/v1/subjects': { body: TEST_SUBJECTS },
       'PUT /api/v1/me/followed-subjects': { body: following },
-      '/api/v1/review-queue': {
-        body: { cards: [], dueCount: 0, newCount: 0, nextDueAt: null },
+      'PUT /api/v1/me/followed-subjects/java/track': {
+        body: { ...following, tracks: { java: 'LEARN' } },
       },
-    }
-    stubApi(api)
+      '/api/v1/subjects/java/tour': { status: 404, body: { status: 404 } },
+    })
     const router = renderAt('/welcome', signedIn())
 
-    await userEvent.click(await screen.findByRole('checkbox', { name: /Java/ }))
-    const time = screen.getByRole('group', { name: 'Combien de temps par jour ?' })
-    expect(within(time).getByRole('radio', { name: '10 min' })).toBeChecked()
-    await userEvent.click(within(time).getByRole('radio', { name: '5 min' }))
-    api['/api/v1/me'] = { body: following }
-    await userEvent.click(screen.getByRole('button', { name: 'Commencer à réviser' }))
+    await userEvent.click(
+      await screen.findByRole('radio', { name: /Je connais déjà un autre langage/ }),
+    )
+    await userEvent.click(screen.getByRole('radio', { name: /Java/ }))
+    await userEvent.click(screen.getByRole('button', { name: 'C’est parti' }))
 
-    expect(await screen.findByText('Tout est à jour en Java pour le moment.')).toBeInTheDocument()
-    expect(router.state.location.search).toBe('?subject=java&minutes=5&mode=all')
-    expect(JSON.parse(localStorage.getItem('recallio.review-session') ?? 'null')).toEqual({
-      subject: 'java',
-      minutes: 5,
-      mode: 'all',
+    await waitFor(() => expect(router.state.location.pathname).toBe('/subjects/java/tour'))
+    const track = sentRequests(fetchMock).find((request) => request.url.endsWith('/track'))
+    expect(await track?.json()).toEqual({ track: 'LEARN' })
+  })
+
+  it('offers to start from scratch only once « Programmer de zéro » is open', async () => {
+    stubApi({
+      ...SIGNED_IN_API,
+      '/api/v1/me': { body: NEW_USER },
+      '/api/v1/subjects': { body: TEST_SUBJECTS },
     })
+    renderAt('/welcome', signedIn())
+
+    expect(
+      await screen.findByRole('radio', { name: /Je connais déjà un autre langage/ }),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('radio', { name: /Je n’ai jamais programmé/ }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('starts from scratch in the Tour of « Programmer de zéro », without asking a subject', async () => {
+    const following = { ...NEW_USER, followedSubjects: ['programmer-de-zero'] }
+    const fetchMock = stubApi({
+      ...SIGNED_IN_API,
+      '/api/v1/me': { body: NEW_USER },
+      '/api/v1/subjects': { body: [...TEST_SUBJECTS, BEGINNER] },
+      'PUT /api/v1/me/followed-subjects': { body: following },
+      'PUT /api/v1/me/followed-subjects/programmer-de-zero/track': { body: following },
+      '/api/v1/subjects/programmer-de-zero/tour': { status: 404, body: { status: 404 } },
+    })
+    const router = renderAt('/welcome', signedIn())
+
+    await userEvent.click(await screen.findByRole('radio', { name: /Je n’ai jamais programmé/ }))
+    expect(screen.queryByRole('group', { name: /Quel langage/ })).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'C’est parti' }))
+
+    await waitFor(() =>
+      expect(router.state.location.pathname).toBe('/subjects/programmer-de-zero/tour'),
+    )
+    const put = sentRequests(fetchMock).find((request) => request.method === 'PUT')
+    expect(await put?.json()).toEqual({ subjects: ['programmer-de-zero'] })
   })
 })

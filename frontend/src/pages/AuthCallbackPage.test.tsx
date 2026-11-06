@@ -14,7 +14,7 @@ describe('AuthCallbackPage', () => {
       fakeSession({ status: 'authenticated', returnTo: '/subjects' }),
     )
 
-    expect(await screen.findByRole('heading', { name: 'Apprendre' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Toutes les cartes' })).toBeInTheDocument()
     expect(router.state.location.pathname).toBe('/subjects')
   })
 

@@ -41,7 +41,7 @@ export function PracticePage() {
   const back =
     params.get('from') === 'tour'
       ? { to: `${subjectPath}/tour/${encodeURIComponent(notion)}`, label: 'Revenir au Tour' }
-      : { to: `${subjectPath}/path`, label: 'Voir mon parcours' }
+      : { to: `${subjectPath}/course`, label: 'Voir le cours' }
 
   if (practice.error instanceof ApiError && practice.error.status === 404) {
     return (
