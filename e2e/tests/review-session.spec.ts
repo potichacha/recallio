@@ -38,7 +38,9 @@ test.describe('Session de révision', () => {
     await expect(page.getByLabel(/Série : \d+ jours?/)).toBeVisible()
   })
 
-  test('reviews a single theme from its page, answering by choosing (ADR 0051)', async ({ page }) => {
+  test('reviews a single theme from its page, answering by choosing (ADR 0051)', async ({
+    page,
+  }) => {
     await signIn(page, USERS.bob, '/subjects')
     await page
       .getByRole('region', { name: 'Langages' })
