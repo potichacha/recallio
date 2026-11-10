@@ -22,9 +22,20 @@ public final class SandboxImage {
 
     private SandboxImage() {}
 
-    /** Le nom de l'image d'un langage : {@code recallio-sandbox-java}, {@code recallio-sandbox-go}. */
+    /** Le nom de l'image d'un langage : {@code recallio-sandbox-java}, {@code recallio-sandbox-go}... */
     public static String name(Language language) {
         return "recallio-sandbox-" + language.name().toLowerCase(Locale.ROOT);
+    }
+
+    /** Le langage d'un fichier du contenu, d'après son extension (ADR 0033, 0053). */
+    public static Language languageOf(String path) {
+        if (path.endsWith(".go")) {
+            return Language.GO;
+        }
+        if (path.endsWith(".cpp") || path.endsWith(".hpp")) {
+            return Language.CPP;
+        }
+        return Language.JAVA;
     }
 
     /** Construit l'image de chaque langage. */

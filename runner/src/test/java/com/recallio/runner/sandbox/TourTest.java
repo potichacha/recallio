@@ -133,8 +133,7 @@ class TourTest {
                 .map(file -> new SourceFile(
                         file.getKey(), file.getValue().endsWith("\n") ? file.getValue() : file.getValue() + "\n"))
                 .toList();
-        Language language = sources.getFirst().path().endsWith(".go") ? Language.GO : Language.JAVA;
-        return new Program(language, sources);
+        return new Program(SandboxImage.languageOf(sources.getFirst().path()), sources);
     }
 
     /** Aux fins de ligne près, comme les « qu'affiche ce code ? » : ce qui suit la dernière ligne ne compte pas. */

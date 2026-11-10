@@ -91,10 +91,10 @@ public record ExerciseFiles(List<SourceFile> starter, List<SourceFile> solution,
         public static final int MAX_LENGTH = 20_000;
 
         /**
-         * Des segments de lettres, chiffres, {@code _} ou {@code -}, et un fichier {@code .java} ou {@code .go}. Chaque
-         * langage restreint encore ({@link CodeLanguage}).
+         * Des segments de lettres, chiffres, {@code _} ou {@code -}, et un fichier {@code .java}, {@code .go},
+         * {@code .cpp} ou {@code .hpp}. Chaque langage restreint encore ({@link CodeLanguage}).
          */
-        public static final String PATH_PATTERN = "([A-Za-z0-9_-]+/)*[A-Za-z0-9_-]+\\.(java|go)";
+        public static final String PATH_PATTERN = "([A-Za-z0-9_-]+/)*[A-Za-z0-9_-]+\\.(java|go|cpp|hpp)";
 
         private static final Pattern PATH = Pattern.compile(PATH_PATTERN);
 

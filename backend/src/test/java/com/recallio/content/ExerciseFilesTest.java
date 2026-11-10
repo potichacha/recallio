@@ -15,6 +15,8 @@ class ExerciseFilesTest {
                         .language())
                 .isEqualTo(CodeLanguage.JAVA);
         assertThat(exercise("panier.go", "panier_test.go").language()).isEqualTo(CodeLanguage.GO);
+        assertThat(exercise("panier.cpp", "panier_test.cpp").language()).isEqualTo(CodeLanguage.CPP);
+        assertThat(exercise("panier.hpp", "panier_test.cpp").language()).isEqualTo(CodeLanguage.CPP);
     }
 
     @Test
@@ -22,6 +24,16 @@ class ExerciseFilesTest {
         assertThatThrownBy(() -> exercise("Panier.java", "panier_test.go"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("un seul langage");
+    }
+
+    @Test
+    void shouldKeepCppFilesFlatAndNameOnlyTheTestsAfterThem() {
+        assertThatThrownBy(() -> exercise("panier/panier.cpp", "panier_test.cpp"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("chemin invalide");
+        assertThatThrownBy(() -> exercise("panier.cpp", "verifications.cpp"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("*_test.cpp");
     }
 
     @Test

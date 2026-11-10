@@ -179,6 +179,96 @@ class ProgramSandboxTest {
         assertThat(result.stdout()).isEqualTo("true\n");
     }
 
+    @Test
+    void shouldRunACppProgramOfSeveralFiles() {
+        ProgramResult result = run(
+                Language.CPP,
+                new SourceFile(
+                        "main.cpp",
+                        "#include <print>\n#include \"panier.hpp\"\n\n"
+                                + "int main() {\n    std::println(\"Total : {}\", total({12, 30}));\n}\n"),
+                new SourceFile(
+                        "panier.hpp", "#pragma once\n#include <vector>\n\nint total(const std::vector<int>& prix);\n"),
+                new SourceFile(
+                        "panier.cpp",
+                        "#include \"panier.hpp\"\n#include <numeric>\n\n"
+                                + "int total(const std::vector<int>& prix) {\n"
+                                + "    return std::accumulate(prix.begin(), prix.end(), 0);\n}\n"));
+
+        assertThat(result).isEqualTo(new ProgramResult(Status.COMPLETED, 0, "Total : 42\n", "", false, ""));
+    }
+
+    @Test
+    void shouldReportCppCompilationErrorsByFileName() {
+        ProgramResult result = cpp("int main() {\n    int x = 1\n}\n");
+
+        assertThat(result.status()).isEqualTo(Status.COMPILATION_ERROR);
+        // GCC situe l'erreur sur l'accolade qui suit l'instruction inachevée, sans le ./ de la compilation.
+        assertThat(result.message())
+                .contains("main.cpp:3:1: error: expected ',' or ';' before '}' token")
+                .doesNotContain("./main.cpp");
+    }
+
+    @Test
+    void shouldReturnTheUncaughtExceptionOfACppProgram() {
+        ProgramResult result = cpp("""
+                #include <print>
+                #include <vector>
+
+                int main() {
+                    std::vector<int> xs;
+                    std::println("avant");
+                    return xs.at(3);
+                }
+                """);
+
+        assertThat(result.status()).isEqualTo(Status.COMPLETED);
+        assertThat(result.exitCode()).isEqualTo(134);
+        // La sortie part ligne par ligne, comme dans un terminal : le plantage ne la perd pas.
+        assertThat(result.stdout()).isEqualTo("avant\n");
+        assertThat(result.stderr())
+                .startsWith("terminate called after throwing an instance of 'std::out_of_range'")
+                .endsWith("\nAborted\n")
+                .doesNotContain("timeout");
+    }
+
+    @Test
+    void shouldNameTheSignalThatStoppedACppProgramLikeATerminal() {
+        ProgramResult result = cpp("""
+                #include <print>
+
+                int main() {
+                    std::println("avant");
+                    int* p = nullptr;
+                    return *p;
+                }
+                """);
+
+        assertThat(result.exitCode()).isEqualTo(139);
+        assertThat(result.stdout()).isEqualTo("avant\n");
+        assertThat(result.stderr()).isEqualTo("Segmentation fault\n");
+    }
+
+    @Test
+    void shouldStopACppProgramThatNeverEndsAndKeepWhatItWrote() {
+        DockerSandbox sandbox = SandboxImage.sandbox(TIMEOUT, Duration.ofSeconds(2));
+
+        ProgramResult result = sandbox.run(program(
+                Language.CPP,
+                new SourceFile(
+                        "main.cpp",
+                        "#include <print>\n\nint main() {\n    std::println(\"début\");\n"
+                                + "    volatile bool encore = true;\n    while (encore) {}\n}\n")));
+
+        assertThat(result.status()).isEqualTo(Status.TIMEOUT);
+        assertThat(result.stdout()).isEqualTo("début\n");
+        assertThat(result.stderr()).isEmpty();
+    }
+
+    private static ProgramResult cpp(String main) {
+        return run(Language.CPP, new SourceFile("main.cpp", main));
+    }
+
     private static ProgramResult java(String main) {
         return run(Language.JAVA, new SourceFile(Program.JAVA_ENTRY_POINT, main));
     }

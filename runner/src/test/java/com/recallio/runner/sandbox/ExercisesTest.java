@@ -63,11 +63,10 @@ class ExercisesTest {
         assertThat(result.tests()).as("tests de %s", exercise).isNotEmpty();
     }
 
-    /** Une partie de l'exercice et ses tests, dans le langage de ses fichiers (ADR 0033). */
+    /** Une partie de l'exercice et ses tests, dans le langage de ses fichiers (ADR 0033, 0053). */
     private static Submission submission(Path exercise, String part) {
         List<SourceFile> tests = files(exercise, "tests");
-        Language language = tests.getFirst().path().endsWith(".go") ? Language.GO : Language.JAVA;
-        return new Submission(language, files(exercise, part), tests);
+        return new Submission(SandboxImage.languageOf(tests.getFirst().path()), files(exercise, part), tests);
     }
 
     /** Les fichiers d'une partie de l'exercice, par chemin relatif à elle. */
