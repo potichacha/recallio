@@ -68,7 +68,13 @@ public class DockerSandbox {
     @Inject
     DockerSandbox(SandboxConfig config) {
         this(
-                Map.of(Language.JAVA, config.image(Language.JAVA), Language.GO, config.image(Language.GO)),
+                Map.of(
+                        Language.JAVA,
+                        config.image(Language.JAVA),
+                        Language.GO,
+                        config.image(Language.GO),
+                        Language.CPP,
+                        config.image(Language.CPP)),
                 config.timeout(),
                 config.programTimeout(),
                 config.dockerRuntime());
@@ -227,7 +233,12 @@ public class DockerSandbox {
             return RunResult.failure(
                     Status.FAILED,
                     "Les tests ne sont pas allés au bout : le programme s'est arrêté (%s ?) ou a manqué de mémoire."
-                            .formatted(language == Language.GO ? "os.Exit" : "System.exit"));
+                            .formatted(
+                                    switch (language) {
+                                        case JAVA -> "System.exit";
+                                        case GO -> "os.Exit";
+                                        case CPP -> "exit, ou un plantage";
+                                    }));
         }
         return RunResult.of(tests);
     }
@@ -275,8 +286,10 @@ public class DockerSandbox {
 
     private static List<TestOutcome> report(Language language, String report) {
         return switch (language) {
-            case JAVA -> JunitReport.parse(report);
+            case JAVA -> JunitReport.parse(report, JunitReport.Message.ATTRIBUTE);
             case GO -> GoTestReport.parse(report);
+            // doctest écrit un rapport au format JUnit ; son texte dit l'assertion et ses valeurs (ADR 0053).
+            case CPP -> JunitReport.parse(report, JunitReport.Message.TEXT);
         };
     }
 

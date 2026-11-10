@@ -1,19 +1,15 @@
 package com.recallio.content.infrastructure.folder;
 
+import com.recallio.content.infrastructure.folder.NativeProcess.Result;
 import java.io.IOException;
-import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
-import java.util.stream.Stream;
 import org.jspecify.annotations.Nullable;
 
 /**
@@ -82,15 +78,16 @@ final class GoSnippetRunner {
             directory = Files.createTempDirectory("recallio-go-");
             Files.writeString(directory.resolve("go.mod"), "module extrait\n\ngo " + goVersion + "\n");
             Files.writeString(directory.resolve("main.go"), program);
-            Path binary = directory.resolve(isWindows() ? "extrait.exe" : "extrait");
-            Result build = execute(directory, List.of("go", "build", "-o", binary.toString(), "."), BUILD_TIMEOUT);
+            Path binary = directory.resolve(NativeProcess.executable("extrait"));
+            Result build = NativeProcess.execute(
+                    directory, List.of("go", "build", "-o", binary.toString(), "."), BUILD_TIMEOUT);
             if (build.timedOut()) {
                 throw new IllegalStateException("go build n'a pas fini en " + BUILD_TIMEOUT);
             }
             if (build.exitCode() != 0) {
                 return new Execution("", build.stderr().isBlank() ? build.stdout() : build.stderr(), null);
             }
-            Result run = execute(directory, List.of(binary.toString()), timeout);
+            Result run = NativeProcess.execute(directory, List.of(binary.toString()), timeout);
             if (run.timedOut()) {
                 return new Execution(run.stdout(), null, TIMED_OUT);
             }
@@ -98,7 +95,7 @@ final class GoSnippetRunner {
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         } finally {
-            delete(directory);
+            NativeProcess.delete(directory);
         }
     }
 
@@ -108,54 +105,5 @@ final class GoSnippetRunner {
                 .filter(line -> line.startsWith("panic: ") || line.startsWith("fatal error: "))
                 .findFirst()
                 .orElse(stderr.strip());
-    }
-
-    private record Result(int exitCode, String stdout, String stderr, boolean timedOut) {}
-
-    private static Result execute(Path directory, List<String> command, Duration timeout) throws IOException {
-        Process process =
-                new ProcessBuilder(command).directory(directory.toFile()).start();
-        CompletableFuture<String> stdout = read(process.getInputStream());
-        CompletableFuture<String> stderr = read(process.getErrorStream());
-        try {
-            if (!process.waitFor(timeout.toMillis(), TimeUnit.MILLISECONDS)) {
-                process.destroyForcibly().waitFor();
-                return new Result(-1, stdout.get(), stderr.get(), true);
-            }
-            return new Result(process.exitValue(), stdout.get(), stderr.get(), false);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            process.destroyForcibly();
-            throw new IllegalStateException(e);
-        } catch (ExecutionException e) {
-            throw new UncheckedIOException(new IOException(e.getCause()));
-        }
-    }
-
-    private static CompletableFuture<String> read(InputStream stream) {
-        return CompletableFuture.supplyAsync(() -> {
-            try {
-                return new String(stream.readAllBytes(), StandardCharsets.UTF_8);
-            } catch (IOException e) {
-                throw new UncheckedIOException(e);
-            }
-        });
-    }
-
-    private static boolean isWindows() {
-        return System.getProperty("os.name", "").startsWith("Windows");
-    }
-
-    private static void delete(@Nullable Path directory) {
-        if (directory == null) {
-            return;
-        }
-        try (Stream<Path> files = Files.walk(directory)) {
-            for (Path file : files.sorted(Comparator.reverseOrder()).toList()) {
-                Files.deleteIfExists(file);
-            }
-        } catch (IOException e) {
-            // Un dossier temporaire oublié ne fausse aucun résultat.
-        }
     }
 }

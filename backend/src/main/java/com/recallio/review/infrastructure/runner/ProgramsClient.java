@@ -24,7 +24,7 @@ interface ProgramsClient {
     @Produces(MediaType.APPLICATION_JSON)
     ProgramResponse run(ProgramRequest request);
 
-    /** @param language {@code JAVA} ou {@code GO} */
+    /** @param language {@code JAVA}, {@code GO} ou {@code CPP} */
     record ProgramRequest(String language, List<FileDto> files) {}
 
     /** @param status {@code COMPLETED}, {@code COMPILATION_ERROR}, {@code TIMEOUT} ou {@code ERROR} */

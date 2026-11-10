@@ -1,26 +1,33 @@
 package com.recallio.content;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.regex.Pattern;
 
 /**
- * Le langage des fichiers d'un exercice de code (ADR 0033), déduit de leur extension. Il choisit le bac à sable qui les
- * exécute, et impose ses règles de chemin ; le runner les vérifie de nouveau, sans faire confiance au backend.
+ * Le langage des fichiers d'un exercice de code (ADR 0033, 0053), déduit de leur extension. Il choisit le bac à sable
+ * qui les exécute, et impose ses règles de chemin ; le runner les vérifie de nouveau, sans faire confiance au backend.
  */
 public enum CodeLanguage {
     /** Des fichiers {@code .java}, dans des packages si l'on veut ({@code fr/recallio/Panier.java}). */
-    JAVA(".java", "([A-Za-z0-9_-]+/)*[A-Za-z0-9_-]+\\.java", ""),
+    JAVA(List.of(".java"), "([A-Za-z0-9_-]+/)*[A-Za-z0-9_-]+\\.java", ""),
 
     /** Des fichiers {@code .go} à plat, un seul package ; les tests, et eux seuls, s'appellent {@code *_test.go}. */
-    GO(".go", "[A-Za-z0-9_-]+\\.go", "_test.go");
+    GO(List.of(".go"), "[A-Za-z0-9_-]+\\.go", "_test.go"),
 
-    private final String extension;
+    /**
+     * Des fichiers {@code .cpp} et {@code .hpp} à plat ; les tests doctest, et eux seuls, s'appellent
+     * {@code *_test.cpp} (ADR 0053).
+     */
+    CPP(List.of(".cpp", ".hpp"), "[A-Za-z0-9_-]+\\.(cpp|hpp)", "_test.cpp");
+
+    private final List<String> extensions;
     private final Pattern path;
     /** Le suffixe qui distingue les fichiers de tests, ou rien quand le langage n'en impose pas. */
     private final String testSuffix;
 
-    CodeLanguage(String extension, String path, String testSuffix) {
-        this.extension = extension;
+    CodeLanguage(List<String> extensions, String path, String testSuffix) {
+        this.extensions = extensions;
         this.path = Pattern.compile(path);
         this.testSuffix = testSuffix;
     }
@@ -28,7 +35,7 @@ public enum CodeLanguage {
     /** Le langage d'un fichier, d'après son extension. */
     public static Optional<CodeLanguage> of(String filePath) {
         for (CodeLanguage language : values()) {
-            if (filePath.endsWith(language.extension)) {
+            if (language.extensions.stream().anyMatch(filePath::endsWith)) {
                 return Optional.of(language);
             }
         }

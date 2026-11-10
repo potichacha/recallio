@@ -35,7 +35,7 @@ flowchart LR
 | PostgreSQL | Données métier et progression. Le schéma est versionné par des migrations Flyway, jamais généré. | PostgreSQL 18 |
 | Fournisseur OIDC | Authentification. Le backend ne connaît que le standard OIDC, pas le fournisseur. | Keycloak (local et Dev Services) |
 | Runner | Juge un exercice par ses tests (`/api/v1/runs`, ADR 0030) ou lance un programme du Tour et renvoie ses sorties (`/api/v1/programs`, ADR 0037). Seul à accéder au socket Docker ; joint par le seul backend. | Quarkus REST, ligne de commande `docker`, commons-compress |
-| Bac à sable | Un conteneur neuf par exécution : réseau coupé, système de fichiers en lecture seule, ressources plafonnées, utilisateur sans droits, délai. | Images `sandbox/java` (JDK 25, JUnit 6) et `sandbox/go` (Go 1.27, ADR 0033) |
+| Bac à sable | Un conteneur neuf par exécution : réseau coupé, système de fichiers en lecture seule, ressources plafonnées, utilisateur sans droits, délai. | Images `sandbox/java` (JDK 25, JUnit 6), `sandbox/go` (Go 1.27, ADR 0033) et `sandbox/cpp` (GCC 14, C++23, doctest, ADR 0053) |
 
 En local avec Docker (`infra/compose.yaml`), nginx relaie `/api` vers le backend : le front et
 l'API partagent la même origine, donc pas de CORS.

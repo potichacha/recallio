@@ -15,7 +15,8 @@ import org.xml.sax.InputSource;
 import org.xml.sax.SAXException;
 
 /**
- * Lit le rapport XML de JUnit (format « legacy », {@code TEST-junit-jupiter.xml}) produit dans le bac à sable.
+ * Lit un rapport XML au format JUnit produit dans le bac à sable : celui de JUnit (format « legacy »,
+ * {@code TEST-junit-jupiter.xml}), ou celui de doctest pour le C++ (ADR 0053).
  *
  * <p>Le rapport vient d'un conteneur qui exécute du code non fiable : le parseur refuse toute déclaration de type de
  * document, donc toute entité externe (XXE), et les messages sont tronqués.
@@ -30,14 +31,25 @@ final class JunitReport {
 
     private JunitReport() {}
 
+    /** Où lire le message d'un test raté. */
+    enum Message {
+        /** L'attribut {@code message} : celui que JUnit tire de l'assertion ({@code expected: <6> but was: <5>}). */
+        ATTRIBUTE,
+        /**
+         * Le texte de l'élément : doctest y écrit le fichier, la ligne, l'assertion et ses valeurs, quand son attribut
+         * ne donne que la décomposition ({@code 0 == 1}).
+         */
+        TEXT
+    }
+
     /** @throws IllegalArgumentException si le rapport n'est pas un XML lisible */
-    static List<TestOutcome> parse(String xml) {
+    static List<TestOutcome> parse(String xml, Message source) {
         try {
             NodeList cases =
                     builder().parse(new InputSource(new StringReader(xml))).getElementsByTagName(TEST_CASE);
             List<TestOutcome> outcomes = new ArrayList<>();
             for (int index = 0; index < cases.getLength(); index++) {
-                outcomes.add(outcome((Element) cases.item(index)));
+                outcomes.add(outcome((Element) cases.item(index), source));
             }
             return outcomes;
         } catch (SAXException | IOException e) {
@@ -45,21 +57,31 @@ final class JunitReport {
         }
     }
 
-    private static TestOutcome outcome(Element testCase) {
+    private static TestOutcome outcome(Element testCase, Message source) {
         String name = testCase.getAttribute("name").replaceFirst("\\(\\)$", "");
         for (String failure : FAILURES) {
             NodeList found = testCase.getElementsByTagName(failure);
             if (found.getLength() > 0) {
-                Element element = (Element) found.item(0);
-                String message = element.getAttribute("message");
                 return new TestOutcome(
                         testCase.getAttribute("classname"),
                         name,
                         false,
-                        truncate(message.isEmpty() ? element.getAttribute("type") : message));
+                        truncate(message((Element) found.item(0), source)));
             }
         }
         return new TestOutcome(testCase.getAttribute("classname"), name, true, "");
+    }
+
+    /** Le message choisi, ou à défaut l'autre, ou à défaut le type de l'échec. */
+    private static String message(Element failure, Message source) {
+        String text = failure.getTextContent().strip();
+        String attribute = failure.getAttribute("message");
+        String preferred = source == Message.TEXT ? text : attribute;
+        String other = source == Message.TEXT ? attribute : "";
+        if (!preferred.isEmpty()) {
+            return preferred;
+        }
+        return other.isEmpty() ? failure.getAttribute("type") : other;
     }
 
     private static String truncate(String text) {

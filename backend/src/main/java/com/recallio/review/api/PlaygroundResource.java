@@ -87,7 +87,9 @@ public class PlaygroundResource {
 
     @Schema(name = "PlaygroundRunRequest")
     public record PlaygroundRunRequest(
-            @Schema(description = "Les fichiers du programme : en Java, un Main.java ; en Go, un package main")
+            @Schema(
+                    description = "Les fichiers du programme : en Java, un Main.java ; en Go, un package main ; "
+                            + "en C++, des .cpp et des .hpp, dont une fonction main")
             @NotNull
             @Size(min = 1, max = TourPage.MAX_FILES)
             List<@NotNull @Valid ExerciseFileDto> files) {}

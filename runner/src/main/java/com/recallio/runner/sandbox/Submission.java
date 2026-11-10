@@ -61,10 +61,10 @@ public record Submission(Language language, List<SourceFile> code, List<SourceFi
         public static final int MAX_LENGTH = 20_000;
 
         /**
-         * Des segments de lettres, chiffres, {@code _} ou {@code -}, et un fichier {@code .java} ou {@code .go} : jamais
-         * de « .. ». Chaque langage restreint encore ({@link Language}).
+         * Des segments de lettres, chiffres, {@code _} ou {@code -}, et un fichier {@code .java}, {@code .go},
+         * {@code .cpp} ou {@code .hpp} : jamais de « .. ». Chaque langage restreint encore ({@link Language}).
          */
-        public static final String PATH_PATTERN = "([A-Za-z0-9_-]+/)*[A-Za-z0-9_-]+\\.(java|go)";
+        public static final String PATH_PATTERN = "([A-Za-z0-9_-]+/)*[A-Za-z0-9_-]+\\.(java|go|cpp|hpp)";
 
         private static final Pattern PATH = Pattern.compile(PATH_PATTERN);
 

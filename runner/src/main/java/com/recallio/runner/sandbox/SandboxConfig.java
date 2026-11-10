@@ -17,6 +17,10 @@ public interface SandboxConfig {
     @WithDefault("recallio-sandbox-go")
     String goImage();
 
+    /** L'image du bac à sable C++ ({@code sandbox/cpp}, ADR 0053). */
+    @WithDefault("recallio-sandbox-cpp")
+    String cppImage();
+
     /** Le délai d'une exécution, compilation comprise ; au-delà, le conteneur est tué. */
     @WithDefault("20s")
     Duration timeout();
@@ -43,6 +47,7 @@ public interface SandboxConfig {
         return switch (language) {
             case JAVA -> javaImage();
             case GO -> goImage();
+            case CPP -> cppImage();
         };
     }
 }

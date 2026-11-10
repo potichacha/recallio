@@ -320,6 +320,12 @@ cards:
     une version séquentielle) et échoue aux tests. Un test de concurrence ne repose pas sur une durée : il attend que
     les goroutines se rejoignent, avec un délai de garde court (quelques centaines de millisecondes) pour échouer
     vite.
+  - **En C++** (ADR 0053), des fichiers `.cpp` et `.hpp` à plat, compilés par GCC 14 en C++23 : le code dans
+    `starter/` et `solution/` (un en-tête et son implémentation, sans `main`), les tests dans `tests/*_test.cpp`, avec
+    doctest. Un test inclut `"doctest.h"` et l'en-tête qu'il teste (`#include "panier.hpp"`), puis déclare ses cas
+    (`TEST_CASE("retire les doublons en gardant l'ordre") { CHECK(...); }`) ; le `main` des tests est fourni. Seule la
+    bibliothèque standard est disponible. Un test ne vérifie que du comportement défini : pas de lecture hors des
+    bornes ni de variable non initialisée, qui passeraient ou échoueraient au hasard.
   - La solution doit passer tous les tests, et le code de départ compiler mais en échouer au moins un : le job CI
     `runner` joue chaque exercice dans le bac à sable (ADR 0030). En local : `cd runner && ./mvnw test
     -Dtest=ExercisesTest` (Docker requis).
@@ -368,6 +374,14 @@ cards:
     La question montre seulement le fragment utile : les déclarations (types, fonctions) au-dessus, puis le corps de
     `main`. Une sortie concurrente reste déterministe (résultats rangés par indice, sommes, `WaitGroup`) ; l'ordre
     d'une `map` affichée par `fmt` est trié, mais pas celui d'un `range`.
+  - **En C++** (ADR 0053), le code exécuté est un programme complet (ses `#include`, puis `int main()`), compilé par
+    GCC 14 avec les options de `sandbox/cpp/flags` (C++23) ; c'est `check.code`, ou à défaut le bloc ```` ```cpp ````
+    de la question. `throws` nomme le type de l'exception que personne ne rattrape, avec son espace de noms
+    (`std::out_of_range`). La question peut ne montrer que le fragment utile, si `check.code` donne le programme
+    complet. Une sortie qui dépend d'un comportement indéfini (débordement d'un entier signé, lecture hors des
+    bornes) ou du compilateur (`sizeof`, l'ordre d'évaluation des arguments) remplace `check` par
+    `unverifiable: <raison>` ; une carte peut justement demander « Que garantit le langage ? ». La CI installe GCC 14 ;
+    en local, sans `g++` 14, ces cartes sont ignorées.
   - `./mvnw test -Dtest='CodeOutputTest'` exécute toutes ces cartes, comme la CI.
   - **Ses choix** (ADR 0051) : le bon est la sortie de `check`, écrite comme du code (`` `123` ``, ou un bloc pour
     plusieurs lignes), et aucun autre choix n'affiche la même chose. Pour une exception, le bon choix la nomme (« Une
@@ -416,9 +430,11 @@ tour:
   révision : il explique en phrases courtes, et invite à essayer (« Essaie : remplace `Println` par `Print` »).
 - **Un exemple par page** : un programme complet, qui s'exécute sans entrée et sort avec le code 0. En Go,
   `package main` et `func main` ; en Java, un `Main.java`, éventuellement en fichier source compact
-  (`void main() { IO.println("Bonjour"); }`). Sa sortie est déterministe : ni heure, ni hasard, ni ordre d'une `map`
+  (`void main() { IO.println("Bonjour"); }`) ; en C++, un `main.cpp` avec `int main()`, et d'autres `.cpp` et `.hpp`
+  à plat si la page parle de compilation séparée. Sa sortie est déterministe : ni heure, ni hasard, ni ordre d'une `map`
   parcourue par `range`, ni architecture de la machine (`runtime.GOARCH`).
-- **Le code est formaté** comme le ferait l'outil du langage : des tabulations en Go (gofmt), quatre espaces en Java.
+- **Le code est formaté** comme le ferait l'outil du langage : des tabulations en Go (gofmt), quatre espaces en Java
+  et en C++.
   En YAML, une tabulation est permise dans un bloc `|-`, après l'indentation.
 - **Un « À toi »** demande une petite modification, vérifiable par la sortie seule. Le code de départ compile et
   s'exécute, car l'utilisateur le lance d'abord, mais il ne donne pas la sortie attendue.
@@ -429,7 +445,8 @@ tour:
   d'abord. Une notion du Tour en a donc au moins deux, et le parseur le vérifie.
 - **La CI joue chaque exemple et chaque « À toi »** dans le bac à sable (job `runner`) : `cd runner && ./mvnw test
   -Dtest=TourTest` (Docker requis). Le job `content` compte les pages du Tour dans son résumé.
-- En Go, tout paquet standard est permis ; ceux de `sandbox/go/warm/warm.go` s'exécutent plus vite.
+- En Go, tout paquet standard est permis ; ceux de `sandbox/go/warm/warm.go` s'exécutent plus vite. En C++, toute la
+  bibliothèque standard de GCC 14 (`<print>` compris), et rien d'autre.
 
 ## 9. Liste de contrôle avant la pull request
 
