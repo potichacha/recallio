@@ -528,8 +528,19 @@ Le propriétaire a testé l'application en local avant de la déployer ; ses ret
    1. **C++** : ✅ son bac à sable (GCC 14, doctest, ADR 0053) ; son référentiel ; les priorités 1 et 2, avec le Tour ; les priorités 3 et 4.
    2. **Spring Boot**, puis **Quarkus** : des exercices jugés par `@SpringBootTest` et `@QuarkusTest`, dans un bac à sable qui embarque le framework.
    3. **Python** : son bac à sable, puis le contenu et le Tour.
+8. **Retours de l'audit** du 2026-11-10 (`docs/audit-2026-11.md`, où chaque numéro ci-dessous est détaillé), une PR par étape :
+   1. **Correctifs d'interface** (1 à 4) : débordement sur mobile, « API : UP », libellé du Tour, éditeur du Tour remonté sur mobile.
+   2. **Qualité des cartes** (18 à 24) : règles vérifiées en CI, guide de rédaction, notion affichée sur la carte, pilote corrigé.
+   3. **Poids du front** (12, 13) : routes chargées à la demande, coloration limitée aux langages utilisés.
+   4. **Sécurité** (14 à 16) : Content-Security-Policy, limite de débit sans compte, ADR sur les réponses publiques.
+   5. **Suppression de compte et export des données** (17), avec un ADR.
+   6. **Ergonomie** (5 à 10) : filet d'erreur, icônes de la PWA, fraîcheur des données, chapitres repliés, accueil d'un nouveau venu, profil en sections.
+   7. **Apprendre de ses erreurs** (27, 35, 38) : « Revoir la leçon », annuler la dernière réponse, carnet d'erreurs.
+   8. **Avant la bêta** (25, 26, 34, 40, 44) : compte à rebours avant l'entretien, défi du jour, test de niveau, référencement, parcours mesuré.
 
-Le **déploiement** (phase 1, étape 7) vient après ces phases.
+**Ordre** : les étapes 8.1 à 8.7, puis le contenu (7, 4.2, 4.3 et 6), puis l'étape 8.8. Les règles de l'étape 8.2 s'appliquent à tout contenu écrit ensuite.
+
+Le **déploiement** (phase 1, étape 7) vient après ces phases, avec les logs JSON, Sentry, HSTS, les sauvegardes de la base et les core dumps désactivés sur le serveur du runner (33, 46). Le reste de l'audit attend les retours de la bêta.
 
 ### Phase 4 : offre entreprise
 Multi-organisation (colonne `organization_id` + Row-Level Security PostgreSQL), SSO entreprise via le fournisseur OIDC, tableau de bord admin avec statistiques **agrégées**, questions privées par organisation, export, conformité RGPD (registre, suppression de compte, DPA).
