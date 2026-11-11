@@ -548,7 +548,7 @@ Le propriétaire a testé l'application en local avant de la déployer ; ses ret
       8. **Tests avec cinq utilisateurs** (56) : un protocole et une grille d'observation, pour la bêta.
 
    10. **CI plus rapide** (58 à 62) : un run prend 13 à 17 minutes. Deux PR :
-       1. le job `docker` en parallèle des autres, et seuls les jobs concernés par les fichiers modifiés ;
+       1. ✅ le job `docker` en parallèle des autres, et seuls les jobs concernés par les fichiers modifiés (un job `changes` les désigne) ;
        2. les jobs `e2e` et `docker` accélérés par leurs caches ; `content` et `runner` découpés par sujet quand le contenu C++ les aura trop allongés.
 
 **Ordre** : l'étape 8.10.1 d'abord, puisqu'elle raccourcit toutes les PR suivantes ; puis les étapes 8.1 à 8.7, puis la refonte (8.9), puis le contenu (7, 4.2, 4.3 et 6), puis l'étape 8.8. Les règles de l'étape 8.2 s'appliquent à tout contenu écrit ensuite. La refonte passe avant l'étape 8.8 : ses nouveaux écrans naissent ainsi dans le bon style.

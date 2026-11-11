@@ -13,8 +13,60 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Quels jobs les fichiers modifiés concernent-ils ? Une PR de documentation n'en lance aucun, une PR de contenu ne
+  # lance pas le front. Un job écarté est « skipped », ce qui ne bloque pas le merge. Sur main, tout tourne : c'est le
+  # filet, et ce qui remplit les caches.
+  changes:
+    name: changes
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      content: ${{ steps.filter.outputs.content }}
+      runner: ${{ steps.filter.outputs.runner }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+      docker: ${{ steps.filter.outputs.docker }}
+      e2e: ${{ steps.filter.outputs.e2e }}
+    steps:
+      # Sur une PR, HEAD est le commit de fusion : son premier parent est la branche cible, d'où la profondeur de 2.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+
+      - name: Find the jobs concerned by the changed files
+        id: filter
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            files=$(git diff --name-only HEAD^1 HEAD)
+          else
+            files=""
+          fi
+          touched() { grep -qE "$1" <<< "$files"; }
+          # decide <job> <motif des chemins qui le concernent> ; un changement de la CI relance tout.
+          decide() {
+            if [ "$EVENT_NAME" != "pull_request" ] || touched '^\.github/' || touched "$2"; then
+              run=true
+            else
+              run=false
+            fi
+            echo "$1=$run" >> "$GITHUB_OUTPUT"
+            echo "- \`$1\` : $run" >> "$GITHUB_STEP_SUMMARY"
+          }
+          # Les tests du backend parsent content/ ; ceux du runner jouent ses exercices dans les images de sandbox/.
+          decide backend '^(backend|content)/'
+          decide content '^(backend|content)/'
+          decide runner '^(runner|sandbox|content)/'
+          # Le client de l'API est généré depuis la spec du backend.
+          decide frontend '^(frontend/|backend/src/main/openapi/)'
+          decide docker '^(backend|frontend|runner)/'
+          decide e2e '^(backend|frontend|runner|sandbox|content|infra|e2e)/'
+
   backend:
     name: backend
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -52,6 +104,8 @@ jobs:
   # tout de suite ce qui ne va pas ; CodeOutputTest ne tourne que dans ce job.
   content:
     name: content
+    needs: changes
+    if: needs.changes.outputs.content == 'true'
     # Ubuntu 24.04 fournit le paquet g++-14, celui des « qu'affiche ce code ? » C++ (ADR 0053).
     runs-on: ubuntu-24.04
     defaults:
@@ -86,6 +140,8 @@ jobs:
   # moins un (ADR 0029).
   runner:
     name: runner
+    needs: changes
+    if: needs.changes.outputs.runner == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -104,6 +160,8 @@ jobs:
 
   frontend:
     name: frontend
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -126,9 +184,12 @@ jobs:
       # Le JavaScript chargé à l'ouverture de la PWA, compressé, ne dépasse pas son budget (ADR 0050).
       - run: npm run size
 
+  # En parallèle des tests, sans les attendre : le chemin le plus long était runner puis docker, près de 17 minutes.
+  # Les images se construisent donc même quand un test échoue ; le merge, lui, attend toujours tous les jobs.
   docker:
     name: docker
-    needs: [backend, frontend, runner]
+    needs: changes
+    if: needs.changes.outputs.docker == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -192,6 +253,8 @@ jobs:
   # moins de cinq minutes au lieu de quinze.
   e2e:
     name: e2e
+    needs: changes
+    if: needs.changes.outputs.e2e == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
