@@ -1,35 +1,44 @@
-import type { RouteObject } from 'react-router'
-import { ContentReportsPage } from './admin/ContentReportsPage'
-import { RetentionPage } from './admin/RetentionPage'
+import type { ComponentType } from 'react'
+import { Outlet, type RouteObject } from 'react-router'
 import { RequireAuth } from './auth/RequireAuth'
 import { Layout } from './components/Layout'
-import { GroupPage } from './groups/GroupPage'
-import { GroupsPage } from './groups/GroupsPage'
-import { JoinPage } from './groups/JoinPage'
-import { LivePage } from './live/LivePage'
-import { ChallengePage } from './challenges/ChallengePage'
-import { MockExamPage } from './exam/MockExamPage'
-import { AuthCallbackPage } from './pages/AuthCallbackPage'
+import { PageLoading } from './components/PageLoading'
 import { HomePage } from './pages/HomePage'
-import { LearningPathPage } from './pages/LearningPathPage'
-import { ProfilePage } from './pages/ProfilePage'
-import { PublicProfilePage } from './pages/PublicProfilePage'
-import { SubjectPage } from './pages/SubjectPage'
-import { SubjectsPage } from './pages/SubjectsPage'
-import { ThemePage } from './pages/ThemePage'
-import { TrialPage } from './pages/TrialPage'
-import { WelcomePage } from './pages/WelcomePage'
-import { PlayPage } from './play/PlayPage'
-import { PracticePage } from './practice/PracticePage'
-import { DuelPage } from './ranked/DuelPage'
-import { RankedPage } from './ranked/RankedPage'
-import { ReviewPage } from './review/ReviewPage'
-import { CoursesPage } from './subjects/CoursesPage'
-import { LessonPage } from './subjects/LessonPage'
-import { PathToCourse } from './subjects/PathToCourse'
-import { ToursPage } from './subjects/ToursPage'
-import { TourNotionPage } from './tour/TourNotionPage'
-import { TourOutlinePage } from './tour/TourOutlinePage'
+
+/** Posé avant de recharger pour un morceau introuvable : on ne recharge qu'une fois. */
+const RELOADED_KEY = 'recallio.reloaded-for-chunk'
+
+/**
+ * Charge le code d'une page. Après un déploiement, un onglet resté ouvert demande des fichiers qui n'existent plus :
+ * on recharge alors l'application, une seule fois, plutôt que d'afficher une erreur.
+ */
+async function loaded<M>(load: () => Promise<M>): Promise<M> {
+  try {
+    const module = await load()
+    sessionStorage.removeItem(RELOADED_KEY)
+    return module
+  } catch (error) {
+    if (sessionStorage.getItem(RELOADED_KEY) !== null) throw error
+    sessionStorage.setItem(RELOADED_KEY, 'true')
+    window.location.reload()
+    // La page se recharge : la navigation en cours n'a plus à aboutir.
+    return new Promise<M>(() => {})
+  }
+}
+
+/**
+ * Une page chargée à la demande : son code n'est téléchargé qu'à la première visite (audit de novembre 2026,
+ * élément 12). Seuls le layout et l'accueil sont dans le JavaScript de l'ouverture, que borne `npm run size`.
+ */
+function page<Name extends string, M extends Record<Name, ComponentType>>(
+  load: () => Promise<M>,
+  name: Name,
+): Pick<RouteObject, 'lazy' | 'HydrateFallback'> {
+  return {
+    lazy: async () => ({ Component: (await loaded(load))[name] }),
+    HydrateFallback: PageLoading,
+  }
+}
 
 /** Routes de l'application, partagées par le routeur du navigateur et celui des tests. */
 export const routes: RouteObject[] = [
@@ -37,141 +46,82 @@ export const routes: RouteObject[] = [
     element: <Layout />,
     children: [
       { index: true, element: <HomePage /> },
-      { path: 'learn', element: <CoursesPage /> },
-      { path: 'tours', element: <ToursPage /> },
-      { path: 'play', element: <PlayPage /> },
-      { path: 'subjects', element: <SubjectsPage /> },
-      { path: 'subjects/:slug', element: <SubjectPage /> },
+      // Sans compte : le catalogue, le Tour (seul « Exécuter » demande de se connecter, ADR 0037), un profil public
+      // (ADR 0043) et l'essai (ADR 0050).
+      { path: 'learn', ...page(() => import('./subjects/CoursesPage'), 'CoursesPage') },
+      { path: 'tours', ...page(() => import('./subjects/ToursPage'), 'ToursPage') },
+      { path: 'play', ...page(() => import('./play/PlayPage'), 'PlayPage') },
+      { path: 'subjects', ...page(() => import('./pages/SubjectsPage'), 'SubjectsPage') },
+      { path: 'subjects/:slug', ...page(() => import('./pages/SubjectPage'), 'SubjectPage') },
       {
-        path: 'subjects/:slug/course',
-        element: (
-          <RequireAuth>
-            <LearningPathPage />
-          </RequireAuth>
-        ),
-      },
-      { path: 'subjects/:slug/course/:notion', element: <LessonPage /> },
-      { path: 'subjects/:slug/path', element: <PathToCourse /> },
-      { path: 'themes/:slug', element: <ThemePage /> },
-      // Le Tour se lit sans compte, comme le catalogue ; seul « Exécuter » demande de se connecter (ADR 0037).
-      { path: 'subjects/:slug/tour', element: <TourOutlinePage /> },
-      { path: 'subjects/:slug/tour/:notion', element: <TourNotionPage /> },
-      {
-        path: 'subjects/:slug/practice/:notion',
-        element: (
-          <RequireAuth>
-            <PracticePage />
-          </RequireAuth>
-        ),
+        path: 'subjects/:slug/course/:notion',
+        ...page(() => import('./subjects/LessonPage'), 'LessonPage'),
       },
       {
-        path: 'subjects/:slug/exam',
-        element: (
-          <RequireAuth>
-            <MockExamPage />
-          </RequireAuth>
-        ),
+        path: 'subjects/:slug/path',
+        ...page(() => import('./subjects/PathToCourse'), 'PathToCourse'),
+      },
+      { path: 'themes/:slug', ...page(() => import('./pages/ThemePage'), 'ThemePage') },
+      {
+        path: 'subjects/:slug/tour',
+        ...page(() => import('./tour/TourOutlinePage'), 'TourOutlinePage'),
       },
       {
-        path: 'review',
-        element: (
-          <RequireAuth>
-            <ReviewPage />
-          </RequireAuth>
-        ),
+        path: 'subjects/:slug/tour/:notion',
+        ...page(() => import('./tour/TourNotionPage'), 'TourNotionPage'),
       },
       {
-        path: 'ranked',
-        element: (
-          <RequireAuth>
-            <RankedPage />
-          </RequireAuth>
-        ),
+        path: 'u/:handle',
+        ...page(() => import('./pages/PublicProfilePage'), 'PublicProfilePage'),
+      },
+      { path: 'try/:slug', ...page(() => import('./pages/TrialPage'), 'TrialPage') },
+      {
+        path: 'auth/callback',
+        ...page(() => import('./pages/AuthCallbackPage'), 'AuthCallbackPage'),
       },
       {
-        path: 'ranked/duels/:id',
+        // Réservé aux utilisateurs connectés ; les autres sont invités à se connecter.
         element: (
           <RequireAuth>
-            <DuelPage />
+            <Outlet />
           </RequireAuth>
         ),
+        children: [
+          {
+            path: 'subjects/:slug/course',
+            ...page(() => import('./pages/LearningPathPage'), 'LearningPathPage'),
+          },
+          {
+            path: 'subjects/:slug/practice/:notion',
+            ...page(() => import('./practice/PracticePage'), 'PracticePage'),
+          },
+          {
+            path: 'subjects/:slug/exam',
+            ...page(() => import('./exam/MockExamPage'), 'MockExamPage'),
+          },
+          { path: 'review', ...page(() => import('./review/ReviewPage'), 'ReviewPage') },
+          { path: 'ranked', ...page(() => import('./ranked/RankedPage'), 'RankedPage') },
+          { path: 'ranked/duels/:id', ...page(() => import('./ranked/DuelPage'), 'DuelPage') },
+          { path: 'groups', ...page(() => import('./groups/GroupsPage'), 'GroupsPage') },
+          { path: 'groups/:groupId', ...page(() => import('./groups/GroupPage'), 'GroupPage') },
+          {
+            path: 'challenges/:challengeId',
+            ...page(() => import('./challenges/ChallengePage'), 'ChallengePage'),
+          },
+          { path: 'live/:gameId', ...page(() => import('./live/LivePage'), 'LivePage') },
+          { path: 'join/:token', ...page(() => import('./groups/JoinPage'), 'JoinPage') },
+          { path: 'welcome', ...page(() => import('./pages/WelcomePage'), 'WelcomePage') },
+          { path: 'profile', ...page(() => import('./pages/ProfilePage'), 'ProfilePage') },
+          {
+            path: 'admin/reports',
+            ...page(() => import('./admin/ContentReportsPage'), 'ContentReportsPage'),
+          },
+          {
+            path: 'admin/retention',
+            ...page(() => import('./admin/RetentionPage'), 'RetentionPage'),
+          },
+        ],
       },
-      {
-        path: 'groups',
-        element: (
-          <RequireAuth>
-            <GroupsPage />
-          </RequireAuth>
-        ),
-      },
-      {
-        path: 'groups/:groupId',
-        element: (
-          <RequireAuth>
-            <GroupPage />
-          </RequireAuth>
-        ),
-      },
-      {
-        path: 'challenges/:challengeId',
-        element: (
-          <RequireAuth>
-            <ChallengePage />
-          </RequireAuth>
-        ),
-      },
-      {
-        path: 'live/:gameId',
-        element: (
-          <RequireAuth>
-            <LivePage />
-          </RequireAuth>
-        ),
-      },
-      {
-        path: 'join/:token',
-        element: (
-          <RequireAuth>
-            <JoinPage />
-          </RequireAuth>
-        ),
-      },
-      {
-        path: 'welcome',
-        element: (
-          <RequireAuth>
-            <WelcomePage />
-          </RequireAuth>
-        ),
-      },
-      {
-        path: 'profile',
-        element: (
-          <RequireAuth>
-            <ProfilePage />
-          </RequireAuth>
-        ),
-      },
-      {
-        path: 'admin/reports',
-        element: (
-          <RequireAuth>
-            <ContentReportsPage />
-          </RequireAuth>
-        ),
-      },
-      {
-        path: 'admin/retention',
-        element: (
-          <RequireAuth>
-            <RetentionPage />
-          </RequireAuth>
-        ),
-      },
-      // Un profil public se lit sans compte (ADR 0043), et l'essai se fait sans compte (ADR 0050).
-      { path: 'u/:handle', element: <PublicProfilePage /> },
-      { path: 'try/:slug', element: <TrialPage /> },
-      { path: 'auth/callback', element: <AuthCallbackPage /> },
     ],
   },
 ]

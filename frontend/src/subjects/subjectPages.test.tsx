@@ -132,10 +132,10 @@ describe('the pages that open on the subjects (ADR 0052)', () => {
     expect(await screen.findByRole('heading', { name: 'Notion introuvable' })).toBeInTheDocument()
   })
 
-  it('gathers the ranked mode and the groups under « Jouer »', () => {
+  it('gathers the ranked mode and the groups under « Jouer »', async () => {
     renderAt('/play')
 
-    expect(screen.getByRole('link', { name: /Classé/ })).toHaveAttribute('href', '/ranked')
+    expect(await screen.findByRole('link', { name: /Classé/ })).toHaveAttribute('href', '/ranked')
     expect(screen.getByRole('link', { name: /Groupes/ })).toHaveAttribute('href', '/groups')
   })
 })
