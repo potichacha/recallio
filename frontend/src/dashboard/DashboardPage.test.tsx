@@ -90,6 +90,9 @@ const QUESTS: QuestBoard = {
   weeklyEndsOn: '2026-11-02',
 }
 
+const TOUR_PROGRESS = '/api/v1/me/tour/java'
+const TOUR_NEVER_OPENED = { [TOUR_PROGRESS]: { body: { validatedNotions: [], lastPage: null } } }
+
 function stubDashboard(reviewStats: ReviewStats = stats()) {
   return stubApi({
     ...SIGNED_IN_API,
@@ -97,6 +100,7 @@ function stubDashboard(reviewStats: ReviewStats = stats()) {
     '/api/v1/me/review-stats': { body: reviewStats },
     '/api/v1/me/progress/activity': { body: WEEK },
     '/api/v1/me/quests': { body: QUESTS },
+    ...TOUR_NEVER_OPENED,
   })
 }
 
@@ -155,15 +159,33 @@ describe('DashboardPage', () => {
     expect(screen.queryByRole('link', { name: /^Continuer/ })).not.toBeInTheDocument()
   })
 
-  it('offers the Tour of the followed subjects', async () => {
+  it('offers to start the Tour of the followed subjects, never opened yet', async () => {
     stubDashboard()
+    renderAt('/', signedIn())
+
+    expect(
+      await screen.findByRole('link', { name: 'Le Tour de Java Commencer le Tour' }),
+    ).toHaveAttribute('href', '/subjects/java/tour')
+    // Go a un Tour, mais n'est pas suivi.
+    expect(screen.queryByRole('link', { name: /Le Tour de Go/ })).not.toBeInTheDocument()
+  })
+
+  it('offers to resume a Tour already opened', async () => {
+    stubApi({
+      ...SIGNED_IN_API,
+      '/api/v1/subjects': { body: TEST_SUBJECTS },
+      '/api/v1/me/review-stats': { body: stats() },
+      '/api/v1/me/progress/activity': { body: WEEK },
+      '/api/v1/me/quests': { body: QUESTS },
+      [TOUR_PROGRESS]: {
+        body: { validatedNotions: [], lastPage: { notion: 'hello-world', page: 1 } },
+      },
+    })
     renderAt('/', signedIn())
 
     expect(
       await screen.findByRole('link', { name: 'Le Tour de Java Reprendre là où tu t’es arrêté' }),
     ).toHaveAttribute('href', '/subjects/java/tour')
-    // Go a un Tour, mais n'est pas suivi.
-    expect(screen.queryByRole('link', { name: /Le Tour de Go/ })).not.toBeInTheDocument()
   })
 
   it('puts the Tour before the review for who learns the subject (ADR 0052)', async () => {
@@ -174,6 +196,7 @@ describe('DashboardPage', () => {
       '/api/v1/me/review-stats': { body: stats() },
       '/api/v1/me/progress/activity': { body: WEEK },
       '/api/v1/me/quests': { body: QUESTS },
+      ...TOUR_NEVER_OPENED,
     })
     renderAt('/', signedIn())
 

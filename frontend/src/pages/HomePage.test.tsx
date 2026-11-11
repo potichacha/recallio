@@ -1,35 +1,21 @@
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { fakeSession, renderAt, stubApi, TEST_SUBJECTS } from '../test/render'
 
-const HEALTH = '/api/v1/health'
 const SUBJECTS = { '/api/v1/subjects': { body: TEST_SUBJECTS } }
 
 describe('HomePage', () => {
-  it('shows the API status when the backend is up', async () => {
-    stubApi({ ...SUBJECTS, [HEALTH]: { body: { status: 'UP', checks: [] } } })
+  it('shows nothing about the API to a visitor', async () => {
+    stubApi(SUBJECTS)
     renderAt('/')
-    expect(await screen.findByText('API : UP')).toBeInTheDocument()
-  })
 
-  it('shows DOWN when the backend reports an unhealthy state', async () => {
-    stubApi({ ...SUBJECTS, [HEALTH]: { status: 503, body: { status: 'DOWN', checks: [] } } })
-    renderAt('/')
-    expect(await screen.findByText('API : DOWN')).toBeInTheDocument()
-  })
-
-  it('shows unreachable when the request fails', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => Promise.reject(new TypeError('network'))),
-    )
-    renderAt('/')
-    expect(await screen.findByText('API : injoignable')).toBeInTheDocument()
+    await screen.findByRole('region', { name: 'Essaie sans compte' })
+    expect(screen.queryByText(/API/)).not.toBeInTheDocument()
   })
 
   it('offers to try every published subject with a Tour, without an account', async () => {
-    stubApi({ ...SUBJECTS, [HEALTH]: { body: { status: 'UP', checks: [] } } })
+    stubApi(SUBJECTS)
     renderAt('/')
 
     const trial = await screen.findByRole('region', { name: 'Essaie sans compte' })
@@ -39,7 +25,7 @@ describe('HomePage', () => {
   })
 
   it('signs in, or shows what there is to learn', async () => {
-    stubApi({ ...SUBJECTS, [HEALTH]: { body: { status: 'UP', checks: [] } } })
+    stubApi(SUBJECTS)
     const session = fakeSession()
     renderAt('/', session)
 

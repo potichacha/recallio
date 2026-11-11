@@ -6,6 +6,7 @@ import { useProfile } from '../api/profile'
 import { useProgress, type Progress } from '../api/progress'
 import { useQuests } from '../api/quests'
 import { useRecentActivity, useReviewStats, type ReviewStats } from '../api/stats'
+import { useTourProgress } from '../api/tour'
 import { GoalRing } from '../components/GoalRing'
 import { freezeSummary } from '../components/streak'
 import {
@@ -55,16 +56,7 @@ export function DashboardPage() {
     <ul className="grid gap-3 sm:grid-cols-2">
       {tours.map((subject) => (
         <li key={subject.slug}>
-          <Link
-            to={`/subjects/${encodeURIComponent(subject.slug)}/tour`}
-            className="flex items-center gap-3 rounded-xl bg-surface p-4 shadow-sm hover:bg-brand-soft"
-          >
-            <Path weight="bold" aria-hidden className="size-7 shrink-0 text-brand" />
-            <span className="flex flex-col">
-              <span className="font-semibold">Le Tour de {subject.title}</span>{' '}
-              <span className="text-sm text-ink-muted">Reprendre là où tu t’es arrêté</span>
-            </span>
-          </Link>
+          <TourShortcut slug={subject.slug} title={subject.title} />
         </li>
       ))}
     </ul>
@@ -126,6 +118,30 @@ export function DashboardPage() {
         )}
       </section>
     </section>
+  )
+}
+
+/**
+ * Le raccourci vers le Tour d'un sujet suivi. Il ne promet de « reprendre » qu'à qui a déjà ouvert une page ; tant que
+ * la progression charge, il ne dit rien plutôt que de changer de texte sous les yeux.
+ */
+function TourShortcut({ slug, title }: { slug: string; title: string }) {
+  const progress = useTourProgress(slug, true)
+  return (
+    <Link
+      to={`/subjects/${encodeURIComponent(slug)}/tour`}
+      className="flex items-center gap-3 rounded-xl bg-surface p-4 shadow-sm hover:bg-brand-soft"
+    >
+      <Path weight="bold" aria-hidden className="size-7 shrink-0 text-brand" />
+      <span className="flex flex-col">
+        <span className="font-semibold">Le Tour de {title}</span>{' '}
+        {progress.data && (
+          <span className="text-sm text-ink-muted">
+            {progress.data.lastPage ? 'Reprendre là où tu t’es arrêté' : 'Commencer le Tour'}
+          </span>
+        )}
+      </span>
+    </Link>
   )
 }
 

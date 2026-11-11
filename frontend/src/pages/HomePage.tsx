@@ -1,7 +1,6 @@
 import { Cards, Code, Path } from '@phosphor-icons/react'
 import { Link } from 'react-router'
 import { useSubjects } from '../api/content'
-import { useApiStatus } from '../api/health'
 import { RequireFollowedSubjects } from '../auth/RequireFollowedSubjects'
 import { useSession } from '../auth/session'
 import { button } from '../components/ui/button'
@@ -33,7 +32,6 @@ const PROMISES = [
 
 /** La présentation, pour un visiteur (ADR 0050) : ce que l'application apporte, puis l'essayer tout de suite. */
 function Landing() {
-  const status = useApiStatus()
   const subjects = useSubjects()
   const session = useSession()
   const trials =
@@ -84,11 +82,6 @@ function Landing() {
           Voir ce qu’on peut apprendre
         </Link>
       </div>
-      <p role="status" className="text-xs text-ink-muted">
-        {status.isPending && 'API : vérification…'}
-        {status.isSuccess && `API : ${status.data}`}
-        {status.isError && 'API : injoignable'}
-      </p>
     </section>
   )
 }

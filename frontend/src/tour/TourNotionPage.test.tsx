@@ -336,6 +336,9 @@ describe('TourNotionPage', () => {
 
     const test = await screen.findByRole('region', { name: 'Teste-toi' })
     expect(test).toHaveTextContent('Que vaut un int jamais affecté ?')
+    // Sur un téléphone, le programme que le cours annonce vient avant les questions : c'est l'ordre du document.
+    const program = screen.getByRole('region', { name: 'Programme' })
+    expect(program.compareDocumentPosition(test) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     await userEvent.click(within(test).getByRole('button', { name: 'Voir la réponse' }))
 
     expect(within(test).getByRole('region', { name: 'Réponse' })).toHaveTextContent(
