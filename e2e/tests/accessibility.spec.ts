@@ -43,6 +43,24 @@ test.describe('Accessibilité', () => {
     }
   })
 
+  // Reflow (WCAG 1.4.10) : sur un téléphone, une page ne défile que de haut en bas. Un long titre de sujet faisait
+  // déborder la grille de quelques pixels.
+  test('the subject pages do not scroll sideways on a phone @mobile', async ({ page }) => {
+    const pages: [string, string][] = [
+      ['/learn', 'Cours'],
+      ['/tours', 'Le Tour'],
+    ]
+    for (const [path, heading] of pages) {
+      await page.goto(path)
+      await expect(page.getByRole('heading', { name: heading }).first()).toBeVisible()
+      await expect(page.getByRole('heading', { name: 'Fondamentaux' })).toBeVisible()
+      const overflow = await page.evaluate(
+        () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      )
+      expect(overflow, path).toBe(0)
+    }
+  })
+
   test('the pages of a signed-in user have no serious violation', async ({ page }) => {
     await signIn(page, USERS.bob, '/profile')
     await followSubjects(page, ['Java'])

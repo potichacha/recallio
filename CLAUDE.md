@@ -529,7 +529,7 @@ Le propriétaire a testé l'application en local avant de la déployer ; ses ret
    2. **Spring Boot**, puis **Quarkus** : des exercices jugés par `@SpringBootTest` et `@QuarkusTest`, dans un bac à sable qui embarque le framework.
    3. **Python** : son bac à sable, puis le contenu et le Tour.
 8. **Retours de l'audit** du 2026-11-10 (`docs/audit-2026-11.md`, où chaque numéro ci-dessous est détaillé), une PR par étape :
-   1. **Correctifs d'interface** (1 à 4) : débordement sur mobile, « API : UP », libellé du Tour, éditeur du Tour remonté sur mobile.
+   1. ✅ **Correctifs d'interface** (1 à 4) : débordement sur mobile, « API : UP », libellé du Tour, éditeur du Tour remonté sur mobile.
    2. **Qualité des cartes** (18 à 24) : règles vérifiées en CI, guide de rédaction, notion affichée sur la carte, pilote corrigé.
    3. **Poids du front** (12, 13) : routes chargées à la demande, coloration limitée aux langages utilisés.
    4. **Sécurité** (14 à 16) : Content-Security-Policy, limite de débit sans compte, ADR sur les réponses publiques.
