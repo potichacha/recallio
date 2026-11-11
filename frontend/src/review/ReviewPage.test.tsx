@@ -649,6 +649,18 @@ describe('ReviewPage', () => {
     expect(screen.getByRole('button', { name: 'Voir la réponse' })).toBeInTheDocument()
   })
 
+  it('says which notion a card is about, or its theme when it has none', async () => {
+    stubApi({
+      ...PROFILE,
+      [QUEUE]: { body: queue([queuedCard({ notionTitle: 'La JVM' }), queuedCard()]) },
+    })
+    renderAt('/review?subject=java', signedIn())
+    await startSession()
+
+    expect(await screen.findByText('Java · La JVM')).toBeInTheDocument()
+    expect(screen.queryByText('Java · Java : fondamentaux')).not.toBeInTheDocument()
+  })
+
   it('runs an exercise against its tests, then submits it and shows the solution', async () => {
     const fetchMock = stubApi({
       ...PROFILE,

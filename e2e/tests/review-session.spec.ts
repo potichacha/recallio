@@ -55,7 +55,8 @@ test.describe('Session de révision', () => {
     // L'URL change avant l'affichage de la page : on attend la page de révision elle-même.
     await expect(page.getByRole('heading', { name: 'Réviser', exact: true })).toBeVisible()
     const card = page.locator('article').first()
-    await expect(card.locator('header')).toContainText('Bases du langage')
+    // La carte dit son sujet et sa notion ; le thème, lui, est dans l'URL.
+    await expect(card.locator('header')).toContainText('Java · ')
     // Les cartes de « Premiers pas » ont leurs choix : plus de carte à retourner ni d'auto-évaluation.
     await expect(card.getByRole('button', { name: 'Voir la réponse' })).toHaveCount(0)
     await card.getByRole('radio').or(card.getByRole('checkbox')).first().check()
