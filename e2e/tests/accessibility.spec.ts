@@ -1,5 +1,5 @@
 import AxeBuilder from '@axe-core/playwright'
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Page } from './support/test'
 import { followSubjects, signIn, USERS } from './support/auth'
 
 /** Les critères WCAG 2.2, niveaux A et AA, qu'axe sait vérifier seul (ADR 0050). */

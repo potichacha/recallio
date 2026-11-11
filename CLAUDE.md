@@ -173,7 +173,7 @@ Si une règle devient gênante, on en discute et on consigne l'exception dans un
 - Autorisation vérifiée **côté serveur pour chaque ressource** (un utilisateur ne lit que sa progression, un membre ne voit que ses groupes).
 - Secrets uniquement en variables d'environnement, jamais dans le dépôt.
 - Dépendances surveillées (Renovate ou Dependabot), scan des images en CI.
-- En-têtes de sécurité et CORS configurés explicitement.
+- En-têtes de sécurité et CORS configurés explicitement ; Content-Security-Policy et limite de débit des requêtes sans compte dans nginx (ADR 0054).
 
 ### 4.6 Documentation vivante
 - `README.md` : comment lancer le projet en local en moins de cinq minutes.
@@ -532,7 +532,7 @@ Le propriétaire a testé l'application en local avant de la déployer ; ses ret
    1. ✅ **Correctifs d'interface** (1 à 4) : débordement sur mobile, « API : UP », libellé du Tour, éditeur du Tour remonté sur mobile.
    2. ✅ **Qualité des cartes** (18 à 24) : règles vérifiées en CI, guide de rédaction, notion affichée sur la carte, pilote corrigé.
    3. ✅ **Poids du front** (12, 13) : routes chargées à la demande, coloration limitée aux langages utilisés.
-   4. **Sécurité** (14 à 16) : Content-Security-Policy, limite de débit sans compte, ADR sur les réponses publiques.
+   4. ✅ **Sécurité** (14 à 16) : Content-Security-Policy, limite de débit sans compte, ADR sur les réponses publiques.
    5. **Suppression de compte et export des données** (17), avec un ADR.
    6. **Ergonomie** (5 à 10) : filet d'erreur, icônes de la PWA, fraîcheur des données, chapitres repliés, accueil d'un nouveau venu, profil en sections.
    7. **Apprendre de ses erreurs** (27, 35, 38) : « Revoir la leçon », annuler la dernière réponse, carnet d'erreurs.

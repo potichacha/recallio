@@ -17,7 +17,11 @@ FROM nginx:1.31-alpine
 # Applique les correctifs de sécurité Alpine publiés après la construction de l'image de base.
 RUN apk upgrade --no-cache
 ENV BACKEND_URL=http://backend:8080
-COPY frontend/nginx/security-headers.conf /etc/nginx/snippets/security-headers.conf
+# L'origine du fournisseur OIDC, seule origine tierce permise par la Content-Security-Policy (ADR 0054).
+ENV OIDC_ORIGIN=http://localhost:8180
+# Les débits permis sans compte, par adresse IP (ADR 0054), et le proxy dont on croit l'en-tête X-Forwarded-For.
+ENV RATE_LIMIT_PUBLIC=20r/s RATE_LIMIT_TRIAL=2r/s RATE_LIMIT_INVITATIONS=1r/s TRUSTED_PROXY=127.0.0.1
+COPY frontend/nginx/security-headers.conf frontend/nginx/api-proxy.conf /etc/nginx/snippets/
 COPY frontend/nginx/default.conf.template /etc/nginx/templates/default.conf.template
 COPY --from=build /repo/frontend/dist /usr/share/nginx/html
 EXPOSE 80
