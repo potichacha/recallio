@@ -15,6 +15,7 @@ import com.recallio.group.domain.GroupSettings;
 import com.recallio.group.domain.GroupSettingsRepository;
 import com.recallio.group.domain.StudyGroup;
 import com.recallio.platform.domain.IdGenerator;
+import com.recallio.platform.domain.PersonalData;
 import com.recallio.user.UserDirectory;
 import com.recallio.user.UserRef;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -158,7 +159,9 @@ public class ChallengeService {
             boolean me = current.userId().equals(viewer.id());
             standings.add(new Standing(
                     tied ? standings.get(index - 1).rank() : index + 1,
-                    me || visibility == LeaderboardVisibility.NAMED ? names.get(current.userId()) : null,
+                    me || visibility == LeaderboardVisibility.NAMED
+                            ? names.getOrDefault(current.userId(), PersonalData.DELETED_ACCOUNT_NAME)
+                            : null,
                     me,
                     current.run().score(),
                     current.run().time()));

@@ -13,6 +13,11 @@ export type Session = {
   error?: string
   login: (returnTo?: string) => void
   logout: () => void
+  /**
+   * Après la suppression du compte (ADR 0056) : oublie la connexion, et demande au fournisseur d'identité de supprimer
+   * l'identité elle-même s'il le permet ; sinon déconnecte.
+   */
+  deleteIdentity: () => void
 }
 
 export const SessionContext = createContext<Session | undefined>(undefined)
