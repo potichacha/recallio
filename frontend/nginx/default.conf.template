@@ -4,10 +4,34 @@ map $http_upgrade $connection_upgrade {
     ''      close;
 }
 
+# Limite de débit (ADR 0054). Une requête sans jeton est comptée par adresse IP ; une requête qui en porte un n'est pas
+# comptée ici (clé vide) : le backend la refuse si le jeton est faux, et une salle de classe derrière une même adresse
+# n'est pas bridée. Les débits sont des variables du conteneur ; les rafales sont dans les locations.
+map $http_authorization $anonymous_address {
+    ''      $binary_remote_addr;
+    default '';
+}
+limit_req_zone $anonymous_address zone=public:10m rate=${RATE_LIMIT_PUBLIC};
+limit_req_zone $anonymous_address zone=trial:10m rate=${RATE_LIMIT_TRIAL};
+# Un lien d'invitation se devine par essais : compté par adresse, avec ou sans jeton.
+limit_req_zone $binary_remote_addr zone=invitations:10m rate=${RATE_LIMIT_INVITATIONS};
+limit_req_status 429;
+
 server {
     listen 80;
     server_name _;
     root /usr/share/nginx/html;
+
+    # Derrière un proxy TLS, l'adresse du client est celle que le proxy annonce. Seul le proxy déclaré ici est cru :
+    # sans cela, n'importe qui choisirait son adresse, et échapperait à la limite de débit.
+    set_real_ip_from ${TRUSTED_PROXY};
+    real_ip_header X-Forwarded-For;
+    real_ip_recursive on;
+
+    # Content-Security-Policy (ADR 0054) : tout vient de l'application, sauf le fournisseur OIDC. Les styles en ligne
+    # sont ceux de l'éditeur de code et des barres de progression ; les images data: et blob:, les cartes de partage ;
+    # les polices data:, les petits fichiers de police que Vite inscrit dans la feuille de style.
+    set $csp "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ${OIDC_ORIGIN}; frame-src ${OIDC_ORIGIN}; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'";
 
     # Compression (ADR 0050) : le JavaScript et le CSS de la PWA pèsent trois à quatre fois moins une fois compressés,
     # ce qui compte sur un téléphone en 4G. Le niveau 6 est celui que mesure le budget de la CI (npm run size).
@@ -17,18 +41,33 @@ server {
     gzip_min_length 1024;
     gzip_types text/css application/javascript text/javascript application/json application/manifest+json image/svg+xml;
 
+    # Une requête de trop reçoit un Problem Details (RFC 9457), comme une erreur du backend : le front affiche son détail.
+    error_page 429 = @too_many_requests;
+    location @too_many_requests {
+        include /etc/nginx/snippets/security-headers.conf;
+        add_header Retry-After 5 always;
+        default_type application/problem+json;
+        return 429 '{"type":"about:blank","title":"Too Many Requests","status":429,"code":"too-many-requests","detail":"Trop de demandes en peu de temps. Réessaie dans un instant."}';
+    }
+
     # Même origine pour le front et l'API : pas de CORS à configurer.
     location /api/ {
-        include /etc/nginx/snippets/security-headers.conf;
+        limit_req zone=public burst=40 nodelay;
         proxy_pass ${BACKEND_URL};
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection $connection_upgrade;
-        # Une salle d'attente peut rester silencieuse plusieurs minutes.
-        proxy_read_timeout 1h;
-        proxy_set_header Host $host;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
+        include /etc/nginx/snippets/api-proxy.conf;
+    }
+
+    # L'essai sans compte (ADR 0050) : chaque réponse est corrigée par le serveur.
+    location ~ ^/api/v1/subjects/[^/]+/trial {
+        limit_req zone=trial burst=10 nodelay;
+        proxy_pass ${BACKEND_URL};
+        include /etc/nginx/snippets/api-proxy.conf;
+    }
+
+    location ^~ /api/v1/invitations/ {
+        limit_req zone=invitations burst=5 nodelay;
+        proxy_pass ${BACKEND_URL};
+        include /etc/nginx/snippets/api-proxy.conf;
     }
 
     # Le service worker et le manifeste ne doivent jamais être mis en cache longtemps.

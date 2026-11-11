@@ -1,4 +1,4 @@
-import { expect, test, type Locator } from '@playwright/test'
+import { expect, test, type Locator } from './support/test'
 import { signIn, USERS } from './support/auth'
 
 /** Une exécution passe par le vrai runner et un conteneur du bac à sable Go (ADR 0037) : quelques secondes. */

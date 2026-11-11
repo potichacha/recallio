@@ -40,6 +40,10 @@ flowchart LR
 En local avec Docker (`infra/compose.yaml`), nginx relaie `/api` vers le backend : le front et
 l'API partagent la même origine, donc pas de CORS.
 
+nginx porte aussi la sécurité de l'entrée (ADR 0054) : les en-têtes de sécurité, dont une Content-Security-Policy qui
+n'admet que l'application et le fournisseur OIDC, et une limite de débit par adresse IP pour les requêtes sans jeton
+(essai, catalogue) et pour les invitations.
+
 ## 2. Vue composants du backend (C4, niveau 3)
 
 Le backend est un **monolithe modulaire** (ADR 0001) : un module métier par package, découpé en

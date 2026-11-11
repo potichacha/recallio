@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { expect, test } from '@playwright/test'
+import { expect, test } from './support/test'
 import { signIn, USERS } from './support/auth'
 
 /** Les exercices du thème joué (content/java/exercices/objet), dont le test retrouve celui que la révision propose. */

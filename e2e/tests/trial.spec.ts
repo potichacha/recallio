@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from './support/test'
 
 test.describe('Essai sans compte', () => {
   test('answers the questions of the Go trial, then is invited to create an account', async ({

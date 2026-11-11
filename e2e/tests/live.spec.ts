@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Page } from './support/test'
 import { signIn, subjectCheckbox, USERS } from './support/auth'
 
 /** Alice crée un groupe sur Go et y fait entrer Bob par un lien d'invitation. */
