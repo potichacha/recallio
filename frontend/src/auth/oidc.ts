@@ -7,6 +7,13 @@ const origin = globalThis.location?.origin ?? 'http://localhost:5173'
  * sans secret. Le fournisseur se configure par VITE_OIDC_AUTHORITY ; en local, c'est le Keycloak des Dev Services ou du
  * compose, tous deux sur le port 8180.
  */
+/**
+ * L'action par laquelle le fournisseur supprime l'identité de l'utilisateur, à sa demande (ADR 0056). C'est celle de
+ * Keycloak (`kc_action`) ; vide, pour un fournisseur qui n'en a pas : l'utilisateur est seulement déconnecté.
+ */
+export const deleteIdentityAction: string =
+  import.meta.env.VITE_OIDC_DELETE_IDENTITY_ACTION ?? 'delete_account'
+
 export const userManager = new UserManager({
   authority: import.meta.env.VITE_OIDC_AUTHORITY ?? 'http://localhost:8180/realms/recallio',
   client_id: import.meta.env.VITE_OIDC_CLIENT_ID ?? 'recallio-frontend',

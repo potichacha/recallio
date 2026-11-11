@@ -1,5 +1,6 @@
 package com.recallio.ranked.application;
 
+import com.recallio.platform.domain.PersonalData;
 import com.recallio.ranked.RankedProfiles;
 import com.recallio.ranked.domain.Duel;
 import com.recallio.ranked.domain.Duel.DuelPlayer;
@@ -93,8 +94,8 @@ public class RankedViews implements RankedProfiles {
         DuelPlayer me = duel.player(user.id()).orElseThrow();
         Optional<DuelPlayer> opponent = duel.opponentOf(user.id());
         @Nullable
-        String opponentName = opponent.map(
-                        player -> users.displayNames(List.of(player.userId())).get(player.userId()))
+        String opponentName = opponent.map(player -> users.displayNames(List.of(player.userId()))
+                        .getOrDefault(player.userId(), PersonalData.DELETED_ACCOUNT_NAME))
                 .orElse(null);
         @Nullable
         Result result =

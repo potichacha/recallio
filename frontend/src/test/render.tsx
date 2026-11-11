@@ -7,7 +7,13 @@ import { routes } from '../routes'
 
 /** Session factice : anonyme par défaut, avec des fonctions espionnes pour login et logout. */
 export function fakeSession(overrides: Partial<Session> = {}): Session {
-  return { status: 'anonymous', login: vi.fn(), logout: vi.fn(), ...overrides }
+  return {
+    status: 'anonymous',
+    login: vi.fn(),
+    logout: vi.fn(),
+    deleteIdentity: vi.fn(),
+    ...overrides,
+  }
 }
 
 /** Affiche l'application complète (routes et layout) à l'URL donnée, avec un cache de requêtes neuf. */

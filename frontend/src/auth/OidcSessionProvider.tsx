@@ -1,7 +1,7 @@
 import { useEffect, useMemo, type ReactNode } from 'react'
 import { AuthProvider, useAuth } from 'react-oidc-context'
 import { setAccessTokenProvider } from '../api/client'
-import { userManager } from './oidc'
+import { deleteIdentityAction, userManager } from './oidc'
 import { SessionContext, type Session } from './session'
 
 type LoginState = { returnTo?: string }
@@ -26,6 +26,18 @@ function SessionBridge({ children }: { children: ReactNode }) {
       error: auth.error?.message,
       login: (returnTo) => void auth.signinRedirect({ state: { returnTo } satisfies LoginState }),
       logout: () => void auth.signoutRedirect(),
+      deleteIdentity: () => {
+        if (deleteIdentityAction === '') {
+          void auth.signoutRedirect()
+          return
+        }
+        // Le jeton local est oublié d'abord : il désigne un compte qui n'existe plus.
+        void auth
+          .removeUser()
+          .then(() =>
+            auth.signinRedirect({ extraQueryParams: { kc_action: deleteIdentityAction } }),
+          )
+      },
     }
   }, [auth])
 

@@ -6,6 +6,8 @@ export const USERS = {
   bob: { username: 'bob', password: 'bob', displayName: 'Bob Durand' },
   /** Réservée au parcours du premier login : elle ne suit encore aucun sujet sur une pile neuve. */
   carol: { username: 'carol', password: 'carol', displayName: 'Carol Petit' },
+  /** Réservé au parcours de suppression du compte : il n'existe plus ensuite, ni ici ni chez Keycloak. */
+  dave: { username: 'dave', password: 'dave', displayName: 'Dave Leroy' },
 } as const
 
 export type TestUser = (typeof USERS)[keyof typeof USERS]

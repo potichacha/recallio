@@ -2,7 +2,7 @@
  * Les boutons du design system « Coach » (ADR 0049) : une seule recette pour un `<button>` comme pour un `<Link>`. Le
  * bouton principal a un bord épais en dessous et s'enfonce au clic ; sans mouvement pour qui en demande moins.
  */
-export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'success'
+export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'success' | 'danger'
 export type ButtonSize = 'md' | 'sm'
 
 const BASE =
@@ -14,6 +14,8 @@ const VARIANTS: Record<ButtonVariant, string> = {
     'border-2 border-brand-line bg-surface text-brand shadow-press-soft hover:bg-brand-soft active:shadow-none',
   ghost: 'text-ink-muted hover:bg-surface-muted hover:text-ink',
   success: 'bg-success text-on-success hover:bg-success-strong',
+  // Une action qui ne se rattrape pas : en contour, pour ne pas attirer le clic.
+  danger: 'border-2 border-danger-line bg-surface text-danger-strong hover:bg-danger-soft',
 }
 
 const SIZES: Record<ButtonSize, string> = {

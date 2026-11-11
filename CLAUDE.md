@@ -171,6 +171,7 @@ Si une règle devient gênante, on en discute et on consigne l'exception dans un
 ### 4.5 Sécurité
 - Toutes les routes sauf la santé, le contenu public (catalogue, Tour) et l'essai sans compte (ADR 0050) nécessitent un JWT valide.
 - Autorisation vérifiée **côté serveur pour chaque ressource** (un utilisateur ne lit que sa progression, un membre ne voit que ses groupes).
+- Chacun peut télécharger ses données et supprimer son compte ; un module qui garde des données personnelles implémente `PersonalData` (ADR 0056).
 - Secrets uniquement en variables d'environnement, jamais dans le dépôt.
 - Dépendances surveillées (Renovate ou Dependabot), scan des images en CI.
 - En-têtes de sécurité et CORS configurés explicitement ; Content-Security-Policy et limite de débit des requêtes sans compte dans nginx (ADR 0054).
@@ -533,7 +534,7 @@ Le propriétaire a testé l'application en local avant de la déployer ; ses ret
    2. ✅ **Qualité des cartes** (18 à 24) : règles vérifiées en CI, guide de rédaction, notion affichée sur la carte, pilote corrigé.
    3. ✅ **Poids du front** (12, 13) : routes chargées à la demande, coloration limitée aux langages utilisés.
    4. ✅ **Sécurité** (14 à 16) : Content-Security-Policy, limite de débit sans compte, ADR sur les réponses publiques.
-   5. **Suppression de compte et export des données** (17), avec un ADR.
+   5. ✅ **Suppression de compte et export des données** (17) : chaque module répond de ses données par un port (ADR 0056).
    6. **Ergonomie** (5 à 10) : filet d'erreur, icônes de la PWA, fraîcheur des données, chapitres repliés, accueil d'un nouveau venu, profil en sections.
    7. **Apprendre de ses erreurs** (27, 35, 38) : « Revoir la leçon », annuler la dernière réponse, carnet d'erreurs.
    8. **Avant la bêta** (25, 26, 34, 40, 44) : compte à rebours avant l'entretien, défi du jour, test de niveau, référencement, parcours mesuré.

@@ -1,6 +1,6 @@
-import { screen, within } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   fakeSession,
   renderAt,
@@ -214,5 +214,64 @@ describe('ProfilePage', () => {
       sound: true,
       vibration: false,
     })
+  })
+
+  it('downloads the data of the account as a file (ADR 0056)', async () => {
+    const fetchMock = stubApi({
+      ...SIGNED_IN_API,
+      ...SUBJECTS,
+      '/api/v1/me': { body: PROFILE },
+      '/api/v1/me/account/export': { body: { exportedAt: '2026-11-11T10:00:00Z', sections: {} } },
+    })
+    const createObjectURL = vi.fn(() => 'blob:export')
+    vi.stubGlobal('URL', Object.assign(URL, { createObjectURL, revokeObjectURL: vi.fn() }))
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+    renderAt('/profile', SIGNED_IN)
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Télécharger mes données' }))
+
+    await waitFor(() => expect(click).toHaveBeenCalled())
+    expect(createObjectURL).toHaveBeenCalled()
+    expect((click.mock.contexts[0] as HTMLAnchorElement).download).toBe('recallio-export.json')
+    expect(
+      sentRequests(fetchMock).some((request) => request.url.endsWith('/api/v1/me/account/export')),
+    ).toBe(true)
+  })
+
+  it('deletes the account only once the user has typed their name (ADR 0056)', async () => {
+    const fetchMock = stubApi({
+      ...SIGNED_IN_API,
+      ...SUBJECTS,
+      '/api/v1/me': { body: PROFILE },
+      'DELETE /api/v1/me/account': { status: 204, body: null },
+    })
+    renderAt('/profile', SIGNED_IN)
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Supprimer mon compte' }))
+    const confirm = screen.getByRole('button', { name: 'Supprimer définitivement' })
+    expect(confirm).toBeDisabled()
+    await userEvent.type(screen.getByLabelText(/Pour confirmer, écris ton nom/), 'Alice Martin')
+    await userEvent.click(confirm)
+
+    await waitFor(() => expect(SIGNED_IN.deleteIdentity).toHaveBeenCalled())
+    expect(sentRequests(fetchMock).some((request) => request.method === 'DELETE')).toBe(true)
+  })
+
+  it('keeps the account when the deletion fails', async () => {
+    stubApi({
+      ...SIGNED_IN_API,
+      ...SUBJECTS,
+      '/api/v1/me': { body: PROFILE },
+      'DELETE /api/v1/me/account': { status: 500, body: {} },
+    })
+    const session = fakeSession({ status: 'authenticated', userName: 'Alice Martin' })
+    renderAt('/profile', session)
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Supprimer mon compte' }))
+    await userEvent.type(screen.getByLabelText(/Pour confirmer, écris ton nom/), 'Alice Martin')
+    await userEvent.click(screen.getByRole('button', { name: 'Supprimer définitivement' }))
+
+    expect(await screen.findByText(/La suppression a échoué/)).toBeInTheDocument()
+    expect(session.deleteIdentity).not.toHaveBeenCalled()
   })
 })

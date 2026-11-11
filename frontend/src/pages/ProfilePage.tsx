@@ -11,6 +11,7 @@ import {
   type Profile,
 } from '../api/profile'
 import { useSession } from '../auth/session'
+import { AccountDataSection } from '../components/AccountDataSection'
 import { AchievementList } from '../components/AchievementList'
 import { FeedbackSettingsForm } from '../components/FeedbackSettingsForm'
 import { InstallApp } from '../components/InstallApp'
@@ -200,6 +201,7 @@ export function ProfilePage() {
           <InstallApp />
           <FeedbackSettingsForm />
           <AchievementList />
+          <AccountDataSection profile={profile.data} />
           <button
             type="button"
             onClick={session.logout}
