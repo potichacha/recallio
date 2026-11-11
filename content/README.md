@@ -302,6 +302,24 @@ cards:
           ```
         correct: true
     ```
+- **Règles vérifiées par la CI** (`ContentQualityBaselineTest`, job `content`). Quatre défauts qu'une machine sait
+  repérer font échouer la pull request :
+
+  | Règle | Ce que la CI refuse |
+  |---|---|
+  | `longest-correct-choice` | Sur une carte à une seule bonne réponse, un bon choix plus long que le plus long des mauvais de plus de la moitié, et d'au moins 20 caractères. Les choix en bloc de code et les vrai ou faux ne comptent pas. |
+  | `formal-address` | « vous », « votre », « vos » ou un verbe en « -ez » (« Complétez », « Indiquez ») dans la question, un choix ou l'explication, hors du code. |
+  | `duplicate-question` | La même question, dans le même format, deux fois dans le sujet (à la casse, aux accents et aux espaces près). |
+  | `multiple-answers` | Plus d'un QCM sur quatre à plusieurs bonnes réponses, dans le sujet. |
+
+  Pour corriger un bon choix trop long, **allonge les mauvais** plutôt que de raccourcir le bon : une erreur plausible
+  s'explique en autant de mots que la vérité. La précision qui ne sert qu'à justifier (« 1, le reste de la division »)
+  va dans l'explication.
+
+  Le contenu écrit avant ces règles les enfreint : `content/quality-baseline.yaml` note, par sujet et par règle, le
+  nombre d'infractions tolérées. C'est un cliquet : quand tu en corriges, la CI te demande d'abaisser le plafond, et
+  il ne se relève jamais. Un sujet absent du fichier n'en tolère aucune. En local, le test écrit la liste complète des
+  infractions dans `backend/target/content-quality.md`.
 - **Exercice de code** (`exercise`, ADR 0029) : un dossier `exercices/<domaine>/<notion>/<clé>/`, à côté de `notions/` :
   ```
   exercices/collections/choisir-collection/sans-doublons/
@@ -458,6 +476,8 @@ tour:
 - [ ] Chaque QCM a de 2 à 8 choix, au moins une bonne réponse et une explication.
 - [ ] Dans un dossier de sujet, chaque carte (sauf vrai ou faux et code à trous) a ses choix, avec une seule réponse
       défendable, et sa question tutoie (ADR 0051).
+- [ ] Les règles de rédaction passent (`./mvnw test -Dtest=ContentQualityBaselineTest`) : le bon choix ne se repère pas
+      à sa longueur, personne n'est vouvoyé, aucune question en double, un QCM sur quatre au plus à plusieurs réponses.
 - [ ] Chaque bloc de code indique son langage ; le code des questions pièges a été exécuté.
 - [ ] Dans un dossier de sujet, chaque « qu'affiche ce code ? » a sa vérification `check` (ou `unverifiable`).
 - [ ] Chaque page du Tour s'exécute dans le bac à sable avec la sortie annoncée (`TourTest`), et chaque « À toi » part
