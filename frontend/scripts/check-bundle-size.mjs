@@ -4,8 +4,9 @@
 import { readFileSync } from 'node:fs'
 import { gzipSync } from 'node:zlib'
 
-// 285 Ko en novembre 2026 : la marge laisse grandir l'application, pas doubler une bibliothèque.
-const BUDGET_KB = 300
+// 159 Ko en novembre 2026, depuis que les pages se chargent à la demande (291 Ko avant) : la marge laisse grandir
+// l'application, pas doubler une bibliothèque.
+const BUDGET_KB = 200
 const GZIP_LEVEL = 6
 
 const html = readFileSync('dist/index.html', 'utf8')

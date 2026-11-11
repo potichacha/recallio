@@ -18,10 +18,10 @@ describe('AuthCallbackPage', () => {
     expect(router.state.location.pathname).toBe('/subjects')
   })
 
-  it('explains when the sign-in failed', () => {
+  it('explains when the sign-in failed', async () => {
     renderAt('/auth/callback', fakeSession({ status: 'anonymous', error: 'access_denied' }))
 
-    expect(screen.getByRole('heading', { name: 'Connexion impossible' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Connexion impossible' })).toBeInTheDocument()
     expect(screen.getByText('access_denied')).toBeInTheDocument()
   })
 })

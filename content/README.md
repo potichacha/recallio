@@ -134,7 +134,9 @@ R : Les appels différés sont empilés : au retour de la fonction, le dernier `
 
 - Le Markdown est rendu dans l'application : gras, `code`, listes, blocs de code.
 - **Toujours indiquer le langage d'un bloc de code** (` ```go `, ` ```java `, ` ```yaml `, ` ```sql `...) : il sert à la
-  coloration syntaxique. Un bloc sans langage s'affiche sans couleurs.
+  coloration syntaxique. Un bloc sans langage s'affiche sans couleurs. La PWA ne colore que les langages de
+  `frontend/src/components/highlightLanguages.ts`, nommés comme highlight.js (`bash`, `cpp`, `yaml`, et non `sh`,
+  `c++`, `yml`) ; la CI échoue sur un autre (`CodeLanguagesTest`), et en ajouter un tient en deux lignes de ce fichier.
 - Une annotation après la question est permise : `**Q : Que fait `defer` ?** *(très fréquent)*`.
 
 ## 5. Écrire une bonne question

@@ -1,6 +1,6 @@
 import { BookOpenText, Cards, House, Path, Trophy, User, type Icon } from '@phosphor-icons/react'
 import { useState } from 'react'
-import { Link, NavLink, Outlet, useLocation } from 'react-router'
+import { Link, NavLink, Outlet, useLocation, useNavigation } from 'react-router'
 import { useProfile } from '../api/profile'
 import { useProgress } from '../api/progress'
 import { useSession } from '../auth/session'
@@ -109,6 +109,8 @@ function Destination({ to, label, icon: Icon, matches }: (typeof DESTINATIONS)[n
 
 export function Layout() {
   const [mode, setMode] = useState<LayoutMode>(DEFAULT_LAYOUT_MODE)
+  // Le code d'une page se télécharge à sa première visite : la page quittée reste affichée en attendant.
+  const loadingPage = useNavigation().state === 'loading'
   return (
     <LayoutModeContext.Provider value={setMode}>
       <div className="min-h-dvh bg-canvas text-ink">
@@ -129,6 +131,13 @@ export function Layout() {
               <SessionControls />
             </div>
           </div>
+          {loadingPage && (
+            <div
+              role="progressbar"
+              aria-label="Chargement de la page"
+              className="absolute inset-x-0 bottom-0 h-0.5 animate-pulse bg-brand"
+            />
+          )}
         </header>
         <main
           className={`mx-auto px-4 pt-6 ${mode.wide ? 'max-w-6xl' : 'max-w-3xl'} ${mode.focus ? 'pb-10' : 'pb-28 md:pb-10'}`}
