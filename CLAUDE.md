@@ -537,8 +537,21 @@ Le propriétaire a testé l'application en local avant de la déployer ; ses ret
    6. **Ergonomie** (5 à 10) : filet d'erreur, icônes de la PWA, fraîcheur des données, chapitres repliés, accueil d'un nouveau venu, profil en sections.
    7. **Apprendre de ses erreurs** (27, 35, 38) : « Revoir la leçon », annuler la dernière réponse, carnet d'erreurs.
    8. **Avant la bêta** (25, 26, 34, 40, 44) : compte à rebours avant l'entretien, défi du jour, test de niveau, référencement, parcours mesuré.
+   9. **Refonte « Rico »** (47 à 57) : la direction ludique retenue le 2026-11-10, en clair et en sombre, avec tout ce qui ne coûte que du temps. Un ADR la décide et révise l'ADR 0049 ; une PR par étape :
+      1. **Identité** (47, 48) : couleurs, Nunito, boutons en relief, Rico, thèmes clair et sombre au choix dans le profil.
+      2. **Page publique** (49) : une vraie question à essayer, puis pour qui, comment ça marche, les sujets.
+      3. **Accueil connecté** (50) : le mot de Rico, l'anneau du jour, le chemin des chapitres, le calendrier d'activité.
+      4. **Carte de révision** (51) : choix sélectionné puis « Valider », verdict, focus visible.
+      5. **Tous les états** (52) : vide, en chargement, en erreur, hors ligne, première visite, sur chaque écran.
+      6. **Mouvement** (53) : transitions, célébrations, Rico qui réagit, dans le respect de « réduire les animations ».
+      7. **Accessibilité et vitesse vérifiées** (54, 55) : WCAG 2.2 AA dans les deux thèmes, contrôlé en CI ; mesure de la vitesse en CI.
+      8. **Tests avec cinq utilisateurs** (56) : un protocole et une grille d'observation, pour la bêta.
 
-**Ordre** : les étapes 8.1 à 8.7, puis le contenu (7, 4.2, 4.3 et 6), puis l'étape 8.8. Les règles de l'étape 8.2 s'appliquent à tout contenu écrit ensuite.
+   10. **CI plus rapide** (58 à 62) : un run prend 13 à 17 minutes. Deux PR :
+       1. le job `docker` en parallèle des autres, et seuls les jobs concernés par les fichiers modifiés ;
+       2. les jobs `e2e` et `docker` accélérés par leurs caches ; `content` et `runner` découpés par sujet quand le contenu C++ les aura trop allongés.
+
+**Ordre** : l'étape 8.10.1 d'abord, puisqu'elle raccourcit toutes les PR suivantes ; puis les étapes 8.1 à 8.7, puis la refonte (8.9), puis le contenu (7, 4.2, 4.3 et 6), puis l'étape 8.8. Les règles de l'étape 8.2 s'appliquent à tout contenu écrit ensuite. La refonte passe avant l'étape 8.8 : ses nouveaux écrans naissent ainsi dans le bon style.
 
 Le **déploiement** (phase 1, étape 7) vient après ces phases, avec les logs JSON, Sentry, HSTS, les sauvegardes de la base et les core dumps désactivés sur le serveur du runner (33, 46). Le reste de l'audit attend les retours de la bêta.
 
