@@ -1,4 +1,4 @@
-import { screen, within } from '@testing-library/react'
+import { cleanup, screen, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { fakeSession, renderAt, SIGNED_IN_API, stubApi } from '../test/render'
 import { TEST_TOUR } from './tourFixtures'
@@ -73,6 +73,36 @@ describe('TourOutlinePage', () => {
       screen.getByText('Tu en étais à « Packages et imports », page 2 sur 2.'),
     ).toBeInTheDocument()
     expect(screen.queryByRole('link', { name: 'Commencer le Tour' })).not.toBeInTheDocument()
+  })
+
+  it('unfolds only the chapter where the visitor stands: the first one, or the one of the last page', async () => {
+    stubApi({
+      ...SIGNED_IN_API,
+      '/api/v1/subjects/go/tour': { body: TEST_TOUR },
+      '/api/v1/me/tour/go': {
+        body: { validatedNotions: ['hello-world'], lastPage: { notion: 'valeur-zero', page: 1 } },
+      },
+    })
+
+    renderAt('/subjects/go/tour')
+
+    const firstSteps = await screen.findByRole('list', { name: 'Premiers pas' })
+    expect(firstSteps).toBeVisible()
+    const variables = screen.getByRole('list', {
+      name: 'Variables, types et constantes',
+      hidden: true,
+    })
+    expect(variables).not.toBeVisible()
+    expect(screen.getByText('· 2 notions')).toBeInTheDocument()
+    cleanup()
+
+    renderAt('/subjects/go/tour', fakeSession({ status: 'authenticated', userName: 'Alice' }))
+
+    expect(
+      await screen.findByRole('list', { name: 'Variables, types et constantes' }),
+    ).toBeVisible()
+    expect(screen.getByRole('list', { name: 'Premiers pas', hidden: true })).not.toBeVisible()
+    expect(screen.getByText('· 1 / 2 validées')).toBeInTheDocument()
   })
 
   it('says when a subject has no Tour yet', async () => {

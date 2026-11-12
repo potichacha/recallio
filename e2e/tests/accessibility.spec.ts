@@ -64,7 +64,18 @@ test.describe('Accessibilité', () => {
   test('the pages of a signed-in user have no serious violation', async ({ page }) => {
     await signIn(page, USERS.bob, '/profile')
     await followSubjects(page, ['Java'])
-    expect(await seriousViolations(page), '/profile').toEqual([])
+    expect(await seriousViolations(page), '/profile/subjects').toEqual([])
+    // Les autres sections du profil, chacune à son adresse.
+    const sections: [string, string][] = [
+      ['/profile', 'Nom affiché'],
+      ['/profile/settings', 'Sons et vibrations'],
+      ['/profile/data', 'Mes données'],
+    ]
+    for (const [path, text] of sections) {
+      await page.goto(path)
+      await expect(page.getByText(text).first()).toBeVisible()
+      expect(await seriousViolations(page), path).toEqual([])
+    }
 
     await page.goto('/')
     await expect(page.getByRole('heading', { name: /^Bonjour/ })).toBeVisible()

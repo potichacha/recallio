@@ -39,6 +39,9 @@ export function TourOutlinePage() {
   const validatedCount = notions.filter((notion) => validated.has(notion.slug)).length
   const lastPage = progress.data?.lastPage
   const resumed = lastPage ? notions.find((notion) => notion.slug === lastPage.notion) : undefined
+  // Seul le chapitre où l'on en est s'ouvre d'emblée (audit, élément 5) : celui de la page où l'on s'est arrêté,
+  // sinon celui de la première notion à valider. Le sommaire entier ferait des milliers de pixels sur un téléphone.
+  const current = resumed ?? notions.find((notion) => !validated.has(notion.slug)) ?? notions[0]
 
   return (
     <section className="flex flex-col gap-6">
@@ -91,39 +94,56 @@ export function TourOutlinePage() {
           <h2 id={`tour-${domain.id}`} className="text-lg font-semibold">
             {domain.title}
           </h2>
-          {domain.chapters.map((chapter) => (
-            <div
-              key={chapter.id}
-              className="flex flex-col gap-2 rounded-xl bg-surface p-4 shadow-sm"
-            >
-              <h3 className="font-medium text-ink-soft">{chapter.title}</h3>
-              <ol aria-label={chapter.title} className="flex flex-col gap-1">
-                {chapter.notions.map((notion) => (
-                  <li key={notion.slug}>
-                    <Link
-                      to={tourPath(slug, { notion: notion.slug, page: 1 })}
-                      className="text-brand-strong hover:underline"
-                    >
-                      {notion.title}
-                    </Link>
-                    {notion.pageCount > 1 && (
-                      <span className="text-sm text-ink-muted"> · {notion.pageCount} pages</span>
-                    )}
-                    {validated.has(notion.slug) && (
-                      <span className="text-sm font-medium text-success"> · validée</span>
-                    )}
-                  </li>
-                ))}
-              </ol>
-              {chapter.exercises.length > 0 && (
-                <ChapterExercises
-                  subject={slug}
-                  title={chapter.title}
-                  exercises={chapter.exercises}
-                />
-              )}
-            </div>
-          ))}
+          {domain.chapters.map((chapter) => {
+            const done = chapter.notions.filter((notion) => validated.has(notion.slug)).length
+            return (
+              <details
+                key={chapter.id}
+                open={chapter.notions.some((notion) => notion.slug === current?.slug)}
+                className="rounded-xl bg-surface p-4 shadow-sm"
+              >
+                <summary className="cursor-pointer">
+                  <h3 className="inline font-medium text-ink-soft">{chapter.title}</h3>
+                  <span className="text-sm text-ink-muted">
+                    {' · '}
+                    {progress.data
+                      ? `${done} / ${chapter.notions.length} validée${chapter.notions.length > 1 ? 's' : ''}`
+                      : `${chapter.notions.length} notion${chapter.notions.length > 1 ? 's' : ''}`}
+                  </span>
+                </summary>
+                <div className="mt-2 flex flex-col gap-2">
+                  <ol aria-label={chapter.title} className="flex flex-col gap-1">
+                    {chapter.notions.map((notion) => (
+                      <li key={notion.slug}>
+                        <Link
+                          to={tourPath(slug, { notion: notion.slug, page: 1 })}
+                          className="text-brand-strong hover:underline"
+                        >
+                          {notion.title}
+                        </Link>
+                        {notion.pageCount > 1 && (
+                          <span className="text-sm text-ink-muted">
+                            {' '}
+                            · {notion.pageCount} pages
+                          </span>
+                        )}
+                        {validated.has(notion.slug) && (
+                          <span className="text-sm font-medium text-success"> · validée</span>
+                        )}
+                      </li>
+                    ))}
+                  </ol>
+                  {chapter.exercises.length > 0 && (
+                    <ChapterExercises
+                      subject={slug}
+                      title={chapter.title}
+                      exercises={chapter.exercises}
+                    />
+                  )}
+                </div>
+              </details>
+            )
+          })}
         </section>
       ))}
     </section>

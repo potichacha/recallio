@@ -17,6 +17,10 @@ test.describe('Connexion', () => {
     await signIn(page, USERS.bob)
 
     await page.getByRole('link', { name: USERS.bob.displayName }).click()
+    await page
+      .getByRole('navigation', { name: 'Sections du profil' })
+      .getByRole('link', { name: 'Mes données' })
+      .click()
     await page.getByRole('button', { name: 'Se déconnecter' }).click()
 
     await expect(page.getByRole('button', { name: 'Se connecter' })).toBeVisible()

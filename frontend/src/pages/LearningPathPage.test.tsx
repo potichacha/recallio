@@ -155,6 +155,17 @@ describe('LearningPathPage', () => {
     ).not.toBeVisible()
   })
 
+  it('unfolds only the chapter where the user stands in the open domain', async () => {
+    stubApi({ ...SIGNED_IN_API, ...JAVA, '/api/v1/learning-paths/java': { body: PATH } })
+
+    renderAt('/subjects/java/path', SIGNED_IN)
+
+    const firstSteps = await screen.findByRole('region', { name: 'Premiers pas' })
+    expect(within(firstSteps).getByRole('list', { name: 'Premiers pas' })).toBeVisible()
+    const object = screen.getByRole('region', { name: 'Objet' })
+    expect(within(object).getByRole('list', { name: 'Objet', hidden: true })).not.toBeVisible()
+  })
+
   it('explains that a subject without referential has no path yet', async () => {
     stubApi({
       ...SIGNED_IN_API,

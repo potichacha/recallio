@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from './client'
+import { CONTENT_STALE_TIME } from './content'
 import { ApiError } from './errors'
 import type { components } from './schema'
 
@@ -20,6 +21,7 @@ export type TourExercise = components['schemas']['TourExercise']
 export function useTour(subject: string) {
   return useQuery({
     queryKey: ['tour', subject],
+    staleTime: CONTENT_STALE_TIME,
     queryFn: async () => {
       const { data, error, response } = await api.GET('/api/v1/subjects/{subject}/tour', {
         params: { path: { subject } },
@@ -34,6 +36,7 @@ export function useTour(subject: string) {
 export function useTourNotion(subject: string, notion: string) {
   return useQuery({
     queryKey: ['tour', subject, notion],
+    staleTime: CONTENT_STALE_TIME,
     queryFn: async () => {
       const { data, error, response } = await api.GET('/api/v1/subjects/{subject}/tour/{notion}', {
         params: { path: { subject, notion } },

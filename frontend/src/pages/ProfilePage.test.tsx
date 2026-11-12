@@ -93,7 +93,7 @@ describe('ProfilePage', () => {
         body: { ...PROFILE, followedSubjects: ['java', 'go'] },
       },
     })
-    renderAt('/profile', SIGNED_IN)
+    renderAt('/profile/subjects', SIGNED_IN)
 
     const subjects = await screen.findByRole('form', { name: 'Mes sujets' })
     expect(await within(subjects).findByRole('checkbox', { name: /Java/ })).toBeChecked()
@@ -117,7 +117,7 @@ describe('ProfilePage', () => {
         body: { ...PROFILE, tracks: { java: 'LEARN' } },
       },
     })
-    renderAt('/profile', SIGNED_IN)
+    renderAt('/profile/subjects', SIGNED_IN)
 
     const tracks = await screen.findByRole('region', { name: 'Mes parcours' })
     const java = await within(tracks).findByRole('combobox', { name: 'Java' })
@@ -179,10 +179,26 @@ describe('ProfilePage', () => {
     expect(await put?.json()).toEqual({ handle: 'alice-dev', visible: true })
   })
 
+  it('splits the profile into sections, each at its own address', async () => {
+    stubApi({ ...SIGNED_IN_API, ...SUBJECTS, '/api/v1/me': { body: PROFILE } })
+    renderAt('/profile', SIGNED_IN)
+
+    await screen.findByLabelText('Nom affiché')
+    expect(screen.queryByRole('form', { name: 'Mes sujets' })).not.toBeInTheDocument()
+    const sections = within(screen.getByRole('navigation', { name: 'Sections du profil' }))
+    expect(sections.getByRole('link', { name: 'Profil' })).toHaveAttribute('aria-current', 'page')
+
+    await userEvent.click(sections.getByRole('link', { name: 'Sujets' }))
+
+    expect(await screen.findByRole('form', { name: 'Mes sujets' })).toBeInTheDocument()
+    expect(screen.queryByLabelText('Nom affiché')).not.toBeInTheDocument()
+    expect(sections.getByRole('link', { name: 'Sujets' })).toHaveAttribute('aria-current', 'page')
+  })
+
   it('signs out from the profile', async () => {
     stubApi({ ...SIGNED_IN_API, ...SUBJECTS, '/api/v1/me': { body: PROFILE } })
     const session = fakeSession({ status: 'authenticated', userName: 'Alice Martin' })
-    renderAt('/profile', session)
+    renderAt('/profile/data', session)
 
     await userEvent.click(await screen.findByRole('button', { name: 'Se déconnecter' }))
 
@@ -205,7 +221,7 @@ describe('ProfilePage', () => {
 
   it('turns on the sound of the answers on this device, the vibration staying off', async () => {
     stubApi({ ...SIGNED_IN_API, ...SUBJECTS, '/api/v1/me': { body: PROFILE } })
-    renderAt('/profile', SIGNED_IN)
+    renderAt('/profile/settings', SIGNED_IN)
 
     const feedback = await screen.findByRole('group', { name: 'Sons et vibrations' })
     await userEvent.click(within(feedback).getByRole('checkbox', { name: 'Jouer un son' }))
@@ -226,7 +242,7 @@ describe('ProfilePage', () => {
     const createObjectURL = vi.fn(() => 'blob:export')
     vi.stubGlobal('URL', Object.assign(URL, { createObjectURL, revokeObjectURL: vi.fn() }))
     const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
-    renderAt('/profile', SIGNED_IN)
+    renderAt('/profile/data', SIGNED_IN)
 
     await userEvent.click(await screen.findByRole('button', { name: 'Télécharger mes données' }))
 
@@ -245,7 +261,7 @@ describe('ProfilePage', () => {
       '/api/v1/me': { body: PROFILE },
       'DELETE /api/v1/me/account': { status: 204, body: null },
     })
-    renderAt('/profile', SIGNED_IN)
+    renderAt('/profile/data', SIGNED_IN)
 
     await userEvent.click(await screen.findByRole('button', { name: 'Supprimer mon compte' }))
     const confirm = screen.getByRole('button', { name: 'Supprimer définitivement' })
@@ -265,7 +281,7 @@ describe('ProfilePage', () => {
       'DELETE /api/v1/me/account': { status: 500, body: {} },
     })
     const session = fakeSession({ status: 'authenticated', userName: 'Alice Martin' })
-    renderAt('/profile', session)
+    renderAt('/profile/data', session)
 
     await userEvent.click(await screen.findByRole('button', { name: 'Supprimer mon compte' }))
     await userEvent.type(screen.getByLabelText(/Pour confirmer, écris ton nom/), 'Alice Martin')

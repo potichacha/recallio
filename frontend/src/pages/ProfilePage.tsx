@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react'
-import { Link } from 'react-router'
+import { Link, useParams } from 'react-router'
 import { ApiError } from '../api/errors'
 import { useSubjects } from '../api/content'
 import {
@@ -171,16 +171,44 @@ function TracksForm({ profile }: { profile: Profile }) {
   )
 }
 
+/**
+ * Les sections du profil (audit de novembre 2026, élément 7), chacune à son adresse : `/profile`, `/profile/subjects`,
+ * `/profile/settings`, `/profile/data`. Un seul écran empilait six formulaires et onze succès.
+ */
+const SECTIONS = [
+  { id: 'profile', path: '/profile', label: 'Profil' },
+  { id: 'subjects', path: '/profile/subjects', label: 'Sujets' },
+  { id: 'settings', path: '/profile/settings', label: 'Réglages' },
+  { id: 'data', path: '/profile/data', label: 'Mes données' },
+] as const
+
+type SectionId = (typeof SECTIONS)[number]['id']
+
 export function ProfilePage() {
   const profile = useProfile()
   const session = useSession()
+  const { section } = useParams()
+  // Une adresse inconnue retombe sur la première section.
+  const current: SectionId = SECTIONS.find(({ id }) => id === section)?.id ?? 'profile'
 
   return (
     <section className="flex flex-col gap-4">
       <h1 className="text-2xl font-bold">Mon profil</h1>
+      <nav aria-label="Sections du profil" className="flex flex-wrap gap-1 border-b border-line">
+        {SECTIONS.map(({ id, path, label }) => (
+          <Link
+            key={id}
+            to={path}
+            aria-current={id === current ? 'page' : undefined}
+            className={`-mb-px flex min-h-11 items-center border-b-2 px-3 text-sm font-medium ${id === current ? 'border-brand text-brand' : 'border-transparent text-ink-muted hover:text-brand'}`}
+          >
+            {label}
+          </Link>
+        ))}
+      </nav>
       {profile.isPending && <p>Chargement du profil…</p>}
       {profile.isError && <p role="alert">Impossible de charger le profil.</p>}
-      {profile.isSuccess && (
+      {profile.isSuccess && current === 'profile' && (
         <>
           {profile.data.roles.includes('admin') && (
             <p className="flex flex-wrap gap-x-3 text-sm text-ink-muted">
@@ -194,13 +222,25 @@ export function ProfilePage() {
             </p>
           )}
           <ProfileForm profile={profile.data} />
+          <PublicProfileForm />
+          <AchievementList />
+        </>
+      )}
+      {profile.isSuccess && current === 'subjects' && (
+        <>
           <FollowedSubjectsForm profile={profile.data} />
           <TracksForm profile={profile.data} />
-          <PublicProfileForm />
+        </>
+      )}
+      {profile.isSuccess && current === 'settings' && (
+        <>
           <RemindersForm />
           <InstallApp />
           <FeedbackSettingsForm />
-          <AchievementList />
+        </>
+      )}
+      {profile.isSuccess && current === 'data' && (
+        <>
           <AccountDataSection profile={profile.data} />
           <button
             type="button"

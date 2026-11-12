@@ -535,13 +535,13 @@ Le propriétaire a testé l'application en local avant de la déployer ; ses ret
    3. ✅ **Poids du front** (12, 13) : routes chargées à la demande, coloration limitée aux langages utilisés.
    4. ✅ **Sécurité** (14 à 16) : Content-Security-Policy, limite de débit sans compte, ADR sur les réponses publiques.
    5. ✅ **Suppression de compte et export des données** (17) : chaque module répond de ses données par un port (ADR 0056).
-   6. **Ergonomie** (5 à 10) : filet d'erreur, icônes de la PWA, fraîcheur des données, chapitres repliés, accueil d'un nouveau venu, profil en sections.
+   6. ✅ **Ergonomie** (5, 7 à 10) : filet d'erreur, icônes de la PWA, fraîcheur des données, chapitres repliés, profil en sections. L'accueil d'un nouveau venu (6) passe à l'étape 8.9.3, qui refait l'accueil.
    7. **Apprendre de ses erreurs** (27, 35, 38) : « Revoir la leçon », annuler la dernière réponse, carnet d'erreurs.
    8. **Avant la bêta** (25, 26, 34, 40, 44) : compte à rebours avant l'entretien, défi du jour, test de niveau, référencement, parcours mesuré.
    9. **Refonte « Rico »** (47 à 57) : la direction ludique retenue le 2026-11-10, en clair et en sombre, avec tout ce qui ne coûte que du temps. Un ADR la décide et révise l'ADR 0049 ; une PR par étape :
       1. **Identité** (47, 48) : couleurs, Nunito, boutons en relief, Rico, thèmes clair et sombre au choix dans le profil.
       2. **Page publique** (49) : une vraie question à essayer, puis pour qui, comment ça marche, les sujets.
-      3. **Accueil connecté** (50) : le mot de Rico, l'anneau du jour, le chemin des chapitres, le calendrier d'activité.
+      3. **Accueil connecté** (50, 6) : le mot de Rico, l'anneau du jour, le chemin des chapitres, le calendrier d'activité ; pour un nouveau venu, pas de bloc à zéro avant la première session.
       4. **Carte de révision** (51) : choix sélectionné puis « Valider », verdict, focus visible.
       5. **Tous les états** (52) : vide, en chargement, en erreur, hors ligne, première visite, sur chaque écran.
       6. **Mouvement** (53) : transitions, célébrations, Rico qui réagit, dans le respect de « réduire les animations ».

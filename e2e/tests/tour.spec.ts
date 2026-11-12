@@ -4,6 +4,9 @@ import { signIn, USERS } from './support/auth'
 /** Une exécution passe par le vrai runner et un conteneur du bac à sable Go (ADR 0037) : quelques secondes. */
 const RUN_TIMEOUT = 30_000
 
+/** La hauteur du sommaire, en écrans : 4 pour le Tour Go replié en novembre 2026, une douzaine quand tout était déplié. */
+const MAX_OUTLINE_SCREENS = 6
+
 test.describe('Le Tour', () => {
   test('reads the Go Tour without an account', async ({ page }) => {
     await page.goto('/subjects/go/tour')
@@ -13,6 +16,21 @@ test.describe('Le Tour', () => {
 
     await expect(page.getByRole('heading', { name: 'Bienvenue' })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Se connecter pour exécuter' })).toBeVisible()
+  })
+
+  // Le sommaire entier faisait près de 10 000 px de haut sur un téléphone (audit, élément 5) : seul le chapitre où
+  // l'on en est s'ouvre.
+  test('folds the chapters of the outline on a phone, except the first one @mobile', async ({
+    page,
+  }) => {
+    await page.goto('/subjects/go/tour')
+    await expect(page.getByRole('heading', { name: 'Le Tour de Go' })).toBeVisible()
+
+    await expect(page.getByRole('link', { name: 'Bienvenue', exact: true })).toBeVisible()
+    const screens = await page.evaluate(
+      () => document.documentElement.scrollHeight / window.innerHeight,
+    )
+    expect(screens).toBeLessThan(MAX_OUTLINE_SCREENS)
   })
 
   test('runs the program of a page in the sandbox, goes to the next page, then resumes there', async ({
