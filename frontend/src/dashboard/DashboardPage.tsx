@@ -217,7 +217,7 @@ function ContinueCard({
       {dueNow + newToday > 0 ? (
         <Link
           to={session}
-          className="flex min-h-16 flex-col items-center justify-center rounded-xl bg-surface px-4 py-2 text-brand-strong shadow-[0_4px_0_0_var(--color-brand-press)] transition-transform active:translate-y-0.5 active:shadow-none motion-reduce:transition-none"
+          className="flex min-h-16 flex-col items-center justify-center rounded-xl bg-surface px-4 py-2 text-brand-strong shadow-[0_4px_0_0_var(--color-brand-press)] transition-transform focus-visible:outline-on-brand active:translate-y-0.5 active:shadow-none motion-reduce:transition-none"
         >
           <span className="text-lg font-bold">Continuer</span>{' '}
           <span className="text-sm">
@@ -228,7 +228,7 @@ function ContinueCard({
       ) : (
         <p className="font-semibold">Tout est à jour en {title} pour aujourd’hui.</p>
       )}
-      <Link to="/review" className="self-center text-sm underline">
+      <Link to="/review" className="self-center text-sm underline focus-visible:outline-on-brand">
         Changer de sujet ou de durée
       </Link>
     </section>

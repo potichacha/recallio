@@ -544,7 +544,7 @@ Le propriétaire a testé l'application en local avant de la déployer ; ses ret
          Les contrastes des tokens sont calculés à chaque `npm test`, et axe-core passe aussi dans le thème sombre.
       2. ✅ **Page publique** (49) : la première question de l'essai posée dans la page, puis les chiffres du catalogue, pour qui, comment ça marche, les sujets.
       3. ✅ **Accueil connecté** (50, 6) : le mot de Rico, la carte « Aujourd'hui » avec l'anneau du jour, le chemin des domaines du sujet, cinq semaines d'activité ; pour un nouveau venu, pas de bloc à zéro avant la première carte.
-      4. **Carte de révision** (51) : choix sélectionné puis « Valider », verdict, focus visible.
+      4. ✅ **Carte de révision** (51) : de grands choix au contour net, un verdict qui ne repose jamais sur la seule couleur, Rico qui réagit, un focus visible partout, et le focus qui passe sur « Carte suivante » après « Valider ».
       5. **Tous les états** (52) : vide, en chargement, en erreur, hors ligne, première visite, sur chaque écran.
       6. **Mouvement** (53) : transitions, célébrations, Rico qui réagit, dans le respect de « réduire les animations ».
       7. **Accessibilité et vitesse vérifiées** (54, 55) : WCAG 2.2 AA dans les deux thèmes, contrôlé en CI ; mesure de la vitesse en CI.

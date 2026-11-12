@@ -1,4 +1,6 @@
 import { numberBlanks } from '../review/blanks'
+import { AnswerVerdict } from './AnswerVerdict'
+import { BlankVerdict } from './BlankVerdict'
 import { ChoiceOption } from './ChoiceOption'
 import { choiceOutcome, toggleChoice } from './choices'
 import type { AnswerDraft, GradedCorrection, GradedQuestionData } from './gradedAnswers'
@@ -43,16 +45,13 @@ export function GradedQuestion({
                 spellCheck={false}
                 autoCapitalize="off"
                 autoComplete="off"
-                className="rounded-lg border border-line-strong px-3 py-2 font-mono text-sm"
+                className="min-h-11 rounded-xl border-2 border-line-strong bg-surface px-3 py-2 font-mono text-sm"
               />
               {correction?.blanks[index] && (
-                <span
-                  className={`text-sm ${correction.blanks[index].correct ? 'text-success' : 'text-danger'}`}
-                >
-                  {correction.blanks[index].correct
-                    ? 'Juste'
-                    : `Attendu : ${correction.blanks[index].expected}`}
-                </span>
+                <BlankVerdict
+                  correct={correction.blanks[index].correct}
+                  expected={correction.blanks[index].expected}
+                />
               )}
             </label>
           ))}
@@ -84,9 +83,11 @@ export function GradedQuestion({
       )}
       {correction && (
         <div
-          className={`rounded-lg p-3 text-sm ${correction.correct ? 'bg-success-soft' : 'bg-danger-soft'}`}
+          className={`flex flex-col gap-2 rounded-xl border-2 p-3 text-sm ${correction.correct ? 'border-success-line bg-success-soft' : 'border-danger-line bg-danger-soft'}`}
         >
-          <p className="font-medium">{correction.correct ? 'Juste !' : 'Pas tout à fait.'}</p>
+          <AnswerVerdict correct={correction.correct} announce={false}>
+            {correction.correct ? 'Juste !' : 'Pas tout à fait.'}
+          </AnswerVerdict>
           <Markdown>{correction.explanation}</Markdown>
         </div>
       )}

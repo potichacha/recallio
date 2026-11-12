@@ -2,8 +2,10 @@ import { useState, type FormEvent } from 'react'
 import { ApiError } from '../api/errors'
 import { useRecordReview, type QueuedCard, type ReviewResult } from '../api/review'
 import { AnswerVerdict } from '../components/AnswerVerdict'
+import { BlankVerdict } from '../components/BlankVerdict'
 import { LessonLink } from '../components/LessonLink'
 import { Markdown } from '../components/Markdown'
+import { useFocusOnAppear } from '../components/useFocusOnAppear'
 import { numberBlanks } from './blanks'
 import { CardHeader } from './CardHeader'
 import { button } from '../components/ui/button'
@@ -24,6 +26,7 @@ export function FillInCard({
   const [filled, setFilled] = useState<string[]>(() => Array(card.blankCount).fill(''))
   const record = useRecordReview()
   const result = record.data
+  const nextCard = useFocusOnAppear<HTMLButtonElement>(result?.correction != null)
   const blanks = result?.correction?.blanks
 
   const fill = (index: number, value: string) =>
@@ -54,12 +57,10 @@ export function FillInCard({
               spellCheck={false}
               autoCapitalize="off"
               autoComplete="off"
-              className="rounded-lg border border-line-strong px-3 py-2 font-mono text-sm"
+              className="min-h-11 rounded-xl border-2 border-line-strong bg-surface px-3 py-2 font-mono text-sm"
             />
             {blanks?.[index] && (
-              <span className={`text-sm ${blanks[index].correct ? 'text-success' : 'text-danger'}`}>
-                {blanks[index].correct ? 'Juste' : `Attendu : ${blanks[index].expected}`}
-              </span>
+              <BlankVerdict correct={blanks[index].correct} expected={blanks[index].expected} />
             )}
           </label>
         ))}
@@ -99,6 +100,7 @@ export function FillInCard({
             <LessonLink subject={card.subjectSlug} notion={card.notionSlug} />
           )}
           <button
+            ref={nextCard}
             type="button"
             onClick={() => onReviewed(result)}
             className={`self-start ${button()}`}

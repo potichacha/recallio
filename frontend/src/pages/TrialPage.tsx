@@ -8,6 +8,7 @@ import { CARD_TYPE_LABELS } from '../components/cardTypeLabels'
 import { GradedQuestion } from '../components/GradedQuestion'
 import { emptyDraft, isDraftComplete, toGradedAnswer } from '../components/gradedAnswers'
 import { button } from '../components/ui/button'
+import { useFocusOnAppear } from '../components/useFocusOnAppear'
 import { answerFeedback } from '../review/feedback'
 import { trialStart } from './trialStart'
 
@@ -81,6 +82,7 @@ function TrialCard({
   const check = useCheckTrialAnswer(subject, notion)
   const [draft, setDraft] = useState(() => emptyDraft(card))
   const correction = check.data
+  const nextQuestion = useFocusOnAppear<HTMLButtonElement>(correction !== undefined)
 
   const submit = (event: FormEvent) => {
     event.preventDefault()
@@ -103,6 +105,7 @@ function TrialCard({
       />
       {correction ? (
         <button
+          ref={nextQuestion}
           type="button"
           onClick={() => onNext(correction.correct)}
           className={`self-start ${button()}`}

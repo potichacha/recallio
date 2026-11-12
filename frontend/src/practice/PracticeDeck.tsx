@@ -16,6 +16,7 @@ import {
 import { LessonLink } from '../components/LessonLink'
 import { Markdown } from '../components/Markdown'
 import { ReportButton } from '../components/ReportButton'
+import { useFocusOnAppear } from '../components/useFocusOnAppear'
 import { ExerciseEditor } from '../review/ExerciseEditor'
 import { ExerciseRunResult } from '../review/ExerciseRunResult'
 import { button } from '../components/ui/button'
@@ -152,6 +153,7 @@ function AnsweredCard({
   const check = useMutation({ mutationFn: checkAnswer })
   const [draft, setDraft] = useState(() => emptyDraft(card))
   const correction = check.data
+  const nextCard = useFocusOnAppear<HTMLButtonElement>(correction !== undefined)
 
   const submit = (event: FormEvent) => {
     event.preventDefault()
@@ -171,7 +173,12 @@ function AnsweredCard({
         <LessonLink subject={subject} notion={card.notionSlug} />
       )}
       {correction ? (
-        <button type="button" onClick={() => onNext(correction.correct)} className={PRIMARY}>
+        <button
+          ref={nextCard}
+          type="button"
+          onClick={() => onNext(correction.correct)}
+          className={PRIMARY}
+        >
           Carte suivante
         </button>
       ) : (

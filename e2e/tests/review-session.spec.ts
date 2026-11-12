@@ -1,5 +1,18 @@
-import { expect, test } from './support/test'
+import { expect, test, type Locator, type Page } from './support/test'
 import { followSubjects, signIn, USERS } from './support/auth'
+
+/** Le nombre de tabulations au-delà duquel on renonce : la page a moins d'éléments que cela avant la carte. */
+const MAX_TABS = 40
+
+/** Appuie sur Tab jusqu'à ce que le focus soit sur l'un des éléments désignés. */
+async function tabUntilFocused(page: Page, target: Locator) {
+  const focused = () =>
+    target.evaluateAll((elements) => elements.some((element) => element === document.activeElement))
+  for (let tabs = 0; tabs < MAX_TABS && !(await focused()); tabs++) {
+    await page.keyboard.press('Tab')
+  }
+  expect(await focused(), 'le focus du clavier atteint la cible').toBe(true)
+}
 
 test.describe('Session de révision', () => {
   // Go n'a pas encore reçu ses choix (ADR 0051) : ses premières cartes s'auto-évaluent encore.
@@ -59,9 +72,18 @@ test.describe('Session de révision', () => {
     await expect(card.locator('header')).toContainText('Java · ')
     // Les cartes de « Premiers pas » ont leurs choix : plus de carte à retourner ni d'auto-évaluation.
     await expect(card.getByRole('button', { name: 'Voir la réponse' })).toHaveCount(0)
-    await card.getByRole('radio').or(card.getByRole('checkbox')).first().check()
-    await card.getByRole('button', { name: 'Valider' }).click()
+
+    // Au clavier seul (ADR 0058) : Tab jusqu'à un choix, Espace pour le cocher, Tab jusqu'à « Valider », Entrée.
+    const choice = card.getByRole('radio').or(card.getByRole('checkbox'))
+    await tabUntilFocused(page, choice)
+    await page.keyboard.press('Space')
+    await tabUntilFocused(page, card.getByRole('button', { name: 'Valider' }))
+    await page.keyboard.press('Enter')
     await expect(card.getByRole('status')).toHaveText(/Bonne réponse|Pas tout à fait/)
-    await expect(card.getByRole('button', { name: 'Carte suivante' })).toBeVisible()
+
+    // Le focus est passé sur « Carte suivante » : Entrée ouvre la carte d'après, sans chercher le bouton.
+    await expect(card.getByRole('button', { name: 'Carte suivante' })).toBeFocused()
+    await page.keyboard.press('Enter')
+    await expect(page.getByText('1 carte révisée')).toBeVisible()
   })
 })
