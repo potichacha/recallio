@@ -71,7 +71,10 @@ describe('LandingPage (ADR 0058)', () => {
     renderAt('/')
 
     const trial = within(await screen.findByRole('region', { name: 'Essaie sans compte' }))
-    expect(trial.getByRole('link', { name: 'Essayer Java' })).toHaveAttribute('href', '/try/java')
+    expect(await trial.findByRole('link', { name: 'Essayer Java' })).toHaveAttribute(
+      'href',
+      '/try/java',
+    )
     expect(trial.getByRole('link', { name: 'Essayer Go' })).toHaveAttribute('href', '/try/go')
     expect(trial.queryByRole('link', { name: 'Essayer Rust' })).not.toBeInTheDocument()
   })

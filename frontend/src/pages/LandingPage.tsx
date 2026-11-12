@@ -25,6 +25,10 @@ import type { TrialStart } from './trialStart'
 
 const CARD = 'rounded-2xl border border-line bg-surface p-5 shadow-sm'
 
+/** La hauteur tenue par la question et par les chiffres avant qu'ils n'arrivent (stabilité de la page, ADR 0058). */
+const QUESTION_HEIGHT = 'min-h-80'
+const FIGURES_HEIGHT = 'min-h-20'
+
 const AUDIENCES: { icon: Icon; title: string; text: string }[] = [
   {
     icon: GraduationCap,
@@ -88,13 +92,14 @@ export function LandingPage() {
         </div>
       </header>
 
-      {trials.length > 0 && (
+      {/* La place de l'essai et des chiffres est tenue pendant que le catalogue charge : la page ne saute pas. */}
+      {(subjects.isPending || trials.length > 0) && (
         <section aria-labelledby="trial-title" className="flex flex-col gap-3">
           <h2 id="trial-title" className="text-xl font-semibold">
             Essaie sans compte
           </h2>
-          <FirstQuestion subject={trials[0]} />
-          <div className="flex flex-wrap items-center gap-3">
+          {trials.length > 0 ? <FirstQuestion subject={trials[0]} /> : <QuestionPlaceholder />}
+          <div className="flex min-h-9 flex-wrap items-center gap-3">
             <span className="text-sm text-ink-muted">Cinq questions, rien à remplir :</span>
             {trials.map((subject) => (
               <Link
@@ -109,7 +114,11 @@ export function LandingPage() {
         </section>
       )}
 
-      {published.length > 0 && <Figures subjects={published} />}
+      {subjects.isPending ? (
+        <div className={FIGURES_HEIGHT} />
+      ) : (
+        published.length > 0 && <Figures subjects={published} />
+      )}
 
       <Features id="audiences-title" title="Pour qui" items={AUDIENCES} />
       <Features id="steps-title" title="Comment ça marche" items={STEPS} ordered />
@@ -158,15 +167,19 @@ function FirstQuestion({ subject }: { subject: Subject }) {
   const question = trial.data?.questions.at(0)
   if (trial.isError || (trial.data && !question)) return null
   if (!question) {
-    // L'emplacement de la question, à sa hauteur : la suite de la page ne saute pas quand elle arrive.
-    return (
-      <div className="min-h-56">
-        <LoadingState label={`Préparation d’une question de ${subject.title}…`} shape="card" />
-      </div>
-    )
+    return <QuestionPlaceholder label={`Préparation d’une question de ${subject.title}…`} />
   }
   return (
     <QuestionCard subject={subject} question={question} total={trial.data?.questions.length ?? 1} />
+  )
+}
+
+/** L'emplacement de la question, à sa hauteur : la suite de la page ne saute pas quand elle arrive. */
+function QuestionPlaceholder({ label = 'Préparation d’une question…' }: { label?: string }) {
+  return (
+    <div className={QUESTION_HEIGHT}>
+      <LoadingState label={label} shape="card" />
+    </div>
   )
 }
 
@@ -193,7 +206,7 @@ function QuestionCard({
   }
 
   return (
-    <form onSubmit={submit} className={`${CARD} flex min-h-56 flex-col gap-4`}>
+    <form onSubmit={submit} className={`${CARD} flex ${QUESTION_HEIGHT} flex-col gap-4`}>
       <GradedQuestion
         question={card}
         label={`${subject.title} · ${CARD_TYPE_LABELS[card.type]}`}
@@ -240,7 +253,10 @@ function Figures({ subjects }: { subjects: Subject[] }) {
   ].filter(({ value }) => value > 0)
   if (figures.length === 0) return null
   return (
-    <ul aria-label="Le catalogue en chiffres" className="grid grid-cols-3 gap-3 text-center">
+    <ul
+      aria-label="Le catalogue en chiffres"
+      className={`grid ${FIGURES_HEIGHT} grid-cols-3 gap-3 text-center`}
+    >
       {figures.map(({ label, value }) => (
         <li key={label} className={`${CARD} flex flex-col p-3`}>
           <strong className="text-2xl font-extrabold text-brand-strong">

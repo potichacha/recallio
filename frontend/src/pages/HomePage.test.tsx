@@ -19,7 +19,11 @@ describe('HomePage', () => {
     renderAt('/')
 
     const trial = await screen.findByRole('region', { name: 'Essaie sans compte' })
-    expect(screen.getByRole('link', { name: 'Essayer Java' })).toHaveAttribute('href', '/try/java')
+    // La place de l'essai est tenue pendant le chargement du catalogue : ses boutons arrivent avec lui.
+    expect(await screen.findByRole('link', { name: 'Essayer Java' })).toHaveAttribute(
+      'href',
+      '/try/java',
+    )
     expect(screen.getByRole('link', { name: 'Essayer Go' })).toHaveAttribute('href', '/try/go')
     expect(trial).not.toHaveTextContent('Rust')
   })

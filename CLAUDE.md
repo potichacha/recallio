@@ -360,7 +360,7 @@ Toute évolution du schéma passe par une migration Flyway versionnée, rétroco
 | Intégration | repositories, migrations, endpoints REST, sécurité (accès refusé aux ressources d'autrui) | `@QuarkusTest`, REST Assured, PostgreSQL réel via Dev Services/Testcontainers |
 | Architecture | règles de dépendances entre couches et modules | ArchUnit |
 | Frontend | composants et hooks | Vitest, Testing Library |
-| Bout en bout | quelques parcours critiques (se connecter, essayer sans compte, réviser une session, voir son streak), et l'accessibilité des pages principales | Playwright, axe-core |
+| Bout en bout | quelques parcours critiques (se connecter, essayer sans compte, réviser une session, voir son streak), l'accessibilité des pages principales dans les deux thèmes, et la vitesse des pages publiques sur un téléphone lent simulé | Playwright, axe-core |
 
 Règles : chaque bug corrigé reçoit un test qui le reproduit ; pas de `Thread.sleep` dans les tests ; le temps est piloté par un `Clock` fixe ; la couverture est un indicateur, pas un objectif.
 
@@ -547,7 +547,7 @@ Le propriétaire a testé l'application en local avant de la déployer ; ses ret
       4. ✅ **Carte de révision** (51) : de grands choix au contour net, un verdict qui ne repose jamais sur la seule couleur, Rico qui réagit, un focus visible partout, et le focus qui passe sur « Carte suivante » après « Valider ».
       5. ✅ **Tous les états** (52) : chaque écran charge sous une silhouette, échoue avec un bouton « Réessayer », et dit à quoi il sert quand il est vide ; un bandeau annonce le hors-ligne. Un test refuse un état écrit à la main.
       6. ✅ **Mouvement** (53) : une page qui glisse en s'ouvrant, la carte suivante qui entre, des confettis aux moments qui comptent, Rico qui réagit ; rien ne bouge pour qui a demandé moins d'animations (un filet global, et un test).
-      7. **Accessibilité et vitesse vérifiées** (54, 55) : WCAG 2.2 AA dans les deux thèmes, contrôlé en CI ; mesure de la vitesse en CI.
+      7. ✅ **Accessibilité et vitesse vérifiées** (54, 55) : axe-core sur les pages d'un visiteur et d'un utilisateur connecté dans les deux thèmes, aucun défilement latéral à 320 px, un lien « Aller au contenu », un titre d'onglet par page ; la vitesse mesurée en CI sur un téléphone lent simulé. Ce qu'une machine ne voit pas est dans `docs/accessibilite.md`.
       8. **Tests avec cinq utilisateurs** (56) : un protocole et une grille d'observation, pour la bêta.
 
    10. **CI plus rapide** (58 à 62) : un run prend 13 à 17 minutes. Deux PR :
