@@ -40,6 +40,12 @@ final class ContentDtos {
             long themeCount,
             long cardCount,
 
+            @Schema(description = "Le nombre de notions du sujet ; 0 pour un sujet encore en document")
+            long notionCount,
+
+            @Schema(description = "Le nombre d'exercices de code du sujet, parmi ses cartes")
+            long exerciseCount,
+
             @Schema(description = "Vrai si le sujet a un Tour (ADR 0037) ; son essai sans compte aussi (ADR 0050)")
             boolean hasTour) {
         static SubjectDto from(SubjectSummary subject) {
@@ -52,6 +58,8 @@ final class ContentDtos {
                     SubjectStatus.valueOf(subject.status().name()),
                     subject.themeCount(),
                     subject.cardCount(),
+                    subject.notionCount(),
+                    subject.exerciseCount(),
                     subject.hasTour());
         }
     }

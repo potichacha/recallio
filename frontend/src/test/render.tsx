@@ -62,6 +62,8 @@ function testSubject(slug: string, title: string, overrides: Record<string, unkn
     status: 'PUBLISHED',
     themeCount: 2,
     cardCount: 20,
+    notionCount: 5,
+    exerciseCount: 1,
     hasTour: false,
     ...overrides,
   }

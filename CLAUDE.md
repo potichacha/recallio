@@ -542,7 +542,7 @@ Le propriétaire a testé l'application en local avant de la déployer ; ses ret
    9. **Refonte « Rico »** (47 à 57) : la direction ludique retenue le 2026-11-10, en clair et en sombre, avec tout ce qui ne coûte que du temps. L'ADR 0058 la décide et révise l'ADR 0049 ; une PR par étape :
       1. ✅ **Identité** (47, 48) : couleurs, Nunito, boutons en relief, Rico, thèmes clair et sombre au choix dans le profil (ADR 0058).
          Les contrastes des tokens sont calculés à chaque `npm test`, et axe-core passe aussi dans le thème sombre.
-      2. **Page publique** (49) : une vraie question à essayer, puis pour qui, comment ça marche, les sujets.
+      2. ✅ **Page publique** (49) : la première question de l'essai posée dans la page, puis les chiffres du catalogue, pour qui, comment ça marche, les sujets.
       3. **Accueil connecté** (50, 6) : le mot de Rico, l'anneau du jour, le chemin des chapitres, le calendrier d'activité ; pour un nouveau venu, pas de bloc à zéro avant la première session.
       4. **Carte de révision** (51) : choix sélectionné puis « Valider », verdict, focus visible.
       5. **Tous les états** (52) : vide, en chargement, en erreur, hors ligne, première visite, sur chaque écran.
