@@ -1,3 +1,5 @@
+import { ErrorState } from '../components/states/ErrorState'
+import { LoadingState } from '../components/states/LoadingState'
 import { Link, useNavigate, useParams } from 'react-router'
 import { ApiError } from '../api/errors'
 import { useAcceptInvitation, useInvitation } from '../api/groups'
@@ -25,10 +27,15 @@ export function JoinPage() {
     )
   }
   if (invitation.isError) {
-    return <p role="alert">Impossible de charger l'invitation.</p>
+    return (
+      <ErrorState
+        message="Impossible de charger l'invitation."
+        onRetry={() => void invitation.refetch()}
+      />
+    )
   }
   if (invitation.isPending) {
-    return <p>Chargement de l'invitation…</p>
+    return <LoadingState label="Chargement de l'invitation…" />
   }
 
   const { groupId, groupName, memberCount, alreadyMember } = invitation.data

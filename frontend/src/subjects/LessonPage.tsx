@@ -1,3 +1,5 @@
+import { ErrorState } from '../components/states/ErrorState'
+import { LoadingState } from '../components/states/LoadingState'
 import { Link, useParams } from 'react-router'
 import { useNotionLesson, useSubject } from '../api/content'
 import { ApiError } from '../api/errors'
@@ -21,9 +23,14 @@ export function LessonPage() {
       <Link to={course} className="self-start text-sm text-brand hover:underline">
         ← Le cours de {subject.data?.title ?? 'ce sujet'}
       </Link>
-      {lesson.isPending && <p>Chargement de la leçon…</p>}
+      {lesson.isPending && <LoadingState label="Chargement de la leçon…" />}
       {notFound && <h1 className="text-2xl font-bold">Notion introuvable</h1>}
-      {lesson.isError && !notFound && <p role="alert">Impossible de charger la leçon.</p>}
+      {lesson.isError && !notFound && (
+        <ErrorState
+          message="Impossible de charger la leçon."
+          onRetry={() => void lesson.refetch()}
+        />
+      )}
       {lesson.data && (
         <>
           <header className="flex flex-col gap-1">

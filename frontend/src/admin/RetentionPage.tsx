@@ -1,3 +1,5 @@
+import { ErrorState } from '../components/states/ErrorState'
+import { LoadingState } from '../components/states/LoadingState'
 import { Link } from 'react-router'
 import { ApiError } from '../api/errors'
 import { useRetention } from '../api/retention'
@@ -14,8 +16,15 @@ export function RetentionPage() {
   if (retention.error instanceof ApiError && retention.error.status === 403) {
     return <p role="alert">Cette page est réservée aux administrateurs.</p>
   }
-  if (retention.isError) return <p role="alert">Impossible de charger la rétention.</p>
-  if (!retention.data) return <p className="text-ink-muted">Chargement…</p>
+  if (retention.isError) {
+    return (
+      <ErrorState
+        message="Impossible de charger la rétention."
+        onRetry={() => void retention.refetch()}
+      />
+    )
+  }
+  if (!retention.data) return <LoadingState label="Chargement…" />
 
   const { players, days } = retention.data
   return (

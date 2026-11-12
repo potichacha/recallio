@@ -1,3 +1,6 @@
+import { EmptyState } from '../components/states/EmptyState'
+import { ErrorState } from '../components/states/ErrorState'
+import { LoadingState } from '../components/states/LoadingState'
 import { Link, useParams } from 'react-router'
 import { useCatalogSubjects } from '../api/content'
 import { checkMistakeAnswer, useMistakes } from '../api/mistakes'
@@ -13,8 +16,15 @@ export function MistakesPage() {
   const subjects = useCatalogSubjects()
   const title = subjects.data?.find((subject) => subject.slug === slug)?.title ?? slug
 
-  if (mistakes.isError) return <p role="alert">Impossible de charger tes erreurs.</p>
-  if (!mistakes.data) return <p className="text-ink-muted">Chargement…</p>
+  if (mistakes.isError) {
+    return (
+      <ErrorState
+        message="Impossible de charger tes erreurs."
+        onRetry={() => void mistakes.refetch()}
+      />
+    )
+  }
+  if (!mistakes.data) return <LoadingState label="Chargement…" shape="card" />
 
   const { cards } = mistakes.data
   return (
@@ -26,7 +36,13 @@ export function MistakesPage() {
           n’est enregistré : elles reviendront aussi dans tes révisions.
         </p>
       </header>
-      {cards.length === 0 && <p>Aucune erreur à revoir cette semaine.</p>}
+      {cards.length === 0 && (
+        <EmptyState
+          title="Aucune erreur à revoir cette semaine."
+          text="Une carte ratée en révision arrive ici, et en sort quand tu la réussis."
+          mood="cheering"
+        />
+      )}
       <PracticeDeck
         subject={slug}
         cards={cards}

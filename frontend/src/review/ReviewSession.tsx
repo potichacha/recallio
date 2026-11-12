@@ -1,3 +1,5 @@
+import { ErrorState } from '../components/states/ErrorState'
+import { LoadingState } from '../components/states/LoadingState'
 import { Fire } from '@phosphor-icons/react'
 import { mistakesPath } from '../practice/mistakesPath'
 import { useQueryClient } from '@tanstack/react-query'
@@ -75,17 +77,19 @@ export function ReviewSession({
   useLayoutMode({ focus: queue.isSuccess && end === undefined })
 
   if (queue.isPending) {
-    return <p>Préparation de la session…</p>
+    return <LoadingState label="Préparation de la session…" shape="card" />
   }
   if (queue.isError) {
     const notFound = queue.error instanceof ApiError && queue.error.status === 404
     const missing = filter.group ? 'groupe' : filter.theme ? 'thème' : 'sujet'
-    return (
-      <p role="alert">
-        {notFound
-          ? `Ce ${missing} est introuvable.`
-          : 'Impossible de charger les cartes à réviser.'}
-      </p>
+    // Un sujet introuvable n'est pas une panne : rien à réessayer.
+    return notFound ? (
+      <p role="alert">Ce {missing} est introuvable.</p>
+    ) : (
+      <ErrorState
+        message="Impossible de charger les cartes à réviser."
+        onRetry={() => void queue.refetch()}
+      />
     )
   }
 
@@ -152,7 +156,7 @@ export function ReviewSession({
           </div>
         </>
       ) : (
-        <p className="text-ink-muted">Chargement des cartes suivantes…</p>
+        <LoadingState label="Chargement des cartes suivantes…" shape="card" />
       )}
     </section>
   )

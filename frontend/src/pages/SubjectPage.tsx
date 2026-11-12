@@ -1,3 +1,4 @@
+import { ErrorState } from '../components/states/ErrorState'
 import { Link, useParams } from 'react-router'
 import { useSubject, useSubjectThemes } from '../api/content'
 import { ApiError } from '../api/errors'
@@ -68,7 +69,12 @@ export function SubjectPage() {
           </Link>
         </div>
       </div>
-      {themes.isError && <p role="alert">Impossible de charger les thèmes.</p>}
+      {themes.isError && (
+        <ErrorState
+          message="Impossible de charger les thèmes."
+          onRetry={() => void themes.refetch()}
+        />
+      )}
       {themes.isSuccess && (
         <ul className="grid gap-3 sm:grid-cols-2">
           {themes.data.map((theme) => (

@@ -1,3 +1,5 @@
+import { ErrorState } from '../components/states/ErrorState'
+import { LoadingState } from '../components/states/LoadingState'
 import { useState } from 'react'
 import { Link } from 'react-router'
 import { ApiError } from '../api/errors'
@@ -49,8 +51,13 @@ export function ContentReportsPage() {
           </button>
         ))}
       </div>
-      {reports.isPending && <p>Chargement des signalements…</p>}
-      {reports.isError && <p role="alert">Impossible de charger les signalements.</p>}
+      {reports.isPending && <LoadingState label="Chargement des signalements…" />}
+      {reports.isError && (
+        <ErrorState
+          message="Impossible de charger les signalements."
+          onRetry={() => void reports.refetch()}
+        />
+      )}
       {reports.data && (
         <>
           <p className="text-sm text-ink-muted">

@@ -1,3 +1,6 @@
+import { EmptyState } from '../components/states/EmptyState'
+import { ErrorState } from '../components/states/ErrorState'
+import { LoadingState } from '../components/states/LoadingState'
 import { Link, useParams } from 'react-router'
 import { ApiError } from '../api/errors'
 import { useTour, useTourProgress } from '../api/tour'
@@ -29,8 +32,12 @@ export function TourOutlinePage() {
       </section>
     )
   }
-  if (tour.isError) return <p role="alert">Impossible de charger le Tour.</p>
-  if (!tour.data) return <p className="text-ink-muted">Chargement…</p>
+  if (tour.isError) {
+    return (
+      <ErrorState message="Impossible de charger le Tour." onRetry={() => void tour.refetch()} />
+    )
+  }
+  if (!tour.data) return <LoadingState label="Chargement…" />
 
   const { subjectTitle, domains } = tour.data
   const first = tourSteps(tour.data)[0]
@@ -82,7 +89,11 @@ export function TourOutlinePage() {
             )}
           </>
         ) : (
-          <p className="text-ink-muted">Ce sujet n’a pas encore de Tour.</p>
+          <EmptyState
+            title="Ce sujet n’a pas encore de Tour."
+            text="Son cours et ses cartes sont déjà là."
+            mood="thinking"
+          />
         )}
       </div>
       {domains.map((domain) => (

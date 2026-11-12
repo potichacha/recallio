@@ -1,3 +1,6 @@
+import { EmptyState } from '../components/states/EmptyState'
+import { ErrorState } from '../components/states/ErrorState'
+import { LoadingState } from '../components/states/LoadingState'
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router'
 import { ApiError } from '../api/errors'
@@ -33,8 +36,15 @@ export function RankedPage() {
   const overview = useRankedOverview()
   const [live, setLive] = useState<string>()
 
-  if (overview.isPending) return <p>Chargement du classé…</p>
-  if (overview.isError) return <p role="alert">Impossible de charger le classé.</p>
+  if (overview.isPending) return <LoadingState label="Chargement du classé…" />
+  if (overview.isError) {
+    return (
+      <ErrorState
+        message="Impossible de charger le classé."
+        onRetry={() => void overview.refetch()}
+      />
+    )
+  }
   const { season, seasonEndsOn, subjects, badges } = overview.data
   return (
     <section className="flex flex-col gap-5">
@@ -56,13 +66,14 @@ export function RankedPage() {
         </ul>
       )}
       {subjects.length === 0 && (
-        <p>
-          Suis un sujet depuis ton{' '}
-          <Link to="/profile/subjects" className="text-brand underline">
-            profil
-          </Link>{' '}
-          pour jouer en classé.
-        </p>
+        <EmptyState
+          title="Aucun sujet suivi pour jouer en classé."
+          text="Le classé se joue sur un sujet que tu suis : chacun y a son rang."
+        >
+          <Link to="/profile/subjects" className={button({ variant: 'secondary', size: 'sm' })}>
+            Choisir mes sujets
+          </Link>
+        </EmptyState>
       )}
       {badges.length > 0 && (
         <section aria-labelledby="badges-title" className="flex flex-col gap-2">

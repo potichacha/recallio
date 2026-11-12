@@ -1,3 +1,6 @@
+import { EmptyState } from '../components/states/EmptyState'
+import { ErrorState } from '../components/states/ErrorState'
+import { LoadingState } from '../components/states/LoadingState'
 import { Link, useParams, useSearchParams } from 'react-router'
 import { ApiError } from '../api/errors'
 import { checkPracticeAnswer, usePractice } from '../api/practice'
@@ -27,8 +30,15 @@ export function PracticePage() {
       </section>
     )
   }
-  if (practice.isError) return <p role="alert">Impossible de charger l’entraînement.</p>
-  if (!practice.data) return <p className="text-ink-muted">Chargement…</p>
+  if (practice.isError) {
+    return (
+      <ErrorState
+        message="Impossible de charger l’entraînement."
+        onRetry={() => void practice.refetch()}
+      />
+    )
+  }
+  if (!practice.data) return <LoadingState label="Chargement…" shape="card" />
 
   const { notionTitle, cards } = practice.data
   return (
@@ -39,7 +49,9 @@ export function PracticePage() {
           Rien n’est enregistré : ces cartes reviendront dans tes révisions, une par jour.
         </p>
       </header>
-      {cards.length === 0 && <p>Cette notion n’a pas encore de cartes.</p>}
+      {cards.length === 0 && (
+        <EmptyState title="Cette notion n’a pas encore de cartes." mood="thinking" />
+      )}
       <PracticeDeck
         subject={slug}
         cards={cards}

@@ -1,3 +1,5 @@
+import { ErrorState } from './states/ErrorState'
+import { LoadingState } from './states/LoadingState'
 import { useSubjects } from '../api/content'
 import { SUBJECT_CATEGORIES } from './subjectCategories'
 
@@ -14,8 +16,15 @@ export function SubjectPicker({
 }) {
   const subjects = useSubjects()
 
-  if (subjects.isPending) return <p>Chargement des sujets…</p>
-  if (subjects.isError) return <p role="alert">Impossible de charger les sujets.</p>
+  if (subjects.isPending) return <LoadingState label="Chargement des sujets…" shape="tiles" />
+  if (subjects.isError) {
+    return (
+      <ErrorState
+        message="Impossible de charger les sujets."
+        onRetry={() => void subjects.refetch()}
+      />
+    )
+  }
 
   const published = subjects.data.filter((subject) => subject.status === 'PUBLISHED')
   const toggle = (slug: string, checked: boolean) =>

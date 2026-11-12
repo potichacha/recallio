@@ -1,3 +1,5 @@
+import { ErrorState } from '../components/states/ErrorState'
+import { LoadingState } from '../components/states/LoadingState'
 import { useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router'
 import { useQueryClient } from '@tanstack/react-query'
@@ -30,8 +32,12 @@ export function DuelPage() {
   const { id = '' } = useParams()
   const duel = useDuel(id)
 
-  if (duel.isPending) return <p>Chargement du duel…</p>
-  if (duel.isError) return <p role="alert">Impossible de charger ce duel.</p>
+  if (duel.isPending) return <LoadingState label="Chargement du duel…" shape="card" />
+  if (duel.isError) {
+    return (
+      <ErrorState message="Impossible de charger ce duel." onRetry={() => void duel.refetch()} />
+    )
+  }
   const playable = duel.data.status === 'OPEN' || duel.data.status === 'FULL'
   return (
     <section className="flex flex-col gap-5">

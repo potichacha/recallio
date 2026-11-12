@@ -1,3 +1,5 @@
+import { LoadingState } from '../components/states/LoadingState'
+import { ErrorState } from '../components/states/ErrorState'
 import { useState } from 'react'
 import { useNavigate } from 'react-router'
 import { useCatalogSubjects, type Subject } from '../api/content'
@@ -46,9 +48,15 @@ export function WelcomePage() {
       <p className="text-ink-muted">
         Dis-nous ton but : Recallio te propose par où commencer. Tu pourras tout changer ensuite.
       </p>
-      {(profile.isPending || subjects.isPending) && <p>Chargement…</p>}
+      {(profile.isPending || subjects.isPending) && <LoadingState shape="tiles" />}
       {(profile.isError || subjects.isError) && (
-        <p role="alert">Impossible de charger tes sujets.</p>
+        <ErrorState
+          message="Impossible de charger tes sujets."
+          onRetry={() => {
+            void profile.refetch()
+            void subjects.refetch()
+          }}
+        />
       )}
       {profile.isSuccess && subjects.isSuccess && (
         <WelcomeForm

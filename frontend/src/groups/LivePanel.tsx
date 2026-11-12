@@ -1,3 +1,5 @@
+import { ErrorState } from '../components/states/ErrorState'
+import { LoadingState } from '../components/states/LoadingState'
 import { useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router'
 import { useSubjects } from '../api/content'
@@ -21,8 +23,13 @@ export function LivePanel({ group }: { group: Group }) {
       <h2 id="live-title" className="text-lg font-semibold">
         Partie live
       </h2>
-      {live.isPending && <p>Chargement…</p>}
-      {live.isError && <p role="alert">Impossible de savoir si une partie est ouverte.</p>}
+      {live.isPending && <LoadingState label="Chargement…" shape="line" />}
+      {live.isError && (
+        <ErrorState
+          message="Impossible de savoir si une partie est ouverte."
+          onRetry={() => void live.refetch()}
+        />
+      )}
       {live.data && (
         <div className="flex flex-wrap items-center justify-between gap-3">
           <p>

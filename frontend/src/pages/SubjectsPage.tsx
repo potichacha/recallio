@@ -1,3 +1,5 @@
+import { ErrorState } from '../components/states/ErrorState'
+import { LoadingState } from '../components/states/LoadingState'
 import { Link } from 'react-router'
 import { useSubjects, type Subject } from '../api/content'
 import { DraftBadge } from '../components/DraftBadge'
@@ -37,8 +39,13 @@ export function SubjectsPage() {
         <h1 className="text-2xl font-bold">Toutes les cartes</h1>
         <p className="text-ink-muted">Les cartes de chaque sujet, thème par thème.</p>
       </header>
-      {subjects.isPending && <p>Chargement des sujets…</p>}
-      {subjects.isError && <p role="alert">Impossible de charger les sujets.</p>}
+      {subjects.isPending && <LoadingState label="Chargement des sujets…" shape="tiles" />}
+      {subjects.isError && (
+        <ErrorState
+          message="Impossible de charger les sujets."
+          onRetry={() => void subjects.refetch()}
+        />
+      )}
       {subjects.isSuccess &&
         SUBJECT_CATEGORIES.map(({ category, label }) => {
           const inCategory = subjects.data.filter((subject) => subject.category === category)

@@ -1,3 +1,5 @@
+import { ErrorState } from '../components/states/ErrorState'
+import { LoadingState } from '../components/states/LoadingState'
 import type { ReactNode } from 'react'
 import { useCatalogSubjects, type Subject } from '../api/content'
 import { SubjectGallery } from './SubjectGallery'
@@ -30,8 +32,13 @@ export function GalleryPage({
         <h1 className="text-2xl font-bold">{title}</h1>
         <p className="text-ink-muted">{intro}</p>
       </header>
-      {subjects.isPending && <p>Chargement des sujets…</p>}
-      {subjects.isError && <p role="alert">Impossible de charger les sujets.</p>}
+      {subjects.isPending && <LoadingState label="Chargement des sujets…" shape="tiles" />}
+      {subjects.isError && (
+        <ErrorState
+          message="Impossible de charger les sujets."
+          onRetry={() => void subjects.refetch()}
+        />
+      )}
       {subjects.isSuccess && (
         <SubjectGallery
           subjects={subjects.data}

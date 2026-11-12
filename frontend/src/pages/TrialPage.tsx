@@ -1,3 +1,5 @@
+import { ErrorState } from '../components/states/ErrorState'
+import { LoadingState } from '../components/states/LoadingState'
 import { useState, type FormEvent } from 'react'
 import { Link, useLocation, useParams } from 'react-router'
 import { useSubjects } from '../api/content'
@@ -37,8 +39,12 @@ export function TrialPage() {
       </section>
     )
   }
-  if (trial.isError) return <p role="alert">Impossible de charger l’essai.</p>
-  if (!trial.data) return <p className="text-ink-muted">Préparation de l’essai…</p>
+  if (trial.isError) {
+    return (
+      <ErrorState message="Impossible de charger l’essai." onRetry={() => void trial.refetch()} />
+    )
+  }
+  if (!trial.data) return <LoadingState label="Préparation de l’essai…" shape="card" />
 
   const { questions } = trial.data
   const question = questions.at(position)
