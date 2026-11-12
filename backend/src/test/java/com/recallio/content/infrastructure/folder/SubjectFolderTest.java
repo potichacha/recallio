@@ -39,7 +39,7 @@ class SubjectFolderTest {
         ParsedContent parsed = parse(folder);
 
         assertThat(parsed.issues()).isEmpty();
-        if (!isAnnounced(folder)) {
+        if (!isInPreparation(folder)) {
             assertThat(parsed.cardCount()).isPositive();
         }
     }
@@ -68,6 +68,16 @@ class SubjectFolderTest {
         assertThat(Files.isDirectory(folder.resolve("referentiel")) || isAnnounced(folder))
                 .as("%s : un référentiel, sauf pour un sujet annoncé", folder.getFileName())
                 .isTrue();
+    }
+
+    /**
+     * Un sujet en préparation : un brouillon qui n'a pas encore de fichier de notion. Il est annoncé (ADR 0052), ou il a
+     * déjà son référentiel, relu avant que ses cartes ne s'écrivent (ADR 0025 : le référentiel d'abord). Il n'a donc
+     * aucune carte ; un sujet publié en a toujours.
+     */
+    private static boolean isInPreparation(Path folder) {
+        return !Files.isDirectory(folder.resolve("notions"))
+                && parse(folder).subject().status() == Subject.Status.DRAFT;
     }
 
     /**
