@@ -8,8 +8,8 @@ import com.recallio.platform.domain.Page;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.persistence.EntityManager;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import org.jspecify.annotations.Nullable;
@@ -27,13 +27,24 @@ public class JpaContentCatalog implements ContentCatalog {
             order by s.position, s.slug
             """;
 
-    /** Les sujets dont au moins une notion active a des pages dans le Tour (ADR 0037). */
-    private static final String SUBJECTS_WITH_TOUR = """
-            select distinct s.slug
-            from notion n
-            join subject s on s.id = n.subject_id
-            where n.retired_at is null and jsonb_array_length(n.tour) > 0
+    /**
+     * Ce que le résumé d'un sujet dit de ses notions et de ses exercices : combien il a de notions actives, combien
+     * ont des pages dans le Tour (ADR 0037), et combien il a d'exercices de code.
+     */
+    private static final String SUBJECT_FACTS = """
+            select s.slug,
+                   (select count(*) from notion n where n.subject_id = s.id and n.retired_at is null),
+                   (select count(*) from notion n
+                    where n.subject_id = s.id and n.retired_at is null and jsonb_array_length(n.tour) > 0),
+                   (select count(*) from card c join theme t on t.id = c.theme_id
+                    where t.subject_id = s.id and c.retired_at is null and c.type = 'CODING_EXERCISE')
+            from subject s
             """;
+
+    /** @param tourNotions le sujet a un Tour dès qu'une de ses notions en a des pages */
+    private record SubjectFacts(long notions, long tourNotions, long exercises) {
+        static final SubjectFacts NONE = new SubjectFacts(0, 0, 0);
+    }
 
     private static final String THEME_SUMMARIES = """
             select t.id, s.slug, s.title, t.slug, t.title, t.position, count(c.id)
@@ -69,12 +80,12 @@ public class JpaContentCatalog implements ContentCatalog {
 
     @Override
     public List<SubjectSummary> subjects(Visibility visibility) {
-        Set<String> withTour = subjectsWithTour();
+        Map<String, SubjectFacts> facts = subjectFacts();
         return entityManager
                 .createQuery(SUBJECT_SUMMARIES.formatted(""), Object[].class)
                 .setParameter("statuses", statuses(visibility))
                 .getResultStream()
-                .map(row -> toSubjectSummary(row, withTour))
+                .map(row -> toSubjectSummary(row, facts))
                 .toList();
     }
 
@@ -85,7 +96,7 @@ public class JpaContentCatalog implements ContentCatalog {
                 .setParameter("statuses", statuses(visibility))
                 .setParameter("slug", slug)
                 .getResultStream()
-                .map(row -> toSubjectSummary(row, subjectsWithTour()))
+                .map(row -> toSubjectSummary(row, subjectFacts()))
                 .findFirst();
     }
 
@@ -244,13 +255,21 @@ public class JpaContentCatalog implements ContentCatalog {
         };
     }
 
-    private Set<String> subjectsWithTour() {
-        List<?> slugs = entityManager.createNativeQuery(SUBJECTS_WITH_TOUR).getResultList();
-        return slugs.stream().map(String.class::cast).collect(Collectors.toSet());
+    private Map<String, SubjectFacts> subjectFacts() {
+        List<?> rows = entityManager.createNativeQuery(SUBJECT_FACTS).getResultList();
+        return rows.stream()
+                .map(Object[].class::cast)
+                .collect(Collectors.toMap(
+                        row -> (String) row[0],
+                        row -> new SubjectFacts(
+                                ((Number) row[1]).longValue(),
+                                ((Number) row[2]).longValue(),
+                                ((Number) row[3]).longValue())));
     }
 
-    private static SubjectSummary toSubjectSummary(Object[] row, Set<String> withTour) {
+    private static SubjectSummary toSubjectSummary(Object[] row, Map<String, SubjectFacts> facts) {
         String slug = (String) row[1];
+        SubjectFacts fact = facts.getOrDefault(slug, SubjectFacts.NONE);
         return new SubjectSummary(
                 (UUID) row[0],
                 slug,
@@ -260,7 +279,9 @@ public class JpaContentCatalog implements ContentCatalog {
                 (Subject.Status) row[5],
                 (Long) row[6],
                 (Long) row[7],
-                withTour.contains(slug));
+                fact.notions(),
+                fact.exercises(),
+                fact.tourNotions() > 0);
     }
 
     private static ThemeSummary toThemeSummary(Object[] row) {

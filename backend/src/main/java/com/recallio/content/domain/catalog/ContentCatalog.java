@@ -124,6 +124,8 @@ public interface ContentCatalog {
             Subject.Status status,
             long themeCount,
             long cardCount,
+            long notionCount,
+            long exerciseCount,
             boolean hasTour) {}
 
     record ThemeSummary(

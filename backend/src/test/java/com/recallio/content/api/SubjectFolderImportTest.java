@@ -128,6 +128,28 @@ class SubjectFolderImportTest {
                 .body("items[0].exercise", nullValue());
     }
 
+    /** La page publique affiche ces nombres (ADR 0058) : ils viennent du catalogue, pas d'un texte écrit à la main. */
+    @Test
+    void shouldCountTheNotionsAndTheCodingExercisesOfASubject() {
+        Map<String, String> exercise = Map.of(
+                "bases/null-safety/longueur/exercise.yaml",
+                "statement: Renvoyer la longueur, 0 pour null.\nexplanation: Avec l'opérateur Elvis.\n",
+                "bases/null-safety/longueur/starter/Longueur.java",
+                "class Longueur {}",
+                "bases/null-safety/longueur/solution/Longueur.java",
+                "class Longueur {}",
+                "bases/null-safety/longueur/tests/LongueurTest.java",
+                "class LongueurTest {}");
+        importService.importFolder(new SubjectFolder(
+                SUBJECT, Map.of("01-bases.yaml", REFERENTIAL), Map.of("bases/val-var.yaml", VAL_VAR), exercise));
+
+        given().get("/api/v1/subjects/kotlin")
+                .then()
+                .statusCode(200)
+                .body("notionCount", equalTo(2))
+                .body("exerciseCount", equalTo(1));
+    }
+
     @Test
     void shouldStoreTheTourPagesOfANotionAndLeaveThemAloneWhenUnchanged() {
         String withTour = VAL_VAR.replace("cards:", """

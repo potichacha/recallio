@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react'
-import { Link, useParams } from 'react-router'
+import { Link, useLocation, useParams } from 'react-router'
 import { useSubjects } from '../api/content'
 import { ApiError } from '../api/errors'
 import { useCheckTrialAnswer, useTrial, type TrialQuestion } from '../api/trial'
@@ -9,6 +9,7 @@ import { GradedQuestion } from '../components/GradedQuestion'
 import { emptyDraft, isDraftComplete, toGradedAnswer } from '../components/gradedAnswers'
 import { button } from '../components/ui/button'
 import { answerFeedback } from '../review/feedback'
+import { trialStart } from './trialStart'
 
 /**
  * L'essai sans compte (ADR 0050) : cinq questions corrigées tout de suite, puis l'invitation à créer son compte pour
@@ -18,8 +19,11 @@ export function TrialPage() {
   const { slug = '' } = useParams()
   const trial = useTrial(slug)
   const subjects = useSubjects()
-  const [position, setPosition] = useState(0)
-  const [right, setRight] = useState(0)
+  const location = useLocation()
+  // La première question a pu être posée sur la page publique : l'essai reprend alors à la suivante.
+  const [start] = useState(() => trialStart(location.state))
+  const [position, setPosition] = useState(start.answered)
+  const [right, setRight] = useState(start.right)
   const title = subjects.data?.find((subject) => subject.slug === slug)?.title ?? slug
 
   if (trial.error instanceof ApiError && trial.error.status === 404) {

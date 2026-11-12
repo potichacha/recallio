@@ -28,7 +28,7 @@ async function seriousViolations(page: Page): Promise<string[]> {
 
 /** Les pages qu'un visiteur ouvre sans compte, et le titre qui dit qu'elles sont affichées. */
 const VISITOR_PAGES: [string, string | RegExp][] = [
-  ['/', 'Prépare tes entretiens techniques, dix minutes par jour.'],
+  ['/', 'Prêt pour ton entretien technique, dix minutes par jour.'],
   ['/learn', 'Cours'],
   ['/tours', 'Le Tour'],
   ['/subjects', 'Toutes les cartes'],
@@ -63,6 +63,7 @@ test.describe('Accessibilité', () => {
   // déborder la grille de quelques pixels.
   test('the subject pages do not scroll sideways on a phone @mobile', async ({ page }) => {
     const pages: [string, string][] = [
+      ['/', 'Prêt pour ton entretien technique, dix minutes par jour.'],
       ['/learn', 'Cours'],
       ['/tours', 'Le Tour'],
     ]

@@ -17,12 +17,16 @@ export function SubjectGallery({
   subjects,
   isOpen,
   linkTo,
+  headingLevel = 2,
 }: {
   subjects: Subject[]
+  /** Le niveau du titre de chaque catégorie : 3 quand la galerie est déjà sous un titre de section. */
+  headingLevel?: 2 | 3
   isOpen: (subject: Subject) => boolean
   linkTo: (subject: Subject) => string
 }) {
   const [touched, setTouched] = useState<Subject>()
+  const Heading = `h${headingLevel}` as const
 
   return (
     <div className="flex flex-col gap-6">
@@ -39,9 +43,12 @@ export function SubjectGallery({
             aria-labelledby={`gallery-${category}`}
             className="flex flex-col gap-3"
           >
-            <h2 id={`gallery-${category}`} className="text-xl font-semibold">
+            <Heading
+              id={`gallery-${category}`}
+              className={headingLevel === 2 ? 'text-xl font-semibold' : 'text-lg font-semibold'}
+            >
               {label}
-            </h2>
+            </Heading>
             <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3">
               {inCategory.map((subject) => (
                 <li key={subject.slug} className="min-w-0">
