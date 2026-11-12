@@ -539,7 +539,7 @@ Le propriétaire a testé l'application en local avant de la déployer ; ses ret
    6. ✅ **Ergonomie** (5, 7 à 10) : filet d'erreur, icônes de la PWA, fraîcheur des données, chapitres repliés, profil en sections. L'accueil d'un nouveau venu (6) passe à l'étape 8.9.3, qui refait l'accueil.
    7. ✅ **Apprendre de ses erreurs** (27, 35) : « Revoir la leçon » sous une réponse fausse, et un carnet des erreurs de la semaine, à refaire sans rien enregistrer (ADR 0057). L'annulation de la dernière réponse (38) est abandonnée : elle contredit l'ADR 0051.
    8. **Avant la bêta** (25, 26, 34, 40, 44) : compte à rebours avant l'entretien, défi du jour, test de niveau, référencement, parcours mesuré.
-   9. **Refonte « Rico »** (47 à 57) : la direction ludique retenue le 2026-11-10, en clair et en sombre, avec tout ce qui ne coûte que du temps. L'ADR 0058 la décide et révise l'ADR 0049 ; une PR par étape :
+   9. ✅ **Refonte « Rico »** (47 à 57) : la direction ludique retenue le 2026-11-10, en clair et en sombre, avec tout ce qui ne coûte que du temps. L'ADR 0058 la décide et révise l'ADR 0049 ; une PR par étape :
       1. ✅ **Identité** (47, 48) : couleurs, Nunito, boutons en relief, Rico, thèmes clair et sombre au choix dans le profil (ADR 0058).
          Les contrastes des tokens sont calculés à chaque `npm test`, et axe-core passe aussi dans le thème sombre.
       2. ✅ **Page publique** (49) : la première question de l'essai posée dans la page, puis les chiffres du catalogue, pour qui, comment ça marche, les sujets.
@@ -548,7 +548,7 @@ Le propriétaire a testé l'application en local avant de la déployer ; ses ret
       5. ✅ **Tous les états** (52) : chaque écran charge sous une silhouette, échoue avec un bouton « Réessayer », et dit à quoi il sert quand il est vide ; un bandeau annonce le hors-ligne. Un test refuse un état écrit à la main.
       6. ✅ **Mouvement** (53) : une page qui glisse en s'ouvrant, la carte suivante qui entre, des confettis aux moments qui comptent, Rico qui réagit ; rien ne bouge pour qui a demandé moins d'animations (un filet global, et un test).
       7. ✅ **Accessibilité et vitesse vérifiées** (54, 55) : axe-core sur les pages d'un visiteur et d'un utilisateur connecté dans les deux thèmes, aucun défilement latéral à 320 px, un lien « Aller au contenu », un titre d'onglet par page ; la vitesse mesurée en CI sur un téléphone lent simulé. Ce qu'une machine ne voit pas est dans `docs/accessibilite.md`.
-      8. **Tests avec cinq utilisateurs** (56) : un protocole et une grille d'observation, pour la bêta.
+      8. ✅ **Tests avec cinq utilisateurs** (56) : le protocole, les neuf tâches, la grille d'observation et le questionnaire SUS sont dans `docs/tests-utilisateurs.md` ; les séances se mènent pendant la bêta.
 
    10. **CI plus rapide** (58 à 62) : un run prend 13 à 17 minutes. Deux PR :
        1. ✅ le job `docker` en parallèle des autres, et seuls les jobs concernés par les fichiers modifiés (un job `changes` les désigne) ;
