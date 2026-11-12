@@ -4,6 +4,7 @@ import { useRecordReview, type QueuedCard, type ReviewResult } from '../api/revi
 import { AnswerVerdict } from '../components/AnswerVerdict'
 import { ChoiceOption } from '../components/ChoiceOption'
 import { choiceOutcome, toggleChoice } from '../components/choices'
+import { LessonLink } from '../components/LessonLink'
 import { Markdown } from '../components/Markdown'
 import { useShuffledChoices } from '../components/useShuffledChoices'
 import { CardHeader } from './CardHeader'
@@ -97,6 +98,9 @@ export function MultipleChoiceCard({
               : 'Pas tout à fait : les bonnes réponses sont marquées.'}
           </AnswerVerdict>
           <Markdown>{result.correction.explanation}</Markdown>
+          {result.rating !== 'GOOD' && card.notionSlug && (
+            <LessonLink subject={card.subjectSlug} notion={card.notionSlug} />
+          )}
           <button
             type="button"
             onClick={() => onReviewed(result)}

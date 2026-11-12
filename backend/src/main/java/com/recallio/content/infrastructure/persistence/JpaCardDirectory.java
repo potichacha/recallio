@@ -220,7 +220,7 @@ public class JpaCardDirectory implements CardDirectory {
         Map<UUID, CardSnapshot> found = entityManager
                 .createQuery("""
                         select c.id, v.id, c.type, s.slug, s.title, t.slug, t.title, v.prompt, v.answer, v.choices,
-                               v.blanks, v.exercise, n.title, n.lesson
+                               v.blanks, v.exercise, n.slug, n.title, n.lesson
                         from CardEntity c
                         join CardVersionEntity v on v.cardId = c.id and v.version = c.currentVersion
                         left join NotionEntity n on n.id = c.notionId
@@ -245,7 +245,8 @@ public class JpaCardDirectory implements CardDirectory {
                         blanks(row[10]),
                         (ExerciseFiles) row[11],
                         (String) row[12],
-                        (String) row[13]))
+                        (String) row[13],
+                        (String) row[14]))
                 .collect(Collectors.toMap(CardSnapshot::cardId, Function.identity()));
         return cardIds.stream()
                 .distinct()

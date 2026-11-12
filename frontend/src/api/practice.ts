@@ -25,15 +25,22 @@ export function usePractice(subject: string, notion: string) {
 }
 
 /** Corrige la réponse à une carte de l'entraînement, sans l'enregistrer. */
+export async function checkPracticeAnswer(
+  subject: string,
+  notion: string,
+  answer: PracticeAnswer,
+): Promise<PracticeCorrection> {
+  const { data, error, response } = await api.POST(
+    '/api/v1/me/practice/{subject}/{notion}/checks',
+    { params: { path: { subject, notion } }, body: answer },
+  )
+  if (data === undefined) throw ApiError.from(response, error)
+  return data
+}
+
+/** La même correction, pour un composant qui n'a qu'une notion (« Teste-toi », dans le Tour). */
 export function useCheckPracticeAnswer(subject: string, notion: string) {
   return useMutation({
-    mutationFn: async (answer: PracticeAnswer) => {
-      const { data, error, response } = await api.POST(
-        '/api/v1/me/practice/{subject}/{notion}/checks',
-        { params: { path: { subject, notion } }, body: answer },
-      )
-      if (data === undefined) throw ApiError.from(response, error)
-      return data
-    },
+    mutationFn: (answer: PracticeAnswer) => checkPracticeAnswer(subject, notion, answer),
   })
 }

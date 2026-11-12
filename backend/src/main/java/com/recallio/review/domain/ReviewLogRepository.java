@@ -1,6 +1,7 @@
 package com.recallio.review.domain;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -22,4 +23,10 @@ public interface ReviewLogRepository {
 
     /** Les cartes que l'utilisateur a réussies au moins une fois (notées « Bien » ou « Facile »). */
     Set<UUID> cardsRecalled(UUID userId);
+
+    /**
+     * Les cartes que l'utilisateur a ratées depuis {@code since} et pas réussies depuis : leur dernière révision est
+     * notée « À revoir ». La plus récemment ratée d'abord.
+     */
+    List<UUID> cardsStillFailedSince(UUID userId, Instant since);
 }

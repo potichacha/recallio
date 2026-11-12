@@ -95,6 +95,13 @@ final class ReviewDtos {
             ExerciseToSolveDto exercise,
 
             @Schema(
+                    description = "Le slug de la notion de la carte, qui mène à sa leçon (« Revoir la leçon ») ; absent"
+                            + " hors d'un dossier de sujet",
+                    nullable = true)
+            @Nullable
+            String notionSlug,
+
+            @Schema(
                     description = "Le titre de la notion de la carte ; absent hors d'un dossier de sujet",
                     nullable = true)
             @Nullable
@@ -123,6 +130,7 @@ final class ReviewDtos {
                     card.correctChoices().size() > 1,
                     card.blanks().size(),
                     card.exercise() == null ? null : ExerciseToSolveDto.from(card.exercise()),
+                    card.notionSlug(),
                     card.notionTitle(),
                     queued.lesson(),
                     queued.state());

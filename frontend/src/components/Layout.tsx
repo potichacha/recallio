@@ -38,7 +38,7 @@ const DESTINATIONS: {
     to: '/review',
     label: 'Révisions',
     icon: Cards,
-    matches: (path) => path.startsWith('/review') || inSubject('practice|exam').test(path),
+    matches: (path) => path.startsWith('/review') || inSubject('practice|exam|mistakes').test(path),
   },
   {
     to: '/play',
