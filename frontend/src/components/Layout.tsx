@@ -1,7 +1,8 @@
 import { usePageEnter } from './usePageEnter'
+import { usePageTitle } from './usePageTitle'
 import { OfflineBanner } from './states/OfflineBanner'
 import { BookOpenText, Cards, House, Path, Trophy, User, type Icon } from '@phosphor-icons/react'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { Link, NavLink, Outlet, useLocation, useNavigation } from 'react-router'
 import { useProfile } from '../api/profile'
 import { useProgress } from '../api/progress'
@@ -114,9 +115,18 @@ export function Layout() {
   // Le code d'une page se télécharge à sa première visite : la page quittée reste affichée en attendant.
   const loadingPage = useNavigation().state === 'loading'
   const page = usePageEnter()
+  const main = useRef<HTMLElement>(null)
+  usePageTitle(main)
   return (
     <LayoutModeContext.Provider value={setMode}>
       <div className="min-h-dvh bg-canvas text-ink">
+        {/* Le premier arrêt du clavier (WCAG 2.4.1) : sauter la navigation, répétée sur chaque page. */}
+        <a
+          href="#contenu"
+          className="sr-only focus-visible:not-sr-only focus-visible:absolute focus-visible:top-2 focus-visible:left-2 focus-visible:z-30 focus-visible:rounded-lg focus-visible:bg-surface focus-visible:px-3 focus-visible:py-2 focus-visible:font-bold focus-visible:text-brand-strong"
+        >
+          Aller au contenu
+        </a>
         <OfflineBanner />
         <header className="sticky top-0 z-20 border-b border-line bg-surface">
           <div className="mx-auto flex max-w-6xl items-center gap-4 px-4 py-2">
@@ -144,7 +154,10 @@ export function Layout() {
           )}
         </header>
         <main
-          className={`mx-auto px-4 pt-6 ${mode.wide ? 'max-w-6xl' : 'max-w-3xl'} ${mode.focus ? 'pb-10' : 'pb-28 md:pb-10'}`}
+          ref={main}
+          id="contenu"
+          tabIndex={-1}
+          className={`mx-auto px-4 pt-6 focus-visible:outline-none ${mode.wide ? 'max-w-6xl' : 'max-w-3xl'} ${mode.focus ? 'pb-10' : 'pb-28 md:pb-10'}`}
         >
           {/* La page qui s'ouvre glisse en apparaissant. Elle n'est pas remontée : seule l'animation rejoue. */}
           <div ref={page}>
