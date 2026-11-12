@@ -19,23 +19,29 @@ import {
 } from '../review/sessionSettings'
 import { QuestsPanel } from './QuestsPanel'
 import { SubjectProgressList } from './SubjectProgressList'
-import { WeekActivity } from './WeekActivity'
+import { ActivityCalendar } from './ActivityCalendar'
+import { ChapterPath } from './ChapterPath'
+import { ricoWord } from './ricoWord'
 
 const plural = (count: number, word: string) => `${count} ${word}${count > 1 ? 's' : ''}`
 
 /** Les Tours proposés sur l'accueil : ceux des sujets suivis, deux au plus. */
 const TOUR_SHORTCUTS = 2
 
+/** Le calendrier d'activité remonte à cinq semaines. */
+const CALENDAR_DAYS = 35
+
 /**
- * L'accueil d'un utilisateur connecté (ADR 0050) : une seule action en tête, continuer à réviser là où il s'était
- * arrêté, avec l'anneau de l'objectif du jour ; puis le Tour, les quêtes, et sa progression plus bas. Qui apprend son
- * sujet reprend d'abord le Tour (ADR 0052).
+ * L'accueil d'un utilisateur connecté (ADR 0050, 0058) : le mot de Rico, puis une seule action, continuer à réviser là
+ * où il s'était arrêté, avec l'anneau de l'objectif du jour ; ensuite son chemin dans le sujet, le Tour, les quêtes, et
+ * sa progression plus bas. Qui apprend son sujet reprend d'abord le Tour (ADR 0052). Un nouveau venu ne voit aucun
+ * bloc à zéro : ni série, ni XP, ni calendrier avant sa première carte.
  */
 export function DashboardPage() {
   const profile = useProfile()
   const progress = useProgress()
   const stats = useReviewStats()
-  const activity = useRecentActivity()
+  const activity = useRecentActivity(CALENDAR_DAYS)
   const quests = useQuests()
   const subjects = useSubjects()
   const [stored] = useState(loadSessionSettings)
@@ -63,19 +69,30 @@ export function DashboardPage() {
     </ul>
   )
 
+  const currentStats = stats.data?.subjects.find((subject) => subject.slug === current)
+  // Tant qu'aucune carte n'a été révisée, il n'y a rien à montrer d'une progression.
+  const newcomer = stats.data?.overall.seen === 0
+  const word =
+    progress.data && stats.data
+      ? ricoWord({
+          firstName,
+          progress: progress.data,
+          newcomer,
+          nothingToReview:
+            currentStats !== undefined && currentStats.counts.dueNow + currentStats.newToday === 0,
+        })
+      : undefined
+
   return (
     <section className="flex flex-col gap-6">
-      <header className="flex items-center gap-4">
-        {progress.data && (
-          <GoalRing done={progress.data.cardsToday} goal={progress.data.dailyGoal} />
-        )}
-        <div className="flex flex-col gap-1">
-          <h1 className="text-2xl font-bold">{firstName ? `Bonjour ${firstName}` : 'Bonjour'}</h1>
-          {progress.data && <p className="text-ink-muted">{goalMessage(progress.data)}</p>}
+      <header className="flex items-center gap-3">
+        <Rico mood={word?.mood} decorative />
+        <div className="flex flex-1 flex-col gap-1 rounded-2xl border border-line bg-surface px-4 py-3 shadow-sm">
+          <h1 className="text-xl font-extrabold">
+            {word?.greeting ?? (firstName ? `Salut ${firstName} !` : 'Salut !')}
+          </h1>
+          {word && <p className="text-ink-soft">{word.message}</p>}
         </div>
-        <span className="ml-auto">
-          <Rico size={56} decorative />
-        </span>
       </header>
 
       {stats.isError && <p role="alert">Impossible de charger tes statistiques.</p>}
@@ -85,42 +102,49 @@ export function DashboardPage() {
           subject={current}
           title={titleOf(current)}
           stats={stats.data}
+          progress={progress.data}
           minutes={stored.minutes === undefined ? DEFAULT_MINUTES : stored.minutes}
           mode={stored.mode ?? DEFAULT_MODE}
         />
+      )}
+
+      {currentStats && current && (
+        <ChapterPath slug={current} title={titleOf(current)} themes={currentStats.themes} />
       )}
 
       {!learning && tourShortcuts}
 
       {quests.data && <QuestsPanel board={quests.data} />}
 
-      <section aria-labelledby="progress-title" className="flex flex-col gap-4">
-        <h2 id="progress-title" className="text-xl font-semibold">
-          Ta progression
-        </h2>
-        {progress.data && (
-          <dl className="grid grid-cols-2 gap-3 text-center">
-            <Tile
-              label="Série"
-              value={
-                <span className="inline-flex items-center gap-1">
-                  <Fire weight="fill" aria-hidden className="text-flame" />
-                  {plural(progress.data.streak, 'jour')}
-                </span>
-              }
-              hint={freezeSummary(progress.data)}
+      {!newcomer && (
+        <section aria-labelledby="progress-title" className="flex flex-col gap-4">
+          <h2 id="progress-title" className="text-xl font-semibold">
+            Ta progression
+          </h2>
+          {progress.data && (
+            <dl className="grid grid-cols-2 gap-3 text-center">
+              <Tile
+                label="Série"
+                value={
+                  <span className="inline-flex items-center gap-1">
+                    <Fire weight="fill" aria-hidden className="text-flame" />
+                    {plural(progress.data.streak, 'jour')}
+                  </span>
+                }
+                hint={freezeSummary(progress.data)}
+              />
+              <Tile label="XP" value={String(progress.data.totalXp)} />
+            </dl>
+          )}
+          {activity.data && <ActivityCalendar days={activity.data} />}
+          {stats.data && (
+            <SubjectProgressList
+              subjects={stats.data.subjects}
+              levels={progress.data?.subjects ?? []}
             />
-            <Tile label="XP" value={String(progress.data.totalXp)} />
-          </dl>
-        )}
-        {activity.data && <WeekActivity days={activity.data} />}
-        {stats.data && (
-          <SubjectProgressList
-            subjects={stats.data.subjects}
-            levels={progress.data?.subjects ?? []}
-          />
-        )}
-      </section>
+          )}
+        </section>
+      )}
     </section>
   )
 }
@@ -149,23 +173,22 @@ function TourShortcut({ slug, title }: { slug: string; title: string }) {
   )
 }
 
-function goalMessage({ cardsToday, dailyGoal, goalReachedToday, streak }: Progress): string {
-  if (goalReachedToday) return `Objectif atteint : ${plural(streak, 'jour')} de suite.`
-  const left = plural(Math.max(0, dailyGoal - cardsToday), 'carte')
-  return streak > 0 ? `Encore ${left} pour tenir ta série.` : `${left} pour lancer ta série.`
-}
-
-/** La seule action en tête de l'accueil : reprendre la révision avec les derniers réglages, en un geste. */
+/**
+ * La carte « Aujourd'hui », la seule action en tête de l'accueil : l'anneau de l'objectif du jour, ce qui attend dans le
+ * sujet, et la révision reprise avec les derniers réglages, en un geste.
+ */
 function ContinueCard({
   subject,
   title,
   stats,
+  progress,
   minutes,
   mode,
 }: {
   subject: string
   title: string
   stats: ReviewStats
+  progress?: Progress
   minutes: SessionMinutes
   mode: SessionMode
 }) {
@@ -179,13 +202,17 @@ function ContinueCard({
       aria-labelledby="continue-title"
       className="flex flex-col gap-4 rounded-2xl bg-brand p-5 text-on-brand shadow-press"
     >
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h2 id="continue-title" className="text-2xl font-bold">
-          {title}
-        </h2>
-        <p className="text-sm">
-          {dueNow} à revoir · {plural(newToday, 'nouvelle')}
-        </p>
+      <div className="flex items-center gap-4">
+        {progress && <GoalRing done={progress.cardsToday} goal={progress.dailyGoal} onBrand />}
+        <div className="flex flex-col">
+          <p className="text-sm font-bold uppercase">Aujourd’hui</p>
+          <h2 id="continue-title" className="text-2xl font-extrabold">
+            {title}
+          </h2>
+          <p className="text-sm">
+            {dueNow} à revoir · {plural(newToday, 'nouvelle')}
+          </p>
+        </div>
       </div>
       {dueNow + newToday > 0 ? (
         <Link
