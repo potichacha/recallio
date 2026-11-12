@@ -95,7 +95,7 @@ test.describe('Accessibilité', () => {
     }
 
     await page.goto('/')
-    await expect(page.getByRole('heading', { name: /^Bonjour/ })).toBeVisible()
+    await expect(page.getByRole('heading', { name: /^(Salut|Bienvenue)/ })).toBeVisible()
     expect(await seriousViolations(page), '/').toEqual([])
 
     await page.goto('/review')

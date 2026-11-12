@@ -109,7 +109,7 @@ describe('DashboardPage', () => {
     stubDashboard()
     renderAt('/', signedIn())
 
-    expect(await screen.findByRole('heading', { name: 'Bonjour Alice' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Salut Alice !' })).toBeInTheDocument()
     expect(screen.queryByRole('region', { name: 'Essaie sans compte' })).not.toBeInTheDocument()
   })
 
@@ -120,7 +120,7 @@ describe('DashboardPage', () => {
     expect(
       await screen.findByRole('img', { name: 'Objectif du jour : 4 cartes sur 10' }),
     ).toBeInTheDocument()
-    expect(screen.getByText('Encore 6 cartes pour tenir ta série.')).toBeInTheDocument()
+    expect(screen.getByText('Encore 6 cartes et ta série passe à 4 jours.')).toBeInTheDocument()
   })
 
   it('continues the review in a single action, with the default settings', async () => {
@@ -247,6 +247,55 @@ describe('DashboardPage', () => {
     // Le jour couvert par un gel montre un flocon, et rien à lire : son nom accessible dit déjà tout.
     const frozen = screen.getByLabelText('samedi 24 octobre 2026 : jour manqué couvert par un gel')
     expect(frozen.querySelector('svg')).not.toBeNull()
+  })
+
+  it('lays the weeks out from Monday to Sunday, each day under its weekday', async () => {
+    stubDashboard()
+    renderAt('/', signedIn())
+
+    const calendar = within(await screen.findByRole('region', { name: 'Tes dernières semaines' }))
+    // Le 23 octobre 2026 est un vendredi : quatre cases vides le précèdent, du lundi au jeudi.
+    const cells = calendar.getAllByRole('list')[0].children
+    expect(cells).toHaveLength(4 + 7)
+    expect(cells[4]).toHaveAccessibleName('vendredi 23 octobre 2026 : objectif atteint')
+  })
+
+  it('draws the path of the current subject: what is done, where the user stands, what comes next', async () => {
+    const java = {
+      ...stats().subjects[0],
+      themes: [
+        { slug: 'bases', title: 'Bases', counts: counts({ total: 10, seen: 10 }) },
+        { slug: 'objet', title: 'Objet', counts: counts({ total: 8, seen: 5 }) },
+        { slug: 'collections', title: 'Collections', counts: counts({ total: 10, seen: 0 }) },
+        { slug: 'vide', title: 'Sans carte', counts: counts({ total: 0 }) },
+      ],
+    }
+    stubDashboard(stats({ subjects: [java] }))
+    renderAt('/', signedIn())
+
+    const path = within(await screen.findByRole('region', { name: 'Ton chemin en Java' }))
+    expect(path.getAllByRole('listitem').map((step) => step.textContent)).toEqual([
+      'Basesterminé',
+      '2Objeten cours · 62 % des cartes vues',
+      '3Collectionsà venir',
+    ])
+    expect(path.getByRole('link', { name: 'Voir tout le cours de Java' })).toHaveAttribute(
+      'href',
+      '/subjects/java/course',
+    )
+  })
+
+  it('shows a newcomer no block at zero: no streak, no XP, no calendar before the first card', async () => {
+    const java = { ...stats().subjects[0], counts: counts({ total: 30, seen: 0 }), newToday: 8 }
+    stubDashboard(stats({ overall: counts({ total: 30, seen: 0 }), subjects: [java] }))
+    renderAt('/', signedIn())
+
+    expect(await screen.findByRole('heading', { name: 'Bienvenue Alice !' })).toBeInTheDocument()
+    expect(screen.getByText('Ta première session dure dix minutes. On y va ?')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /^Continuer/ })).toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: 'Ta progression' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: 'Tes dernières semaines' })).not.toBeInTheDocument()
+    expect(screen.queryByText('Série')).not.toBeInTheDocument()
   })
 
   it('shows the progress of each followed subject, with a shortcut to review its due cards', async () => {
