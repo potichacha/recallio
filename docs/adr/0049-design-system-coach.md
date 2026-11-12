@@ -1,6 +1,6 @@
 # 0049. Identité visuelle : le design system « Coach »
 
-- Statut : accepté
+- Statut : accepté, révisé par l'ADR 0058 (couleurs, police, choix du thème) ; ses règles restent en vigueur
 - Date : 2026-11-05
 
 ## Contexte

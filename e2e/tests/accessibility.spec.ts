@@ -26,21 +26,37 @@ async function seriousViolations(page: Page): Promise<string[]> {
     .map(({ id, nodes }) => `${id} : ${nodes.map((node) => node.target.join(' ')).join(', ')}`)
 }
 
+/** Les pages qu'un visiteur ouvre sans compte, et le titre qui dit qu'elles sont affichées. */
+const VISITOR_PAGES: [string, string | RegExp][] = [
+  ['/', 'Prépare tes entretiens techniques, dix minutes par jour.'],
+  ['/learn', 'Cours'],
+  ['/tours', 'Le Tour'],
+  ['/subjects', 'Toutes les cartes'],
+  ['/try/go', 'Essai : Go'],
+  ['/subjects/go/tour/hello-world', /premier programme/],
+]
+
 test.describe('Accessibilité', () => {
   test('the pages of a visitor have no serious violation', async ({ page }) => {
-    const pages: [string, string | RegExp][] = [
-      ['/', 'Prépare tes entretiens techniques, dix minutes par jour.'],
-      ['/learn', 'Cours'],
-      ['/tours', 'Le Tour'],
-      ['/subjects', 'Toutes les cartes'],
-      ['/try/go', 'Essai : Go'],
-      ['/subjects/go/tour/hello-world', /premier programme/],
-    ]
-    for (const [path, heading] of pages) {
+    for (const [path, heading] of VISITOR_PAGES) {
       await page.goto(path)
       await expect(page.getByRole('heading', { name: heading }).first()).toBeVisible()
       expect(await seriousViolations(page), path).toEqual([])
     }
+  })
+
+  // Le thème sombre (ADR 0058) a ses propres couleurs : axe y remesure chaque contraste.
+  test.describe('dans le thème sombre', () => {
+    test.use({ colorScheme: 'dark' })
+
+    test('the pages of a visitor have no serious violation in the dark theme', async ({ page }) => {
+      for (const [path, heading] of VISITOR_PAGES) {
+        await page.goto(path)
+        await expect(page.getByRole('heading', { name: heading }).first()).toBeVisible()
+        await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
+        expect(await seriousViolations(page), path).toEqual([])
+      }
+    })
   })
 
   // Reflow (WCAG 1.4.10) : sur un téléphone, une page ne défile que de haut en bas. Un long titre de sujet faisait

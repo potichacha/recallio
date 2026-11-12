@@ -219,6 +219,20 @@ describe('ProfilePage', () => {
     )
   })
 
+  it('lets the user choose the light or the dark theme, kept on this device (ADR 0058)', async () => {
+    stubApi({ ...SIGNED_IN_API, ...SUBJECTS, '/api/v1/me': { body: PROFILE } })
+    renderAt('/profile/settings', SIGNED_IN)
+
+    const theme = within(await screen.findByRole('group', { name: 'Thème' }))
+    expect(theme.getByRole('radio', { name: 'Comme mon appareil' })).toBeChecked()
+    await userEvent.click(theme.getByRole('radio', { name: 'Sombre' }))
+
+    expect(theme.getByRole('radio', { name: 'Sombre' })).toBeChecked()
+    expect(document.documentElement.dataset.theme).toBe('dark')
+    expect(localStorage.getItem('recallio.theme')).toBe('dark')
+    delete document.documentElement.dataset.theme
+  })
+
   it('turns on the sound of the answers on this device, the vibration staying off', async () => {
     stubApi({ ...SIGNED_IN_API, ...SUBJECTS, '/api/v1/me': { body: PROFILE } })
     renderAt('/profile/settings', SIGNED_IN)

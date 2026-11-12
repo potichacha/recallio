@@ -8,6 +8,8 @@ export const USERS = {
   carol: { username: 'carol', password: 'carol', displayName: 'Carol Petit' },
   /** Réservé au parcours de suppression du compte : il n'existe plus ensuite, ni ici ni chez Keycloak. */
   dave: { username: 'dave', password: 'dave', displayName: 'Dave Leroy' },
+  /** Réservée au parcours du carnet d'erreurs : ses cartes ratées ne reviennent dans la file de personne d'autre. */
+  erin: { username: 'erin', password: 'erin', displayName: 'Erin Morel' },
 } as const
 
 export type TestUser = (typeof USERS)[keyof typeof USERS]

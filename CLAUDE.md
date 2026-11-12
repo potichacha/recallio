@@ -95,7 +95,7 @@ Recallio n'est pas une application « Java » : c'est un **catalogue de sujets d
 | Build | **Maven** avec le wrapper `mvnw`, multi-modules si nécessaire | versions centralisées dans le pom parent |
 | Base de données | **PostgreSQL** | migrations **Flyway**, jamais `generation` automatique du schéma hors tests |
 | Authentification | **OIDC standard**, backend agnostique du fournisseur | Keycloak via Dev Services en local ; fournisseur managé en production (à choisir, voir section 10) ; le backend valide des JWT avec `quarkus-oidc` |
-| Frontend | **React + TypeScript + Vite**, PWA | TanStack Query (appels API), React Router, Tailwind CSS, client API **généré** depuis l'OpenAPI, CodeMirror 6 (éditeur des exercices, chargé à la demande) ; design system « Coach » (ADR 0049) : tokens Tailwind clairs et sombres, Lexend et JetBrains Mono servies par l'application, icônes Phosphor |
+| Frontend | **React + TypeScript + Vite**, PWA | TanStack Query (appels API), React Router, Tailwind CSS, client API **généré** depuis l'OpenAPI, CodeMirror 6 (éditeur des exercices, chargé à la demande) ; design system « Rico » (ADR 0058, qui révise l'ADR 0049) : tokens Tailwind des thèmes clair et sombre, au choix dans le profil, Nunito et JetBrains Mono servies par l'application, icônes Phosphor, la mascotte Rico |
 | Tests backend | JUnit 6, AssertJ, Mockito, `@QuarkusTest`, REST Assured, **Testcontainers** (via Dev Services), **ArchUnit** | |
 | Tests frontend | Vitest, Testing Library ; Playwright pour quelques parcours de bout en bout, axe-core pour l'accessibilité (ADR 0050) | |
 | Qualité | Spotless (formatage), Error Prone + NullAway avec JSpecify (dès la phase 0, voir ADR 0004), ESLint + Prettier côté front | |
@@ -160,7 +160,7 @@ Si une règle devient gênante, on en discute et on consigne l'exception dans un
 - Logs : SLF4J/JBoss Logging, messages paramétrés, aucune donnée personnelle ni jeton dans les logs.
 - Nommage en anglais dans le code (classes, méthodes, tables) ; documentation et ADR en français.
 - Pas de nombre magique, pas de méthode de plus d'une quarantaine de lignes sans raison, pas de classe "fourre-tout".
-- Front : seulement les tokens du design system (ADR 0049), jamais la palette par défaut de Tailwind, ni dégradé, ni émoji (un test le vérifie) ; les boutons passent par `button()` ; on tutoie l'utilisateur.
+- Front : seulement les tokens du design system (ADR 0049, 0058), jamais la palette par défaut de Tailwind, ni dégradé, ni émoji (un test le vérifie) ; les boutons passent par `button()` ; on tutoie l'utilisateur. Un texte a 4,5 de contraste avec son fond dans les deux thèmes (un test le calcule), et un lien dans une phrase est souligné.
 
 ### 4.4 API
 - REST, ressources au pluriel, codes HTTP corrects, pagination bornée côté serveur.
@@ -539,8 +539,9 @@ Le propriétaire a testé l'application en local avant de la déployer ; ses ret
    6. ✅ **Ergonomie** (5, 7 à 10) : filet d'erreur, icônes de la PWA, fraîcheur des données, chapitres repliés, profil en sections. L'accueil d'un nouveau venu (6) passe à l'étape 8.9.3, qui refait l'accueil.
    7. ✅ **Apprendre de ses erreurs** (27, 35) : « Revoir la leçon » sous une réponse fausse, et un carnet des erreurs de la semaine, à refaire sans rien enregistrer (ADR 0057). L'annulation de la dernière réponse (38) est abandonnée : elle contredit l'ADR 0051.
    8. **Avant la bêta** (25, 26, 34, 40, 44) : compte à rebours avant l'entretien, défi du jour, test de niveau, référencement, parcours mesuré.
-   9. **Refonte « Rico »** (47 à 57) : la direction ludique retenue le 2026-11-10, en clair et en sombre, avec tout ce qui ne coûte que du temps. Un ADR la décide et révise l'ADR 0049 ; une PR par étape :
-      1. **Identité** (47, 48) : couleurs, Nunito, boutons en relief, Rico, thèmes clair et sombre au choix dans le profil.
+   9. **Refonte « Rico »** (47 à 57) : la direction ludique retenue le 2026-11-10, en clair et en sombre, avec tout ce qui ne coûte que du temps. L'ADR 0058 la décide et révise l'ADR 0049 ; une PR par étape :
+      1. ✅ **Identité** (47, 48) : couleurs, Nunito, boutons en relief, Rico, thèmes clair et sombre au choix dans le profil (ADR 0058).
+         Les contrastes des tokens sont calculés à chaque `npm test`, et axe-core passe aussi dans le thème sombre.
       2. **Page publique** (49) : une vraie question à essayer, puis pour qui, comment ça marche, les sujets.
       3. **Accueil connecté** (50, 6) : le mot de Rico, l'anneau du jour, le chemin des chapitres, le calendrier d'activité ; pour un nouveau venu, pas de bloc à zéro avant la première session.
       4. **Carte de révision** (51) : choix sélectionné puis « Valider », verdict, focus visible.

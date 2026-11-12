@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 /**
- * Les règles du design system « Coach » (ADR 0049), vérifiées à chaque `npm test` : elles empêchent de retomber dans
+ * Les règles du design system (ADR 0049, gardées par l'ADR 0058), vérifiées à chaque `npm test` : elles empêchent de retomber dans
  * les réflexes qui donnent l'air d'une interface générée (la palette par défaut de Tailwind, les dégradés, les émojis
  * en guise d'icônes). Les tests eux-mêmes ne sont pas concernés.
  */

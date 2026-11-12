@@ -18,6 +18,7 @@ import { InstallApp } from '../components/InstallApp'
 import { PublicProfileForm } from '../components/PublicProfileForm'
 import { RemindersForm } from '../components/RemindersForm'
 import { SubjectPicker } from '../components/SubjectPicker'
+import { ThemeForm } from '../components/ThemeForm'
 import { TRACKS } from '../components/trackLabels'
 import { button } from '../components/ui/button'
 
@@ -234,6 +235,7 @@ export function ProfilePage() {
       )}
       {profile.isSuccess && current === 'settings' && (
         <>
+          <ThemeForm />
           <RemindersForm />
           <InstallApp />
           <FeedbackSettingsForm />

@@ -68,7 +68,7 @@ export function LearningPathPage() {
           <div className="flex flex-col gap-2 rounded-xl bg-surface p-4 shadow-sm">
             <p className="text-sm text-ink-muted">
               Parcours <strong>{track?.label}</strong> ·{' '}
-              <Link to="/profile/subjects" className="text-brand hover:underline">
+              <Link to="/profile/subjects" className="text-brand underline">
                 changer de parcours
               </Link>
             </p>

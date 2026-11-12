@@ -1,3 +1,4 @@
+import { Rico } from '../components/Rico'
 import { Fire, Path } from '@phosphor-icons/react'
 import { useState, type ReactNode } from 'react'
 import { Link } from 'react-router'
@@ -72,6 +73,9 @@ export function DashboardPage() {
           <h1 className="text-2xl font-bold">{firstName ? `Bonjour ${firstName}` : 'Bonjour'}</h1>
           {progress.data && <p className="text-ink-muted">{goalMessage(progress.data)}</p>}
         </div>
+        <span className="ml-auto">
+          <Rico size={56} decorative />
+        </span>
       </header>
 
       {stats.isError && <p role="alert">Impossible de charger tes statistiques.</p>}

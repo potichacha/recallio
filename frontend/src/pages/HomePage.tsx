@@ -1,3 +1,4 @@
+import { Rico } from '../components/Rico'
 import { Cards, Code, Path } from '@phosphor-icons/react'
 import { Link } from 'react-router'
 import { useSubjects } from '../api/content'
@@ -40,6 +41,7 @@ function Landing() {
   return (
     <section className="flex flex-col gap-8 py-4">
       <div className="flex flex-col gap-4">
+        <Rico />
         <h1 className="text-4xl leading-tight font-bold">
           Prépare tes entretiens techniques, dix minutes par jour.
         </h1>

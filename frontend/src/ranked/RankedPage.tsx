@@ -57,7 +57,11 @@ export function RankedPage() {
       )}
       {subjects.length === 0 && (
         <p>
-          Suis un sujet depuis ton <Link to="/profile/subjects">profil</Link> pour jouer en classé.
+          Suis un sujet depuis ton{' '}
+          <Link to="/profile/subjects" className="text-brand underline">
+            profil
+          </Link>{' '}
+          pour jouer en classé.
         </p>
       )}
       {badges.length > 0 && (

@@ -72,7 +72,8 @@ export function TourNotionPage() {
   return (
     <article className="flex flex-col gap-5">
       <nav aria-label="Fil d’Ariane" className="text-sm text-ink-muted">
-        <Link to={tourLink} className="text-brand hover:underline">
+        {/* Dans une phrase, un lien se reconnaît à son soulignement, pas à sa seule couleur (WCAG 1.4.1). */}
+        <Link to={tourLink} className="text-brand underline">
           Le Tour{outline.data ? ` de ${outline.data.subjectTitle}` : ''}
         </Link>
         {' › '}
