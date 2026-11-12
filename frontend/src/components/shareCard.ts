@@ -22,10 +22,10 @@ export function shareText(card: ShareCard): string {
 
 /** Les couleurs du design system « Coach » (ADR 0049) : une image ne lit pas les variables CSS. */
 const COACH = {
-  brand: '#0e6b63',
-  sun: '#ffc83d',
-  soft: '#ddf1ee',
-  line: '#a8d8d1',
+  brand: '#5b3df5',
+  sun: '#ffc531',
+  soft: '#ede9ff',
+  line: '#c4b8fb',
   white: '#ffffff',
 }
 const FONT = '"Lexend Variable", system-ui, sans-serif'

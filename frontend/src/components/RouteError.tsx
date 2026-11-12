@@ -1,4 +1,5 @@
 import { Link, useRouteError } from 'react-router'
+import { Rico } from './Rico'
 import { button } from './ui/button'
 
 /**
@@ -41,6 +42,7 @@ export function AppError() {
 export function NotFoundPage() {
   return (
     <section className="flex flex-col items-start gap-4">
+      <Rico mood="thinking" decorative />
       <h1 className="text-2xl font-bold">Page introuvable</h1>
       <p className="text-ink-muted">Cette adresse ne mène nulle part.</p>
       <Link to="/" className={button()}>

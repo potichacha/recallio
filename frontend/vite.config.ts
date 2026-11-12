@@ -17,7 +17,7 @@ export default defineConfig({
         short_name: 'Recallio',
         description: 'Révise tes entretiens techniques chaque jour, par répétition espacée.',
         lang: 'fr',
-        theme_color: '#0e6b63',
+        theme_color: '#5b3df5',
         background_color: '#ffffff',
         display: 'standalone',
         // Des PNG pour l'écran d'accueil d'Android, dont un « maskable » que le système découpe à sa forme ; le SVG
@@ -51,6 +51,8 @@ export default defineConfig({
   },
   test: {
     environment: 'jsdom',
+    // Au-dessus de l'attente des pages chargées à la demande (src/test/setup.ts).
+    testTimeout: 20_000,
     setupFiles: ['./src/test/setup.ts'],
     restoreMocks: true,
     unstubGlobals: true,

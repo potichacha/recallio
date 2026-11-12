@@ -18,7 +18,7 @@ test.describe('Apprendre de ses erreurs (ADR 0057)', () => {
   test('fails a card, reads its lesson again, then finds it in the mistakes of the week', async ({
     page,
   }) => {
-    await signIn(page, USERS.bob, '/review?subject=go')
+    await signIn(page, USERS.erin, '/review?subject=go')
     // Le bouton radio est masqué derrière son libellé : c'est lui qu'on touche.
     await page.getByText('Questions corrigées', { exact: true }).click()
     await page.getByRole('button', { name: 'Commencer' }).click()
