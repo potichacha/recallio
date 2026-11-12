@@ -160,7 +160,7 @@ Si une règle devient gênante, on en discute et on consigne l'exception dans un
 - Logs : SLF4J/JBoss Logging, messages paramétrés, aucune donnée personnelle ni jeton dans les logs.
 - Nommage en anglais dans le code (classes, méthodes, tables) ; documentation et ADR en français.
 - Pas de nombre magique, pas de méthode de plus d'une quarantaine de lignes sans raison, pas de classe "fourre-tout".
-- Front : seulement les tokens du design system (ADR 0049, 0058), jamais la palette par défaut de Tailwind, ni dégradé, ni émoji (un test le vérifie) ; les boutons passent par `button()` ; on tutoie l'utilisateur. Un texte a 4,5 de contraste avec son fond dans les deux thèmes (un test le calcule), et un lien dans une phrase est souligné.
+- Front : seulement les tokens du design system (ADR 0049, 0058), jamais la palette par défaut de Tailwind, ni dégradé, ni émoji (un test le vérifie) ; les boutons passent par `button()` ; on tutoie l'utilisateur. Un texte a 4,5 de contraste avec son fond dans les deux thèmes (un test le calcule), et un lien dans une phrase est souligné. Un écran qui charge, échoue ou n'a rien à montrer passe par `LoadingState`, `ErrorState` et `EmptyState` (un test le vérifie).
 
 ### 4.4 API
 - REST, ressources au pluriel, codes HTTP corrects, pagination bornée côté serveur.
@@ -545,7 +545,7 @@ Le propriétaire a testé l'application en local avant de la déployer ; ses ret
       2. ✅ **Page publique** (49) : la première question de l'essai posée dans la page, puis les chiffres du catalogue, pour qui, comment ça marche, les sujets.
       3. ✅ **Accueil connecté** (50, 6) : le mot de Rico, la carte « Aujourd'hui » avec l'anneau du jour, le chemin des domaines du sujet, cinq semaines d'activité ; pour un nouveau venu, pas de bloc à zéro avant la première carte.
       4. ✅ **Carte de révision** (51) : de grands choix au contour net, un verdict qui ne repose jamais sur la seule couleur, Rico qui réagit, un focus visible partout, et le focus qui passe sur « Carte suivante » après « Valider ».
-      5. **Tous les états** (52) : vide, en chargement, en erreur, hors ligne, première visite, sur chaque écran.
+      5. ✅ **Tous les états** (52) : chaque écran charge sous une silhouette, échoue avec un bouton « Réessayer », et dit à quoi il sert quand il est vide ; un bandeau annonce le hors-ligne. Un test refuse un état écrit à la main.
       6. **Mouvement** (53) : transitions, célébrations, Rico qui réagit, dans le respect de « réduire les animations ».
       7. **Accessibilité et vitesse vérifiées** (54, 55) : WCAG 2.2 AA dans les deux thèmes, contrôlé en CI ; mesure de la vitesse en CI.
       8. **Tests avec cinq utilisateurs** (56) : un protocole et une grille d'observation, pour la bêta.

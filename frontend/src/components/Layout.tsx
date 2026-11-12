@@ -1,3 +1,4 @@
+import { OfflineBanner } from './states/OfflineBanner'
 import { BookOpenText, Cards, House, Path, Trophy, User, type Icon } from '@phosphor-icons/react'
 import { useState } from 'react'
 import { Link, NavLink, Outlet, useLocation, useNavigation } from 'react-router'
@@ -114,6 +115,7 @@ export function Layout() {
   return (
     <LayoutModeContext.Provider value={setMode}>
       <div className="min-h-dvh bg-canvas text-ink">
+        <OfflineBanner />
         <header className="sticky top-0 z-20 border-b border-line bg-surface">
           <div className="mx-auto flex max-w-6xl items-center gap-4 px-4 py-2">
             <NavLink to="/" className="text-xl font-bold text-brand">

@@ -1,3 +1,5 @@
+import { ErrorState } from '../components/states/ErrorState'
+import { LoadingState } from '../components/states/LoadingState'
 import { useState, type FormEvent } from 'react'
 import { Link, useParams } from 'react-router'
 import { ApiError } from '../api/errors'
@@ -207,8 +209,13 @@ export function ProfilePage() {
           </Link>
         ))}
       </nav>
-      {profile.isPending && <p>Chargement du profil…</p>}
-      {profile.isError && <p role="alert">Impossible de charger le profil.</p>}
+      {profile.isPending && <LoadingState label="Chargement du profil…" />}
+      {profile.isError && (
+        <ErrorState
+          message="Impossible de charger le profil."
+          onRetry={() => void profile.refetch()}
+        />
+      )}
       {profile.isSuccess && current === 'profile' && (
         <>
           {profile.data.roles.includes('admin') && (

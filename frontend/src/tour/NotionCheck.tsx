@@ -1,3 +1,4 @@
+import { ErrorState } from '../components/states/ErrorState'
 import { useState, type FormEvent } from 'react'
 import { ApiError } from '../api/errors'
 import { useCheckTourNotion, useTourCheckpoint, type TourQuestion } from '../api/tour'
@@ -21,7 +22,12 @@ export function NotionCheck({ subject, notion }: { subject: string; notion: stri
   const [drafts, setDrafts] = useState<Record<string, AnswerDraft>>({})
 
   if (checkpoint.isError) {
-    return <p role="alert">Impossible de charger les questions de cette notion.</p>
+    return (
+      <ErrorState
+        message="Impossible de charger les questions de cette notion."
+        onRetry={() => void checkpoint.refetch()}
+      />
+    )
   }
   if (!checkpoint.data) return null
 

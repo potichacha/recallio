@@ -1,3 +1,6 @@
+import { EmptyState } from '../components/states/EmptyState'
+import { ErrorState } from '../components/states/ErrorState'
+import { LoadingState } from '../components/states/LoadingState'
 import { useState, type FormEvent } from 'react'
 import { Link } from 'react-router'
 import { useCreateChallenge, useGroupChallenges, type ChallengeSummary } from '../api/challenges'
@@ -24,13 +27,18 @@ export function ChallengesPanel({ group }: { group: Group }) {
       <h2 id="challenges-title" className="text-lg font-semibold">
         Défis
       </h2>
-      {challenges.isPending && <p>Chargement des défis…</p>}
-      {challenges.isError && <p role="alert">Impossible de charger les défis.</p>}
+      {challenges.isPending && <LoadingState label="Chargement des défis…" shape="line" />}
+      {challenges.isError && (
+        <ErrorState
+          message="Impossible de charger les défis."
+          onRetry={() => void challenges.refetch()}
+        />
+      )}
       {challenges.data?.length === 0 && (
-        <p className="text-sm text-ink-muted">
-          Aucun défi pour le moment. Un défi propose la même série de QCM à tous les membres, avec
-          un temps limité par carte.
-        </p>
+        <EmptyState
+          title="Aucun défi pour le moment."
+          text="Un défi propose la même série de QCM à tous les membres, avec un temps limité par carte."
+        />
       )}
       {challenges.data && challenges.data.length > 0 && (
         <ul className="flex flex-col gap-2">

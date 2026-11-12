@@ -1,3 +1,5 @@
+import { ErrorState } from '../components/states/ErrorState'
+import { LoadingState } from '../components/states/LoadingState'
 import { useState } from 'react'
 import {
   invitationUrl,
@@ -25,8 +27,13 @@ export function InvitationPanel({ groupId }: { groupId: string }) {
       <h2 id="invitation-title" className="text-lg font-semibold">
         Inviter des membres
       </h2>
-      {invitation.isPending && <p>Chargement du lien…</p>}
-      {invitation.isError && <p role="alert">Impossible de charger le lien d'invitation.</p>}
+      {invitation.isPending && <LoadingState label="Chargement du lien…" shape="line" />}
+      {invitation.isError && (
+        <ErrorState
+          message="Impossible de charger le lien d'invitation."
+          onRetry={() => void invitation.refetch()}
+        />
+      )}
       {invitation.data === null && (
         <>
           <p className="text-sm text-ink-muted">

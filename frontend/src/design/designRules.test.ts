@@ -14,6 +14,7 @@ const DEFAULT_PALETTE =
   /\b(?:bg|text|border|ring|fill|stroke|outline|divide|decoration|from|via|to|shadow|accent|caret|placeholder)-(?:slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-\d{2,3}\b/
 const GRADIENT = /\bbg-(?:linear|radial|conic|gradient)-|create(?:Linear|Radial|Conic)Gradient/
 const EMOJI = /\p{Extended_Pictographic}/u
+const HAND_WRITTEN_STATE = /<p[^>]*>\s*(?:Chargement|Impossible de charger)/
 
 function offenders(pattern: RegExp) {
   return Object.entries(sources)
@@ -36,5 +37,15 @@ describe('design system', () => {
 
   it('uses real icons rather than emoji', () => {
     expect(offenders(EMOJI)).toEqual([])
+  })
+
+  // Un écran qui charge ou qui a échoué passe par LoadingState et ErrorState (ADR 0058) : une silhouette et un bouton
+  // « Réessayer », les mêmes partout, plutôt qu'une ligne de texte écrite à la main.
+  it('shows loading and failure through the shared states, never a hand-written line', () => {
+    const handWritten = Object.entries(sources)
+      .filter(([path]) => !path.includes('/components/states/'))
+      .filter(([, text]) => HAND_WRITTEN_STATE.test(text))
+      .map(([path]) => path)
+    expect(handWritten).toEqual([])
   })
 })

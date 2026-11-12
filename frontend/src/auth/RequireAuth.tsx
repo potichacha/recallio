@@ -1,3 +1,4 @@
+import { LoadingState } from '../components/states/LoadingState'
 import type { ReactNode } from 'react'
 import { useLocation } from 'react-router'
 import { useSession } from './session'
@@ -9,7 +10,7 @@ export function RequireAuth({ children }: { children: ReactNode }) {
   const location = useLocation()
 
   if (session.status === 'loading') {
-    return <p>Chargement…</p>
+    return <LoadingState label="Chargement…" />
   }
   if (session.status === 'anonymous') {
     return (

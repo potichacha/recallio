@@ -1,3 +1,4 @@
+import { ErrorState } from '../components/states/ErrorState'
 import { Rico } from '../components/Rico'
 import { Fire, Path } from '@phosphor-icons/react'
 import { useState, type ReactNode } from 'react'
@@ -95,7 +96,12 @@ export function DashboardPage() {
         </div>
       </header>
 
-      {stats.isError && <p role="alert">Impossible de charger tes statistiques.</p>}
+      {stats.isError && (
+        <ErrorState
+          message="Impossible de charger tes statistiques."
+          onRetry={() => void stats.refetch()}
+        />
+      )}
       {learning && tourShortcuts}
       {stats.data && current && (
         <ContinueCard

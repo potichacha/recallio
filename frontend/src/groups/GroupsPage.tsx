@@ -1,3 +1,6 @@
+import { EmptyState } from '../components/states/EmptyState'
+import { ErrorState } from '../components/states/ErrorState'
+import { LoadingState } from '../components/states/LoadingState'
 import { useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router'
 import { ApiError } from '../api/errors'
@@ -13,12 +16,18 @@ export function GroupsPage() {
   return (
     <section className="flex flex-col gap-6">
       <h1 className="text-2xl font-bold">Mes groupes</h1>
-      {groups.isPending && <p>Chargement des groupes…</p>}
-      {groups.isError && <p role="alert">Impossible de charger tes groupes.</p>}
+      {groups.isPending && <LoadingState label="Chargement des groupes…" />}
+      {groups.isError && (
+        <ErrorState
+          message="Impossible de charger tes groupes."
+          onRetry={() => void groups.refetch()}
+        />
+      )}
       {groups.isSuccess && groups.data.length === 0 && (
-        <p className="text-ink-muted">
-          Tu ne fais partie d’aucun groupe. Crées-en un pour réviser avec ton équipe.
-        </p>
+        <EmptyState
+          title="Tu ne fais partie d’aucun groupe."
+          text="Un groupe révise les mêmes sujets, suit son classement de la semaine et joue des parties en direct. Crées-en un ci-dessous, ou demande un lien d’invitation."
+        />
       )}
       {groups.isSuccess && groups.data.length > 0 && (
         <ul className="grid gap-3 sm:grid-cols-2">

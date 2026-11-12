@@ -1,3 +1,4 @@
+import { LoadingState } from '../components/states/LoadingState'
 import {
   ArrowsClockwise,
   Barbell,
@@ -157,9 +158,10 @@ function FirstQuestion({ subject }: { subject: Subject }) {
   const question = trial.data?.questions.at(0)
   if (trial.isError || (trial.data && !question)) return null
   if (!question) {
+    // L'emplacement de la question, à sa hauteur : la suite de la page ne saute pas quand elle arrive.
     return (
-      <div className={`${CARD} min-h-56 text-ink-muted`} aria-busy="true">
-        Préparation d’une question de {subject.title}…
+      <div className="min-h-56">
+        <LoadingState label={`Préparation d’une question de ${subject.title}…`} shape="card" />
       </div>
     )
   }

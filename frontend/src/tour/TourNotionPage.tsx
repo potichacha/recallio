@@ -1,3 +1,5 @@
+import { ErrorState } from '../components/states/ErrorState'
+import { LoadingState } from '../components/states/LoadingState'
 import { useEffect } from 'react'
 import { Link, useLocation, useParams, useSearchParams } from 'react-router'
 import { ApiError } from '../api/errors'
@@ -33,20 +35,25 @@ export function TourNotionPage() {
   const tourLink = `/subjects/${encodeURIComponent(slug)}/tour`
 
   if (pages.isError) {
+    // Une page introuvable n'est pas une panne : rien à réessayer, seulement le sommaire.
+    const notFound = pages.error instanceof ApiError && pages.error.status === 404
     return (
       <section className="flex flex-col gap-3">
-        <h1 className="text-2xl font-bold">
-          {pages.error instanceof ApiError && pages.error.status === 404
-            ? 'Page introuvable'
-            : 'Impossible de charger la page.'}
-        </h1>
+        {notFound ? (
+          <h1 className="text-2xl font-bold">Page introuvable</h1>
+        ) : (
+          <ErrorState
+            message="Impossible de charger la page."
+            onRetry={() => void pages.refetch()}
+          />
+        )}
         <Link to={tourLink} className="text-brand hover:underline">
           Retour au sommaire du Tour
         </Link>
       </section>
     )
   }
-  if (!pages.data) return <p className="text-ink-muted">Chargement…</p>
+  if (!pages.data) return <LoadingState label="Chargement…" />
 
   const page = pages.data.pages[pageNumber - 1]
   if (!page) {

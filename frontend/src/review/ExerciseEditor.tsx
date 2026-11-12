@@ -1,3 +1,4 @@
+import { LoadingState } from '../components/states/LoadingState'
 import { lazy, Suspense, useId, useState } from 'react'
 import type { ExerciseFile } from '../api/review'
 
@@ -62,7 +63,7 @@ export function ExerciseEditor({
           aria-labelledby={`${id}-tab-${index}`}
           hidden={file.path !== selected}
         >
-          <Suspense fallback={<p className="text-sm text-ink-muted">Chargement de l’éditeur…</p>}>
+          <Suspense fallback={<LoadingState label="Chargement de l’éditeur…" shape="line" />}>
             <CodeEditor
               label={file.path}
               value={file.content}

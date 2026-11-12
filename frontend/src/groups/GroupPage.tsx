@@ -1,3 +1,4 @@
+import { ErrorState } from '../components/states/ErrorState'
 import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import { ApiError } from '../api/errors'
@@ -40,7 +41,12 @@ export function GroupPage() {
         ← Mes groupes
       </Link>
       <h1 className="text-2xl font-bold">{group.data?.name ?? 'Chargement…'}</h1>
-      {group.isError && <p role="alert">Impossible de charger le groupe.</p>}
+      {group.isError && (
+        <ErrorState
+          message="Impossible de charger le groupe."
+          onRetry={() => void group.refetch()}
+        />
+      )}
       {group.data && (
         <>
           <GroupSettingsPanel group={group.data} />

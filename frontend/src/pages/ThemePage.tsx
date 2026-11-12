@@ -1,3 +1,4 @@
+import { ErrorState } from '../components/states/ErrorState'
 import { Link, useParams, useSearchParams } from 'react-router'
 import { useTheme, useThemeCards } from '../api/content'
 import { ApiError } from '../api/errors'
@@ -43,7 +44,12 @@ export function ThemePage() {
           Réviser ce thème
         </Link>
       </div>
-      {cards.isError && <p role="alert">Impossible de charger les cartes.</p>}
+      {cards.isError && (
+        <ErrorState
+          message="Impossible de charger les cartes."
+          onRetry={() => void cards.refetch()}
+        />
+      )}
       {cards.isSuccess && (
         <>
           <ol className="flex flex-col gap-4">

@@ -1,3 +1,5 @@
+import { ErrorState } from '../components/states/ErrorState'
+import { LoadingState } from '../components/states/LoadingState'
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { Link, useParams } from 'react-router'
 import {
@@ -34,8 +36,15 @@ export function ChallengePage() {
       </section>
     )
   }
-  if (challenge.isError) return <p role="alert">Impossible de charger le défi.</p>
-  if (challenge.isPending) return <p>Chargement du défi…</p>
+  if (challenge.isError) {
+    return (
+      <ErrorState
+        message="Impossible de charger le défi."
+        onRetry={() => void challenge.refetch()}
+      />
+    )
+  }
+  if (challenge.isPending) return <LoadingState label="Chargement du défi…" shape="card" />
 
   const { summary, groupId, groupName } = challenge.data
   const canPlay = summary.open && summary.myStatus !== 'FINISHED'
@@ -103,7 +112,8 @@ function ChallengePlay({
       </div>
     )
   }
-  if (!step?.card || next.isPending) return <p>Chargement de la carte…</p>
+  if (!step?.card || next.isPending)
+    return <LoadingState label="Chargement de la carte…" shape="card" />
   return (
     <ChallengeCardPlay
       key={step.card.position}

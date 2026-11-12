@@ -1,3 +1,6 @@
+import { EmptyState } from '../components/states/EmptyState'
+import { ErrorState } from '../components/states/ErrorState'
+import { LoadingState } from '../components/states/LoadingState'
 import { Fire, SealCheck } from '@phosphor-icons/react'
 import { useParams } from 'react-router'
 import { ApiError } from '../api/errors'
@@ -18,14 +21,16 @@ export function PublicProfilePage() {
   const { handle = '' } = useParams()
   const profile = usePublicProfile(handle)
 
-  if (profile.isPending) return <p>Chargement du profil…</p>
+  if (profile.isPending) return <LoadingState label="Chargement du profil…" />
   if (profile.isError) {
-    return (
-      <p role="alert">
-        {profile.error instanceof ApiError && profile.error.status === 404
-          ? 'Ce profil n’existe pas, ou il est privé.'
-          : 'Impossible de charger ce profil.'}
-      </p>
+    // Un profil introuvable ou privé n'est pas une panne : rien à réessayer.
+    return profile.error instanceof ApiError && profile.error.status === 404 ? (
+      <p role="alert">Ce profil n’existe pas, ou il est privé.</p>
+    ) : (
+      <ErrorState
+        message="Impossible de charger ce profil."
+        onRetry={() => void profile.refetch()}
+      />
     )
   }
   const { displayName, streak, subjects, achievements } = profile.data
@@ -56,7 +61,7 @@ export function PublicProfilePage() {
         corrigées, notions du Tour validées). <strong>Déclaré</strong> : la maîtrise en révision
         personnelle, en partie auto-évaluée.
       </p>
-      {subjects.length === 0 && <p>Aucun sujet suivi pour l’instant.</p>}
+      {subjects.length === 0 && <EmptyState title="Aucun sujet suivi pour l’instant." />}
       <ul className="flex flex-col gap-3">
         {subjects.map((subject) => (
           <SubjectSkills key={subject.slug} subject={subject} />

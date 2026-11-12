@@ -1,3 +1,5 @@
+import { ErrorState } from '../components/states/ErrorState'
+import { LoadingState } from '../components/states/LoadingState'
 import { useLeaderboard, type Leaderboard, type LeaderboardEntry } from '../api/groups'
 
 // Les dates de la semaine sont des jours calendaires : formatées en UTC, elles ne glissent pas d'un jour.
@@ -16,8 +18,13 @@ export function LeaderboardPanel({ groupId }: { groupId: string }) {
       <h2 id="leaderboard-title" className="text-lg font-semibold">
         Classement de la semaine
       </h2>
-      {leaderboard.isPending && <p>Chargement du classement…</p>}
-      {leaderboard.isError && <p role="alert">Impossible de charger le classement.</p>}
+      {leaderboard.isPending && <LoadingState label="Chargement du classement…" shape="line" />}
+      {leaderboard.isError && (
+        <ErrorState
+          message="Impossible de charger le classement."
+          onRetry={() => void leaderboard.refetch()}
+        />
+      )}
       {leaderboard.data && <LeaderboardContent leaderboard={leaderboard.data} />}
     </section>
   )

@@ -1,3 +1,4 @@
+import { LoadingState } from '../components/states/LoadingState'
 import type { ReactNode } from 'react'
 import { Navigate } from 'react-router'
 import { useProfile } from '../api/profile'
@@ -10,7 +11,7 @@ export function RequireFollowedSubjects({ children }: { children: ReactNode }) {
   const profile = useProfile()
 
   if (profile.isPending) {
-    return <p>Chargement…</p>
+    return <LoadingState label="Chargement…" />
   }
   if (profile.isSuccess && profile.data.followedSubjects.length === 0) {
     return <Navigate to="/welcome" replace />

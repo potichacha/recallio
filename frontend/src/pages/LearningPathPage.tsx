@@ -1,3 +1,6 @@
+import { EmptyState } from '../components/states/EmptyState'
+import { ErrorState } from '../components/states/ErrorState'
+import { LoadingState } from '../components/states/LoadingState'
 import { Trophy } from '@phosphor-icons/react'
 import { Link, useParams } from 'react-router'
 import { useSubject } from '../api/content'
@@ -53,15 +56,19 @@ export function LearningPathPage() {
         ← Cours
       </Link>
       <h1 className="text-2xl font-bold">Le cours de {subject.data?.title}</h1>
-      {path.isPending && <p>Chargement du parcours…</p>}
+      {path.isPending && <LoadingState label="Chargement du parcours…" />}
       {path.isError && !(path.error instanceof ApiError && path.error.status === 404) && (
-        <p role="alert">Impossible de charger le parcours.</p>
+        <ErrorState
+          message="Impossible de charger le parcours."
+          onRetry={() => void path.refetch()}
+        />
       )}
       {path.isSuccess && domains.length === 0 && (
-        <p className="text-ink-muted">
-          Ce sujet n’a pas encore de référentiel de notions : ses cartes se révisent dans l’ordre de
-          son document.
-        </p>
+        <EmptyState
+          title="Ce sujet n’a pas encore de référentiel de notions."
+          text="Ses cartes se révisent dans l’ordre de son document."
+          mood="thinking"
+        />
       )}
       {path.isSuccess && domains.length > 0 && (
         <>
