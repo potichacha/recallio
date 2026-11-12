@@ -190,11 +190,20 @@ function isMastered(notions: PathNotion[]) {
   )
 }
 
+/** Pourquoi une notion ne se révise pas encore. */
+const BLOCKED_LABELS: Partial<Record<PathNotion['status'], string>> = {
+  LOCKED: 'Verrouillée',
+  TOUR_FIRST: 'À lire dans le Tour',
+  NO_CARDS: 'À venir',
+}
+
 function NotionItem({ subject, notion }: { subject: string; notion: PathNotion }) {
-  const blocked = notion.status === 'LOCKED' || notion.status === 'NO_CARDS'
+  // Qui apprend découvre une notion dans le Tour avant de la réviser (ADR 0059).
+  const tourFirst = notion.status === 'TOUR_FIRST'
+  const blocked = notion.status === 'LOCKED' || notion.status === 'NO_CARDS' || tourFirst
   const badge = blocked
     ? {
-        label: notion.status === 'LOCKED' ? 'Verrouillée' : 'À venir',
+        label: BLOCKED_LABELS[notion.status] ?? 'À venir',
         style: 'bg-surface-muted text-ink-faint',
       }
     : { label: MASTERY_LABELS[notion.mastery], style: MASTERY_STYLES[notion.mastery] }
@@ -212,6 +221,14 @@ function NotionItem({ subject, notion }: { subject: string; notion: PathNotion }
         </span>
         {!blocked && notion.nextLevel && (
           <span className="text-xs text-ink-muted">{nextLevelHint(notion.nextLevel)}</span>
+        )}
+        {tourFirst && (
+          <Link
+            to={`/subjects/${encodeURIComponent(subject)}/tour/${encodeURIComponent(notion.slug)}`}
+            className="text-xs font-medium text-brand-strong hover:underline"
+          >
+            La découvrir dans le Tour, pour la réviser ensuite
+          </Link>
         )}
         {notion.status !== 'NO_CARDS' && (
           <Link

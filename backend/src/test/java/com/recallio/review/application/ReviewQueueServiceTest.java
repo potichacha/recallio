@@ -15,6 +15,8 @@ import com.recallio.review.domain.ReviewLogRepository;
 import com.recallio.review.domain.ReviewState;
 import com.recallio.review.domain.ReviewStateRepository;
 import com.recallio.review.domain.fsrs.FsrsParameters;
+import com.recallio.review.domain.tour.TourLastPage;
+import com.recallio.review.domain.tour.TourProgressRepository;
 import com.recallio.user.FollowedSubjects;
 import com.recallio.user.LearningTrack;
 import com.recallio.user.UserRef;
@@ -158,6 +160,7 @@ class ReviewQueueServiceTest {
                 (_, _) -> groupScope,
                 states,
                 new NoReviewsToday(),
+                new NoTour(),
                 new NewCardQuota(states, directory, new TestConfig()),
                 Clock.fixed(now, ZoneOffset.UTC));
     }
@@ -266,6 +269,34 @@ class ReviewQueueServiceTest {
         @Override
         public List<UUID> cardsStillFailedSince(UUID userId, Instant since) {
             return List.of();
+        }
+    }
+
+    /** Aucune notion validée dans le Tour : sans effet ici, le parcours par défaut ne s'en sert pas. */
+    private static final class NoTour implements TourProgressRepository {
+        @Override
+        public boolean markValidated(UUID userId, UUID notionId, Instant validatedAt) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public long validatedCount(UUID userId) {
+            return 0;
+        }
+
+        @Override
+        public Set<UUID> validated(UUID userId, Collection<UUID> notionIds) {
+            return Set.of();
+        }
+
+        @Override
+        public void saveLastPage(UUID userId, String subjectSlug, TourLastPage lastPage, Instant openedAt) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public Optional<TourLastPage> lastPage(UUID userId, String subjectSlug) {
+            return Optional.empty();
         }
     }
 

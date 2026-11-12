@@ -3,6 +3,7 @@ package com.recallio.review.application;
 import com.recallio.content.NotionInfo;
 import com.recallio.content.SubjectDirectory;
 import com.recallio.review.domain.ReviewStateRepository;
+import com.recallio.review.domain.tour.TourProgressRepository;
 import com.recallio.review.domain.track.LearningPath;
 import com.recallio.review.domain.track.LearningPath.NotionStatus;
 import com.recallio.review.domain.track.MasteryCounts;
@@ -19,6 +20,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 /**
  * Cas d'usage : la carte du parcours d'un sujet (ADR 0032), pour l'utilisateur connecté. Ses domaines et leurs
@@ -33,16 +35,19 @@ public class LearningPathService {
     private final FollowedSubjects followedSubjects;
     private final ReviewStateRepository states;
     private final NotionMasteries masteries;
+    private final TourProgressRepository tour;
 
     public LearningPathService(
             SubjectDirectory subjects,
             FollowedSubjects followedSubjects,
             ReviewStateRepository states,
-            NotionMasteries masteries) {
+            NotionMasteries masteries,
+            TourProgressRepository tour) {
         this.subjects = subjects;
         this.followedSubjects = followedSubjects;
         this.states = states;
         this.masteries = masteries;
+        this.tour = tour;
     }
 
     /** @throws com.recallio.platform.domain.ResourceNotFoundException si aucun sujet publié ne porte ce slug */
@@ -52,7 +57,11 @@ public class LearningPathService {
                 masteries.of(user.id(), Set.of(subjectSlug), states.findAllByUser(user.id()));
         Map<UUID, Integer> recalled = new HashMap<>();
         mastery.forEach((notion, notionMastery) -> recalled.put(notion.id(), notionMastery.recalled()));
-        var path = new LearningPath(mastery.keySet(), recalled);
+        Set<UUID> inTour = mastery.keySet().stream()
+                .filter(NotionInfo::isInTour)
+                .map(NotionInfo::id)
+                .collect(Collectors.toSet());
+        var path = new LearningPath(mastery.keySet(), recalled, tour.validated(user.id(), inTour));
         LearningTrack track = followedSubjects.tracksOf(user).getOrDefault(subjectSlug, LearningTrack.DEFAULT);
         boolean prerequisitesApply = track == LearningTrack.LEARN;
 
