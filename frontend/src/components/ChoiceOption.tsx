@@ -7,7 +7,7 @@ import { Markdown } from './Markdown'
  * sa pastille cochée. Le focus du clavier entoure toute la tuile, pas seulement sa pastille.
  */
 const UNANSWERED =
-  'border-line-strong bg-surface hover:border-brand has-checked:border-brand has-checked:bg-brand-soft has-focus-visible:outline-3 has-focus-visible:outline-offset-2 has-focus-visible:outline-brand'
+  'border-line-strong bg-surface transition-transform duration-100 hover:border-brand has-checked:translate-y-0.5 has-checked:border-brand has-checked:bg-brand-soft motion-reduce:transition-none has-focus-visible:outline-3 has-focus-visible:outline-offset-2 has-focus-visible:outline-brand'
 
 /** Après la correction : chaque verdict a sa couleur, son icône et son texte, jamais la couleur seule (ADR 0058). */
 const OUTCOMES: Record<

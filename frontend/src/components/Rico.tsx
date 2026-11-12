@@ -7,10 +7,18 @@ const MOODS = {
 
 export type RicoMood = keyof typeof MOODS
 
+/** Le geste de chaque humeur : il sautille quand il encourage, penche la tête quand il réfléchit. */
+const MOTION: Record<RicoMood, string> = {
+  happy: '',
+  cheering: 'motion-safe:animate-hop',
+  thinking: 'motion-safe:animate-tilt',
+}
+
 /**
  * Rico, la mascotte (ADR 0058) : une carte violette aux oreilles pointues, qui salue, encourage ou réfléchit. Il est
- * dessiné avec les tokens, donc dans les deux thèmes. C'est un dessin de principe : un illustrateur fera mieux, et le
- * remplacer ne touche que ce fichier.
+ * dessiné avec les tokens, donc dans les deux thèmes. Il bouge un peu, et cligne des yeux ; pas pour qui a demandé
+ * moins d'animations. C'est un dessin de principe : un illustrateur fera mieux, et le remplacer ne touche que ce
+ * fichier.
  *
  * `decorative` le cache aux lecteurs d'écran quand le texte voisin dit déjà tout.
  */
@@ -24,6 +32,7 @@ export function Rico({
   decorative?: boolean
 }) {
   const { label, mouth } = MOODS[mood]
+  const pupilY = mood === 'thinking' ? 31.5 : 35.5
   return (
     <svg
       role={decorative ? undefined : 'img'}
@@ -32,25 +41,17 @@ export function Rico({
       width={size}
       height={size}
       viewBox="0 0 72 72"
-      className="shrink-0"
+      className={`shrink-0 origin-bottom ${MOTION[mood]}`}
     >
       <rect x="6" y="10" width="60" height="58" rx="20" className="fill-brand" />
       <path d="M18 10l6-9 7 9M41 10l7-9 6 9" className="fill-brand" />
-      <circle cx="26" cy="34" r="8" className="fill-on-brand" />
-      <circle cx="46" cy="34" r="8" className="fill-on-brand" />
-      {/* Les pupilles regardent en haut quand il réfléchit. */}
-      <circle
-        cx="27.5"
-        cy={mood === 'thinking' ? 31.5 : 35.5}
-        r="3.6"
-        className="fill-brand-press"
-      />
-      <circle
-        cx="47.5"
-        cy={mood === 'thinking' ? 31.5 : 35.5}
-        r="3.6"
-        className="fill-brand-press"
-      />
+      {/* Les yeux clignent de temps en temps ; les pupilles regardent en haut quand il réfléchit. */}
+      <g className="origin-center [transform-box:fill-box] motion-safe:animate-blink">
+        <circle cx="26" cy="34" r="8" className="fill-on-brand" />
+        <circle cx="46" cy="34" r="8" className="fill-on-brand" />
+        <circle cx="27.5" cy={pupilY} r="3.6" className="fill-brand-press" />
+        <circle cx="47.5" cy={pupilY} r="3.6" className="fill-brand-press" />
+      </g>
       <path
         d={mouth}
         strokeWidth="3.5"

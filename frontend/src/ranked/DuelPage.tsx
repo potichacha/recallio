@@ -1,3 +1,4 @@
+import { Celebration } from '../components/Celebration'
 import { ErrorState } from '../components/states/ErrorState'
 import { LoadingState } from '../components/states/LoadingState'
 import { useEffect, useRef, useState } from 'react'
@@ -237,7 +238,8 @@ function Outcome({ duel }: { duel: Duel }) {
         result.rankAfter && <p>Rang : {rankLabel(result.rankAfter)}</p>
       )}
       {result.promoted && result.rankAfter && (
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="relative flex flex-wrap items-center gap-2">
+          <Celebration />
           <span>Promotion en {TIER_LABELS[result.rankAfter.tier]} !</span>
           <ShareButton
             label="Partager ma promotion"

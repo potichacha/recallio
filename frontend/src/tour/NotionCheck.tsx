@@ -1,3 +1,4 @@
+import { Celebration } from '../components/Celebration'
 import { ErrorState } from '../components/states/ErrorState'
 import { useState, type FormEvent } from 'react'
 import { ApiError } from '../api/errors'
@@ -48,8 +49,10 @@ export function NotionCheck({ subject, notion }: { subject: string; notion: stri
   return (
     <section
       aria-labelledby={`check-${notion}`}
-      className="flex flex-col gap-4 rounded-xl bg-surface p-5 shadow-sm"
+      className="relative flex flex-col gap-4 rounded-xl bg-surface p-5 shadow-sm"
     >
+      {/* Validée à l'instant, pas déjà validée à l'ouverture de la page. */}
+      {check.data?.validated && <Celebration />}
       <h2 id={`check-${notion}`} className="text-lg font-semibold">
         Valider la notion
       </h2>
