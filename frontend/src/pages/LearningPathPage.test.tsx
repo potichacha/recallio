@@ -166,6 +166,31 @@ describe('LearningPathPage', () => {
     expect(within(object).getByRole('list', { name: 'Objet', hidden: true })).not.toBeVisible()
   })
 
+  it('sends who learns to the Tour for a notion that waits to be validated there (ADR 0059)', async () => {
+    const waiting = notion('boucles', 'Les boucles', 'TOUR_FIRST', 'NEW')
+    const path = {
+      ...PATH,
+      domains: [
+        {
+          ...PATH.domains[0],
+          chapters: [{ ...PATH.domains[0].chapters[0], notions: [waiting] }],
+        },
+      ],
+    }
+    stubApi({ ...SIGNED_IN_API, ...JAVA, '/api/v1/learning-paths/java': { body: path } })
+
+    renderAt('/subjects/java/path', SIGNED_IN)
+
+    const item = (await screen.findByText('Les boucles')).closest('li') as HTMLElement
+    expect(item).toHaveTextContent('À lire dans le Tour')
+    expect(
+      within(item).getByRole('link', {
+        name: 'La découvrir dans le Tour, pour la réviser ensuite',
+      }),
+    ).toHaveAttribute('href', '/subjects/java/tour/boucles')
+    expect(item).not.toHaveTextContent('Pour la découvrir :')
+  })
+
   it('explains that a subject without referential has no path yet', async () => {
     stubApi({
       ...SIGNED_IN_API,

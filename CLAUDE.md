@@ -296,7 +296,7 @@ Les sujets s'ajoutent un par un, au rythme de la rédaction, indépendamment des
 - Les cartes proposées viennent des **sujets suivis** par l'utilisateur ; filtrage possible par sujet, par thème (chapitre) et par type de carte.
 - Le quota quotidien de nouvelles cartes est **propre à chaque sujet** (ADR 0048) : finir sa session de Java ne prive pas Go de ses nouvelles cartes. Dans un sujet, les cartes dues passent toujours en premier.
 - Une seule carte d'une même notion par jour : ses sœurs attendent le lendemain, sans que leur état FSRS change (ADR 0031).
-- Chaque sujet suivi a son **parcours** (ADR 0032) : *apprendre* (seulement les notions dont les prérequis sont acquis, du débutant vers l'expert), *préparer un entretien* (par priorité, le défaut) ou *entretenir son niveau* (intermédiaire et expert d'abord). Il range les nouvelles cartes, jamais les dues.
+- Chaque sujet suivi a son **parcours** (ADR 0032) : *apprendre* (seulement les notions dont les prérequis sont acquis, du débutant vers l'expert), *préparer un entretien* (par priorité, le défaut) ou *entretenir son niveau* (intermédiaire et expert d'abord). Il range les nouvelles cartes, jamais les dues. Qui apprend découvre une notion dans le Tour avant de la réviser : une notion du Tour attend d'y être validée (ADR 0059).
 - Sous une réponse fausse, « Revoir la leçon » ; et par sujet, un carnet des cartes ratées dans la semaine, à refaire sans rien enregistrer (ADR 0057).
 - Arrêter de suivre un sujet ne supprime pas la progression : ses cartes ne sont plus proposées, et elles reviennent si on le suit de nouveau.
 
@@ -327,6 +327,7 @@ Les sujets s'ajoutent un par un, au rythme de la rédaction, indépendamment des
 - Une page appartient à une notion : un texte pour découvrir, un exemple à modifier et à exécuter, et parfois un « À toi » dont le serveur compare la sortie à celle attendue. L'ordre est celui du référentiel.
 - Sur un écran large, la page a deux colonnes : le cours à gauche, avec « Teste-toi » (des questions de la notion à retourner), le code à droite (ADR 0050).
 - Une notion se valide à la fin de sa dernière page, en répondant juste à 2 ou 3 de ses questions, corrigées par le serveur ; elle reste validée. Ces réponses ne sont pas enregistrées comme des révisions : FSRS ne voit que les vraies révisions, espacées.
+- Pour qui apprend, valider une notion dans le Tour l'ouvre à la révision (ADR 0059).
 - En fin de chapitre, ses exercices ; depuis chaque page, « S'entraîner » ouvre toutes les cartes de la notion, corrigées par le serveur quand leur format le permet, sans rien enregistrer (ADR 0038).
 - Chaque langage a son Tour, fait de contenu seulement ; un nouveau langage demande aussi son image de bac à sable.
 
@@ -525,7 +526,7 @@ Le propriétaire a testé l'application en local avant de la déployer ; ses ret
    - le cours d'un sujet, leçon par leçon ;
    - la catégorie Cybersécurité, et les langages annoncés ;
    - un premier login guidé par le but, qui conduit qui apprend au Tour.
-6. **Relier le Tour à la révision** : qui apprend révise une notion une fois sa page du Tour lue.
+6. ✅ **Relier le Tour à la révision** (ADR 0059) : en parcours « apprendre », une notion qui a des pages dans le Tour n'entre en révision qu'une fois validée dans le Tour.
 7. **Quatre nouveaux sujets complets**, prêts à l'emploi (référentiel, leçons, cartes à choix, exercices), livrés par priorité :
    1. **C++** : ✅ son bac à sable (GCC 14, doctest, ADR 0053) ; son référentiel ; les priorités 1 et 2, avec le Tour ; les priorités 3 et 4.
    2. **Spring Boot**, puis **Quarkus** : des exercices jugés par `@SpringBootTest` et `@QuarkusTest`, dans un bac à sable qui embarque le framework.

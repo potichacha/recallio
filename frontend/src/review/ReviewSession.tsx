@@ -1,3 +1,5 @@
+import { useProfile } from '../api/profile'
+import { useCatalogSubjects } from '../api/content'
 import { Celebration } from '../components/Celebration'
 import { ErrorState } from '../components/states/ErrorState'
 import { LoadingState } from '../components/states/LoadingState'
@@ -264,6 +266,7 @@ function SessionSummary({
           </dl>
         </>
       )}
+      {end === 'done' && subject && <TourHint subject={subject} />}
       {end === 'done' && nextDueAt && (
         <p className="text-ink-muted">
           Prochaine carte à revoir dans {formatDelay(Date.parse(nextDueAt) - now)}.
@@ -309,6 +312,32 @@ function SessionSummary({
       {worked && <ReminderPrompt />}
       {worked && isReturningVisitor() && <InstallApp />}
     </section>
+  )
+}
+
+/**
+ * Pour qui apprend un sujet qui a un Tour (ADR 0059) : une notion n'entre en révision qu'une fois validée dans le Tour.
+ * Quand tout est à jour, c'est donc là que sont les prochaines cartes.
+ */
+function TourHint({ subject }: { subject: string }) {
+  const profile = useProfile()
+  const subjects = useCatalogSubjects()
+  const learning = profile.data?.tracks[subject] === 'LEARN'
+  const hasTour = subjects.data?.some(
+    (candidate) => candidate.slug === subject && candidate.hasTour,
+  )
+  if (!learning || !hasTour) return null
+  return (
+    <p className="text-ink-soft">
+      Tu révises ce que tu as validé dans le Tour.{' '}
+      <Link
+        to={`/subjects/${encodeURIComponent(subject)}/tour`}
+        className="font-medium text-brand-strong underline"
+      >
+        Valide la notion suivante
+      </Link>{' '}
+      pour débloquer de nouvelles cartes.
+    </p>
   )
 }
 

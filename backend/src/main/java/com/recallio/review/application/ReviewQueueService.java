@@ -15,6 +15,7 @@ import com.recallio.review.domain.ReviewStateRepository;
 import com.recallio.review.domain.queue.ReviewQueuePlanner;
 import com.recallio.review.domain.queue.ReviewQueuePlanner.Candidate;
 import com.recallio.review.domain.queue.ReviewQueuePlanner.QueuePlan;
+import com.recallio.review.domain.tour.TourProgressRepository;
 import com.recallio.review.domain.track.LearningPath;
 import com.recallio.review.domain.track.NewCardOrder;
 import com.recallio.user.FollowedSubjects;
@@ -48,6 +49,7 @@ public class ReviewQueueService {
     private final GroupReviewScopes groupScopes;
     private final ReviewStateRepository states;
     private final ReviewLogRepository log;
+    private final TourProgressRepository tour;
     private final NewCardQuota quota;
     private final Clock clock;
 
@@ -58,6 +60,7 @@ public class ReviewQueueService {
             GroupReviewScopes groupScopes,
             ReviewStateRepository states,
             ReviewLogRepository log,
+            TourProgressRepository tour,
             NewCardQuota quota,
             Clock clock) {
         this.cards = cards;
@@ -66,6 +69,7 @@ public class ReviewQueueService {
         this.groupScopes = groupScopes;
         this.states = states;
         this.log = log;
+        this.tour = tour;
         this.quota = quota;
         this.clock = clock;
     }
@@ -151,9 +155,8 @@ public class ReviewQueueService {
             UserRef user, Map<String, LearningTrack> tracks, List<Candidate> eligible, Set<UUID> known) {
         List<NotionInfo> notions =
                 cards.notions(eligible.stream().map(Candidate::subjectSlug).collect(Collectors.toSet()));
-        Set<UUID> locked = tracks.containsValue(LearningTrack.LEARN)
-                ? learningPath(user, notions).locked()
-                : Set.of();
+        Set<UUID> locked =
+                tracks.containsValue(LearningTrack.LEARN) ? lockedForLearning(user, notions, known) : Set.of();
         return NewCardOrder.arrange(
                 eligible,
                 known,
@@ -162,11 +165,28 @@ public class ReviewQueueService {
                 locked);
     }
 
-    /** Le chemin d'apprentissage de l'utilisateur : ses cartes réussies, comptées par notion. */
+    /**
+     * Les notions fermées aux nouvelles cartes de qui apprend : celles dont un prérequis manque (ADR 0032), et celles du
+     * Tour qu'il n'y a pas encore validées (ADR 0059). Une notion dont il a déjà vu une carte reste ouverte : la règle du
+     * Tour ne retire rien à qui révisait avant elle.
+     */
+    private Set<UUID> lockedForLearning(UserRef user, List<NotionInfo> notions, Set<UUID> known) {
+        LearningPath path = learningPath(user, notions);
+        Set<UUID> started = Set.copyOf(cards.notionsOf(known).values());
+        Set<UUID> locked = new HashSet<>(path.locked());
+        path.awaitingTour().stream().filter(notion -> !started.contains(notion)).forEach(locked::add);
+        return locked;
+    }
+
+    /** Le chemin d'apprentissage de l'utilisateur : ses cartes réussies, comptées par notion, et son Tour. */
     private LearningPath learningPath(UserRef user, List<NotionInfo> notions) {
         Map<UUID, Integer> recalled = cards.notionsOf(log.cardsRecalled(user.id())).values().stream()
                 .collect(Collectors.toMap(Function.identity(), _ -> 1, Integer::sum));
-        return new LearningPath(notions, recalled);
+        Set<UUID> inTour = notions.stream()
+                .filter(NotionInfo::isInTour)
+                .map(NotionInfo::id)
+                .collect(Collectors.toSet());
+        return new LearningPath(notions, recalled, tour.validated(user.id(), inTour));
     }
 
     /** Les cartes révisées depuis minuit, dans le fuseau de l'utilisateur, par notion : leurs sœurs attendent demain. */

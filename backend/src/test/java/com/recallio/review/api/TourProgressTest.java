@@ -5,6 +5,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.everyItem;
+import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.nullValue;
 
@@ -233,6 +235,67 @@ class TourProgressTest {
         importBonjour("");
 
         given().get(TOUR).then().statusCode(200).body("lastPage", nullValue());
+    }
+
+    /** Qui apprend ne révise une notion du Tour qu'une fois validée dans le Tour (ADR 0059). */
+    @Test
+    @TestSecurity(user = "alice")
+    @OidcSecurity(claims = @Claim(key = "sub", value = "tour-before-review"))
+    void shouldOpenANotionOfTheTourToReviewOnceItIsValidatedThereForWhoLearns() {
+        followAndLearn();
+        String queue = "/api/v1/review-queue";
+        String statuses = "domains[0].chapters[0].notions.status";
+
+        // La notion du Tour attend ; celle qui n'a pas de page se révise déjà.
+        given().queryParam("subject", "ocaml")
+                .get(queue)
+                .then()
+                .statusCode(200)
+                .body("cards.notionSlug", everyItem(equalTo("hors-tour")));
+        given().get("/api/v1/learning-paths/ocaml")
+                .then()
+                .statusCode(200)
+                .body(statuses, contains("TOUR_FIRST", "AVAILABLE"));
+
+        check(answers(questionIds(), 1, 0, "main")).statusCode(200).body("validated", is(true));
+
+        given().queryParam("subject", "ocaml")
+                .get(queue)
+                .then()
+                .statusCode(200)
+                .body("cards.notionSlug", hasItem("bonjour"));
+        given().get("/api/v1/learning-paths/ocaml").then().body(statuses, contains("AVAILABLE", "AVAILABLE"));
+    }
+
+    /** Qui prépare un entretien révise tout de suite : le Tour ne lui barre rien. */
+    @Test
+    @TestSecurity(user = "alice")
+    @OidcSecurity(claims = @Claim(key = "sub", value = "tour-not-required"))
+    void shouldNotMakeTheTourComeFirstOutsideTheLearningTrack() {
+        follow();
+
+        given().queryParam("subject", "ocaml")
+                .get("/api/v1/review-queue")
+                .then()
+                .statusCode(200)
+                .body("cards.notionSlug", hasItem("bonjour"));
+    }
+
+    private static void follow() {
+        given().contentType(ContentType.JSON)
+                .body(Map.of("subjects", List.of("ocaml")))
+                .put("/api/v1/me/followed-subjects")
+                .then()
+                .statusCode(200);
+    }
+
+    private static void followAndLearn() {
+        follow();
+        given().contentType(ContentType.JSON)
+                .body(Map.of("track", "LEARN"))
+                .put("/api/v1/me/followed-subjects/ocaml/track")
+                .then()
+                .statusCode(200);
     }
 
     private static ValidatableResponse openPage(String notion, int page) {

@@ -357,12 +357,32 @@ describe('ReviewPage', () => {
     const summary = await screen.findByRole('region', { name: 'Bilan de la session' })
     expect(summary).toHaveTextContent('Tout est à jour en Java pour le moment.')
     expect(summary).toHaveTextContent('Prochaine carte à revoir dans 10 min.')
+    // Qui prépare un entretien n'a pas à passer par le Tour.
+    expect(
+      within(summary).queryByRole('link', { name: 'Valide la notion suivante' }),
+    ).not.toBeInTheDocument()
     expect(
       within(summary).queryByRole('button', { name: 'Relancer une session' }),
     ).not.toBeInTheDocument()
     await userEvent.click(within(summary).getByRole('button', { name: 'Choisir un autre sujet' }))
 
     expect(await screen.findByRole('button', { name: 'Commencer' })).toBeInTheDocument()
+  })
+
+  it('sends who learns to the Tour when nothing is left to review (ADR 0059)', async () => {
+    stubApi({
+      ...PROFILE,
+      '/api/v1/me': { body: { ...TEST_PROFILE, tracks: { java: 'LEARN' } } },
+      [QUEUE]: { body: queue([]) },
+    })
+    renderAt('/review?subject=java', signedIn())
+    await startSession()
+
+    const summary = await screen.findByRole('region', { name: 'Bilan de la session' })
+    expect(summary).toHaveTextContent('Tu révises ce que tu as validé dans le Tour.')
+    expect(
+      await within(summary).findByRole('link', { name: 'Valide la notion suivante' }),
+    ).toHaveAttribute('href', '/subjects/java/tour')
   })
 
   it('ends the session once its time is up, after the card being reviewed', async () => {
