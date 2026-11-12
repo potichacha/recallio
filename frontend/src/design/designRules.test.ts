@@ -14,6 +14,8 @@ const DEFAULT_PALETTE =
   /\b(?:bg|text|border|ring|fill|stroke|outline|divide|decoration|from|via|to|shadow|accent|caret|placeholder)-(?:slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-\d{2,3}\b/
 const GRADIENT = /\bbg-(?:linear|radial|conic|gradient)-|create(?:Linear|Radial|Conic)Gradient/
 const EMOJI = /\p{Extended_Pictographic}/u
+// Une animation sans son garde-fou : `animate-…` qui ne suit ni `motion-safe:` ni `motion-reduce:`.
+const UNGUARDED_ANIMATION = /(?<!motion-safe:|motion-reduce:)animate-[a-z]/
 const HAND_WRITTEN_STATE = /<p[^>]*>\s*(?:Chargement|Impossible de charger)/
 
 function offenders(pattern: RegExp) {
@@ -37,6 +39,12 @@ describe('design system', () => {
 
   it('uses real icons rather than emoji', () => {
     expect(offenders(EMOJI)).toEqual([])
+  })
+
+  // Le mouvement s'efface pour qui a demandé moins d'animations (ADR 0058) : chaque animation porte son garde-fou, en
+  // plus du filet global de index.css.
+  it('guards every animation with motion-safe or motion-reduce', () => {
+    expect(offenders(UNGUARDED_ANIMATION)).toEqual([])
   })
 
   // Un écran qui charge ou qui a échoué passe par LoadingState et ErrorState (ADR 0058) : une silhouette et un bouton

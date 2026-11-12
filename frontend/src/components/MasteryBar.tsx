@@ -25,7 +25,7 @@ export function MasteryBar({ counts, label }: { counts: MasteryCounts; label: st
           .map((segment) => (
             <span
               key={segment.level}
-              className={segment.className}
+              className={`${segment.className} origin-left motion-safe:animate-fill`}
               style={{ width: `${(segment.count / counts.total) * 100}%` }}
             />
           ))}

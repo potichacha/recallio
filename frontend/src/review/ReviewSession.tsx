@@ -1,3 +1,4 @@
+import { Celebration } from '../components/Celebration'
 import { ErrorState } from '../components/states/ErrorState'
 import { LoadingState } from '../components/states/LoadingState'
 import { Fire } from '@phosphor-icons/react'
@@ -143,7 +144,10 @@ export function ReviewSession({
         />
       ) : card ? (
         <>
-          <ReviewCard key={`${batch}:${card.cardId}`} card={card} onReviewed={reviewed} />
+          {/* La carte suivante entre par la droite, comme une carte qu'on tire. */}
+          <div key={`${batch}:${card.cardId}`} className="motion-safe:animate-slide-in">
+            <ReviewCard card={card} onReviewed={reviewed} />
+          </div>
           <div className="flex items-center justify-between gap-3">
             <ReportButton key={`report-${card.cardId}`} target={{ cardId: card.cardId }} />
             <button
@@ -227,8 +231,10 @@ function SessionSummary({
   return (
     <section
       aria-label="Bilan de la session"
-      className="flex flex-col gap-4 rounded-2xl bg-surface p-5 shadow-sm"
+      className="relative flex flex-col gap-4 rounded-2xl bg-surface p-5 shadow-sm"
     >
+      {/* Une session sans faute se fête. */}
+      {worked && tally.recalled === tally.reviewed && <Celebration />}
       {worked && progress?.goalReachedToday && (
         <div className="flex flex-col items-center gap-2 text-center motion-safe:animate-pop">
           <span className="flex size-16 items-center justify-center rounded-full bg-sun">
