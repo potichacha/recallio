@@ -68,7 +68,7 @@ export function LearningPathPage() {
           <div className="flex flex-col gap-2 rounded-xl bg-surface p-4 shadow-sm">
             <p className="text-sm text-ink-muted">
               Parcours <strong>{track?.label}</strong> ·{' '}
-              <Link to="/profile" className="text-brand hover:underline">
+              <Link to="/profile/subjects" className="text-brand hover:underline">
                 changer de parcours
               </Link>
             </p>
@@ -105,6 +105,13 @@ function DomainSection({
   open: boolean
 }) {
   const notions = domain.chapters.reduce((count, chapter) => count + chapter.notions.length, 0)
+  // Dans le domaine, seul le chapitre où l'on en est s'ouvre d'emblée (audit, élément 5) : le premier qui a encore
+  // une notion à acquérir, sinon le premier.
+  const currentChapter = (
+    domain.chapters.find((chapter) =>
+      chapter.notions.some((notion) => notion.mastery === 'NEW' || notion.mastery === 'DISCOVERED'),
+    ) ?? domain.chapters[0]
+  )?.id
   return (
     <section
       aria-labelledby={`domain-${domain.id}`}
@@ -120,39 +127,48 @@ function DomainSection({
           {plural(domain.chapters.length, 'chapitre')} · {plural(notions, 'notion')}
         </summary>
         <div className="mt-3 flex flex-col gap-4">
-          {domain.chapters.map((chapter) => (
-            <section
-              key={chapter.id}
-              aria-labelledby={`chapter-${chapter.id}`}
-              className="flex flex-col gap-2"
-            >
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <h3 id={`chapter-${chapter.id}`} className="font-semibold">
-                  {chapter.title}
-                </h3>
-                {isMastered(chapter.notions) && (
-                  <span className="flex items-center gap-2">
-                    <span className="inline-flex items-center gap-1 text-xs font-medium text-success">
-                      <Trophy weight="fill" aria-hidden className="text-sun" /> Maîtrisé
+          {domain.chapters.map((chapter) => {
+            const mastered = isMastered(chapter.notions)
+            return (
+              <section key={chapter.id} aria-labelledby={`chapter-${chapter.id}`}>
+                <details open={chapter.id === currentChapter}>
+                  <summary className="cursor-pointer">
+                    <h3 id={`chapter-${chapter.id}`} className="inline font-semibold">
+                      {chapter.title}
+                    </h3>
+                    <span className="text-xs text-ink-muted">
+                      {' · '}
+                      {plural(chapter.notions.length, 'notion')}
                     </span>
-                    <ShareButton
-                      card={{
-                        kicker: 'Carte des compétences',
-                        title: 'Chapitre maîtrisé',
-                        detail: chapter.title,
-                        url: `${window.location.origin}/subjects/${encodeURIComponent(subject)}`,
-                      }}
-                    />
-                  </span>
-                )}
-              </div>
-              <ul className="flex flex-col gap-1">
-                {chapter.notions.map((notion) => (
-                  <NotionItem key={notion.slug} subject={subject} notion={notion} />
-                ))}
-              </ul>
-            </section>
-          ))}
+                    {mastered && (
+                      <span className="ml-2 inline-flex items-center gap-1 text-xs font-medium text-success">
+                        <Trophy weight="fill" aria-hidden className="text-sun" /> Maîtrisé
+                      </span>
+                    )}
+                  </summary>
+                  <div className="mt-2 flex flex-col gap-2">
+                    {mastered && (
+                      <span className="self-start">
+                        <ShareButton
+                          card={{
+                            kicker: 'Carte des compétences',
+                            title: 'Chapitre maîtrisé',
+                            detail: chapter.title,
+                            url: `${window.location.origin}/subjects/${encodeURIComponent(subject)}`,
+                          }}
+                        />
+                      </span>
+                    )}
+                    <ul aria-label={chapter.title} className="flex flex-col gap-1">
+                      {chapter.notions.map((notion) => (
+                        <NotionItem key={notion.slug} subject={subject} notion={notion} />
+                      ))}
+                    </ul>
+                  </div>
+                </details>
+              </section>
+            )
+          })}
         </div>
       </details>
     </section>

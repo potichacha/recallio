@@ -4,7 +4,7 @@ import { expect, test } from './support/test'
 
 test.describe('Mes données (ADR 0056)', () => {
   test('downloads the data of the account, then deletes it for good', async ({ page }) => {
-    await signIn(page, USERS.dave, '/profile')
+    await signIn(page, USERS.dave, '/profile/data')
     const data = page.getByRole('region', { name: 'Mes données' })
 
     const download = page.waitForEvent('download')

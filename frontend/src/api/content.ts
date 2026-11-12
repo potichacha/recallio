@@ -3,6 +3,13 @@ import { api } from './client'
 import { ApiError } from './errors'
 import type { components } from './schema'
 
+/**
+ * Le contenu (catalogue, thèmes, cartes, leçons, Tour) ne change qu'à un import : il reste frais dix minutes, au lieu
+ * d'être redemandé à chaque retour sur l'onglet (audit de novembre 2026, élément 10). La progression, elle, se
+ * redemande toujours.
+ */
+export const CONTENT_STALE_TIME = 10 * 60 * 1000
+
 export type Subject = components['schemas']['Subject']
 export type SubjectCategory = components['schemas']['SubjectCategory']
 export type Theme = components['schemas']['Theme']
@@ -15,6 +22,7 @@ export const CARD_PAGE_SIZE = 20
 export function useSubjects() {
   return useQuery({
     queryKey: ['subjects'],
+    staleTime: CONTENT_STALE_TIME,
     queryFn: async () => {
       const { data, error, response } = await api.GET('/api/v1/subjects')
       if (data === undefined) throw ApiError.from(response, error)
@@ -30,6 +38,7 @@ export function useSubjects() {
 export function useCatalogSubjects() {
   return useQuery({
     queryKey: ['catalog-subjects'],
+    staleTime: CONTENT_STALE_TIME,
     queryFn: async () => {
       const { data, error, response } = await api.GET('/api/v1/subjects', {
         params: { query: { upcoming: true } },
@@ -46,6 +55,7 @@ export type NotionLesson = components['schemas']['NotionLesson']
 export function useNotionLesson(subject: string, notion: string) {
   return useQuery({
     queryKey: ['notion-lessons', subject, notion],
+    staleTime: CONTENT_STALE_TIME,
     queryFn: async () => {
       const { data, error, response } = await api.GET('/api/v1/subjects/{slug}/notions/{notion}', {
         params: { path: { slug: subject, notion } },
@@ -59,6 +69,7 @@ export function useNotionLesson(subject: string, notion: string) {
 export function useSubject(slug: string) {
   return useQuery({
     queryKey: ['subjects', slug],
+    staleTime: CONTENT_STALE_TIME,
     queryFn: async () => {
       const { data, error, response } = await api.GET('/api/v1/subjects/{slug}', {
         params: { path: { slug } },
@@ -72,6 +83,7 @@ export function useSubject(slug: string) {
 function subjectThemesQuery(slug: string) {
   return queryOptions({
     queryKey: ['subjects', slug, 'themes'],
+    staleTime: CONTENT_STALE_TIME,
     queryFn: async () => {
       const { data, error, response } = await api.GET('/api/v1/subjects/{slug}/themes', {
         params: { path: { slug } },
@@ -103,6 +115,7 @@ export function useThemesOfSubjects(slugs: string[]) {
 export function useTheme(slug: string) {
   return useQuery({
     queryKey: ['themes', slug],
+    staleTime: CONTENT_STALE_TIME,
     queryFn: async () => {
       const { data, error, response } = await api.GET('/api/v1/themes/{slug}', {
         params: { path: { slug } },
@@ -116,6 +129,7 @@ export function useTheme(slug: string) {
 export function useThemeCards(slug: string, page: number) {
   return useQuery({
     queryKey: ['themes', slug, 'cards', page],
+    staleTime: CONTENT_STALE_TIME,
     queryFn: async () => {
       const { data, error, response } = await api.GET('/api/v1/themes/{slug}/cards', {
         params: { path: { slug }, query: { page, size: CARD_PAGE_SIZE } },

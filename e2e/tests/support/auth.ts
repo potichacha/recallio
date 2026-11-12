@@ -36,11 +36,11 @@ export function subjectCheckbox(title: string): RegExp {
 }
 
 /**
- * Suit au moins ces sujets, depuis le profil : fonctionne que l'utilisateur ait déjà choisi ses sujets ou non, ce qui
+ * Suit au moins ces sujets, depuis la section « Sujets » du profil : fonctionne que l'utilisateur ait déjà choisi ses sujets ou non, ce qui
  * rend les parcours indépendants de leur ordre d'exécution.
  */
 export async function followSubjects(page: Page, titles: string[]) {
-  await page.goto('/profile')
+  await page.goto('/profile/subjects')
   const form = page.getByRole('form', { name: 'Mes sujets' })
   for (const title of titles) {
     await form.getByRole('checkbox', { name: subjectCheckbox(title) }).check()
