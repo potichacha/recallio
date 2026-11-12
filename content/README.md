@@ -204,8 +204,10 @@ signale une renumérotation.
 
 Pour **annoncer** un sujet avant de l'écrire (ADR 0052), un dossier `content/<slug>/` qui n'a que son `subject.yaml`, en
 `status: draft`, suffit : les pages Cours, Tour et Révisions le montrent en « work in progress ». Le dossier se remplit
-ensuite, référentiel et notions, comme celui de Java. Un sujet sans référentiel ne peut pas être publié (la CI le
-refuse). Son logo, s'il en a un, va dans `frontend/public/logos/` (voir le README de ce dossier).
+ensuite, comme celui de Java : **le référentiel d'abord**, dans sa propre pull request, pour faire relire le découpage
+(domaines, chapitres, priorités, prérequis) avant d'écrire la moindre carte ; puis les notions, par priorité. Tant
+qu'un brouillon n'a aucun fichier de notion, la CI n'exige pas de carte de lui. Un sujet sans référentiel ne peut pas
+être publié (la CI le refuse). Son logo, s'il en a un, va dans `frontend/public/logos/` (voir le README de ce dossier).
 
 Pour **retirer temporairement** un sujet publié, repasser en `status: draft` et réimporter : il disparaît du catalogue
 et des révisions, sans perte de progression, et revient tel quel s'il est republié.
