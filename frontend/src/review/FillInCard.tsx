@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react'
 import { ApiError } from '../api/errors'
 import { useRecordReview, type QueuedCard, type ReviewResult } from '../api/review'
 import { AnswerVerdict } from '../components/AnswerVerdict'
+import { LessonLink } from '../components/LessonLink'
 import { Markdown } from '../components/Markdown'
 import { numberBlanks } from './blanks'
 import { CardHeader } from './CardHeader'
@@ -94,6 +95,9 @@ export function FillInCard({
               : 'Pas tout à fait : la réponse attendue est indiquée sous chaque trou faux.'}
           </AnswerVerdict>
           <Markdown>{result.correction.explanation}</Markdown>
+          {result.rating !== 'GOOD' && card.notionSlug && (
+            <LessonLink subject={card.subjectSlug} notion={card.notionSlug} />
+          )}
           <button
             type="button"
             onClick={() => onReviewed(result)}

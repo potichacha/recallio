@@ -97,6 +97,10 @@ const pages: RouteObject[] = [
         path: 'subjects/:slug/exam',
         ...page(() => import('./exam/MockExamPage'), 'MockExamPage'),
       },
+      {
+        path: 'subjects/:slug/mistakes',
+        ...page(() => import('./practice/MistakesPage'), 'MistakesPage'),
+      },
       { path: 'review', ...page(() => import('./review/ReviewPage'), 'ReviewPage') },
       { path: 'ranked', ...page(() => import('./ranked/RankedPage'), 'RankedPage') },
       { path: 'ranked/duels/:id', ...page(() => import('./ranked/DuelPage'), 'DuelPage') },

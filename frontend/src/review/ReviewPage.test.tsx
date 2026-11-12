@@ -77,6 +77,7 @@ function queuedCard(overrides: Partial<QueuedCard> = {}): QueuedCard {
     multipleAnswers: false,
     blankCount: 0,
     exercise: null,
+    notionSlug: null,
     notionTitle: null,
     lesson: null,
     state: 'NEW',
@@ -492,6 +493,56 @@ describe('ReviewPage', () => {
 
     await userEvent.click(screen.getByRole('button', { name: 'Carte suivante' }))
     expect(await screen.findByText('Taille d’un int ?')).toBeInTheDocument()
+  })
+
+  it('offers to read the lesson again under a wrong answer, in another tab (audit, item 35)', async () => {
+    stubApi({
+      ...PROFILE,
+      [QUEUE]: {
+        body: queue([
+          queuedCard({
+            type: 'TRUE_FALSE',
+            prompt: 'Le tas est partagé entre les threads.',
+            answer: null,
+            choices: ['Vrai', 'Faux'],
+            notionSlug: 'memoire-jvm',
+            notionTitle: 'La mémoire de la JVM',
+          }),
+        ]),
+      },
+      [REVIEWS]: {
+        status: 201,
+        body: {
+          cardId: 'card-1',
+          rating: 'AGAIN',
+          state: 'LEARNING',
+          dueAt: '2026-10-29T10:01:00Z',
+          correction: { correctChoices: [0], explanation: 'Oui.' },
+        },
+      },
+    })
+    renderAt('/review?subject=java', signedIn())
+    await startSession()
+
+    expect(screen.queryByRole('link', { name: /Revoir la leçon/ })).not.toBeInTheDocument()
+    await userEvent.click(await screen.findByRole('radio', { name: /Faux/ }))
+    await userEvent.click(screen.getByRole('button', { name: 'Valider' }))
+
+    const lesson = await screen.findByRole('link', { name: /Revoir la leçon/ })
+    expect(lesson).toHaveAttribute('href', '/subjects/java/course/memoire-jvm')
+    expect(lesson).toHaveAttribute('target', '_blank')
+  })
+
+  it('leads to the mistakes of the week from the setup of a session, when there are some', async () => {
+    stubApi({
+      ...PROFILE,
+      '/api/v1/me/mistakes/java': { body: { cards: [{ cardId: 'c1' }, { cardId: 'c2' }] } },
+    })
+    renderAt('/review?subject=java', signedIn())
+
+    expect(
+      await screen.findByRole('link', { name: 'Revoir mes erreurs de la semaine (2)' }),
+    ).toHaveAttribute('href', '/subjects/java/mistakes')
   })
 
   it('grades a true-or-false card on the server like a two-choice question', async () => {

@@ -1,4 +1,6 @@
 import { useState, type FormEvent } from 'react'
+import { useMistakes } from '../api/mistakes'
+import { mistakesPath } from '../practice/mistakesPath'
 import { Link } from 'react-router'
 import { useCatalogSubjects } from '../api/content'
 import { useFollowSubjects, useProfile } from '../api/profile'
@@ -36,6 +38,7 @@ export function SessionSetup({
   const profile = useProfile()
   const subjects = useCatalogSubjects()
   const stats = useReviewStats()
+  const mistakeCount = useMistakes(subject).data?.cards.length ?? 0
   const follow = useFollowSubjects()
   const [stored] = useState(loadSessionSettings)
   const [minutes, setMinutes] = useState<SessionMinutes>(
@@ -72,6 +75,14 @@ export function SessionSetup({
             )}
           </div>
         </div>
+        {mistakeCount > 0 && (
+          <Link
+            to={mistakesPath(subject)}
+            className="self-start text-sm font-medium text-brand-strong hover:underline"
+          >
+            Revoir mes erreurs de la semaine ({mistakeCount})
+          </Link>
+        )}
       </header>
       <Choices legend="Durée">
         {DURATIONS.map((value) => (

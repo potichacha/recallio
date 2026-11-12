@@ -235,6 +235,7 @@ class ReviewQueueServiceTest {
                             List.of(),
                             null,
                             null,
+                            null,
                             null))
                     .toList();
         }
@@ -260,6 +261,11 @@ class ReviewQueueServiceTest {
         @Override
         public Set<UUID> cardsRecalled(UUID userId) {
             return Set.of();
+        }
+
+        @Override
+        public List<UUID> cardsStillFailedSince(UUID userId, Instant since) {
+            return List.of();
         }
     }
 

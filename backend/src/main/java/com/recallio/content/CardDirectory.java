@@ -106,7 +106,9 @@ public interface CardDirectory {
      * @param choices les choix de la carte, dans l'ordre de la source ; aucun pour une carte qui ne se corrige pas sur
      *     eux
      * @param blanks les trous d'un code à trous, dans l'ordre de la question ; aucun pour les autres formats
-     * @param notionTitle le titre de la notion de la carte ; {@code null} pour une carte d'un document Markdown
+     * @param notionSlug le slug de la notion de la carte, qui mène à sa leçon ; {@code null} pour une carte d'un
+     *     document Markdown
+     * @param notionTitle le titre de cette notion ; {@code null} de même
      * @param lesson la leçon de cette notion, en Markdown ; {@code null} si elle n'en a pas encore
      */
     record CardSnapshot(
@@ -122,6 +124,7 @@ public interface CardDirectory {
             List<CardChoice> choices,
             List<CardBlank> blanks,
             @Nullable ExerciseFiles exercise,
+            @Nullable String notionSlug,
             @Nullable String notionTitle,
             @Nullable String lesson) {
 

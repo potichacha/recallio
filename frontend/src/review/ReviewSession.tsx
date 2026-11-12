@@ -1,4 +1,5 @@
 import { Fire } from '@phosphor-icons/react'
+import { mistakesPath } from '../practice/mistakesPath'
 import { useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState, type ReactNode } from 'react'
 import { Link } from 'react-router'
@@ -128,6 +129,7 @@ export function ReviewSession({
           end={end}
           tally={tally}
           subjectTitle={subjectTitle}
+          subject={filter.subject}
           nextDueAt={queue.data.nextDueAt}
           xpGained={xpGained}
           progress={progress.data}
@@ -188,6 +190,7 @@ function SessionSummary({
   end,
   tally,
   subjectTitle,
+  subject,
   nextDueAt,
   xpGained,
   progress,
@@ -198,6 +201,7 @@ function SessionSummary({
   end: SessionEnd
   tally: Tally
   subjectTitle?: string
+  subject?: string
   nextDueAt?: string | null
   xpGained?: number
   progress?: Progress
@@ -284,6 +288,14 @@ function SessionSummary({
           </Link>
         )}
       </div>
+      {subject && tally.recalled < tally.reviewed && (
+        <Link
+          to={mistakesPath(subject)}
+          className="self-start text-sm font-medium text-brand-strong hover:underline"
+        >
+          Revoir mes erreurs de la semaine
+        </Link>
+      )}
       {worked && <ReminderPrompt />}
       {worked && isReturningVisitor() && <InstallApp />}
     </section>

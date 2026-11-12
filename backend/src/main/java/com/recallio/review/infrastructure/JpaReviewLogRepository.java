@@ -6,6 +6,7 @@ import com.recallio.review.domain.ReviewLogRepository;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.persistence.EntityManager;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -82,6 +83,24 @@ public class JpaReviewLogRepository implements ReviewLogRepository {
                 .setParameter("userId", userId)
                 .setParameter("good", (short) Rating.GOOD.value())
                 .getResultList());
+    }
+
+    @Override
+    public List<UUID> cardsStillFailedSince(UUID userId, Instant since) {
+        List<?> cards = entityManager
+                .createNativeQuery("""
+                        select card_id from (
+                            select distinct on (card_id) card_id, rating, reviewed_at
+                            from review_log where user_id = :userId
+                            order by card_id, reviewed_at desc) last_review
+                        where rating = :again and reviewed_at >= :since
+                        order by reviewed_at desc, card_id
+                        """, UUID.class)
+                .setParameter("userId", userId)
+                .setParameter("again", (short) Rating.AGAIN.value())
+                .setParameter("since", since)
+                .getResultList();
+        return cards.stream().map(UUID.class::cast).toList();
     }
 
     private static ReviewLogEntry toDomain(ReviewLogEntity entity) {

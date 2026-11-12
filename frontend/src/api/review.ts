@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { MISTAKES_KEY } from './mistakes'
 import { api } from './client'
 import type { CardType } from './content'
 import { ApiError } from './errors'
@@ -56,6 +57,8 @@ export function useRecordReview() {
       // La file en cours n'est pas rechargée (on la parcourt) ; la progression, elle, est mise à jour tout de suite.
       await queryClient.invalidateQueries({ queryKey: QUEUE_KEY, refetchType: 'none' })
       await queryClient.invalidateQueries({ queryKey: PROGRESS_KEY })
+      // Une réponse fausse entre au carnet d'erreurs, une juste en sort (ADR 0057).
+      await queryClient.invalidateQueries({ queryKey: MISTAKES_KEY })
     },
   })
 }

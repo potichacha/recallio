@@ -133,7 +133,17 @@ public class PracticeResource {
                     description = "Les fichiers d'un exercice de code ; absent pour les autres formats",
                     nullable = true)
             @Nullable
-            ExerciseToSolveDto exercise) {
+            ExerciseToSolveDto exercise,
+
+            @Schema(
+                    description = "Le slug de la notion de la carte, qui mène à sa leçon ; absent hors d'un dossier de"
+                            + " sujet",
+                    nullable = true)
+            @Nullable
+            String notionSlug,
+
+            @Schema(description = "Le titre de cette notion", nullable = true) @Nullable
+            String notionTitle) {
 
         static PracticeCardDto from(CardSnapshot card) {
             return new PracticeCardDto(
@@ -144,7 +154,9 @@ public class PracticeResource {
                     card.choices().stream().map(CardChoice::text).toList(),
                     card.correctChoices().size() > 1,
                     card.blanks().size(),
-                    card.exercise() == null ? null : ExerciseToSolveDto.from(card.exercise()));
+                    card.exercise() == null ? null : ExerciseToSolveDto.from(card.exercise()),
+                    card.notionSlug(),
+                    card.notionTitle());
         }
     }
 

@@ -297,6 +297,7 @@ Les sujets s'ajoutent un par un, au rythme de la rédaction, indépendamment des
 - Le quota quotidien de nouvelles cartes est **propre à chaque sujet** (ADR 0048) : finir sa session de Java ne prive pas Go de ses nouvelles cartes. Dans un sujet, les cartes dues passent toujours en premier.
 - Une seule carte d'une même notion par jour : ses sœurs attendent le lendemain, sans que leur état FSRS change (ADR 0031).
 - Chaque sujet suivi a son **parcours** (ADR 0032) : *apprendre* (seulement les notions dont les prérequis sont acquis, du débutant vers l'expert), *préparer un entretien* (par priorité, le défaut) ou *entretenir son niveau* (intermédiaire et expert d'abord). Il range les nouvelles cartes, jamais les dues.
+- Sous une réponse fausse, « Revoir la leçon » ; et par sujet, un carnet des cartes ratées dans la semaine, à refaire sans rien enregistrer (ADR 0057).
 - Arrêter de suivre un sujet ne supprime pas la progression : ses cartes ne sont plus proposées, et elles reviennent si on le suit de nouveau.
 
 ### 6.2 Répétition espacée : FSRS
@@ -536,7 +537,7 @@ Le propriétaire a testé l'application en local avant de la déployer ; ses ret
    4. ✅ **Sécurité** (14 à 16) : Content-Security-Policy, limite de débit sans compte, ADR sur les réponses publiques.
    5. ✅ **Suppression de compte et export des données** (17) : chaque module répond de ses données par un port (ADR 0056).
    6. ✅ **Ergonomie** (5, 7 à 10) : filet d'erreur, icônes de la PWA, fraîcheur des données, chapitres repliés, profil en sections. L'accueil d'un nouveau venu (6) passe à l'étape 8.9.3, qui refait l'accueil.
-   7. **Apprendre de ses erreurs** (27, 35, 38) : « Revoir la leçon », annuler la dernière réponse, carnet d'erreurs.
+   7. ✅ **Apprendre de ses erreurs** (27, 35) : « Revoir la leçon » sous une réponse fausse, et un carnet des erreurs de la semaine, à refaire sans rien enregistrer (ADR 0057). L'annulation de la dernière réponse (38) est abandonnée : elle contredit l'ADR 0051.
    8. **Avant la bêta** (25, 26, 34, 40, 44) : compte à rebours avant l'entretien, défi du jour, test de niveau, référencement, parcours mesuré.
    9. **Refonte « Rico »** (47 à 57) : la direction ludique retenue le 2026-11-10, en clair et en sombre, avec tout ce qui ne coûte que du temps. Un ADR la décide et révise l'ADR 0049 ; une PR par étape :
       1. **Identité** (47, 48) : couleurs, Nunito, boutons en relief, Rico, thèmes clair et sombre au choix dans le profil.
