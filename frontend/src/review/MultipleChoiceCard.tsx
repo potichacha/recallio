@@ -6,6 +6,7 @@ import { ChoiceOption } from '../components/ChoiceOption'
 import { choiceOutcome, toggleChoice } from '../components/choices'
 import { LessonLink } from '../components/LessonLink'
 import { Markdown } from '../components/Markdown'
+import { useFocusOnAppear } from '../components/useFocusOnAppear'
 import { useShuffledChoices } from '../components/useShuffledChoices'
 import { CardHeader } from './CardHeader'
 import { button } from '../components/ui/button'
@@ -28,6 +29,7 @@ export function MultipleChoiceCard({
   const choices = useShuffledChoices(card.cardId, card.choices)
   const record = useRecordReview()
   const result = record.data
+  const nextCard = useFocusOnAppear<HTMLButtonElement>(result?.correction != null)
 
   const toggle = (index: number) =>
     setSelected((current) => toggleChoice(current, index, card.multipleAnswers))
@@ -102,6 +104,7 @@ export function MultipleChoiceCard({
             <LessonLink subject={card.subjectSlug} notion={card.notionSlug} />
           )}
           <button
+            ref={nextCard}
             type="button"
             onClick={() => onReviewed(result)}
             className={`self-start ${button()}`}

@@ -59,6 +59,14 @@ const PAIRS: [string, string, number][] = [
     background,
     GRAPHIC,
   ]),
+  // Les contours d'un choix : sélectionné, juste, faux (ADR 0058).
+  ...['brand', 'success', 'danger'].map((border): [string, string, number] => [
+    border,
+    'surface',
+    GRAPHIC,
+  ]),
+  // Le focus posé sur un fond à la couleur de la marque.
+  ['on-brand', 'brand', GRAPHIC],
   ['flame', 'surface', GRAPHIC],
   ['flame', 'canvas', GRAPHIC],
   ...TIERS.flatMap((tier) =>

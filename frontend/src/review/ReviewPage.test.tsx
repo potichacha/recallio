@@ -483,6 +483,8 @@ describe('ReviewPage', () => {
 
     expect(await screen.findByRole('status')).toHaveTextContent('Pas tout à fait')
     expect(screen.getByText('tas')).toBeInTheDocument()
+    // Le focus passe sur la suite : on enchaîne les cartes au clavier (ADR 0058).
+    expect(screen.getByRole('button', { name: 'Carte suivante' })).toHaveFocus()
     expect(screen.getByRole('radio', { name: /Dans le tas/ }).closest('label')).toHaveTextContent(
       'Bonne réponse, non cochée',
     )
@@ -708,8 +710,9 @@ describe('ReviewPage', () => {
     renderAt('/review?subject=java', signedIn())
     await startSession()
 
-    expect(await screen.findByText('Java · La JVM')).toBeInTheDocument()
-    expect(screen.queryByText('Java · Java : fondamentaux')).not.toBeInTheDocument()
+    // Le sujet et le thème situent la carte ; sa notion, quand elle en a une, lui sert de titre.
+    expect(await screen.findByText('Java · Java : fondamentaux')).toBeInTheDocument()
+    expect(screen.getByText('La JVM')).toBeInTheDocument()
   })
 
   it('runs an exercise against its tests, then submits it and shows the solution', async () => {
