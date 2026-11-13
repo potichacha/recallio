@@ -280,7 +280,7 @@ Les sujets s'ajoutent un par un, au rythme de la rédaction, indépendamment des
 | Docker, Kubernetes, CI/CD, Observabilité, Cloud, Git | Cloud & DevOps | sortis du document Java, en brouillon jusqu'à leur réécriture |
 | API REST, Réseau & Linux, Algorithmes, Conception, Entretien comportemental | Fondamentaux | sortis du document Java, en brouillon jusqu'à leur réécriture |
 | Sécurité | Cybersécurité | sortie du document Java, en brouillon jusqu'à sa réécriture |
-| C++ | Langages | référentiel écrit, en brouillon : 335 notions en 16 domaines, pour C++23 et GCC 14 (ADR 0053) ; les domaines « Bases du langage » et « Types composés » rédigés en priorité 1 (38 notions, 920 cartes, 35 pages du Tour, 9 exercices) ; la suite par priorité, un chapitre par PR |
+| C++ | Langages | référentiel écrit, en brouillon : 335 notions en 16 domaines, pour C++23 et GCC 14 (ADR 0053) ; les domaines « Bases du langage » et « Types composés », et les chapitres « Pointeurs » et « Références », rédigés en priorité 1 (44 notions, 1 064 cartes, 38 pages du Tour, 9 exercices) ; la suite par priorité, un chapitre par PR |
 | Python, TypeScript, Kotlin, C#, C, Rust | Langages | annoncés (un dossier sans contenu, ADR 0052), à rédiger |
 | IA : machine learning, LLM & prompting | IA | à rédiger |
 | Programmer de zéro | Fondamentaux | ✅ rédigé en brouillon, en Java 25 (ADR 0039) : 23 notions, 115 cartes, un Tour de 23 pages ; à relire dans l'application avant de le publier |
@@ -529,7 +529,7 @@ Le propriétaire a testé l'application en local avant de la déployer ; ses ret
    - un premier login guidé par le but, qui conduit qui apprend au Tour.
 6. ✅ **Relier le Tour à la révision** (ADR 0059) : en parcours « apprendre », une notion qui a des pages dans le Tour n'entre en révision qu'une fois validée dans le Tour.
 7. **Quatre nouveaux sujets complets**, prêts à l'emploi (référentiel, leçons, cartes à choix, exercices), livrés par priorité :
-   1. **C++** : ✅ son bac à sable (GCC 14, doctest, ADR 0053) ; ✅ son référentiel (335 notions, dont 118 de priorité 1) ; les priorités 1 et 2, avec le Tour, un chapitre par PR (✅ les domaines « Bases du langage » et « Types composés » : 38 notions sur 118) ; les priorités 3 et 4.
+   1. **C++** : ✅ son bac à sable (GCC 14, doctest, ADR 0053) ; ✅ son référentiel (335 notions, dont 118 de priorité 1) ; les priorités 1 et 2, avec le Tour, un chapitre par PR (✅ les domaines « Bases du langage » et « Types composés », ✅ « Pointeurs » et « Références » : 44 notions sur 118) ; les priorités 3 et 4.
    2. **Spring Boot**, puis **Quarkus** : des exercices jugés par `@SpringBootTest` et `@QuarkusTest`, dans un bac à sable qui embarque le framework.
    3. **Python** : son bac à sable, puis le contenu et le Tour.
 8. **Retours de l'audit** du 2026-11-10 (`docs/audit-2026-11.md`, où chaque numéro ci-dessous est détaillé), une PR par étape :
