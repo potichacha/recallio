@@ -1,0 +1,505 @@
+notion: data-race
+lesson: |-
+  Une **course aux données** (*data race*) se produit quand ces trois conditions sont réunies :
+
+  1. deux threads accèdent à la **même variable** ;
+  2. l'un au moins **écrit** ;
+  3. **rien ne synchronise** ces accès (ni mutex, ni variable atomique).
+
+  En C++, c'est un **comportement indéfini** : le programme n'a plus aucune garantie.
+
+  **L'exemple classique.**
+
+  ```cpp
+  int compteur = 0;
+
+  void travailler() {
+      for (int i = 0; i < 100'000; ++i) {
+          ++compteur;
+      }
+  }
+
+  std::thread a{travailler};
+  std::thread b{travailler};
+  a.join();
+  b.join();
+  // compteur vaut rarement 200000
+  ```
+
+  **Pourquoi `++compteur` n'est pas sûr.** Ce n'est pas une opération, mais trois : **lire** la valeur, **ajouter**
+  un, **écrire** le résultat. Deux threads peuvent lire la même valeur, ajouter chacun un, et écrire le même
+  résultat : une incrémentation est perdue.
+
+  ```
+  thread A : lit 5              écrit 6
+  thread B :        lit 5              écrit 6      (au lieu de 7)
+  ```
+
+  **Pire qu'un mauvais total.** Puisque le comportement est indéfini, le compilateur peut supposer qu'aucune course
+  n'existe, et optimiser en conséquence : garder la variable dans un registre, sortir une lecture d'une boucle. Un
+  thread qui attend `while (!fini) {}` peut ne **jamais** voir l'écriture d'un autre.
+
+  **Ce qui n'est pas une course.**
+
+  - Plusieurs threads qui ne font que **lire** une variable.
+  - Des threads qui écrivent des variables **différentes**, même voisines : deux éléments distincts d'un même
+    vecteur, par exemple.
+  - Une lecture faite **après** le `join()` du thread qui écrivait.
+
+  **Ce qui en est une, sans en avoir l'air.** Un thread qui fait `push_back` sur un vecteur pendant qu'un autre le
+  lit : le `push_back` modifie la taille, et peut déplacer tous les éléments.
+
+  **Les remèdes.**
+
+  | Remède | Quand |
+  |---|---|
+  | Ne pas partager : une variable par thread, réunies à la fin | toujours le premier choix |
+  | `std::mutex` | protéger plusieurs variables, ou une suite d'opérations |
+  | `std::atomic<T>` | une seule variable simple : compteur, drapeau |
+
+  **`volatile` n'est pas un remède** : en C++, il ne rend rien atomique et ne synchronise rien.
+
+  **Les détecter.** Une course ne se voit pas toujours : elle dépend du moment où les threads se croisent.
+  **ThreadSanitizer** (`-fsanitize=thread`) surveille les accès à l'exécution, et signale les deux endroits du code
+  en cause.
+
+  **En entretien** : « Deux threads, une même variable, au moins une écriture, aucune synchronisation : c'est une
+  course aux données, donc un comportement indéfini. Même `++x` n'est pas atomique. Je protège par un mutex ou un
+  `std::atomic`, et je vérifie avec ThreadSanitizer. »
+cards:
+  - key: conditions
+    format: course
+    question: "Quelles conditions réunies font une course aux données ?"
+    choices:
+      - {text: "Deux threads accèdent à la même variable, l'un au moins écrit, sans synchronisation", correct: true}
+      - {text: "Deux threads lisent la même variable au même instant, sans que personne ne l'écrive", correct: false}
+      - {text: "Deux threads attendent chacun un verrou détenu par l'autre, et restent bloqués", correct: false}
+      - {text: "Deux threads sont lancés par la même fonction, et s'exécutent sur le même cœur", correct: false}
+    answer: "Les trois conditions sont nécessaires. Sans écriture, ou avec un mutex ou une variable atomique, il n'y a pas de course."
+  - key: consequence
+    format: course
+    question: "Que dit le standard C++ d'un programme qui contient une course aux données ?"
+    choices:
+      - {text: "Son comportement est indéfini", correct: true}
+      - {text: "Il lève une exception `std::system_error`", correct: false}
+      - {text: "Il ne compile pas", correct: false}
+      - {text: "Il donne un résultat faux, mais prévisible", correct: false}
+    answer: "Aucune garantie : le résultat peut être juste, faux, ou le programme peut planter. Le compilateur n'en dit rien."
+  - key: increment
+    format: course
+    question: "Pourquoi `++compteur`, exécuté par deux threads, peut-il perdre des incrémentations ?"
+    choices:
+      - {text: "C'est une lecture, une addition et une écriture, entre lesquelles l'autre thread peut passer", correct: true}
+      - {text: "C'est une opération que le processeur refuse d'exécuter depuis deux cœurs à la fois", correct: false}
+      - {text: "C'est une opération que le compilateur supprime quand il voit deux threads", correct: false}
+      - {text: "C'est une opération qui déborde dès que la valeur dépasse cent mille", correct: false}
+    answer: "Les deux threads peuvent lire la même valeur, puis écrire le même résultat : une des deux incrémentations disparaît."
+  - key: remedes
+    format: course
+    question: "Quel remède convient à un compteur entier partagé entre plusieurs threads ?"
+    choices:
+      - {text: "`std::atomic<int>`", correct: true}
+      - {text: "`volatile int`", correct: false}
+      - {text: "`static int`", correct: false}
+      - {text: "`const int`", correct: false}
+    answer: "Une variable atomique rend chaque opération indivisible. `volatile` ne synchronise rien en C++, et une constante ne pourrait pas être incrémentée."
+  - key: vf-lectures
+    format: true-false
+    question: "Plusieurs threads qui ne font que lire la même variable forment une course aux données."
+    truth: false
+    answer: Sans écriture, aucun risque. Des données immuables se partagent librement.
+  - key: vf-volatile
+    format: true-false
+    question: "Déclarer une variable `volatile` la protège des courses aux données."
+    truth: false
+    answer: "En C++, `volatile` concerne le matériel (registres, mémoire mappée). Il ne rend aucune opération atomique."
+  - key: vf-elements-distincts
+    format: true-false
+    question: "Deux threads peuvent écrire, sans synchronisation, dans deux éléments différents d'un même `std::vector`."
+    truth: true
+    answer: "Ce sont deux objets distincts. La course naîtrait d'une opération qui change la taille du vecteur, comme `push_back`."
+  - key: vf-apres-join
+    format: true-false
+    question: "Lire une variable après le `join()` du thread qui l'écrivait est sûr."
+    truth: true
+    answer: "Le thread a terminé : il n'y a plus d'accès simultané."
+  - key: qcm-detecter
+    format: multiple-choice
+    question: "Quelle option de compilation détecte les courses aux données à l'exécution ?"
+    choices:
+      - {text: "`-fsanitize=thread`", correct: true}
+      - {text: "`-fsanitize=address`", correct: false}
+      - {text: "`-Wall`", correct: false}
+      - {text: "`-O2`", correct: false}
+    answer: "ThreadSanitizer signale les deux accès en conflit. AddressSanitizer cherche les erreurs de mémoire, pas les courses."
+  - key: qcm-laquelle
+    format: multiple-choice
+    question: "Laquelle de ces situations est une course aux données ?"
+    choices:
+      - {text: "Un thread fait `v.push_back(1)` pendant qu'un autre lit `v.size()`", correct: true}
+      - {text: "Deux threads lisent `v.size()` en même temps", correct: false}
+      - {text: "Un thread écrit `v[0]` pendant qu'un autre écrit `v[1]`", correct: false}
+      - {text: "Un thread lit `v[0]` après le `join` de celui qui l'écrivait", correct: false}
+    answer: "`push_back` modifie la taille du vecteur, que l'autre thread lit : une écriture et une lecture simultanées, sans synchronisation."
+  - key: qcm-plusieurs-variables
+    format: multiple-choice
+    question: "Deux variables partagées doivent toujours être modifiées ensemble. Quel outil choisis-tu ?"
+    choices:
+      - {text: "Un `std::mutex`, verrouillé pendant les deux modifications", correct: true}
+      - {text: "Deux `std::atomic`, une pour chacune des deux variables", correct: false}
+      - {text: "Deux variables `volatile`, modifiées l'une après l'autre", correct: false}
+      - {text: "Deux variables `static`", correct: false}
+    answer: "Deux atomiques rendent chaque écriture indivisible, pas la paire : un autre thread verrait un état intermédiaire. Le mutex protège la suite d'opérations."
+  - key: qcm-drapeau
+    format: multiple-choice
+    question: "Un thread attend avec `while (!fini) {}` qu'un autre mette `fini` à `true`. Comment déclares-tu `fini` ?"
+    choices:
+      - {text: "`std::atomic<bool> fini{false};`", correct: true}
+      - {text: "`bool fini = false;`", correct: false}
+      - {text: "`volatile bool fini = false;`", correct: false}
+      - {text: "`static bool fini = false;`", correct: false}
+    answer: "Avec un simple `bool`, c'est une course : le compilateur peut lire `fini` une seule fois, et la boucle ne s'arrête jamais."
+  - key: code-sans-course
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+      #include <thread>
+      #include <vector>
+
+      int main() {
+          std::vector<int> v(2);
+          std::thread a{[&v] { v[0] = 1; }};
+          std::thread b{[&v] { v[1] = 2; }};
+          a.join();
+          b.join();
+          std::println("{}", v[0] + v[1]);
+      }
+      ```
+    choices:
+      - {text: "`3`", correct: true}
+      - {text: "`0`", correct: false}
+      - {text: "`1` ou `2`, selon l'exécution", correct: false}
+      - {text: "Un résultat imprévisible : c'est une course aux données", correct: false}
+    answer: "`3` : chaque thread écrit dans un élément différent. Ce n'est pas une course, et la lecture vient après les deux `join`."
+    check:
+      output: "3"
+  - key: code-locales
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+      #include <thread>
+
+      int somme(int n) {
+          int total = 0;
+          for (int i = 1; i <= n; ++i) {
+              total += i;
+          }
+          return total;
+      }
+
+      int main() {
+          int a = 0;
+          int b = 0;
+          std::thread t{[&a] { a = somme(4); }};
+          std::thread u{[&b] { b = somme(3); }};
+          t.join();
+          u.join();
+          std::println("{} {}", a, b);
+      }
+      ```
+    choices:
+      - {text: "`10 6`", correct: true}
+      - {text: "`6 10`", correct: false}
+      - {text: "`16 16`", correct: false}
+      - {text: "Un résultat imprévisible : `total` est partagé", correct: false}
+    answer: "`10 6` : `total` est une variable locale, donc chaque thread a la sienne, sur sa pile. Les deux résultats vont dans deux variables distinctes."
+    check:
+      output: "10 6"
+  - key: code-atomic
+    format: code-output
+    question: |-
+      ```cpp
+      #include <atomic>
+      #include <print>
+      #include <thread>
+
+      int main() {
+          std::atomic<int> compteur{0};
+          auto travail = [&compteur] {
+              for (int i = 0; i < 1000; ++i) {
+                  ++compteur;
+              }
+          };
+          std::thread a{travail};
+          std::thread b{travail};
+          a.join();
+          b.join();
+          std::println("{}", compteur.load());
+      }
+      ```
+    choices:
+      - {text: "`2000`", correct: true}
+      - {text: "`1000`", correct: false}
+      - {text: "Un nombre entre 1000 et 2000, selon l'exécution", correct: false}
+      - {text: "`0`", correct: false}
+    answer: "`2000` : chaque `++` sur une variable atomique est indivisible. Aucune incrémentation ne se perd."
+    check:
+      output: "2000"
+  - key: code-mutex
+    format: code-output
+    question: |-
+      ```cpp
+      #include <mutex>
+      #include <print>
+      #include <thread>
+
+      int main() {
+          int compteur = 0;
+          std::mutex verrou;
+          auto travail = [&] {
+              for (int i = 0; i < 500; ++i) {
+                  std::lock_guard garde{verrou};
+                  ++compteur;
+              }
+          };
+          std::thread a{travail};
+          std::thread b{travail};
+          a.join();
+          b.join();
+          std::println("{}", compteur);
+      }
+      ```
+    choices:
+      - {text: "`1000`", correct: true}
+      - {text: "`500`", correct: false}
+      - {text: "Un nombre entre 500 et 1000, selon l'exécution", correct: false}
+      - {text: "`0`", correct: false}
+    answer: "`1000` : le mutex ne laisse qu'un thread à la fois incrémenter. Les mille incrémentations ont toutes lieu."
+    check:
+      output: "1000"
+  - key: bug-compteur-partage
+    format: bug-fix
+    question: |-
+      Ce programme devrait afficher `200000`. Il affiche un nombre plus petit, qui change à chaque exécution.
+      Quelle correction est la bonne ?
+      ```cpp
+      #include <print>
+      #include <thread>
+
+      int main() {
+          int compteur = 0;
+          auto travail = [&compteur] {
+              for (int i = 0; i < 100'000; ++i) {
+                  ++compteur;
+              }
+          };
+          std::thread a{travail};
+          std::thread b{travail};
+          a.join();
+          b.join();
+          std::println("{}", compteur);
+      }
+      ```
+    choices:
+      - {text: "Déclarer `std::atomic<int> compteur{0};`", correct: true}
+      - {text: "Déclarer `volatile int compteur = 0;`", correct: false}
+      - {text: "Déclarer `static int compteur = 0;`", correct: false}
+      - {text: "Déclarer `long compteur = 0;`", correct: false}
+    answer: |-
+      ```cpp
+      std::atomic<int> compteur{0};
+      ```
+      `++compteur` lit, ajoute et écrit : deux threads s'y croisent, et des incrémentations se perdent. C'est une
+      course aux données. Une variable atomique rend l'incrémentation indivisible.
+  - key: bug-drapeau
+    format: bug-fix
+    question: |-
+      Ce programme devrait s'arrêter dès que `main` met `fini` à `true`. Compilé avec optimisation, il tourne sans
+      fin. Quelle correction est la bonne ?
+      ```cpp
+      #include <chrono>
+      #include <thread>
+
+      int main() {
+          bool fini = false;
+          std::thread t{[&fini] {
+              while (!fini) {
+              }
+          }};
+          std::this_thread::sleep_for(std::chrono::milliseconds{10});
+          fini = true;
+          t.join();
+      }
+      ```
+    choices:
+      - {text: "Déclarer `std::atomic<bool> fini{false};`", correct: true}
+      - {text: "Déclarer `static bool fini = false;`", correct: false}
+      - {text: "Capturer `fini` par valeur dans la lambda", correct: false}
+      - {text: "Allonger la pause à cent millisecondes", correct: false}
+    answer: |-
+      ```cpp
+      std::atomic<bool> fini{false};
+      ```
+      Lire `fini` pendant qu'un autre thread l'écrit est une course aux données. Le compilateur, qui suppose qu'il
+      n'y en a pas, peut ne lire la variable qu'une fois : la boucle devient infinie. Avec une atomique, chaque
+      lecture voit la dernière écriture.
+  - key: bug-vector-partage
+    format: bug-fix
+    question: |-
+      Deux threads ajoutent leurs résultats au même vecteur. Le programme plante de temps en temps. Quelle
+      correction est la bonne ?
+      ```cpp
+      #include <print>
+      #include <thread>
+      #include <vector>
+
+      int main() {
+          std::vector<int> resultats;
+          auto travail = [&resultats] {
+              for (int i = 0; i < 1000; ++i) {
+                  resultats.push_back(i);
+              }
+          };
+          std::thread a{travail};
+          std::thread b{travail};
+          a.join();
+          b.join();
+          std::println("{}", resultats.size());
+      }
+      ```
+    choices:
+      - {text: "Verrouiller un `std::mutex` autour de chaque `push_back`", correct: true}
+      - {text: "Appeler `resultats.reserve(2000);` avant de lancer les threads", correct: false}
+      - {text: "Déclarer le vecteur `std::atomic<std::vector<int>>`", correct: false}
+      - {text: "Remplacer `push_back` par `emplace_back` dans la lambda", correct: false}
+    answer: |-
+      ```cpp
+      std::mutex verrou;
+      // ...
+      std::lock_guard garde{verrou};
+      resultats.push_back(i);
+      ```
+      `push_back` modifie la taille et peut réallouer : deux appels simultanés corrompent le vecteur. `reserve`
+      évite la réallocation, pas la course sur la taille. L'autre voie : un vecteur par thread, réunis à la fin.
+  - key: bug-lecture-pendant-ecriture
+    format: bug-fix
+    question: |-
+      `main` affiche la progression pendant que le thread travaille. C'est une course aux données. Quelle correction
+      est la bonne ?
+      ```cpp
+      #include <print>
+      #include <thread>
+
+      int main() {
+          int progression = 0;
+          std::thread t{[&progression] {
+              for (int i = 0; i < 100; ++i) {
+                  progression = i;
+              }
+          }};
+          std::println("{}", progression >= 0);
+          t.join();
+      }
+      ```
+    choices:
+      - {text: "Déclarer `std::atomic<int> progression{0};`", correct: true}
+      - {text: "Déclarer `const int progression = 0;`", correct: false}
+      - {text: "Capturer `progression` par valeur dans la lambda", correct: false}
+      - {text: "Appeler `t.detach();` à la place de `t.join();`", correct: false}
+    answer: |-
+      ```cpp
+      std::atomic<int> progression{0};
+      ```
+      Une lecture dans `main` pendant une écriture dans le thread, sans synchronisation : comportement indéfini,
+      même si le résultat affiché semble juste. Une variable atomique rend les deux accès sûrs.
+  - key: situation-total-faux
+    format: scenario
+    question: |-
+      Un service compte ses requêtes dans une variable globale `int`, incrémentée par chaque thread. En fin de
+      journée, le total est inférieur de quelques pour cent au nombre réel. Que se passe-t-il ?
+    choices:
+      - {text: "Des incrémentations simultanées se perdent : c'est une course aux données", correct: true}
+      - {text: "L'entier déborde quand le total dépasse plusieurs milliers", correct: false}
+      - {text: "Certains threads ne sont jamais lancés par le système", correct: false}
+      - {text: "La variable globale est copiée dans chaque thread", correct: false}
+    answer: |-
+      `++total` n'est pas indivisible. Quand deux threads lisent la même valeur avant d'écrire, une requête n'est
+      pas comptée. Un `std::atomic<int>` corrige le compteur sans mutex.
+  - key: situation-marche-en-debug
+    format: scenario
+    question: |-
+      Un programme à deux threads fonctionne en mode débogage, et se fige en mode optimisé. Un thread attend dans
+      `while (!pret) {}` qu'un autre mette le booléen `pret` à `true`. Quelle est la cause ?
+    choices:
+      - {text: "La course sur `pret` autorise le compilateur à ne lire la variable qu'une fois", correct: true}
+      - {text: "Le mode optimisé supprime le second thread, jugé inutile", correct: false}
+      - {text: "Le mode optimisé rend les booléens constants", correct: false}
+      - {text: "Le mode débogage exécute les threads l'un après l'autre", correct: false}
+    answer: |-
+      Une course aux données est un comportement indéfini : l'optimiseur suppose que personne d'autre ne modifie
+      `pret`, et transforme la boucle en boucle infinie. `std::atomic<bool>` l'oblige à relire la variable.
+  - key: situation-revue
+    format: scenario
+    question: |-
+      En revue de code, un collègue protège un compteur partagé en le déclarant `volatile`, « comme en Java ». Que
+      lui réponds-tu ?
+    choices:
+      - {text: "Qu'en C++ `volatile` ne synchronise rien : il faut `std::atomic`", correct: true}
+      - {text: "Que c'est correct : `volatile` rend chaque accès atomique en C++", correct: false}
+      - {text: "Qu'il faut ajouter `static` à `volatile` pour que ce soit sûr", correct: false}
+      - {text: "Que `volatile` suffit pour les lectures, pas pour les écritures", correct: false}
+    answer: |-
+      Le `volatile` de Java garantit la visibilité entre threads ; celui de C++ sert seulement à empêcher
+      l'optimisation d'accès au matériel. L'équivalent C++ du `volatile` de Java est `std::atomic`.
+  - key: situation-eviter-le-partage
+    format: scenario
+    question: |-
+      Quatre threads additionnent chacun un quart d'un grand tableau dans une même variable `total`, protégée par
+      un mutex. Le programme est plus lent qu'avec un seul thread. Que proposes-tu ?
+    choices:
+      - {text: "Un total local par thread, additionné aux autres après les `join`", correct: true}
+      - {text: "Un mutex par thread, pour qu'ils ne s'attendent plus", correct: false}
+      - {text: "La suppression du mutex, puisque l'addition est rapide", correct: false}
+      - {text: "Huit threads au lieu de quatre, pour compenser l'attente", correct: false}
+    answer: |-
+      Verrouiller à chaque addition fait attendre les threads les uns sur les autres. Si chacun accumule dans sa
+      propre variable, il n'y a plus rien à partager, donc plus rien à synchroniser. Retirer le mutex créerait une
+      course.
+  - key: definition-course
+    format: definition
+    question: "Qu'est-ce qu'une course aux données ?"
+    choices:
+      - {text: "Des accès simultanés à une variable, dont une écriture, sans synchronisation", correct: true}
+      - {text: "Une compétition entre threads pour obtenir le même verrou", correct: false}
+      - {text: "Un thread qui se termine avant d'avoir écrit son résultat", correct: false}
+      - {text: "Une variable lue avant d'avoir été initialisée", correct: false}
+    answer: "En C++, elle rend le comportement du programme indéfini."
+  - key: definition-atomique
+    format: definition
+    question: "Que veut dire qu'une opération est atomique ?"
+    choices:
+      - {text: "Qu'aucun autre thread ne peut l'observer à moitié faite", correct: true}
+      - {text: "Qu'elle s'exécute en un seul cycle du processeur", correct: false}
+      - {text: "Qu'elle ne peut pas lancer d'exception", correct: false}
+      - {text: "Qu'elle ne modifie aucune variable", correct: false}
+    answer: "Elle est indivisible : vue des autres threads, elle a eu lieu entièrement, ou pas encore."
+  - key: definition-synchronisation
+    format: definition
+    question: "Que veut dire « synchroniser » l'accès à une variable partagée ?"
+    choices:
+      - {text: "Ordonner les accès des threads, par un mutex ou une variable atomique", correct: true}
+      - {text: "Copier la variable dans chaque thread à intervalles réguliers", correct: false}
+      - {text: "Lancer tous les threads au même instant", correct: false}
+      - {text: "Écrire la variable sur le disque après chaque modification", correct: false}
+    answer: "La synchronisation garantit que deux accès en conflit ne se produisent pas en même temps."
+  - key: definition-thread-safe
+    format: definition
+    question: "Que veut dire qu'une fonction est « thread-safe » ?"
+    choices:
+      - {text: "Que plusieurs threads peuvent l'appeler en même temps sans course aux données", correct: true}
+      - {text: "Qu'elle lance elle-même un thread pour faire son travail", correct: false}
+      - {text: "Qu'elle ne peut être appelée que depuis le thread principal", correct: false}
+      - {text: "Qu'elle ne lance jamais d'exception", correct: false}
+    answer: "Soit elle ne touche à aucun état partagé, soit elle le protège elle-même."

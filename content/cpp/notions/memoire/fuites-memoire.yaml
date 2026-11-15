@@ -1,0 +1,414 @@
+notion: fuites-memoire
+lesson: |-
+  Gérer la mémoire à la main, avec `new` et `delete`, expose à trois fautes. Aucune n'est signalée par le langage.
+
+  **1. La fuite de mémoire** : un bloc alloué n'est **jamais libéré**. Le programme ne plante pas ; sa mémoire
+  grossit, jusqu'à gêner la machine. Ses causes :
+
+  - un `delete` oublié ;
+  - une **sortie anticipée** entre le `new` et le `delete` : un `return`, une exception ;
+  - un pointeur **écrasé** : `p = new int{2};` alors que `p` désignait déjà un bloc, dont l'adresse est perdue.
+
+  **2. La double libération** (*double free*) : deux `delete` sur le même bloc. Elle vient presque toujours de deux
+  pointeurs qui croient chacun **posséder** l'objet. Comportement indéfini ; en pratique, l'allocateur arrête souvent
+  le programme.
+
+  **3. L'usage après libération** (*use after free*) : lire ou écrire à travers un pointeur dont le bloc a été
+  libéré. Comportement indéfini : l'ancienne valeur, une autre donnée, ou un plantage. C'est aussi une faille de
+  sécurité classique.
+
+  **Les outils.**
+
+  | Outil | Ce qu'il voit |
+  |---|---|
+  | **AddressSanitizer** (`-fsanitize=address`) | usage après libération, double libération, et les fuites à la fin du programme |
+  | **Valgrind** | les mêmes fautes, sans recompiler, mais bien plus lentement |
+
+  **Le remède** est de ne plus gérer la mémoire à la main. Chaque bloc a **un propriétaire**, un objet dont le
+  destructeur libère : un conteneur, un `std::unique_ptr`. La libération a lieu une fois, quel que soit le chemin de
+  sortie. C'est le **RAII**.
+
+  **En entretien** : « Fuite, double libération, usage après libération : les trois viennent d'une propriété mal
+  définie. Je donne à chaque ressource un seul propriétaire, par RAII, et je fais tourner les tests avec
+  AddressSanitizer. »
+cards:
+  - key: definition-fuite
+    format: course
+    question: Qu'est-ce qu'une fuite de mémoire ?
+    choices:
+      - {text: "De la mémoire allouée que le programme ne libère jamais", correct: true}
+      - {text: "De la mémoire libérée que le programme lit encore", correct: false}
+      - {text: "De la mémoire libérée deux fois par le programme", correct: false}
+      - {text: "De la mémoire lue avant d'avoir été initialisée", correct: false}
+    answer: "Le bloc reste alloué alors que plus rien ne peut le libérer. Le programme continue de fonctionner, en occupant de plus en plus de mémoire."
+  - key: causes-de-fuite
+    format: course
+    question: "Pourquoi un `return` placé entre un `new` et son `delete` crée-t-il une fuite ?"
+    choices:
+      - {text: "La fonction quitte avant d'atteindre le `delete`", correct: true}
+      - {text: "Le `return` libère le bloc, que le `delete` libère à nouveau", correct: false}
+      - {text: "Le `return` copie le bloc, et la copie n'est jamais libérée", correct: false}
+      - {text: "Le `return` remet le pointeur à `nullptr`", correct: false}
+    answer: "`delete` n'est qu'une instruction : si l'exécution ne passe pas par elle, rien n'est libéré. Une exception a le même effet. Seul un destructeur s'exécute sur tous les chemins de sortie."
+  - key: usage-apres-liberation
+    format: course
+    question: Que risque un programme qui lit un objet après l'avoir libéré ?
+    choices:
+      - {text: "Un comportement indéfini : l'ancienne valeur, une autre donnée, ou un plantage", correct: true}
+      - {text: "Une exception `std::bad_alloc`, levée à la lecture", correct: false}
+      - {text: "Rien : la valeur reste lisible tant que le pointeur existe", correct: false}
+      - {text: "Une erreur de compilation, dans tous les cas", correct: false}
+    answer: "Le bloc libéré peut avoir été réattribué à autre chose. La lecture donne alors n'importe quoi, et une écriture corrompt une autre donnée. Le compilateur ne le voit pas."
+  - key: remede
+    format: course
+    question: Quel est le remède de fond aux fuites et aux doubles libérations ?
+    choices:
+      - {text: "Donner à chaque bloc un seul propriétaire, dont le destructeur libère", correct: true}
+      - {text: "Appeler `delete` deux fois, pour être sûr de libérer", correct: false}
+      - {text: "Ne jamais libérer, et laisser le système s'en charger", correct: false}
+      - {text: "Remettre tous les pointeurs à `nullptr` en fin de fonction", correct: false}
+    answer: "Avec un propriétaire unique (un conteneur, un `std::unique_ptr`), la libération a lieu exactement une fois, à la destruction du propriétaire, quel que soit le chemin de sortie."
+  - key: vf-fuite-plante
+    format: true-false
+    question: Une fuite de mémoire fait planter le programme dès qu'elle se produit.
+    truth: false
+    answer: Rien ne se voit sur le moment. La mémoire occupée grossit, et le problème n'apparaît qu'à la longue.
+  - key: vf-double-liberation
+    format: true-false
+    question: Libérer deux fois le même bloc est un comportement indéfini.
+    truth: true
+    answer: L'allocateur détecte parfois la faute et arrête le programme ; sinon, sa propre comptabilité est corrompue.
+  - key: vf-fin-du-programme
+    format: true-false
+    question: À la fin du programme, le système récupère la mémoire qui a fui.
+    truth: true
+    answer: Le système reprend toute la mémoire du processus. La fuite gêne surtout les programmes qui tournent longtemps, comme un serveur.
+  - key: vf-compilateur
+    format: true-false
+    question: Le compilateur refuse un programme qui oublie un `delete`.
+    truth: false
+    answer: Le code est valide. Il faut un outil à l'exécution, comme AddressSanitizer ou Valgrind, pour voir la fuite.
+  - key: qcm-outil
+    format: multiple-choice
+    question: "Quelle option de GCC fait signaler les fuites et les usages après libération pendant l'exécution ?"
+    choices:
+      - {text: "`-fsanitize=address`", correct: true}
+      - {text: "`-Wall`", correct: false}
+      - {text: "`-O3`", correct: false}
+      - {text: "`-std=c++23`", correct: false}
+    answer: "AddressSanitizer instrumente le programme. Il arrête l'exécution à la première faute, et liste les fuites à la sortie."
+  - key: qcm-pointeur-ecrase
+    format: multiple-choice
+    question: "Que se passe-t-il avec `int* p = new int{1}; p = new int{2};` ?"
+    choices:
+      - {text: "Le premier bloc fuit : plus aucun pointeur ne le désigne", correct: true}
+      - {text: "Le premier bloc est libéré d'office par la seconde ligne", correct: false}
+      - {text: "Le second `new` réutilise le bloc du premier", correct: false}
+      - {text: "Le code ne compile pas : `p` est déjà initialisé", correct: false}
+    answer: "Réaffecter un pointeur ne libère rien. L'adresse du premier bloc est perdue : il ne pourra plus jamais être libéré."
+  - key: qcm-cause-double-liberation
+    format: multiple-choice
+    question: "D'où vient le plus souvent une double libération ?"
+    choices:
+      - {text: "De deux pointeurs qui croient chacun posséder le même objet", correct: true}
+      - {text: "D'un `new` exécuté deux fois de suite", correct: false}
+      - {text: "D'un objet trop gros pour être libéré en une fois", correct: false}
+      - {text: "D'un `delete` appelé sur un pointeur nul", correct: false}
+    answer: "Copier un pointeur ne copie pas l'objet. Si les deux copies sont libérées, le bloc l'est deux fois. `delete` sur un pointeur nul, lui, est sans effet."
+  - key: qcm-valgrind
+    format: multiple-choice
+    question: "Quel avantage a Valgrind sur AddressSanitizer ?"
+    choices:
+      - {text: "Il analyse un exécutable existant, sans recompilation", correct: true}
+      - {text: "Il ralentit moins le programme analysé", correct: false}
+      - {text: "Il corrige les fuites qu'il trouve", correct: false}
+      - {text: "Il détecte les fautes dès la compilation", correct: false}
+    answer: "Valgrind exécute le programme tel quel, dans une machine virtuelle : aucune option de compilation à ajouter, mais une exécution dix à cinquante fois plus lente."
+  - key: code-liberation-correcte
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+
+      int vivants = 0;
+
+      class Objet {
+      public:
+          Objet() { ++vivants; }
+          ~Objet() { --vivants; }
+      };
+
+      int main() {
+          Objet* a = new Objet;
+          Objet* b = new Objet;
+          Objet* c = new Objet;
+          delete a;
+          delete c;
+          std::println("{}", vivants);
+          delete b;
+      }
+      ```
+    choices:
+      - {text: "`1`", correct: true}
+      - {text: "`0`", correct: false}
+      - {text: "`3`", correct: false}
+      - {text: "`2`", correct: false}
+    answer: "`1` : trois objets sont créés, deux sont détruits avant l'affichage. `b` est encore vivant ; sans le dernier `delete`, il aurait fui."
+    check:
+      output: "1"
+  - key: code-usage-apres-liberation
+    format: code-output
+    question: |-
+      Que garantit le langage sur ce qu'affiche ce programme ?
+      ```cpp
+      #include <print>
+
+      int main() {
+          int* p = new int{42};
+          delete p;
+          std::println("{}", *p);
+      }
+      ```
+    choices:
+      - {text: "Rien : c'est un comportement indéfini", correct: true}
+      - {text: "Qu'il affiche `42`", correct: false}
+      - {text: "Qu'il affiche `0`", correct: false}
+      - {text: "Qu'il ne compile pas", correct: false}
+    answer: |-
+      Rien. Après `delete`, l'entier n'existe plus : lire `*p` est un usage après libération. Le programme compile, et
+      peut afficher 42, autre chose, ou planter.
+    unverifiable: lire une mémoire libérée est un comportement indéfini
+  - key: code-reaffectation-propre
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+
+      int main() {
+          int* p = new int{1};
+          delete p;
+          p = new int{2};
+          *p += 5;
+          std::println("{}", *p);
+          delete p;
+      }
+      ```
+    choices:
+      - {text: "`7`", correct: true}
+      - {text: "`6`", correct: false}
+      - {text: "`2`", correct: false}
+      - {text: "Ça ne compile pas", correct: false}
+    answer: "`7` : le premier bloc est libéré avant que `p` reçoive le second. Chaque `new` a son `delete` : aucune fuite."
+    check:
+      output: "7"
+  - key: code-fuite-comptee
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+
+      int vivants = 0;
+
+      class Objet {
+      public:
+          Objet() { ++vivants; }
+          ~Objet() { --vivants; }
+      };
+
+      void traiter(bool erreur) {
+          Objet* objet = new Objet;
+          if (erreur) {
+              return;
+          }
+          delete objet;
+      }
+
+      int main() {
+          traiter(false);
+          traiter(true);
+          traiter(true);
+          std::println("{}", vivants);
+      }
+      ```
+    choices:
+      - {text: "`2`", correct: true}
+      - {text: "`0`", correct: false}
+      - {text: "`3`", correct: false}
+      - {text: "`1`", correct: false}
+    answer: "`2` : les deux appels avec `erreur` à `true` quittent la fonction avant le `delete`. Leurs objets ne sont jamais détruits : ils ont fui."
+    check:
+      output: "2"
+  - key: bug-sortie-anticipee
+    format: bug-fix
+    question: |-
+      AddressSanitizer signale une fuite de 400 octets quand la mesure est invalide. Quelle correction est la bonne ?
+      ```cpp
+      #include <print>
+
+      bool analyser(int mesure) {
+          int* tampon = new int[100];
+          if (mesure < 0) {
+              return false;
+          }
+          tampon[0] = mesure;
+          std::println("{}", tampon[0]);
+          delete[] tampon;
+          return true;
+      }
+
+      int main() {
+          analyser(-1);
+      }
+      ```
+    choices:
+      - {text: "Remplacer le tampon par un `std::vector<int> tampon(100);`", correct: true}
+      - {text: "Déplacer le `delete[]` après le dernier `return`", correct: false}
+      - {text: "Remplacer `return false;` par `return true;`", correct: false}
+      - {text: "Écrire `tampon = nullptr;` avant le premier `return`", correct: false}
+    answer: |-
+      ```cpp
+      std::vector<int> tampon(100);
+      ```
+      Le `return` anticipé saute le `delete[]`. Ajouter un `delete[]` avant lui marcherait, jusqu'à la prochaine
+      sortie oubliée. Un vecteur libère sa mémoire sur tous les chemins.
+  - key: bug-pointeur-ecrase
+    format: bug-fix
+    question: |-
+      Valgrind signale 4 octets perdus pour ce programme. Pourquoi ?
+      ```cpp
+      #include <print>
+
+      int main() {
+          int* score = new int{10};
+          score = new int{20};
+          std::println("{}", *score);
+          delete score;
+      }
+      ```
+    choices:
+      - {text: "Le premier bloc n'a plus de pointeur : il ne peut plus être libéré", correct: true}
+      - {text: "Le `delete` libère le premier bloc, et laisse le second", correct: false}
+      - {text: "Un `int` alloué avec `new` occupe huit octets, dont quatre perdus", correct: false}
+      - {text: "`std::println` garde une copie du pointeur", correct: false}
+    answer: |-
+      ```cpp
+      int* score = new int{10};
+      *score = 20;
+      ```
+      Le second `new` écrase la seule adresse du premier bloc. Pour changer la valeur, on écrit à travers le
+      pointeur ; pour changer de bloc, on libère l'ancien d'abord.
+  - key: bug-deux-proprietaires
+    format: bug-fix
+    question: |-
+      Ce programme plante : « free(): double free detected ». Pourquoi ?
+      ```cpp
+      #include <print>
+
+      struct Session {
+          int* compteur;
+      };
+
+      int main() {
+          Session a{new int{1}};
+          Session b = a;
+          std::println("{}", *b.compteur);
+          delete a.compteur;
+          delete b.compteur;
+      }
+      ```
+    choices:
+      - {text: "Copier la struct copie le pointeur : `a` et `b` désignent le même entier", correct: true}
+      - {text: "Copier la struct alloue un second entier, libéré deux fois", correct: false}
+      - {text: "Un pointeur membre d'une struct ne se libère pas avec `delete`", correct: false}
+      - {text: "`std::println` libère l'entier qu'il affiche", correct: false}
+    answer: |-
+      ```cpp
+      delete a.compteur;
+      ```
+      La copie d'une struct copie ses membres tels quels : le pointeur, pas l'entier. Il n'y a qu'un bloc, donc un
+      seul `delete`. Deux objets qui croient posséder la même mémoire, c'est la cause habituelle d'une double
+      libération.
+  - key: bug-lecture-apres-liberation
+    format: bug-fix
+    question: |-
+      Ce programme affiche souvent `3`, mais il écrit dans une mémoire déjà libérée : rien ne le garantit. Quelle
+      correction est la bonne ?
+      ```cpp
+      #include <print>
+
+      int main() {
+          int* notes = new int[3]{12, 15, 9};
+          int* derniere = &notes[2];
+          delete[] notes;
+          *derniere = 3;
+          std::println("{}", *derniere);
+      }
+      ```
+    choices:
+      - {text: "Libérer le tableau après la dernière utilisation de `derniere`", correct: true}
+      - {text: "Libérer `derniere` avec un second `delete[]`", correct: false}
+      - {text: "Déclarer `derniere` avec `const int*`", correct: false}
+      - {text: "Remettre `notes` à `nullptr` après le `delete[]`", correct: false}
+    answer: |-
+      ```cpp
+      *derniere = 3;
+      std::println("{}", *derniere);
+      delete[] notes;
+      ```
+      `derniere` pointe dans le tableau : une fois celui-ci libéré, elle est pendante. Y écrire corrompt une mémoire
+      qui ne nous appartient plus.
+  - key: situation-serveur
+    format: scenario
+    question: |-
+      Un serveur tourne sans erreur, mais sa mémoire occupée augmente d'heure en heure, jusqu'à ce que le système
+      l'arrête au bout de trois jours. Que soupçonnes-tu, et que fais-tu ?
+    choices:
+      - {text: "Une fuite : je fais tourner les tests avec AddressSanitizer ou Valgrind", correct: true}
+      - {text: "Une double libération : j'ajoute un `try` autour des `delete`", correct: false}
+      - {text: "Un dépassement de pile : j'augmente la taille de la pile", correct: false}
+      - {text: "Un débordement d'entier : je passe les compteurs en 64 bits", correct: false}
+    answer: |-
+      Une mémoire qui ne fait que grossir, sans plantage immédiat, est le signe d'une fuite. Les outils donnent
+      l'endroit de l'allocation qui n'a jamais été libérée. On la confie ensuite à un propriétaire qui libère tout
+      seul.
+  - key: situation-douze-return
+    format: scenario
+    question: |-
+      Une vieille fonction alloue un tampon avec `new[]` en tête, et compte douze `return`. Trois d'entre eux
+      oublient le `delete[]`. Que proposes-tu ?
+    choices:
+      - {text: "Remplacer le tampon par un `std::vector`, et retirer tous les `delete[]`", correct: true}
+      - {text: "Ajouter un `delete[]` devant chacun des trois `return` fautifs", correct: false}
+      - {text: "Regrouper les douze `return` en un seul, avec des `goto`", correct: false}
+      - {text: "Allouer le tampon dans une variable globale, jamais libérée", correct: false}
+    answer: |-
+      Ajouter les trois `delete[]` répare aujourd'hui, et laisse le piège au treizième `return`. Avec un vecteur, la
+      libération est attachée à la fin de la portée : aucune sortie ne peut l'éviter.
+  - key: situation-double-free
+    format: scenario
+    question: |-
+      Deux modules gardent chacun un pointeur brut vers le même objet `Configuration`, et chacun le libère à sa
+      fermeture. Le programme plante à l'arrêt. Que proposes-tu ?
+    choices:
+      - {text: "Décider d'un seul propriétaire, qui libère ; l'autre module observe seulement", correct: true}
+      - {text: "Faire tester `nullptr` par chaque module avant son `delete`", correct: false}
+      - {text: "Supprimer les deux `delete`, pour que le plantage disparaisse", correct: false}
+      - {text: "Faire copier l'objet par le second module à chaque lecture", correct: false}
+    answer: |-
+      La double libération vient d'une propriété ambiguë. Un `std::unique_ptr` chez le propriétaire, un pointeur brut
+      ou une référence chez l'observateur ; si la propriété est vraiment partagée, un `std::shared_ptr`. Tester
+      `nullptr` ne sert à rien : le pointeur de l'autre module n'est pas nul, il est pendant.
+  - key: situation-faille
+    format: scenario
+    question: |-
+      Un audit de sécurité signale un « use after free » dans le traitement des requêtes. Un collègue répond que
+      « ça n'a jamais planté ». Que lui réponds-tu ?
+    choices:
+      - {text: "Que le bloc libéré peut être réattribué : un attaquant peut y placer ses données", correct: true}
+      - {text: "Qu'il a raison : sans plantage, il n'y a pas de faille", correct: false}
+      - {text: "Qu'il suffit de compiler avec `-O2` pour supprimer le risque", correct: false}
+      - {text: "Qu'il suffit d'entourer la lecture d'un `try` et d'un `catch`", correct: false}
+    answer: |-
+      Une lecture après libération semble marcher tant que le bloc n'est pas réutilisé. Mais l'allocateur le redonne
+      à la prochaine demande : celui qui contrôle cette demande contrôle ce que le programme lira. C'est l'une des
+      failles les plus exploitées dans le code C et C++.

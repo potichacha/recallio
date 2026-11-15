@@ -1,0 +1,514 @@
+notion: interblocage
+lesson: |-
+  Un **interblocage** (*deadlock*) fige des threads pour toujours : chacun attend un verrou qu'un autre détient.
+  Le programme ne plante pas, n'affiche rien, ne consomme pas de processeur : il ne fait plus rien.
+
+  **Le cas classique : deux verrous, deux ordres.**
+
+  ```cpp
+  std::mutex a;
+  std::mutex b;
+
+  void premier() {
+      std::lock_guard ga{a};
+      std::lock_guard gb{b};     // attend b
+  }
+
+  void second() {
+      std::lock_guard gb{b};
+      std::lock_guard ga{a};     // attend a
+  }
+  ```
+
+  Si `premier` prend `a` pendant que `second` prend `b`, chacun attend ensuite le verrou de l'autre. Aucun ne
+  lâchera le sien.
+
+  Comme pour une course aux données, cela dépend du moment où les threads se croisent : le programme peut tourner
+  des semaines avant de se figer.
+
+  **Le virement bancaire.** Le piège se cache souvent derrière une seule fonction :
+
+  ```cpp
+  void virer(Compte& source, Compte& cible, int montant) {
+      std::lock_guard g1{source.verrou};
+      std::lock_guard g2{cible.verrou};
+      // ...
+  }
+  ```
+
+  Un thread appelle `virer(x, y, 10)`, un autre `virer(y, x, 5)` : les verrous sont pris dans deux ordres opposés.
+
+  **Les remèdes.**
+
+  1. **`std::scoped_lock` (C++17)** : il prend plusieurs mutex **ensemble**, avec un algorithme qui évite
+     l'interblocage, quel que soit l'ordre dans lequel on les écrit.
+
+     ```cpp
+     std::scoped_lock garde{source.verrou, cible.verrou};
+     ```
+
+  2. **Un ordre global** : toujours verrouiller dans le même ordre, partout dans le programme (par exemple, le
+     compte au plus petit numéro d'abord).
+  3. **Ne tenir qu'un verrou à la fois**, quand c'est possible : le problème disparaît.
+  4. **Ne pas appeler de code inconnu sous un verrou** : une fonction de rappel, une fonction virtuelle peuvent
+     verrouiller autre chose, ou rappeler ton objet.
+
+  **Les autres formes.**
+
+  - Verrouiller **deux fois le même** `std::mutex` dans un thread, par exemple quand une fonction verrouillée en
+    appelle une autre qui verrouille aussi.
+  - Deux threads qui s'attendent mutuellement avec `join()`.
+
+  **Les quatre conditions.** Un interblocage exige à la fois : l'exclusion mutuelle, tenir un verrou en en
+  attendant un autre, l'impossibilité de reprendre un verrou de force, et une **attente circulaire**. Les remèdes
+  cassent la dernière.
+
+  **Le diagnostiquer.** On attache un débogueur au programme figé, et l'on regarde la pile de chaque thread : ils
+  sont arrêtés sur un `lock`. ThreadSanitizer signale aussi les **inversions d'ordre** de verrouillage, même quand
+  l'interblocage ne s'est pas produit.
+
+  **En entretien** : « Un interblocage, c'est une attente circulaire entre verrous : typiquement deux threads qui
+  prennent deux mutex dans des ordres opposés. Je l'évite avec `std::scoped_lock`, qui les prend ensemble, ou avec
+  un ordre de verrouillage fixe. »
+cards:
+  - key: definition
+    format: course
+    question: "Qu'est-ce qu'un interblocage ?"
+    choices:
+      - {text: "Des threads figés pour toujours : chacun attend un verrou qu'un autre détient", correct: true}
+      - {text: "Des threads qui écrivent la même variable en même temps, sans verrou", correct: false}
+      - {text: "Des threads trop nombreux pour le nombre de cœurs de la machine", correct: false}
+      - {text: "Des threads qui se terminent avant d'avoir rendu leur résultat", correct: false}
+    answer: "Le programme ne plante pas : il s'arrête d'avancer, sans message. Chacun tient ce que l'autre attend."
+  - key: ordre-inverse
+    format: course
+    question: "Dans quel cas deux threads qui prennent chacun les mutex `a` et `b` peuvent-ils s'interbloquer ?"
+    choices:
+      - {text: "Quand l'un prend `a` puis `b`, et l'autre `b` puis `a`", correct: true}
+      - {text: "Quand les deux prennent `a` puis `b`, dans le même ordre", correct: false}
+      - {text: "Quand les deux relâchent `a` et `b` dans le même ordre", correct: false}
+      - {text: "Quand l'un des deux ne prend que le mutex `a`", correct: false}
+    answer: "L'ordre opposé permet à chacun de tenir un verrou en attendant l'autre. Avec un ordre commun, le second thread attend simplement au premier verrou."
+  - key: scoped-lock
+    format: course
+    question: "Comment `std::scoped_lock garde{a, b};` évite-t-il l'interblocage ?"
+    choices:
+      - {text: "Il acquiert les deux mutex ensemble, sans jamais en tenir un en attendant l'autre indéfiniment", correct: true}
+      - {text: "Il ne verrouille que le premier mutex, et laisse le second libre pour les autres threads", correct: false}
+      - {text: "Il interrompt l'autre thread quand celui-ci tient déjà l'un des deux mutex", correct: false}
+      - {text: "Il abandonne au bout d'une seconde d'attente, en levant une exception", correct: false}
+    answer: "S'il ne peut pas obtenir le second, il relâche le premier et recommence. L'ordre dans lequel on écrit les mutex n'a plus d'importance."
+  - key: ordre-global
+    format: course
+    question: "Sans `std::scoped_lock`, quelle discipline empêche les interblocages entre plusieurs mutex ?"
+    choices:
+      - {text: "Les verrouiller toujours dans le même ordre, partout dans le programme", correct: true}
+      - {text: "Les verrouiller dans l'ordre inverse de leur déclaration", correct: false}
+      - {text: "Les verrouiller dans un ordre tiré au hasard à chaque fois", correct: false}
+      - {text: "Les verrouiller le plus tard possible dans chaque fonction", correct: false}
+    answer: "Un ordre global rend impossible l'attente circulaire : personne ne tient un verrou « plus loin » en attendant un verrou « plus près »."
+  - key: vf-plante
+    format: true-false
+    question: "Un programme en interblocage s'arrête avec un message d'erreur."
+    truth: false
+    answer: "Il se fige, sans rien afficher et sans consommer de processeur. C'est ce qui le rend difficile à repérer."
+  - key: vf-un-seul-verrou
+    format: true-false
+    question: "Un thread qui ne tient jamais plus d'un verrou à la fois ne peut pas participer à un interblocage entre mutex."
+    truth: true
+    answer: "L'interblocage exige de tenir un verrou tout en en attendant un autre."
+  - key: vf-meme-mutex
+    format: true-false
+    question: "Un seul thread peut se bloquer lui-même, en verrouillant deux fois le même `std::mutex`."
+    truth: true
+    answer: "Le second `lock` attend que le premier soit relâché, ce qui n'arrivera jamais. Formellement, c'est un comportement indéfini."
+  - key: vf-systematique
+    format: true-false
+    question: "Un code qui peut s'interbloquer se fige à chaque exécution."
+    truth: false
+    answer: "Cela dépend du moment où les threads se croisent. Le défaut peut rester invisible très longtemps."
+  - key: qcm-remede
+    format: multiple-choice
+    question: "Quelle ligne verrouille deux mutex sans risque d'interblocage ?"
+    choices:
+      - {text: "`std::scoped_lock garde{a, b};`", correct: true}
+      - {text: "`std::lock_guard garde{a, b};`", correct: false}
+      - {text: "`a.lock(); b.lock();`", correct: false}
+      - {text: "`std::mutex garde{a, b};`", correct: false}
+    answer: "`std::scoped_lock` accepte plusieurs mutex. `std::lock_guard` n'en prend qu'un, et deux `lock()` successifs dépendent de l'ordre."
+  - key: qcm-diagnostic
+    format: multiple-choice
+    question: "Un programme est figé. Comment confirmes-tu un interblocage ?"
+    choices:
+      - {text: "En regardant dans un débogueur la pile de chaque thread", correct: true}
+      - {text: "En relançant le programme avec plus de mémoire", correct: false}
+      - {text: "En recompilant avec l'option `-O3`", correct: false}
+      - {text: "En comptant les lignes du fichier journal", correct: false}
+    answer: "Les threads bloqués sont tous arrêtés dans un appel à `lock`. On voit qui attend quel mutex."
+  - key: qcm-condition
+    format: multiple-choice
+    question: "Laquelle de ces conditions les remèdes habituels cherchent-ils à supprimer ?"
+    choices:
+      - {text: "L'attente circulaire", correct: true}
+      - {text: "L'exclusion mutuelle", correct: false}
+      - {text: "Le nombre de threads", correct: false}
+      - {text: "La mémoire partagée", correct: false}
+    answer: "Un ordre de verrouillage fixe, ou une acquisition groupée, rendent le cycle impossible. L'exclusion mutuelle, elle, est le but du mutex."
+  - key: qcm-rappel
+    format: multiple-choice
+    question: "Pourquoi évite-t-on d'appeler une fonction de rappel fournie par l'utilisateur pendant qu'on tient un verrou ?"
+    choices:
+      - {text: "Elle peut verrouiller à son tour, et créer un cycle qu'on ne maîtrise pas", correct: true}
+      - {text: "Elle s'exécute toujours dans un autre thread, qui n'a pas le verrou", correct: false}
+      - {text: "Elle ne peut pas lire de variable locale", correct: false}
+      - {text: "Elle relâche le verrou avant de s'exécuter, sans le reprendre ensuite", correct: false}
+    answer: "Ce code inconnu peut prendre un autre mutex, ou rappeler ton objet, qui tentera de reprendre le même verrou."
+  - key: code-scoped-lock
+    format: code-output
+    question: |-
+      ```cpp
+      #include <mutex>
+      #include <print>
+      #include <thread>
+
+      int main() {
+          std::mutex a;
+          std::mutex b;
+          int total = 0;
+          std::thread t{[&] {
+              for (int i = 0; i < 1000; ++i) {
+                  std::scoped_lock garde{a, b};
+                  ++total;
+              }
+          }};
+          std::thread u{[&] {
+              for (int i = 0; i < 1000; ++i) {
+                  std::scoped_lock garde{b, a};
+                  ++total;
+              }
+          }};
+          t.join();
+          u.join();
+          std::println("{}", total);
+      }
+      ```
+    choices:
+      - {text: "`2000`", correct: true}
+      - {text: "Rien : le programme se fige", correct: false}
+      - {text: "Un nombre inférieur à 2000, selon l'exécution", correct: false}
+      - {text: "`1000`", correct: false}
+    answer: "`2000` : `std::scoped_lock` prend les deux mutex ensemble, sans interblocage, même écrits dans deux ordres. Chaque incrémentation est protégée."
+    check:
+      output: "2000"
+  - key: code-meme-ordre
+    format: code-output
+    question: |-
+      ```cpp
+      #include <mutex>
+      #include <print>
+      #include <thread>
+
+      int main() {
+          std::mutex a;
+          std::mutex b;
+          int total = 0;
+          auto travail = [&] {
+              for (int i = 0; i < 500; ++i) {
+                  std::lock_guard ga{a};
+                  std::lock_guard gb{b};
+                  ++total;
+              }
+          };
+          std::thread t{travail};
+          std::thread u{travail};
+          t.join();
+          u.join();
+          std::println("{}", total);
+      }
+      ```
+    choices:
+      - {text: "`1000`", correct: true}
+      - {text: "Rien : le programme se fige", correct: false}
+      - {text: "`500`", correct: false}
+      - {text: "Un nombre inférieur à 1000, selon l'exécution", correct: false}
+    answer: "`1000` : les deux threads prennent `a` puis `b`, dans le même ordre. Celui qui arrive second attend au premier verrou : pas d'interblocage."
+    check:
+      output: "1000"
+  - key: code-try-lock
+    format: code-output
+    question: |-
+      ```cpp
+      #include <mutex>
+      #include <print>
+      #include <thread>
+
+      int main() {
+          std::mutex verrou;
+          std::lock_guard garde{verrou};
+          bool obtenu = true;
+          std::thread t{[&] { obtenu = verrou.try_lock(); }};
+          t.join();
+          std::println("{}", obtenu);
+      }
+      ```
+    choices:
+      - {text: "`false`", correct: true}
+      - {text: "`true`", correct: false}
+      - {text: "Rien : le programme se fige", correct: false}
+      - {text: "Ça ne compile pas", correct: false}
+    answer: "`false` : `main` tient le verrou. `try_lock` n'attend pas : il échoue aussitôt, et le thread continue. C'est une façon d'éviter de se bloquer."
+    check:
+      output: "false"
+  - key: code-un-verrou-a-la-fois
+    format: code-output
+    question: |-
+      ```cpp
+      #include <mutex>
+      #include <print>
+      #include <thread>
+
+      int main() {
+          std::mutex a;
+          std::mutex b;
+          int x = 0;
+          int y = 0;
+          std::thread t{[&] {
+              { std::lock_guard g{a}; x += 1; }
+              { std::lock_guard g{b}; y += 1; }
+          }};
+          std::thread u{[&] {
+              { std::lock_guard g{b}; y += 10; }
+              { std::lock_guard g{a}; x += 10; }
+          }};
+          t.join();
+          u.join();
+          std::println("{} {}", x, y);
+      }
+      ```
+    choices:
+      - {text: "`11 11`", correct: true}
+      - {text: "Rien : le programme se fige", correct: false}
+      - {text: "`1 10`", correct: false}
+      - {text: "`10 1`", correct: false}
+    answer: "`11 11` : les ordres sont opposés, mais chaque thread relâche un verrou avant de prendre l'autre. Sans verrou tenu pendant l'attente, pas d'interblocage."
+    check:
+      output: "11 11"
+  - key: bug-ordre-oppose
+    format: bug-fix
+    question: |-
+      Ce programme se fige de temps en temps. Quelle correction est la bonne ?
+      ```cpp
+      #include <mutex>
+      #include <print>
+      #include <thread>
+
+      std::mutex a;
+      std::mutex b;
+
+      void premier() {
+          std::lock_guard ga{a};
+          std::lock_guard gb{b};
+      }
+
+      void second() {
+          std::lock_guard gb{b};
+          std::lock_guard ga{a};
+      }
+
+      int main() {
+          std::thread t{premier};
+          std::thread u{second};
+          t.join();
+          u.join();
+          std::println("fin");
+      }
+      ```
+    choices:
+      - {text: "Écrire `std::scoped_lock garde{a, b};` dans les deux fonctions", correct: true}
+      - {text: "Écrire `std::lock_guard ga{a};` deux fois dans chaque fonction", correct: false}
+      - {text: "Appeler `u.join();` avant `t.join();` dans la fonction `main`", correct: false}
+      - {text: "Déclarer les deux mutex comme variables locales de `main`", correct: false}
+    answer: |-
+      ```cpp
+      void premier() {
+          std::scoped_lock garde{a, b};
+      }
+
+      void second() {
+          std::scoped_lock garde{a, b};
+      }
+      ```
+      Les deux fonctions prennent les verrous dans des ordres opposés : chacune peut tenir le sien en attendant
+      l'autre. `std::scoped_lock` les acquiert ensemble.
+  - key: bug-virement
+    format: bug-fix
+    question: |-
+      Deux virements croisés figent parfois le programme. Quelle correction est la bonne ?
+      ```cpp
+      #include <mutex>
+      #include <print>
+      #include <thread>
+
+      struct Compte {
+          std::mutex verrou;
+          int solde = 100;
+      };
+
+      void virer(Compte& source, Compte& cible, int montant) {
+          std::lock_guard g1{source.verrou};
+          std::lock_guard g2{cible.verrou};
+          source.solde -= montant;
+          cible.solde += montant;
+      }
+
+      int main() {
+          Compte x;
+          Compte y;
+          std::thread t{[&] { virer(x, y, 10); }};
+          std::thread u{[&] { virer(y, x, 5); }};
+          t.join();
+          u.join();
+          std::println("{}", x.solde + y.solde);
+      }
+      ```
+    choices:
+      - {text: "Verrouiller les deux comptes avec `std::scoped_lock garde{source.verrou, cible.verrou};`", correct: true}
+      - {text: "Verrouiller `cible.verrou` avant `source.verrou`, dans la fonction `virer`", correct: false}
+      - {text: "Verrouiller seulement `source.verrou`, et modifier `cible.solde` sans verrou", correct: false}
+      - {text: "Passer les deux comptes par valeur à la fonction `virer`", correct: false}
+    answer: |-
+      ```cpp
+      std::scoped_lock garde{source.verrou, cible.verrou};
+      ```
+      `virer(x, y)` prend `x` puis `y` ; `virer(y, x)` prend `y` puis `x`. Inverser l'ordre dans la fonction ne
+      change rien : les deux appels restent opposés. `std::scoped_lock` prend les deux sans interblocage.
+  - key: bug-double-verrouillage
+    format: bug-fix
+    question: |-
+      Ce programme se fige dès le premier appel de `deposer_et_lire`. Quelle correction est la bonne ?
+      ```cpp
+      #include <mutex>
+      #include <print>
+
+      std::mutex verrou;
+      int solde = 0;
+
+      int lire() {
+          std::lock_guard garde{verrou};
+          return solde;
+      }
+
+      int deposer_et_lire(int montant) {
+          std::lock_guard garde{verrou};
+          solde += montant;
+          return lire();
+      }
+
+      int main() {
+          std::println("{}", deposer_et_lire(10));
+      }
+      ```
+    choices:
+      - {text: "Renvoyer `solde` directement, sans appeler `lire()` sous le verrou", correct: true}
+      - {text: "Écrire `std::scoped_lock` à la place de `std::lock_guard` dans `lire()`", correct: false}
+      - {text: "Déclarer la variable `solde` avec `std::atomic<int>`", correct: false}
+      - {text: "Appeler `lire()` avant de modifier `solde`, dans la même fonction", correct: false}
+    answer: |-
+      ```cpp
+      int deposer_et_lire(int montant) {
+          std::lock_guard garde{verrou};
+          solde += montant;
+          return solde;
+      }
+      ```
+      `deposer_et_lire` tient déjà le verrou quand `lire()` tente de le prendre : le thread s'attend lui-même.
+      L'usage est de séparer les fonctions publiques, qui verrouillent, de fonctions internes qui supposent le
+      verrou déjà tenu.
+  - key: bug-join-croise
+    format: bug-fix
+    question: |-
+      Ce programme ne se termine jamais : le thread attend `main`, qui attend le thread. Quelle correction est la
+      bonne ?
+      ```cpp
+      #include <mutex>
+      #include <print>
+      #include <thread>
+
+      int main() {
+          std::mutex verrou;
+          verrou.lock();
+          std::thread t{[&verrou] {
+              std::lock_guard garde{verrou};
+              std::println("travail");
+          }};
+          t.join();
+          verrou.unlock();
+      }
+      ```
+    choices:
+      - {text: "Appeler `verrou.unlock();` avant `t.join();`", correct: true}
+      - {text: "Appeler `verrou.lock();` une seconde fois avant `t.join();`", correct: false}
+      - {text: "Appeler `t.join();` deux fois de suite", correct: false}
+      - {text: "Écrire `std::scoped_lock garde{verrou};` dans la lambda", correct: false}
+    answer: |-
+      ```cpp
+      verrou.unlock();
+      t.join();
+      ```
+      `main` tient le verrou et attend la fin du thread ; le thread attend le verrou. C'est une attente circulaire
+      entre un mutex et un `join`. On relâche avant d'attendre, ou mieux : on limite la garde à un bloc.
+  - key: situation-production
+    format: scenario
+    question: |-
+      Un service se fige environ une fois par mois : plus aucune requête n'aboutit, le processeur est à 0 %, aucun
+      message dans le journal. Que soupçonnes-tu, et que fais-tu d'abord ?
+    choices:
+      - {text: "Un interblocage ; je relève la pile de chaque thread du processus figé", correct: true}
+      - {text: "Une fuite de mémoire ; je redémarre le service avec deux fois plus de mémoire", correct: false}
+      - {text: "Une boucle infinie ; je cherche la fonction qui consomme tout le processeur", correct: false}
+      - {text: "Une exception non attrapée ; je cherche le message dans le journal", correct: false}
+    answer: |-
+      Aucune activité et aucun message : les threads attendent. Une boucle infinie occuperait le processeur, une
+      exception arrêterait le programme. Les piles des threads montrent quels verrous ils attendent, et dans quel
+      ordre ils les ont pris.
+  - key: situation-revue-ordre
+    format: scenario
+    question: |-
+      En revue de code, une fonction verrouille le mutex du cache, puis celui de la base. Une autre, ailleurs,
+      verrouille celui de la base, puis celui du cache. Les tests passent. Que dis-tu ?
+    choices:
+      - {text: "Que c'est un interblocage en puissance : il faut un ordre unique, ou `std::scoped_lock`", correct: true}
+      - {text: "Que c'est sans risque, puisque les tests n'ont jamais montré de blocage", correct: false}
+      - {text: "Que c'est sans risque, puisque les deux fonctions sont dans des fichiers différents", correct: false}
+      - {text: "Que c'est une course aux données : il faut retirer l'un des deux mutex", correct: false}
+    answer: |-
+      Deux ordres opposés suffisent : il ne manque que le mauvais croisement de deux threads, que les tests ne
+      provoquent presque jamais. On fixe un ordre (toujours le cache d'abord), ou l'on prend les deux avec
+      `std::scoped_lock`.
+  - key: situation-callback
+    format: scenario
+    question: |-
+      Une classe `Observable` appelle les fonctions de ses abonnés en tenant son mutex. Un abonné, dans sa fonction,
+      se désabonne, ce qui verrouille le même mutex. Le programme se fige. Que proposes-tu ?
+    choices:
+      - {text: "Copier la liste des abonnés sous le verrou, le relâcher, puis les appeler", correct: true}
+      - {text: "Interdire aux abonnés d'appeler la moindre fonction de la classe", correct: false}
+      - {text: "Verrouiller le mutex une seconde fois avant d'appeler les abonnés", correct: false}
+      - {text: "Appeler les abonnés dans l'ordre inverse de leur inscription", correct: false}
+    answer: |-
+      Appeler du code inconnu sous un verrou est le piège : ce code peut revenir vers l'objet. En travaillant sur
+      une copie, on n'a plus de verrou tenu pendant les appels, et les abonnés sont libres de se désabonner.
+  - key: situation-entretien
+    format: scenario
+    question: |-
+      En entretien, on te demande : « Comment transfères-tu de l'argent entre deux comptes, chacun protégé par son
+      mutex, sans risquer d'interblocage ? » Que réponds-tu ?
+    choices:
+      - {text: "Je verrouille les deux avec `std::scoped_lock`, ou toujours dans l'ordre de leur identifiant", correct: true}
+      - {text: "Je verrouille le compte source, puis le compte cible, dans l'ordre des paramètres", correct: false}
+      - {text: "Je ne verrouille que le compte débité : le crédit ne pose aucun problème", correct: false}
+      - {text: "Je verrouille les deux comptes avec des `try_lock` répétés, sans jamais relâcher", correct: false}
+    answer: |-
+      L'ordre des paramètres change d'un appel à l'autre : deux virements croisés s'interbloquent.
+      `std::scoped_lock` acquiert les deux ensemble ; à défaut, un ordre fixe, indépendant du sens du virement,
+      rend le cycle impossible.

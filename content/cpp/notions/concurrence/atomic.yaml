@@ -1,0 +1,500 @@
+notion: atomic
+lesson: |-
+  `std::atomic<T>` (en-tête `<atomic>`) enveloppe une valeur dont chaque opération est **indivisible** : un autre
+  thread ne la voit jamais à moitié faite. Plusieurs threads peuvent donc la lire et l'écrire sans mutex, et sans
+  course aux données.
+
+  ```cpp
+  std::atomic<int> compteur{0};
+
+  void travailler() {
+      for (int i = 0; i < 100'000; ++i) {
+          ++compteur;          // indivisible
+      }
+  }
+  ```
+
+  **Les opérations.**
+
+  | Opération | Effet |
+  |---|---|
+  | `x.load()` | lit la valeur |
+  | `x.store(v)` | écrit la valeur |
+  | `++x`, `--x`, `x += n`, `x.fetch_add(n)` | modifient en une opération indivisible |
+  | `x.exchange(v)` | écrit `v`, et renvoie l'ancienne valeur |
+  | `x.compare_exchange_strong(attendu, nouveau)` | écrit `nouveau` **si** la valeur vaut `attendu` |
+
+  On peut aussi écrire `x = 5` et lire `x` directement : ce sont des `store` et des `load`.
+
+  **Le piège : deux opérations atomiques ne font pas une opération atomique.**
+
+  ```cpp
+  compteur = compteur + 1;   // un load, PUIS un store : un autre thread peut passer entre les deux
+  ++compteur;                // une seule opération : correct
+  ```
+
+  De même, « si la valeur vaut 0, la passer à 1 » ne s'écrit pas avec un `if` suivi d'un `store`, mais avec
+  **`compare_exchange_strong`**, qui teste et écrit d'un seul geste :
+
+  ```cpp
+  int attendu = 0;
+  if (etat.compare_exchange_strong(attendu, 1)) {
+      // ce thread, et lui seul, a fait passer etat de 0 à 1
+  }
+  ```
+
+  En cas d'échec, `attendu` reçoit la valeur réellement trouvée.
+
+  **Quels types.** Les entiers, `bool`, les pointeurs, et tout type **trivialement copiable**. Pour les types
+  fondamentaux, les opérations se font sans verrou, par une instruction du processeur. Un `std::atomic<std::string>`
+  ne compile pas.
+
+  **Atomique ou mutex ?**
+
+  | Situation | Outil |
+  |---|---|
+  | Un compteur, un drapeau d'arrêt, un indicateur | `std::atomic` |
+  | Plusieurs variables qui doivent changer **ensemble** | `std::mutex` |
+  | Une suite d'opérations sur un conteneur | `std::mutex` |
+
+  Deux variables atomiques ne sont pas cohérentes entre elles : entre la modification de l'une et celle de l'autre,
+  un autre thread voit un état intermédiaire.
+
+  **Un atomique ne se copie pas.** `std::atomic` n'a ni constructeur de copie ni affectation de copie : copier
+  demanderait un `load` puis un `store`, qui ne seraient pas atomiques ensemble.
+
+  **L'ordre mémoire.** Les opérations acceptent un argument `std::memory_order`. Sa valeur par défaut,
+  `seq_cst`, est la plus sûre et la plus simple à raisonner : on la garde, sauf mesure qui prouve le besoin
+  d'autre chose.
+
+  **En entretien** : « `std::atomic` rend chaque opération indivisible, sans verrou pour les types simples. C'est
+  l'outil d'un compteur ou d'un drapeau. Dès que plusieurs variables doivent rester cohérentes, il faut un mutex :
+  deux opérations atomiques à la suite ne sont pas atomiques. »
+cards:
+  - key: role
+    format: course
+    question: "Que garantit `std::atomic<int>` ?"
+    choices:
+      - {text: "Chaque opération sur la valeur est indivisible, vue des autres threads", correct: true}
+      - {text: "La valeur ne peut être modifiée que par le thread qui l'a créée", correct: false}
+      - {text: "La valeur est copiée dans chaque thread qui la lit", correct: false}
+      - {text: "Chaque opération sur la valeur verrouille un mutex global", correct: false}
+    answer: "Un autre thread ne voit jamais l'opération à moitié faite. Lire et écrire une variable atomique depuis plusieurs threads n'est pas une course aux données."
+  - key: deux-operations
+    format: course
+    question: "Pourquoi `compteur = compteur + 1;` n'est-il pas sûr, même avec un `std::atomic<int>` ?"
+    choices:
+      - {text: "C'est une lecture puis une écriture : un autre thread peut passer entre les deux", correct: true}
+      - {text: "L'opérateur `+` n'est pas défini pour une variable atomique", correct: false}
+      - {text: "L'affectation d'une variable atomique lève une exception", correct: false}
+      - {text: "Le compilateur remplace cette ligne par une incrémentation non atomique", correct: false}
+    answer: "Chacune des deux opérations est atomique, pas leur enchaînement. `++compteur` ou `compteur.fetch_add(1)` font tout en une seule opération."
+  - key: atomique-ou-mutex
+    format: course
+    question: "Quand faut-il un mutex plutôt qu'une variable atomique ?"
+    choices:
+      - {text: "Quand plusieurs variables doivent changer ensemble, de façon cohérente", correct: true}
+      - {text: "Quand une seule variable entière est incrémentée par plusieurs threads", correct: false}
+      - {text: "Quand un drapeau booléen demande à un thread de s'arrêter", correct: false}
+      - {text: "Quand la variable n'est lue que par un seul thread", correct: false}
+    answer: "Une variable atomique protège une valeur. Pour un invariant qui lie plusieurs valeurs, seul un verrou encadre l'ensemble des modifications."
+  - key: compare-exchange
+    format: course
+    question: "Que fait `x.compare_exchange_strong(attendu, nouveau)` ?"
+    choices:
+      - {text: "Il écrit `nouveau` dans `x` seulement si `x` vaut `attendu`, en une opération indivisible", correct: true}
+      - {text: "Il échange les valeurs de `attendu` et de `nouveau`, sans jamais modifier `x`", correct: false}
+      - {text: "Il compare `attendu` à `nouveau`, et écrit le plus grand des deux dans `x`", correct: false}
+      - {text: "Il attend que `x` vaille `attendu`, puis écrit `nouveau` dans `x`", correct: false}
+    answer: "Il renvoie `true` si l'écriture a eu lieu. Sinon, il range dans `attendu` la valeur réellement trouvée. C'est la brique des algorithmes sans verrou."
+  - key: vf-copie
+    format: true-false
+    question: "Un `std::atomic<int>` peut être copié dans un autre `std::atomic<int>`."
+    truth: false
+    answer: "La copie est supprimée : elle demanderait deux opérations. On écrit `b.store(a.load())`."
+  - key: vf-string
+    format: true-false
+    question: "`std::atomic<std::string>` est un type valide."
+    truth: false
+    answer: "`std::atomic` exige un type trivialement copiable. Une `std::string` partagée se protège par un mutex."
+  - key: vf-increment
+    format: true-false
+    question: "`++x` sur un `std::atomic<int>` est une opération indivisible."
+    truth: true
+    answer: "C'est un `fetch_add(1)`. Aucune incrémentation ne peut se perdre."
+  - key: vf-deux-atomiques
+    format: true-false
+    question: "Deux variables atomiques modifiées l'une après l'autre restent cohérentes entre elles pour les autres threads."
+    truth: false
+    answer: "Entre les deux écritures, un autre thread peut lire l'une modifiée et l'autre non. Un mutex est nécessaire."
+  - key: qcm-lire
+    format: multiple-choice
+    question: "Quelle fonction lit la valeur d'un `std::atomic<int> x` ?"
+    choices:
+      - {text: "`x.load()`", correct: true}
+      - {text: "`x.get()`", correct: false}
+      - {text: "`x.read()`", correct: false}
+      - {text: "`x.value()`", correct: false}
+    answer: "`load()` lit, `store()` écrit. La conversion implicite vers `int` fait aussi un `load`."
+  - key: qcm-ancienne-valeur
+    format: multiple-choice
+    question: "Quelle fonction écrit une nouvelle valeur et renvoie l'ancienne, en une seule opération ?"
+    choices:
+      - {text: "`exchange`", correct: true}
+      - {text: "`store`", correct: false}
+      - {text: "`load`", correct: false}
+      - {text: "`swap`", correct: false}
+    answer: "`x.exchange(v)` remplace la valeur et rend la précédente. Un `load` suivi d'un `store` laisserait passer un autre thread."
+  - key: qcm-drapeau
+    format: multiple-choice
+    question: "Comment déclares-tu un drapeau d'arrêt lu par un thread et écrit par un autre ?"
+    choices:
+      - {text: "`std::atomic<bool> arret{false};`", correct: true}
+      - {text: "`bool arret = false;`", correct: false}
+      - {text: "`volatile bool arret = false;`", correct: false}
+      - {text: "`const bool arret = false;`", correct: false}
+    answer: "Un `bool` ordinaire lu et écrit par deux threads est une course aux données. `volatile` ne synchronise rien en C++."
+  - key: qcm-fetch-add
+    format: multiple-choice
+    question: "Que renvoie `x.fetch_add(5)` sur un `std::atomic<int>` qui vaut 10 ?"
+    choices:
+      - {text: "`10` : la valeur d'avant l'addition", correct: true}
+      - {text: "`15` : la valeur d'après l'addition", correct: false}
+      - {text: "`5` : la valeur ajoutée", correct: false}
+      - {text: "Rien : `fetch_add` renvoie `void`", correct: false}
+    answer: "`fetch_add` ajoute, et renvoie l'ancienne valeur. Après l'appel, `x` vaut 15."
+  - key: trous-atomic
+    format: fill-in
+    question: |-
+      Complète pour que le compteur puisse être incrémenté par plusieurs threads :
+      ```cpp
+      std::___<int> compteur{0};
+      ```
+    blanks:
+      - [atomic]
+    answer: "`std::atomic<int>` rend chaque opération indivisible."
+  - key: trous-load
+    format: fill-in
+    question: |-
+      Complète pour lire la valeur du compteur :
+      ```cpp
+      std::println("{}", compteur.___());
+      ```
+    blanks:
+      - [load]
+    answer: "`load()` lit la valeur de façon atomique."
+  - key: trous-store
+    format: fill-in
+    question: |-
+      Complète pour demander l'arrêt :
+      ```cpp
+      std::atomic<bool> arret{false};
+      arret.___(true);
+      ```
+    blanks:
+      - [store]
+    answer: "`store()` écrit la valeur de façon atomique. `arret = true;` fait la même chose."
+  - key: trous-include
+    format: fill-in
+    question: |-
+      Complète l'en-tête à inclure :
+      ```cpp
+      #include <___>
+
+      std::atomic<int> compteur{0};
+      ```
+    blanks:
+      - [atomic]
+    answer: "`std::atomic` est déclaré dans `<atomic>`."
+  - key: code-compteur
+    format: code-output
+    question: |-
+      ```cpp
+      #include <atomic>
+      #include <print>
+      #include <thread>
+
+      int main() {
+          std::atomic<int> compteur{0};
+          auto travail = [&compteur] {
+              for (int i = 0; i < 5000; ++i) {
+                  compteur.fetch_add(2);
+              }
+          };
+          std::thread a{travail};
+          std::thread b{travail};
+          a.join();
+          b.join();
+          std::println("{}", compteur.load());
+      }
+      ```
+    choices:
+      - {text: "`20000`", correct: true}
+      - {text: "`10000`", correct: false}
+      - {text: "Un nombre inférieur à 20000, selon l'exécution", correct: false}
+      - {text: "`5000`", correct: false}
+    answer: "`20000` : dix mille `fetch_add(2)` indivisibles. Aucune addition ne se perd."
+    check:
+      output: "20000"
+  - key: code-fetch-add
+    format: code-output
+    question: |-
+      ```cpp
+      #include <atomic>
+      #include <print>
+
+      int main() {
+          std::atomic<int> x{10};
+          const int avant = x.fetch_add(5);
+          const int ancien = x.exchange(1);
+          std::println("{} {} {}", avant, ancien, x.load());
+      }
+      ```
+    choices:
+      - {text: "`10 15 1`", correct: true}
+      - {text: "`15 1 1`", correct: false}
+      - {text: "`10 10 1`", correct: false}
+      - {text: "`15 15 1`", correct: false}
+    answer: "`10 15 1` : `fetch_add` renvoie la valeur d'avant l'addition ; `exchange` écrit 1 et renvoie l'ancienne valeur, 15."
+    check:
+      output: "10 15 1"
+  - key: code-compare-exchange
+    format: code-output
+    question: |-
+      ```cpp
+      #include <atomic>
+      #include <print>
+
+      int main() {
+          std::atomic<int> etat{0};
+          int attendu = 0;
+          const bool premier = etat.compare_exchange_strong(attendu, 1);
+          attendu = 0;
+          const bool second = etat.compare_exchange_strong(attendu, 2);
+          std::println("{} {} {} {}", premier, second, attendu, etat.load());
+      }
+      ```
+    choices:
+      - {text: "`true false 1 1`", correct: true}
+      - {text: "`true true 0 2`", correct: false}
+      - {text: "`true false 0 1`", correct: false}
+      - {text: "`false false 1 0`", correct: false}
+    answer: "`true false 1 1` : le premier appel trouve 0 et écrit 1. Le second attend 0, trouve 1 : il échoue, et range 1 dans `attendu`."
+    check:
+      output: "true false 1 1"
+  - key: code-drapeau
+    format: code-output
+    question: |-
+      ```cpp
+      #include <atomic>
+      #include <print>
+      #include <thread>
+
+      int main() {
+          std::atomic<bool> pret{false};
+          std::atomic<int> valeur{0};
+          std::thread t{[&] {
+              valeur.store(42);
+              pret.store(true);
+          }};
+          while (!pret.load()) {
+              std::this_thread::yield();
+          }
+          t.join();
+          std::println("{}", valeur.load());
+      }
+      ```
+    choices:
+      - {text: "`42`", correct: true}
+      - {text: "`0`", correct: false}
+      - {text: "`0` ou `42`, selon l'exécution", correct: false}
+      - {text: "Rien : le programme se fige", correct: false}
+    answer: "`42` : `main` attend que le drapeau atomique passe à `true`. À ce moment, la valeur a déjà été écrite."
+    check:
+      output: "42"
+  - key: bug-load-puis-store
+    format: bug-fix
+    question: |-
+      Ce programme devrait afficher `200000`. Malgré la variable atomique, il affiche un nombre plus petit. Quelle
+      correction est la bonne ?
+      ```cpp
+      #include <atomic>
+      #include <print>
+      #include <thread>
+
+      int main() {
+          std::atomic<int> compteur{0};
+          auto travail = [&compteur] {
+              for (int i = 0; i < 100'000; ++i) {
+                  compteur = compteur + 1;
+              }
+          };
+          std::thread a{travail};
+          std::thread b{travail};
+          a.join();
+          b.join();
+          std::println("{}", compteur.load());
+      }
+      ```
+    choices:
+      - {text: "Écrire `++compteur;`", correct: true}
+      - {text: "Écrire `compteur.store(compteur.load() + 1);`", correct: false}
+      - {text: "Écrire `compteur = compteur.load() + 1;`", correct: false}
+      - {text: "Écrire `compteur.exchange(compteur + 1);`", correct: false}
+    answer: |-
+      ```cpp
+      ++compteur;
+      ```
+      `compteur = compteur + 1` fait un `load`, puis un `store` : entre les deux, l'autre thread peut incrémenter, et
+      son travail est écrasé. `++compteur` est une seule opération atomique.
+  - key: bug-test-puis-ecriture
+    format: bug-fix
+    question: |-
+      Un seul thread devrait gagner l'initialisation, et le programme afficher `1`. Il affiche parfois `2`. Quelle
+      correction est la bonne ?
+      ```cpp
+      #include <atomic>
+      #include <print>
+      #include <thread>
+
+      int main() {
+          std::atomic<bool> initialise{false};
+          std::atomic<int> gagnants{0};
+          auto travail = [&] {
+              if (!initialise.load()) {
+                  initialise.store(true);
+                  ++gagnants;
+              }
+          };
+          std::thread a{travail};
+          std::thread b{travail};
+          a.join();
+          b.join();
+          std::println("{}", gagnants.load());
+      }
+      ```
+    choices:
+      - {text: "Tester et écrire d'un seul geste, avec `compare_exchange_strong`", correct: true}
+      - {text: "Tester deux fois de suite `initialise.load()` avant d'écrire", correct: false}
+      - {text: "Écrire `initialise = true;` à la place de `initialise.store(true);`", correct: false}
+      - {text: "Déclarer `gagnants` comme un simple `int`", correct: false}
+    answer: |-
+      ```cpp
+      bool attendu = false;
+      if (initialise.compare_exchange_strong(attendu, true)) {
+          ++gagnants;
+      }
+      ```
+      Entre le `load` et le `store`, l'autre thread peut faire le même test : les deux entrent. Un
+      `compare_exchange` teste et écrit en une opération : un seul thread réussit.
+  - key: bug-copie
+    format: bug-fix
+    question: |-
+      Le compilateur refuse la ligne `std::atomic<int> copie = compteur;`. Quelle correction est la bonne ?
+      ```cpp
+      #include <atomic>
+      #include <print>
+
+      int main() {
+          std::atomic<int> compteur{5};
+          std::atomic<int> copie = compteur;
+          std::println("{}", copie.load());
+      }
+      ```
+    choices:
+      - {text: "Écrire `std::atomic<int> copie{compteur.load()};`", correct: true}
+      - {text: "Écrire `std::atomic<int> copie{std::move(compteur)};`", correct: false}
+      - {text: "Écrire `std::atomic<int> copie{&compteur};`", correct: false}
+      - {text: "Écrire `std::atomic<int> copie{std::ref(compteur)};`", correct: false}
+    answer: |-
+      ```cpp
+      std::atomic<int> copie{compteur.load()};
+      ```
+      Une variable atomique ne se copie pas, ni ne se déplace. On lit sa valeur, et l'on en initialise une autre.
+  - key: bug-invariant
+    format: bug-fix
+    question: |-
+      Les deux soldes devraient toujours totaliser 100. Un thread qui les lit pendant un virement voit parfois un
+      total de 90. Quelle correction est la bonne ?
+      ```cpp
+      #include <atomic>
+      #include <print>
+      #include <thread>
+
+      int main() {
+          std::atomic<int> a{50};
+          std::atomic<int> b{50};
+          std::thread t{[&] {
+              a -= 10;
+              b += 10;
+          }};
+          std::println("{}", a.load() + b.load() <= 100);
+          t.join();
+      }
+      ```
+    choices:
+      - {text: "Protéger les deux soldes par un même `std::mutex`, pour le virement et pour la lecture", correct: true}
+      - {text: "Écrire `a.fetch_sub(10);` et `b.fetch_add(10);` à la place de `-=` et `+=`", correct: false}
+      - {text: "Lire `b.load()` avant `a.load()` dans le calcul du total", correct: false}
+      - {text: "Déclarer les deux soldes `volatile` en plus de `std::atomic`", correct: false}
+    answer: |-
+      ```cpp
+      std::mutex verrou;
+      // virement et lecture : std::lock_guard garde{verrou};
+      ```
+      Chaque opération est atomique, pas la paire : entre le débit et le crédit, le total est faux. Un invariant
+      sur plusieurs variables demande un verrou autour de toutes les modifications et de toutes les lectures.
+  - key: situation-statistiques
+    format: scenario
+    question: |-
+      Un serveur compte ses requêtes dans une variable protégée par un mutex, verrouillé à chaque requête. Le
+      profileur montre que les threads passent beaucoup de temps à attendre ce verrou. Que proposes-tu ?
+    choices:
+      - {text: "Un `std::atomic<long>` : l'incrémentation se fait sans verrou", correct: true}
+      - {text: "Un `long` ordinaire, sans mutex : une incrémentation est assez rapide", correct: false}
+      - {text: "Un mutex par thread, pour qu'aucun n'attende les autres", correct: false}
+      - {text: "Un `std::recursive_mutex`, qui se verrouille plus vite", correct: false}
+    answer: |-
+      Pour une seule valeur, l'atomique fait le même travail par une instruction du processeur, sans mettre de
+      thread en attente. Retirer toute protection créerait une course aux données.
+  - key: situation-arret
+    format: scenario
+    question: |-
+      Un thread de fond tourne dans `while (continuer) { ... }`, où `continuer` est un `bool` que le thread
+      principal met à `false` pour l'arrêter. En production, le thread ne s'arrête parfois jamais. Que proposes-tu ?
+    choices:
+      - {text: "Déclarer `continuer` en `std::atomic<bool>`", correct: true}
+      - {text: "Déclarer `continuer` en `static bool`", correct: false}
+      - {text: "Mettre `continuer` à `false` deux fois de suite", correct: false}
+      - {text: "Ajouter une pause d'une seconde dans la boucle", correct: false}
+    answer: |-
+      C'est une course aux données : le compilateur peut garder `continuer` dans un registre, et ne jamais relire
+      la mémoire. Une variable atomique garantit que la boucle voit l'écriture. En C++20, `std::jthread` et son
+      `std::stop_token` offrent ce mécanisme tout fait.
+  - key: situation-deux-compteurs
+    format: scenario
+    question: |-
+      Une classe tient deux `std::atomic<int>` : le nombre de succès et le nombre total d'essais. Un tableau de
+      bord affiche parfois un taux de réussite supérieur à 100 %. Pourquoi ?
+    choices:
+      - {text: "Les deux compteurs sont lus entre deux mises à jour : il faut un mutex pour la paire", correct: true}
+      - {text: "Les variables atomiques perdent des incrémentations quand deux threads écrivent", correct: false}
+      - {text: "La division de deux variables atomiques n'est pas définie par le standard", correct: false}
+      - {text: "Les variables atomiques débordent plus tôt que les entiers ordinaires", correct: false}
+    answer: |-
+      Chaque compteur est juste, mais rien ne les lie : le lecteur peut voir un succès déjà compté et l'essai
+      correspondant pas encore. Un invariant entre deux valeurs se protège par un verrou.
+  - key: situation-entretien
+    format: scenario
+    question: |-
+      En entretien, on te demande : « Pourquoi ne pas tout déclarer `std::atomic` et se passer de mutex ? » Que
+      réponds-tu ?
+    choices:
+      - {text: "Qu'un atomique protège une opération sur une valeur, pas une suite d'opérations cohérentes", correct: true}
+      - {text: "Qu'un atomique est toujours plus lent qu'un mutex, quel que soit l'usage", correct: false}
+      - {text: "Qu'un atomique ne fonctionne qu'avec deux threads au maximum", correct: false}
+      - {text: "Qu'un atomique ne peut pas être lu, seulement écrit, depuis un autre thread", correct: false}
+    answer: |-
+      Tester puis modifier, mettre à jour deux champs, parcourir un conteneur : ce sont des suites d'opérations,
+      qu'un autre thread peut interrompre entre deux pas atomiques. Le mutex encadre l'ensemble. L'atomique reste
+      le bon outil pour un compteur ou un drapeau.

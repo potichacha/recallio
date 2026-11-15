@@ -1,0 +1,476 @@
+notion: exceptions-personnalisees
+lesson: |-
+  Une exception à soi permet à l'appelant de **distinguer** une erreur précise (`catch (const ErreurReseau&)`), et
+  de transporter des **informations** propres à cette erreur : un code, un nom de fichier, un numéro de ligne.
+
+  **La forme la plus courte.** On dérive de `std::runtime_error` (ou d'une autre classe de la hiérarchie
+  standard), et l'on hérite de ses constructeurs :
+
+  ```cpp
+  #include <stdexcept>
+
+  class ErreurReseau : public std::runtime_error {
+  public:
+      using std::runtime_error::runtime_error;
+  };
+
+  throw ErreurReseau{"hôte injoignable"};
+  ```
+
+  `std::runtime_error` range le message, et fournit `what()`. Tout `catch (const std::exception&)` attrape aussi
+  `ErreurReseau`.
+
+  **Avec des données en plus.** On écrit un constructeur, qui transmet le message à la classe de base, et des
+  accesseurs :
+
+  ```cpp
+  class ErreurAnalyse : public std::runtime_error {
+  public:
+      ErreurAnalyse(const std::string& message, int ligne)
+          : std::runtime_error{message}, ligne_{ligne} {}
+
+      int ligne() const noexcept { return ligne_; }
+
+  private:
+      int ligne_;
+  };
+  ```
+
+  **Pourquoi `std::runtime_error` plutôt que `std::exception`.** `std::exception` n'a **pas** de constructeur qui
+  prend un message : en dériver directement oblige à ranger soi-même le texte, et à redéfinir `what()` :
+
+  ```cpp
+  const char* what() const noexcept override { return "erreur de configuration"; }
+  ```
+
+  La signature est exacte : `const`, `noexcept`, `override`. Sans `const`, c'est une **autre** fonction, et
+  `what()` de la base continue de répondre ; `override` transforme cet oubli en erreur de compilation.
+
+  **Une petite hiérarchie.** Une classe de base par module, et des classes dérivées par cas :
+
+  ```cpp
+  class ErreurBanque : public std::runtime_error { using std::runtime_error::runtime_error; };
+  class SoldeInsuffisant : public ErreurBanque { using ErreurBanque::ErreurBanque; };
+  class CompteInconnu : public ErreurBanque { using ErreurBanque::ErreurBanque; };
+  ```
+
+  L'appelant attrape le cas précis, ou toute la famille avec `catch (const ErreurBanque&)`.
+
+  **Les règles.**
+
+  - **Dériver de la hiérarchie standard**, publiquement. Avec un héritage privé (le défaut d'une `class`), le
+    `catch` de la classe de base ne l'attrape pas.
+  - **Lancer par valeur, attraper par référence constante.**
+  - Une exception doit pouvoir être **copiée sans lancer** : des membres simples, pas de ressource lourde.
+  - Un **nom qui dit l'erreur** (`FichierIntrouvable`), plutôt qu'un code à interpréter.
+  - Ne pas en créer une par ligne de code : une classe par **cas que l'appelant veut traiter différemment**.
+
+  **En entretien** : « Je dérive de `std::runtime_error` et j'hérite de ses constructeurs : j'obtiens `what()` et
+  la compatibilité avec `catch (const std::exception&)`. J'ajoute des membres si l'appelant a besoin de données, et
+  je ne crée une classe que pour une erreur qu'il traitera à part. »
+cards:
+  - key: pourquoi
+    format: course
+    question: "Pourquoi définir sa propre classe d'exception ?"
+    choices:
+      - {text: "Pour que l'appelant distingue cette erreur par son type, et y trouve des données utiles", correct: true}
+      - {text: "Pour que l'exception soit lancée plus vite que celles de la bibliothèque standard", correct: false}
+      - {text: "Pour que l'exception ne puisse être attrapée par aucun `catch` de l'appelant", correct: false}
+      - {text: "Pour que le compilateur vérifie que l'exception est attrapée quelque part", correct: false}
+    answer: "Un `catch` choisit par type : une classe à soi permet de traiter ce cas à part, et de transporter un code, une ligne, un nom de fichier."
+  - key: base
+    format: course
+    question: "De quelle classe dérive-t-on le plus simplement sa propre exception ?"
+    choices:
+      - {text: "De `std::runtime_error`, qui range le message et fournit `what()`", correct: true}
+      - {text: "De `std::string`, qui range le message et fournit `c_str()`", correct: false}
+      - {text: "De `std::error_code`, qui range un code et fournit `value()`", correct: false}
+      - {text: "D'aucune classe : une exception n'a pas besoin d'hériter", correct: false}
+    answer: "`std::runtime_error` a un constructeur qui prend le message. Et comme elle dérive de `std::exception`, tout `catch (const std::exception&)` attrapera la nouvelle classe."
+  - key: heritage-constructeurs
+    format: course
+    question: "Que fait la ligne `using std::runtime_error::runtime_error;` dans une classe d'exception ?"
+    choices:
+      - {text: "Elle hérite des constructeurs de la base : la classe se construit avec un message", correct: true}
+      - {text: "Elle rend publiques toutes les fonctions membres privées de la base", correct: false}
+      - {text: "Elle remplace la fonction `what()` de la base par celle de la classe", correct: false}
+      - {text: "Elle importe l'espace de noms `std` dans la classe", correct: false}
+    answer: "Sans elle, la classe dérivée n'aurait que son constructeur par défaut, que `std::runtime_error` ne permet pas. Avec elle, `ErreurReseau{\"message\"}` fonctionne."
+  - key: what
+    format: course
+    question: "Quelle est la signature exacte de `what()`, quand on la redéfinit ?"
+    choices:
+      - {text: "`const char* what() const noexcept override`", correct: true}
+      - {text: "`std::string what() override`", correct: false}
+      - {text: "`const char* what() override`", correct: false}
+      - {text: "`void what(std::string& message) const`", correct: false}
+    answer: "Elle renvoie un `const char*`, est `const` et `noexcept`. Sans `const`, ce serait une autre fonction : `override` le signale à la compilation."
+  - key: vf-attrapee-par-base
+    format: true-false
+    question: "Une exception qui dérive publiquement de `std::runtime_error` est attrapée par `catch (const std::exception&)`."
+    truth: true
+    answer: "`std::runtime_error` dérive de `std::exception` : l'héritage se transmet."
+  - key: vf-exception-message
+    format: true-false
+    question: "`std::exception` a un constructeur qui prend un message en argument."
+    truth: false
+    answer: "Elle n'en a pas. C'est `std::runtime_error` et `std::logic_error` qui rangent un message."
+  - key: vf-heritage-prive
+    format: true-false
+    question: "Une exception écrite `class Erreur : std::runtime_error {...}` est attrapée par `catch (const std::runtime_error&)`."
+    truth: false
+    answer: "L'héritage d'une `class` est privé par défaut : la conversion vers la base est inaccessible au `catch`. Il faut écrire `public`."
+  - key: vf-une-par-cas
+    format: true-false
+    question: "On crée une classe d'exception pour chaque cas que l'appelant voudra traiter différemment."
+    truth: true
+    answer: "Pas davantage : pour le reste, le message suffit. Une classe de base par module permet d'attraper toute la famille."
+  - key: qcm-declaration
+    format: multiple-choice
+    question: "Quelle déclaration définit correctement l'exception `ErreurConfig` ?"
+    choices:
+      - {text: "`class ErreurConfig : public std::runtime_error { ... };`", correct: true}
+      - {text: "`class ErreurConfig : std::runtime_error { ... };`", correct: false}
+      - {text: "`exception ErreurConfig : std::runtime_error { ... };`", correct: false}
+      - {text: "`class ErreurConfig throws std::runtime_error { ... };`", correct: false}
+    answer: "Une classe ordinaire, qui hérite publiquement. Sans `public`, l'héritage est privé et les `catch` de la base ne la voient pas."
+  - key: qcm-constructeur
+    format: multiple-choice
+    question: "Dans le constructeur `ErreurAnalyse(const std::string& message, int ligne)`, comment transmets-tu le message à la base ?"
+    choices:
+      - {text: "`: std::runtime_error{message}, ligne_{ligne} {}`", correct: true}
+      - {text: "`{ what() = message; ligne_ = ligne; }`", correct: false}
+      - {text: "`{ std::runtime_error = message; ligne_ = ligne; }`", correct: false}
+      - {text: "`: ligne_{ligne} { throw message; }`", correct: false}
+    answer: "La classe de base s'initialise dans la liste d'initialisation, avant les membres. `what()` ne s'affecte pas."
+  - key: qcm-famille
+    format: multiple-choice
+    question: "`SoldeInsuffisant` et `CompteInconnu` dérivent de `ErreurBanque`. Quel `catch` attrape les deux ?"
+    choices:
+      - {text: "`catch (const ErreurBanque& e)`", correct: true}
+      - {text: "`catch (const SoldeInsuffisant& e)`", correct: false}
+      - {text: "`catch (const std::logic_error& e)`", correct: false}
+      - {text: "`catch (const CompteInconnu& e)`", correct: false}
+    answer: "Un `catch` de la classe de base attrape toutes ses classes dérivées."
+  - key: qcm-lancer
+    format: multiple-choice
+    question: "Comment lance-t-on l'exception `ErreurReseau` ?"
+    choices:
+      - {text: "`throw ErreurReseau{\"hôte injoignable\"};`", correct: true}
+      - {text: "`throw new ErreurReseau{\"hôte injoignable\"};`", correct: false}
+      - {text: "`throw &ErreurReseau{\"hôte injoignable\"};`", correct: false}
+      - {text: "`throw ErreurReseau;`", correct: false}
+    answer: "On lance un objet, par valeur. `throw new` lancerait un pointeur, que personne ne libérerait."
+  - key: trous-public
+    format: fill-in
+    question: |-
+      Complète pour que l'exception soit attrapée par `catch (const std::exception&)` :
+      ```cpp
+      class ErreurReseau : ___ std::runtime_error {
+      public:
+          using std::runtime_error::runtime_error;
+      };
+      ```
+    blanks:
+      - [public]
+    answer: "L'héritage doit être public, pour que la conversion vers la classe de base soit accessible."
+  - key: trous-using
+    format: fill-in
+    question: |-
+      Complète pour hériter des constructeurs de la classe de base :
+      ```cpp
+      class ErreurReseau : public std::runtime_error {
+      public:
+          ___ std::runtime_error::runtime_error;
+      };
+      ```
+    blanks:
+      - [using]
+    answer: "`using Base::Base;` hérite des constructeurs."
+  - key: trous-override
+    format: fill-in
+    question: |-
+      Complète pour que le compilateur vérifie que `what` redéfinit bien celle de la base :
+      ```cpp
+      const char* what() const noexcept ___ {
+          return "erreur de configuration";
+      }
+      ```
+    blanks:
+      - [override]
+    answer: "`override` refuse la compilation si la signature ne correspond à aucune fonction virtuelle de la base."
+  - key: trous-base
+    format: fill-in
+    question: |-
+      Complète pour transmettre le message à la classe de base :
+      ```cpp
+      ErreurAnalyse(const std::string& message, int ligne)
+          : std::___{message}, ligne_{ligne} {}
+      ```
+    blanks:
+      - [runtime_error]
+    answer: "Le constructeur de `std::runtime_error` range le message, que `what()` renverra."
+  - key: code-what
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+      #include <stdexcept>
+
+      class ErreurReseau : public std::runtime_error {
+      public:
+          using std::runtime_error::runtime_error;
+      };
+
+      int main() {
+          try {
+              throw ErreurReseau{"délai dépassé"};
+          } catch (const std::exception& e) {
+              std::println("{}", e.what());
+          }
+      }
+      ```
+    choices:
+      - {text: "`délai dépassé`", correct: true}
+      - {text: "`std::exception`", correct: false}
+      - {text: "`ErreurReseau`", correct: false}
+      - {text: "Rien", correct: false}
+    answer: "`délai dépassé` : le constructeur hérité range le message dans `std::runtime_error`, dont `what()` est appelée à travers la référence."
+    check:
+      output: "délai dépassé"
+  - key: code-donnees
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+      #include <stdexcept>
+      #include <string>
+
+      class ErreurAnalyse : public std::runtime_error {
+      public:
+          ErreurAnalyse(const std::string& message, int ligne)
+              : std::runtime_error{message}, ligne_{ligne} {}
+          int ligne() const noexcept { return ligne_; }
+
+      private:
+          int ligne_;
+      };
+
+      int main() {
+          try {
+              throw ErreurAnalyse{"accolade manquante", 12};
+          } catch (const ErreurAnalyse& e) {
+              std::println("{} ligne {}", e.what(), e.ligne());
+          }
+      }
+      ```
+    choices:
+      - {text: "`accolade manquante ligne 12`", correct: true}
+      - {text: "`accolade manquante ligne 0`", correct: false}
+      - {text: "`std::runtime_error ligne 12`", correct: false}
+      - {text: "`ligne 12`", correct: false}
+    answer: "`accolade manquante ligne 12` : le message vient de la classe de base, la ligne du membre ajouté. Il faut attraper `ErreurAnalyse` pour accéder à `ligne()`."
+    check:
+      output: "accolade manquante ligne 12"
+  - key: code-famille
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+      #include <stdexcept>
+
+      class ErreurBanque : public std::runtime_error {
+      public:
+          using std::runtime_error::runtime_error;
+      };
+
+      class SoldeInsuffisant : public ErreurBanque {
+      public:
+          using ErreurBanque::ErreurBanque;
+      };
+
+      int main() {
+          try {
+              throw SoldeInsuffisant{"solde"};
+          } catch (const std::logic_error&) {
+              std::println("logique");
+          } catch (const ErreurBanque&) {
+              std::println("banque");
+          } catch (const std::runtime_error&) {
+              std::println("exécution");
+          }
+      }
+      ```
+    choices:
+      - {text: "`banque`", correct: true}
+      - {text: "`logique`", correct: false}
+      - {text: "`exécution`", correct: false}
+      - {text: "`banque`, puis `exécution`", correct: false}
+    answer: "`banque` : `SoldeInsuffisant` ne dérive pas de `std::logic_error`. Le premier `catch` compatible est celui d'`ErreurBanque` ; un seul s'exécute."
+    check:
+      output: "banque"
+  - key: code-what-redefinie
+    format: code-output
+    question: |-
+      ```cpp
+      #include <exception>
+      #include <print>
+
+      class ErreurConfig : public std::exception {
+      public:
+          const char* what() const noexcept override { return "configuration invalide"; }
+      };
+
+      int main() {
+          try {
+              throw ErreurConfig{};
+          } catch (const std::exception& e) {
+              std::println("{}", e.what());
+          }
+      }
+      ```
+    choices:
+      - {text: "`configuration invalide`", correct: true}
+      - {text: "`std::exception`", correct: false}
+      - {text: "`ErreurConfig`", correct: false}
+      - {text: "Rien", correct: false}
+    answer: "`configuration invalide` : `what()` est virtuelle. À travers la référence vers la base, c'est la version redéfinie qui répond."
+    check:
+      output: "configuration invalide"
+  - key: bug-heritage-prive
+    format: bug-fix
+    question: |-
+      Ce programme s'arrête brutalement : le `catch` n'attrape pas l'exception. Il devrait afficher `panne`. Quelle
+      correction est la bonne ?
+      ```cpp
+      #include <print>
+      #include <stdexcept>
+
+      class ErreurReseau : std::runtime_error {
+      public:
+          using std::runtime_error::runtime_error;
+      };
+
+      int main() {
+          try {
+              throw ErreurReseau{"panne"};
+          } catch (const std::runtime_error& e) {
+              std::println("{}", e.what());
+          }
+      }
+      ```
+    choices:
+      - {text: "Hériter publiquement : `class ErreurReseau : public std::runtime_error`", correct: true}
+      - {text: "Hériter virtuellement : `class ErreurReseau : virtual std::runtime_error`", correct: false}
+      - {text: "Lancer un pointeur : `throw new ErreurReseau{\"panne\"};`", correct: false}
+      - {text: "Attraper par valeur : `catch (std::runtime_error e)`", correct: false}
+    answer: |-
+      ```cpp
+      class ErreurReseau : public std::runtime_error {
+      ```
+      Une `class` hérite en privé par défaut : hors de la classe, `ErreurReseau` n'est pas convertible en
+      `std::runtime_error`, et le `catch` ne correspond pas.
+  - key: bug-what-sans-const
+    format: bug-fix
+    question: |-
+      Ce programme devrait afficher `disque plein`. Il affiche `std::exception`. Quelle correction est la bonne ?
+      ```cpp
+      #include <exception>
+      #include <print>
+
+      class ErreurDisque : public std::exception {
+      public:
+          const char* what() { return "disque plein"; }
+      };
+
+      int main() {
+          try {
+              throw ErreurDisque{};
+          } catch (const std::exception& e) {
+              std::println("{}", e.what());
+          }
+      }
+      ```
+    choices:
+      - {text: "Déclarer `const char* what() const noexcept override`", correct: true}
+      - {text: "Déclarer `virtual const char* what()`", correct: false}
+      - {text: "Déclarer `static const char* what()`", correct: false}
+      - {text: "Déclarer `std::string what()`", correct: false}
+    answer: |-
+      ```cpp
+      const char* what() const noexcept override { return "disque plein"; }
+      ```
+      Sans `const`, la fonction ne redéfinit pas celle de `std::exception` : c'en est une autre, que la référence
+      vers la base ne voit pas. `override` aurait transformé cet oubli en erreur de compilation.
+  - key: bug-constructeur-manquant
+    format: bug-fix
+    question: |-
+      Le compilateur refuse `throw ErreurAnalyse{"virgule inattendue"};` : il ne trouve pas de constructeur qui
+      prenne un message. Quelle correction est la bonne ?
+      ```cpp
+      #include <print>
+      #include <stdexcept>
+
+      class ErreurAnalyse : public std::runtime_error {};
+
+      int main() {
+          try {
+              throw ErreurAnalyse{"virgule inattendue"};
+          } catch (const std::exception& e) {
+              std::println("{}", e.what());
+          }
+      }
+      ```
+    choices:
+      - {text: "Ajouter `public: using std::runtime_error::runtime_error;` dans la classe", correct: true}
+      - {text: "Ajouter `public: ErreurAnalyse() = default;` dans la classe", correct: false}
+      - {text: "Ajouter `public: std::string message;` dans la classe", correct: false}
+      - {text: "Ajouter `public: virtual ~ErreurAnalyse() = default;` dans la classe", correct: false}
+    answer: |-
+      ```cpp
+      class ErreurAnalyse : public std::runtime_error {
+      public:
+          using std::runtime_error::runtime_error;
+      };
+      ```
+      Les constructeurs ne s'héritent pas d'office. La déclaration `using` reprend ceux de la base, dont celui qui
+      prend le message.
+  - key: bug-donnee-inaccessible
+    format: bug-fix
+    question: |-
+      Le compilateur répond « 'const class std::exception' has no member named 'code' ». Quelle correction est la
+      bonne ?
+      ```cpp
+      #include <print>
+      #include <stdexcept>
+
+      class ErreurHttp : public std::runtime_error {
+      public:
+          ErreurHttp(const char* message, int code) : std::runtime_error{message}, code_{code} {}
+          int code() const noexcept { return code_; }
+
+      private:
+          int code_;
+      };
+
+      int main() {
+          try {
+              throw ErreurHttp{"introuvable", 404};
+          } catch (const std::exception& e) {
+              std::println("{}", e.code());
+          }
+      }
+      ```
+    choices:
+      - {text: "Attraper `const ErreurHttp& e`", correct: true}
+      - {text: "Attraper `const std::runtime_error& e`", correct: false}
+      - {text: "Attraper `std::exception e`, par valeur", correct: false}
+      - {text: "Attraper `const std::logic_error& e`", correct: false}
+    answer: |-
+      ```cpp
+      } catch (const ErreurHttp& e) {
+          std::println("{}", e.code());
+      }
+      ```
+      `code()` n'existe que dans `ErreurHttp`. À travers une référence vers la classe de base, on n'a accès qu'à
+      `what()`. Pour lire les données propres à l'exception, on attrape son type.

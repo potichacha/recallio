@@ -1,0 +1,472 @@
+notion: copies-inutiles
+lesson: |-
+  En C++, **passer, renvoyer ou affecter un objet le copie**, sauf si l'on demande autre chose. Copier un `int` ne
+  coûte rien ; copier une `std::string` ou un `std::vector` alloue de la mémoire et recopie tout leur contenu. Ces
+  copies ne se voient pas dans le code : elles sont la première cause de lenteur évitable.
+
+  **1. Les paramètres.**
+
+  ```cpp
+  void afficher(std::vector<int> v);            // copie le vecteur à chaque appel
+  void afficher(const std::vector<int>& v);     // aucune copie
+  ```
+
+  La règle : un objet **coûteux à copier** que la fonction ne fait que **lire** se passe par **référence
+  constante**. Les types fondamentaux, et les petits objets comme `std::string_view` ou `std::span`, se passent
+  par valeur.
+
+  **2. Les boucles.**
+
+  ```cpp
+  for (auto ligne : lignes) { ... }             // copie chaque chaîne
+  for (const auto& ligne : lignes) { ... }      // aucune copie
+  ```
+
+  `auto` seul déduit un type **valeur** : chaque tour copie l'élément. C'est le piège le plus fréquent.
+
+  **3. Les variables intermédiaires.**
+
+  ```cpp
+  auto nom = client.nom();             // copie, même si nom() renvoie une référence
+  const auto& nom = client.nom();      // aucune copie
+  ```
+
+  `auto` laisse tomber la référence et le `const`. Il faut les écrire.
+
+  **4. Les retours.** Renvoyer un objet local **par valeur ne le copie pas** : le compilateur le construit
+  directement chez l'appelant (élision de copie, RVO), ou à défaut le déplace.
+
+  ```cpp
+  std::vector<int> creer() {
+      std::vector<int> v(1000);
+      return v;                        // ni copie, ni std::move à écrire
+  }
+  ```
+
+  Écrire `return std::move(v);` est inutile, et **empêche** l'élision.
+
+  **5. Le dernier usage d'un objet.** Quand on n'a plus besoin d'un objet, on le **déplace** au lieu de le copier :
+
+  ```cpp
+  noms.push_back(std::move(nom));      // vole le tampon de nom, au lieu de le recopier
+  ```
+
+  **6. Les chaînes.** `const char*` passé à un paramètre `const std::string&` fabrique une chaîne temporaire. Un
+  paramètre `std::string_view` accepte les deux sans rien allouer.
+
+  **Les repérer.**
+
+  - `-Wrange-loop-construct` (dans `-Wall`) signale certaines copies dans les boucles ; **clang-tidy** en repère
+    bien d'autres (`performance-unnecessary-copy-initialization`, `performance-for-range-copy`).
+  - Un **profileur** montre le temps passé dans les constructeurs de copie et dans l'allocateur.
+  - Pour un type à soi, supprimer provisoirement le constructeur de copie (`= delete`) fait apparaître chaque
+    copie comme une erreur de compilation.
+
+  **Sans excès.** Une copie est parfois ce qu'on veut : une fonction qui doit **garder** son argument le prend par
+  valeur, puis le déplace. Et l'on mesure avant d'optimiser : une copie hors d'un chemin fréquenté ne compte pas.
+
+  **En entretien** : « Les copies cachées viennent des paramètres par valeur, de `auto` sans `&` dans les boucles,
+  et des variables intermédiaires. Je passe par référence constante ce que je lis, je déplace ce dont je n'ai plus
+  besoin, et je renvoie par valeur en laissant faire l'élision de copie. »
+cards:
+  - key: parametre
+    format: course
+    question: "Comment passes-tu à une fonction un `std::vector` qu'elle ne fait que lire ?"
+    choices:
+      - {text: "Par référence constante : `const std::vector<int>& v`", correct: true}
+      - {text: "Par valeur : `std::vector<int> v`", correct: false}
+      - {text: "Par pointeur vers un pointeur : `std::vector<int>** v`", correct: false}
+      - {text: "Par référence à une rvalue : `std::vector<int>&& v`", correct: false}
+    answer: "La référence constante évite la copie, et promet de ne pas modifier. Par valeur, tout le vecteur serait recopié à chaque appel."
+  - key: boucle
+    format: course
+    question: "Que fait `for (auto ligne : lignes)` sur un `std::vector<std::string>` ?"
+    choices:
+      - {text: "Il copie chaque chaîne dans `ligne`, à chaque tour", correct: true}
+      - {text: "Il lie `ligne` à chaque chaîne, sans la copier", correct: false}
+      - {text: "Il déplace chaque chaîne hors du vecteur", correct: false}
+      - {text: "Il copie le vecteur entier avant de le parcourir", correct: false}
+    answer: "`auto` déduit un type valeur : `std::string`. Pour lire sans copier, on écrit `const auto&`."
+  - key: retour
+    format: course
+    question: "Que coûte `return v;` quand `v` est un `std::vector` local de la fonction ?"
+    choices:
+      - {text: "Rien, ou un déplacement : le compilateur élide la copie", correct: true}
+      - {text: "Une copie complète du vecteur, à chaque appel", correct: false}
+      - {text: "Deux copies : une vers un temporaire, une vers l'appelant", correct: false}
+      - {text: "Une allocation sur le tas, que l'appelant devra libérer", correct: false}
+    answer: "L'objet local est construit directement à l'emplacement du résultat (NRVO), ou sinon déplacé. On renvoie par valeur sans crainte."
+  - key: auto-reference
+    format: course
+    question: "`nom()` renvoie un `const std::string&`. Que fait `auto n = client.nom();` ?"
+    choices:
+      - {text: "Il copie la chaîne : `auto` laisse tomber la référence et le `const`", correct: true}
+      - {text: "Il lie `n` à la chaîne du client, sans la copier", correct: false}
+      - {text: "Il déplace la chaîne hors du client", correct: false}
+      - {text: "Il ne compile pas : `auto` refuse une référence", correct: false}
+    answer: "`auto` déduit `std::string`. Pour garder la référence, on écrit `const auto& n = client.nom();`."
+  - key: vf-int
+    format: true-false
+    question: "Passer un `int` par référence constante est plus rapide que le passer par valeur."
+    truth: false
+    answer: "Un `int` tient dans un registre : le copier ne coûte rien, et la référence ajoute une indirection. Les types fondamentaux se passent par valeur."
+  - key: vf-return-move
+    format: true-false
+    question: "Écrire `return std::move(v);` pour un objet local accélère le retour."
+    truth: false
+    answer: "C'est inutile, et cela empêche l'élision de copie. GCC le signale avec `-Wpessimizing-move`."
+  - key: vf-const-auto-ref
+    format: true-false
+    question: "`for (const auto& x : v)` parcourt le vecteur sans copier ses éléments."
+    truth: true
+    answer: "`x` est une référence constante vers chaque élément."
+  - key: vf-string-view
+    format: true-false
+    question: "Un paramètre `std::string_view` accepte une `std::string` comme un littéral, sans allouer."
+    truth: true
+    answer: "Une vue ne possède rien : elle désigne les caractères, et se passe par valeur."
+  - key: qcm-dernier-usage
+    format: multiple-choice
+    question: "Tu ranges `nom` dans un vecteur, et tu ne t'en serviras plus. Quelle ligne évite la copie ?"
+    choices:
+      - {text: "`noms.push_back(std::move(nom));`", correct: true}
+      - {text: "`noms.push_back(nom);`", correct: false}
+      - {text: "`noms.push_back(&nom);`", correct: false}
+      - {text: "`noms.push_back(std::ref(nom));`", correct: false}
+    answer: "`std::move` autorise le vecteur à voler le tampon de la chaîne. Sans lui, la chaîne est recopiée."
+  - key: qcm-boucle
+    format: multiple-choice
+    question: "Quelle boucle lit les éléments d'un `std::vector<std::string>` sans les copier ?"
+    choices:
+      - {text: "`for (const auto& s : v)`", correct: true}
+      - {text: "`for (auto s : v)`", correct: false}
+      - {text: "`for (std::string s : v)`", correct: false}
+      - {text: "`for (const auto s : v)`", correct: false}
+    answer: "Seule la version avec `&` lie une référence. `const auto s` copie quand même, dans une copie constante."
+  - key: qcm-petit-objet
+    format: multiple-choice
+    question: "Lequel de ces paramètres se passe par valeur, sans regret ?"
+    choices:
+      - {text: "`std::string_view`", correct: true}
+      - {text: "`std::vector<std::string>`", correct: false}
+      - {text: "`std::map<int, std::string>`", correct: false}
+      - {text: "`std::string`, lue seulement", correct: false}
+    answer: "Une vue contient un pointeur et une taille : la copier est immédiat. Les conteneurs, eux, recopient tout leur contenu."
+  - key: qcm-outil
+    format: multiple-choice
+    question: "Quel outil signale les copies inutiles dans le code, sans exécuter le programme ?"
+    choices:
+      - {text: "clang-tidy", correct: true}
+      - {text: "AddressSanitizer", correct: false}
+      - {text: "L'éditeur de liens", correct: false}
+      - {text: "Le préprocesseur", correct: false}
+    answer: "Ses vérifications `performance-*` repèrent les paramètres, les boucles et les variables copiés pour rien. Un profileur, lui, mesure leur coût à l'exécution."
+  - key: code-parametre
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+
+      struct Trace {
+          Trace() = default;
+          Trace(const Trace&) { ++copies; }
+          static inline int copies = 0;
+      };
+
+      void par_valeur(Trace) {}
+      void par_reference(const Trace&) {}
+
+      int main() {
+          Trace t;
+          par_valeur(t);
+          par_reference(t);
+          par_valeur(t);
+          std::println("{}", Trace::copies);
+      }
+      ```
+    choices:
+      - {text: "`2`", correct: true}
+      - {text: "`3`", correct: false}
+      - {text: "`0`", correct: false}
+      - {text: "`1`", correct: false}
+    answer: "`2` : chaque appel de `par_valeur` copie l'argument. `par_reference` ne copie rien."
+    check:
+      output: "2"
+  - key: code-boucle
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+      #include <vector>
+
+      struct Trace {
+          Trace() = default;
+          Trace(const Trace&) { ++copies; }
+          static inline int copies = 0;
+      };
+
+      int main() {
+          std::vector<Trace> v(3);
+          for (auto t : v) {
+          }
+          const int avec_auto = Trace::copies;
+          for (const auto& t : v) {
+          }
+          std::println("{} {}", avec_auto, Trace::copies);
+      }
+      ```
+    choices:
+      - {text: "`3 3`", correct: true}
+      - {text: "`3 6`", correct: false}
+      - {text: "`0 0`", correct: false}
+      - {text: "`0 3`", correct: false}
+    answer: "`3 3` : la boucle avec `auto` copie les trois éléments. Celle avec `const auto&` n'en copie aucun : le compteur ne bouge plus."
+    check:
+      output: "3 3"
+  - key: code-retour
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+
+      struct Trace {
+          Trace() = default;
+          Trace(const Trace&) { ++copies; }
+          Trace(Trace&&) noexcept { ++deplacements; }
+          static inline int copies = 0;
+          static inline int deplacements = 0;
+      };
+
+      Trace creer() {
+          return Trace{};
+      }
+
+      int main() {
+          Trace t = creer();
+          std::println("{} {}", Trace::copies, Trace::deplacements);
+      }
+      ```
+    choices:
+      - {text: "`0 0`", correct: true}
+      - {text: "`1 0`", correct: false}
+      - {text: "`0 1`", correct: false}
+      - {text: "`2 0`", correct: false}
+    answer: "`0 0` : depuis C++17, renvoyer un temporaire le construit directement dans `t`. Ni copie, ni déplacement : c'est l'élision de copie, garantie."
+    check:
+      output: "0 0"
+  - key: code-move
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+      #include <utility>
+      #include <vector>
+
+      struct Trace {
+          Trace() = default;
+          Trace(const Trace&) { ++copies; }
+          Trace(Trace&&) noexcept { ++deplacements; }
+          static inline int copies = 0;
+          static inline int deplacements = 0;
+      };
+
+      int main() {
+          std::vector<Trace> v;
+          v.reserve(2);
+          Trace a;
+          Trace b;
+          v.push_back(a);
+          v.push_back(std::move(b));
+          std::println("{} {}", Trace::copies, Trace::deplacements);
+      }
+      ```
+    choices:
+      - {text: "`1 1`", correct: true}
+      - {text: "`2 0`", correct: false}
+      - {text: "`0 2`", correct: false}
+      - {text: "`2 1`", correct: false}
+    answer: "`1 1` : `push_back(a)` copie ; `push_back(std::move(b))` déplace. La capacité réservée évite toute réallocation."
+    check:
+      output: "1 1"
+  - key: bug-parametre-par-valeur
+    format: bug-fix
+    question: |-
+      Cette fonction est appelée des millions de fois, et le profileur montre que le programme passe son temps à
+      copier des vecteurs. Quelle correction est la bonne ?
+      ```cpp
+      #include <print>
+      #include <vector>
+
+      int somme(std::vector<int> valeurs) {
+          int total = 0;
+          for (int v : valeurs) {
+              total += v;
+          }
+          return total;
+      }
+
+      int main() {
+          const std::vector<int> donnees{1, 2, 3};
+          std::println("{}", somme(donnees));
+      }
+      ```
+    choices:
+      - {text: "Recevoir `const std::vector<int>& valeurs`", correct: true}
+      - {text: "Recevoir `std::vector<int>* valeurs`, alloué avec `new`", correct: false}
+      - {text: "Parcourir avec `for (const int& v : valeurs)`", correct: false}
+      - {text: "Déclarer `total` avec le type `long`", correct: false}
+    answer: |-
+      ```cpp
+      int somme(const std::vector<int>& valeurs) {
+      ```
+      Par valeur, le vecteur entier est recopié à chaque appel. La fonction ne fait que lire : une référence
+      constante suffit. Changer la boucle ne sert à rien : copier un `int` ne coûte rien.
+  - key: bug-boucle-auto
+    format: bug-fix
+    question: |-
+      Cette boucle alloue de la mémoire à chaque tour : sur cent mille lignes, elle devient lente. Quelle
+      correction est la bonne ?
+      ```cpp
+      #include <print>
+      #include <string>
+      #include <vector>
+
+      int main() {
+          const std::vector<std::string> lignes{"une ligne assez longue pour allouer", "une autre ligne assez longue"};
+          std::size_t total = 0;
+          for (auto ligne : lignes) {
+              total += ligne.size();
+          }
+          std::println("{}", total);
+      }
+      ```
+    choices:
+      - {text: "Écrire `for (const auto& ligne : lignes)`", correct: true}
+      - {text: "Écrire `for (const auto ligne : lignes)`", correct: false}
+      - {text: "Écrire `for (std::string ligne : lignes)`", correct: false}
+      - {text: "Écrire `for (auto ligne : std::move(lignes))`", correct: false}
+    answer: |-
+      ```cpp
+      for (const auto& ligne : lignes) {
+      ```
+      `auto` déduit `std::string` : chaque tour copie la chaîne. `const auto` copie aussi. Avec `&`, `ligne` est une
+      référence vers l'élément.
+  - key: bug-return-move
+    format: bug-fix
+    question: |-
+      GCC avertit : « moving a local object in a return statement prevents copy elision ». Quelle correction est la
+      bonne ?
+      ```cpp
+      #include <print>
+      #include <utility>
+      #include <vector>
+
+      std::vector<int> creer() {
+          std::vector<int> v{1, 2, 3};
+          return std::move(v);
+      }
+
+      int main() {
+          std::println("{}", creer().size());
+      }
+      ```
+    choices:
+      - {text: "Écrire `return v;`", correct: true}
+      - {text: "Écrire `return &v;`", correct: false}
+      - {text: "Écrire `return std::move(std::move(v));`", correct: false}
+      - {text: "Renvoyer `std::vector<int>&` à la place de la valeur", correct: false}
+    answer: |-
+      ```cpp
+      return v;
+      ```
+      Un objet local renvoyé par valeur est construit chez l'appelant, ou déplacé d'office. `std::move` force un
+      déplacement là où il n'y aurait rien eu du tout. Renvoyer une référence vers `v` serait pendant.
+  - key: bug-copie-intermediaire
+    format: bug-fix
+    question: |-
+      Cette fonction copie tout le vecteur des commandes pour lire sa taille. Quelle correction est la bonne ?
+      ```cpp
+      #include <print>
+      #include <vector>
+
+      class Client {
+      public:
+          const std::vector<int>& commandes() const { return commandes_; }
+
+      private:
+          std::vector<int> commandes_{1, 2, 3};
+      };
+
+      int main() {
+          const Client client;
+          auto commandes = client.commandes();
+          std::println("{}", commandes.size());
+      }
+      ```
+    choices:
+      - {text: "Écrire `const auto& commandes = client.commandes();`", correct: true}
+      - {text: "Écrire `const auto commandes = client.commandes();`", correct: false}
+      - {text: "Écrire `auto commandes = std::move(client.commandes());`", correct: false}
+      - {text: "Écrire `std::vector<int> commandes = client.commandes();`", correct: false}
+    answer: |-
+      ```cpp
+      const auto& commandes = client.commandes();
+      ```
+      `auto` laisse tomber la référence : la variable est un nouveau vecteur, copié. Il faut écrire `&`.
+      `std::move` sur une référence constante copie aussi.
+  - key: situation-profil
+    format: scenario
+    question: |-
+      Un profileur montre qu'un service passe 30 % de son temps dans `malloc` et dans le constructeur de copie de
+      `std::string`. Par où commences-tu ?
+    choices:
+      - {text: "Par les paramètres passés par valeur et les boucles `for (auto x : ...)` des fonctions fréquentes", correct: true}
+      - {text: "Par le remplacement de toutes les `std::string` du projet par des `char*`", correct: false}
+      - {text: "Par l'ajout de `std::move` à chaque `return` du projet", correct: false}
+      - {text: "Par l'augmentation de la mémoire de la machine", correct: false}
+    answer: |-
+      Le profil désigne des copies de chaînes. Leurs sources habituelles : un paramètre `std::string` là où
+      `const std::string&` ou `std::string_view` suffisait, et `auto` sans `&`. On corrige sur le chemin que le
+      profileur montre, pas partout.
+  - key: situation-setter
+    format: scenario
+    question: |-
+      Une fonction `void renommer(const std::string& nom)` range son argument dans un membre :
+      `nom_ = nom;`. Un appelant lui passe une chaîne temporaire qu'il vient de construire. Comment éviter la
+      copie ?
+    choices:
+      - {text: "Recevoir `std::string nom` par valeur, puis écrire `nom_ = std::move(nom);`", correct: true}
+      - {text: "Recevoir `const std::string* nom`, puis écrire `nom_ = *nom;`", correct: false}
+      - {text: "Garder la signature, puis écrire `nom_ = std::move(nom);`", correct: false}
+      - {text: "Recevoir `std::string_view nom`, puis ranger la vue dans le membre", correct: false}
+    answer: |-
+      Une fonction qui **garde** son argument le prend par valeur : un temporaire y est déplacé, sans copie, et le
+      `std::move` final le déplace dans le membre. Déplacer depuis une référence constante copie. Ranger une vue
+      dans un membre le laisserait pendant.
+  - key: situation-revue
+    format: scenario
+    question: |-
+      En revue de code, un collègue a changé tous les paramètres du projet, `int` et `double` compris, en
+      références constantes, « pour éviter les copies ». Que lui dis-tu ?
+    choices:
+      - {text: "Que les types fondamentaux se passent par valeur : la référence n'apporte qu'une indirection", correct: true}
+      - {text: "Que c'est la bonne règle : une référence est toujours plus rapide qu'une copie", correct: false}
+      - {text: "Qu'il faut aller plus loin, et passer aussi les `int` par pointeur", correct: false}
+      - {text: "Qu'une référence constante vers un `int` ne compile pas", correct: false}
+    answer: |-
+      Une copie n'est coûteuse que si l'objet l'est : conteneurs, chaînes, gros objets. Un `int`, un `double`, un
+      pointeur, un `std::string_view` tiennent dans un registre : par valeur, c'est plus simple et au moins aussi
+      rapide.
+  - key: situation-entretien
+    format: scenario
+    question: |-
+      En entretien, on te demande : « Pour renvoyer un gros vecteur d'une fonction, faut-il un paramètre de sortie
+      par référence, pour éviter la copie ? » Que réponds-tu ?
+    choices:
+      - {text: "Non : renvoyé par valeur, le vecteur est construit chez l'appelant, ou déplacé", correct: true}
+      - {text: "Oui : un retour par valeur recopie toujours tout le vecteur", correct: false}
+      - {text: "Oui : un retour par valeur n'est permis que pour les types fondamentaux", correct: false}
+      - {text: "Non : il faut renvoyer un pointeur vers le vecteur local de la fonction", correct: false}
+    answer: |-
+      L'élision de copie et le déplacement rendent le retour par valeur gratuit ou presque. Le paramètre de sortie
+      était une habitude d'avant C++11 ; il rend l'appel moins lisible. Un pointeur vers une locale serait pendant.

@@ -1,0 +1,216 @@
+notion: ub-optimisations
+lesson: |-
+  Un compilateur ne « punit » pas un comportement indéfini. Il fait plus simple : il **suppose qu'il n'arrive
+  jamais**. Le standard l'y autorise, puisqu'un programme qui en contient n'a plus aucune garantie. Chaque règle
+  devient alors une **hypothèse** sur laquelle l'optimiseur raisonne.
+
+  | Règle | Ce que l'optimiseur en déduit |
+  |---|---|
+  | un entier signé ne déborde pas | `x + 1 > x` est toujours vrai |
+  | un pointeur déréférencé n'est pas nul | un test `p == nullptr` placé après est inutile |
+  | un indice reste dans les bornes | une boucle ne dépasse pas la taille du tableau |
+  | deux pointeurs de types différents ne désignent pas le même objet | une valeur lue n'a pas changé entre deux écritures de l'autre type |
+  | une fonction non `void` finit par un `return` | la fin de la fonction est inatteignable |
+  | aucune course aux données | une variable non atomique ne change pas « toute seule » |
+
+  **Exemple 1 : le test de débordement qui disparaît.**
+
+  ```cpp
+  bool va_deborder(int x) {
+      return x + 1 < x;        // « si x + 1 a rebouclé... »
+  }
+  ```
+
+  Puisque le débordement signé n'existe pas, `x + 1 < x` est toujours faux : avec `-O2`, GCC compile la fonction en
+  `return false;`. Le test doit se faire **avant** l'opération : `x == INT_MAX`.
+
+  **Exemple 2 : le test de nullité qui disparaît.**
+
+  ```cpp
+  int longueur = p->taille;    // p est donc non nul
+  if (p == nullptr) {          // ... ce test est donc mort
+      return -1;
+  }
+  ```
+
+  **Exemple 3 : la boucle qui ne s'arrête plus.** Une boucle dont la condition de sortie ne peut être atteinte que
+  par un débordement signé peut être compilée en boucle infinie, ou voir sa condition supprimée.
+
+  **Trois conséquences à retenir.**
+
+  - **Le symptôme change avec le niveau d'optimisation.** À `-O0`, le compilateur traduit presque mot à mot ; à
+    `-O2`, il exploite ses hypothèses. « Ça marche en mode débogage » est le signe classique.
+  - **L'effet peut précéder la cause.** Si une branche mène forcément à un comportement indéfini, le compilateur la
+    juge inatteignable, et peut supprimer ce qui s'y trouve **avant** la faute : un affichage, une écriture. On
+    parle de « voyage dans le temps ».
+  - **Le programme entier est concerné.** Le standard ne dit pas « cette instruction donne un résultat
+    quelconque », mais « ce programme n'a plus de comportement défini ».
+
+  **Ce n'est pas un bug du compilateur.** Ces hypothèses sont ce qui permet de vectoriser une boucle, de garder
+  une valeur dans un registre, de supprimer des tests redondants. Le langage échange la sécurité contre la vitesse,
+  et confie la correction au programmeur.
+
+  **Les garde-fous.**
+
+  - **Détecter** : `-fsanitize=undefined,address` pendant les tests ; `-Wall -Wextra`.
+  - **Désarmer** certaines hypothèses, au prix d'un peu de vitesse : `-fwrapv` (le débordement signé reboucle),
+    `-fno-strict-aliasing`, `-fno-delete-null-pointer-checks`. Le noyau Linux compile ainsi.
+  - **Écrire le test avant l'opération**, ou utiliser des fonctions faites pour cela :
+    `__builtin_add_overflow`, et en C++26 l'arithmétique saturée (`std::add_sat`).
+
+  **L'hypothèse volontaire.** `std::unreachable()` (C++23) et `[[assume(expression)]]` (C++23) donnent
+  explicitement une hypothèse à l'optimiseur. Si elle est fausse, c'est un comportement indéfini : à réserver aux
+  cas prouvés et mesurés.
+
+  **En entretien** : « Le compilateur optimise en supposant qu'aucun comportement indéfini ne se produit : pas de
+  débordement signé, pas de pointeur nul déréférencé. Il peut donc supprimer un test écrit après coup, et le
+  symptôme dépend du niveau d'optimisation. Je teste avant l'opération, et je vérifie avec UBSan. »
+cards:
+  - key: hypothese
+    format: course
+    question: "Comment un optimiseur traite-t-il les comportements indéfinis ?"
+    choices:
+      - {text: "Il suppose qu'ils n'arrivent jamais, et simplifie le code d'après cette hypothèse", correct: true}
+      - {text: "Il les détecte tous, et insère un arrêt du programme à leur place", correct: false}
+      - {text: "Il les remplace par le comportement le plus courant sur la machine cible", correct: false}
+      - {text: "Il refuse d'optimiser toute fonction qui pourrait en contenir un", correct: false}
+    answer: "Chaque règle du langage devient un fait sur lequel il raisonne : « cet entier ne déborde pas », « ce pointeur n'est pas nul ». Si le fait est faux, le code produit n'a plus de rapport avec l'intention."
+  - key: test-debordement
+    format: course
+    question: "Pourquoi `if (x + 1 < x)` ne détecte-t-il pas de façon fiable le débordement d'un `int` ?"
+    choices:
+      - {text: "Le débordement signé étant indéfini, le compilateur peut juger la condition toujours fausse", correct: true}
+      - {text: "L'addition d'un `int` et de 1 donne toujours un résultat de type `long`", correct: false}
+      - {text: "La comparaison de deux `int` lève une exception quand l'un a débordé", correct: false}
+      - {text: "Le processeur refuse d'exécuter une addition qui dépasse `INT_MAX`", correct: false}
+    answer: "Pour l'optimiseur, `x + 1` est toujours plus grand que `x`. Le test se fait avant l'opération : `x == INT_MAX`, ou avec `__builtin_add_overflow`."
+  - key: niveau-optimisation
+    format: course
+    question: "Pourquoi un comportement indéfini se manifeste-t-il souvent à `-O2` et pas à `-O0` ?"
+    choices:
+      - {text: "À `-O2`, le compilateur exploite ses hypothèses ; à `-O0`, il traduit presque mot à mot", correct: true}
+      - {text: "À `-O2`, le compilateur ajoute des vérifications ; à `-O0`, il n'en fait aucune", correct: false}
+      - {text: "À `-O2`, le programme utilise plus de mémoire ; à `-O0`, il en utilise moins", correct: false}
+      - {text: "À `-O2`, le standard C++ ne s'applique plus ; à `-O0`, il s'applique en entier", correct: false}
+    answer: "La faute est présente dans les deux cas. L'optimisation ne la crée pas : elle en change le symptôme."
+  - key: voyage-dans-le-temps
+    format: course
+    question: "Que veut dire qu'un comportement indéfini peut « remonter le temps » ?"
+    choices:
+      - {text: "Le compilateur peut supprimer du code situé avant la faute, sur le chemin qui y mène", correct: true}
+      - {text: "Le programme reprend son exécution au début de `main` après la faute", correct: false}
+      - {text: "Le compilateur annule les écritures faites en mémoire avant la faute", correct: false}
+      - {text: "Le programme affiche l'heure de la faute au lieu de son résultat", correct: false}
+    answer: "Une branche qui mène forcément à un comportement indéfini est jugée inatteignable. Tout ce qu'elle contient peut disparaître, y compris un affichage placé avant l'instruction fautive."
+  - key: vf-bug-compilateur
+    format: true-false
+    question: "Un compilateur qui supprime un test devenu inutile à cause d'un comportement indéfini a un bug."
+    truth: false
+    answer: "Il applique le standard. Le programme n'ayant plus de comportement défini, toute traduction est conforme."
+  - key: vf-fwrapv
+    format: true-false
+    question: "L'option `-fwrapv` de GCC fait reboucler les entiers signés qui débordent."
+    truth: true
+    answer: "Le débordement devient défini, en complément à deux, et l'optimiseur perd l'hypothèse correspondante. C'est une extension, pas du C++ standard."
+  - key: vf-instruction-seule
+    format: true-false
+    question: "Un comportement indéfini n'affecte que le résultat de l'instruction fautive."
+    truth: false
+    answer: "C'est le programme entier qui perd ses garanties. L'effet peut se voir ailleurs, et même avant."
+  - key: vf-unsigned
+    format: true-false
+    question: "Le compilateur peut supposer qu'un entier non signé ne dépasse jamais son maximum."
+    truth: false
+    answer: "Le rebouclage d'un non signé est défini : `u + 1 < u` est un test valide, que le compilateur garde."
+  - key: qcm-null-check
+    format: multiple-choice
+    question: "Une fonction lit `p->taille`, puis teste `if (p == nullptr)`. Que peut faire l'optimiseur ?"
+    choices:
+      - {text: "Supprimer le test : `p` a été déréférencé, il est donc supposé non nul", correct: true}
+      - {text: "Déplacer le test avant la lecture, pour protéger le programme", correct: false}
+      - {text: "Remplacer la lecture par zéro quand `p` est nul", correct: false}
+      - {text: "Refuser de compiler la fonction, avec une erreur", correct: false}
+    answer: "Le déréférencement vaut preuve, pour lui, que le pointeur est valide. Le test doit précéder tout usage."
+  - key: qcm-unreachable
+    format: multiple-choice
+    question: "Que dit `std::unreachable()` (C++23) au compilateur ?"
+    choices:
+      - {text: "Que ce point du code n'est jamais atteint ; l'atteindre est un comportement indéfini", correct: true}
+      - {text: "Que ce point du code doit lever une exception s'il est atteint", correct: false}
+      - {text: "Que ce point du code doit arrêter le programme avec un message", correct: false}
+      - {text: "Que ce point du code ne doit pas être optimisé", correct: false}
+    answer: "C'est une hypothèse donnée volontairement à l'optimiseur. Pour arrêter proprement, on appelle `std::abort()` ou on lève une exception."
+  - key: qcm-detecter
+    format: multiple-choice
+    question: "Quel outil signale à l'exécution un débordement d'entier signé ?"
+    choices:
+      - {text: "UndefinedBehaviorSanitizer : `-fsanitize=undefined`", correct: true}
+      - {text: "L'optimisation maximale : `-O3`", correct: false}
+      - {text: "Le préprocesseur seul : `-E`", correct: false}
+      - {text: "La compilation sans édition de liens : `-c`", correct: false}
+    answer: "UBSan instrumente les opérations, et rapporte : « signed integer overflow ». On l'active pendant les tests."
+  - key: qcm-aliasing
+    format: multiple-choice
+    question: "Que suppose le compilateur, avec la règle de l'aliasing strict, d'un `int*` et d'un `float*` ?"
+    choices:
+      - {text: "Qu'ils ne désignent pas le même objet", correct: true}
+      - {text: "Qu'ils désignent toujours le même objet", correct: false}
+      - {text: "Qu'ils ont la même taille en mémoire", correct: false}
+      - {text: "Qu'ils sont tous deux non nuls", correct: false}
+    answer: "Accéder à un objet par un pointeur d'un autre type est indéfini. L'optimiseur en déduit qu'écrire par l'un ne change pas ce que l'autre désigne. Pour réinterpréter des octets : `std::memcpy` ou `std::bit_cast`."
+  - key: situation-boucle-infinie
+    format: scenario
+    question: |-
+      Une boucle `for (int i = 0; i >= 0; ++i)` devait s'arrêter quand `i` déborde et devient négatif. Compilée avec
+      `-O2`, elle ne s'arrête jamais. Pourquoi ?
+    choices:
+      - {text: "Sans débordement possible, `i >= 0` est jugé toujours vrai : la condition est supprimée", correct: true}
+      - {text: "L'optimiseur a remplacé `int` par `long`, qui déborde beaucoup plus tard", correct: false}
+      - {text: "L'optimiseur exécute la boucle dans un autre thread, qui ne voit pas `i`", correct: false}
+      - {text: "Le processeur plafonne `i` à `INT_MAX` quand le programme est optimisé", correct: false}
+    answer: |-
+      `i` part de 0 et ne fait qu'augmenter : pour le compilateur, il reste positif à jamais, puisque le
+      débordement signé « n'existe pas ». La sortie de boucle s'écrit avec une borne explicite :
+      `i < limite`.
+  - key: situation-verification-securite
+    format: scenario
+    question: |-
+      Un code de sécurité vérifie une taille ainsi : `if (taille + entete < taille) refuser();`, avec des `int`.
+      Un audit montre que le binaire optimisé ne contient plus ce test. Que proposes-tu ?
+    choices:
+      - {text: "Tester avant d'additionner : `if (taille > INT_MAX - entete) refuser();`", correct: true}
+      - {text: "Compiler ce fichier avec `-O3`, pour que le test soit rétabli", correct: false}
+      - {text: "Écrire le test deux fois de suite, pour que l'un des deux subsiste", correct: false}
+      - {text: "Déclarer `taille` avec le mot-clé `register`", correct: false}
+    answer: |-
+      Le test repose sur un débordement signé, que le compilateur suppose impossible : il le juge toujours faux.
+      La vérification doit se faire sans déborder. Des entiers non signés, dont le rebouclage est défini,
+      conviendraient aussi.
+  - key: situation-journal-disparu
+    format: scenario
+    question: |-
+      Une fonction écrit une ligne dans le journal, puis déréférence un pointeur qui, dans ce cas précis, est
+      toujours nul. En production, le programme plante, et la ligne du journal n'apparaît jamais. Est-ce possible ?
+    choices:
+      - {text: "Oui : ce chemin menant à un comportement indéfini, le compilateur peut l'avoir supprimé en entier", correct: true}
+      - {text: "Non : une instruction écrite avant la faute est toujours exécutée", correct: false}
+      - {text: "Non : le journal est écrit par un autre processus, que la faute n'atteint pas", correct: false}
+      - {text: "Oui : le système d'exploitation efface le journal de tout programme qui plante", correct: false}
+    answer: |-
+      L'optimiseur raisonne sur le chemin entier : s'il se termine forcément par un comportement indéfini, il est
+      inatteignable, affichage compris. L'absence d'une trace ne prouve donc pas que le code n'est pas passé par
+      là.
+  - key: situation-entretien
+    format: scenario
+    question: |-
+      En entretien, on te demande : « Pourquoi le standard ne définit-il pas simplement le débordement signé comme
+      un rebouclage ? » Que réponds-tu ?
+    choices:
+      - {text: "Le laisser indéfini permet des optimisations, comme simplifier `x + 1 > x` ou élargir un compteur de boucle", correct: true}
+      - {text: "Aucun processeur moderne ne sait faire reboucler un entier signé", correct: false}
+      - {text: "Le rebouclage rendrait les programmes plus rapides, ce que le standard veut éviter", correct: false}
+      - {text: "Le standard l'a défini ainsi depuis C++20, pour tous les entiers signés", correct: false}
+    answer: |-
+      L'hypothèse « pas de débordement » laisse le compilateur raisonner sur les boucles et l'arithmétique comme
+      sur des entiers mathématiques. C++20 a fixé la représentation en complément à deux, mais le débordement
+      reste indéfini. `-fwrapv` permet de choisir le rebouclage.

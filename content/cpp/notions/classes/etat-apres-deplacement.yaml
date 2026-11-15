@@ -1,0 +1,362 @@
+notion: etat-apres-deplacement
+lesson: |-
+  Déplacer un objet lui **prend ses ressources**. Que reste-t-il dans l'objet d'origine ? Il n'est pas détruit : il
+  vit jusqu'à la fin de sa portée, et son destructeur sera appelé. La question est de savoir **ce qu'on peut encore
+  en faire**.
+
+  **La règle de la bibliothèque standard.** Un objet d'un type standard, après un déplacement, est dans un état
+  **valide mais non spécifié** :
+
+  - **valide** : ses invariants tiennent ; on peut le détruire, lui **affecter** une nouvelle valeur, et appeler
+    toute fonction **sans précondition** (`size()`, `empty()`, `clear()`) ;
+  - **non spécifié** : on ne sait pas ce qu'il **contient**. Il ne faut pas compter sur une valeur précise.
+
+  ```cpp
+  std::string a = "bonjour tout le monde, ceci est long";
+  std::string b = std::move(a);
+  // a.size() : permis, mais la valeur n'est pas garantie
+  // a[0]     : interdit, a est peut-être vide
+  a = "neuf";  // permis : a retrouve une valeur connue
+  ```
+
+  **Les types dont l'état est garanti.**
+
+  | Type | Après déplacement |
+  |---|---|
+  | `std::unique_ptr`, `std::shared_ptr` | **nul** : garanti |
+  | `std::vector` (constructeur de déplacement) | **vide** : garanti |
+  | `std::string` | valide, non spécifié ; vide en pratique pour une longue chaîne |
+  | `std::optional<T>` | **toujours engagé** si l'était : il contient un `T` déplacé |
+  | `int`, `double`, pointeur brut | **inchangé** : « déplacer » un type fondamental, c'est le copier |
+
+  Le cas de `std::optional` surprend : `has_value()` reste `true`.
+
+  **Ce qu'on fait d'un objet déplacé.** Trois choses, pas plus :
+
+  1. le **laisser** être détruit ;
+  2. lui **réaffecter** une valeur ;
+  3. le **remettre à zéro** (`clear()`), si l'on veut le réutiliser comme objet vide.
+
+  Lire son contenu est un bug logique : c'est l'« utilisation après déplacement », que clang-tidy signale
+  (`bugprone-use-after-move`).
+
+  **Pour ses propres classes.** Le constructeur de déplacement doit laisser la source dans un état où le
+  **destructeur est sûr** : typiquement, pointeur remis à `nullptr`, taille à zéro. Sinon, la ressource est libérée
+  deux fois. Avec la règle de zéro, les membres s'en chargent.
+
+  **`std::move` ne déplace pas toujours.** Si l'objet est `const`, ou si son type n'a pas de constructeur de
+  déplacement, c'est une **copie** : la source garde alors sa valeur. Raison de plus pour ne rien supposer.
+
+  **En entretien** : « Après un déplacement, un objet standard est valide mais dans un état non spécifié : je peux
+  le détruire ou lui réaffecter une valeur, pas lire son contenu. Seuls quelques types garantissent leur état :
+  un `unique_ptr` déplacé est nul, un `vector` déplacé est vide. »
+cards:
+  - key: valide-non-specifie
+    format: course
+    question: "Dans quel état est un objet de la bibliothèque standard après avoir été déplacé ?"
+    choices:
+      - {text: "Valide, mais non spécifié : utilisable, sans garantie sur son contenu", correct: true}
+      - {text: "Détruit : son destructeur a déjà été appelé par le déplacement", correct: false}
+      - {text: "Indéfini : toute utilisation, même une affectation, est interdite", correct: false}
+      - {text: "Inchangé : il garde exactement la valeur qu'il avait avant", correct: false}
+    answer: "L'objet existe toujours et respecte ses invariants. On ignore seulement ce qu'il contient."
+  - key: operations-permises
+    format: course
+    question: "Que peut-on faire sans risque d'un `std::string` qu'on vient de déplacer ?"
+    choices:
+      - {text: "Lui affecter une nouvelle valeur", correct: true}
+      - {text: "Lire son premier caractère avec `[0]`", correct: false}
+      - {text: "Compter sur le fait qu'il vaut son ancienne valeur", correct: false}
+      - {text: "Appeler `back()` pour lire son dernier caractère", correct: false}
+    answer: "L'affectation n'a pas de précondition. `[0]` et `back()` supposent une chaîne non vide, ce que rien ne garantit."
+  - key: unique-ptr
+    format: course
+    question: "Que vaut un `std::unique_ptr` après avoir été déplacé ?"
+    choices:
+      - {text: "`nullptr` : c'est garanti par le standard", correct: true}
+      - {text: "L'ancienne adresse, devenue pendante", correct: false}
+      - {text: "Une adresse quelconque, non spécifiée", correct: false}
+      - {text: "Une copie de l'objet d'origine", correct: false}
+    answer: "Les pointeurs intelligents font partie des rares types dont l'état après déplacement est précisé : ils sont nuls."
+  - key: propre-classe
+    format: course
+    question: "Dans quel état un constructeur de déplacement écrit à la main doit-il laisser l'objet source ?"
+    choices:
+      - {text: "Dans un état que son destructeur peut traiter sans danger", correct: true}
+      - {text: "Dans l'état exact où il se trouvait avant le déplacement", correct: false}
+      - {text: "Dans un état quelconque : son destructeur ne sera pas appelé", correct: false}
+      - {text: "Dans un état où chacun de ses membres vaut zéro, sans exception", correct: false}
+    answer: "La source sera détruite plus tard. Si elle garde le pointeur qu'on lui a pris, la ressource est libérée deux fois : on le remet à `nullptr`."
+  - key: vf-detruit
+    format: true-false
+    question: "Le destructeur d'un objet déplacé est quand même appelé à la fin de sa portée."
+    truth: true
+    answer: "Déplacer ne détruit pas. L'objet source vit jusqu'au bout, d'où la nécessité de le laisser dans un état sûr."
+  - key: vf-string-vide
+    format: true-false
+    question: "Le standard garantit qu'un `std::string` déplacé est vide."
+    truth: false
+    answer: "Il garantit seulement un état valide. En pratique une longue chaîne est vidée, mais une chaîne courte peut garder son texte."
+  - key: vf-int
+    format: true-false
+    question: "Après `int b = std::move(a);`, l'entier `a` garde sa valeur."
+    truth: true
+    answer: "Un type fondamental n'a rien à transférer : le « déplacement » est une copie."
+  - key: vf-optional
+    format: true-false
+    question: "Un `std::optional` déplacé devient vide : `has_value()` renvoie `false`."
+    truth: false
+    answer: "Il reste engagé : il contient un objet lui-même déplacé. C'est un piège connu."
+  - key: qcm-vector
+    format: multiple-choice
+    question: "Que vaut `v.size()` après `std::vector<int> w = std::move(v);` ?"
+    choices:
+      - {text: "`0` : le constructeur de déplacement laisse le vecteur vide", correct: true}
+      - {text: "La taille d'origine : les éléments sont copiés", correct: false}
+      - {text: "Une valeur imprévisible, différente à chaque exécution", correct: false}
+      - {text: "Rien : appeler `size()` est un comportement indéfini", correct: false}
+    answer: "Pour `std::vector`, le standard garantit que la source du constructeur de déplacement est vide."
+  - key: qcm-reutiliser
+    format: multiple-choice
+    question: "Tu veux réutiliser comme tampon vide une chaîne que tu viens de déplacer. Que fais-tu d'abord ?"
+    choices:
+      - {text: "`tampon.clear();`", correct: true}
+      - {text: "`tampon.pop_back();`", correct: false}
+      - {text: "`tampon.back() = ' ';`", correct: false}
+      - {text: "Rien : elle est forcément vide", correct: false}
+    answer: "`clear()` n'a pas de précondition, et donne un état connu. `pop_back()` et `back()` exigent une chaîne non vide."
+  - key: qcm-outil
+    format: multiple-choice
+    question: "Quel outil signale la lecture d'un objet après son déplacement ?"
+    choices:
+      - {text: "clang-tidy, avec `bugprone-use-after-move`", correct: true}
+      - {text: "L'éditeur de liens, avec `undefined reference`", correct: false}
+      - {text: "Le préprocesseur, avec `#pragma once`", correct: false}
+      - {text: "L'option d'optimisation `-O2`", correct: false}
+    answer: "C'est une analyse statique : le compilateur, lui, accepte ce code sans rien dire."
+  - key: qcm-const
+    format: multiple-choice
+    question: "`const std::string a = \"texte\"; std::string b = std::move(a);` Que contient `a` ensuite ?"
+    choices:
+      - {text: "`texte` : un objet `const` est copié, pas déplacé", correct: true}
+      - {text: "Une chaîne vide : `std::move` l'a vidée", correct: false}
+      - {text: "Une valeur non spécifiée, comme après tout déplacement", correct: false}
+      - {text: "Rien : la seconde ligne ne compile pas", correct: false}
+    answer: "On ne peut pas voler les ressources d'un objet constant : le constructeur de copie est choisi, et `a` est intact."
+  - key: code-unique-ptr
+    format: code-output
+    question: |-
+      ```cpp
+      #include <memory>
+      #include <print>
+      #include <utility>
+
+      int main() {
+          auto a = std::make_unique<int>(7);
+          auto b = std::move(a);
+          std::println("{} {}", a == nullptr, *b);
+      }
+      ```
+    choices:
+      - {text: "`true 7`", correct: true}
+      - {text: "`false 7`", correct: false}
+      - {text: "`true 0`", correct: false}
+      - {text: "`false 0`", correct: false}
+    answer: "`true 7` : un `std::unique_ptr` déplacé est nul, c'est garanti. `b` possède maintenant l'entier."
+    check:
+      output: "true 7"
+  - key: code-vector
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+      #include <utility>
+      #include <vector>
+
+      int main() {
+          std::vector<int> v{1, 2, 3};
+          std::vector<int> w = std::move(v);
+          v.push_back(9);
+          std::println("{} {} {}", v.size(), w.size(), v[0]);
+      }
+      ```
+    choices:
+      - {text: "`1 3 9`", correct: true}
+      - {text: "`4 3 1`", correct: false}
+      - {text: "`1 3 1`", correct: false}
+      - {text: "`4 4 1`", correct: false}
+    answer: "`1 3 9` : après le déplacement, `v` est vide et reste utilisable. Le `push_back` y ajoute un seul élément."
+    check:
+      output: "1 3 9"
+  - key: code-const
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+      #include <string>
+      #include <utility>
+
+      int main() {
+          const std::string a = "une chaîne assez longue pour le tas";
+          std::string b = std::move(a);
+          std::println("{} {}", a.size() == b.size(), a.empty());
+      }
+      ```
+    choices:
+      - {text: "`true false`", correct: true}
+      - {text: "`false true`", correct: false}
+      - {text: "`true true`", correct: false}
+      - {text: "`false false`", correct: false}
+    answer: "`true false` : `a` est `const`, donc `std::move` aboutit à une copie. Les deux chaînes sont identiques, et `a` n'est pas vide."
+    check:
+      output: "true false"
+  - key: code-reaffecter
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+      #include <string>
+      #include <utility>
+      #include <vector>
+
+      int main() {
+          std::vector<std::string> noms;
+          std::string nom = "Ada";
+          noms.push_back(std::move(nom));
+          nom = "Alan";
+          noms.push_back(nom);
+          std::println("{} {} {}", noms[0], noms[1], nom);
+      }
+      ```
+    choices:
+      - {text: "`Ada Alan Alan`", correct: true}
+      - {text: "`Alan Alan Alan`", correct: false}
+      - {text: "`Ada Alan`, suivi d'une chaîne vide", correct: false}
+      - {text: "`Ada Ada Alan`", correct: false}
+    answer: "`Ada Alan Alan` : après le déplacement, `nom` reçoit une nouvelle valeur par affectation, ce qui est toujours permis. Le second `push_back` la copie."
+    check:
+      output: "Ada Alan Alan"
+  - key: bug-lecture-apres-move
+    format: bug-fix
+    question: |-
+      Ce programme devrait afficher `16`, la longueur du titre. Il affiche `0` : le titre est lu après avoir été
+      déplacé. Quelle correction est la bonne ?
+      ```cpp
+      #include <print>
+      #include <string>
+      #include <utility>
+      #include <vector>
+
+      int main() {
+          std::vector<std::string> titres;
+          std::string titre = "Chapitre premier";
+          titres.push_back(std::move(titre));
+          std::println("{}", titre.size());
+      }
+      ```
+    choices:
+      - {text: "Lire la longueur dans le vecteur : `titres.back().size()`", correct: true}
+      - {text: "Appeler `titre.shrink_to_fit();` avant l'affichage", correct: false}
+      - {text: "Déplacer une seconde fois : `std::move(titre).size()`", correct: false}
+      - {text: "Afficher `titre.capacity()` à la place de `titre.size()`", correct: false}
+    answer: |-
+      ```cpp
+      std::println("{}", titres.back().size());
+      ```
+      Après `std::move`, le contenu de `titre` n'est plus garanti : c'est le vecteur qui possède le texte. On lit
+      l'objet d'arrivée, pas la source.
+  - key: bug-double-liberation
+    format: bug-fix
+    question: |-
+      Ce programme s'arrête sur « free(): double free detected ». Quelle correction du constructeur de déplacement
+      est la bonne ?
+      ```cpp
+      #include <print>
+      #include <utility>
+
+      class Tampon {
+      public:
+          Tampon() : donnees_{new int[4]{}} {}
+          Tampon(Tampon&& autre) noexcept : donnees_{autre.donnees_} {}
+          ~Tampon() { delete[] donnees_; }
+
+      private:
+          int* donnees_;
+      };
+
+      int main() {
+          Tampon a;
+          Tampon b = std::move(a);
+          std::println("fin");
+      }
+      ```
+    choices:
+      - {text: "Remettre la source à nul : `autre.donnees_ = nullptr;` dans le corps", correct: true}
+      - {text: "Libérer la source : `delete[] autre.donnees_;` dans le corps", correct: false}
+      - {text: "Retirer `noexcept` de la déclaration du constructeur", correct: false}
+      - {text: "Recevoir la source par `const Tampon&&`", correct: false}
+    answer: |-
+      ```cpp
+      Tampon(Tampon&& autre) noexcept : donnees_{autre.donnees_} {
+          autre.donnees_ = nullptr;
+      }
+      ```
+      `a` et `b` désignent le même tableau, que leurs deux destructeurs libèrent. La source doit rester dans un
+      état sûr à détruire : `delete[]` sur un pointeur nul ne fait rien.
+  - key: bug-dereferencement-apres-move
+    format: bug-fix
+    question: |-
+      Ce programme plante sur une erreur de segmentation : il déréférence un pointeur qu'il a déplacé. Quelle
+      correction est la bonne ?
+      ```cpp
+      #include <memory>
+      #include <print>
+      #include <utility>
+      #include <vector>
+
+      int main() {
+          std::vector<std::unique_ptr<int>> valeurs;
+          auto p = std::make_unique<int>(42);
+          valeurs.push_back(std::move(p));
+          std::println("{}", *p);
+      }
+      ```
+    choices:
+      - {text: "Afficher `*valeurs.back()`", correct: true}
+      - {text: "Afficher `*p.get()`", correct: false}
+      - {text: "Afficher `*std::move(p)`", correct: false}
+      - {text: "Afficher `p.release()`", correct: false}
+    answer: |-
+      ```cpp
+      std::println("{}", *valeurs.back());
+      ```
+      Un `std::unique_ptr` déplacé est nul. L'entier appartient maintenant au pointeur rangé dans le vecteur.
+  - key: bug-optional
+    format: bug-fix
+    question: |-
+      Ce programme devrait afficher `vide` après avoir déplacé la valeur. Il affiche `plein`. Quelle correction est
+      la bonne ?
+      ```cpp
+      #include <optional>
+      #include <print>
+      #include <string>
+      #include <utility>
+
+      int main() {
+          std::optional<std::string> nom = "un nom assez long pour être alloué";
+          std::optional<std::string> copie = std::move(nom);
+          std::println("{}", nom.has_value() ? "plein" : "vide");
+      }
+      ```
+    choices:
+      - {text: "Appeler `nom.reset();` après le déplacement", correct: true}
+      - {text: "Appeler `nom.value();` après le déplacement", correct: false}
+      - {text: "Appeler `std::move(nom);` une seconde fois", correct: false}
+      - {text: "Tester `nom == nullptr` à la place de `has_value()`", correct: false}
+    answer: |-
+      ```cpp
+      std::optional<std::string> copie = std::move(nom);
+      nom.reset();
+      ```
+      Un `std::optional` déplacé reste engagé : il contient une chaîne elle-même déplacée. Pour le vider, on appelle
+      `reset()`.

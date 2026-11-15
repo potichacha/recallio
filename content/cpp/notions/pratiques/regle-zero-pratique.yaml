@@ -1,0 +1,380 @@
+notion: regle-zero-pratique
+lesson: |-
+  La **règle de zéro** : une classe ne devrait écrire **aucune** des cinq fonctions spéciales (destructeur,
+  constructeur de copie, affectation de copie, constructeur de déplacement, affectation de déplacement). Elle
+  laisse le compilateur les générer, parce que **ses membres savent déjà se gérer eux-mêmes**.
+
+  **Le principe.** Les fonctions générées copient, déplacent et détruisent **membre par membre**. Si chaque membre
+  fait ce qu'il faut, la classe entière le fait aussi, sans une ligne de code.
+
+  ```cpp
+  class Client {
+      std::string nom_;                      // se copie, se déplace, se libère
+      std::vector<Commande> commandes_;      // idem
+      std::unique_ptr<Adresse> adresse_;     // se déplace, se libère ; interdit la copie
+  };
+  ```
+
+  `Client` n'écrit rien : elle se détruit proprement, se déplace vite, et **ne se copie pas**, puisque
+  `std::unique_ptr` ne se copie pas. Le compilateur a tiré la bonne conclusion tout seul.
+
+  **Remplacer chaque ressource brute par son gestionnaire.**
+
+  | Membre brut | Remplacé par | Ce que la classe y gagne |
+  |---|---|---|
+  | `T*` possédant, avec `new` | `std::unique_ptr<T>` | libération, déplacement ; copie interdite |
+  | `T*` partagé | `std::shared_ptr<T>` | libération quand le dernier propriétaire disparaît |
+  | `T*` vers un tableau, avec `new[]` | `std::vector<T>` | libération, copie profonde, déplacement |
+  | `char*` | `std::string` | idem |
+  | `FILE*`, descripteur, verrou | une petite classe RAII, ou `std::unique_ptr` avec un destructeur sur mesure | fermeture garantie |
+
+  **Quand il faut quand même écrire les cinq.** Dans la classe qui **enveloppe directement** une ressource brute :
+  c'est la règle de cinq. On écrit cette classe une fois, petite, avec une seule responsabilité ; toutes les autres
+  la prennent comme membre, et retombent sur la règle de zéro.
+
+  **Ce qui casse la règle de zéro sans qu'on le veuille.** Déclarer **un destructeur**, même vide ou `= default`,
+  **supprime la génération des opérations de déplacement** : la classe se copie alors là où elle aurait pu se
+  déplacer, en silence.
+
+  ```cpp
+  class Tampon {
+  public:
+      ~Tampon() {}                    // inutile : le vecteur se libère seul
+  private:
+      std::vector<int> donnees_;      // désormais copié, jamais déplacé
+  };
+  ```
+
+  Le remède : supprimer le destructeur inutile.
+
+  **Le cas de la classe de base polymorphe.** Elle a besoin d'un destructeur **virtuel**. On le déclare, et l'on
+  redemande explicitement les autres :
+
+  ```cpp
+  class Forme {
+  public:
+      virtual ~Forme() = default;
+      Forme() = default;
+      Forme(const Forme&) = default;
+      Forme& operator=(const Forme&) = default;
+      Forme(Forme&&) = default;
+      Forme& operator=(Forme&&) = default;
+  };
+  ```
+
+  C'est la **règle de cinq par défaut** : rien n'est écrit à la main, tout est dit.
+
+  **Ce qu'on y gagne.** Moins de code, donc moins de bugs : pas de double libération, pas de fuite, pas de copie
+  superficielle, pas d'auto-affectation à traiter. Et la classe reste juste quand on lui ajoute un membre.
+
+  **En entretien** : « Je vise la règle de zéro : des membres qui gèrent leurs ressources, `std::vector`,
+  `std::string`, `std::unique_ptr`, et aucune fonction spéciale à écrire. La règle de cinq ne concerne que la
+  petite classe qui enveloppe une ressource brute. Et je n'écris pas de destructeur vide : il supprime le
+  déplacement. »
+cards:
+  - key: principe
+    format: course
+    question: "Qu'affirme la règle de zéro au sujet des cinq fonctions spéciales d'une classe ?"
+    choices:
+      - {text: "Qu'une classe ne devrait écrire aucune des cinq fonctions spéciales : ses membres gèrent leurs ressources", correct: true}
+      - {text: "Qu'une classe ne devrait avoir aucun membre : toutes ses données sont des variables globales", correct: false}
+      - {text: "Qu'une classe ne devrait jamais être copiée : sa copie doit toujours être supprimée", correct: false}
+      - {text: "Qu'une classe ne devrait allouer aucune mémoire : tout doit vivre sur la pile", correct: false}
+    answer: "Destructeur, copies et déplacements sont générés membre par membre. Si les membres sont des `std::vector`, des `std::string` ou des pointeurs intelligents, le code généré est le bon."
+  - key: comment
+    format: course
+    question: "Comment une classe qui possède un objet alloué sur le tas suit-elle la règle de zéro ?"
+    choices:
+      - {text: "Elle le tient par un `std::unique_ptr`, au lieu d'un pointeur brut", correct: true}
+      - {text: "Elle le tient par un pointeur brut, et écrit un destructeur", correct: false}
+      - {text: "Elle le tient par une référence, initialisée dans le constructeur", correct: false}
+      - {text: "Elle le tient par un pointeur brut, qu'elle ne libère jamais", correct: false}
+    answer: "Le `std::unique_ptr` libère l'objet, se déplace, et interdit la copie. La classe n'a plus rien à écrire."
+  - key: destructeur-vide
+    format: course
+    question: "Quel est l'effet d'un destructeur vide, écrit « par précaution », dans une classe ?"
+    choices:
+      - {text: "Il supprime la génération des opérations de déplacement : la classe est copiée à la place", correct: true}
+      - {text: "Il supprime la génération des opérations de copie : la classe ne peut plus être copiée", correct: false}
+      - {text: "Il n'a aucun effet : un destructeur vide est ignoré par le compilateur", correct: false}
+      - {text: "Il empêche la destruction des membres : leurs ressources ne sont plus libérées", correct: false}
+    answer: "Déclarer un destructeur, même vide, désactive le déplacement implicite. Les objets sont alors copiés là où ils auraient été déplacés, sans avertissement."
+  - key: regle-de-cinq
+    format: course
+    question: "Dans quelle classe a-t-on encore besoin d'écrire les cinq fonctions spéciales ?"
+    choices:
+      - {text: "Dans la petite classe qui enveloppe directement une ressource brute", correct: true}
+      - {text: "Dans toute classe qui contient un `std::vector`", correct: false}
+      - {text: "Dans toute classe qui a plus de trois membres", correct: false}
+      - {text: "Dans toute classe qui a un constructeur avec paramètres", correct: false}
+    answer: "Un descripteur de fichier, une poignée d'une API C : il faut une classe RAII qui la gère. On l'écrit une fois, et les autres classes l'utilisent comme membre."
+  - key: vf-unique-ptr-copie
+    format: true-false
+    question: "Une classe dont un membre est un `std::unique_ptr` est copiable par défaut."
+    truth: false
+    answer: "Le constructeur de copie généré est supprimé, puisqu'un membre ne se copie pas. La classe reste déplaçable."
+  - key: vf-vector-copie
+    format: true-false
+    question: "Une classe dont le seul membre est un `std::vector<int>` se copie correctement sans rien écrire."
+    truth: true
+    answer: "La copie générée copie le vecteur, qui fait une copie profonde de ses éléments."
+  - key: vf-default
+    format: true-false
+    question: "Écrire `~Classe() = default;` laisse au compilateur la génération des opérations de déplacement."
+    truth: false
+    answer: "Un destructeur déclaré par l'utilisateur, même `= default`, supprime le déplacement implicite. Il faut alors redemander les déplacements avec `= default`."
+  - key: vf-base-polymorphe
+    format: true-false
+    question: "Une classe de base polymorphe déclare un destructeur virtuel."
+    truth: true
+    answer: "Sans lui, détruire un objet dérivé par un pointeur de base est un comportement indéfini. C'est l'exception assumée à la règle de zéro."
+  - key: qcm-tableau
+    format: multiple-choice
+    question: "Par quoi remplaces-tu un membre `int* donnees_`, alloué avec `new int[taille]` ?"
+    choices:
+      - {text: "`std::vector<int> donnees_;`", correct: true}
+      - {text: "`int& donnees_;`", correct: false}
+      - {text: "`const int* donnees_;`", correct: false}
+      - {text: "`int** donnees_;`", correct: false}
+    answer: "Le vecteur possède son tableau : il le libère, le copie en profondeur, et se déplace. Le destructeur et les copies écrits à la main disparaissent."
+  - key: qcm-fichier
+    format: multiple-choice
+    question: "Une classe garde un `FILE*` ouvert avec `std::fopen`. Comment la ramènes-tu à la règle de zéro ?"
+    choices:
+      - {text: "En tenant le fichier par un `std::unique_ptr` muni d'un destructeur qui appelle `std::fclose`", correct: true}
+      - {text: "En tenant le fichier par un `std::shared_ptr<FILE>` construit sans rien préciser", correct: false}
+      - {text: "En tenant le fichier par un `FILE&`, initialisé dans le constructeur de la classe", correct: false}
+      - {text: "En fermant le fichier dans chaque fonction membre, juste avant son `return`", correct: false}
+    answer: "`std::unique_ptr` accepte un destructeur sur mesure (*deleter*). La fermeture est garantie, et la classe n'écrit aucune fonction spéciale. `std::ifstream` et `std::ofstream` font mieux encore."
+  - key: qcm-combien
+    format: multiple-choice
+    question: "Combien de fonctions spéciales écrit une classe dont les membres sont une `std::string` et un `std::vector<int>` ?"
+    choices:
+      - {text: "Aucune", correct: true}
+      - {text: "Une : le destructeur", correct: false}
+      - {text: "Trois : le destructeur et les deux copies", correct: false}
+      - {text: "Cinq", correct: false}
+    answer: "Chaque membre gère sa mémoire. Les versions générées par le compilateur sont correctes."
+  - key: qcm-base
+    format: multiple-choice
+    question: "Comment déclares-tu le destructeur d'une classe de base polymorphe, sans écrire de corps ?"
+    choices:
+      - {text: "`virtual ~Forme() = default;`", correct: true}
+      - {text: "`~Forme() = delete;`", correct: false}
+      - {text: "`static ~Forme() = default;`", correct: false}
+      - {text: "`virtual ~Forme() = 0;`, sans jamais le définir", correct: false}
+    answer: "`= default` demande la version générée, rendue virtuelle. On redemande ensuite les copies et les déplacements avec `= default`, que ce destructeur a désactivés."
+  - key: situation-refactor
+    format: scenario
+    question: |-
+      Une classe `Image` tient ses pixels par un `unsigned char*`, avec un destructeur, un constructeur de copie et
+      une affectation écrits à la main, soit soixante lignes. Un bug de double libération vient d'y être trouvé.
+      Que proposes-tu ?
+    choices:
+      - {text: "Remplacer le pointeur par un `std::vector<unsigned char>`, et supprimer les trois fonctions", correct: true}
+      - {text: "Ajouter un constructeur de déplacement et une affectation de déplacement écrits à la main", correct: false}
+      - {text: "Mettre le pointeur à `nullptr` dans le destructeur, après le `delete[]`", correct: false}
+      - {text: "Déclarer le pointeur `mutable`, pour pouvoir le corriger dans les fonctions `const`", correct: false}
+    answer: |-
+      Soixante lignes de gestion de mémoire, c'est soixante lignes où se tromper. Le vecteur fait la même chose,
+      juste, et ajoute le déplacement. La classe passe à la règle de zéro : il ne reste que son propre métier.
+  - key: situation-lenteur
+    format: scenario
+    question: |-
+      Après l'ajout d'un destructeur vide « pour faire propre », une classe qui contient un gros
+      `std::vector` rend le programme deux fois plus lent. Pourquoi ?
+    choices:
+      - {text: "Le destructeur a supprimé le déplacement implicite : les objets sont désormais copiés", correct: true}
+      - {text: "Le destructeur vide est appelé deux fois pour chaque objet", correct: false}
+      - {text: "Le destructeur empêche le vecteur de libérer sa mémoire, qui s'accumule", correct: false}
+      - {text: "Le destructeur rend toutes les fonctions membres virtuelles", correct: false}
+    answer: |-
+      Dès qu'un destructeur est déclaré, le compilateur ne génère plus ni constructeur ni affectation de
+      déplacement. Renvoyer l'objet ou le ranger dans un conteneur recopie alors tout le vecteur. On supprime le
+      destructeur inutile.
+  - key: situation-copie-voulue
+    format: scenario
+    question: |-
+      Une classe `Document` tient son contenu par `std::unique_ptr<Contenu>`. Elle suit la règle de zéro, mais tu
+      as besoin de la copier, avec une copie profonde du contenu. Que fais-tu ?
+    choices:
+      - {text: "J'écris le constructeur de copie et l'affectation de copie, et je redemande les déplacements avec `= default`", correct: true}
+      - {text: "Je remplace le `std::unique_ptr` par un pointeur brut, que le compilateur sait copier", correct: false}
+      - {text: "Je remplace le `std::unique_ptr` par un `std::shared_ptr`, pour une copie profonde", correct: false}
+      - {text: "Je déclare le membre `mutable`, ce qui rend la classe copiable", correct: false}
+    answer: |-
+      La règle de zéro est un défaut, pas un dogme. Quand la sémantique voulue n'est pas celle des membres, on
+      l'écrit, en entier. Un pointeur brut donnerait une copie superficielle ; un `std::shared_ptr` partagerait le
+      contenu au lieu de le copier.
+  - key: situation-entretien
+    format: scenario
+    question: |-
+      En entretien, on te demande dans quels cas tu écris un destructeur. Quelle réponse reflète la pratique
+      moderne ?
+    choices:
+      - {text: "Presque jamais : seulement dans une classe RAII qui enveloppe une ressource brute, ou virtuel dans une base", correct: true}
+      - {text: "Dans chaque classe, par sécurité, même s'il reste vide", correct: false}
+      - {text: "Dans chaque classe qui a un constructeur, pour respecter la symétrie", correct: false}
+      - {text: "Jamais : en C++ moderne, un destructeur écrit à la main est toujours une erreur", correct: false}
+    answer: |-
+      Les membres gèrent leurs ressources : la classe n'a rien à détruire elle-même. Un destructeur écrit signale
+      soit une vraie classe de gestion de ressource, à laquelle s'applique la règle de cinq, soit une base
+      polymorphe.
+  - key: bug-pointeur-brut
+    format: bug-fix
+    question: |-
+      Ce programme libère deux fois la même mémoire : la copie générée recopie le pointeur. Quelle correction suit
+      la règle de zéro ?
+      ```cpp
+      #include <print>
+
+      class Tampon {
+      public:
+          Tampon() : donnees_{new int[4]{}} {}
+          ~Tampon() { delete[] donnees_; }
+
+      private:
+          int* donnees_;
+      };
+
+      int main() {
+          Tampon a;
+          Tampon b = a;
+          std::println("fin");
+      }
+      ```
+    choices:
+      - {text: "Déclarer `std::vector<int> donnees_ = std::vector<int>(4);`, et supprimer constructeur et destructeur", correct: true}
+      - {text: "Écrire `delete donnees_;` sans les crochets dans le destructeur de la classe", correct: false}
+      - {text: "Écrire `donnees_ = nullptr;` dans le destructeur, juste après le `delete[]`", correct: false}
+      - {text: "Déclarer le destructeur de la classe avec le mot-clé `virtual`", correct: false}
+    answer: |-
+      ```cpp
+      class Tampon {
+      private:
+          std::vector<int> donnees_ = std::vector<int>(4);
+      };
+      ```
+      `a` et `b` désignent le même tableau, libéré deux fois. Le vecteur se copie en profondeur et se libère seul :
+      la classe n'écrit plus aucune fonction spéciale.
+  - key: bug-destructeur-inutile
+    format: bug-fix
+    question: |-
+      Ce programme devrait afficher `0` : après le déplacement, `a` devrait être vide. Il affiche `3` : le vecteur
+      a été copié. Quelle correction est la bonne ?
+      ```cpp
+      #include <print>
+      #include <utility>
+      #include <vector>
+
+      class Lot {
+      public:
+          ~Lot() {}
+          std::size_t taille() const { return valeurs_.size(); }
+
+      private:
+          std::vector<int> valeurs_{1, 2, 3};
+      };
+
+      int main() {
+          Lot a;
+          Lot b = std::move(a);
+          std::println("{}", a.taille());
+      }
+      ```
+    choices:
+      - {text: "Supprimer le destructeur vide `~Lot() {}`", correct: true}
+      - {text: "Écrire `Lot b = a;` sans `std::move`", correct: false}
+      - {text: "Déclarer `valeurs_` avec le mot-clé `mutable`", correct: false}
+      - {text: "Écrire `~Lot() = default;` à la place de `~Lot() {}`", correct: false}
+    answer: |-
+      ```cpp
+      class Lot {
+      public:
+          std::size_t taille() const { return valeurs_.size(); }
+
+      private:
+          std::vector<int> valeurs_{1, 2, 3};
+      };
+      ```
+      Le destructeur déclaré supprime le constructeur de déplacement implicite : `std::move(a)` retombe sur la
+      copie. `= default` aurait le même effet. Sans destructeur, le déplacement est généré.
+  - key: bug-fuite-pointeur
+    format: bug-fix
+    question: |-
+      Cette classe alloue une `Adresse` et ne la libère jamais. Quelle correction suit la règle de zéro ?
+      ```cpp
+      #include <print>
+      #include <string>
+
+      struct Adresse {
+          std::string ville;
+      };
+
+      class Client {
+      public:
+          Client() : adresse_{new Adresse{"Lyon"}} {}
+          const std::string& ville() const { return adresse_->ville; }
+
+      private:
+          Adresse* adresse_;
+      };
+
+      int main() {
+          const Client client;
+          std::println("{}", client.ville());
+      }
+      ```
+    choices:
+      - {text: "Déclarer `std::unique_ptr<Adresse> adresse_`, construit avec `std::make_unique`", correct: true}
+      - {text: "Déclarer `Adresse& adresse_`, liée à l'objet alloué avec `new`", correct: false}
+      - {text: "Déclarer `const Adresse* adresse_`, pour que l'adresse ne change plus", correct: false}
+      - {text: "Écrire `delete adresse_;` à la fin de la fonction `ville()`", correct: false}
+    answer: |-
+      ```cpp
+      Client() : adresse_{std::make_unique<Adresse>("Lyon")} {}
+      // ...
+      std::unique_ptr<Adresse> adresse_;
+      ```
+      Le pointeur intelligent libère l'adresse à la destruction du client, sans destructeur à écrire. Il interdit
+      aussi la copie, qui aurait été superficielle. Un membre `Adresse adresse_;` tout court serait encore plus
+      simple.
+  - key: bug-base-sans-virtuel
+    format: bug-fix
+    question: |-
+      Cette classe de base suit la règle de zéro, mais détruire un `Cercle` par un `std::unique_ptr<Forme>` est un
+      comportement indéfini. Quelle correction est la bonne ?
+      ```cpp
+      #include <memory>
+      #include <print>
+
+      class Forme {
+      public:
+          virtual double aire() const = 0;
+      };
+
+      class Cercle : public Forme {
+      public:
+          double aire() const override { return 3.14; }
+      };
+
+      int main() {
+          const std::unique_ptr<Forme> forme = std::make_unique<Cercle>();
+          std::println("{}", forme->aire());
+      }
+      ```
+    choices:
+      - {text: "Ajouter `virtual ~Forme() = default;` à la classe `Forme`", correct: true}
+      - {text: "Ajouter `~Cercle() {}` à la classe `Cercle`", correct: false}
+      - {text: "Ajouter `Forme() = delete;` à la classe `Forme`", correct: false}
+      - {text: "Ajouter `final` à la déclaration de la classe `Forme`", correct: false}
+    answer: |-
+      ```cpp
+      class Forme {
+      public:
+          virtual ~Forme() = default;
+          virtual double aire() const = 0;
+      };
+      ```
+      Une base polymorphe a besoin d'un destructeur virtuel : c'est l'exception à la règle de zéro. GCC le signale
+      avec `-Wnon-virtual-dtor`.

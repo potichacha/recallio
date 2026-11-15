@@ -1,0 +1,452 @@
+notion: noexcept
+lesson: |-
+  `noexcept`, écrit après les paramètres d'une fonction, **promet** qu'aucune exception n'en sortira.
+
+  ```cpp
+  int taille() const noexcept;
+  void echanger(Tampon& autre) noexcept;
+  ```
+
+  **Ce qui arrive si la promesse est rompue.** Le compilateur ne vérifie **pas** le corps de la fonction : un
+  `throw` dans une fonction `noexcept` compile. Mais si une exception tente d'en sortir, le programme appelle
+  **`std::terminate`** et s'arrête. Aucun `catch` de l'appelant ne la verra, et la pile n'est pas forcément
+  déroulée.
+
+  ```cpp
+  void traiter() noexcept {
+      throw std::runtime_error{"panne"};     // compile ; à l'exécution : std::terminate
+  }
+  ```
+
+  Une exception lancée **et attrapée à l'intérieur** de la fonction ne rompt rien : seule compte celle qui sort.
+
+  **Pourquoi promettre.**
+
+  1. **Le déplacement dans les conteneurs.** Quand un `std::vector` réalloue, il doit garder ses éléments intacts
+     si quelque chose échoue. Il ne **déplace** donc ses éléments que si leur constructeur de déplacement est
+     `noexcept` ; sinon, il les **copie**. Un constructeur de déplacement sans `noexcept` rend le vecteur lent, en
+     silence.
+  2. **Le contrat.** L'appelant sait qu'il n'a pas à prévoir d'échec : c'est une information d'interface.
+  3. **Le code généré.** Le compilateur peut se passer du code de déroulement autour de l'appel.
+
+  **Ce qu'on marque `noexcept`.**
+
+  - le **constructeur de déplacement** et l'**affectation de déplacement** ;
+  - `swap` ;
+  - les **destructeurs** : ils le sont déjà, implicitement ;
+  - les petites fonctions qui ne peuvent vraiment pas échouer : accesseurs, comparaisons simples.
+
+  **Ce qu'on ne marque pas.** Une fonction qui alloue de la mémoire (`std::bad_alloc`), ou qui appelle du code qui
+  peut lancer. Et attention : `noexcept` fait partie du contrat. Le retirer plus tard casse le code qui comptait
+  dessus.
+
+  **L'opérateur `noexcept(expression)`.** Il vaut `true`, à la compilation, si l'expression ne peut pas lancer. Il
+  n'évalue pas l'expression.
+
+  ```cpp
+  static_assert(noexcept(a.echanger(b)));
+  ```
+
+  **La forme conditionnelle.** `noexcept(condition)` rend la promesse dépendante d'une condition connue à la
+  compilation : c'est ainsi qu'un template promet « si mon paramètre promet ».
+
+  ```cpp
+  template <typename T>
+  void echanger(T& a, T& b) noexcept(std::is_nothrow_move_constructible_v<T>);
+  ```
+
+  **En entretien** : « `noexcept` promet qu'aucune exception ne sort de la fonction ; si une sort quand même, c'est
+  `std::terminate`. Je le mets sur les opérations de déplacement et sur `swap` : sans lui, `std::vector` copie ses
+  éléments au lieu de les déplacer quand il réalloue. »
+cards:
+  - key: promesse
+    format: course
+    question: "Que promet le mot-clé `noexcept` placé après les paramètres d'une fonction ?"
+    choices:
+      - {text: "Qu'aucune exception ne sortira de la fonction", correct: true}
+      - {text: "Qu'aucune exception ne sera lancée ni attrapée dans la fonction", correct: false}
+      - {text: "Que la fonction attrape elle-même toutes les exceptions de l'appelant", correct: false}
+      - {text: "Que la fonction renvoie un code d'erreur au lieu de lancer", correct: false}
+    answer: "Seule compte l'exception qui sort. Une exception lancée puis attrapée à l'intérieur de la fonction ne rompt pas la promesse."
+  - key: promesse-rompue
+    format: course
+    question: "Que se passe-t-il quand une exception tente de sortir d'une fonction `noexcept` ?"
+    choices:
+      - {text: "Le programme appelle `std::terminate`, et s'arrête", correct: true}
+      - {text: "L'exception remonte normalement vers l'appelant", correct: false}
+      - {text: "L'exception est ignorée, et la fonction se termine", correct: false}
+      - {text: "Le compilateur refuse le programme, avec une erreur", correct: false}
+    answer: "Le compilateur ne vérifie pas le corps : un `throw` y compile. C'est à l'exécution que la promesse rompue arrête le programme, sans qu'aucun `catch` ne puisse intervenir."
+  - key: vector-et-deplacement
+    format: course
+    question: "Pourquoi marque-t-on `noexcept` le constructeur de déplacement d'une classe ?"
+    choices:
+      - {text: "Sans lui, `std::vector` copie ses éléments au lieu de les déplacer quand il réalloue", correct: true}
+      - {text: "Sans lui, `std::vector` refuse de contenir des objets de cette classe", correct: false}
+      - {text: "Sans lui, le constructeur de déplacement n'est jamais généré par le compilateur", correct: false}
+      - {text: "Sans lui, `std::move` lève une exception quand il est appelé sur l'objet", correct: false}
+    answer: "Si un déplacement échouait au milieu d'une réallocation, le vecteur aurait perdu des éléments. Il ne déplace donc que s'il a la garantie que cela ne lance pas."
+  - key: operateur
+    format: course
+    question: "Que vaut l'expression `noexcept(f())` ?"
+    choices:
+      - {text: "`true`, à la compilation, si l'appel `f()` ne peut pas lancer d'exception", correct: true}
+      - {text: "`true`, à l'exécution, si l'appel `f()` vient de se terminer sans exception", correct: false}
+      - {text: "La valeur renvoyée par `f()`, ou `false` si elle a lancé une exception", correct: false}
+      - {text: "Rien : elle rend `f` `noexcept` pour la suite du programme", correct: false}
+    answer: "C'est un opérateur, évalué à la compilation, qui n'appelle pas `f`. Il regarde seulement si `f` est déclarée `noexcept`."
+  - key: vf-verification
+    format: true-false
+    question: "Le compilateur refuse un `throw` écrit dans le corps d'une fonction `noexcept`."
+    truth: false
+    answer: "Le code compile, au mieux avec un avertissement. La promesse n'est contrôlée qu'à l'exécution, par `std::terminate`."
+  - key: vf-destructeur
+    format: true-false
+    question: "Un destructeur est `noexcept` par défaut, sans qu'on l'écrive."
+    truth: true
+    answer: "Une exception qui sort d'un destructeur arrête donc le programme."
+  - key: vf-attrapee-dedans
+    format: true-false
+    question: "Une fonction `noexcept` peut contenir un `try` et un `catch`, et attraper elle-même une exception."
+    truth: true
+    answer: "Tant que l'exception ne sort pas de la fonction, la promesse est tenue."
+  - key: vf-catch-appelant
+    format: true-false
+    question: "Un `catch` de l'appelant attrape l'exception qui sort d'une fonction `noexcept`."
+    truth: false
+    answer: "L'exception n'atteint jamais l'appelant : le programme est arrêté par `std::terminate` à la frontière de la fonction."
+  - key: qcm-ecriture
+    format: multiple-choice
+    question: "Quelle déclaration promet que la fonction membre `taille` ne lance pas ?"
+    choices:
+      - {text: "`int taille() const noexcept;`", correct: true}
+      - {text: "`noexcept int taille() const;`", correct: false}
+      - {text: "`int taille() noexcept const;`", correct: false}
+      - {text: "`int noexcept taille() const;`", correct: false}
+    answer: "`noexcept` vient après les paramètres et après `const`."
+  - key: qcm-candidates
+    format: multiple-choice
+    question: "Laquelle de ces fonctions est la meilleure candidate à `noexcept` ?"
+    choices:
+      - {text: "Un `swap` qui échange deux pointeurs", correct: true}
+      - {text: "Une fonction qui ouvre un fichier", correct: false}
+      - {text: "Une fonction qui ajoute à un vecteur", correct: false}
+      - {text: "Une fonction qui appelle `v.at(i)`", correct: false}
+    answer: "Échanger deux pointeurs ne peut pas échouer. Les trois autres peuvent lancer : fichier introuvable, mémoire épuisée, indice hors bornes."
+  - key: qcm-conditionnel
+    format: multiple-choice
+    question: "Que signifie `noexcept(false)` après les paramètres d'une fonction ?"
+    choices:
+      - {text: "Que la fonction peut lancer une exception", correct: true}
+      - {text: "Que la fonction ne lance jamais d'exception", correct: false}
+      - {text: "Que la fonction renvoie toujours `false`", correct: false}
+      - {text: "Que la fonction ne compile qu'en mode débogage", correct: false}
+    answer: "`noexcept(condition)` promet seulement si la condition est vraie. `noexcept` seul équivaut à `noexcept(true)`."
+  - key: qcm-trait
+    format: multiple-choice
+    question: "Quel trait dit si le constructeur de déplacement de `T` est `noexcept` ?"
+    choices:
+      - {text: "`std::is_nothrow_move_constructible_v<T>`", correct: true}
+      - {text: "`std::is_move_constructible_v<T>`", correct: false}
+      - {text: "`std::is_trivially_copyable_v<T>`", correct: false}
+      - {text: "`std::is_nothrow_destructible_v<T>`", correct: false}
+    answer: "C'est ce que consulte `std::vector`, à travers `std::move_if_noexcept`, pour choisir entre déplacer et copier."
+  - key: code-operateur
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+
+      void sure() noexcept {}
+      void risquee() {}
+
+      int main() {
+          std::println("{} {}", noexcept(sure()), noexcept(risquee()));
+      }
+      ```
+    choices:
+      - {text: "`true false`", correct: true}
+      - {text: "`true true`", correct: false}
+      - {text: "`false false`", correct: false}
+      - {text: "`false true`", correct: false}
+    answer: "`true false` : l'opérateur regarde la déclaration, pas le corps. `risquee` ne lance rien, mais ne le promet pas."
+    check:
+      output: "true false"
+  - key: code-vector-copie
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+      #include <vector>
+
+      struct Trace {
+          Trace() = default;
+          Trace(const Trace&) { ++copies; }
+          Trace(Trace&&) { ++deplacements; }
+          static inline int copies = 0;
+          static inline int deplacements = 0;
+      };
+
+      int main() {
+          std::vector<Trace> v(2);
+          v.reserve(v.capacity() + 1);
+          std::println("{} {}", Trace::copies, Trace::deplacements);
+      }
+      ```
+    choices:
+      - {text: "`2 0`", correct: true}
+      - {text: "`0 2`", correct: false}
+      - {text: "`0 0`", correct: false}
+      - {text: "`2 2`", correct: false}
+    answer: "`2 0` : le constructeur de déplacement n'est pas `noexcept`. Pour réallouer sans risque, le vecteur copie ses deux éléments."
+    check:
+      output: "2 0"
+  - key: code-vector-deplacement
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+      #include <vector>
+
+      struct Trace {
+          Trace() = default;
+          Trace(const Trace&) { ++copies; }
+          Trace(Trace&&) noexcept { ++deplacements; }
+          static inline int copies = 0;
+          static inline int deplacements = 0;
+      };
+
+      int main() {
+          std::vector<Trace> v(2);
+          v.reserve(v.capacity() + 1);
+          std::println("{} {}", Trace::copies, Trace::deplacements);
+      }
+      ```
+    choices:
+      - {text: "`0 2`", correct: true}
+      - {text: "`2 0`", correct: false}
+      - {text: "`0 0`", correct: false}
+      - {text: "`2 2`", correct: false}
+    answer: "`0 2` : le constructeur de déplacement est `noexcept`. Le vecteur déplace ses deux éléments vers le nouveau bloc."
+    check:
+      output: "0 2"
+  - key: code-attrapee-dedans
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+      #include <stdexcept>
+
+      int lire() noexcept {
+          try {
+              throw std::runtime_error{"panne"};
+          } catch (const std::runtime_error&) {
+              return -1;
+          }
+      }
+
+      int main() {
+          std::println("{} {}", lire(), noexcept(lire()));
+      }
+      ```
+    choices:
+      - {text: "`-1 true`", correct: true}
+      - {text: "`-1 false`", correct: false}
+      - {text: "`0 true`", correct: false}
+      - {text: "Rien : le programme s'arrête par `std::terminate`", correct: false}
+    answer: "`-1 true` : l'exception est attrapée à l'intérieur de la fonction. Rien ne sort : la promesse est tenue."
+    check:
+      output: "-1 true"
+  - key: bug-terminate
+    format: bug-fix
+    question: |-
+      Ce programme s'arrête sur « terminate called after throwing an instance of 'std::runtime_error' », malgré
+      son `catch`. Il devrait afficher `erreur`. Quelle correction est la bonne ?
+      ```cpp
+      #include <print>
+      #include <stdexcept>
+
+      void charger() noexcept {
+          throw std::runtime_error{"fichier introuvable"};
+      }
+
+      int main() {
+          try {
+              charger();
+          } catch (const std::runtime_error&) {
+              std::println("erreur");
+          }
+      }
+      ```
+    choices:
+      - {text: "Retirer `noexcept` de la fonction `charger`", correct: true}
+      - {text: "Attraper `const std::exception&` dans la fonction `main`", correct: false}
+      - {text: "Attraper l'exception avec `catch (...)` dans la fonction `main`", correct: false}
+      - {text: "Déclarer la fonction `main` avec `noexcept`", correct: false}
+    answer: |-
+      ```cpp
+      void charger() {
+          throw std::runtime_error{"fichier introuvable"};
+      }
+      ```
+      Une exception qui sort d'une fonction `noexcept` appelle `std::terminate` : aucun `catch` de l'appelant ne la
+      reçoit. Une fonction qui peut échouer ne promet pas le contraire.
+  - key: bug-move-sans-noexcept
+    format: bug-fix
+    question: |-
+      Ce programme devrait afficher `0` : le vecteur devrait déplacer ses éléments en réallouant. Il affiche `3`
+      copies. Quelle correction est la bonne ?
+      ```cpp
+      #include <print>
+      #include <vector>
+
+      struct Image {
+          Image() = default;
+          Image(const Image&) { ++copies; }
+          Image(Image&&) {}
+          static inline int copies = 0;
+      };
+
+      int main() {
+          std::vector<Image> images(3);
+          images.reserve(images.capacity() + 1);
+          std::println("{}", Image::copies);
+      }
+      ```
+    choices:
+      - {text: "Déclarer `Image(Image&&) noexcept {}`", correct: true}
+      - {text: "Déclarer `Image(const Image&) noexcept { ++copies; }`", correct: false}
+      - {text: "Déclarer `Image() noexcept = default;`", correct: false}
+      - {text: "Déclarer `Image(Image&&) = delete;`", correct: false}
+    answer: |-
+      ```cpp
+      Image(Image&&) noexcept {}
+      ```
+      `std::vector` ne déplace ses éléments, pendant une réallocation, que si leur constructeur de déplacement est
+      `noexcept`. Sinon, il les copie, sans rien dire.
+  - key: bug-static-assert
+    format: bug-fix
+    question: |-
+      Le compilateur répond « static assertion failed » : l'échange n'est pas `noexcept`. Quelle correction est la
+      bonne ?
+      ```cpp
+      #include <utility>
+
+      struct Tampon {
+          int* donnees = nullptr;
+          void echanger(Tampon& autre) {
+              std::swap(donnees, autre.donnees);
+          }
+      };
+
+      int main() {
+          Tampon a;
+          Tampon b;
+          static_assert(noexcept(a.echanger(b)));
+          a.echanger(b);
+      }
+      ```
+    choices:
+      - {text: "Déclarer `void echanger(Tampon& autre) noexcept`", correct: true}
+      - {text: "Déclarer `void echanger(const Tampon& autre)`", correct: false}
+      - {text: "Écrire `static_assert(!noexcept(a.echanger(b)));`", correct: false}
+      - {text: "Écrire `static_assert(noexcept(a.echanger));`", correct: false}
+    answer: |-
+      ```cpp
+      void echanger(Tampon& autre) noexcept {
+      ```
+      Échanger deux pointeurs ne peut pas lancer, mais l'opérateur `noexcept` ne lit que la déclaration. Il faut y
+      écrire la promesse.
+  - key: bug-destructeur
+    format: bug-fix
+    question: |-
+      Ce programme s'arrête brutalement au lieu d'afficher `erreur`. Quelle correction est la bonne ?
+      ```cpp
+      #include <print>
+      #include <stdexcept>
+
+      struct Connexion {
+          ~Connexion() {
+              throw std::runtime_error{"déconnexion impossible"};
+          }
+      };
+
+      int main() {
+          try {
+              Connexion c;
+          } catch (const std::runtime_error&) {
+              std::println("erreur");
+          }
+      }
+      ```
+    choices:
+      - {text: "Attraper l'erreur dans le destructeur lui-même, sans la laisser sortir", correct: true}
+      - {text: "Déclarer le destructeur `~Connexion() noexcept`, explicitement", correct: false}
+      - {text: "Déclarer la variable `c` avant le bloc `try` de `main`", correct: false}
+      - {text: "Attraper `const std::exception&` dans la fonction `main`", correct: false}
+    answer: |-
+      ```cpp
+      ~Connexion() {
+          try {
+              fermer();
+          } catch (const std::exception&) {
+              // noter l'échec, sans relancer
+          }
+      }
+      ```
+      Un destructeur est `noexcept` d'office : l'exception qui en sort arrête le programme. Il doit traiter ses
+      échecs lui-même. Une fermeture qui compte s'expose par une fonction `fermer()` à part.
+  - key: situation-lenteur
+    format: scenario
+    question: |-
+      Une classe `Maillage` contient un gros tableau, et a un constructeur de déplacement écrit à la main. Remplir
+      un `std::vector<Maillage>` est pourtant très lent : le profileur montre des copies à chaque réallocation.
+      Que vérifies-tu ?
+    choices:
+      - {text: "Que le constructeur de déplacement est marqué `noexcept`", correct: true}
+      - {text: "Que le constructeur de copie est marqué `noexcept`", correct: false}
+      - {text: "Que le destructeur est marqué `virtual`", correct: false}
+      - {text: "Que la classe est marquée `final`", correct: false}
+    answer: |-
+      Sans `noexcept`, le vecteur n'ose pas déplacer : si un déplacement lançait en cours de route, ses éléments
+      seraient à moitié partis. Il copie donc. Ajouter `noexcept` suffit à rétablir les déplacements.
+  - key: situation-contrat
+    format: scenario
+    question: |-
+      Une bibliothèque publie `int analyser(std::string_view) noexcept;`. Une nouvelle version doit signaler une
+      entrée invalide par une exception. Un collègue propose de simplement retirer `noexcept`. Que réponds-tu ?
+    choices:
+      - {text: "Que c'est un changement de contrat : le code appelant comptait sur l'absence d'exception", correct: true}
+      - {text: "Que c'est sans conséquence : `noexcept` n'est qu'une indication pour l'optimiseur", correct: false}
+      - {text: "Que c'est impossible : `noexcept` ne peut pas être retiré d'une fonction publiée", correct: false}
+      - {text: "Que c'est inutile : une fonction `noexcept` peut lancer vers son appelant", correct: false}
+    answer: |-
+      `noexcept` fait partie de l'interface. Des appelants n'ont pas prévu de `catch`, ou appellent la fonction
+      depuis leurs propres fonctions `noexcept` : une exception y arrêterait le programme. On traite cela comme
+      une rupture de compatibilité, ou l'on renvoie un `std::expected`.
+  - key: situation-partout
+    format: scenario
+    question: |-
+      Pour « optimiser », un collègue ajoute `noexcept` à toutes les fonctions du projet, y compris celles qui
+      allouent de la mémoire ou lisent des fichiers. Que risque le programme ?
+    choices:
+      - {text: "Un arrêt par `std::terminate` à la première exception, sans possibilité de la traiter", correct: true}
+      - {text: "Un refus de compilation pour chaque fonction qui contient un `throw`", correct: false}
+      - {text: "Un ralentissement général, car `noexcept` ajoute des vérifications", correct: false}
+      - {text: "Rien : les exceptions sont converties en codes d'erreur", correct: false}
+    answer: |-
+      `noexcept` ne supprime pas les exceptions : il transforme chacune en arrêt du programme. On ne le met que
+      sur ce qui ne peut réellement pas échouer : déplacements, `swap`, accesseurs simples.
+  - key: situation-entretien
+    format: scenario
+    question: |-
+      En entretien, on te demande : « Quelles fonctions marques-tu `noexcept` en priorité, et pourquoi ? » Que
+      réponds-tu ?
+    choices:
+      - {text: "Le constructeur et l'affectation de déplacement, et `swap` : les conteneurs s'en servent pour déplacer", correct: true}
+      - {text: "Le constructeur de copie et l'affectation de copie : ce sont les fonctions les plus appelées", correct: false}
+      - {text: "La fonction `main` : elle protège ainsi tout le programme des exceptions", correct: false}
+      - {text: "Toutes les fonctions virtuelles : la liaison dynamique en est accélérée", correct: false}
+    answer: |-
+      Ces opérations échangent des pointeurs : elles ne peuvent pas échouer, et la bibliothèque standard choisit
+      entre déplacer et copier d'après cette promesse. Une copie, elle, alloue, donc peut lancer.

@@ -1,0 +1,507 @@
+notion: deroulement-pile
+lesson: |-
+  Quand une exception est lancée, elle remonte la chaîne des appels jusqu'à un `catch`. En chemin, chaque fonction
+  quittée voit ses **variables locales détruites**, dans l'ordre inverse de leur création. C'est le **déroulement
+  de la pile** (*stack unwinding*).
+
+  ```cpp
+  struct Trace {
+      std::string nom;
+      ~Trace() { std::println("fin de {}", nom); }
+  };
+
+  void interne() {
+      Trace b{"b"};
+      throw std::runtime_error{"panne"};
+  }
+
+  void externe() {
+      Trace a{"a"};
+      interne();
+  }
+  ```
+
+  Si `externe()` est appelée dans un `try`, on voit `fin de b`, puis `fin de a`, **avant** l'entrée dans le
+  `catch`.
+
+  **C'est ce qui rend RAII sûr.** Une ressource tenue par un objet local est libérée quelle que soit la façon dont
+  on quitte la fonction : `return`, fin du bloc, ou exception.
+
+  ```cpp
+  void traiter() {
+      std::lock_guard verrou{mutex};                 // déverrouillé même en cas d'exception
+      auto donnees = std::make_unique<Donnees>();    // libéré même en cas d'exception
+      calculer(*donnees);                            // peut lancer
+  }
+  ```
+
+  **Ce qui n'est pas protégé.** Une ressource tenue par un **pointeur brut** : le déroulement détruit le pointeur,
+  pas ce qu'il désigne.
+
+  ```cpp
+  void traiter() {
+      int* tampon = new int[100];
+      calculer(tampon);        // si ceci lance...
+      delete[] tampon;         // ...ceci n'est jamais exécuté : fuite
+  }
+  ```
+
+  Il n'y a pas de `finally` en C++ : le destructeur en tient lieu. On ne répare pas ce code avec un `try`/`catch`,
+  mais avec un `std::vector` ou un `std::unique_ptr`.
+
+  **Un constructeur qui lance.** L'objet n'a jamais existé : son **destructeur n'est pas appelé**. Mais les membres
+  **déjà construits** sont détruits. D'où l'intérêt de membres RAII plutôt que de pointeurs bruts.
+
+  **Un destructeur ne doit pas lancer.** Si un destructeur lance pendant qu'une autre exception déroule la pile, le
+  programme appelle `std::terminate`. Les destructeurs sont d'ailleurs `noexcept` par défaut : une exception qui en
+  sort arrête le programme.
+
+  **Sans `catch`, rien n'est garanti.** Si aucune fonction n'attrape l'exception, le standard laisse le
+  compilateur libre de ne **pas** dérouler la pile avant `std::terminate` : les destructeurs peuvent ne pas être
+  appelés.
+
+  **En entretien** : « Pendant qu'une exception remonte, les objets locaux de chaque fonction traversée sont
+  détruits : c'est le déroulement de la pile, et c'est pour ça que RAII est sûr face aux exceptions. Un pointeur
+  brut, lui, fuit. Et un destructeur ne lance jamais. »
+cards:
+  - key: definition
+    format: course
+    question: "Qu'appelle-t-on le déroulement de la pile ?"
+    choices:
+      - {text: "La destruction des variables locales des fonctions qu'une exception traverse", correct: true}
+      - {text: "L'agrandissement de la pile quand une fonction s'appelle elle-même", correct: false}
+      - {text: "L'affichage de la liste des fonctions en cours quand le programme plante", correct: false}
+      - {text: "La libération de toute la mémoire du tas quand le programme se termine", correct: false}
+    answer: "En remontant vers son `catch`, l'exception quitte des fonctions. Leurs objets locaux sont détruits, dans l'ordre inverse de leur création."
+  - key: raii-et-exceptions
+    format: course
+    question: "Pourquoi une ressource tenue par un objet RAII est-elle libérée même en cas d'exception ?"
+    choices:
+      - {text: "Le déroulement de la pile appelle le destructeur de l'objet local", correct: true}
+      - {text: "Le `catch` libère toutes les ressources acquises dans le `try`", correct: false}
+      - {text: "Le système d'exploitation reprend la ressource dès qu'une exception est lancée", correct: false}
+      - {text: "Le ramasse-miettes de C++ parcourt la pile après chaque exception", correct: false}
+    answer: "Le destructeur est appelé quelle que soit la sortie de la portée. C++ n'a ni `finally` ni ramasse-miettes : c'est le destructeur qui fait le ménage."
+  - key: constructeur-qui-lance
+    format: course
+    question: "Un constructeur lance une exception après avoir construit deux membres. Que se passe-t-il ?"
+    choices:
+      - {text: "Les deux membres sont détruits ; le destructeur de l'objet n'est pas appelé", correct: true}
+      - {text: "Le destructeur de l'objet est appelé, et détruit les deux membres", correct: false}
+      - {text: "Rien n'est détruit : les deux membres restent en mémoire", correct: false}
+      - {text: "L'objet est construit à moitié, et reste utilisable", correct: false}
+    answer: "Un objet dont le constructeur n'a pas fini n'existe pas : pas de destructeur pour lui. Mais ses membres déjà construits, eux, sont détruits."
+  - key: destructeur-qui-lance
+    format: course
+    question: "Pourquoi un destructeur ne doit-il pas laisser sortir une exception ?"
+    choices:
+      - {text: "S'il lance pendant un déroulement de pile, le programme appelle `std::terminate`", correct: true}
+      - {text: "Le compilateur refuse tout `throw` écrit dans un destructeur", correct: false}
+      - {text: "L'exception serait ignorée, et l'erreur passerait inaperçue", correct: false}
+      - {text: "Le destructeur serait appelé une seconde fois par le `catch`", correct: false}
+    answer: "Deux exceptions ne peuvent pas remonter en même temps. Un destructeur est d'ailleurs `noexcept` par défaut : une exception qui en sort arrête le programme."
+  - key: vf-ordre
+    format: true-false
+    question: "Pendant le déroulement de la pile, les objets locaux sont détruits dans l'ordre inverse de leur création."
+    truth: true
+    answer: C'est le même ordre que pour une sortie normale de la fonction.
+  - key: vf-pointeur-brut
+    format: true-false
+    question: "Le déroulement de la pile libère la mémoire désignée par un pointeur brut local."
+    truth: false
+    answer: "Il détruit le pointeur, pas l'objet désigné. Sans `delete`, la mémoire fuit. C'est la raison d'être des pointeurs intelligents."
+  - key: vf-finally
+    format: true-false
+    question: "C++ a un bloc `finally`, exécuté après le `try` dans tous les cas."
+    truth: false
+    answer: "Il n'existe pas. Le code à exécuter dans tous les cas se place dans un destructeur."
+  - key: vf-avant-le-catch
+    format: true-false
+    question: "Les destructeurs des objets locaux sont appelés avant que le bloc `catch` ne s'exécute."
+    truth: true
+    answer: "La pile est déroulée jusqu'à la fonction qui contient le `catch`, puis le `catch` s'exécute."
+  - key: qcm-protege
+    format: multiple-choice
+    question: "Laquelle de ces variables locales libère sa ressource si la fonction est quittée par une exception ?"
+    choices:
+      - {text: "`auto p = std::make_unique<int>(5);`", correct: true}
+      - {text: "`int* p = new int{5};`", correct: false}
+      - {text: "`int* p = new int[5];`", correct: false}
+      - {text: "`FILE* f = std::fopen(\"a.txt\", \"r\");`", correct: false}
+    answer: "Le destructeur de `std::unique_ptr` libère la mémoire. Les trois autres sont des pointeurs bruts : rien ne libère ce qu'ils désignent."
+  - key: qcm-sans-catch
+    format: multiple-choice
+    question: "Aucune fonction n'attrape une exception. Les destructeurs des objets locaux sont-ils appelés ?"
+    choices:
+      - {text: "Ce n'est pas garanti : le programme peut s'arrêter sans dérouler la pile", correct: true}
+      - {text: "Oui, toujours : chaque destructeur est appelé avant l'arrêt du programme", correct: false}
+      - {text: "Oui, mais seulement ceux des objets locaux de la fonction `main`", correct: false}
+      - {text: "Non, jamais : c'est interdit par le standard", correct: false}
+    answer: "Le standard laisse le choix à l'implémentation. Un `catch` dans `main` garantit que la pile est déroulée."
+  - key: qcm-noexcept
+    format: multiple-choice
+    question: "Que se passe-t-il quand une exception sort d'une fonction déclarée `noexcept` ?"
+    choices:
+      - {text: "Le programme appelle `std::terminate`", correct: true}
+      - {text: "L'exception est ignorée, et la fonction renvoie zéro", correct: false}
+      - {text: "L'exception remonte normalement vers l'appelant", correct: false}
+      - {text: "Le compilateur refuse de compiler la fonction", correct: false}
+    answer: "`noexcept` est une promesse. La rompre arrête le programme. Les destructeurs sont `noexcept` par défaut."
+  - key: qcm-reparer-fuite
+    format: multiple-choice
+    question: "Une fonction alloue un tableau avec `new[]`, et peut lancer avant son `delete[]`. Quelle est la bonne correction ?"
+    choices:
+      - {text: "Remplacer le tableau par un `std::vector`", correct: true}
+      - {text: "Entourer la fonction d'un bloc `finally`", correct: false}
+      - {text: "Déclarer la fonction `noexcept`", correct: false}
+      - {text: "Placer le `delete[]` avant l'allocation", correct: false}
+    answer: "Le vecteur libère sa mémoire dans son destructeur, appelé par le déroulement de la pile. Un `try`/`catch` qui relance fonctionnerait aussi, mais se multiplie à chaque ressource."
+  - key: code-ordre
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+      #include <stdexcept>
+
+      struct Trace {
+          char nom;
+          ~Trace() { std::print("{} ", nom); }
+      };
+
+      void traiter() {
+          Trace a{'a'};
+          Trace b{'b'};
+          throw std::runtime_error{"panne"};
+      }
+
+      int main() {
+          try {
+              traiter();
+          } catch (const std::runtime_error&) {
+              std::println("catch");
+          }
+      }
+      ```
+    choices:
+      - {text: "`b a catch`", correct: true}
+      - {text: "`a b catch`", correct: false}
+      - {text: "`catch b a`", correct: false}
+      - {text: "`catch`", correct: false}
+    answer: "`b a catch` : les objets locaux sont détruits dans l'ordre inverse de leur création, avant l'entrée dans le `catch`."
+    check:
+      output: "b a catch"
+  - key: code-deux-niveaux
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+      #include <stdexcept>
+
+      struct Trace {
+          char nom;
+          ~Trace() { std::print("{} ", nom); }
+      };
+
+      void interne() {
+          Trace b{'b'};
+          throw std::runtime_error{"panne"};
+      }
+
+      void externe() {
+          Trace a{'a'};
+          interne();
+          std::print("x ");
+      }
+
+      int main() {
+          try {
+              externe();
+          } catch (const std::runtime_error&) {
+              std::println("fin");
+          }
+      }
+      ```
+    choices:
+      - {text: "`b a fin`", correct: true}
+      - {text: "`a b fin`", correct: false}
+      - {text: "`b x a fin`", correct: false}
+      - {text: "`b fin`", correct: false}
+    answer: "`b a fin` : l'exception quitte `interne`, qui détruit `b`, puis traverse `externe`, qui détruit `a`. Le `print` de `x` est sauté."
+    check:
+      output: "b a fin"
+  - key: code-constructeur
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+      #include <stdexcept>
+
+      struct Membre {
+          ~Membre() { std::print("membre "); }
+      };
+
+      struct Objet {
+          Membre m;
+          Objet() { throw std::runtime_error{"panne"}; }
+          ~Objet() { std::print("objet "); }
+      };
+
+      int main() {
+          try {
+              Objet o;
+          } catch (const std::runtime_error&) {
+              std::println("catch");
+          }
+      }
+      ```
+    choices:
+      - {text: "`membre catch`", correct: true}
+      - {text: "`objet membre catch`", correct: false}
+      - {text: "`membre objet catch`", correct: false}
+      - {text: "`catch`", correct: false}
+    answer: "`membre catch` : le constructeur n'a pas fini, donc `~Objet` n'est pas appelé. Le membre `m`, déjà construit, est détruit."
+    check:
+      output: "membre catch"
+  - key: code-unique-ptr
+    format: code-output
+    question: |-
+      ```cpp
+      #include <memory>
+      #include <print>
+      #include <stdexcept>
+
+      struct Ressource {
+          ~Ressource() { std::print("libérée "); }
+      };
+
+      void traiter() {
+          auto r = std::make_unique<Ressource>();
+          throw std::runtime_error{"panne"};
+      }
+
+      int main() {
+          try {
+              traiter();
+          } catch (const std::runtime_error& e) {
+              std::println("{}", e.what());
+          }
+      }
+      ```
+    choices:
+      - {text: "`libérée panne`", correct: true}
+      - {text: "`panne libérée`", correct: false}
+      - {text: "`panne`", correct: false}
+      - {text: "`libérée`", correct: false}
+    answer: "`libérée panne` : le déroulement détruit `r`, dont le destructeur libère la ressource, avant que le `catch` ne s'exécute."
+    check:
+      output: "libérée panne"
+  - key: bug-fuite-sur-exception
+    format: bug-fix
+    question: |-
+      Ce programme devrait afficher `libérée` avant `erreur`. Il n'affiche que `erreur` : la ressource fuit. Quelle
+      correction est la bonne ?
+      ```cpp
+      #include <print>
+      #include <stdexcept>
+
+      struct Ressource {
+          ~Ressource() { std::println("libérée"); }
+      };
+
+      void traiter() {
+          Ressource* r = new Ressource{};
+          throw std::runtime_error{"panne"};
+          delete r;
+      }
+
+      int main() {
+          try {
+              traiter();
+          } catch (const std::runtime_error&) {
+              std::println("erreur");
+          }
+      }
+      ```
+    choices:
+      - {text: "Tenir la ressource par `auto r = std::make_unique<Ressource>();`, sans `delete`", correct: true}
+      - {text: "Écrire un second `delete r;` dans le `catch` de la fonction `main`", correct: false}
+      - {text: "Déclarer la fonction `traiter` avec le mot-clé `noexcept`", correct: false}
+      - {text: "Déclarer le pointeur avec `const Ressource* r`", correct: false}
+    answer: |-
+      ```cpp
+      auto r = std::make_unique<Ressource>();
+      throw std::runtime_error{"panne"};
+      ```
+      Le `throw` saute le `delete`. Le déroulement de la pile détruit le pointeur brut, pas l'objet. Un
+      `std::unique_ptr` le libère dans son destructeur. Dans `main`, `r` n'est pas visible.
+  - key: bug-destructeur-qui-lance
+    format: bug-fix
+    question: |-
+      Ce programme s'arrête brutalement, sans afficher `erreur`. Quelle correction est la bonne ?
+      ```cpp
+      #include <print>
+      #include <stdexcept>
+
+      struct Fichier {
+          ~Fichier() { throw std::runtime_error{"fermeture impossible"}; }
+      };
+
+      int main() {
+          try {
+              Fichier f;
+          } catch (const std::runtime_error&) {
+              std::println("erreur");
+          }
+      }
+      ```
+    choices:
+      - {text: "Ne pas lancer depuis le destructeur : y noter l'erreur, sans exception", correct: true}
+      - {text: "Attraper `const std::exception&` à la place de `std::runtime_error`", correct: false}
+      - {text: "Déclarer le destructeur de `Fichier` avec le mot-clé `virtual`", correct: false}
+      - {text: "Déclarer la variable `f` avant le bloc `try`", correct: false}
+    answer: |-
+      ```cpp
+      ~Fichier() { std::println(stderr, "fermeture impossible"); }
+      ```
+      Un destructeur est `noexcept` par défaut : une exception qui en sort appelle `std::terminate`, quel que soit le
+      `catch` autour. Une fermeture qui peut échouer s'expose par une fonction `fermer()` à part.
+  - key: bug-verrou-manuel
+    format: bug-fix
+    question: |-
+      Ce programme devrait afficher `libre` à la fin. Il affiche `verrouillé` : l'exception a sauté le
+      déverrouillage. Quelle correction est la bonne ?
+      ```cpp
+      #include <print>
+      #include <stdexcept>
+
+      bool verrouille = false;
+
+      void traiter() {
+          verrouille = true;
+          throw std::runtime_error{"panne"};
+          verrouille = false;
+      }
+
+      int main() {
+          try {
+              traiter();
+          } catch (const std::runtime_error&) {
+          }
+          std::println("{}", verrouille ? "verrouillé" : "libre");
+      }
+      ```
+    choices:
+      - {text: "Confier le verrou à un objet local, dont le destructeur remet `verrouille` à `false`", correct: true}
+      - {text: "Écrire `verrouille = false;` une seconde fois, juste après la ligne du `throw`", correct: false}
+      - {text: "Déclarer la variable `verrouille` avec `static bool` à la place de `bool`", correct: false}
+      - {text: "Écrire `finally { verrouille = false; }` à la fin de la fonction `traiter`", correct: false}
+    answer: |-
+      ```cpp
+      struct Garde {
+          Garde() { verrouille = true; }
+          ~Garde() { verrouille = false; }
+      };
+
+      void traiter() {
+          Garde garde;
+          throw std::runtime_error{"panne"};
+      }
+      ```
+      Le déroulement de la pile appelle le destructeur de `garde`. C'est le principe de `std::lock_guard`. Il n'y a
+      pas de `finally` en C++.
+  - key: bug-constructeur-pointeurs
+    format: bug-fix
+    question: |-
+      Le constructeur de `Paire` lance après sa première allocation. Le programme devrait afficher `libérée`, et ne
+      l'affiche pas : la première ressource fuit. Quelle correction est la bonne ?
+      ```cpp
+      #include <print>
+      #include <stdexcept>
+
+      struct Ressource {
+          ~Ressource() { std::println("libérée"); }
+      };
+
+      struct Paire {
+          Ressource* a;
+          Ressource* b;
+          Paire() : a{new Ressource{}}, b{nullptr} { throw std::runtime_error{"panne"}; }
+          ~Paire() {
+              delete a;
+              delete b;
+          }
+      };
+
+      int main() {
+          try {
+              Paire p;
+          } catch (const std::runtime_error&) {
+          }
+      }
+      ```
+    choices:
+      - {text: "Déclarer `a` et `b` comme des `std::unique_ptr<Ressource>`", correct: true}
+      - {text: "Déclarer le destructeur `~Paire()` avec le mot-clé `virtual`", correct: false}
+      - {text: "Écrire `delete a;` dans le `catch` de la fonction `main`", correct: false}
+      - {text: "Initialiser `b` avant `a` dans la liste d'initialisation", correct: false}
+    answer: |-
+      ```cpp
+      std::unique_ptr<Ressource> a;
+      std::unique_ptr<Ressource> b;
+      Paire() : a{std::make_unique<Ressource>()} { throw std::runtime_error{"panne"}; }
+      ```
+      Le constructeur n'a pas fini : `~Paire` n'est pas appelé. Mais les membres déjà construits sont détruits : un
+      `std::unique_ptr` libère alors sa ressource, un pointeur brut non.
+  - key: situation-fuite-intermittente
+    format: scenario
+    question: |-
+      Un service perd un peu de mémoire chaque fois qu'une requête échoue. Le code alloue un tampon avec `new[]` au
+      début du traitement, et le libère avec `delete[]` à la fin. Où est le problème, et que proposes-tu ?
+    choices:
+      - {text: "Une exception saute le `delete[]` ; un `std::vector` libère le tampon dans tous les cas", correct: true}
+      - {text: "Le `delete[]` est appelé deux fois ; il faut mettre le pointeur à `nullptr` après", correct: false}
+      - {text: "Le tampon est trop petit ; il faut l'allouer deux fois plus grand au départ", correct: false}
+      - {text: "Les exceptions consomment de la mémoire ; il faut les remplacer par des codes d'erreur", correct: false}
+    answer: |-
+      Quand le traitement lance, l'exécution quitte la fonction sans passer par le `delete[]`. Le déroulement de la
+      pile ne libère que ce que tiennent des objets : un `std::vector` ou un `std::unique_ptr<T[]>`.
+  - key: situation-revue-try-catch
+    format: scenario
+    question: |-
+      En revue de code, une fonction entoure chaque acquisition de ressource d'un `try`/`catch` qui libère puis
+      relance avec `throw;`. Elle fait soixante lignes, dont quarante de nettoyage. Que proposes-tu ?
+    choices:
+      - {text: "Des objets RAII pour chaque ressource : les destructeurs remplacent tous les `catch`", correct: true}
+      - {text: "Un seul `catch (...)` autour de toute la fonction, qui ignore l'erreur", correct: false}
+      - {text: "Des `goto` vers une étiquette de nettoyage placée à la fin de la fonction", correct: false}
+      - {text: "La déclaration de la fonction en `noexcept`, pour supprimer les exceptions", correct: false}
+    answer: |-
+      Chaque ressource confiée à un objet local est libérée par le déroulement de la pile, sans une ligne de
+      nettoyage. Le code ne garde que la logique. C'est l'idiome central du C++ face aux erreurs.
+  - key: situation-destructeur-flush
+    format: scenario
+    question: |-
+      Le destructeur d'une classe `Journal` vide un tampon sur le disque, opération qui peut échouer. Un collègue
+      veut y lancer une exception en cas d'échec. Que lui réponds-tu ?
+    choices:
+      - {text: "Qu'un destructeur ne doit pas lancer : offrir une fonction `vider()` qui signale l'échec", correct: true}
+      - {text: "Que c'est la bonne solution : l'appelant attrapera l'exception du destructeur", correct: false}
+      - {text: "Qu'il faut déclarer le destructeur `virtual`, pour que l'exception remonte", correct: false}
+      - {text: "Qu'il faut appeler le destructeur à la main, dans un bloc `try`", correct: false}
+    answer: |-
+      Une exception qui sort d'un destructeur arrête le programme. L'usage est d'offrir une fonction explicite, que
+      l'appelant soucieux de l'erreur appelle lui-même ; le destructeur, lui, tente l'opération et avale l'échec
+      (en le journalisant). C'est ce que fait `std::ofstream`.
+  - key: situation-entretien
+    format: scenario
+    question: |-
+      En entretien, on te demande : « C++ n'a pas de `finally`. Comment garantis-tu qu'un fichier est fermé quand
+      une exception survient ? » Que réponds-tu ?
+    choices:
+      - {text: "Par RAII : le destructeur de l'objet fichier est appelé au déroulement de la pile", correct: true}
+      - {text: "Par un `catch (...)` dans chaque fonction, qui ferme le fichier puis relance", correct: false}
+      - {text: "Par un ramasse-miettes, qui ferme les fichiers devenus inaccessibles", correct: false}
+      - {text: "Par la fonction `std::atexit`, qui ferme les fichiers à la fin du programme", correct: false}
+    answer: |-
+      Le destructeur d'un objet local s'exécute à toute sortie de portée, exception comprise. `std::ifstream` ferme
+      son fichier ainsi. C'est plus sûr qu'un `finally` : on ne peut pas oublier de l'écrire.

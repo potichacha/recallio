@@ -1,0 +1,355 @@
+notion: sanitizers
+lesson: |-
+  Un comportement indéfini ne se voit pas toujours : le programme peut sembler correct. Les **sanitizers** sont des
+  options de GCC et de Clang qui ajoutent au programme des **vérifications à l'exécution**. À la première faute,
+  il s'arrête avec un rapport précis : la nature de l'erreur, la ligne fautive, la pile des appels.
+
+  | Sanitizer | Option | Ce qu'il détecte |
+  |---|---|---|
+  | **AddressSanitizer** (ASan) | `-fsanitize=address` | accès hors bornes (pile, tas, globales), utilisation après libération, double libération, fuites de mémoire |
+  | **UndefinedBehaviorSanitizer** (UBSan) | `-fsanitize=undefined` | débordement d'entier signé, décalage invalide, pointeur nul, division par zéro, conversion hors limites |
+  | **ThreadSanitizer** (TSan) | `-fsanitize=thread` | courses aux données, inversions d'ordre de verrous |
+  | **MemorySanitizer** (MSan, Clang) | `-fsanitize=memory` | lecture de mémoire non initialisée |
+
+  **La commande.**
+
+  ```
+  g++ -std=c++23 -g -O1 -fno-omit-frame-pointer -fsanitize=address,undefined main.cpp -o programme
+  ./programme
+  ```
+
+  - `-g` ajoute les informations de débogage : le rapport donne alors **les noms de fichiers et les lignes**.
+  - `-O1` garde le programme rapide, et le rapport lisible.
+  - L'option se passe **à la compilation et à l'édition de liens**.
+
+  **Lire un rapport.**
+
+  ```
+  ==12345==ERROR: AddressSanitizer: heap-use-after-free on address 0x602000000010
+  READ of size 4 at 0x602000000010 thread T0
+      #0 0x4011d6 in main main.cpp:7
+  freed by thread T0 here:
+      #1 0x4011a3 in main main.cpp:6
+  previously allocated by thread T0 here:
+      #1 0x401187 in main main.cpp:5
+  ```
+
+  Trois piles : **où** se produit l'accès fautif, **où** la mémoire a été libérée, **où** elle avait été allouée.
+  Le type d'erreur est sur la première ligne : `heap-buffer-overflow`, `stack-buffer-overflow`,
+  `heap-use-after-free`, `double-free`.
+
+  **Ce qu'ils coûtent.** ASan ralentit le programme environ deux fois et triple sa mémoire ; TSan le ralentit de
+  cinq à quinze fois. On les active donc pour les **tests** et l'**intégration continue**, pas en production.
+
+  **Leurs limites.**
+
+  - Ils ne voient que le code **réellement exécuté** : une faute sur un chemin que les tests ne parcourent pas
+    reste invisible. Ils valent ce que valent les tests.
+  - **ASan et TSan sont incompatibles** : il faut deux constructions séparées. ASan et UBSan se combinent.
+  - Tout le programme doit être compilé avec l'option, bibliothèques comprises, pour une détection complète.
+
+  **Avec les autres outils.**
+
+  | Outil | Quand il agit | Ce qu'il trouve |
+  |---|---|---|
+  | Avertissements (`-Wall -Wextra`) | à la compilation | les fautes visibles dans le code |
+  | Analyse statique (clang-tidy) | sans exécuter | des défauts plus profonds, et le style |
+  | Sanitizers | à l'exécution | les fautes qui se produisent vraiment |
+  | Valgrind | à l'exécution, sans recompiler | erreurs de mémoire ; beaucoup plus lent |
+
+  **En entretien** : « Je lance les tests avec `-fsanitize=address,undefined` : ASan trouve les accès hors bornes,
+  les utilisations après libération et les fuites, UBSan les débordements et les pointeurs nuls. Pour le code à
+  plusieurs threads, une construction à part avec ThreadSanitizer. »
+cards:
+  - key: definition
+    format: course
+    question: "Qu'est-ce qu'un sanitizer ?"
+    choices:
+      - {text: "Une option qui ajoute au programme des vérifications faites pendant l'exécution", correct: true}
+      - {text: "Une option qui supprime du programme les variables inutilisées", correct: false}
+      - {text: "Un outil qui reformate le code source selon un style", correct: false}
+      - {text: "Un outil qui analyse le code sans jamais l'exécuter", correct: false}
+    answer: "Le compilateur instrumente le programme. Quand une faute se produit réellement, il s'arrête et la décrit."
+  - key: asan
+    format: course
+    question: "Que détecte AddressSanitizer ?"
+    choices:
+      - {text: "Les accès hors bornes, les utilisations après libération et les fuites de mémoire", correct: true}
+      - {text: "Les courses aux données entre threads et les interblocages", correct: false}
+      - {text: "Les débordements d'entiers signés et les divisions par zéro", correct: false}
+      - {text: "Les variables inutilisées et les conversions implicites", correct: false}
+    answer: "ASan surveille la mémoire. Les courses sont l'affaire de ThreadSanitizer, les débordements d'entiers celle d'UBSan, et les variables inutilisées celle des avertissements."
+  - key: limite
+    format: course
+    question: "Quelle est la principale limite des sanitizers ?"
+    choices:
+      - {text: "Ils ne voient que les fautes du code réellement exécuté", correct: true}
+      - {text: "Ils ne fonctionnent qu'avec les programmes sans pointeur", correct: false}
+      - {text: "Ils ne signalent que les fautes déjà vues par le compilateur", correct: false}
+      - {text: "Ils ne fonctionnent que sur les fonctions de moins de cent lignes", correct: false}
+    answer: "Une faute sur un chemin que personne ne parcourt reste invisible. Leur efficacité dépend de la couverture des tests."
+  - key: quand
+    format: course
+    question: "Quand active-t-on les sanitizers ?"
+    choices:
+      - {text: "Pendant les tests et en intégration continue, pas en production", correct: true}
+      - {text: "En production seulement, là où les fautes coûtent cher", correct: false}
+      - {text: "Jamais ensemble avec des tests, qu'ils rendent inutiles", correct: false}
+      - {text: "Seulement après un plantage, pour le reproduire une fois", correct: false}
+    answer: "Ils ralentissent le programme et gonflent sa mémoire. Leur place est dans la suite de tests, lancée à chaque modification."
+  - key: vf-asan-tsan
+    format: true-false
+    question: "AddressSanitizer et ThreadSanitizer peuvent être activés dans la même construction."
+    truth: false
+    answer: "Ils sont incompatibles. On fait deux constructions : l'une avec ASan et UBSan, l'autre avec TSan."
+  - key: vf-statique
+    format: true-false
+    question: "Un sanitizer détecte une faute sans que le programme soit exécuté."
+    truth: false
+    answer: "C'est une analyse dynamique : il faut lancer le programme, et que la faute se produise."
+  - key: vf-ubsan
+    format: true-false
+    question: "UndefinedBehaviorSanitizer détecte le débordement d'un entier signé."
+    truth: true
+    answer: "Il le signale à l'exécution : « signed integer overflow »."
+  - key: vf-fuites
+    format: true-false
+    question: "AddressSanitizer signale les fuites de mémoire à la fin du programme."
+    truth: true
+    answer: "C'est LeakSanitizer, intégré à ASan sous Linux : il liste la mémoire allouée et jamais libérée, avec la pile de l'allocation."
+  - key: qcm-option-course
+    format: multiple-choice
+    question: "Quelle option détecte les courses aux données ?"
+    choices:
+      - {text: "`-fsanitize=thread`", correct: true}
+      - {text: "`-fsanitize=address`", correct: false}
+      - {text: "`-fsanitize=undefined`", correct: false}
+      - {text: "`-pthread`", correct: false}
+    answer: "ThreadSanitizer surveille les accès de chaque thread, et signale deux accès non synchronisés à la même mémoire."
+  - key: qcm-option-g
+    format: multiple-choice
+    question: "Pourquoi ajoute-t-on `-g` à une construction avec sanitizers ?"
+    choices:
+      - {text: "Pour que le rapport donne les fichiers et les numéros de ligne", correct: true}
+      - {text: "Pour que le programme s'exécute plus vite", correct: false}
+      - {text: "Pour que les sanitizers détectent davantage de fautes", correct: false}
+      - {text: "Pour que le programme n'ait pas besoin d'édition de liens", correct: false}
+    answer: "`-g` ajoute les informations de débogage. Sans elles, le rapport ne montre que des adresses."
+  - key: qcm-rapport
+    format: multiple-choice
+    question: "Un rapport commence par « AddressSanitizer: heap-use-after-free ». Quelle est la faute ?"
+    choices:
+      - {text: "Un accès à une mémoire du tas déjà libérée", correct: true}
+      - {text: "Un accès au-delà de la fin d'un tableau local", correct: false}
+      - {text: "Une mémoire du tas allouée, et jamais libérée", correct: false}
+      - {text: "Une mémoire du tas libérée deux fois", correct: false}
+    answer: "Le rapport donne trois piles : l'accès, la libération, et l'allocation. Les autres cas se nomment `stack-buffer-overflow`, une fuite, et `double-free`."
+  - key: qcm-combiner
+    format: multiple-choice
+    question: "Quelle option active à la fois ASan et UBSan ?"
+    choices:
+      - {text: "`-fsanitize=address,undefined`", correct: true}
+      - {text: "`-fsanitize=all`", correct: false}
+      - {text: "`-fsanitize=address+thread`", correct: false}
+      - {text: "`-Wall -Wextra`", correct: false}
+    answer: "Les sanitizers compatibles se listent, séparés par des virgules. `-Wall -Wextra` activent des avertissements de compilation, pas des vérifications d'exécution."
+  - key: trous-address
+    format: fill-in
+    question: |-
+      Complète la commande pour détecter les erreurs de mémoire :
+      ```
+      g++ -g -fsanitize=___ main.cpp -o programme
+      ```
+    blanks:
+      - [address]
+    answer: "`-fsanitize=address` active AddressSanitizer."
+  - key: trous-undefined
+    format: fill-in
+    question: |-
+      Complète la commande pour détecter les débordements d'entiers signés :
+      ```
+      g++ -g -fsanitize=___ main.cpp -o programme
+      ```
+    blanks:
+      - [undefined]
+    answer: "`-fsanitize=undefined` active UndefinedBehaviorSanitizer."
+  - key: trous-thread
+    format: fill-in
+    question: |-
+      Complète la commande pour détecter les courses aux données :
+      ```
+      g++ -g -fsanitize=___ main.cpp -o programme
+      ```
+    blanks:
+      - [thread]
+    answer: "`-fsanitize=thread` active ThreadSanitizer."
+  - key: trous-g
+    format: fill-in
+    question: |-
+      Complète avec l'option qui fait apparaître les numéros de ligne dans le rapport :
+      ```
+      g++ -___ -fsanitize=address main.cpp -o programme
+      ```
+    blanks:
+      - [g]
+    answer: "`-g` ajoute les informations de débogage."
+  - key: situation-bug-rare
+    format: scenario
+    question: |-
+      Un programme plante une fois sur cinquante, à des endroits différents, sans motif apparent. Le débogueur ne
+      montre rien d'anormal au moment du plantage. Par quoi commences-tu ?
+    choices:
+      - {text: "Par le recompiler avec `-fsanitize=address,undefined`, et relancer les tests", correct: true}
+      - {text: "Par ajouter des `std::println` dans toutes les fonctions du programme", correct: false}
+      - {text: "Par le recompiler avec `-O3`, pour que le plantage disparaisse", correct: false}
+      - {text: "Par entourer `main` d'un `try` et d'un `catch (...)`", correct: false}
+    answer: |-
+      Des plantages erratiques, loin de toute cause visible, sont la signature d'une mémoire abîmée. ASan arrête
+      le programme à l'écriture fautive elle-même, avec la pile : la cause, et non ses conséquences.
+  - key: situation-tests-verts
+    format: scenario
+    question: |-
+      Les tests passent avec les sanitizers, et pourtant un client signale un plantage sur un fichier d'entrée très
+      particulier. Un collègue s'étonne : « ASan n'a rien vu ». Que lui expliques-tu ?
+    choices:
+      - {text: "Qu'ASan ne voit que le code exécuté : aucun test ne passait par ce chemin", correct: true}
+      - {text: "Qu'ASan ne fonctionne que sur les machines des développeurs", correct: false}
+      - {text: "Qu'ASan ignore les fautes qui dépendent d'un fichier d'entrée", correct: false}
+      - {text: "Qu'ASan ne détecte une faute que la première fois qu'elle se produit", correct: false}
+    answer: |-
+      Un sanitizer constate les fautes qui arrivent, il ne les prédit pas. On ajoute un test avec ce fichier ; et
+      pour explorer les entrées qu'on n'imagine pas, on combine les sanitizers avec du *fuzzing*.
+  - key: situation-threads
+    format: scenario
+    question: |-
+      Un service à plusieurs threads donne parfois un total faux. Tu veux savoir s'il y a une course aux données.
+      Les tests tournent déjà avec ASan. Que fais-tu ?
+    choices:
+      - {text: "Une seconde construction avec `-fsanitize=thread`, sans ASan", correct: true}
+      - {text: "L'ajout de `thread` à la construction ASan : `-fsanitize=address,thread`", correct: false}
+      - {text: "Rien : ASan détecte aussi les courses aux données", correct: false}
+      - {text: "L'ajout de `-pthread`, qui signale les courses à l'exécution", correct: false}
+    answer: |-
+      ThreadSanitizer est l'outil des courses aux données, mais il ne cohabite pas avec ASan. L'intégration
+      continue lance donc les tests deux fois : une construction ASan et UBSan, une construction TSan.
+  - key: situation-production
+    format: scenario
+    question: |-
+      Enthousiasmé par les sanitizers, un collègue propose de livrer en production le binaire compilé avec ASan,
+      « pour attraper les bugs chez les clients ». Qu'en penses-tu ?
+    choices:
+      - {text: "Que le programme serait deux fois plus lent et bien plus gourmand en mémoire : ASan est fait pour les tests", correct: true}
+      - {text: "Que c'est une bonne idée : ASan n'a aucun coût mesurable à l'exécution", correct: false}
+      - {text: "Que c'est impossible : un binaire ASan ne s'exécute que sous un débogueur", correct: false}
+      - {text: "Que c'est une bonne idée : ASan corrige les fautes au lieu d'arrêter le programme", correct: false}
+    answer: |-
+      ASan double à peu près le temps d'exécution, triple la mémoire, et arrête le programme à la première faute.
+      Sa place est dans les tests et l'intégration continue ; en production, on durcit plutôt avec des options
+      légères (`-D_GLIBCXX_ASSERTIONS`, `-fstack-protector`).
+  - key: bug-hors-bornes
+    format: bug-fix
+    question: |-
+      AddressSanitizer rapporte « heap-buffer-overflow », avec une lecture à la ligne du `println`. Quelle
+      correction est la bonne ?
+      ```cpp
+      #include <print>
+      #include <vector>
+
+      int main() {
+          const std::vector<int> v{1, 2, 3};
+          std::println("{}", v[3]);
+      }
+      ```
+    choices:
+      - {text: "Lire `v[2]`, le dernier élément", correct: true}
+      - {text: "Lire `v[4]`, plus loin dans le vecteur", correct: false}
+      - {text: "Compiler sans `-fsanitize=address`", correct: false}
+      - {text: "Déclarer le vecteur sans `const`", correct: false}
+    answer: |-
+      ```cpp
+      std::println("{}", v[2]);
+      ```
+      Les indices vont de 0 à 2. `v[3]` lit juste après le bloc alloué sur le tas : c'est ce que dit
+      `heap-buffer-overflow`. Retirer le sanitizer cacherait la faute sans la corriger.
+  - key: bug-use-after-free
+    format: bug-fix
+    question: |-
+      AddressSanitizer rapporte « heap-use-after-free » : la mémoire est lue après le `delete`. Quelle correction
+      est la bonne ?
+      ```cpp
+      #include <print>
+
+      int main() {
+          int* p = new int{7};
+          delete p;
+          std::println("{}", *p);
+      }
+      ```
+    choices:
+      - {text: "Tenir l'entier par `auto p = std::make_unique<int>(7);`, sans `delete`", correct: true}
+      - {text: "Écrire `p = nullptr;` après le `delete`, sans rien changer d'autre", correct: false}
+      - {text: "Écrire `delete p;` une seconde fois, après l'affichage", correct: false}
+      - {text: "Écrire `delete[] p;` à la place de `delete p;`", correct: false}
+    answer: |-
+      ```cpp
+      auto p = std::make_unique<int>(7);
+      std::println("{}", *p);
+      ```
+      Le pointeur est lu après la libération. Avec un `std::unique_ptr`, la mémoire est libérée à la fin de la
+      portée, après le dernier usage. Mettre `p` à `nullptr` ferait déréférencer un pointeur nul.
+  - key: bug-debordement
+    format: bug-fix
+    question: |-
+      UBSan rapporte « signed integer overflow: 2147483647 + 1 cannot be represented in type 'int' ». Quelle
+      correction est la bonne ?
+      ```cpp
+      #include <limits>
+      #include <print>
+
+      int main() {
+          int compteur = std::numeric_limits<int>::max();
+          ++compteur;
+          std::println("{}", compteur);
+      }
+      ```
+    choices:
+      - {text: "Déclarer `compteur` avec le type `long long`", correct: true}
+      - {text: "Déclarer `compteur` avec le type `short`", correct: false}
+      - {text: "Écrire `compteur++` à la place de `++compteur`", correct: false}
+      - {text: "Écrire `compteur += 1` à la place de `++compteur`", correct: false}
+    answer: |-
+      ```cpp
+      long long compteur = std::numeric_limits<int>::max();
+      ```
+      Un `int` ne peut pas dépasser 2 147 483 647 : aller au-delà est un comportement indéfini. Un type plus large
+      contient la valeur. Les trois formes d'incrémentation débordent de la même façon.
+  - key: bug-fuite
+    format: bug-fix
+    question: |-
+      À la fin du programme, AddressSanitizer rapporte « detected memory leaks », avec l'allocation dans
+      `charger`. Quelle correction est la bonne ?
+      ```cpp
+      #include <print>
+
+      int* charger() {
+          return new int[100]{};
+      }
+
+      int main() {
+          int* donnees = charger();
+          std::println("{}", donnees[0]);
+      }
+      ```
+    choices:
+      - {text: "Renvoyer un `std::vector<int>(100)`, qui libère sa mémoire tout seul", correct: true}
+      - {text: "Renvoyer `new int[10]{}`, pour que la fuite soit dix fois plus petite", correct: false}
+      - {text: "Appeler `delete donnees;` à la fin de `main`, sans les crochets", correct: false}
+      - {text: "Mettre `donnees` à `nullptr` à la fin de `main`", correct: false}
+    answer: |-
+      ```cpp
+      std::vector<int> charger() {
+          return std::vector<int>(100);
+      }
+      ```
+      Le tableau alloué avec `new[]` n'est jamais libéré. Un `delete` sans crochets serait une autre faute, et
+      mettre le pointeur à nul ne libère rien. Le vecteur possède sa mémoire.
