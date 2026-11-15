@@ -1,0 +1,232 @@
+notion: vtable
+lesson: |-
+  Un appel de fonction virtuelle choisit la fonction **à l'exécution**. Le standard ne dit pas comment ; tous les
+  compilateurs utilisent le même mécanisme : la **table des fonctions virtuelles** (*vtable*).
+
+  **Le mécanisme.**
+
+  - Pour chaque **classe** qui a des fonctions virtuelles, le compilateur produit **une table** : un tableau
+    d'adresses, une par fonction virtuelle, vers la version que cette classe utilise.
+  - Chaque **objet** d'une telle classe contient un pointeur caché, le **vptr**, vers la table de sa classe. Le
+    constructeur le met en place.
+
+  ```
+  objet Cercle            table de Cercle
+  ┌────────┐             ┌──────────────────┐
+  │ vptr ──┼────────────▶│ Cercle::aire     │
+  │ rayon  │             │ Forme::nom       │   (non redéfinie : celle de la base)
+  └────────┘             │ Cercle::~Cercle  │
+                         └──────────────────┘
+  ```
+
+  **Un appel `forme->aire()`** fait alors trois choses : lire le vptr dans l'objet, lire dans la table l'adresse à
+  l'indice de `aire`, appeler cette adresse. Le type statique du pointeur n'intervient pas : c'est l'objet qui
+  désigne sa table.
+
+  **Ce que ça coûte.**
+
+  | Coût | Détail |
+  |---|---|
+  | En mémoire | **un pointeur par objet** (8 octets en 64 bits), quel que soit le nombre de fonctions virtuelles ; une table par classe |
+  | Par appel | deux lectures en mémoire, puis un appel indirect : quelques cycles |
+  | Indirect | le compilateur ne peut en général **pas mettre en ligne** (*inline*) la fonction, ni optimiser à travers l'appel |
+
+  C'est le troisième coût qui pèse : dans une boucle serrée sur de petits objets, l'appel virtuel empêche les
+  optimisations, et un saut mal prédit coûte cher. Partout ailleurs, il est négligeable.
+
+  **La dévirtualisation.** Quand le compilateur **connaît le type réel** (objet local, classe ou fonction marquée
+  `final`), il remplace l'appel virtuel par un appel direct.
+
+  **Conséquences à connaître.**
+
+  - `sizeof` d'une classe grossit d'un pointeur dès sa **première** fonction virtuelle.
+  - Pendant un **constructeur** ou un **destructeur**, le vptr désigne la table de la classe en cours de
+    construction : un appel virtuel n'y atteint pas la version dérivée.
+  - Copier les octets d'un objet polymorphe (`memcpy`) copie aussi le vptr : à ne pas faire.
+  - L'erreur d'édition de liens « undefined reference to `vtable for X' » signale une fonction virtuelle déclarée
+    mais non définie.
+
+  **En entretien** : « Chaque classe polymorphe a une table d'adresses de fonctions, et chaque objet un pointeur
+  vers la table de sa classe. Un appel virtuel coûte une indirection et un pointeur par objet ; son vrai prix est
+  d'empêcher l'inlining. `final` permet au compilateur de dévirtualiser. »
+cards:
+  - key: mecanisme
+    format: course
+    question: "Comment un appel de fonction virtuelle trouve-t-il la bonne fonction à l'exécution ?"
+    choices:
+      - {text: "L'objet contient un pointeur vers la table des fonctions virtuelles de sa classe", correct: true}
+      - {text: "Le programme compare le nom de la classe de l'objet à une liste de chaînes", correct: false}
+      - {text: "Le compilateur essaie chaque classe dérivée, jusqu'à trouver la bonne", correct: false}
+      - {text: "Le pointeur de base garde en mémoire le type avec lequel il a été créé", correct: false}
+    answer: "L'appel lit le pointeur caché de l'objet (le vptr), puis l'adresse de la fonction dans la table. C'est l'objet, et non le pointeur, qui connaît son type."
+  - key: cout-memoire
+    format: course
+    question: "Combien de mémoire les fonctions virtuelles ajoutent-elles à chaque objet ?"
+    choices:
+      - {text: "Un pointeur, quel que soit le nombre de fonctions virtuelles", correct: true}
+      - {text: "Un pointeur par fonction virtuelle de la classe", correct: false}
+      - {text: "Une copie complète de la table des fonctions virtuelles", correct: false}
+      - {text: "Rien : la table est rangée hors des objets", correct: false}
+    answer: "La table existe une fois par classe. Chaque objet n'en porte que l'adresse : 8 octets sur une machine 64 bits."
+  - key: cout-appel
+    format: course
+    question: "Quel est le principal coût d'un appel virtuel dans une boucle serrée ?"
+    choices:
+      - {text: "Il empêche en général le compilateur de mettre la fonction en ligne", correct: true}
+      - {text: "Il alloue de la mémoire sur le tas à chaque appel", correct: false}
+      - {text: "Il verrouille un mutex pour lire la table", correct: false}
+      - {text: "Il recopie l'objet avant d'appeler la fonction", correct: false}
+    answer: "L'indirection elle-même coûte quelques cycles. Mais sans connaître la fonction appelée, le compilateur ne peut ni l'insérer ni optimiser autour."
+  - key: devirtualisation
+    format: course
+    question: "Dans quel cas le compilateur peut-il remplacer un appel virtuel par un appel direct ?"
+    choices:
+      - {text: "Quand il connaît le type réel de l'objet, par exemple grâce à `final`", correct: true}
+      - {text: "Quand la fonction virtuelle est déclarée `const`", correct: false}
+      - {text: "Quand l'objet a été créé avec `new`", correct: false}
+      - {text: "Quand la classe de base a un destructeur virtuel", correct: false}
+    answer: "C'est la dévirtualisation. Une classe ou une fonction `final` ne peut plus être redéfinie : l'appel n'a qu'une cible possible."
+  - key: vf-table-par-objet
+    format: true-false
+    question: "Chaque objet d'une classe polymorphe contient sa propre copie de la table des fonctions virtuelles."
+    truth: false
+    answer: "Il y a une table par classe. Chaque objet contient seulement un pointeur vers elle."
+  - key: vf-sizeof
+    format: true-false
+    question: "Ajouter une première fonction virtuelle à une classe augmente la taille de ses objets."
+    truth: true
+    answer: "Chaque objet reçoit le pointeur caché vers la table. Les fonctions virtuelles suivantes n'ajoutent rien."
+  - key: vf-standard
+    format: true-false
+    question: "Le standard C++ impose l'usage d'une table des fonctions virtuelles."
+    truth: false
+    answer: "Il décrit le comportement, pas le mécanisme. La table est la technique que tous les compilateurs courants ont choisie."
+  - key: vf-constructeur
+    format: true-false
+    question: "Dans le constructeur d'une classe de base, un appel virtuel atteint la version de la classe dérivée."
+    truth: false
+    answer: "Pendant la construction de la base, le vptr désigne la table de la base : la partie dérivée n'existe pas encore."
+  - key: qcm-taille
+    format: multiple-choice
+    question: "Sur une machine 64 bits, que vaut en général `sizeof` d'une classe qui n'a qu'un `int` et une fonction virtuelle ?"
+    choices:
+      - {text: "16", correct: true}
+      - {text: "4", correct: false}
+      - {text: "8", correct: false}
+      - {text: "12", correct: false}
+    answer: "Un pointeur de 8 octets, un `int` de 4, et 4 octets de remplissage pour l'alignement du pointeur."
+  - key: qcm-erreur-liaison
+    format: multiple-choice
+    question: "Que signale « undefined reference to `vtable for Forme' » ?"
+    choices:
+      - {text: "Une fonction virtuelle de `Forme` déclarée, mais jamais définie", correct: true}
+      - {text: "Une classe `Forme` qui n'a aucune fonction virtuelle", correct: false}
+      - {text: "Un objet `Forme` détruit deux fois", correct: false}
+      - {text: "Un appel virtuel fait sur un pointeur nul", correct: false}
+    answer: "Le compilateur émet la table avec la première fonction virtuelle non pure de la classe. Sans corps pour celle-ci, la table n'existe nulle part."
+  - key: qcm-final
+    format: multiple-choice
+    question: "Quel mot-clé aide le compilateur à dévirtualiser les appels sur une classe ?"
+    choices:
+      - {text: "`final`", correct: true}
+      - {text: "`override`", correct: false}
+      - {text: "`virtual`", correct: false}
+      - {text: "`mutable`", correct: false}
+    answer: "`final` garantit qu'aucune classe ne redéfinira la fonction. `override` vérifie seulement qu'on redéfinit bien une fonction de la base."
+  - key: qcm-vptr
+    format: multiple-choice
+    question: "Qui met en place le pointeur vers la table des fonctions virtuelles dans un objet ?"
+    choices:
+      - {text: "Le constructeur de la classe", correct: true}
+      - {text: "Le premier appel d'une fonction virtuelle", correct: false}
+      - {text: "L'éditeur de liens, avant `main`", correct: false}
+      - {text: "L'opérateur `new`, et lui seul", correct: false}
+    answer: "Chaque constructeur de la hiérarchie écrit le vptr de sa classe, de la base vers la plus dérivée. Un objet local, sans `new`, en a un aussi."
+  - key: situation-petits-objets
+    format: scenario
+    question: |-
+      Une simulation range dix millions de `Particule`, chacune faite de trois `float`. Un collègue veut leur
+      ajouter une fonction virtuelle `mettre_a_jour`. Quelle conséquence lui signales-tu d'abord ?
+    choices:
+      - {text: "Chaque particule passe de 12 à 24 octets : la mémoire double, et le cache est moins bien utilisé", correct: true}
+      - {text: "Chaque particule doit désormais être allouée avec `new`, une par une", correct: false}
+      - {text: "Chaque particule recopie la table des fonctions virtuelles, soit des kilo-octets", correct: false}
+      - {text: "Aucune : une fonction virtuelle ne change pas la taille d'un objet", correct: false}
+    answer: |-
+      Le pointeur caché pèse 8 octets, plus l'alignement. Sur de très petits objets très nombreux, c'est le coût
+      dominant. On peut ranger les particules par type dans des vecteurs séparés, et se passer du virtuel.
+  - key: situation-boucle
+    format: scenario
+    question: |-
+      Une boucle appelle une fonction virtuelle minuscule, `valeur()`, cent millions de fois. Le profileur la montre
+      en tête. La classe concrète est connue, et personne n'en dérive. Que proposes-tu ?
+    choices:
+      - {text: "Marquer la classe `final`, et travailler sur son type concret : l'appel peut être mis en ligne", correct: true}
+      - {text: "Marquer la fonction `virtual` une seconde fois dans la classe dérivée", correct: false}
+      - {text: "Appeler la fonction par un pointeur vers un pointeur", correct: false}
+      - {text: "Déclarer le destructeur de la classe non virtuel", correct: false}
+    answer: |-
+      Pour une fonction d'une ligne, le prix de l'appel virtuel est de ne pas être insérée dans la boucle. Quand le
+      compilateur sait qu'il n'y a qu'une cible, il dévirtualise, puis optimise comme pour une fonction ordinaire.
+  - key: situation-memcpy
+    format: scenario
+    question: |-
+      Pour aller vite, un collègue remet à zéro un objet polymorphe avec `std::memset(&objet, 0, sizeof(objet))`.
+      Le programme plante au premier appel virtuel suivant. Pourquoi ?
+    choices:
+      - {text: "Le `memset` a effacé le pointeur vers la table des fonctions virtuelles", correct: true}
+      - {text: "Le `memset` a effacé la table des fonctions virtuelles de la classe", correct: false}
+      - {text: "Le `memset` ne fonctionne que sur les tableaux de caractères", correct: false}
+      - {text: "Le `memset` a appelé le destructeur de l'objet", correct: false}
+    answer: |-
+      L'objet contient un pointeur caché, que la remise à zéro des octets rend nul. L'appel virtuel lit alors une
+      table à l'adresse zéro. On réinitialise un objet par affectation : `objet = Type{};`.
+  - key: situation-entretien
+    format: scenario
+    question: |-
+      En entretien, on te demande : « Les fonctions virtuelles sont-elles lentes ? » Quelle réponse est la plus
+      juste ?
+    choices:
+      - {text: "L'appel coûte une indirection, négligeable sauf dans une boucle serrée, où il empêche l'inlining", correct: true}
+      - {text: "Oui, toujours : un appel virtuel coûte des centaines de fois un appel ordinaire", correct: false}
+      - {text: "Non, jamais : le compilateur transforme tous les appels virtuels en appels directs", correct: false}
+      - {text: "Oui : chaque appel virtuel parcourt la liste des classes dérivées", correct: false}
+    answer: |-
+      Deux lectures et un appel indirect : quelques cycles. Le coût réel est indirect : pas d'insertion en ligne,
+      un pointeur de plus par objet. On mesure avant de s'en priver.
+  - key: definition-vtable
+    format: definition
+    question: "Qu'est-ce que la table des fonctions virtuelles (vtable) ?"
+    choices:
+      - {text: "Un tableau, propre à chaque classe, des adresses de ses fonctions virtuelles", correct: true}
+      - {text: "Un tableau, propre à chaque objet, des valeurs de ses membres", correct: false}
+      - {text: "Une liste des classes dérivées d'une classe de base", correct: false}
+      - {text: "Un fichier produit par l'éditeur de liens pour le débogueur", correct: false}
+    answer: "Chaque case désigne la version de la fonction que la classe utilise : la sienne si elle la redéfinit, celle de sa base sinon."
+  - key: definition-vptr
+    format: definition
+    question: "Qu'est-ce que le vptr ?"
+    choices:
+      - {text: "Le pointeur caché, dans chaque objet polymorphe, vers la table de sa classe", correct: true}
+      - {text: "Le pointeur `this`, passé à chaque fonction membre", correct: false}
+      - {text: "Un pointeur vers la classe de base de l'objet", correct: false}
+      - {text: "Un pointeur intelligent vers une fonction virtuelle", correct: false}
+    answer: "Il est écrit par le constructeur, et lu à chaque appel virtuel."
+  - key: definition-devirtualisation
+    format: definition
+    question: "Qu'appelle-t-on la dévirtualisation ?"
+    choices:
+      - {text: "Le remplacement, par le compilateur, d'un appel virtuel par un appel direct", correct: true}
+      - {text: "La suppression du mot-clé `virtual` dans une classe dérivée", correct: false}
+      - {text: "La destruction d'un objet par un pointeur vers sa classe de base", correct: false}
+      - {text: "La conversion d'un pointeur de base en pointeur dérivé", correct: false}
+    answer: "Elle est possible quand le type réel de l'objet est connu à la compilation. L'appel peut ensuite être mis en ligne."
+  - key: definition-liaison-dynamique
+    format: definition
+    question: "Que veut dire « liaison dynamique » ?"
+    choices:
+      - {text: "Que la fonction appelée est choisie à l'exécution, d'après le type réel de l'objet", correct: true}
+      - {text: "Que la bibliothèque est chargée au lancement du programme", correct: false}
+      - {text: "Que la fonction appelée est choisie à la compilation, d'après le type du pointeur", correct: false}
+      - {text: "Que la mémoire de l'objet est allouée sur le tas", correct: false}
+    answer: "C'est ce que fait un appel virtuel. Sans `virtual`, la liaison est statique : le type du pointeur ou de la référence décide."

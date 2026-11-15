@@ -1,0 +1,507 @@
+notion: shared-mutex
+lesson: |-
+  Un `std::mutex` ne laisse passer qu'un thread à la fois, même si tous ne font que **lire**. Or des lectures
+  simultanées ne posent aucun problème. `std::shared_mutex` (C++17, en-tête `<shared_mutex>`) distingue deux façons
+  de le tenir.
+
+  | Mode | Garde | Qui peut le tenir en même temps |
+  |---|---|---|
+  | **partagé** (lecture) | `std::shared_lock` | plusieurs lecteurs |
+  | **exclusif** (écriture) | `std::unique_lock`, `std::lock_guard`, `std::scoped_lock` | un seul thread, sans aucun lecteur |
+
+  ```cpp
+  class Annuaire {
+  public:
+      std::string chercher(const std::string& nom) const {
+          std::shared_lock garde{verrou_};          // plusieurs lecteurs à la fois
+          auto it = numeros_.find(nom);
+          return it != numeros_.end() ? it->second : "";
+      }
+      void ajouter(const std::string& nom, const std::string& numero) {
+          std::unique_lock garde{verrou_};          // seul, sans lecteur
+          numeros_[nom] = numero;
+      }
+  private:
+      mutable std::shared_mutex verrou_;
+      std::map<std::string, std::string> numeros_;
+  };
+  ```
+
+  Un écrivain attend que tous les lecteurs soient sortis ; tant qu'il écrit, personne n'entre.
+
+  **Quand il vaut le coup.** Quand les lectures sont **nombreuses**, **longues** au regard du verrouillage, et les
+  écritures **rares** : une table de configuration, un cache, un annuaire.
+
+  **Quand il ne vaut pas le coup.** Un `std::shared_mutex` est plus lourd qu'un `std::mutex` : pour une section
+  critique de quelques instructions, ou dès que les écritures sont fréquentes, le mutex simple est **plus rapide**.
+  On mesure avant de choisir.
+
+  **Les pièges.**
+
+  - Sous un `std::shared_lock`, on ne **modifie rien** : deux lecteurs qui écrivent, c'est une course aux données.
+    Un compteur de statistiques incrémenté dans une fonction de lecture en fait partie.
+  - Pas de **promotion** : un thread qui tient le verrou partagé et demande le verrou exclusif s'attend lui-même.
+    On relâche, on reprend en exclusif, et l'on **revérifie** la condition, qui a pu changer entre-temps.
+  - Verrouiller **deux fois** en mode partagé dans le même thread est un comportement indéfini.
+  - Selon l'implémentation, un flot continu de lecteurs peut faire **attendre longtemps** un écrivain.
+
+  **En entretien** : « `std::shared_mutex` laisse entrer plusieurs lecteurs avec `std::shared_lock`, et un seul
+  écrivain avec `std::unique_lock`. Il ne paie que si les lectures dominent largement ; sinon un `std::mutex` est
+  plus rapide. Et on ne promeut pas un verrou partagé en exclusif. »
+cards:
+  - key: principe
+    format: course
+    question: "Qu'apporte `std::shared_mutex` par rapport à `std::mutex` ?"
+    choices:
+      - {text: "Plusieurs threads peuvent le tenir en lecture ; un seul en écriture", correct: true}
+      - {text: "Plusieurs threads peuvent le tenir en écriture ; un seul en lecture", correct: false}
+      - {text: "Un même thread peut le verrouiller plusieurs fois de suite", correct: false}
+      - {text: "Il se déverrouille seul après un délai fixé", correct: false}
+    answer: "Le mode partagé laisse les lecteurs passer ensemble. Le mode exclusif attend qu'ils soient tous sortis, et bloque tout le monde."
+  - key: gardes
+    format: course
+    question: "Quelle garde prend un `std::shared_mutex` en mode partagé ?"
+    choices:
+      - {text: "`std::shared_lock`", correct: true}
+      - {text: "`std::unique_lock`", correct: false}
+      - {text: "`std::lock_guard`", correct: false}
+      - {text: "`std::scoped_lock`", correct: false}
+    answer: "`std::shared_lock` appelle `lock_shared()`. Les trois autres prennent le verrou en mode exclusif."
+  - key: quand
+    format: course
+    question: "Dans quel cas `std::shared_mutex` est-il plus intéressant qu'un `std::mutex` ?"
+    choices:
+      - {text: "Des lectures nombreuses et assez longues, et des écritures rares", correct: true}
+      - {text: "Des écritures nombreuses, et des lectures rares", correct: false}
+      - {text: "Une section critique de deux ou trois instructions", correct: false}
+      - {text: "Un seul thread qui lit et écrit tour à tour", correct: false}
+    answer: "Il coûte plus cher à prendre qu'un mutex simple. Le gain ne vient que du parallélisme des lecteurs, donc de lectures qui dominent."
+  - key: promotion
+    format: course
+    question: "Un thread tient le verrou en mode partagé, et demande le mode exclusif sans le relâcher. Que se passe-t-il ?"
+    choices:
+      - {text: "Il se bloque : l'écrivain attend la sortie de tous les lecteurs, dont lui-même", correct: true}
+      - {text: "Il obtient le verrou exclusif : le mode partagé est promu automatiquement", correct: false}
+      - {text: "Il obtient le verrou exclusif dès que les autres lecteurs sont sortis", correct: false}
+      - {text: "Il reçoit une exception `std::system_error` qu'il peut attraper", correct: false}
+    answer: "Il n'y a pas de promotion. On relâche le verrou partagé, on prend l'exclusif, et l'on revérifie ce qu'on avait lu."
+  - key: vf-lecteurs
+    format: true-false
+    question: "Deux threads peuvent tenir en même temps un `std::shared_lock` sur le même `std::shared_mutex`."
+    truth: true
+    answer: C'est le but : les lecteurs ne s'attendent pas entre eux.
+  - key: vf-ecrivain-lecteur
+    format: true-false
+    question: "Un thread peut tenir le verrou exclusif pendant qu'un autre tient le verrou partagé."
+    truth: false
+    answer: L'écrivain est seul. Il attend que les lecteurs sortent, et les suivants attendent qu'il ait fini.
+  - key: vf-toujours-plus-rapide
+    format: true-false
+    question: "`std::shared_mutex` est toujours plus rapide que `std::mutex`."
+    truth: false
+    answer: "Il est plus lourd. Pour des sections critiques courtes ou des écritures fréquentes, le mutex simple gagne."
+  - key: vf-ecrire-sous-partage
+    format: true-false
+    question: "Modifier la donnée protégée sous un `std::shared_lock` est une course aux données."
+    truth: true
+    answer: Plusieurs threads tiennent ce verrou en même temps. Toute écriture demande le mode exclusif.
+  - key: qcm-en-tete
+    format: multiple-choice
+    question: "Quel en-tête déclare `std::shared_mutex` et `std::shared_lock` ?"
+    choices:
+      - {text: "`<shared_mutex>`", correct: true}
+      - {text: "`<mutex>`", correct: false}
+      - {text: "`<thread>`", correct: false}
+      - {text: "`<atomic>`", correct: false}
+    answer: "Ils ont leur propre en-tête, `<shared_mutex>`. `std::unique_lock` et `std::lock_guard` sont dans `<mutex>`."
+  - key: qcm-ecriture
+    format: multiple-choice
+    question: "Quelle ligne verrouille un `std::shared_mutex verrou` pour une écriture ?"
+    choices:
+      - {text: "`std::unique_lock garde{verrou};`", correct: true}
+      - {text: "`std::shared_lock garde{verrou};`", correct: false}
+      - {text: "`verrou.lock_shared();`", correct: false}
+      - {text: "`std::shared_mutex garde{verrou};`", correct: false}
+    answer: "`std::unique_lock` (ou `std::lock_guard`) prend le mode exclusif. `std::shared_lock` et `lock_shared()` prennent le mode partagé."
+  - key: qcm-const
+    format: multiple-choice
+    question: "Une fonction de lecture `const` doit prendre le verrou. Comment déclares-tu le membre ?"
+    choices:
+      - {text: "`mutable std::shared_mutex verrou_;`", correct: true}
+      - {text: "`const std::shared_mutex verrou_;`", correct: false}
+      - {text: "`static std::shared_mutex verrou_;`", correct: false}
+      - {text: "`volatile std::shared_mutex verrou_;`", correct: false}
+    answer: "Verrouiller modifie le mutex, même en mode partagé. `mutable` l'autorise dans une fonction `const`."
+  - key: qcm-famine
+    format: multiple-choice
+    question: "Quel risque fait courir un flot continu de lecteurs sur un `std::shared_mutex` ?"
+    choices:
+      - {text: "Un écrivain peut attendre très longtemps son tour", correct: true}
+      - {text: "Les lecteurs peuvent lire une donnée à moitié écrite", correct: false}
+      - {text: "Le mutex peut se déverrouiller de lui-même", correct: false}
+      - {text: "Les lecteurs peuvent s'interbloquer entre eux", correct: false}
+    answer: "Le standard ne fixe pas de priorité entre lecteurs et écrivains. Selon l'implémentation, l'écrivain peut être retardé tant qu'il reste un lecteur."
+  - key: trous-shared-lock
+    format: fill-in
+    question: |-
+      Complète pour prendre le verrou en lecture :
+      ```cpp
+      std::___ garde{verrou_};
+      return valeur_;
+      ```
+    blanks:
+      - [shared_lock]
+    answer: "`std::shared_lock` prend le mode partagé."
+  - key: trous-unique-lock
+    format: fill-in
+    question: |-
+      Complète pour prendre le verrou en écriture :
+      ```cpp
+      std::___ garde{verrou_};
+      valeur_ = nouvelle;
+      ```
+    blanks:
+      - [unique_lock, lock_guard, scoped_lock]
+    answer: "`std::unique_lock` prend le mode exclusif. `std::lock_guard` et `std::scoped_lock` conviennent aussi."
+  - key: trous-type
+    format: fill-in
+    question: |-
+      Complète avec le mutex qui accepte plusieurs lecteurs :
+      ```cpp
+      mutable std::___ verrou_;
+      ```
+    blanks:
+      - [shared_mutex]
+    answer: "`std::shared_mutex`, de l'en-tête `<shared_mutex>`."
+  - key: trous-include
+    format: fill-in
+    question: |-
+      Complète l'en-tête à inclure :
+      ```cpp
+      #include <___>
+
+      std::shared_mutex verrou;
+      ```
+    blanks:
+      - [shared_mutex]
+    answer: "L'en-tête porte le nom du type."
+  - key: code-deux-lecteurs
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+      #include <shared_mutex>
+
+      int main() {
+          std::shared_mutex verrou;
+          std::shared_lock premier{verrou};
+          std::print("{} ", verrou.try_lock_shared());
+          verrou.unlock_shared();
+          std::println("{}", premier.owns_lock());
+      }
+      ```
+    choices:
+      - {text: "`true true`", correct: true}
+      - {text: "`false true`", correct: false}
+      - {text: "`true false`", correct: false}
+      - {text: "`false false`", correct: false}
+    answer: "`true true` : le mode partagé accepte un second lecteur. La première garde tient toujours son verrou."
+    unverifiable: "prendre deux fois le verrou partagé dans le même thread est un comportement indéfini selon le standard ; à remplacer"
+  - key: code-ecrivain-refuse
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+      #include <shared_mutex>
+      #include <thread>
+
+      int main() {
+          std::shared_mutex verrou;
+          std::shared_lock lecteur{verrou};
+          bool lecture = false;
+          bool ecriture = true;
+          std::thread t{[&] {
+              lecture = verrou.try_lock_shared();
+              if (lecture) {
+                  verrou.unlock_shared();
+              }
+              ecriture = verrou.try_lock();
+          }};
+          t.join();
+          std::println("{} {}", lecture, ecriture);
+      }
+      ```
+    choices:
+      - {text: "`true false`", correct: true}
+      - {text: "`false false`", correct: false}
+      - {text: "`true true`", correct: false}
+      - {text: "`false true`", correct: false}
+    answer: "`true false` : pendant que `main` lit, un autre thread peut lire aussi, mais ne peut pas obtenir le verrou exclusif."
+    check:
+      output: "true false"
+  - key: code-lecteur-refuse
+    format: code-output
+    question: |-
+      ```cpp
+      #include <mutex>
+      #include <print>
+      #include <shared_mutex>
+      #include <thread>
+
+      int main() {
+          std::shared_mutex verrou;
+          std::unique_lock ecrivain{verrou};
+          bool lecture = true;
+          std::thread t{[&] { lecture = verrou.try_lock_shared(); }};
+          t.join();
+          ecrivain.unlock();
+          std::println("{} {}", lecture, verrou.try_lock_shared());
+      }
+      ```
+    choices:
+      - {text: "`false true`", correct: true}
+      - {text: "`true true`", correct: false}
+      - {text: "`false false`", correct: false}
+      - {text: "`true false`", correct: false}
+    answer: "`false true` : tant que l'écrivain tient le verrou, aucun lecteur n'entre. Une fois relâché, la lecture passe."
+    check:
+      output: "false true"
+  - key: code-annuaire
+    format: code-output
+    question: |-
+      ```cpp
+      #include <mutex>
+      #include <print>
+      #include <shared_mutex>
+      #include <thread>
+
+      int main() {
+          std::shared_mutex verrou;
+          int valeur = 0;
+          int lue_a = -1;
+          int lue_b = -1;
+          {
+              std::unique_lock garde{verrou};
+              valeur = 7;
+          }
+          std::thread a{[&] { std::shared_lock garde{verrou}; lue_a = valeur; }};
+          std::thread b{[&] { std::shared_lock garde{verrou}; lue_b = valeur; }};
+          a.join();
+          b.join();
+          std::println("{}", lue_a + lue_b);
+      }
+      ```
+    choices:
+      - {text: "`14`", correct: true}
+      - {text: "`7`", correct: false}
+      - {text: "`-2`", correct: false}
+      - {text: "`6`", correct: false}
+    answer: "`14` : l'écriture est finie avant le lancement des lecteurs. Les deux lisent 7, ensemble ou l'un après l'autre : le résultat est le même."
+    check:
+      output: "14"
+  - key: bug-ecriture-sous-partage
+    format: bug-fix
+    question: |-
+      Cette classe incrémente un compteur de consultations sous un verrou partagé : c'est une course aux données.
+      Quelle correction est la bonne ?
+      ```cpp
+      #include <print>
+      #include <shared_mutex>
+
+      class Config {
+      public:
+          int lire() const {
+              std::shared_lock garde{verrou_};
+              ++lectures_;
+              return valeur_;
+          }
+
+      private:
+          mutable std::shared_mutex verrou_;
+          mutable int lectures_ = 0;
+          int valeur_ = 3;
+      };
+
+      int main() {
+          const Config config;
+          std::println("{}", config.lire());
+      }
+      ```
+    choices:
+      - {text: "Déclarer `mutable std::atomic<int> lectures_{0};`", correct: true}
+      - {text: "Déclarer `mutable volatile int lectures_ = 0;`", correct: false}
+      - {text: "Déclarer `mutable long lectures_ = 0;`", correct: false}
+      - {text: "Déplacer `++lectures_;` après la ligne du `return`", correct: false}
+    answer: |-
+      ```cpp
+      mutable std::atomic<int> lectures_{0};
+      ```
+      Plusieurs lecteurs tiennent le verrou partagé en même temps, et tous écrivent `lectures_`. Un atomique rend
+      l'incrémentation sûre sans priver les lecteurs de leur parallélisme.
+  - key: bug-promotion
+    format: bug-fix
+    question: |-
+      Ce programme se fige : le thread tient le verrou partagé, et demande le verrou exclusif. Quelle correction est
+      la bonne ?
+      ```cpp
+      #include <mutex>
+      #include <print>
+      #include <shared_mutex>
+
+      int main() {
+          std::shared_mutex verrou;
+          int valeur = 0;
+          std::shared_lock lecture{verrou};
+          if (valeur == 0) {
+              std::unique_lock ecriture{verrou};
+              valeur = 1;
+          }
+          std::println("{}", valeur);
+      }
+      ```
+    choices:
+      - {text: "Appeler `lecture.unlock();` avant de prendre le verrou exclusif, puis revérifier `valeur`", correct: true}
+      - {text: "Prendre un second `std::shared_lock` à la place du `std::unique_lock`", correct: false}
+      - {text: "Déclarer `ecriture` avant `lecture`, sans relâcher aucun des deux", correct: false}
+      - {text: "Remplacer `std::unique_lock` par `std::lock_guard`, au même endroit", correct: false}
+    answer: |-
+      ```cpp
+      lecture.unlock();
+      std::unique_lock ecriture{verrou};
+      if (valeur == 0) {
+          valeur = 1;
+      }
+      ```
+      Le verrou exclusif attend la sortie de tous les lecteurs, y compris celui qui le demande. On relâche d'abord,
+      et l'on revérifie : un autre thread a pu écrire entre les deux.
+  - key: bug-lecture-exclusive
+    format: bug-fix
+    question: |-
+      Les lecteurs de cette classe s'attendent les uns les autres, alors qu'un `std::shared_mutex` devait les
+      laisser passer ensemble. Quelle correction est la bonne ?
+      ```cpp
+      #include <mutex>
+      #include <print>
+      #include <shared_mutex>
+
+      class Cache {
+      public:
+          int lire() const {
+              std::unique_lock garde{verrou_};
+              return valeur_;
+          }
+
+      private:
+          mutable std::shared_mutex verrou_;
+          int valeur_ = 9;
+      };
+
+      int main() {
+          const Cache cache;
+          std::println("{}", cache.lire());
+      }
+      ```
+    choices:
+      - {text: "Prendre un `std::shared_lock` dans `lire()`", correct: true}
+      - {text: "Prendre un `std::lock_guard` dans `lire()`", correct: false}
+      - {text: "Prendre un `std::scoped_lock` dans `lire()`", correct: false}
+      - {text: "Retirer la garde de `lire()`, qui ne fait que lire", correct: false}
+    answer: |-
+      ```cpp
+      std::shared_lock garde{verrou_};
+      ```
+      `std::unique_lock` prend le mode exclusif : un seul lecteur à la fois, comme avec un mutex simple, en plus
+      cher. Retirer la garde créerait une course avec les écrivains.
+  - key: bug-ecriture-partagee
+    format: bug-fix
+    question: |-
+      Deux threads modifient la valeur sous un verrou partagé. Le total devrait être `2000`, et il est parfois plus
+      petit. Quelle correction est la bonne ?
+      ```cpp
+      #include <print>
+      #include <shared_mutex>
+      #include <thread>
+
+      int main() {
+          std::shared_mutex verrou;
+          int total = 0;
+          auto travail = [&] {
+              for (int i = 0; i < 1000; ++i) {
+                  std::shared_lock garde{verrou};
+                  ++total;
+              }
+          };
+          std::thread a{travail};
+          std::thread b{travail};
+          a.join();
+          b.join();
+          std::println("{}", total);
+      }
+      ```
+    choices:
+      - {text: "Prendre un `std::unique_lock` autour de `++total`", correct: true}
+      - {text: "Prendre deux `std::shared_lock` autour de `++total`", correct: false}
+      - {text: "Déclarer `total` avec le mot-clé `mutable`", correct: false}
+      - {text: "Appeler `verrou.lock_shared()` à la place de la garde", correct: false}
+    answer: |-
+      ```cpp
+      std::unique_lock garde{verrou};
+      ++total;
+      ```
+      Le mode partagé laisse entrer les deux threads ensemble : l'incrémentation n'est pas protégée. Une écriture
+      exige le mode exclusif.
+  - key: situation-configuration
+    format: scenario
+    question: |-
+      Une table de routage est consultée dix mille fois par seconde par trente threads, et mise à jour une fois par
+      minute. Chaque consultation parcourt une structure assez grosse. Les threads font la queue devant un
+      `std::mutex`. Que proposes-tu ?
+    choices:
+      - {text: "Un `std::shared_mutex` : `std::shared_lock` pour consulter, `std::unique_lock` pour mettre à jour", correct: true}
+      - {text: "La suppression du verrou pour les consultations, gardé pour la mise à jour seulement", correct: false}
+      - {text: "Un `std::recursive_mutex`, que plusieurs threads peuvent tenir en même temps", correct: false}
+      - {text: "Un `std::mutex` par thread, pour que personne n'attende personne", correct: false}
+    answer: |-
+      Des lectures longues et dominantes : le cas d'école. Les lecteurs passent ensemble, l'écrivain passe seul.
+      Lire sans verrou pendant la mise à jour serait une course aux données.
+  - key: situation-pas-de-gain
+    format: scenario
+    question: |-
+      Un collègue remplace tous les `std::mutex` du projet par des `std::shared_mutex`. Sur un compteur lu et écrit
+      à parts égales, protégé pendant une seule instruction, le programme ralentit. Pourquoi ?
+    choices:
+      - {text: "Le verrou partagé coûte plus cher à prendre, et les lecteurs n'ont presque rien à paralléliser", correct: true}
+      - {text: "Le verrou partagé empêche les écritures tant que le programme tourne", correct: false}
+      - {text: "Le verrou partagé recopie la donnée protégée à chaque lecture", correct: false}
+      - {text: "Le verrou partagé n'accepte que deux lecteurs à la fois", correct: false}
+    answer: |-
+      Un `std::shared_mutex` tient un compte de ses lecteurs : il est plus lourd. Avec une section critique d'une
+      instruction et autant d'écritures que de lectures, le coût domine. Ici un `std::mutex`, ou un atomique,
+      convient mieux.
+  - key: situation-verifier-puis-ecrire
+    format: scenario
+    question: |-
+      Un cache cherche une clé sous verrou partagé. Si elle manque, il relâche, prend le verrou exclusif, calcule la
+      valeur et l'insère. De temps en temps, la valeur est calculée deux fois. Pourquoi ?
+    choices:
+      - {text: "Entre les deux verrous, un autre thread a inséré la clé : il faut la rechercher sous le verrou exclusif", correct: true}
+      - {text: "Le verrou exclusif laisse entrer deux écrivains quand ils insèrent la même clé", correct: false}
+      - {text: "Le verrou partagé a été promu en exclusif, ce qui relance le calcul", correct: false}
+      - {text: "Le cache recopie ses clés à chaque prise du verrou exclusif", correct: false}
+    answer: |-
+      Rien ne tient le verrou entre le relâchement et la reprise. Tout ce qu'on a lu avant doit être relu après :
+      c'est la vérification en deux temps. Sous le verrou exclusif, on cherche de nouveau la clé avant de calculer.
+  - key: situation-ecrivain-affame
+    format: scenario
+    question: |-
+      Un service protège sa configuration par un `std::shared_mutex`. Les lecteurs se succèdent sans interruption,
+      et les mises à jour prennent parfois plusieurs secondes à s'appliquer. Que soupçonnes-tu ?
+    choices:
+      - {text: "L'écrivain attend qu'il n'y ait plus aucun lecteur, ce qui arrive rarement", correct: true}
+      - {text: "L'écrivain est interbloqué avec un autre écrivain", correct: false}
+      - {text: "Les lecteurs relisent la configuration après chaque mise à jour", correct: false}
+      - {text: "Le verrou partagé a été pris en mode exclusif par erreur", correct: false}
+    answer: |-
+      Le standard ne dit pas qui passe d'abord. Si les lecteurs se relaient sans pause, l'écrivain peut attendre
+      longtemps. On raccourcit les lectures, ou l'on échange un pointeur vers une configuration immuable au lieu de
+      la modifier sur place.

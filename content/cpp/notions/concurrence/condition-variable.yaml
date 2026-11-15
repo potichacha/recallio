@@ -1,0 +1,580 @@
+notion: condition-variable
+lesson: |-
+  Un thread doit souvent **attendre qu'une condition devienne vraie** : « la file n'est plus vide », « le résultat
+  est prêt ». Tester la condition en boucle occuperait un cœur pour rien. `std::condition_variable` (en-tête
+  `<condition_variable>`) permet de **dormir** jusqu'à ce qu'un autre thread **signale** un changement.
+
+  **Les trois ingrédients.**
+
+  ```cpp
+  std::mutex verrou;
+  std::condition_variable condition;
+  bool pret = false;                      // l'état partagé, protégé par le mutex
+  ```
+
+  **Celui qui attend.**
+
+  ```cpp
+  std::unique_lock garde{verrou};
+  condition.wait(garde, [] { return pret; });
+  // ici : pret est vrai, et le mutex est tenu
+  ```
+
+  `wait` fait trois choses : elle **relâche** le mutex, **endort** le thread, puis, au réveil, **reprend** le
+  mutex. C'est pourquoi elle exige une `std::unique_lock`.
+
+  **Celui qui signale.**
+
+  ```cpp
+  {
+      std::lock_guard garde{verrou};
+      pret = true;                        // modifier l'état SOUS le mutex
+  }
+  condition.notify_one();                 // réveiller un thread qui attend
+  ```
+
+  `notify_one()` réveille **un** thread en attente ; `notify_all()` les réveille **tous**.
+
+  **Toujours attendre avec un prédicat.** La forme `wait(garde, predicat)` équivaut à :
+
+  ```cpp
+  while (!predicat()) {
+      condition.wait(garde);
+  }
+  ```
+
+  La boucle est indispensable, pour deux raisons :
+
+  - les **réveils parasites** (*spurious wakeups*) : un thread peut se réveiller **sans** qu'aucun `notify` ait
+    été appelé. Le standard l'autorise ;
+  - la **notification perdue** : si `notify_one()` est appelé **avant** que l'autre thread n'attende, personne ne
+    l'entend. Avec un prédicat, `wait` teste d'abord l'état : s'il est déjà vrai, elle ne dort pas.
+
+  La condition variable ne **mémorise rien** : la vérité est dans la variable partagée, pas dans le signal.
+
+  **L'état se modifie sous le mutex.** Même si `pret` était atomique, le modifier hors du mutex laisserait une
+  fenêtre : le thread qui attend a testé le prédicat (faux), et n'est pas encore endormi quand le `notify`
+  passe. Il dormirait pour toujours.
+
+  **Le schéma producteur-consommateur.**
+
+  ```cpp
+  void produire(int valeur) {
+      {
+          std::lock_guard garde{verrou};
+          file.push(valeur);
+      }
+      condition.notify_one();
+  }
+
+  int consommer() {
+      std::unique_lock garde{verrou};
+      condition.wait(garde, [] { return !file.empty(); });
+      int valeur = file.front();
+      file.pop();
+      return valeur;
+  }
+  ```
+
+  **Attendre avec un délai.** `wait_for(garde, 100ms, predicat)` renvoie `false` si le délai s'écoule sans que le
+  prédicat soit vrai.
+
+  **En entretien** : « Une condition variable endort un thread jusqu'à un `notify`. J'attends toujours avec un
+  prédicat, à cause des réveils parasites et des notifications perdues ; `wait` relâche le mutex pendant
+  l'attente, d'où la `std::unique_lock`. Et l'état partagé se modifie sous le mutex, avant de notifier. »
+cards:
+  - key: role
+    format: course
+    question: "À quoi sert une `std::condition_variable` ?"
+    choices:
+      - {text: "À endormir un thread jusqu'à ce qu'un autre lui signale qu'un état a changé", correct: true}
+      - {text: "À protéger une variable contre les accès simultanés de deux threads", correct: false}
+      - {text: "À renvoyer le résultat d'un thread à celui qui l'a lancé", correct: false}
+      - {text: "À tester une condition en boucle, sans jamais rendre le processeur", correct: false}
+    answer: "Elle évite l'attente active. La protection de l'état reste l'affaire du mutex, avec lequel elle travaille toujours."
+  - key: wait
+    format: course
+    question: "Que fait `condition.wait(garde)`, dans l'ordre ?"
+    choices:
+      - {text: "Elle relâche le mutex, endort le thread, puis reprend le mutex au réveil", correct: true}
+      - {text: "Elle garde le mutex verrouillé, endort le thread, puis le relâche au réveil", correct: false}
+      - {text: "Elle verrouille le mutex, réveille les autres threads, puis le relâche", correct: false}
+      - {text: "Elle détruit la garde, endort le thread, puis en construit une nouvelle", correct: false}
+    answer: "Si le mutex restait tenu pendant l'attente, personne ne pourrait modifier l'état attendu. Au retour de `wait`, le thread tient de nouveau le mutex."
+  - key: predicat
+    format: course
+    question: "Pourquoi attend-on toujours avec un prédicat, `wait(garde, predicat)` ?"
+    choices:
+      - {text: "Un thread peut se réveiller sans notification, ou la notification passer avant l'attente", correct: true}
+      - {text: "Sans prédicat, `wait` ne relâche pas le mutex pendant que le thread dort", correct: false}
+      - {text: "Sans prédicat, `wait` réveille tous les threads au lieu d'un seul", correct: false}
+      - {text: "Sans prédicat, `wait` ne compile pas avec une `std::unique_lock`", correct: false}
+    answer: "Le prédicat est testé avant de dormir et à chaque réveil. Il protège des réveils parasites et des notifications perdues : la vérité est dans l'état partagé, pas dans le signal."
+  - key: notifier
+    format: course
+    question: "Quelle différence entre `notify_one()` et `notify_all()` ?"
+    choices:
+      - {text: "`notify_one` réveille un thread en attente ; `notify_all` les réveille tous", correct: true}
+      - {text: "`notify_one` réveille le thread courant ; `notify_all` réveille les autres", correct: false}
+      - {text: "`notify_one` ne fonctionne qu'une fois ; `notify_all` autant qu'on veut", correct: false}
+      - {text: "`notify_one` relâche le mutex ; `notify_all` le garde verrouillé", correct: false}
+    answer: "Un élément ajouté à une file : `notify_one` suffit. Un changement qui concerne tout le monde, comme un arrêt : `notify_all`."
+  - key: vf-parasite
+    format: true-false
+    question: "Un thread en attente sur une condition variable peut se réveiller sans qu'aucun `notify` ait été appelé."
+    truth: true
+    answer: "C'est le réveil parasite, permis par le standard. D'où la boucle, ou le prédicat."
+  - key: vf-memorise
+    format: true-false
+    question: "Un `notify_one()` appelé avant que personne n'attende est mémorisé pour le prochain `wait`."
+    truth: false
+    answer: "La notification est perdue. C'est l'état partagé, testé par le prédicat, qui dit s'il faut attendre."
+  - key: vf-lock-guard
+    format: true-false
+    question: "`condition.wait` accepte une `std::lock_guard`."
+    truth: false
+    answer: "Elle exige une `std::unique_lock`, qu'elle peut déverrouiller pendant l'attente et reverrouiller au réveil."
+  - key: vf-mutex-au-retour
+    format: true-false
+    question: "Au retour de `wait`, le thread tient de nouveau le mutex."
+    truth: true
+    answer: "Il peut donc lire et modifier l'état partagé en sécurité, juste après l'attente."
+  - key: qcm-en-tete
+    format: multiple-choice
+    question: "Quel en-tête déclare `std::condition_variable` ?"
+    choices:
+      - {text: "`<condition_variable>`", correct: true}
+      - {text: "`<mutex>`", correct: false}
+      - {text: "`<thread>`", correct: false}
+      - {text: "`<condition>`", correct: false}
+    answer: "`<condition_variable>`. Le mutex et ses gardes, eux, sont dans `<mutex>`."
+  - key: qcm-equivalent
+    format: multiple-choice
+    question: "À quoi équivaut `condition.wait(garde, predicat);` ?"
+    choices:
+      - {text: "`while (!predicat()) { condition.wait(garde); }`", correct: true}
+      - {text: "`if (!predicat()) { condition.wait(garde); }`", correct: false}
+      - {text: "`while (predicat()) { condition.wait(garde); }`", correct: false}
+      - {text: "`do { condition.wait(garde); } while (!predicat());`", correct: false}
+    answer: "Le prédicat est testé d'abord, puis après chaque réveil. Un `if` ne retesterait pas ; un `do-while` dormirait même quand la condition est déjà vraie."
+  - key: qcm-delai
+    format: multiple-choice
+    question: "Quelle fonction attend la condition, mais renonce après un délai ?"
+    choices:
+      - {text: "`wait_for`", correct: true}
+      - {text: "`wait`", correct: false}
+      - {text: "`sleep_for`", correct: false}
+      - {text: "`notify_one`", correct: false}
+    answer: "`condition.wait_for(garde, 100ms, predicat)` renvoie la valeur du prédicat : `false` si le délai est écoulé sans qu'il soit vrai."
+  - key: qcm-tous
+    format: multiple-choice
+    question: "Dix threads attendent un signal d'arrêt commun. Quelle fonction appelles-tu ?"
+    choices:
+      - {text: "`notify_all()`", correct: true}
+      - {text: "`notify_one()`", correct: false}
+      - {text: "`wait()`", correct: false}
+      - {text: "`unlock()`", correct: false}
+    answer: "Tous doivent se réveiller et constater l'arrêt. `notify_one()` n'en réveillerait qu'un."
+  - key: trous-wait
+    format: fill-in
+    question: |-
+      Complète pour attendre que la file ne soit plus vide :
+      ```cpp
+      std::unique_lock garde{verrou};
+      condition.___(garde, [] { return !file.empty(); });
+      ```
+    blanks:
+      - [wait]
+    answer: "`wait(garde, predicat)` dort jusqu'à ce que le prédicat soit vrai."
+  - key: trous-notify-one
+    format: fill-in
+    question: |-
+      Complète pour réveiller un thread qui attend :
+      ```cpp
+      {
+          std::lock_guard garde{verrou};
+          file.push(valeur);
+      }
+      condition.___();
+      ```
+    blanks:
+      - [notify_one]
+    answer: "`notify_one()` réveille un seul des threads en attente."
+  - key: trous-unique-lock
+    format: fill-in
+    question: |-
+      Complète avec la garde que `wait` exige :
+      ```cpp
+      std::___ garde{verrou};
+      condition.wait(garde, [] { return pret; });
+      ```
+    blanks:
+      - [unique_lock]
+    answer: "`std::unique_lock` : `wait` doit pouvoir la déverrouiller et la reverrouiller."
+  - key: trous-notify-all
+    format: fill-in
+    question: |-
+      Complète pour réveiller tous les threads qui attendent :
+      ```cpp
+      {
+          std::lock_guard garde{verrou};
+          arret = true;
+      }
+      condition.___();
+      ```
+    blanks:
+      - [notify_all]
+    answer: "`notify_all()` réveille tous les threads en attente."
+  - key: code-pret
+    format: code-output
+    question: |-
+      ```cpp
+      #include <condition_variable>
+      #include <mutex>
+      #include <print>
+      #include <thread>
+
+      int main() {
+          std::mutex verrou;
+          std::condition_variable condition;
+          bool pret = false;
+          int valeur = 0;
+
+          std::thread t{[&] {
+              std::unique_lock garde{verrou};
+              condition.wait(garde, [&] { return pret; });
+              valeur += 1;
+          }};
+          {
+              std::lock_guard garde{verrou};
+              valeur = 41;
+              pret = true;
+          }
+          condition.notify_one();
+          t.join();
+          std::println("{}", valeur);
+      }
+      ```
+    choices:
+      - {text: "`42`", correct: true}
+      - {text: "`41`", correct: false}
+      - {text: "`1`", correct: false}
+      - {text: "`1` ou `42`, selon l'exécution", correct: false}
+    answer: "`42` : le thread n'ajoute 1 qu'une fois `pret` vrai, donc après que `main` a écrit 41. Que le thread ait commencé à attendre avant ou après, le prédicat donne le même résultat."
+    check:
+      output: "42"
+  - key: code-notification-avant
+    format: code-output
+    question: |-
+      ```cpp
+      #include <condition_variable>
+      #include <mutex>
+      #include <print>
+
+      int main() {
+          std::mutex verrou;
+          std::condition_variable condition;
+          bool pret = true;
+          condition.notify_one();
+
+          std::unique_lock garde{verrou};
+          condition.wait(garde, [&] { return pret; });
+          std::println("réveillé {}", garde.owns_lock());
+      }
+      ```
+    choices:
+      - {text: "`réveillé true`", correct: true}
+      - {text: "`réveillé false`", correct: false}
+      - {text: "Rien : le programme attend indéfiniment", correct: false}
+      - {text: "Ça ne compile pas", correct: false}
+    answer: "`réveillé true` : le prédicat est testé avant de dormir. Il est déjà vrai : `wait` revient aussitôt, mutex tenu. La notification, passée avant, n'a servi à rien."
+    check:
+      output: "réveillé true"
+  - key: code-file
+    format: code-output
+    question: |-
+      ```cpp
+      #include <condition_variable>
+      #include <mutex>
+      #include <print>
+      #include <queue>
+      #include <thread>
+
+      int main() {
+          std::mutex verrou;
+          std::condition_variable condition;
+          std::queue<int> file;
+          int somme = 0;
+
+          std::thread consommateur{[&] {
+              for (int i = 0; i < 3; ++i) {
+                  std::unique_lock garde{verrou};
+                  condition.wait(garde, [&] { return !file.empty(); });
+                  somme += file.front();
+                  file.pop();
+              }
+          }};
+          for (int valeur : {10, 20, 30}) {
+              {
+                  std::lock_guard garde{verrou};
+                  file.push(valeur);
+              }
+              condition.notify_one();
+          }
+          consommateur.join();
+          std::println("{}", somme);
+      }
+      ```
+    choices:
+      - {text: "`60`", correct: true}
+      - {text: "`30`", correct: false}
+      - {text: "`10`", correct: false}
+      - {text: "Un nombre entre 10 et 60, selon l'exécution", correct: false}
+    answer: "`60` : le consommateur retire trois éléments, en attendant chaque fois que la file ne soit pas vide. Aucun n'est perdu, quel que soit l'entrelacement."
+    check:
+      output: "60"
+  - key: code-wait-for
+    format: code-output
+    question: |-
+      ```cpp
+      #include <chrono>
+      #include <condition_variable>
+      #include <mutex>
+      #include <print>
+
+      int main() {
+          using namespace std::chrono_literals;
+          std::mutex verrou;
+          std::condition_variable condition;
+          bool pret = false;
+
+          std::unique_lock garde{verrou};
+          const bool obtenu = condition.wait_for(garde, 20ms, [&] { return pret; });
+          std::println("{} {}", obtenu, garde.owns_lock());
+      }
+      ```
+    choices:
+      - {text: "`false true`", correct: true}
+      - {text: "`true true`", correct: false}
+      - {text: "`false false`", correct: false}
+      - {text: "Rien : le programme attend indéfiniment", correct: false}
+    answer: "`false true` : personne ne met `pret` à vrai. Au bout du délai, `wait_for` renvoie la valeur du prédicat, `false`, et le mutex est de nouveau tenu."
+    check:
+      output: "false true"
+  - key: bug-notification-perdue
+    format: bug-fix
+    question: |-
+      Ce programme ne se termine jamais : la notification passe avant que le thread n'attende, et il dort pour
+      toujours. Quelle correction est la bonne ?
+      ```cpp
+      #include <chrono>
+      #include <condition_variable>
+      #include <mutex>
+      #include <print>
+      #include <thread>
+
+      int main() {
+          std::mutex verrou;
+          std::condition_variable condition;
+
+          condition.notify_one();
+          std::thread t{[&] {
+              std::unique_lock garde{verrou};
+              condition.wait(garde);
+              std::println("réveillé");
+          }};
+          t.join();
+      }
+      ```
+    choices:
+      - {text: "Ajouter un booléen partagé, mis à vrai sous le mutex, et attendre avec ce prédicat", correct: true}
+      - {text: "Appeler `condition.notify_all();` à la place de `condition.notify_one();`", correct: false}
+      - {text: "Appeler `condition.notify_one();` deux fois de suite, avant de lancer le thread", correct: false}
+      - {text: "Déclarer la garde du thread avec `std::lock_guard`", correct: false}
+    answer: |-
+      ```cpp
+      bool pret = false;
+      {
+          std::lock_guard garde{verrou};
+          pret = true;
+      }
+      condition.notify_one();
+      // dans le thread :
+      condition.wait(garde, [&] { return pret; });
+      ```
+      Une condition variable ne mémorise pas les notifications. Avec un état partagé, le thread qui arrive après
+      le signal voit `pret` déjà vrai, et n'attend pas.
+  - key: bug-if-au-lieu-de-while
+    format: bug-fix
+    question: |-
+      Ce consommateur teste la file avec un `if` avant d'attendre. Après un réveil parasite, il lirait une file
+      vide : comportement indéfini. Quelle correction est la bonne ?
+      ```cpp
+      #include <condition_variable>
+      #include <mutex>
+      #include <print>
+      #include <queue>
+      #include <thread>
+
+      int main() {
+          std::mutex verrou;
+          std::condition_variable condition;
+          std::queue<int> file;
+          int lu = 0;
+
+          std::thread t{[&] {
+              std::unique_lock garde{verrou};
+              if (file.empty()) {
+                  condition.wait(garde);
+              }
+              lu = file.front();
+              file.pop();
+          }};
+          {
+              std::lock_guard garde{verrou};
+              file.push(7);
+          }
+          condition.notify_one();
+          t.join();
+          std::println("{}", lu);
+      }
+      ```
+    choices:
+      - {text: "Écrire `condition.wait(garde, [&] { return !file.empty(); });`", correct: true}
+      - {text: "Écrire `if (!file.empty()) { condition.wait(garde); }`", correct: false}
+      - {text: "Écrire `condition.wait(garde);` deux fois de suite", correct: false}
+      - {text: "Écrire `condition.notify_all();` dans `main`", correct: false}
+    answer: |-
+      ```cpp
+      std::unique_lock garde{verrou};
+      condition.wait(garde, [&] { return !file.empty(); });
+      ```
+      Un réveil ne prouve pas que la condition est vraie. Le prédicat est retesté à chaque réveil : c'est la boucle
+      `while` écrite pour toi.
+  - key: bug-lock-guard
+    format: bug-fix
+    question: |-
+      Le compilateur refuse l'appel de `wait` : il ne peut pas convertir une `std::lock_guard` en
+      `std::unique_lock`. Quelle correction est la bonne ?
+      ```cpp
+      #include <condition_variable>
+      #include <mutex>
+      #include <print>
+
+      int main() {
+          std::mutex verrou;
+          std::condition_variable condition;
+          bool pret = true;
+
+          std::lock_guard garde{verrou};
+          condition.wait(garde, [&] { return pret; });
+          std::println("prêt");
+      }
+      ```
+    choices:
+      - {text: "Déclarer `std::unique_lock garde{verrou};`", correct: true}
+      - {text: "Déclarer `std::scoped_lock garde{verrou};`", correct: false}
+      - {text: "Appeler `condition.wait(verrou, [&] { return pret; });`", correct: false}
+      - {text: "Appeler `condition.wait([&] { return pret; });`", correct: false}
+    answer: |-
+      ```cpp
+      std::unique_lock garde{verrou};
+      condition.wait(garde, [&] { return pret; });
+      ```
+      `wait` relâche le mutex pendant l'attente, et le reprend au réveil. Seule `std::unique_lock` offre ces deux
+      opérations.
+  - key: bug-etat-hors-mutex
+    format: bug-fix
+    question: |-
+      `main` modifie `pret` sans tenir le mutex. C'est une course aux données, et la notification peut passer
+      entre le test du prédicat et l'endormissement du thread, qui attendrait alors pour toujours. Quelle
+      correction est la bonne ?
+      ```cpp
+      #include <condition_variable>
+      #include <mutex>
+      #include <print>
+      #include <thread>
+
+      int main() {
+          std::mutex verrou;
+          std::condition_variable condition;
+          bool pret = false;
+
+          std::thread t{[&] {
+              std::unique_lock garde{verrou};
+              condition.wait(garde, [&] { return pret; });
+          }};
+          pret = true;
+          condition.notify_one();
+          t.join();
+          std::println("fin");
+      }
+      ```
+    choices:
+      - {text: "Verrouiller le mutex avec un `std::lock_guard`, dans un bloc, pour écrire `pret = true;`", correct: true}
+      - {text: "Appeler `condition.notify_one();` avant d'écrire `pret = true;`", correct: false}
+      - {text: "Appeler `condition.notify_all();` à la place de `condition.notify_one();`", correct: false}
+      - {text: "Déclarer la variable `pret` avec le mot-clé `volatile`", correct: false}
+    answer: |-
+      ```cpp
+      {
+          std::lock_guard garde{verrou};
+          pret = true;
+      }
+      condition.notify_one();
+      ```
+      L'état que le prédicat lit se modifie sous le même mutex. Ainsi, le thread qui attend est soit avant son
+      test, et verra `pret` vrai, soit déjà endormi, et recevra la notification.
+  - key: situation-attente-active
+    format: scenario
+    question: |-
+      Un thread consommateur vérifie sa file dans `while (file.empty()) {}`. Le service occupe un cœur à 100 %
+      même quand il n'y a rien à traiter. Que proposes-tu ?
+    choices:
+      - {text: "Une condition variable : le thread dort, et le producteur le réveille par `notify_one`", correct: true}
+      - {text: "Une pause d'une seconde dans la boucle, qui réduit la charge du processeur", correct: false}
+      - {text: "Un second thread consommateur, pour partager la charge de la boucle", correct: false}
+      - {text: "Une variable atomique pour la file, qui supprime la boucle", correct: false}
+    answer: |-
+      L'attente active brûle du processeur, et lit la file sans verrou. Avec une condition variable, le thread ne
+      consomme rien tant que rien n'arrive, et réagit aussitôt. Une pause fixe ajoute de la latence sans régler le
+      problème.
+  - key: situation-blocage-rare
+    format: scenario
+    question: |-
+      Un programme se fige environ une fois sur mille : un thread reste en `wait` alors que le signal a bien été
+      envoyé. Le code appelle `condition.wait(garde);` sans prédicat. Quelle est la cause la plus probable ?
+    choices:
+      - {text: "La notification est passée avant que le thread n'attende : elle est perdue", correct: true}
+      - {text: "La condition variable est tombée en panne après un trop grand nombre d'appels", correct: false}
+      - {text: "Le mutex a été détruit par le thread qui a envoyé la notification", correct: false}
+      - {text: "Le thread s'est réveillé deux fois, ce qui annule la notification", correct: false}
+    answer: |-
+      Sans état partagé, tout repose sur l'ordre des événements : si le signal part une microseconde trop tôt,
+      personne ne l'entend. Avec un prédicat, le thread voit que la condition est déjà vraie, et ne s'endort pas.
+  - key: situation-arret
+    format: scenario
+    question: |-
+      Quatre threads attendent du travail sur la même condition variable. À l'arrêt du programme, tu mets un
+      booléen `arret` à vrai, puis tu appelles `notify_one()`. Trois threads ne se terminent jamais. Pourquoi ?
+    choices:
+      - {text: "`notify_one` n'en réveille qu'un : il faut `notify_all`, et un prédicat qui teste aussi `arret`", correct: true}
+      - {text: "`notify_one` réveille les quatre, mais trois se rendorment par réveil parasite", correct: false}
+      - {text: "`notify_one` ne fonctionne pas quand plus de deux threads attendent", correct: false}
+      - {text: "`notify_one` relâche le mutex, que les trois autres ne peuvent plus reprendre", correct: false}
+    answer: |-
+      Un arrêt concerne tous les threads en attente. Chacun doit être réveillé, et son prédicat doit devenir vrai :
+      `[&] { return arret || !file.empty(); }`. Sinon, réveillé, il se rendort.
+  - key: situation-entretien
+    format: scenario
+    question: |-
+      En entretien, on te demande : « Pourquoi `wait` prend-elle le mutex en argument ? » Que réponds-tu ?
+    choices:
+      - {text: "Pour le relâcher et s'endormir d'un seul geste, puis le reprendre au réveil", correct: true}
+      - {text: "Pour vérifier que le thread appelant est bien celui qui a créé le mutex", correct: false}
+      - {text: "Pour le garder verrouillé pendant toute l'attente, et bloquer les autres threads", correct: false}
+      - {text: "Pour le détruire quand la condition est remplie", correct: false}
+    answer: |-
+      Relâcher le mutex puis dormir en deux étapes laisserait une fenêtre où une notification serait perdue.
+      `wait` fait les deux de façon indivisible. Au retour, le mutex est tenu : le prédicat et la suite s'exécutent
+      en sécurité.

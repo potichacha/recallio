@@ -1,0 +1,430 @@
+notion: thread-local
+lesson: |-
+  Une variable `thread_local` existe en **un exemplaire par thread**. Chaque thread a la sienne, initialisée à part,
+  détruite quand ce thread se termine. Deux threads qui la modifient ne se gênent donc jamais : il n'y a rien à
+  synchroniser.
+
+  ```cpp
+  thread_local int compteur = 0;
+
+  void travailler() {
+      ++compteur;          // l'exemplaire du thread courant
+  }
+  ```
+
+  **C'est une quatrième durée de stockage**, à côté de l'automatique (pile), de la statique (tout le programme) et
+  de la dynamique (tas).
+
+  | Déclaration | Combien d'exemplaires | Durée de vie |
+  |---|---|---|
+  | `int x;` dans une fonction | un par appel | la portée |
+  | `static int x;` | un seul | le programme |
+  | `thread_local int x;` | un par thread | le thread |
+
+  **Où l'écrire.** Sur une variable globale, un membre `static` d'une classe, ou une variable locale. Dans une
+  fonction, `thread_local` implique `static` : la variable garde sa valeur d'un appel à l'autre, **dans le même
+  thread**.
+
+  **L'initialisation.** L'exemplaire d'un thread est initialisé à sa **première utilisation** par ce thread. Un
+  thread qui ne s'en sert jamais ne le construit pas.
+
+  **À quoi ça sert.**
+
+  - Un **cache** ou un tampon de travail propre à chaque thread, sans verrou.
+  - Un **générateur de nombres aléatoires** par thread : `std::mt19937` n'est pas sûr entre threads.
+  - Un **contexte** : identifiant de requête, dernier code d'erreur (c'est ainsi qu'`errno` est fait).
+  - Des **compteurs** par thread, additionnés à la fin.
+
+  **Les pièges.**
+
+  - Ce n'est **pas un partage** : écrire dans la variable depuis un thread ne change rien pour les autres. Un
+    résultat rangé dans une `thread_local` par un thread de travail est invisible depuis `main`.
+  - Dans un **pool de threads**, la valeur **survit** d'une tâche à l'autre : une tâche hérite de ce que la
+    précédente a laissé dans ce thread.
+  - Un **pointeur** ou une référence vers la variable d'un thread devient pendant quand ce thread se termine.
+  - Une lambda **ne capture pas** une `thread_local` : elle désigne celle du thread qui l'**exécute**, pas celle du
+    thread qui l'a créée.
+  - Un petit surcoût à chaque accès, et de la mémoire multipliée par le nombre de threads.
+
+  **En entretien** : « `thread_local` donne à chaque thread son propre exemplaire de la variable, initialisé à sa
+  première utilisation et détruit à la fin du thread. C'est un état par thread, sans verrou, pas un moyen de
+  communiquer : les autres threads ne voient pas mes écritures. »
+cards:
+  - key: definition
+    format: course
+    question: "Que signifie `thread_local` devant une variable ?"
+    choices:
+      - {text: "Que chaque thread en a son propre exemplaire, indépendant des autres", correct: true}
+      - {text: "Que la variable est partagée entre les threads, sous un verrou", correct: false}
+      - {text: "Que la variable n'est accessible que depuis le thread principal", correct: false}
+      - {text: "Que la variable est détruite à la fin de chaque fonction", correct: false}
+    answer: "Il y a autant d'exemplaires que de threads qui s'en servent. Aucun n'est visible depuis un autre thread : rien à synchroniser."
+  - key: duree-de-vie
+    format: course
+    question: "Quand l'exemplaire d'une variable `thread_local` est-il détruit ?"
+    choices:
+      - {text: "Quand le thread auquel il appartient se termine", correct: true}
+      - {text: "Quand la fonction qui l'utilise se termine", correct: false}
+      - {text: "Quand le programme se termine, pour tous les threads", correct: false}
+      - {text: "Quand un autre thread lui affecte une valeur", correct: false}
+    answer: "C'est la durée de stockage « de thread » : la variable naît à sa première utilisation par le thread, et meurt avec lui."
+  - key: locale-statique
+    format: course
+    question: "Que vaut une variable locale `thread_local` au deuxième appel de la fonction, dans le même thread ?"
+    choices:
+      - {text: "La valeur laissée par le premier appel : elle se comporte comme une `static` par thread", correct: true}
+      - {text: "Sa valeur initiale : elle est réinitialisée à chaque appel de la fonction", correct: false}
+      - {text: "La valeur laissée par le dernier thread qui a appelé la fonction", correct: false}
+      - {text: "Une valeur indéterminée : elle n'est initialisée qu'une fois par programme", correct: false}
+    answer: "Dans une fonction, `thread_local` implique `static`. La variable persiste entre les appels, mais chaque thread a la sienne."
+  - key: pas-un-partage
+    format: course
+    question: "Un thread de travail range son résultat dans une variable `thread_local`. Que lit `main` dans cette variable ?"
+    choices:
+      - {text: "Son propre exemplaire, que le thread de travail n'a jamais touché", correct: true}
+      - {text: "Le résultat du thread de travail, dès que celui-ci s'est terminé", correct: false}
+      - {text: "Le résultat du thread de travail, à condition d'attendre avec `join`", correct: false}
+      - {text: "Une valeur indéfinie : c'est une course aux données", correct: false}
+    answer: "`thread_local` isole, il ne communique pas. Pour rendre un résultat, on passe par une variable partagée protégée, ou par un `std::future`."
+  - key: vf-synchronisation
+    format: true-false
+    question: "Deux threads qui modifient la même variable `thread_local` doivent se synchroniser par un mutex."
+    truth: false
+    answer: Chacun modifie son propre exemplaire. Il n'y a aucune donnée partagée, donc aucune course.
+  - key: vf-premiere-utilisation
+    format: true-false
+    question: "L'exemplaire d'un thread est initialisé à la première utilisation de la variable par ce thread."
+    truth: true
+    answer: Un thread qui ne s'en sert pas ne paie ni la construction, ni la destruction.
+  - key: vf-pool
+    format: true-false
+    question: "Dans un pool de threads, une variable `thread_local` est remise à zéro au début de chaque tâche."
+    truth: false
+    answer: Elle vit autant que le thread. Une tâche retrouve ce que la tâche précédente du même thread y a laissé.
+  - key: vf-quatrieme
+    format: true-false
+    question: "`thread_local` définit une durée de stockage distincte de l'automatique, de la statique et de la dynamique."
+    truth: true
+    answer: C'est la durée de stockage de thread, ajoutée par C++11.
+  - key: qcm-usage
+    format: multiple-choice
+    question: "Lequel de ces besoins est un bon usage de `thread_local` ?"
+    choices:
+      - {text: "Un générateur de nombres aléatoires propre à chaque thread", correct: true}
+      - {text: "Un compteur global que tous les threads incrémentent", correct: false}
+      - {text: "Une file de messages entre deux threads", correct: false}
+      - {text: "Un drapeau d'arrêt lu par les threads de travail", correct: false}
+    answer: "Le générateur n'est pas sûr entre threads : un exemplaire par thread évite tout verrou. Les trois autres sont des états partagés, qui demandent un atomique ou un mutex."
+  - key: qcm-errno
+    format: multiple-choice
+    question: "Pourquoi `errno` est-il propre à chaque thread ?"
+    choices:
+      - {text: "Pour qu'un thread ne lise pas le code d'erreur laissé par un autre", correct: true}
+      - {text: "Pour que chaque thread puisse choisir sa propre langue", correct: false}
+      - {text: "Pour que les erreurs soient rangées sur le tas", correct: false}
+      - {text: "Pour que les erreurs soient ignorées dans les autres threads", correct: false}
+    answer: "Un appel système qui échoue écrit `errno`. S'il était partagé, l'erreur d'un thread écraserait celle d'un autre avant qu'il la lise."
+  - key: qcm-lambda
+    format: multiple-choice
+    question: "Une lambda créée dans `main` lit une variable globale `thread_local`, puis s'exécute dans un autre thread. Quel exemplaire lit-elle ?"
+    choices:
+      - {text: "Celui du thread qui l'exécute", correct: true}
+      - {text: "Celui de `main`, capturé à la création", correct: false}
+      - {text: "Une copie faite au lancement du thread", correct: false}
+      - {text: "Aucun : la lambda ne compile pas", correct: false}
+    answer: "Une variable globale ne se capture pas : la lambda la désigne par son nom, et le nom désigne l'exemplaire du thread courant."
+  - key: qcm-cout
+    format: multiple-choice
+    question: "Quel est le coût d'une variable `thread_local` ?"
+    choices:
+      - {text: "Un exemplaire en mémoire par thread, et un accès un peu plus lent", correct: true}
+      - {text: "Un verrou pris à chaque lecture et à chaque écriture", correct: false}
+      - {text: "Une allocation sur le tas à chaque appel de fonction", correct: false}
+      - {text: "Aucun : elle est remplacée par une constante à la compilation", correct: false}
+    answer: "L'adresse dépend du thread : l'accès passe par une indirection. Et la mémoire se multiplie par le nombre de threads."
+  - key: trous-mot-cle
+    format: fill-in
+    question: |-
+      Complète pour que chaque thread ait son propre compteur :
+      ```cpp
+      ___ int compteur = 0;
+      ```
+    blanks:
+      - [thread_local]
+    answer: "`thread_local` donne un exemplaire par thread."
+  - key: trous-locale
+    format: fill-in
+    question: |-
+      Complète pour que le tampon soit conservé entre les appels, à raison d'un par thread :
+      ```cpp
+      std::string& tampon() {
+          ___ std::string resultat;
+          return resultat;
+      }
+      ```
+    blanks:
+      - [thread_local]
+    answer: "Une locale `thread_local` persiste entre les appels du même thread."
+  - key: trous-membre
+    format: fill-in
+    question: |-
+      Complète pour que ce membre statique ait un exemplaire par thread :
+      ```cpp
+      struct Contexte {
+          static ___ int requete;
+      };
+      ```
+    blanks:
+      - [thread_local]
+    answer: "Un membre `static thread_local` appartient à la classe, à raison d'un exemplaire par thread."
+  - key: trous-generateur
+    format: fill-in
+    question: |-
+      Complète pour que chaque thread ait son générateur, sans verrou :
+      ```cpp
+      std::mt19937& generateur() {
+          ___ std::mt19937 moteur{42};
+          return moteur;
+      }
+      ```
+    blanks:
+      - [thread_local]
+    answer: "Chaque thread construit son propre moteur à son premier appel."
+  - key: code-isolement
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+      #include <thread>
+
+      thread_local int valeur = 1;
+
+      int main() {
+          std::thread t{[] { valeur = 99; }};
+          t.join();
+          std::println("{}", valeur);
+      }
+      ```
+    choices:
+      - {text: "`1`", correct: true}
+      - {text: "`99`", correct: false}
+      - {text: "`0`", correct: false}
+      - {text: "`1` ou `99`, selon l'exécution", correct: false}
+    answer: "`1` : le thread a modifié son propre exemplaire. Celui de `main` n'a pas bougé."
+    check:
+      output: "1"
+  - key: code-persistance
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+
+      int suivant() {
+          thread_local int n = 0;
+          return ++n;
+      }
+
+      int main() {
+          suivant();
+          suivant();
+          std::println("{}", suivant());
+      }
+      ```
+    choices:
+      - {text: "`3`", correct: true}
+      - {text: "`1`", correct: false}
+      - {text: "`0`", correct: false}
+      - {text: "`2`", correct: false}
+    answer: "`3` : la variable garde sa valeur d'un appel à l'autre, comme une `static`, dans le même thread."
+    check:
+      output: "3"
+  - key: code-par-thread
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+      #include <thread>
+
+      int suivant() {
+          thread_local int n = 0;
+          return ++n;
+      }
+
+      int main() {
+          int dans_thread = 0;
+          suivant();
+          suivant();
+          std::thread t{[&dans_thread] { dans_thread = suivant(); }};
+          t.join();
+          std::println("{} {}", dans_thread, suivant());
+      }
+      ```
+    choices:
+      - {text: "`1 3`", correct: true}
+      - {text: "`3 4`", correct: false}
+      - {text: "`1 1`", correct: false}
+      - {text: "`3 3`", correct: false}
+    answer: "`1 3` : le nouveau thread part de son propre `n`, à zéro. Celui de `main` en est à 2, et passe à 3."
+    check:
+      output: "1 3"
+  - key: code-initialisation
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+      #include <thread>
+
+      struct Trace {
+          Trace() { std::print("c "); }
+          ~Trace() { std::print("d "); }
+          int valeur = 7;
+      };
+
+      thread_local Trace trace;
+
+      int main() {
+          std::thread a{[] {}};
+          a.join();
+          std::thread b{[] { std::print("{} ", trace.valeur); }};
+          b.join();
+          std::println("fin");
+      }
+      ```
+    choices:
+      - {text: "`c 7 d fin`", correct: true}
+      - {text: "`c d c 7 d fin`", correct: false}
+      - {text: "`c 7 fin`", correct: false}
+      - {text: "`7 fin`", correct: false}
+    answer: "`c 7 d fin` : le thread `a` ne touche pas à `trace`, donc ne la construit pas. Le thread `b` la construit à sa première utilisation, et la détruit en se terminant. `main` ne s'en sert jamais."
+    check:
+      output: "c 7 d fin"
+  - key: bug-resultat-invisible
+    format: bug-fix
+    question: |-
+      Ce programme devrait afficher `42`, le résultat calculé par le thread. Il affiche `0`. Quelle correction est la
+      bonne ?
+      ```cpp
+      #include <print>
+      #include <thread>
+
+      thread_local int resultat = 0;
+
+      int main() {
+          std::thread t{[] { resultat = 42; }};
+          t.join();
+          std::println("{}", resultat);
+      }
+      ```
+    choices:
+      - {text: "Déclarer `resultat` comme une variable ordinaire, lue après le `join`", correct: true}
+      - {text: "Déclarer `resultat` avec `static thread_local`, pour la partager", correct: false}
+      - {text: "Appeler `t.detach()` à la place de `t.join()`, avant l'affichage", correct: false}
+      - {text: "Lire `resultat` deux fois de suite dans la fonction `main`", correct: false}
+    answer: |-
+      ```cpp
+      int resultat = 0;
+      ```
+      Le thread a écrit dans son exemplaire, détruit à sa fin. `main` lit le sien. Une variable ordinaire, lue après
+      `join`, se partage sans course ; un `std::future` conviendrait aussi.
+  - key: bug-compteur-global
+    format: bug-fix
+    question: |-
+      Ce programme devrait compter les appels de tous les threads et afficher `3`. Il affiche `1`. Quelle correction
+      est la bonne ?
+      ```cpp
+      #include <print>
+      #include <thread>
+
+      thread_local int appels = 0;
+
+      void travailler() {
+          ++appels;
+      }
+
+      int main() {
+          std::thread a{travailler};
+          std::thread b{travailler};
+          a.join();
+          b.join();
+          travailler();
+          std::println("{}", appels);
+      }
+      ```
+    choices:
+      - {text: "Déclarer `std::atomic<int> appels{0};`", correct: true}
+      - {text: "Déclarer `static thread_local int appels = 0;`", correct: false}
+      - {text: "Déclarer `thread_local long appels = 0;`", correct: false}
+      - {text: "Déclarer `const thread_local int appels = 0;`", correct: false}
+    answer: |-
+      ```cpp
+      std::atomic<int> appels{0};
+      ```
+      Chaque thread a incrémenté son propre compteur ; `main` n'affiche que le sien. Un compteur commun doit être
+      partagé, et rendu sûr par un atomique.
+  - key: bug-pointeur-pendant
+    format: bug-fix
+    question: |-
+      Ce programme garde l'adresse de la variable `thread_local` d'un thread, puis la lit après la fin de ce thread.
+      Son comportement est indéfini. Quelle correction est la bonne ?
+      ```cpp
+      #include <print>
+      #include <thread>
+
+      thread_local int etat = 5;
+
+      int main() {
+          const int* adresse = nullptr;
+          std::thread t{[&adresse] { adresse = &etat; }};
+          t.join();
+          std::println("{}", *adresse);
+      }
+      ```
+    choices:
+      - {text: "Faire copier la valeur par le thread : `int copie`, et `copie = etat;` dans la lambda", correct: true}
+      - {text: "Déclarer le pointeur `adresse` avec le mot-clé `thread_local`", correct: false}
+      - {text: "Tester `adresse != nullptr` avant de le déréférencer", correct: false}
+      - {text: "Appeler `t.join()` une seconde fois avant l'affichage", correct: false}
+    answer: |-
+      ```cpp
+      int copie = 0;
+      std::thread t{[&copie] { copie = etat; }};
+      t.join();
+      std::println("{}", copie);
+      ```
+      L'exemplaire du thread est détruit quand le thread se termine : le pointeur est pendant, sans être nul. On
+      sort la valeur, pas l'adresse.
+  - key: bug-etat-qui-survit
+    format: bug-fix
+    question: |-
+      Chaque tâche devrait partir d'un total nul et afficher `5`. La seconde affiche `10`. Quelle correction est la
+      bonne ?
+      ```cpp
+      #include <print>
+
+      thread_local int total = 0;
+
+      void tache() {
+          total += 5;
+          std::println("{}", total);
+      }
+
+      int main() {
+          tache();
+          tache();
+      }
+      ```
+    choices:
+      - {text: "Déclarer `total` comme variable locale de `tache`, sans `thread_local`", correct: true}
+      - {text: "Déclarer `total` avec `static thread_local`, au même endroit", correct: false}
+      - {text: "Déclarer `total` avec `thread_local long`, au même endroit", correct: false}
+      - {text: "Appeler `tache` dans deux blocs séparés par des accolades", correct: false}
+    answer: |-
+      ```cpp
+      void tache() {
+          int total = 0;
+          total += 5;
+          std::println("{}", total);
+      }
+      ```
+      Une `thread_local` vit autant que le thread : la seconde tâche du même thread retrouve le total de la
+      première. C'est le piège des pools de threads. Un état propre à une tâche est une variable locale.

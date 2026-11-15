@@ -1,0 +1,441 @@
+notion: jthread
+lesson: |-
+  `std::jthread` (C++20, en-tête `<thread>`) est un `std::thread` corrigé de ses deux défauts : il **se rejoint
+  tout seul**, et il sait **demander l'arrêt** de sa fonction.
+
+  **1. Le `join` automatique.** Le destructeur d'un `std::thread` encore joignable appelle `std::terminate`. Celui
+  d'un `std::jthread` **demande l'arrêt, puis appelle `join()`**. C'est RAII appliqué aux threads.
+
+  ```cpp
+  void traiter() {
+      std::jthread t{travailler};
+      calculer();          // si ceci lance, t est quand même rejoint
+  }                        // ici : request_stop(), puis join()
+  ```
+
+  Plus d'oubli possible, et une exception ne fait plus sauter le `join`.
+
+  **2. L'arrêt coopératif.** On ne peut pas tuer un thread de l'extérieur : il s'arrêterait au milieu d'une
+  opération, en tenant peut-être un verrou. La solution est de le lui **demander**, et qu'il **regarde** de temps
+  en temps si on le lui a demandé.
+
+  Si la fonction du thread accepte un **`std::stop_token`** en premier paramètre, `std::jthread` lui en fournit
+  un :
+
+  ```cpp
+  std::jthread t{[](std::stop_token arret) {
+      while (!arret.stop_requested()) {
+          faire_un_pas();
+      }
+  }};
+
+  t.request_stop();        // lève le drapeau ; la boucle se termine au tour suivant
+  ```
+
+  Trois objets coopèrent :
+
+  | Objet | Rôle |
+  |---|---|
+  | `std::stop_source` | **demande** l'arrêt : `request_stop()` |
+  | `std::stop_token` | **observe** : `stop_requested()` |
+  | `std::stop_callback` | **réagit** : exécute une fonction quand l'arrêt est demandé |
+
+  Le `std::jthread` possède sa `stop_source` : `t.request_stop()` et `t.get_stop_token()` y donnent accès.
+
+  **« Coopératif » veut dire que rien n'est forcé.** `request_stop()` ne fait que lever un drapeau. Une fonction
+  qui ne consulte jamais son jeton ne s'arrêtera pas, et le destructeur du `jthread` l'attendra indéfiniment.
+
+  **Un thread qui dort.** Pour qu'un thread en attente se réveille à la demande d'arrêt,
+  `std::condition_variable_any` a une version de `wait` qui prend le `stop_token`.
+
+  **L'ordre de destruction.** Des `jthread` déclarés dans une même portée sont rejoints dans l'**ordre inverse** de
+  leur déclaration. Et un `jthread` membre d'une classe doit être déclaré **après** les données dont son thread
+  se sert : il est ainsi détruit, donc rejoint, **avant** elles.
+
+  **Ce qui reste comme avant.** `join()`, `detach()`, `joinable()` existent toujours. Les arguments sont copiés ;
+  une référence passe par `std::ref`. Et une course aux données reste une course aux données.
+
+  **En entretien** : « `std::jthread` appelle `request_stop()` puis `join()` dans son destructeur : plus de
+  `std::terminate` pour un `join` oublié. Et il passe un `std::stop_token` à sa fonction, qui s'arrête d'elle-même
+  quand `stop_requested()` devient vrai : l'arrêt est coopératif, jamais forcé. »
+cards:
+  - key: destructeur
+    format: course
+    question: "Que fait le destructeur d'un `std::jthread` dont le thread tourne encore ?"
+    choices:
+      - {text: "Il demande l'arrêt, puis attend la fin du thread avec `join()`", correct: true}
+      - {text: "Il appelle `std::terminate`, comme celui d'un `std::thread`", correct: false}
+      - {text: "Il détache le thread, qui continue seul en arrière-plan", correct: false}
+      - {text: "Il tue le thread sur-le-champ, où qu'il en soit", correct: false}
+    answer: "`request_stop()`, puis `join()`. C'est la différence essentielle avec `std::thread`, dont le destructeur arrête le programme si l'on n'a ni rejoint ni détaché."
+  - key: stop-token
+    format: course
+    question: "À quoi sert le `std::stop_token` que reçoit la fonction d'un `std::jthread` ?"
+    choices:
+      - {text: "À savoir, par `stop_requested()`, si l'on a demandé au thread de s'arrêter", correct: true}
+      - {text: "À arrêter le thread qui a lancé celui-ci, depuis l'intérieur", correct: false}
+      - {text: "À verrouiller un mutex partagé avec le thread appelant", correct: false}
+      - {text: "À renvoyer une valeur au thread appelant, à la fin de la fonction", correct: false}
+    answer: "Le jeton est une vue en lecture sur la demande d'arrêt. C'est à la fonction de le consulter régulièrement, et de se terminer proprement."
+  - key: cooperatif
+    format: course
+    question: "Pourquoi dit-on que l'arrêt d'un `std::jthread` est « coopératif » ?"
+    choices:
+      - {text: "`request_stop()` lève seulement un drapeau : c'est la fonction du thread qui choisit de s'arrêter", correct: true}
+      - {text: "`request_stop()` interrompt la fonction du thread au milieu de l'instruction en cours", correct: false}
+      - {text: "`request_stop()` exige que tous les threads du programme soient d'accord", correct: false}
+      - {text: "`request_stop()` attend que le thread ait relâché tous ses verrous, puis le tue", correct: false}
+    answer: "Rien n'est forcé. Une fonction qui ne regarde jamais son jeton continue, et le `join` du destructeur l'attend sans fin."
+  - key: pourquoi-pas-tuer
+    format: course
+    question: "Pourquoi C++ n'offre-t-il pas de fonction pour tuer un thread de l'extérieur ?"
+    choices:
+      - {text: "Le thread serait coupé au milieu d'une opération, en tenant peut-être un verrou ou une ressource", correct: true}
+      - {text: "Les systèmes d'exploitation ne savent pas arrêter un thread sans arrêter le programme", correct: false}
+      - {text: "Un thread tué continuerait de s'exécuter tant que sa fonction n'a pas fini", correct: false}
+      - {text: "Le standard réserve cette fonction aux programmes compilés sans optimisation", correct: false}
+    answer: "Un arrêt brutal laisserait un mutex verrouillé pour toujours, ou des données à moitié écrites. Le thread doit s'arrêter lui-même, à un endroit sûr."
+  - key: vf-join-oublie
+    format: true-false
+    question: "Un `std::jthread` détruit sans appel à `join()` arrête le programme par `std::terminate`."
+    truth: false
+    answer: "Son destructeur fait le `join`. C'est `std::thread` qui appelle `std::terminate`."
+  - key: vf-jeton-facultatif
+    format: true-false
+    question: "La fonction d'un `std::jthread` doit obligatoirement prendre un `std::stop_token` en paramètre."
+    truth: false
+    answer: "C'est facultatif. Si elle l'accepte en premier paramètre, le `jthread` le lui fournit ; sinon, il se comporte comme un thread qui se rejoint seul."
+  - key: vf-request-stop
+    format: true-false
+    question: "`request_stop()` interrompt immédiatement la fonction du thread."
+    truth: false
+    answer: "Il lève un drapeau. La fonction ne s'arrête que si elle consulte `stop_requested()`."
+  - key: vf-exception
+    format: true-false
+    question: "Avec un `std::jthread`, une exception qui quitte la fonction appelante ne fait plus sauter le `join`."
+    truth: true
+    answer: "Le déroulement de la pile détruit le `jthread`, dont le destructeur rejoint le thread."
+  - key: qcm-demander
+    format: multiple-choice
+    question: "Quelle fonction demande à un `std::jthread` de s'arrêter ?"
+    choices:
+      - {text: "`t.request_stop()`", correct: true}
+      - {text: "`t.stop()`", correct: false}
+      - {text: "`t.kill()`", correct: false}
+      - {text: "`t.cancel()`", correct: false}
+    answer: "`request_stop()` : le nom dit bien que c'est une demande."
+  - key: qcm-consulter
+    format: multiple-choice
+    question: "Dans la fonction du thread, quelle expression dit que l'arrêt a été demandé ?"
+    choices:
+      - {text: "`arret.stop_requested()`", correct: true}
+      - {text: "`arret.request_stop()`", correct: false}
+      - {text: "`arret.joinable()`", correct: false}
+      - {text: "`arret.expired()`", correct: false}
+    answer: "Le `std::stop_token` ne fait qu'observer. `request_stop()` appartient au `jthread` et à la `std::stop_source`."
+  - key: qcm-en-tete
+    format: multiple-choice
+    question: "Quel en-tête déclare `std::stop_token` ?"
+    choices:
+      - {text: "`<stop_token>`", correct: true}
+      - {text: "`<token>`", correct: false}
+      - {text: "`<mutex>`", correct: false}
+      - {text: "`<future>`", correct: false}
+    answer: "`<stop_token>` déclare `stop_token`, `stop_source` et `stop_callback`. `<thread>`, qui déclare `std::jthread`, l'inclut."
+  - key: qcm-ordre-membres
+    format: multiple-choice
+    question: "Une classe a un membre `std::jthread` dont le thread lit un autre membre, `donnees_`. Dans quel ordre les déclares-tu ?"
+    choices:
+      - {text: "`donnees_` d'abord, le `jthread` ensuite : il est détruit, donc rejoint, en premier", correct: true}
+      - {text: "Le `jthread` d'abord, `donnees_` ensuite : le thread démarre ainsi plus tôt", correct: false}
+      - {text: "Peu importe : les membres sont détruits tous ensemble", correct: false}
+      - {text: "Peu importe : un `jthread` membre n'est jamais rejoint", correct: false}
+    answer: "Les membres sont détruits dans l'ordre inverse de leur déclaration. Déclaré en dernier, le `jthread` est rejoint avant que les données ne disparaissent."
+  - key: trous-jthread
+    format: fill-in
+    question: |-
+      Complète avec le thread qui se rejoint à sa destruction :
+      ```cpp
+      std::___ t{travailler};
+      ```
+    blanks:
+      - [jthread]
+    answer: "`std::jthread` : *joining thread*."
+  - key: trous-stop-token
+    format: fill-in
+    question: |-
+      Complète le type du paramètre que le `jthread` fournit à sa fonction :
+      ```cpp
+      std::jthread t{[](std::___ arret) {
+          while (!arret.stop_requested()) {
+              faire_un_pas();
+          }
+      }};
+      ```
+    blanks:
+      - [stop_token]
+    answer: "`std::stop_token` : la vue sur la demande d'arrêt."
+  - key: trous-stop-requested
+    format: fill-in
+    question: |-
+      Complète la condition, pour que la boucle s'arrête quand on le demande :
+      ```cpp
+      while (!arret.___()) {
+          faire_un_pas();
+      }
+      ```
+    blanks:
+      - [stop_requested]
+    answer: "`stop_requested()` devient vrai après `request_stop()`."
+  - key: trous-request-stop
+    format: fill-in
+    question: |-
+      Complète pour demander l'arrêt du thread :
+      ```cpp
+      std::jthread t{boucler};
+      t.___();
+      ```
+    blanks:
+      - [request_stop]
+    answer: "`request_stop()` lève le drapeau que le jeton observe."
+  - key: code-join-auto
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+      #include <thread>
+
+      int main() {
+          int valeur = 0;
+          {
+              std::jthread t{[&valeur] { valeur = 42; }};
+          }
+          std::println("{}", valeur);
+      }
+      ```
+    choices:
+      - {text: "`42`", correct: true}
+      - {text: "`0`", correct: false}
+      - {text: "`0` ou `42`, selon l'exécution", correct: false}
+      - {text: "Rien : le programme s'arrête par `std::terminate`", correct: false}
+    answer: "`42` : à la fin du bloc, le destructeur du `jthread` attend la fin du thread. L'affichage vient après."
+    check:
+      output: "42"
+  - key: code-arret-destructeur
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+      #include <stop_token>
+      #include <thread>
+
+      int main() {
+          bool termine = false;
+          {
+              std::jthread t{[&termine](std::stop_token arret) {
+                  while (!arret.stop_requested()) {
+                      std::this_thread::yield();
+                  }
+                  termine = true;
+              }};
+          }
+          std::println("{}", termine);
+      }
+      ```
+    choices:
+      - {text: "`true`", correct: true}
+      - {text: "`false`", correct: false}
+      - {text: "Rien : la boucle ne s'arrête jamais", correct: false}
+      - {text: "Rien : le programme s'arrête par `std::terminate`", correct: false}
+    answer: "`true` : le destructeur demande l'arrêt, puis rejoint. La boucle voit `stop_requested()`, se termine, et écrit `termine` avant que le bloc ne soit quitté."
+    check:
+      output: "true"
+  - key: code-request-stop
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+      #include <stop_token>
+      #include <thread>
+
+      int main() {
+          std::jthread t{[](std::stop_token arret) {
+              while (!arret.stop_requested()) {
+                  std::this_thread::yield();
+              }
+          }};
+          const bool avant = t.get_stop_token().stop_requested();
+          const bool premiere = t.request_stop();
+          const bool seconde = t.request_stop();
+          std::println("{} {} {} {}", avant, premiere, seconde, t.get_stop_token().stop_requested());
+      }
+      ```
+    choices:
+      - {text: "`false true false true`", correct: true}
+      - {text: "`false true true true`", correct: false}
+      - {text: "`true true false true`", correct: false}
+      - {text: "`false false false true`", correct: false}
+    answer: "`false true false true` : `request_stop()` renvoie `true` seulement à la première demande. Ensuite, l'arrêt est déjà demandé."
+    check:
+      output: "false true false true"
+  - key: code-ordre-destruction
+    format: code-output
+    question: |-
+      ```cpp
+      #include <atomic>
+      #include <print>
+      #include <thread>
+
+      int main() {
+          std::atomic<int> total{0};
+          {
+              std::jthread a{[&total] { total += 1; }};
+              std::jthread b{[&total] { total += 10; }};
+              std::jthread c{[&total] { total += 100; }};
+          }
+          std::println("{}", total.load());
+      }
+      ```
+    choices:
+      - {text: "`111`", correct: true}
+      - {text: "`0`", correct: false}
+      - {text: "Un nombre inférieur à 111, selon l'exécution", correct: false}
+      - {text: "Rien : le programme s'arrête par `std::terminate`", correct: false}
+    answer: "`111` : les trois `jthread` sont rejoints à la fin du bloc, et le total est atomique. Quel que soit l'ordre des threads, les trois additions ont eu lieu."
+    check:
+      output: "111"
+  - key: bug-thread-terminate
+    format: bug-fix
+    question: |-
+      Ce programme s'arrête sur « terminate called without an active exception ». Quelle correction est la plus
+      simple en C++20 ?
+      ```cpp
+      #include <print>
+      #include <thread>
+
+      int main() {
+          int valeur = 0;
+          {
+              std::thread t{[&valeur] { valeur = 7; }};
+          }
+          std::println("{}", valeur);
+      }
+      ```
+    choices:
+      - {text: "Déclarer `std::jthread t` à la place de `std::thread t`", correct: true}
+      - {text: "Déclarer `static std::thread t` à la place de `std::thread t`", correct: false}
+      - {text: "Appeler `t.detach();` à la fin du bloc", correct: false}
+      - {text: "Capturer `valeur` par valeur dans la lambda", correct: false}
+    answer: |-
+      ```cpp
+      std::jthread t{[&valeur] { valeur = 7; }};
+      ```
+      Un `std::thread` détruit sans `join` ni `detach` arrête le programme. Le `jthread` rejoint dans son
+      destructeur. Détacher laisserait le thread écrire dans `valeur` sans que rien ne l'attende.
+  - key: bug-jeton-ignore
+    format: bug-fix
+    question: |-
+      Ce programme ne se termine jamais : le destructeur du `jthread` attend un thread qui ne s'arrête pas. Quelle
+      correction est la bonne ?
+      ```cpp
+      #include <atomic>
+      #include <print>
+      #include <stop_token>
+      #include <thread>
+
+      int main() {
+          std::atomic<int> tours{0};
+          {
+              std::jthread t{[&tours](std::stop_token arret) {
+                  while (true) {
+                      ++tours;
+                      std::this_thread::yield();
+                  }
+              }};
+          }
+          std::println("{}", tours.load() > 0);
+      }
+      ```
+    choices:
+      - {text: "Écrire la condition `while (!arret.stop_requested())`", correct: true}
+      - {text: "Écrire la condition `while (!arret.request_stop())`", correct: false}
+      - {text: "Appeler `t.join();` à la fin du bloc", correct: false}
+      - {text: "Déclarer `tours` avec le type `int`", correct: false}
+    answer: |-
+      ```cpp
+      while (!arret.stop_requested()) {
+      ```
+      L'arrêt est coopératif : le destructeur lève le drapeau, mais la boucle doit le regarder. Un `stop_token` ne
+      sait pas demander l'arrêt : `request_stop` n'en fait pas partie.
+  - key: bug-jeton-mal-place
+    format: bug-fix
+    question: |-
+      Le compilateur refuse la construction du `jthread` : la fonction attend son jeton en second paramètre, et le
+      `jthread` ne le fournit qu'en premier. Quelle correction est la bonne ?
+      ```cpp
+      #include <print>
+      #include <stop_token>
+      #include <thread>
+
+      void compter(int limite, std::stop_token arret) {
+          for (int i = 0; i < limite && !arret.stop_requested(); ++i) {
+          }
+      }
+
+      int main() {
+          std::jthread t{compter, 1000};
+          std::println("fin");
+      }
+      ```
+    choices:
+      - {text: "Déclarer `void compter(std::stop_token arret, int limite)`", correct: true}
+      - {text: "Déclarer `void compter(int limite, std::stop_token& arret)`", correct: false}
+      - {text: "Écrire `std::jthread t{compter, 1000, std::stop_token};`", correct: false}
+      - {text: "Écrire `std::jthread t{compter(1000)};`", correct: false}
+    answer: |-
+      ```cpp
+      void compter(std::stop_token arret, int limite) {
+      ```
+      Le `jthread` passe son jeton en **premier** argument, quand la fonction l'accepte ; les autres arguments
+      suivent.
+  - key: bug-reference-pendante
+    format: bug-fix
+    question: |-
+      Le thread écrit dans une variable locale de `lancer`, détruite au retour. Le comportement est indéfini.
+      Quelle correction est la bonne ?
+      ```cpp
+      #include <print>
+      #include <thread>
+
+      std::jthread lancer() {
+          int compteur = 0;
+          return std::jthread{[&compteur] {
+              for (int i = 0; i < 1000; ++i) {
+                  ++compteur;
+              }
+          }};
+      }
+
+      int main() {
+          auto t = lancer();
+          std::println("fin");
+      }
+      ```
+    choices:
+      - {text: "Garder le `jthread` dans `lancer`, pour qu'il soit rejoint avant la fin de `compteur`", correct: true}
+      - {text: "Renvoyer un `std::thread` à la place du `std::jthread`", correct: false}
+      - {text: "Appeler `t.request_stop();` dans `main`, juste après `lancer()`", correct: false}
+      - {text: "Déclarer `compteur` avec le mot-clé `const`", correct: false}
+    answer: |-
+      ```cpp
+      void lancer() {
+          int compteur = 0;
+          std::jthread t{[&compteur] {
+              for (int i = 0; i < 1000; ++i) {
+                  ++compteur;
+              }
+          }};
+      }
+      ```
+      Le `jthread` rejoint, mais seulement à **sa** destruction : renvoyé à `main`, il survit à `compteur`. Déclaré
+      après la variable dans la même portée, il est détruit, donc rejoint, avant elle.

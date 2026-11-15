@@ -1,0 +1,253 @@
+notion: inlining-optimisations
+lesson: |-
+  Le compilateur ne se contente pas de traduire : il **transforme** le programme pour le rendre plus rapide, sans
+  changer son comportement observable. On choisit jusqu'où il va avec le **niveau d'optimisation**.
+
+  | Option | Effet | Usage |
+  |---|---|---|
+  | `-O0` | aucune optimisation ; chaque variable vit en mémoire, chaque appel est un appel | le défaut ; déboguer |
+  | `-Og` | optimisations qui ne gênent pas le débogage | déboguer confortablement |
+  | `-O1` | optimisations simples | |
+  | `-O2` | presque toutes les optimisations sûres | **la production** |
+  | `-O3` | plus agressif : vectorisation, déroulage de boucles, davantage d'inlining | calcul intensif, après mesure |
+  | `-Os` | comme `-O2`, en privilégiant la **taille** du binaire | embarqué |
+  | `-Ofast` | `-O3`, plus des libertés avec le standard sur les flottants (`-ffast-math`) | à éviter sans raison précise |
+
+  `-O3` n'est pas toujours plus rapide que `-O2` : un code plus gros remplit plus vite le cache d'instructions.
+  On mesure.
+
+  **L'inlining.** C'est l'optimisation centrale : **remplacer un appel de fonction par le corps de la fonction**.
+
+  ```cpp
+  int carre(int x) { return x * x; }
+
+  int f(int a) { return carre(a) + 1; }     // devient : return a * a + 1;
+  ```
+
+  Le gain direct est le coût de l'appel. Le vrai gain est ailleurs : une fois le corps sur place, le compilateur
+  peut **simplifier** à travers la frontière : propager une constante, supprimer un test, vectoriser la boucle
+  appelante. C'est l'inlining qui rend gratuits `v[i]`, `begin()`, les lambdas et les petits accesseurs.
+
+  **Ce qui le permet.** Le compilateur doit **voir le corps** de la fonction quand il compile l'appel :
+
+  - fonctions définies **dans l'en-tête** : templates, fonctions `inline`, fonctions membres définies dans la
+    classe, lambdas ;
+  - fonctions du **même fichier source** ;
+  - d'un fichier à l'autre, seulement avec l'**optimisation à l'édition de liens** (LTO, `-flto`).
+
+  **Ce qui l'empêche.** Un appel dont la cible n'est connue qu'à l'exécution : fonction **virtuelle**, pointeur de
+  fonction, `std::function`. Et une fonction trop grosse : la recopier partout grossirait le binaire.
+
+  **Le mot-clé `inline` ne commande pas l'inlining.** C'est le compilateur qui décide, d'après ses propres
+  heuristiques, avec ou sans le mot-clé. `inline` signifie aujourd'hui : « cette définition peut figurer dans
+  plusieurs unités de traduction ». Pour forcer la main, il existe des attributs propres aux compilateurs
+  (`[[gnu::always_inline]]`, `[[gnu::noinline]]`), à réserver aux cas mesurés.
+
+  **Les autres optimisations courantes.**
+
+  - **Propagation de constantes** et calcul à la compilation ;
+  - **élimination du code mort** : ce qui ne sert à rien disparaît ;
+  - **élision de copie** ;
+  - **déroulage de boucle** et **vectorisation** (traiter 4 ou 8 éléments par instruction, avec SIMD).
+
+  **Les conséquences pratiques.**
+
+  - On **mesure toujours sur une construction optimisée** : à `-O0`, les abstractions de la bibliothèque standard
+    sont dix fois plus lentes.
+  - Le code optimisé se **débogue mal** : variables « optimized out », lignes exécutées dans le désordre. D'où
+    deux configurations, `Debug` et `Release`.
+  - Un programme qui ne fonctionne qu'à `-O0` contient un **comportement indéfini**, que l'optimiseur révèle.
+
+  **En entretien** : « `-O0` pour déboguer, `-O2` en production, `-O3` si la mesure le justifie. L'inlining
+  remplace l'appel par le corps, et surtout permet les autres optimisations ; il exige que le corps soit visible,
+  donc dans l'en-tête, ou la LTO. Le mot-clé `inline` concerne l'édition de liens, pas l'optimisation. »
+cards:
+  - key: inlining
+    format: course
+    question: "En quoi consiste l'inlining ?"
+    choices:
+      - {text: "Le compilateur remplace l'appel d'une fonction par le corps de cette fonction", correct: true}
+      - {text: "Le compilateur regroupe toutes les fonctions du programme dans un seul fichier", correct: false}
+      - {text: "Le compilateur exécute la fonction à la compilation, et garde son résultat", correct: false}
+      - {text: "Le compilateur déplace la fonction dans une bibliothèque dynamique", correct: false}
+    answer: "L'appel disparaît, et le corps recopié peut être simplifié avec le code qui l'entoure."
+  - key: vrai-gain
+    format: course
+    question: "Quel est le principal bénéfice de l'inlining ?"
+    choices:
+      - {text: "Il ouvre la voie aux autres optimisations, à travers la frontière de la fonction", correct: true}
+      - {text: "Il réduit toujours la taille du fichier exécutable", correct: false}
+      - {text: "Il rend le programme plus facile à suivre dans un débogueur", correct: false}
+      - {text: "Il supprime le besoin d'inclure les en-têtes de la fonction", correct: false}
+    answer: "Économiser l'appel est peu de chose. Une fois le corps sur place, le compilateur propage les constantes, supprime des tests, vectorise. Le binaire, lui, tend à grossir."
+  - key: mot-cle
+    format: course
+    question: "Le mot-clé `inline` oblige-t-il le compilateur à inliner la fonction ?"
+    choices:
+      - {text: "Non : il autorise sa définition dans plusieurs unités de traduction ; l'optimiseur décide seul", correct: true}
+      - {text: "Oui : une fonction `inline` est toujours recopiée à la place de chaque appel", correct: false}
+      - {text: "Oui, mais seulement quand le programme est compilé avec `-O0`", correct: false}
+      - {text: "Non : il interdit au contraire au compilateur de recopier le corps", correct: false}
+    answer: "Le compilateur inline des fonctions sans le mot-clé, et laisse des appels à des fonctions qui le portent. Son sens actuel relève de la règle de la définition unique."
+  - key: niveau-production
+    format: course
+    question: "Quel niveau d'optimisation choisit-on par défaut pour un programme livré en production ?"
+    choices:
+      - {text: "`-O2`", correct: true}
+      - {text: "`-O0`", correct: false}
+      - {text: "`-Ofast`", correct: false}
+      - {text: "`-Og`", correct: false}
+    answer: "`-O2` active presque toutes les optimisations sûres. `-O0` et `-Og` servent au débogage ; `-Ofast` s'écarte du standard sur les flottants."
+  - key: vf-o3
+    format: true-false
+    question: "Un programme compilé avec `-O3` est toujours plus rapide qu'avec `-O2`."
+    truth: false
+    answer: "`-O3` produit un code plus gros, qui peut moins bien tenir dans le cache d'instructions. Seule la mesure tranche."
+  - key: vf-virtuel
+    format: true-false
+    question: "Un appel de fonction virtuelle, à travers un pointeur de base, est en général plus difficile à inliner."
+    truth: true
+    answer: "La fonction appelée n'est connue qu'à l'exécution. Le compilateur n'y parvient que s'il peut prouver le type réel de l'objet."
+  - key: vf-o0-defaut
+    format: true-false
+    question: "Sans option d'optimisation, GCC compile avec `-O2`."
+    truth: false
+    answer: "Le défaut est `-O0` : aucune optimisation. Il faut demander `-O2` explicitement, ou choisir une construction `Release`."
+  - key: vf-comportement
+    format: true-false
+    question: "L'optimisation n'a pas le droit de changer le comportement observable d'un programme correct."
+    truth: true
+    answer: "C'est la règle « as-if ». Si un résultat change avec le niveau d'optimisation, le programme contient un comportement indéfini, ou dépend d'un comportement non spécifié."
+  - key: qcm-taille
+    format: multiple-choice
+    question: "Quelle option optimise en privilégiant la taille du binaire ?"
+    choices:
+      - {text: "`-Os`", correct: true}
+      - {text: "`-O3`", correct: false}
+      - {text: "`-Og`", correct: false}
+      - {text: "`-O0`", correct: false}
+    answer: "`-Os` : comme `-O2`, sans les transformations qui font grossir le code. Utile en embarqué."
+  - key: qcm-lto
+    format: multiple-choice
+    question: "Quelle option permet d'inliner une fonction définie dans un autre fichier source ?"
+    choices:
+      - {text: "`-flto`, l'optimisation à l'édition de liens", correct: true}
+      - {text: "`-Wall`, les avertissements courants", correct: false}
+      - {text: "`-g`, les informations de débogage", correct: false}
+      - {text: "`-c`, la compilation sans édition de liens", correct: false}
+    answer: "Sans LTO, le compilateur ne voit qu'une unité de traduction à la fois : il ne peut inliner que ce dont le corps y est visible."
+  - key: qcm-visible
+    format: multiple-choice
+    question: "Laquelle de ces fonctions le compilateur peut-il le plus facilement inliner ?"
+    choices:
+      - {text: "Un petit accesseur défini dans la classe, dans l'en-tête", correct: true}
+      - {text: "Une fonction appelée par un pointeur de fonction", correct: false}
+      - {text: "Une fonction virtuelle appelée par un pointeur de base", correct: false}
+      - {text: "Une fonction rangée dans une `std::function`", correct: false}
+    answer: "Son corps est visible à chaque appel, et il est court. Les trois autres appels ne connaissent leur cible qu'à l'exécution."
+  - key: qcm-debug
+    format: multiple-choice
+    question: "Quel niveau d'optimisation est prévu pour déboguer confortablement un code un peu optimisé ?"
+    choices:
+      - {text: "`-Og`", correct: true}
+      - {text: "`-O3`", correct: false}
+      - {text: "`-Os`", correct: false}
+      - {text: "`-Ofast`", correct: false}
+    answer: "`-Og` n'active que les optimisations qui laissent le programme suivable pas à pas."
+  - key: trous-o2
+    format: fill-in
+    question: |-
+      Complète la commande pour compiler avec le niveau d'optimisation habituel de la production :
+      ```
+      g++ -std=c++23 -O___ main.cpp -o programme
+      ```
+    blanks:
+      - ["2"]
+    answer: "`-O2` : le niveau recommandé pour la production."
+  - key: trous-flto
+    format: fill-in
+    question: |-
+      Complète l'option qui active l'optimisation à l'édition de liens :
+      ```
+      g++ -O2 -f___ main.cpp outils.cpp -o programme
+      ```
+    blanks:
+      - [lto]
+    answer: "`-flto` : *link-time optimization*. Le compilateur peut alors inliner d'un fichier à l'autre."
+  - key: trous-inline
+    format: fill-in
+    question: |-
+      Complète pour que cette fonction puisse être définie dans un en-tête inclus par plusieurs fichiers :
+      ```cpp
+      ___ int carre(int x) {
+          return x * x;
+      }
+      ```
+    blanks:
+      - [inline]
+    answer: "`inline` autorise la définition dans plusieurs unités de traduction. Son corps étant visible partout, le compilateur peut aussi l'inliner."
+  - key: trous-os
+    format: fill-in
+    question: |-
+      Complète la commande pour optimiser en privilégiant la taille du binaire :
+      ```
+      g++ -O___ main.cpp -o programme
+      ```
+    blanks:
+      - [s]
+    answer: "`-Os` : optimiser pour la taille (*size*)."
+  - key: situation-mesure-o0
+    format: scenario
+    question: |-
+      Un collègue compare deux versions d'un algorithme en les chronométrant, compilées sans option. Il conclut
+      que la version qui utilise `std::vector` et des itérateurs est trois fois plus lente que celle aux tableaux
+      bruts. Que lui dis-tu ?
+    choices:
+      - {text: "De refaire la mesure avec `-O2` : à `-O0`, rien n'est inliné, et la comparaison ne vaut rien", correct: true}
+      - {text: "De garder la version aux tableaux bruts : la mesure est sans appel", correct: false}
+      - {text: "De refaire la mesure avec `-g`, pour que les itérateurs soient plus rapides", correct: false}
+      - {text: "De remplacer les itérateurs par des macros, qui sont toujours inlinées", correct: false}
+    answer: |-
+      Sans optimisation, chaque `operator[]`, chaque `begin()` est un vrai appel de fonction. Avec `-O2`, ils
+      disparaissent, et les deux versions produisent le plus souvent le même code. On ne mesure que ce qu'on
+      livre.
+  - key: situation-en-tete
+    format: scenario
+    question: |-
+      Une petite fonction `longueur(Vecteur)` est appelée des milliards de fois depuis un autre fichier source.
+      Elle est déclarée dans l'en-tête et définie dans un `.cpp`. Le profileur montre le coût de ses appels.
+      Que proposes-tu ?
+    choices:
+      - {text: "La définir `inline` dans l'en-tête, ou activer la LTO : son corps doit être visible à l'appel", correct: true}
+      - {text: "La déclarer `virtual`, pour que le compilateur choisisse la version la plus rapide", correct: false}
+      - {text: "La ranger dans une `std::function`, appelée à la place de la fonction", correct: false}
+      - {text: "La compiler seule avec `-O0`, pour réduire le coût de ses appels", correct: false}
+    answer: |-
+      Le compilateur ne peut inliner que ce qu'il voit. Depuis un autre fichier, il n'a que la déclaration. Deux
+      remèdes : mettre la définition dans l'en-tête, ou laisser l'éditeur de liens optimiser avec `-flto`.
+  - key: situation-debogage
+    format: scenario
+    question: |-
+      En déboguant un binaire compilé avec `-O2`, tu vois des variables « optimized out » et le curseur qui saute
+      d'une ligne à l'autre. Que fais-tu ?
+    choices:
+      - {text: "Je recompile en configuration de débogage, `-O0 -g` ou `-Og -g`", correct: true}
+      - {text: "Je recompile avec `-O3`, pour que le débogueur suive mieux", correct: false}
+      - {text: "Je déclare toutes les variables `volatile`, sans recompiler", correct: false}
+      - {text: "Je retire `-g`, qui provoque les variables manquantes", correct: false}
+    answer: |-
+      L'optimiseur a supprimé des variables, fusionné et réordonné des instructions : le binaire ne suit plus le
+      code source ligne à ligne. La construction de débogage garde cette correspondance.
+  - key: situation-fast-math
+    format: scenario
+    question: |-
+      Pour gagner du temps, un collègue passe le projet de `-O2` à `-Ofast`. Les tests numériques échouent : des
+      résultats diffèrent au dixième chiffre, et un test de `NaN` ne détecte plus rien. Pourquoi ?
+    choices:
+      - {text: "`-Ofast` active `-ffast-math`, qui autorise des calculs flottants non conformes au standard", correct: true}
+      - {text: "`-Ofast` désactive l'inlining, ce qui change l'ordre des calculs", correct: false}
+      - {text: "`-Ofast` compile les `double` comme des `float`, moins précis", correct: false}
+      - {text: "`-Ofast` supprime les tests unitaires du binaire", correct: false}
+    answer: |-
+      Avec `-ffast-math`, le compilateur réordonne les opérations flottantes et suppose qu'il n'y a ni `NaN` ni
+      infini. Les résultats changent, et `std::isnan` peut être éliminé. On revient à `-O2` ou `-O3`.

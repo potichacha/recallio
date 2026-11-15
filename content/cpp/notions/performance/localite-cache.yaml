@@ -1,0 +1,248 @@
+notion: localite-cache
+lesson: |-
+  Sur une machine moderne, le calcul est rarement ce qui limite la vitesse d'un programme : c'est l'**accès à la
+  mémoire**. Un processeur exécute plusieurs instructions par nanoseconde, mais aller chercher une donnée en
+  mémoire vive lui en coûte une centaine.
+
+  **Le cache.** Pour masquer cette lenteur, le processeur garde une copie des données récemment lues dans des
+  mémoires petites et très rapides, les **caches** :
+
+  | Où est la donnée | Temps d'accès, en ordre de grandeur |
+  |---|---|
+  | cache L1 | 1 ns |
+  | cache L2 | 4 ns |
+  | cache L3 | 10 à 40 ns |
+  | mémoire vive | 100 ns |
+
+  Un accès servi par le cache est un **succès** (*hit*) ; sinon c'est un **défaut de cache** (*cache miss*), cent
+  fois plus lent.
+
+  **Deux mécanismes à connaître.**
+
+  - Le cache se remplit par **lignes** de 64 octets : lire un `int` charge aussi les quinze `int` voisins.
+  - Le processeur **anticipe** : s'il voit des lectures régulières, il charge la suite avant qu'on la demande
+    (*prefetching*).
+
+  D'où la **localité** : un programme est rapide quand il lit des données **voisines en mémoire**, dans l'**ordre**.
+
+  **Pourquoi `std::vector` gagne.** Ses éléments sont **contigus** : un parcours lit la mémoire d'un trait, les
+  lignes de cache arrivent pleines d'éléments utiles, et l'anticipation fonctionne. Dans une `std::list` ou une
+  `std::map`, chaque élément est un **nœud** alloué à part : passer au suivant, c'est suivre un pointeur vers un
+  endroit imprévisible, et risquer un défaut de cache **à chaque élément**.
+
+  | Conteneur | Disposition | Parcours |
+  |---|---|---|
+  | `std::vector`, `std::array`, `std::string` | contiguë | très rapide |
+  | `std::deque` | blocs contigus | rapide |
+  | `std::list`, `std::map`, `std::set` | un nœud par élément | lent : un saut par élément |
+  | `std::unordered_map` | une table, et des nœuds | un saut par accès |
+
+  C'est pourquoi un vecteur bat souvent une liste même pour insérer au milieu : décaler des éléments contigus coûte
+  moins que parcourir des nœuds éparpillés pour trouver la position.
+
+  **Dans ses propres données.**
+
+  - Un **`std::vector<Objet>`** plutôt qu'un `std::vector<std::unique_ptr<Objet>>` : les objets eux-mêmes sont
+    contigus, sans indirection.
+  - Parcourir une matrice **ligne par ligne**, dans l'ordre où elle est rangée, et non colonne par colonne.
+  - Des objets **compacts** : plus ils sont petits, plus il en tient par ligne de cache. Les champs rarement lus
+    peuvent être rangés à part.
+  - Le **tableau de structures** (un vecteur de `Particule`) ou la **structure de tableaux** (un vecteur par
+    champ) : la seconde gagne quand une boucle ne lit qu'un champ.
+
+  **Le faux partage** (*false sharing*). Deux threads qui écrivent deux variables **différentes**, mais situées sur
+  la **même ligne de cache**, se la disputent sans cesse : le programme ralentit sans qu'aucune donnée soit
+  partagée. On les sépare avec `alignas(std::hardware_destructive_interference_size)`.
+
+  **Ce que la complexité ne dit pas.** La notation O ignore les constantes, et le cache en crée de facteur cent. Une
+  recherche linéaire dans un petit vecteur bat une recherche en O(log n) dans une `std::map`. On choisit d'après
+  la complexité, puis l'on **mesure**.
+
+  **En entretien** : « L'accès à la mémoire domine : un défaut de cache coûte cent fois une lecture en cache. Les
+  données contiguës, lues dans l'ordre, profitent des lignes de cache et de l'anticipation du processeur : c'est
+  pourquoi `std::vector` bat les conteneurs à nœuds, au-delà de ce que dit la complexité. »
+cards:
+  - key: cache
+    format: course
+    question: "À quoi sert le cache du processeur ?"
+    choices:
+      - {text: "À garder tout près une copie des données récemment lues, car la mémoire vive est lente", correct: true}
+      - {text: "À garder sur le disque les données que la mémoire vive ne peut plus contenir", correct: false}
+      - {text: "À garder le résultat des fonctions déjà appelées, pour ne pas les recalculer", correct: false}
+      - {text: "À garder une copie de sauvegarde des variables, en cas de plantage", correct: false}
+    answer: "Une lecture en cache L1 prend environ une nanoseconde ; en mémoire vive, une centaine. Le cache masque cet écart, tant que les données demandées s'y trouvent."
+  - key: ligne
+    format: course
+    question: "Pourquoi lire un élément d'un tableau rend-il la lecture des suivants presque gratuite ?"
+    choices:
+      - {text: "Le cache charge une ligne entière de 64 octets : les voisins arrivent avec lui", correct: true}
+      - {text: "Le compilateur recopie tout le tableau dans un registre à la première lecture", correct: false}
+      - {text: "Le tableau est trié à la première lecture, ce qui accélère les suivantes", correct: false}
+      - {text: "Le système d'exploitation verrouille le tableau pour le thread qui le lit", correct: false}
+    answer: "La mémoire entre dans le cache par blocs. Seize `int` voisins tiennent dans une ligne : un seul défaut de cache pour seize lectures."
+  - key: vector-contre-list
+    format: course
+    question: "Pourquoi parcourir un `std::vector` est-il bien plus rapide que parcourir une `std::list` de même taille ?"
+    choices:
+      - {text: "Ses éléments sont contigus ; ceux de la liste sont des nœuds épars, atteints par des pointeurs", correct: true}
+      - {text: "Son parcours est en O(1) ; celui de la liste est en O(n)", correct: false}
+      - {text: "Ses éléments sont plus petits ; ceux de la liste sont compressés", correct: false}
+      - {text: "Son parcours est fait à la compilation ; celui de la liste à l'exécution", correct: false}
+    answer: "Les deux parcours sont en O(n). Mais le vecteur se lit d'un trait, alors que chaque nœud de la liste peut coûter un défaut de cache."
+  - key: ordre-de-parcours
+    format: course
+    question: "Une matrice est rangée ligne après ligne dans un tableau. Dans quel ordre la parcourir ?"
+    choices:
+      - {text: "Ligne par ligne : on lit la mémoire dans l'ordre où elle est rangée", correct: true}
+      - {text: "Colonne par colonne : on répartit les lectures dans toute la mémoire", correct: false}
+      - {text: "En diagonale : on équilibre les lignes et les colonnes", correct: false}
+      - {text: "Peu importe : le nombre de lectures est le même", correct: false}
+    answer: "Le nombre de lectures est le même, pas leur coût. Par colonnes, chaque accès saute une ligne entière de la matrice, et sort de la ligne de cache précédente."
+  - key: vf-defaut
+    format: true-false
+    question: "Un défaut de cache est environ cent fois plus lent qu'une lecture servie par le cache L1."
+    truth: true
+    answer: "Une nanoseconde contre une centaine : c'est l'ordre de grandeur à retenir."
+  - key: vf-map
+    format: true-false
+    question: "Les éléments d'une `std::map` sont rangés côte à côte en mémoire."
+    truth: false
+    answer: "Chaque élément vit dans un nœud alloué séparément. La parcourir, c'est sauter de nœud en nœud."
+  - key: vf-complexite
+    format: true-false
+    question: "Deux algorithmes de même complexité ont toujours des temps d'exécution voisins."
+    truth: false
+    answer: "La notation O ignore les constantes. Selon la disposition des données en mémoire, l'écart peut atteindre un facteur dix ou cent."
+  - key: vf-petits-objets
+    format: true-false
+    question: "Plus les objets d'un vecteur sont petits, plus il en tient dans une ligne de cache."
+    truth: true
+    answer: "Des objets compacts donnent plus d'éléments utiles par défaut de cache : c'est un levier de performance direct."
+  - key: qcm-contigu
+    format: multiple-choice
+    question: "Lequel de ces conteneurs range ses éléments de façon contiguë ?"
+    choices:
+      - {text: "`std::vector`", correct: true}
+      - {text: "`std::list`", correct: false}
+      - {text: "`std::set`", correct: false}
+      - {text: "`std::map`", correct: false}
+    answer: "Avec `std::array` et `std::string`. Les trois autres allouent un nœud par élément."
+  - key: qcm-taille-ligne
+    format: multiple-choice
+    question: "Quelle est la taille habituelle d'une ligne de cache sur un processeur x86-64 ?"
+    choices:
+      - {text: "64 octets", correct: true}
+      - {text: "8 octets", correct: false}
+      - {text: "4 096 octets", correct: false}
+      - {text: "1 mégaoctet", correct: false}
+    answer: "64 octets, soit seize `int`. 4 096 octets est la taille d'une page de mémoire."
+  - key: qcm-indirection
+    format: multiple-choice
+    question: "Quelle déclaration donne le parcours le plus rapide sur dix mille objets `Particule` ?"
+    choices:
+      - {text: "`std::vector<Particule>`", correct: true}
+      - {text: "`std::vector<std::unique_ptr<Particule>>`", correct: false}
+      - {text: "`std::list<Particule>`", correct: false}
+      - {text: "`std::vector<std::shared_ptr<Particule>>`", correct: false}
+    answer: "Les objets y sont contigus. Un vecteur de pointeurs est contigu pour les pointeurs seulement : chaque objet demande un saut vers le tas."
+  - key: qcm-prefetch
+    format: multiple-choice
+    question: "Qu'est-ce qui permet au processeur de charger des données avant qu'on les demande ?"
+    choices:
+      - {text: "Des accès réguliers, dans l'ordre de la mémoire", correct: true}
+      - {text: "Des accès aléatoires, répartis dans toute la mémoire", correct: false}
+      - {text: "Des variables déclarées `volatile`", correct: false}
+      - {text: "Des fonctions déclarées `virtual`", correct: false}
+    answer: "L'anticipation (*prefetching*) repère les parcours linéaires. Suivre des pointeurs imprévisibles la met en échec."
+  - key: situation-liste-chainee
+    format: scenario
+    question: |-
+      Un programme range cent mille mesures dans une `std::list`, « pour insérer vite », et passe l'essentiel de
+      son temps à les additionner. Le profileur montre un taux élevé de défauts de cache. Que proposes-tu ?
+    choices:
+      - {text: "Un `std::vector` : le parcours, qui domine, devient une lecture contiguë", correct: true}
+      - {text: "Une `std::map` indexée par le numéro de la mesure", correct: false}
+      - {text: "Une `std::list` de pointeurs vers les mesures", correct: false}
+      - {text: "Davantage de mémoire vive sur la machine", correct: false}
+    answer: |-
+      Chaque nœud de la liste est ailleurs en mémoire : cent mille sauts. Dans un vecteur, huit `double` tiennent
+      par ligne de cache et l'anticipation fait le reste. Quelques insertions restent abordables, même en
+      décalant des éléments.
+  - key: situation-matrice
+    format: scenario
+    question: |-
+      Deux boucles imbriquées additionnent une matrice de 4 000 × 4 000 `double`, rangée ligne par ligne. En
+      échangeant simplement l'ordre des deux boucles, le temps passe de 0,05 s à 0,4 s. Pourquoi ?
+    choices:
+      - {text: "Le parcours par colonnes saute d'une ligne à l'autre : presque chaque accès est un défaut de cache", correct: true}
+      - {text: "Le parcours par colonnes fait huit fois plus d'additions que le parcours par lignes", correct: false}
+      - {text: "Le compilateur refuse d'optimiser une boucle dont l'indice extérieur est la colonne", correct: false}
+      - {text: "Le parcours par colonnes arrondit différemment, ce qui ralentit les additions", correct: false}
+    answer: |-
+      Le travail est identique ; seul l'ordre des accès change. Par lignes, la mémoire est lue d'un trait. Par
+      colonnes, deux accès successifs sont distants de 32 000 octets : la ligne de cache chargée ne sert qu'une
+      fois.
+  - key: situation-faux-partage
+    format: scenario
+    question: |-
+      Deux threads incrémentent chacun son propre compteur, deux `long` voisins dans une même `struct`. Aucune
+      donnée n'est partagée, et pourtant le programme est plus lent qu'avec un seul thread. Que se passe-t-il ?
+    choices:
+      - {text: "Un faux partage : les deux compteurs sont sur la même ligne de cache, que les cœurs se disputent", correct: true}
+      - {text: "Une course aux données : les deux compteurs sont lus par les deux threads", correct: false}
+      - {text: "Un interblocage : chaque thread attend la fin de l'autre pour écrire", correct: false}
+      - {text: "Une fuite de mémoire : chaque incrémentation alloue un nouveau `long`", correct: false}
+    answer: |-
+      Chaque écriture invalide la ligne de cache chez l'autre cœur, qui doit la recharger. Le programme est
+      correct, mais lent. On sépare les compteurs :
+      `alignas(std::hardware_destructive_interference_size)`.
+  - key: situation-petit-dictionnaire
+    format: scenario
+    question: |-
+      Une table de vingt paires clé-valeur est consultée des millions de fois. Elle est dans une `std::map`. Un
+      collègue propose un `std::vector` de paires, parcouru linéairement. Qu'en penses-tu ?
+    choices:
+      - {text: "Que c'est plausible : vingt paires contiguës tiennent en quelques lignes de cache ; il faut mesurer", correct: true}
+      - {text: "Que c'est absurde : O(n) est toujours plus lent que O(log n)", correct: false}
+      - {text: "Que c'est impossible : un vecteur ne peut pas contenir de paires", correct: false}
+      - {text: "Que c'est inutile : le compilateur transforme déjà la map en vecteur", correct: false}
+    answer: |-
+      Pour un petit `n`, le coût est dominé par les accès mémoire, pas par le nombre de comparaisons. La map suit
+      quatre ou cinq pointeurs vers des nœuds épars ; le vecteur lit un bloc. C++23 fournit d'ailleurs
+      `std::flat_map` sur ce principe.
+  - key: definition-ligne-de-cache
+    format: definition
+    question: "Qu'est-ce qu'une ligne de cache ?"
+    choices:
+      - {text: "Le bloc de mémoire, en général 64 octets, que le cache charge d'un coup", correct: true}
+      - {text: "La ligne du code source que le processeur exécute", correct: false}
+      - {text: "La liste des fichiers gardés en mémoire par le système", correct: false}
+      - {text: "La file des threads qui attendent le processeur", correct: false}
+    answer: "C'est l'unité du cache : on ne charge jamais un octet seul, toujours la ligne qui le contient."
+  - key: definition-defaut-de-cache
+    format: definition
+    question: "Qu'est-ce qu'un défaut de cache (cache miss) ?"
+    choices:
+      - {text: "Un accès à une donnée absente du cache, qu'il faut aller chercher en mémoire vive", correct: true}
+      - {text: "Un accès à une adresse invalide, qui arrête le programme", correct: false}
+      - {text: "Une erreur du matériel, qui corrompt une donnée du cache", correct: false}
+      - {text: "Une lecture d'une variable non initialisée", correct: false}
+    answer: "Le programme reste correct, mais attend : une centaine de nanosecondes, pendant lesquelles le processeur aurait exécuté des centaines d'instructions."
+  - key: definition-faux-partage
+    format: definition
+    question: "Qu'est-ce que le faux partage (false sharing) ?"
+    choices:
+      - {text: "Des threads qui écrivent des variables distinctes, mais logées sur la même ligne de cache", correct: true}
+      - {text: "Des threads qui écrivent la même variable sans synchronisation", correct: false}
+      - {text: "Des threads qui se partagent un mutex sans jamais le relâcher", correct: false}
+      - {text: "Des threads qui lisent une variable que personne n'écrit", correct: false}
+    answer: "Ce n'est pas une course aux données : le résultat est juste. C'est un problème de performance, propre au matériel."
+  - key: definition-localite-spatiale
+    format: definition
+    question: "Qu'appelle-t-on la localité spatiale d'un programme ?"
+    choices:
+      - {text: "Sa tendance à accéder à des adresses proches les unes des autres", correct: true}
+      - {text: "Sa tendance à déclarer ses variables près de leur usage", correct: false}
+      - {text: "Sa tendance à s'exécuter sur un seul cœur du processeur", correct: false}
+      - {text: "Sa tendance à ranger ses fichiers dans un même répertoire", correct: false}
+    answer: "Elle va avec la localité temporelle : réutiliser bientôt ce qu'on vient de lire. Les deux font le succès du cache."

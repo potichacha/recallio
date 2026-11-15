@@ -1,0 +1,472 @@
+notion: arguments-thread
+lesson: |-
+  Un thread peut **survivre** à la fonction qui l'a lancé. La bibliothèque prend donc une précaution : les arguments
+  donnés au constructeur de `std::thread` (ou de `std::jthread`) sont **copiés** dans le nouveau thread, qui
+  travaille sur ses propres exemplaires.
+
+  ```cpp
+  void afficher(const std::string& message);
+
+  std::string texte = "bonjour";
+  std::thread t{afficher, texte};      // texte est COPIÉ, même si le paramètre est une référence
+  ```
+
+  **Trois façons de passer un argument.**
+
+  | Écriture | Effet |
+  |---|---|
+  | `std::thread t{f, x};` | `x` est **copié** dans le thread |
+  | `std::thread t{f, std::move(x)};` | `x` est **déplacé** dans le thread : utile pour un gros objet, obligatoire pour un `std::unique_ptr` |
+  | `std::thread t{f, std::ref(x)};` | le thread travaille sur **l'original** |
+
+  **`std::ref` : passer une référence.** Une fonction qui prend `int&` ne peut pas recevoir la copie interne, qui
+  est une valeur temporaire : `std::thread t{incrementer, compteur};` **ne compile pas**. `std::ref(compteur)`
+  (ou `std::cref` pour une référence constante), de l'en-tête `<functional>`, emballe une vraie référence.
+
+  **La contrepartie : la durée de vie.** Avec `std::ref`, comme avec une lambda qui capture par référence, **c'est
+  à toi de garantir que la variable vit plus longtemps que le thread**.
+
+  ```cpp
+  std::thread lancer() {
+      int compteur = 0;
+      return std::thread{incrementer, std::ref(compteur)};     // compteur est détruit au retour
+  }
+  ```
+
+  Le thread écrit ensuite dans une variable morte : comportement indéfini. C'est le danger d'un thread **détaché**,
+  ou **renvoyé** hors de la portée de ses données. Rejoindre le thread **avant** la fin de la portée des variables
+  le supprime.
+
+  **Le piège de la conversion tardive.** Les arguments sont copiés **tels quels**, et convertis au type du
+  paramètre **plus tard, dans le nouveau thread**.
+
+  ```cpp
+  void afficher(const std::string& message);
+
+  char tampon[64] = "bonjour";
+  std::thread t{afficher, tampon};     // copie le POINTEUR char*, pas le texte
+  t.detach();                          // la std::string sera construite... après la fin de tampon ?
+  ```
+
+  On convertit soi-même, avant : `std::thread t{afficher, std::string{tampon}};`.
+
+  **Une fonction membre.** On passe son adresse, puis l'objet, puis les arguments :
+
+  ```cpp
+  std::thread t{&Compteur::ajouter, &compteur, 5};     // appelle compteur.ajouter(5)
+  ```
+
+  Avec `&compteur`, le thread travaille sur l'objet d'origine ; avec `compteur`, sur une copie.
+
+  **Avec une lambda**, tout est dit dans la capture : `[x]` copie, `[&x]` référence, `[x = std::move(x)]` déplace.
+  Les mêmes règles de durée de vie s'appliquent.
+
+  **Par défaut : donner au thread ses propres données.** Copier ou déplacer supprime à la fois le risque de
+  référence pendante et celui de course aux données. La référence se réserve au cas où le thread est rejoint dans
+  la même portée.
+
+  **En entretien** : « `std::thread` copie ses arguments ; pour une référence il faut `std::ref`, et pour un objet
+  non copiable `std::move`. Avec une référence, je dois garantir que la variable survit au thread : je le rejoins
+  dans la même portée. Sinon, je lui donne ses propres données. »
+cards:
+  - key: copie
+    format: course
+    question: "Que fait le constructeur de `std::thread` des arguments destinés à la fonction du thread ?"
+    choices:
+      - {text: "Il les copie dans le nouveau thread, qui travaille sur ses propres exemplaires", correct: true}
+      - {text: "Il garde des références vers eux, que le thread suit jusqu'à sa fin", correct: false}
+      - {text: "Il les déplace toujours, et vide les variables de l'appelant", correct: false}
+      - {text: "Il les évalue plus tard, quand la fonction du thread en a besoin", correct: false}
+    answer: "La copie protège le thread, qui peut survivre à l'appelant. Elle a lieu même quand le paramètre de la fonction est une référence constante."
+  - key: std-ref
+    format: course
+    question: "À quoi sert `std::ref(x)` dans `std::thread t{f, std::ref(x)};` ?"
+    choices:
+      - {text: "À faire travailler le thread sur la variable `x` elle-même, et non sur une copie", correct: true}
+      - {text: "À compter le nombre de threads qui se servent de la variable `x`", correct: false}
+      - {text: "À protéger la variable `x` contre les courses aux données", correct: false}
+      - {text: "À prolonger la vie de la variable `x` jusqu'à la fin du thread", correct: false}
+    answer: "`std::ref` emballe une référence, que le constructeur peut copier. Il ne synchronise rien, et ne prolonge la vie de rien : ces deux soucis restent les tiens."
+  - key: duree-de-vie
+    format: course
+    question: "Quel risque prend-on en passant une variable locale à un thread par `std::ref` ?"
+    choices:
+      - {text: "Que le thread s'en serve encore après sa destruction, à la fin de la portée", correct: true}
+      - {text: "Que la variable soit copiée deux fois, une par thread", correct: false}
+      - {text: "Que le thread ne démarre pas tant que la variable existe", correct: false}
+      - {text: "Que la variable devienne constante dans le thread appelant", correct: false}
+    answer: "Une référence ne garde pas la variable en vie. Si le thread est détaché, ou survit à la portée, il lit une variable détruite : comportement indéfini."
+  - key: deplacer
+    format: course
+    question: "Comment passe-t-on un `std::unique_ptr` à la fonction d'un thread ?"
+    choices:
+      - {text: "Avec `std::move` : il est déplacé dans le thread, qui en devient propriétaire", correct: true}
+      - {text: "Tel quel : il est copié dans le thread, comme tout argument", correct: false}
+      - {text: "Avec `std::ref`, seule façon de passer un pointeur à un thread", correct: false}
+      - {text: "Avec `.get()`, qui transfère la possession au thread", correct: false}
+    answer: "Un `std::unique_ptr` ne se copie pas. `std::move` le transfère : le thread possède l'objet, et l'appelant n'y a plus accès."
+  - key: vf-reference-const
+    format: true-false
+    question: "Quand le paramètre de la fonction est `const std::string&`, l'argument passé au thread n'est pas copié."
+    truth: false
+    answer: "Il est copié dans le thread ; la référence du paramètre se lie à cette copie. Pour éviter la copie, il faut `std::cref`."
+  - key: vf-sans-ref
+    format: true-false
+    question: "`std::thread t{f, x};` compile quand `f` prend un `int&`."
+    truth: false
+    answer: "La copie interne est passée comme une valeur temporaire, qui ne se lie pas à une référence non constante. Il faut `std::ref(x)`."
+  - key: vf-ref-prolonge
+    format: true-false
+    question: "`std::ref` garantit que la variable référencée vit aussi longtemps que le thread."
+    truth: false
+    answer: "Il ne garantit rien : c'est au programmeur de rejoindre le thread avant que la variable ne soit détruite."
+  - key: vf-apres-move
+    format: true-false
+    question: "Après `std::thread t{f, std::move(p)};`, où `p` est un `std::unique_ptr`, `p` est nul dans l'appelant."
+    truth: true
+    answer: "La possession est passée au thread. L'appelant ne peut plus toucher à l'objet : il n'y a plus rien à partager."
+  - key: qcm-membre
+    format: multiple-choice
+    question: "Quelle ligne lance `compteur.ajouter(5)` dans un thread, sur l'objet `compteur` lui-même ?"
+    choices:
+      - {text: "`std::thread t{&Compteur::ajouter, &compteur, 5};`", correct: true}
+      - {text: "`std::thread t{compteur.ajouter, 5};`", correct: false}
+      - {text: "`std::thread t{compteur.ajouter(5)};`", correct: false}
+      - {text: "`std::thread t{Compteur::ajouter, 5};`", correct: false}
+    answer: "L'adresse de la fonction membre, puis l'objet, puis les arguments. Avec `&compteur`, le thread agit sur l'original ; avec `compteur`, sur une copie."
+  - key: qcm-cref
+    format: multiple-choice
+    question: "Quelle fonction passe à un thread une référence constante, sans copier l'objet ?"
+    choices:
+      - {text: "`std::cref`", correct: true}
+      - {text: "`std::move`", correct: false}
+      - {text: "`std::as_const`", correct: false}
+      - {text: "`std::forward`", correct: false}
+    answer: "`std::cref(x)` emballe une `const T&`. La contrainte de durée de vie est la même qu'avec `std::ref`."
+  - key: qcm-en-tete
+    format: multiple-choice
+    question: "Quel en-tête déclare `std::ref` ?"
+    choices:
+      - {text: "`<functional>`", correct: true}
+      - {text: "`<thread>`", correct: false}
+      - {text: "`<memory>`", correct: false}
+      - {text: "`<utility>`", correct: false}
+    answer: "`<functional>` déclare `std::ref`, `std::cref` et `std::reference_wrapper`."
+  - key: qcm-le-plus-sur
+    format: multiple-choice
+    question: "Un thread détaché a besoin d'un texte. Quelle façon de le lui donner est sûre ?"
+    choices:
+      - {text: "Lui passer une `std::string` par valeur : il possède sa copie", correct: true}
+      - {text: "Lui passer `std::ref` vers une `std::string` locale", correct: false}
+      - {text: "Lui passer un `const char*` vers un tableau local", correct: false}
+      - {text: "Lui faire capturer la `std::string` locale par `[&]`", correct: false}
+    answer: "Un thread détaché survit à la fonction : toute référence, tout pointeur vers une locale deviendra pendant. Avec sa propre copie, il ne dépend de rien."
+  - key: code-copie
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+      #include <thread>
+
+      void doubler(int n, int& resultat) {
+          resultat = n * 2;
+      }
+
+      int main() {
+          int entree = 5;
+          int sortie = 0;
+          std::thread t{doubler, entree, std::ref(sortie)};
+          entree = 100;
+          t.join();
+          std::println("{}", sortie);
+      }
+      ```
+    choices:
+      - {text: "`10`", correct: true}
+      - {text: "`200`", correct: false}
+      - {text: "`0`", correct: false}
+      - {text: "`10` ou `200`, selon l'exécution", correct: false}
+    answer: "`10` : `entree` est copiée à la construction du thread, quand elle vaut 5. La changer ensuite n'a aucun effet. `sortie`, passée par `std::ref`, est bien modifiée."
+    check:
+      output: "10"
+  - key: code-move
+    format: code-output
+    question: |-
+      ```cpp
+      #include <memory>
+      #include <print>
+      #include <thread>
+
+      int main() {
+          auto p = std::make_unique<int>(42);
+          int lu = 0;
+          std::thread t{[&lu](std::unique_ptr<int> q) { lu = *q; }, std::move(p)};
+          t.join();
+          std::println("{} {}", lu, p == nullptr);
+      }
+      ```
+    choices:
+      - {text: "`42 true`", correct: true}
+      - {text: "`42 false`", correct: false}
+      - {text: "`0 true`", correct: false}
+      - {text: "Ça ne compile pas", correct: false}
+    answer: "`42 true` : le `std::unique_ptr` est déplacé dans le thread, qui lit la valeur. Dans `main`, `p` est devenu nul."
+    check:
+      output: "42 true"
+  - key: code-membre
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+      #include <thread>
+
+      struct Compteur {
+          int valeur = 0;
+          void ajouter(int n) { valeur += n; }
+      };
+
+      int main() {
+          Compteur a;
+          Compteur b;
+          std::thread t{&Compteur::ajouter, &a, 5};
+          std::thread u{&Compteur::ajouter, b, 5};
+          t.join();
+          u.join();
+          std::println("{} {}", a.valeur, b.valeur);
+      }
+      ```
+    choices:
+      - {text: "`5 0`", correct: true}
+      - {text: "`5 5`", correct: false}
+      - {text: "`0 0`", correct: false}
+      - {text: "`0 5`", correct: false}
+    answer: "`5 0` : avec `&a`, le thread agit sur l'objet `a`. Avec `b`, l'objet est copié dans le thread : c'est la copie qui reçoit 5."
+    check:
+      output: "5 0"
+  - key: code-sans-ref
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+      #include <thread>
+
+      void incrementer(int& n) {
+          ++n;
+      }
+
+      int main() {
+          int compteur = 0;
+          std::thread t{incrementer, compteur};
+          t.join();
+          std::println("{}", compteur);
+      }
+      ```
+    choices:
+      - {text: "Ça ne compile pas", correct: true}
+      - {text: "`1`", correct: false}
+      - {text: "`0`", correct: false}
+      - {text: "`0` ou `1`, selon l'exécution", correct: false}
+    answer: "Ça ne compile pas : le thread passe à la fonction sa copie interne, comme une valeur temporaire, qui ne se lie pas à `int&`. Il faut `std::ref(compteur)`."
+    check:
+      compiles: false
+  - key: bug-copie-silencieuse
+    format: bug-fix
+    question: |-
+      Ce programme devrait afficher `3`. Il affiche `0` : le thread a rempli une copie du vecteur. Quelle
+      correction est la bonne ?
+      ```cpp
+      #include <print>
+      #include <thread>
+      #include <vector>
+
+      void remplir(std::vector<int> valeurs) {
+          valeurs = {1, 2, 3};
+      }
+
+      int main() {
+          std::vector<int> resultat;
+          std::thread t{remplir, resultat};
+          t.join();
+          std::println("{}", resultat.size());
+      }
+      ```
+    choices:
+      - {text: "Recevoir `std::vector<int>& valeurs`, et passer `std::ref(resultat)`", correct: true}
+      - {text: "Recevoir `std::vector<int>& valeurs`, et passer `resultat` tel quel", correct: false}
+      - {text: "Recevoir `const std::vector<int>& valeurs`, et passer `resultat`", correct: false}
+      - {text: "Passer `std::move(resultat)` à la fonction, sans la changer", correct: false}
+    answer: |-
+      ```cpp
+      void remplir(std::vector<int>& valeurs) {
+          valeurs = {1, 2, 3};
+      }
+      // ...
+      std::thread t{remplir, std::ref(resultat)};
+      ```
+      Il faut les deux : un paramètre par référence, et `std::ref` à l'appel. Sans `std::ref`, le code ne compile
+      pas ; ici, `main` rejoint le thread avant de lire, donc la référence est sûre.
+  - key: bug-reference-pendante
+    format: bug-fix
+    question: |-
+      Le thread reçoit une référence vers une variable locale de `lancer`, détruite au retour. Le comportement est
+      indéfini. Quelle correction est la bonne ?
+      ```cpp
+      #include <print>
+      #include <thread>
+
+      void compter(int& total) {
+          for (int i = 0; i < 1000; ++i) {
+              ++total;
+          }
+      }
+
+      std::thread lancer() {
+          int total = 0;
+          return std::thread{compter, std::ref(total)};
+      }
+
+      int main() {
+          std::thread t = lancer();
+          t.join();
+          std::println("fin");
+      }
+      ```
+    choices:
+      - {text: "Déclarer `total` dans `main`, et rejoindre le thread avant la fin de sa portée", correct: true}
+      - {text: "Passer `std::cref(total)` à la place de `std::ref(total)`", correct: false}
+      - {text: "Appeler `t.detach();` à la place de `t.join();` dans `main`", correct: false}
+      - {text: "Déclarer `total` avec le mot-clé `volatile`", correct: false}
+    answer: |-
+      ```cpp
+      int main() {
+          int total = 0;
+          std::thread t{compter, std::ref(total)};
+          t.join();
+          std::println("{}", total);
+      }
+      ```
+      `std::ref` ne prolonge pas la vie de la variable. Elle doit survivre au thread : on la déclare là où le thread
+      est rejoint.
+  - key: bug-unique-ptr-copie
+    format: bug-fix
+    question: |-
+      Le compilateur refuse la construction du thread : un `std::unique_ptr` ne se copie pas. Quelle correction est
+      la bonne ?
+      ```cpp
+      #include <memory>
+      #include <print>
+      #include <thread>
+
+      void traiter(std::unique_ptr<int> donnee) {
+          std::println("{}", *donnee);
+      }
+
+      int main() {
+          auto p = std::make_unique<int>(7);
+          std::thread t{traiter, p};
+          t.join();
+      }
+      ```
+    choices:
+      - {text: "Passer `std::move(p)`", correct: true}
+      - {text: "Passer `std::ref(p)`", correct: false}
+      - {text: "Passer `p.get()`", correct: false}
+      - {text: "Passer `*p`", correct: false}
+    answer: |-
+      ```cpp
+      std::thread t{traiter, std::move(p)};
+      ```
+      Le thread doit recevoir la possession : on déplace. `std::ref(p)` ne compilerait pas non plus, puisque la
+      fonction prend le pointeur par valeur.
+  - key: bug-pointeur-vers-tableau
+    format: bug-fix
+    question: |-
+      Cette fonction lance un thread détaché avec un tableau local. Le thread construit sa `std::string` plus tard,
+      à partir d'un pointeur vers un tableau peut-être détruit. Quelle correction est la bonne ?
+      ```cpp
+      #include <chrono>
+      #include <print>
+      #include <string>
+      #include <thread>
+
+      void afficher(const std::string& message) {
+          std::println("{}", message.size());
+      }
+
+      void lancer() {
+          char tampon[32] = "bonjour";
+          std::thread t{afficher, tampon};
+          t.detach();
+      }
+
+      int main() {
+          lancer();
+          std::this_thread::sleep_for(std::chrono::milliseconds{50});
+      }
+      ```
+    choices:
+      - {text: "Passer `std::string{tampon}` : la chaîne est construite avant, puis copiée dans le thread", correct: true}
+      - {text: "Passer `std::ref(tampon)` : le thread reçoit une référence vers le tableau", correct: false}
+      - {text: "Passer `&tampon[0]` : le thread reçoit l'adresse du premier caractère", correct: false}
+      - {text: "Déclarer le tableau `tampon` avec le mot-clé `const`", correct: false}
+    answer: |-
+      ```cpp
+      std::thread t{afficher, std::string{tampon}};
+      ```
+      Les arguments sont copiés tels quels : ici, un `char*`. La conversion en `std::string` n'a lieu que dans le
+      nouveau thread, peut-être après le retour de `lancer`. En construisant la chaîne soi-même, c'est le texte qui
+      est copié.
+  - key: situation-detach
+    format: scenario
+    question: |-
+      Une fonction lance un thread détaché avec `std::ref` vers une structure de configuration locale, puis se
+      termine. Le thread plante de temps en temps. Que proposes-tu ?
+    choices:
+      - {text: "Passer la configuration par valeur : le thread travaille sur sa propre copie", correct: true}
+      - {text: "Passer la configuration par `std::cref`, qui interdit de la modifier", correct: false}
+      - {text: "Passer l'adresse de la configuration, plutôt qu'une référence", correct: false}
+      - {text: "Déclarer la configuration `const`, pour qu'elle ne soit pas détruite", correct: false}
+    answer: |-
+      Un thread détaché survit à la fonction : la référence devient pendante dès le retour. Une copie, ou un
+      `std::shared_ptr` si la structure est lourde, donne au thread des données qui vivent aussi longtemps que lui.
+  - key: situation-gros-objet
+    format: scenario
+    question: |-
+      Tu lances un thread qui doit traiter un vecteur de cent mégaoctets, dont l'appelant n'a plus besoin. Le
+      passer tel quel le copie en entier. Que fais-tu ?
+    choices:
+      - {text: "Je le passe avec `std::move` : le thread en devient propriétaire, sans copie", correct: true}
+      - {text: "Je le passe avec `std::ref`, et je détache le thread", correct: false}
+      - {text: "Je le passe par pointeur brut vers le vecteur local, et je détache le thread", correct: false}
+      - {text: "Je le déclare `static`, pour qu'il ne soit jamais copié", correct: false}
+    answer: |-
+      Le déplacement transfère le tampon au thread : pas de copie, pas de partage, donc ni référence pendante ni
+      course aux données. `std::ref` conviendrait seulement si le thread est rejoint avant la fin du vecteur.
+  - key: situation-revue
+    format: scenario
+    question: |-
+      En revue de code, tu lis `std::thread t{enregistrer, std::ref(journal)};`, suivi plus bas de `t.join();`,
+      dans la même fonction que la déclaration de `journal`. Un collègue juge `std::ref` dangereux. Que réponds-tu ?
+    choices:
+      - {text: "Qu'ici c'est sûr : le thread est rejoint avant que `journal` ne soit détruit", correct: true}
+      - {text: "Qu'il a raison : `std::ref` est toujours un comportement indéfini avec un thread", correct: false}
+      - {text: "Qu'il faut remplacer `std::ref` par `std::move`, pour garder l'accès à `journal`", correct: false}
+      - {text: "Qu'il faut détacher le thread, pour que `journal` vive plus longtemps", correct: false}
+    answer: |-
+      Le danger de `std::ref` est un thread qui survit à la variable. Rejoint dans la portée de `journal`, il ne
+      peut pas. Il reste à vérifier qu'une exception ne saute pas le `join` : un `std::jthread` le garantit, et que
+      l'accès partagé à `journal` est synchronisé.
+  - key: situation-exception
+    format: scenario
+    question: |-
+      Une fonction passe une variable locale à un `std::thread` par `std::ref`, appelle un traitement qui peut
+      lancer, puis `join()`. Quand le traitement lance, que risque-t-on, et que proposes-tu ?
+    choices:
+      - {text: "Le `join` est sauté, et le programme s'arrête ; un `std::jthread` rejoint avant la fin de la variable", correct: true}
+      - {text: "La variable est détruite deux fois ; il faut la déclarer `static`", correct: false}
+      - {text: "Le thread est tué par l'exception ; il faut l'entourer d'un `catch (...)`", correct: false}
+      - {text: "La référence devient nulle ; il faut la tester dans le thread", correct: false}
+    answer: |-
+      L'exception quitte la fonction sans passer par `join()` : le destructeur du `std::thread` appelle
+      `std::terminate`. Un `std::jthread`, déclaré après la variable, est détruit avant elle, et attend le thread :
+      la référence reste valable jusqu'au bout.
