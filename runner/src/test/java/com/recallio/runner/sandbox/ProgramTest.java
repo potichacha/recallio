@@ -17,6 +17,22 @@ class ProgramTest {
     }
 
     @Test
+    void shouldRequireAMainScriptForPython() {
+        assertThatThrownBy(() -> new Program(Language.PYTHON, List.of(new SourceFile("panier.py", "print(1)"))))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("main.py");
+    }
+
+    @Test
+    void shouldRefuseAPythonModuleThatCannotBeImported() {
+        assertThatThrownBy(() -> new Program(
+                        Language.PYTHON,
+                        List.of(new SourceFile("main.py", "print(1)"), new SourceFile("mon-panier.py", "x = 1"))))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("mon-panier.py");
+    }
+
+    @Test
     void shouldRefuseATestFileInAGoProgram() {
         assertThatThrownBy(() -> new Program(Language.GO, List.of(new SourceFile("main_test.go", "package main"))))
                 .isInstanceOf(IllegalArgumentException.class);

@@ -17,6 +17,20 @@ class ExerciseFilesTest {
         assertThat(exercise("panier.go", "panier_test.go").language()).isEqualTo(CodeLanguage.GO);
         assertThat(exercise("panier.cpp", "panier_test.cpp").language()).isEqualTo(CodeLanguage.CPP);
         assertThat(exercise("panier.hpp", "panier_test.cpp").language()).isEqualTo(CodeLanguage.CPP);
+        assertThat(exercise("panier.py", "panier_test.py").language()).isEqualTo(CodeLanguage.PYTHON);
+    }
+
+    @Test
+    void shouldKeepPythonModulesFlatImportableAndNameOnlyTheTestsAfterThem() {
+        assertThatThrownBy(() -> exercise("panier/panier.py", "panier_test.py"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("chemin invalide");
+        assertThatThrownBy(() -> exercise("mon-panier.py", "panier_test.py"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("chemin invalide");
+        assertThatThrownBy(() -> exercise("panier.py", "test_panier.py"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("*_test.py");
     }
 
     @Test
@@ -51,7 +65,7 @@ class ExerciseFilesTest {
 
     @Test
     void shouldRefuseAnotherExtension() {
-        assertThatThrownBy(() -> new SourceFile("panier.py", "x")).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new SourceFile("panier.rs", "x")).isInstanceOf(IllegalArgumentException.class);
     }
 
     private static ExerciseFiles exercise(String code, String test) {

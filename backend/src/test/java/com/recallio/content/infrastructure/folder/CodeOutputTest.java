@@ -23,22 +23,24 @@ import org.junit.jupiter.params.provider.MethodSource;
  * ({@code check}) : une réponse fausse, ou qui ne vaut plus pour le JDK du projet, se voit avant le merge.
  *
  * <p>Java s'exécute avec JShell, Go avec la chaîne d'outils {@code go} de la machine (ADR 0033), C++ avec son
- * {@code g++} 14 (ADR 0053). Le langage est celui du premier bloc de code de la question ; un code de vérification qui
- * commence par {@code package} est du Go, un qui inclut un en-tête ({@code #include}) du C++. Sans {@code go} ni
- * {@code g++} 14, les cartes de ces langages sont ignorées en local, mais échouent en CI.
+ * {@code g++} 14 (ADR 0053), Python avec son {@code python} 3.14 (ADR 0062). Le langage est celui du premier bloc de
+ * code de la question ; un code de vérification qui commence par {@code package} est du Go, un qui inclut un en-tête
+ * ({@code #include}) du C++. Sans {@code go}, {@code g++} 14 ni Python 3.14, les cartes de ces langages sont ignorées en
+ * local, mais échouent en CI.
  */
 class CodeOutputTest {
 
     /** Le premier bloc de code de la question : le code exécuté quand la vérification n'en donne pas. */
-    private static final Pattern CODE_BLOCK = Pattern.compile("```(java|go|cpp)\\n(.*?)```", Pattern.DOTALL);
+    private static final Pattern CODE_BLOCK = Pattern.compile("```(java|go|cpp|python)\\n(.*?)```", Pattern.DOTALL);
 
     /** Le langage d'une carte, et donc ce qui l'exécute. */
     private enum Language {
         JAVA,
         GO,
-        CPP;
+        CPP,
+        PYTHON;
 
-        /** Le langage d'un bloc de code Markdown ({@code java}, {@code go}, {@code cpp}). */
+        /** Le langage d'un bloc de code Markdown ({@code java}, {@code go}, {@code cpp}, {@code python}). */
         static Language ofBlock(String language) {
             return valueOf(language.toUpperCase(Locale.ROOT));
         }
@@ -52,6 +54,9 @@ class CodeOutputTest {
 
     /** Le {@code g++} 14 de la machine, s'il est installé. */
     private static final Optional<CppSnippetRunner> CPP_RUNNER = CppSnippetRunner.find();
+
+    /** Le Python 3.14 de la machine, s'il est installé. */
+    private static final Optional<PythonSnippetRunner> PYTHON_RUNNER = PythonSnippetRunner.find();
 
     @AfterAll
     static void stopJShell() {
@@ -71,6 +76,11 @@ class CodeOutputTest {
     /** Les cartes C++ : chacune se compile dans son propre dossier, comme en Go. */
     static Stream<Arguments> cppCards() {
         return chosen(CodeOutputCards.matching(card -> language(card) == Language.CPP));
+    }
+
+    /** Les cartes Python : chacune s'exécute dans son propre dossier, comme en Go et en C++. */
+    static Stream<Arguments> pythonCards() {
+        return chosen(CodeOutputCards.matching(card -> language(card) == Language.PYTHON));
     }
 
     /** Les cartes des sujets choisis : tous, sauf quand la CI n'en demande que certains (voir {@link ContentSubjects}). */
@@ -100,6 +110,13 @@ class CodeOutputTest {
         verify(name, card);
     }
 
+    @ParameterizedTest(name = "{0}", allowZeroInvocations = true)
+    @MethodSource("pythonCards")
+    @org.junit.jupiter.api.parallel.Execution(ExecutionMode.CONCURRENT)
+    void shouldBehaveAsItsAnswerSaysInPython(String name, CardEntry card) {
+        verify(name, card);
+    }
+
     private static void verify(String name, CardEntry card) {
         String unverifiable = card.unverifiable();
         if (unverifiable != null) {
@@ -115,6 +132,7 @@ class CodeOutputTest {
         switch (snippet.language()) {
             case GO -> verifyGo(name, check, snippet.code());
             case CPP -> verifyCpp(name, check, snippet.code());
+            case PYTHON -> verifyPython(name, check, snippet.code());
             case JAVA -> verifyJava(name, check, snippet.code());
         }
     }
@@ -196,6 +214,33 @@ class CodeOutputTest {
         assertThat(execution.compileError())
                 .as("erreur de compilation de %s", name)
                 .isNull();
+        assertThat(lines(execution.output())).as("sortie de %s", name).isEqualTo(lines(check.output()));
+        assertThat(execution.stop()).as("arrêt de %s", name).isEqualTo(check.throwsName());
+    }
+
+    /**
+     * Un programme Python complet : sa sortie, puis le type de l'exception non rattrapée qui l'arrête, que
+     * {@code throws} nomme ({@code KeyError}). Une erreur de syntaxe répond à {@code compiles: false}.
+     */
+    private static void verifyPython(String name, CheckEntry check, String program) {
+        assertThat(check.panics())
+                .as("%s : panics est réservé à Go, Python attend throws", name)
+                .isNull();
+        if (PYTHON_RUNNER.isEmpty()) {
+            assertThat(System.getenv("CI"))
+                    .as("%s : Python 3.14 doit être installé en CI (ADR 0062)", name)
+                    .isNull();
+            Assumptions.abort("Python 3.14 n'est pas installé : " + name + " n'est pas vérifiée");
+        }
+        PythonSnippetRunner.Execution execution = PYTHON_RUNNER.orElseThrow().run(program);
+
+        if (Boolean.FALSE.equals(check.compiles())) {
+            assertThat(execution.compileError())
+                    .as("%s ne doit pas compiler", name)
+                    .isNotNull();
+            return;
+        }
+        assertThat(execution.compileError()).as("erreur de syntaxe de %s", name).isNull();
         assertThat(lines(execution.output())).as("sortie de %s", name).isEqualTo(lines(check.output()));
         assertThat(execution.stop()).as("arrêt de %s", name).isEqualTo(check.throwsName());
     }

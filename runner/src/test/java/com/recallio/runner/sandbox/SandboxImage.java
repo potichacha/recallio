@@ -27,13 +27,16 @@ public final class SandboxImage {
         return "recallio-sandbox-" + language.name().toLowerCase(Locale.ROOT);
     }
 
-    /** Le langage d'un fichier du contenu, d'après son extension (ADR 0033, 0053). */
+    /** Le langage d'un fichier du contenu, d'après son extension (ADR 0033, 0053, 0062). */
     public static Language languageOf(String path) {
         if (path.endsWith(".go")) {
             return Language.GO;
         }
         if (path.endsWith(".cpp") || path.endsWith(".hpp")) {
             return Language.CPP;
+        }
+        if (path.endsWith(".py")) {
+            return Language.PYTHON;
         }
         return Language.JAVA;
     }

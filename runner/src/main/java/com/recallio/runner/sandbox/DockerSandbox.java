@@ -74,7 +74,9 @@ public class DockerSandbox {
                         Language.GO,
                         config.image(Language.GO),
                         Language.CPP,
-                        config.image(Language.CPP)),
+                        config.image(Language.CPP),
+                        Language.PYTHON,
+                        config.image(Language.PYTHON)),
                 config.timeout(),
                 config.programTimeout(),
                 config.dockerRuntime());
@@ -238,6 +240,7 @@ public class DockerSandbox {
                                         case JAVA -> "System.exit";
                                         case GO -> "os.Exit";
                                         case CPP -> "exit, ou un plantage";
+                                        case PYTHON -> "os._exit";
                                     }));
         }
         return RunResult.of(tests);
@@ -290,6 +293,8 @@ public class DockerSandbox {
             case GO -> GoTestReport.parse(report);
             // doctest écrit un rapport au format JUnit ; son texte dit l'assertion et ses valeurs (ADR 0053).
             case CPP -> JunitReport.parse(report, JunitReport.Message.TEXT);
+            // pytest aussi ; son texte, en pile courte, dit la ligne du test, l'assertion et ses valeurs (ADR 0062).
+            case PYTHON -> JunitReport.parse(report, JunitReport.Message.TEXT);
         };
     }
 

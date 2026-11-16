@@ -364,6 +364,13 @@ cards:
     (`TEST_CASE("retire les doublons en gardant l'ordre") { CHECK(...); }`) ; le `main` des tests est fourni. Seule la
     bibliothèque standard est disponible. Un test ne vérifie que du comportement défini : pas de lecture hors des
     bornes ni de variable non initialisée, qui passeraient ou échoueraient au hasard.
+  - **En Python** (ADR 0062), des modules `.py` à plat, au nom d'identifiant Python (`panier.py`, jamais
+    `mon-panier.py`), exécutés par Python 3.14 : le code dans `starter/` et `solution/`, les tests dans
+    `tests/*_test.py`, avec pytest. Un test importe le module qu'il teste par son nom (`from panier import Panier`) et
+    déclare des fonctions `test_...` (`def test_retire_les_doublons_en_gardant_l_ordre():`) avec `assert`,
+    `pytest.raises` et `@pytest.mark.parametrize`. Seule la bibliothèque standard est disponible, avec pytest. Une
+    erreur de syntaxe, ou un code qui ne se charge pas (un nom introuvable à l'import), est rendue comme une erreur de
+    compilation. Le code de départ se charge donc sans erreur, et échoue aux tests.
   - La solution doit passer tous les tests, et le code de départ compiler mais en échouer au moins un : le job CI
     `runner` joue chaque exercice dans le bac à sable (ADR 0030). En local : `cd runner && ./mvnw test
     -Dtest=ExercisesTest` (Docker requis).
@@ -420,6 +427,12 @@ cards:
     bornes) ou du compilateur (`sizeof`, l'ordre d'évaluation des arguments) remplace `check` par
     `unverifiable: <raison>` ; une carte peut justement demander « Que garantit le langage ? ». La CI installe GCC 14 ;
     en local, sans `g++` 14, ces cartes sont ignorées.
+  - **En Python** (ADR 0062), le code exécuté est un programme complet, lancé par Python 3.14 : `check.code`, ou à
+    défaut le bloc ```` ```python ```` de la question. `throws` nomme le type de l'exception que personne ne rattrape,
+    tel que Python l'écrit à la dernière ligne de sa pile (`KeyError`, `ZeroDivisionError`) ; une erreur de syntaxe
+    répond à `compiles: false`. Une sortie qui dépend de l'ordre d'un `set` de chaînes (il change d'une exécution à
+    l'autre), d'une adresse (`id`, le `repr` d'un objet sans `__repr__`) ou de l'heure remplace `check` par
+    `unverifiable: <raison>`. La CI installe Python 3.14 ; en local, sans lui, ces cartes sont ignorées.
   - `./mvnw test -Dtest='CodeOutputTest'` exécute toutes ces cartes. Pour un seul sujet, ajoute
     `-Drecallio.subjects=cpp` (plusieurs slugs séparés par des virgules) : c'est ce que fait la CI pour une PR de
     contenu, qui ne rejoue que les sujets qu'elle modifie.
@@ -471,10 +484,11 @@ tour:
 - **Un exemple par page** : un programme complet, qui s'exécute sans entrée et sort avec le code 0. En Go,
   `package main` et `func main` ; en Java, un `Main.java`, éventuellement en fichier source compact
   (`void main() { IO.println("Bonjour"); }`) ; en C++, un `main.cpp` avec `int main()`, et d'autres `.cpp` et `.hpp`
-  à plat si la page parle de compilation séparée. Sa sortie est déterministe : ni heure, ni hasard, ni ordre d'une `map`
-  parcourue par `range`, ni architecture de la machine (`runtime.GOARCH`).
-- **Le code est formaté** comme le ferait l'outil du langage : des tabulations en Go (gofmt), quatre espaces en Java
-  et en C++.
+  à plat si la page parle de compilation séparée ; en Python, un `main.py`, le script lancé, et d'autres modules à plat
+  qu'il importe. Sa sortie est déterministe : ni heure, ni hasard, ni ordre d'une `map` parcourue par `range` ou d'un
+  `set` de chaînes, ni architecture de la machine (`runtime.GOARCH`).
+- **Le code est formaté** comme le ferait l'outil du langage : des tabulations en Go (gofmt), quatre espaces en Java,
+  en C++ et en Python (PEP 8).
   En YAML, une tabulation est permise dans un bloc `|-`, après l'indentation.
 - **Un « À toi »** demande une petite modification, vérifiable par la sortie seule. Le code de départ compile et
   s'exécute, car l'utilisateur le lance d'abord, mais il ne donne pas la sortie attendue.
@@ -487,7 +501,8 @@ tour:
   -Dtest=TourTest` (Docker requis), ou `-Drecallio.subjects=go` pour un seul sujet, comme la CI le fait pour une PR de
   contenu. Le job `content` compte les pages du Tour dans son résumé.
 - En Go, tout paquet standard est permis ; ceux de `sandbox/go/warm/warm.go` s'exécutent plus vite. En C++, toute la
-  bibliothèque standard de GCC 14 (`<print>` compris), et rien d'autre.
+  bibliothèque standard de GCC 14 (`<print>` compris), et rien d'autre. En Python, toute la bibliothèque standard de
+  Python 3.14 ; un programme ne lit pas l'entrée standard (`input()` lève une `EOFError`).
 
 ## 9. Liste de contrôle avant la pull request
 

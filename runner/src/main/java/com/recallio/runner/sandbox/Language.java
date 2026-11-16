@@ -4,7 +4,7 @@ import java.util.Optional;
 import java.util.regex.Pattern;
 
 /**
- * Les langages des exercices (ADR 0030, 0033, 0053) : chacun a son image de bac à sable, ses règles de chemin et le
+ * Les langages des exercices (ADR 0030, 0033, 0053, 0062) : chacun a son image de bac à sable, ses règles de chemin et le
  * format de son rapport de tests.
  */
 public enum Language {
@@ -18,7 +18,13 @@ public enum Language {
      * Des fichiers {@code .cpp} et {@code .hpp} à plat ; les tests doctest, et eux seuls, s'appellent
      * {@code *_test.cpp} (ADR 0053).
      */
-    CPP("[A-Za-z0-9_-]+\\.(cpp|hpp)", "_test.cpp");
+    CPP("[A-Za-z0-9_-]+\\.(cpp|hpp)", "_test.cpp"),
+
+    /**
+     * Des modules {@code .py} à plat, au nom d'identifiant Python (on les importe par leur nom) ; les tests pytest, et
+     * eux seuls, s'appellent {@code *_test.py} (ADR 0062).
+     */
+    PYTHON("[A-Za-z_][A-Za-z0-9_]*\\.py", "_test.py");
 
     private final Pattern path;
     /** Le suffixe qui distingue les fichiers de tests, ou rien quand le langage n'en impose pas. */

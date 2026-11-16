@@ -31,6 +31,15 @@ class TourPageTest {
     }
 
     @Test
+    void shouldRequireTheMainScriptOfAPythonProgram() {
+        assertThat(program(new SourceFile("main.py", "print('Bonjour')\n")).language())
+                .isEqualTo(CodeLanguage.PYTHON);
+        assertThatThrownBy(() -> program(new SourceFile("panier.py", "print('Bonjour')\n")))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("main.py");
+    }
+
+    @Test
     void shouldRefuseATestFileOrAProgramInTwoLanguages() {
         assertThatThrownBy(() -> program(new SourceFile("main_test.go", "package main\n")))
                 .isInstanceOf(IllegalArgumentException.class);

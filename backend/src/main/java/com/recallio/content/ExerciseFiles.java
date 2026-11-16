@@ -92,16 +92,16 @@ public record ExerciseFiles(List<SourceFile> starter, List<SourceFile> solution,
 
         /**
          * Des segments de lettres, chiffres, {@code _} ou {@code -}, et un fichier {@code .java}, {@code .go},
-         * {@code .cpp} ou {@code .hpp}. Chaque langage restreint encore ({@link CodeLanguage}).
+         * {@code .cpp}, {@code .hpp} ou {@code .py}. Chaque langage restreint encore ({@link CodeLanguage}).
          */
-        public static final String PATH_PATTERN = "([A-Za-z0-9_-]+/)*[A-Za-z0-9_-]+\\.(java|go|cpp|hpp)";
+        public static final String PATH_PATTERN = "([A-Za-z0-9_-]+/)*[A-Za-z0-9_-]+\\.(java|go|cpp|hpp|py)";
 
         private static final Pattern PATH = Pattern.compile(PATH_PATTERN);
 
         public SourceFile {
             if (!PATH.matcher(path).matches()) {
                 throw new IllegalArgumentException(
-                        "Chemin de fichier invalide (un fichier .java ou .go, sans « .. ») : " + path);
+                        "Chemin de fichier invalide (un fichier .java, .go, .cpp, .hpp ou .py, sans « .. ») : " + path);
             }
             if (content.isBlank() || content.length() > MAX_LENGTH) {
                 throw new IllegalArgumentException(

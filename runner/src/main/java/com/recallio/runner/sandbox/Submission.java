@@ -62,9 +62,10 @@ public record Submission(Language language, List<SourceFile> code, List<SourceFi
 
         /**
          * Des segments de lettres, chiffres, {@code _} ou {@code -}, et un fichier {@code .java}, {@code .go},
-         * {@code .cpp} ou {@code .hpp} : jamais de « .. ». Chaque langage restreint encore ({@link Language}).
+         * {@code .cpp}, {@code .hpp} ou {@code .py} : jamais de « .. ». Chaque langage restreint encore
+         * ({@link Language}).
          */
-        public static final String PATH_PATTERN = "([A-Za-z0-9_-]+/)*[A-Za-z0-9_-]+\\.(java|go|cpp|hpp)";
+        public static final String PATH_PATTERN = "([A-Za-z0-9_-]+/)*[A-Za-z0-9_-]+\\.(java|go|cpp|hpp|py)";
 
         private static final Pattern PATH = Pattern.compile(PATH_PATTERN);
 

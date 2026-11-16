@@ -60,7 +60,7 @@ public class PlaygroundResource {
     @APIResponse(
             responseCode = "422",
             description = "Les fichiers ne forment pas un programme : deux langages, un fichier de tests, "
-                    + "ou pas de Main.java en Java",
+                    + "pas de Main.java en Java ou pas de main.py en Python",
             content =
                     @Content(
                             mediaType = ProblemDetail.MEDIA_TYPE,
@@ -89,7 +89,7 @@ public class PlaygroundResource {
     public record PlaygroundRunRequest(
             @Schema(
                     description = "Les fichiers du programme : en Java, un Main.java ; en Go, un package main ; "
-                            + "en C++, des .cpp et des .hpp, dont une fonction main")
+                            + "en C++, des .cpp et des .hpp, dont une fonction main ; en Python, un main.py")
             @NotNull
             @Size(min = 1, max = TourPage.MAX_FILES)
             List<@NotNull @Valid ExerciseFileDto> files) {}
