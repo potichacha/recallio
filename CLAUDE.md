@@ -554,7 +554,7 @@ Le propriétaire a testé l'application en local avant de la déployer ; ses ret
 
    10. **CI plus rapide** (58 à 62) : un run prend 13 à 17 minutes. Deux PR :
        1. ✅ le job `docker` en parallèle des autres, et seuls les jobs concernés par les fichiers modifiés (un job `changes` les désigne) ;
-       2. les jobs `e2e` et `docker` accélérés par leurs caches ; `content` et `runner` découpés par sujet quand le contenu C++ les aura trop allongés.
+       2. ✅ `content` et `runner` découpés par sujet : une PR de contenu ne rejoue que les « qu'affiche ce code ? », les exercices et les pages du Tour des sujets qu'elle modifie (`-Drecallio.subjects`, calculé par le job `changes`). Le job `docker` avait déjà ses caches ; ceux du job `e2e` sont écartés : il n'est jamais le plus long.
 
 **Ordre** : l'étape 8.10.1 d'abord, puisqu'elle raccourcit toutes les PR suivantes ; puis les étapes 8.1 à 8.7, puis la refonte (8.9), puis le contenu (7, 4.2, 4.3 et 6), puis l'étape 8.8. Les règles de l'étape 8.2 s'appliquent à tout contenu écrit ensuite. La refonte passe avant l'étape 8.8 : ses nouveaux écrans naissent ainsi dans le bon style.
 

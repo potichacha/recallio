@@ -60,27 +60,32 @@ class CodeOutputTest {
 
     /** Les cartes Java : une seule JVM JShell pour toutes, qui ne se partage pas entre deux threads. */
     static Stream<Arguments> javaCards() {
-        return CodeOutputCards.matching(card -> language(card) == Language.JAVA);
+        return chosen(CodeOutputCards.matching(card -> language(card) == Language.JAVA));
     }
 
     /** Les cartes Go : chacune se compile dans son propre dossier, et le cache de {@code go} se partage sans risque. */
     static Stream<Arguments> goCards() {
-        return CodeOutputCards.matching(card -> language(card) == Language.GO);
+        return chosen(CodeOutputCards.matching(card -> language(card) == Language.GO));
     }
 
     /** Les cartes C++ : chacune se compile dans son propre dossier, comme en Go. */
     static Stream<Arguments> cppCards() {
-        return CodeOutputCards.matching(card -> language(card) == Language.CPP);
+        return chosen(CodeOutputCards.matching(card -> language(card) == Language.CPP));
     }
 
-    @ParameterizedTest(name = "{0}")
+    /** Les cartes des sujets choisis : tous, sauf quand la CI n'en demande que certains (voir {@link ContentSubjects}). */
+    private static Stream<Arguments> chosen(Stream<Arguments> cards) {
+        return cards.filter(card -> ContentSubjects.includesCard(String.valueOf(card.get()[0])));
+    }
+
+    @ParameterizedTest(name = "{0}", allowZeroInvocations = true)
     @MethodSource("javaCards")
     void shouldBehaveAsItsAnswerSays(String name, CardEntry card) {
         verify(name, card);
     }
 
     /** En parallèle (voir {@code junit-platform.properties}) : compiler chaque carte une à une prenait des minutes. */
-    @ParameterizedTest(name = "{0}")
+    @ParameterizedTest(name = "{0}", allowZeroInvocations = true)
     @MethodSource("goCards")
     // Le nom complet : SnippetRunner.Execution, le résultat d'une carte Java, porte déjà ce nom ici.
     @org.junit.jupiter.api.parallel.Execution(ExecutionMode.CONCURRENT)
