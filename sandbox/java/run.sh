@@ -45,9 +45,63 @@ imports_libraries() {
         | grep -vqE '^[[:space:]]*import[[:space:]]+(static[[:space:]]+|module[[:space:]]+)?(java|javax|org\.junit)\.'
 }
 
+# Vrai si le code ou ses tests importent Quarkus (ADR 0061) : ils se jugent alors comme une application Quarkus.
+imports_quarkus() {
+    grep -rqsE '^[[:space:]]*import[[:space:]]+(static[[:space:]]+)?io\.quarkus\.' "$@"
+}
+
+# Un exercice Quarkus (ADR 0061), sans Maven : javac compile le code et les tests à la place où Maven les mettrait, puis
+# le lanceur JUnit les exécute dans une seule JVM, comme un IDE. @QuarkusTest construit alors l'application à partir du
+# pom.xml du projet et du dépôt Maven de l'image, hors ligne. Seul ce qui est propre à Quarkus diffère du Java ordinaire.
+judge_quarkus() {
+    quarkus=/opt/recallio/quarkus
+    project=/tmp/projet
+    classpath=$(cat "$quarkus/classpath.txt")
+    mkdir -p "$project/target/classes" "$project/target/test-classes"
+    cp "$quarkus/pom.xml" "$project/"
+    cp "$quarkus/application.properties" "$project/target/classes/"
+    find src -name '*.java' -type f > /tmp/sources
+    find tests -name '*.java' -type f > /tmp/test-sources 2>/dev/null
+    if ! javac -encoding UTF-8 -nowarn -parameters -proc:none -d "$project/target/classes" -cp "$classpath" \
+        @/tmp/sources > /tmp/javac.log 2>&1 \
+        || ! javac -encoding UTF-8 -nowarn -parameters -proc:none -d "$project/target/test-classes" \
+            -cp "$project/target/classes:$classpath" @/tmp/test-sources > /tmp/javac.log 2>&1; then
+        echo "@@recallio:compilation-error"
+        sed 's|^/work/||' /tmp/javac.log
+        exit 0
+    fi
+    cd "$project" || exit 1
+    # Une seule JVM pour Quarkus et les tests : un tas plus grand que pour le Java ordinaire, toujours sous les 512 Mo
+    # du conteneur.
+    java -Xmx300m -Xss1m -XX:+UseSerialGC -XX:TieredStopAtLevel=1 -XX:+EnableDynamicAgentLoading \
+        --add-opens=java.base/java.lang.invoke=ALL-UNNAMED \
+        -Djava.util.logging.manager=org.jboss.logmanager.LogManager \
+        -Dmaven.repo.local="$quarkus/m2" -Duser.home=/tmp \
+        -cp "$project/target/test-classes:$project/target/classes:$classpath" \
+        org.junit.platform.console.ConsoleLauncher execute \
+        --scan-class-path "$project/target/test-classes" --disable-banner --details=none \
+        --reports-dir /tmp/reports > /tmp/console.log 2>&1
+    # Quarkus valide l'injection en construisant l'application : une dépendance introuvable ou ambiguë fait échouer ce
+    # build, et aucun test ne s'exécute. C'est une erreur de compilation pour Quarkus : le joueur lit son message, du
+    # premier « [error]: » jusqu'à la ligne vide ou la pile d'appels qui le suit.
+    if ! grep -qs '<testcase' /tmp/reports/TEST-junit-jupiter.xml; then
+        echo "@@recallio:compilation-error"
+        awk '/\[error\]:/ { found = 1 }
+             found { sub(/^[ \t]+/, ""); if ($0 == "" || $0 ~ /^at /) exit; print }' /tmp/console.log | head -n 40
+        exit 0
+    fi
+    echo "@@recallio:report"
+    cat /tmp/reports/TEST-junit-jupiter.xml
+    exit 0
+}
+
 if ! tar -x -f - 2>/dev/null; then
     echo "@@recallio:invalid"
     exit 0
+fi
+
+if [ "$MODE" != program ] && imports_quarkus src tests; then
+    judge_quarkus
 fi
 
 EXTRA=""

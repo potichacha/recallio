@@ -12,6 +12,21 @@ COPY libraries/pom.xml .
 RUN mvn -B -C -q dependency:copy-dependencies -DoutputDirectory=/lib \
         -DexcludeGroupIds=junit,org.junit,org.junit.jupiter,org.junit.platform,org.opentest4j,org.apiguardian
 
+# Quarkus (ADR 0061) : le projet modèle juge une fois son exercice de chauffe, ce qui remplit le dépôt Maven de tout ce
+# que @QuarkusTest résout au démarrage, puis écrit le classpath des tests. Le conteneur n'exécute pas Maven : javac
+# compile, et Quarkus construit l'application à partir du pom.xml et de ce dépôt, hors ligne.
+FROM maven:3.9.16-eclipse-temurin-25 AS quarkus
+WORKDIR /build
+COPY quarkus/pom.xml .
+COPY quarkus/application.properties src/main/resources/
+COPY quarkus/warmup/src/ src/main/java/
+COPY quarkus/warmup/tests/ src/test/java/
+RUN mvn -B -C -q -Dmaven.repo.local=/opt/recallio/quarkus/m2 test \
+    && mvn -B -C -q -Dmaven.repo.local=/opt/recallio/quarkus/m2 dependency:build-classpath \
+        -Dmdep.includeScope=test -Dmdep.outputFile=/opt/recallio/quarkus/classpath.txt \
+    && cp pom.xml src/main/resources/application.properties /opt/recallio/quarkus/ \
+    && chmod -R a+rX /opt/recallio/quarkus
+
 FROM eclipse-temurin:25-jdk-noble
 
 RUN install -d -m 755 /opt/recallio
@@ -23,6 +38,7 @@ ADD --checksum=sha256:e62b96ac475dbcde8599ea905d088f65d90778f86e259b856a49fa5c4e
 
 # Lisibles par tous, modifiables par root seul : l'utilisateur du conteneur ne peut pas les remplacer.
 COPY --from=libraries /lib/ /opt/recallio/lib/
+COPY --from=quarkus /opt/recallio/quarkus/ /opt/recallio/quarkus/
 COPY --chmod=555 run.sh /opt/recallio/run.sh
 
 # Un utilisateur sans droits ni dossier personnel ; le runner l'impose aussi (--user).

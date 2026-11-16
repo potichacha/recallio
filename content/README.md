@@ -341,6 +341,15 @@ cards:
     (`org.springframework.boot.webmvc.test.autoconfigure`), `@DataJpaTest`
     (`org.springframework.boot.data.jpa.test.autoconfigure`) et `@MockitoBean`. Un exercice se juge en moins de dix
     secondes : un seul contexte Spring par classe de test, pas de serveur démarré, pas de réseau.
+  - **Avec Quarkus** (ADR 0061), le même format : un exercice dont le code ou les tests importent `io.quarkus` est jugé
+    comme une application Quarkus 3 (REST avec Jackson, validation, Hibernate ORM avec Panache sur une base H2 en
+    mémoire). Le code vit dans un package (`starter/boutique/ProduitResource.java`), sans classe d'application ni
+    `application.properties` : la configuration est commune à tous les exercices. Les tests sont des `@QuarkusTest`
+    (`io.quarkus.test.junit.QuarkusTest`), avec RestAssured et Hamcrest, `@Inject` et `@InjectMock`
+    (`io.quarkus.test.InjectMock`), et les assertions de JUnit (pas d'AssertJ). Une configuration propre à l'exercice
+    passe par un `@TestProfile`. Le démarrage de Quarkus coûte une dizaine de secondes : un exercice tient dans le délai
+    de 30 secondes avec un seul profil de test (le même `@TestProfile` sur toutes ses classes de test, ou aucun), sans
+    `@QuarkusIntegrationTest` ni réseau.
   - **En Go** (ADR 0033), la même forme avec des fichiers `.go` : `starter/` et `solution/` à plat, dans un seul
     package (pas de `package main`), et `tests/*_test.go` dans ce même package, avec le package `testing` seul (pas de
     bibliothèque d'assertions). Le bac à sable n'a pas de réseau et son cache de compilation est en lecture seule :

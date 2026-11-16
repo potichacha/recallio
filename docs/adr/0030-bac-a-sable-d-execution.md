@@ -3,6 +3,7 @@
 - Statut : accepté
 - Date : 2026-11-02
 - Tranche la décision ouverte n° 10 de CLAUDE.md (section 10).
+- Révisé par : ADR 0061 (le délai d'une exécution passe à 30 secondes)
 
 ## Contexte
 
