@@ -55,4 +55,4 @@ Deux mesures guident la décision, dans un conteneur limité comme en production
   secondes environ : les jobs `runner` et `e2e` de la CI, qui la construisent sans cache, s'allongent d'autant.
 - Les exercices Java peuvent aussi utiliser AssertJ et Mockito, s'ils les importent.
 - Quarkus n'est pas réglé par cette décision : `@QuarkusTest` a besoin du modèle de l'application que construit Maven ou
-  Gradle, et se décidera dans son propre ADR.
+  Gradle, et se décide dans son propre ADR (ADR 0061).

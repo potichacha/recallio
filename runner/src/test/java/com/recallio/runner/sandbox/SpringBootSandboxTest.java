@@ -16,7 +16,7 @@ import org.junit.jupiter.api.Test;
  */
 class SpringBootSandboxTest {
 
-    private static final Duration PRODUCTION_TIMEOUT = Duration.ofSeconds(20);
+    private static final Duration PRODUCTION_TIMEOUT = Duration.ofSeconds(30);
 
     private static final String APPLICATION = """
             package boutique;

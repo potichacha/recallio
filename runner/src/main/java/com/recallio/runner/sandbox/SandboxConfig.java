@@ -21,8 +21,11 @@ public interface SandboxConfig {
     @WithDefault("recallio-sandbox-cpp")
     String cppImage();
 
-    /** Le délai d'une exécution, compilation comprise ; au-delà, le conteneur est tué. */
-    @WithDefault("20s")
+    /**
+     * Le délai d'une exécution, compilation comprise ; au-delà, le conteneur est tué. Un exercice Quarkus démarre son
+     * application dans ce délai (ADR 0061).
+     */
+    @WithDefault("30s")
     Duration timeout();
 
     /**

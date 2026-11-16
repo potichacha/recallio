@@ -57,7 +57,7 @@ programmes partagent les exécutions simultanées.
 | `RECALLIO_RUNNER_TOKEN` | aucun en production | Le jeton que présente le backend, 32 caractères au moins (`openssl rand -hex 32`) |
 | `RECALLIO_SANDBOX_JAVA_IMAGE` | `recallio-sandbox-java` | L'image du bac à sable Java |
 | `RECALLIO_SANDBOX_GO_IMAGE` | `recallio-sandbox-go` | L'image du bac à sable Go |
-| `RECALLIO_SANDBOX_TIMEOUT` | `20s` | Le délai d'une exécution, compilation comprise |
+| `RECALLIO_SANDBOX_TIMEOUT` | `30s` | Le délai d'une exécution, compilation comprise |
 | `RECALLIO_SANDBOX_PROGRAM_TIMEOUT` | `10s` | Le délai d'un programme une fois compilé, en secondes entières, plus court que le précédent |
 | `RECALLIO_SANDBOX_MAX_CONCURRENT_RUNS` | `4` | Les exécutions simultanées, soumissions et programmes confondus |
 | `RECALLIO_SANDBOX_DOCKER_RUNTIME` | runc | `runsc` pour gVisor, s'il est installé sur l'hôte |
