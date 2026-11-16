@@ -36,15 +36,18 @@ class ExercisesTest {
             List<Path> found = files.filter(
                             file -> file.getFileName().toString().equals(DESCRIPTION))
                     .filter(file -> file.toString().replace('\\', '/').contains("/exercices/"))
+                    .filter(file -> ContentSubjects.includes(CONTENT, file))
                     .map(Path::getParent)
                     .sorted()
                     .toList();
-            assertThat(found).as("exercices de code du contenu").isNotEmpty();
+            if (ContentSubjects.all()) {
+                assertThat(found).as("exercices de code du contenu").isNotEmpty();
+            }
             return found.stream();
         }
     }
 
-    @ParameterizedTest(name = "{0}")
+    @ParameterizedTest(name = "{0}", allowZeroInvocations = true)
     @MethodSource("exercises")
     void shouldBeSolvedByItsSolution(Path exercise) {
         RunResult result = SANDBOX.run(submission(exercise, "solution"));
@@ -52,7 +55,7 @@ class ExercisesTest {
         assertThat(result.status()).as("solution de %s : %s", exercise, result).isEqualTo(Status.PASSED);
     }
 
-    @ParameterizedTest(name = "{0}")
+    @ParameterizedTest(name = "{0}", allowZeroInvocations = true)
     @MethodSource("exercises")
     void shouldStartFromCodeThatCompilesButFails(Path exercise) {
         RunResult result = SANDBOX.run(submission(exercise, "starter"));

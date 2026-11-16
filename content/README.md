@@ -404,7 +404,9 @@ cards:
     bornes) ou du compilateur (`sizeof`, l'ordre d'évaluation des arguments) remplace `check` par
     `unverifiable: <raison>` ; une carte peut justement demander « Que garantit le langage ? ». La CI installe GCC 14 ;
     en local, sans `g++` 14, ces cartes sont ignorées.
-  - `./mvnw test -Dtest='CodeOutputTest'` exécute toutes ces cartes, comme la CI.
+  - `./mvnw test -Dtest='CodeOutputTest'` exécute toutes ces cartes. Pour un seul sujet, ajoute
+    `-Drecallio.subjects=cpp` (plusieurs slugs séparés par des virgules) : c'est ce que fait la CI pour une PR de
+    contenu, qui ne rejoue que les sujets qu'elle modifie.
   - **Ses choix** (ADR 0051) : le bon est la sortie de `check`, écrite comme du code (`` `123` ``, ou un bloc pour
     plusieurs lignes), et aucun autre choix n'affiche la même chose. Pour une exception, le bon choix la nomme (« Une
     `NullPointerException` ») ; pour une panic Go, il dit « panic » ; pour un code qui ne compile pas, il le dit
@@ -466,7 +468,8 @@ tour:
   corrigées par le serveur (vrai ou faux, QCM, code à compléter), prises dans l'ordre du fichier, une par format
   d'abord. Une notion du Tour en a donc au moins deux, et le parseur le vérifie.
 - **La CI joue chaque exemple et chaque « À toi »** dans le bac à sable (job `runner`) : `cd runner && ./mvnw test
-  -Dtest=TourTest` (Docker requis). Le job `content` compte les pages du Tour dans son résumé.
+  -Dtest=TourTest` (Docker requis), ou `-Drecallio.subjects=go` pour un seul sujet, comme la CI le fait pour une PR de
+  contenu. Le job `content` compte les pages du Tour dans son résumé.
 - En Go, tout paquet standard est permis ; ceux de `sandbox/go/warm/warm.go` s'exécutent plus vite. En C++, toute la
   bibliothèque standard de GCC 14 (`<print>` compris), et rien d'autre.
 

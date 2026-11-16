@@ -26,6 +26,7 @@ jobs:
       frontend: ${{ steps.filter.outputs.frontend }}
       docker: ${{ steps.filter.outputs.docker }}
       e2e: ${{ steps.filter.outputs.e2e }}
+      subjects: ${{ steps.filter.outputs.subjects }}
     steps:
       # Sur une PR, HEAD est le commit de fusion : son premier parent est la branche cible, d'où la profondeur de 2.
       - uses: actions/checkout@v7
@@ -63,6 +64,18 @@ jobs:
           decide frontend '^(frontend/|backend/src/main/openapi/)'
           decide docker '^(backend|frontend|runner)/'
           decide e2e '^(backend|frontend|runner|sandbox|content|infra|e2e)/'
+          # Les sujets que CodeOutputTest, ExercisesTest et TourTest rejouent (étape 8.10.2) : tous (vide) sur main ou
+          # quand le code qui les vérifie change ; sinon ceux dont le dossier content/<sujet>/ est modifié, ou « none ».
+          # Une PR de contenu Java ne recompile plus les cartes C++.
+          if [ "$EVENT_NAME" != "pull_request" ] || touched '^(\.github|backend|runner|sandbox)/'; then
+            subjects=""
+          else
+            subjects=$( (grep -oE '^content/[^/]+/' <<< "$files" || true) | cut -d/ -f2 | (grep -vx source || true) \
+              | sort -u | paste -sd, -)
+            subjects=${subjects:-none}
+          fi
+          echo "subjects=$subjects" >> "$GITHUB_OUTPUT"
+          echo "- sujets rejoués : ${subjects:-tous}" >> "$GITHUB_STEP_SUMMARY"
 
   backend:
     name: backend
@@ -132,8 +145,11 @@ jobs:
       - name: Install GCC 14
         run: sudo apt-get update -q && sudo apt-get install -y -q g++-14
 
-      - name: Parse every reference document, every subject folder and every referential, run every code-output card and check its choices, check the writing rules and the code languages, publish the coverage
-        run: ./mvnw -B test -Dtest='ReferenceDocumentTest,ReferentialTest,SubjectFolderTest,YamlSubjectFolderParserTest,ContentCoverageTest,ContentCoverageReportTest,ContentQualityTest,ContentQualityBaselineTest,CodeLanguagesTest,SnippetRunnerTest,GoSnippetRunnerTest,CppSnippetRunnerTest,CodeOutputTest,CodeOutputChoicesTest' -Dsurefire.failIfNoSpecifiedTests=false
+      # Tout est parsé et contrôlé ; seules les cartes des sujets modifiés s'exécutent (voir le job changes).
+      - name: Parse every reference document, every subject folder and every referential, run the code-output cards of the changed subjects and check every choice, check the writing rules and the code languages, publish the coverage
+        env:
+          SUBJECTS: ${{ needs.changes.outputs.subjects }}
+        run: ./mvnw -B test -Dtest='ReferenceDocumentTest,ReferentialTest,SubjectFolderTest,YamlSubjectFolderParserTest,ContentCoverageTest,ContentCoverageReportTest,ContentQualityTest,ContentQualityBaselineTest,CodeLanguagesTest,SnippetRunnerTest,GoSnippetRunnerTest,CppSnippetRunnerTest,CodeOutputTest,CodeOutputChoicesTest' -Dsurefire.failIfNoSpecifiedTests=false -Drecallio.subjects="$SUBJECTS"
 
   # Le runner (ADR 0030, 0033, 0053) : il exécute le code des joueurs dans des conteneurs jetables. Ses tests
   # construisent les images du bac à sable (sandbox/java, sandbox/go, sandbox/cpp), vérifient leur isolation, et jouent
@@ -156,8 +172,18 @@ jobs:
           java-version: '25'
           cache: maven
 
-      - name: Build the sandbox, test the runner and play every code exercise
-        run: ./mvnw -B verify
+      # Une PR qui ne touche que du contenu ne joue que les exercices et les pages du Tour des sujets modifiés (voir le
+      # job changes) ; sinon, tout le runner est testé.
+      - name: Build the sandbox, test the runner and play the code exercises
+        env:
+          SUBJECTS: ${{ needs.changes.outputs.subjects }}
+        run: |
+          if [ -z "$SUBJECTS" ]; then
+            ./mvnw -B verify
+          else
+            ./mvnw -B verify -Dtest='ExercisesTest,TourTest' -Dsurefire.failIfNoSpecifiedTests=false \
+              -Drecallio.subjects="$SUBJECTS"
+          fi
 
   frontend:
     name: frontend

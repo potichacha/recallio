@@ -68,6 +68,7 @@ class TourTest {
             return files
                     .filter(file -> file.toString().replace('\\', '/').contains("/notions/"))
                     .filter(file -> file.getFileName().toString().endsWith(".yaml"))
+                    .filter(file -> ContentSubjects.includes(CONTENT, file))
                     .sorted()
                     .flatMap(TourTest::pagesOf)
                     .toList()
