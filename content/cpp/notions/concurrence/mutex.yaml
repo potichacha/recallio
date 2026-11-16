@@ -1,0 +1,567 @@
+notion: mutex
+lesson: |-
+  Un **mutex** (*mutual exclusion*, en-tête `<mutex>`) est un verrou : **un seul thread à la fois** peut le tenir.
+  Les autres attendent qu'il soit relâché. On s'en sert pour encadrer une **section critique** : le code qui touche
+  à des données partagées.
+
+  ```cpp
+  std::mutex verrou;
+  int solde = 0;
+
+  void deposer(int montant) {
+      verrou.lock();
+      solde += montant;
+      verrou.unlock();
+  }
+  ```
+
+  **Ne jamais appeler `lock` et `unlock` à la main.** Si le code entre les deux fait un `return`, ou lance une
+  exception, `unlock` est sauté : le mutex reste verrouillé **pour toujours**, et tous les autres threads se
+  figent.
+
+  **`std::lock_guard` : RAII pour un verrou.** Son constructeur verrouille, son destructeur déverrouille, quelle
+  que soit la façon de quitter le bloc.
+
+  ```cpp
+  void deposer(int montant) {
+      std::lock_guard garde{verrou};
+      solde += montant;
+  }   // déverrouillé ici, même en cas d'exception
+  ```
+
+  **Les gardes de la bibliothèque.**
+
+  | Garde | Usage |
+  |---|---|
+  | `std::lock_guard` | un mutex, pour la durée d'un bloc. Le plus simple |
+  | `std::scoped_lock` (C++17) | un ou **plusieurs** mutex, verrouillés ensemble sans interblocage |
+  | `std::unique_lock` | déverrouillable et reverrouillable ; exigé par `std::condition_variable` |
+  | `std::shared_lock` | lecture partagée d'un `std::shared_mutex` |
+
+  **Un mutex protège des données, pas du code.** Chaque donnée partagée a **son** mutex, et **tout** accès passe
+  par lui, les lectures comprises. Le plus sûr est de les ranger ensemble dans une classe, données privées :
+
+  ```cpp
+  class Compte {
+  public:
+      void deposer(int montant) {
+          std::lock_guard garde{verrou_};
+          solde_ += montant;
+      }
+      int solde() const {
+          std::lock_guard garde{verrou_};
+          return solde_;
+      }
+  private:
+      mutable std::mutex verrou_;    // mutable : verrouillable dans une fonction const
+      int solde_ = 0;
+  };
+  ```
+
+  **Garder la section critique courte.** Pendant qu'un thread tient le verrou, les autres attendent. On n'y fait
+  ni entrée-sortie, ni calcul long : on copie ce qu'il faut, on relâche, puis on travaille.
+
+  **Les pièges.**
+
+  - Verrouiller **deux fois** le même `std::mutex` dans le même thread : comportement indéfini, le plus souvent un
+    blocage définitif.
+  - Renvoyer une **référence** ou un pointeur vers la donnée protégée : l'appelant y accède hors du verrou.
+  - Écrire `std::lock_guard{verrou};` **sans nom** : c'est un temporaire, détruit à la fin de la ligne.
+  - Un mutex ne se copie pas, ni ne se déplace : une classe qui en contient un non plus.
+
+  **En entretien** : « Un mutex garantit l'exclusion mutuelle. Je ne l'appelle jamais à la main : `std::lock_guard`
+  ou `std::scoped_lock` le relâchent dans leur destructeur, même en cas d'exception. Et je garde la section
+  critique la plus courte possible. »
+cards:
+  - key: role
+    format: course
+    question: "Que garantit un `std::mutex` ?"
+    choices:
+      - {text: "Un seul thread à la fois peut le tenir ; les autres attendent", correct: true}
+      - {text: "Les threads s'exécutent dans l'ordre de leur création", correct: false}
+      - {text: "Les variables qu'il protège ne peuvent plus être modifiées", correct: false}
+      - {text: "Les threads qui l'attendent sont arrêtés définitivement", correct: false}
+    answer: "C'est l'exclusion mutuelle. Le code encadré par le verrou n'est exécuté que par un thread à la fois."
+  - key: lock-guard
+    format: course
+    question: "Pourquoi préférer `std::lock_guard` aux appels `lock()` et `unlock()` ?"
+    choices:
+      - {text: "Son destructeur déverrouille, même si une exception quitte le bloc", correct: true}
+      - {text: "Son constructeur verrouille plus vite que la fonction `lock()`", correct: false}
+      - {text: "Son destructeur vérifie qu'aucune course aux données n'a eu lieu", correct: false}
+      - {text: "Son constructeur permet à plusieurs threads de tenir le verrou", correct: false}
+    answer: "C'est RAII appliqué au verrou. Avec `lock()` et `unlock()` à la main, un `return` ou une exception entre les deux laisse le mutex verrouillé pour toujours."
+  - key: donnees
+    format: course
+    question: "Que veut dire « un mutex protège des données, pas du code » ?"
+    choices:
+      - {text: "Chaque accès à la donnée, lecture comprise, doit se faire sous le même mutex", correct: true}
+      - {text: "Le mutex chiffre la donnée tant qu'il est verrouillé", correct: false}
+      - {text: "Le mutex n'a d'effet que sur les variables déclarées juste après lui", correct: false}
+      - {text: "Le mutex empêche le compilateur d'optimiser le code qu'il encadre", correct: false}
+    answer: "Le mutex ne sait pas ce qu'il protège : c'est une convention. Un seul accès oublié, même en lecture, rétablit la course aux données."
+  - key: section-courte
+    format: course
+    question: "Pourquoi garde-t-on une section critique aussi courte que possible ?"
+    choices:
+      - {text: "Tant qu'un thread tient le verrou, les autres attendent", correct: true}
+      - {text: "Un mutex se déverrouille seul au bout de quelques millisecondes", correct: false}
+      - {text: "Un mutex tenu trop longtemps lève une exception", correct: false}
+      - {text: "Un mutex ne protège que les dix premières instructions", correct: false}
+    answer: "Le verrou sérialise les threads. Une entrée-sortie ou un long calcul sous verrou annule le bénéfice du parallélisme."
+  - key: vf-double-verrouillage
+    format: true-false
+    question: "Un thread peut verrouiller deux fois de suite le même `std::mutex` sans problème."
+    truth: false
+    answer: "C'est un comportement indéfini, le plus souvent un blocage définitif. `std::recursive_mutex` le permet, mais signale en général un défaut de conception."
+  - key: vf-copie
+    format: true-false
+    question: "Un `std::mutex` peut être copié."
+    truth: false
+    answer: "Ni copié, ni déplacé. Une classe qui en contient un perd donc sa copie par défaut."
+  - key: vf-lectures
+    format: true-false
+    question: "Une donnée protégée par un mutex peut être lue sans verrouiller, tant qu'on ne l'écrit pas."
+    truth: false
+    answer: "Si un autre thread l'écrit pendant ce temps, c'est une course aux données. Les lectures passent aussi par le verrou."
+  - key: vf-scoped-lock
+    format: true-false
+    question: "`std::scoped_lock` peut verrouiller plusieurs mutex à la fois."
+    truth: true
+    answer: "Il les acquiert tous sans risque d'interblocage, et les relâche dans son destructeur."
+  - key: qcm-garde-simple
+    format: multiple-choice
+    question: "Quelle ligne verrouille `verrou` jusqu'à la fin du bloc ?"
+    choices:
+      - {text: "`std::lock_guard garde{verrou};`", correct: true}
+      - {text: "`std::lock_guard{verrou};`", correct: false}
+      - {text: "`std::mutex garde{verrou};`", correct: false}
+      - {text: "`verrou.lock_guard();`", correct: false}
+    answer: "La garde doit avoir un nom. Sans nom, c'est un objet temporaire, détruit à la fin de la ligne : le verrou est relâché aussitôt."
+  - key: qcm-condition-variable
+    format: multiple-choice
+    question: "Quelle garde peut être déverrouillée puis reverrouillée avant la fin du bloc ?"
+    choices:
+      - {text: "`std::unique_lock`", correct: true}
+      - {text: "`std::lock_guard`", correct: false}
+      - {text: "`std::scoped_lock`", correct: false}
+      - {text: "`std::mutex`", correct: false}
+    answer: "`std::unique_lock` offre `unlock()` et `lock()`. C'est la garde qu'exige `std::condition_variable`."
+  - key: qcm-const
+    format: multiple-choice
+    question: "Une fonction membre `const` doit verrouiller le mutex de l'objet. Comment déclares-tu ce mutex ?"
+    choices:
+      - {text: "`mutable std::mutex verrou_;`", correct: true}
+      - {text: "`const std::mutex verrou_;`", correct: false}
+      - {text: "`static std::mutex verrou_;`", correct: false}
+      - {text: "`volatile std::mutex verrou_;`", correct: false}
+    answer: "Verrouiller modifie le mutex. `mutable` l'autorise dans une fonction `const` : l'état logique de l'objet ne change pas."
+  - key: qcm-en-tete
+    format: multiple-choice
+    question: "Quel en-tête déclare `std::mutex` et `std::lock_guard` ?"
+    choices:
+      - {text: "`<mutex>`", correct: true}
+      - {text: "`<thread>`", correct: false}
+      - {text: "`<lock>`", correct: false}
+      - {text: "`<atomic>`", correct: false}
+    answer: "`<mutex>` déclare les mutex et leurs gardes."
+  - key: trous-lock-guard
+    format: fill-in
+    question: |-
+      Complète pour verrouiller jusqu'à la fin de la fonction :
+      ```cpp
+      void deposer(int montant) {
+          std::___ garde{verrou};
+          solde += montant;
+      }
+      ```
+    blanks:
+      - [lock_guard, scoped_lock]
+    answer: "`std::lock_guard` verrouille à sa construction, et déverrouille à sa destruction. `std::scoped_lock` convient aussi."
+  - key: trous-mutable
+    format: fill-in
+    question: |-
+      Complète pour que le mutex soit verrouillable dans une fonction membre `const` :
+      ```cpp
+      class Compte {
+          ___ std::mutex verrou_;
+          int solde_ = 0;
+      };
+      ```
+    blanks:
+      - [mutable]
+    answer: "`mutable` permet de modifier ce membre dans une fonction `const`."
+  - key: trous-scoped-lock
+    format: fill-in
+    question: |-
+      Complète pour verrouiller les deux mutex ensemble, sans risque d'interblocage :
+      ```cpp
+      std::___ garde{verrou_a, verrou_b};
+      ```
+    blanks:
+      - [scoped_lock]
+    answer: "`std::scoped_lock` (C++17) accepte plusieurs mutex."
+  - key: trous-include
+    format: fill-in
+    question: |-
+      Complète l'en-tête à inclure :
+      ```cpp
+      #include <___>
+
+      std::mutex verrou;
+      ```
+    blanks:
+      - [mutex]
+    answer: "`std::mutex` est déclaré dans `<mutex>`."
+  - key: code-compteur
+    format: code-output
+    question: |-
+      ```cpp
+      #include <mutex>
+      #include <print>
+      #include <thread>
+
+      int main() {
+          std::mutex verrou;
+          int total = 0;
+          auto ajouter = [&](int n) {
+              for (int i = 0; i < n; ++i) {
+                  std::lock_guard garde{verrou};
+                  ++total;
+              }
+          };
+          std::thread a{ajouter, 300};
+          std::thread b{ajouter, 200};
+          a.join();
+          b.join();
+          std::println("{}", total);
+      }
+      ```
+    choices:
+      - {text: "`500`", correct: true}
+      - {text: "`300`", correct: false}
+      - {text: "Un nombre inférieur à 500, selon l'exécution", correct: false}
+      - {text: "`200`", correct: false}
+    answer: "`500` : chaque incrémentation se fait sous le verrou. Aucune ne se perd, quel que soit l'ordre des threads."
+    check:
+      output: "500"
+  - key: code-portee
+    format: code-output
+    question: |-
+      ```cpp
+      #include <mutex>
+      #include <print>
+
+      int main() {
+          std::mutex verrou;
+          std::unique_lock garde{verrou};
+          std::print("{} ", garde.owns_lock());
+          garde.unlock();
+          std::print("{} ", garde.owns_lock());
+          garde.lock();
+          std::println("{}", garde.owns_lock());
+      }
+      ```
+    choices:
+      - {text: "`true false true`", correct: true}
+      - {text: "`true true true`", correct: false}
+      - {text: "`false false true`", correct: false}
+      - {text: "`true false false`", correct: false}
+    answer: "`true false true` : `std::unique_lock` verrouille à sa construction, et peut être déverrouillé puis reverrouillé. `owns_lock()` dit s'il tient le mutex."
+    check:
+      output: "true false true"
+  - key: code-exception
+    format: code-output
+    question: |-
+      ```cpp
+      #include <mutex>
+      #include <print>
+      #include <stdexcept>
+
+      std::mutex verrou;
+
+      void traiter() {
+          std::lock_guard garde{verrou};
+          throw std::runtime_error{"panne"};
+      }
+
+      int main() {
+          try {
+              traiter();
+          } catch (const std::runtime_error&) {
+              std::print("erreur ");
+          }
+          std::lock_guard garde{verrou};
+          std::println("verrouillé de nouveau");
+      }
+      ```
+    choices:
+      - {text: "`erreur verrouillé de nouveau`", correct: true}
+      - {text: "`erreur`, puis le programme se fige", correct: false}
+      - {text: "`verrouillé de nouveau`", correct: false}
+      - {text: "Rien : le programme se fige", correct: false}
+    answer: "`erreur verrouillé de nouveau` : l'exception détruit la garde, qui relâche le mutex. `main` peut le verrouiller de nouveau."
+    check:
+      output: "erreur verrouillé de nouveau"
+  - key: code-classe
+    format: code-output
+    question: |-
+      ```cpp
+      #include <mutex>
+      #include <print>
+      #include <thread>
+
+      class Compte {
+      public:
+          void deposer(int montant) {
+              std::lock_guard garde{verrou_};
+              solde_ += montant;
+          }
+          int solde() const {
+              std::lock_guard garde{verrou_};
+              return solde_;
+          }
+
+      private:
+          mutable std::mutex verrou_;
+          int solde_ = 0;
+      };
+
+      int main() {
+          Compte compte;
+          std::thread a{[&compte] { compte.deposer(30); }};
+          std::thread b{[&compte] { compte.deposer(12); }};
+          a.join();
+          b.join();
+          std::println("{}", compte.solde());
+      }
+      ```
+    choices:
+      - {text: "`42`", correct: true}
+      - {text: "`30`", correct: false}
+      - {text: "`12`", correct: false}
+      - {text: "`30` ou `12`, selon l'exécution", correct: false}
+    answer: "`42` : les deux dépôts passent l'un après l'autre sous le verrou de l'objet. Leur ordre ne change pas la somme."
+    check:
+      output: "42"
+  - key: bug-unlock-saute
+    format: bug-fix
+    question: |-
+      Après un retrait refusé, tous les threads se figent : le mutex n'est jamais relâché. Quelle correction est la
+      bonne ?
+      ```cpp
+      #include <mutex>
+      #include <print>
+
+      std::mutex verrou;
+      int solde = 10;
+
+      bool retirer(int montant) {
+          verrou.lock();
+          if (montant > solde) {
+              return false;
+          }
+          solde -= montant;
+          verrou.unlock();
+          return true;
+      }
+
+      int main() {
+          std::println("{}", retirer(50));
+          std::println("{}", retirer(5));
+      }
+      ```
+    choices:
+      - {text: "Remplacer `lock()` et `unlock()` par un `std::lock_guard garde{verrou};`", correct: true}
+      - {text: "Appeler `verrou.lock();` une seconde fois, juste avant `return false;`", correct: false}
+      - {text: "Déclarer la variable `solde` avec `std::atomic<int>`, sans toucher au verrou", correct: false}
+      - {text: "Déclarer le mutex `verrou` comme variable locale de la fonction `retirer`", correct: false}
+    answer: |-
+      ```cpp
+      bool retirer(int montant) {
+          std::lock_guard garde{verrou};
+          if (montant > solde) {
+              return false;
+          }
+          solde -= montant;
+          return true;
+      }
+      ```
+      Le `return false` saute `unlock()`. La garde déverrouille dans son destructeur, sur tous les chemins de
+      sortie.
+  - key: bug-garde-sans-nom
+    format: bug-fix
+    question: |-
+      Ce code croit protéger `total`, mais le verrou est relâché avant l'incrémentation. Quelle correction est la
+      bonne ?
+      ```cpp
+      #include <mutex>
+      #include <print>
+      #include <thread>
+
+      int main() {
+          std::mutex verrou;
+          int total = 0;
+          auto travail = [&] {
+              for (int i = 0; i < 1000; ++i) {
+                  std::lock_guard<std::mutex>{verrou};
+                  ++total;
+              }
+          };
+          std::thread a{travail};
+          std::thread b{travail};
+          a.join();
+          b.join();
+          std::println("{}", total);
+      }
+      ```
+    choices:
+      - {text: "Donner un nom à la garde : `std::lock_guard<std::mutex> garde{verrou};`", correct: true}
+      - {text: "Placer la garde après l'incrémentation, à la fin du corps de la boucle", correct: false}
+      - {text: "Remplacer la garde par un appel à `verrou.try_lock();`", correct: false}
+      - {text: "Déclarer le mutex `verrou` à l'intérieur de la lambda", correct: false}
+    answer: |-
+      ```cpp
+      std::lock_guard<std::mutex> garde{verrou};
+      ```
+      Sans nom, la garde est un temporaire : construite et détruite sur la même ligne. Le mutex est déjà relâché
+      quand `++total` s'exécute. Avec un nom, elle vit jusqu'à la fin du bloc.
+  - key: bug-reference-qui-fuit
+    format: bug-fix
+    question: |-
+      Cette classe protège son vecteur par un mutex, mais ses utilisateurs provoquent quand même des courses aux
+      données. Quelle correction est la bonne ?
+      ```cpp
+      #include <mutex>
+      #include <vector>
+
+      class Journal {
+      public:
+          void ajouter(int ligne) {
+              std::lock_guard garde{verrou_};
+              lignes_.push_back(ligne);
+          }
+          std::vector<int>& lignes() {
+              std::lock_guard garde{verrou_};
+              return lignes_;
+          }
+
+      private:
+          std::mutex verrou_;
+          std::vector<int> lignes_;
+      };
+
+      int main() {
+          Journal journal;
+          journal.ajouter(1);
+          return journal.lignes().size() == 1 ? 0 : 1;
+      }
+      ```
+    choices:
+      - {text: "Renvoyer une copie : `std::vector<int> lignes()`", correct: true}
+      - {text: "Renvoyer une référence constante : `const std::vector<int>& lignes()`", correct: false}
+      - {text: "Renvoyer un pointeur : `std::vector<int>* lignes()`", correct: false}
+      - {text: "Retirer la garde de `lignes()`, puisqu'elle ne fait que lire", correct: false}
+    answer: |-
+      ```cpp
+      std::vector<int> lignes() {
+          std::lock_guard garde{verrou_};
+          return lignes_;
+      }
+      ```
+      La garde est détruite au `return` : l'appelant tient alors une référence vers le vecteur, hors du verrou.
+      Une référence constante ou un pointeur ont le même défaut. La copie est faite sous le verrou.
+  - key: bug-lecture-sans-verrou
+    format: bug-fix
+    question: |-
+      Les écritures sont protégées, mais la lecture ne l'est pas : c'est une course aux données. Quelle correction
+      est la bonne ?
+      ```cpp
+      #include <mutex>
+      #include <print>
+      #include <thread>
+
+      std::mutex verrou;
+      int solde = 0;
+
+      void deposer(int montant) {
+          std::lock_guard garde{verrou};
+          solde += montant;
+      }
+
+      int lire() {
+          return solde;
+      }
+
+      int main() {
+          std::thread t{deposer, 10};
+          std::println("{}", lire() >= 0);
+          t.join();
+      }
+      ```
+    choices:
+      - {text: "Verrouiller aussi dans `lire()`, avec un `std::lock_guard`", correct: true}
+      - {text: "Déclarer `lire()` avec le mot-clé `const`", correct: false}
+      - {text: "Déclarer `lire()` avec le mot-clé `noexcept`", correct: false}
+      - {text: "Renvoyer `const int&` depuis `lire()`", correct: false}
+    answer: |-
+      ```cpp
+      int lire() {
+          std::lock_guard garde{verrou};
+          return solde;
+      }
+      ```
+      Une lecture pendant une écriture, sans synchronisation, est une course. Le mutex doit encadrer **tous** les
+      accès à la donnée.
+  - key: situation-section-longue
+    format: scenario
+    question: |-
+      Un service à seize threads n'utilise qu'un cœur. Chaque requête verrouille un mutex global, lit une
+      configuration partagée, puis fait un appel réseau de 200 ms, toujours sous le verrou. Que proposes-tu ?
+    choices:
+      - {text: "Copier la configuration sous le verrou, le relâcher, puis faire l'appel réseau", correct: true}
+      - {text: "Supprimer le mutex : une configuration n'a pas besoin de protection", correct: false}
+      - {text: "Lancer trente-deux threads, pour que plus de requêtes attendent le verrou", correct: false}
+      - {text: "Remplacer le mutex par un `std::recursive_mutex`, plus rapide", correct: false}
+    answer: |-
+      Le verrou sérialise tout ce qu'il encadre : seize threads attendent un seul appel réseau. La section critique
+      ne doit contenir que l'accès aux données partagées. On copie, on relâche, on travaille.
+  - key: situation-exception
+    format: scenario
+    question: |-
+      Un programme se fige de temps en temps. Le code fait `m.lock();`, appelle une fonction de traitement, puis
+      `m.unlock();`. Le traitement lance parfois une exception, attrapée plus haut. Quelle est la cause ?
+    choices:
+      - {text: "L'exception saute `unlock()` : le mutex reste verrouillé, et les autres threads attendent sans fin", correct: true}
+      - {text: "L'exception détruit le mutex, et les autres threads verrouillent un objet qui n'existe plus", correct: false}
+      - {text: "L'exception est attrapée deux fois, et le mutex est déverrouillé deux fois de suite", correct: false}
+      - {text: "L'exception ralentit le thread, qui garde le mutex jusqu'à la fin du programme", correct: false}
+    answer: |-
+      C'est le cas d'école du verrou manuel. `std::lock_guard` règle le problème : le déroulement de la pile appelle
+      son destructeur, qui déverrouille.
+  - key: situation-lectures-nombreuses
+    format: scenario
+    question: |-
+      Une table de configuration est lue des milliers de fois par seconde par vingt threads, et modifiée une fois
+      par heure. Le mutex qui la protège fait attendre les lecteurs les uns derrière les autres. Que proposes-tu ?
+    choices:
+      - {text: "Un `std::shared_mutex` : lectures simultanées, écriture exclusive", correct: true}
+      - {text: "La suppression du verrou pour les lectures, gardé pour l'écriture", correct: false}
+      - {text: "Un `std::recursive_mutex`, que plusieurs threads peuvent tenir", correct: false}
+      - {text: "Un mutex par thread, pour que personne n'attende", correct: false}
+    answer: |-
+      `std::shared_mutex` distingue deux modes : `std::shared_lock` pour les lecteurs, qui passent ensemble, et
+      `std::unique_lock` pour l'écrivain, seul. Lire sans verrou pendant une écriture resterait une course.
+  - key: situation-deux-operations
+    format: scenario
+    question: |-
+      Une classe `Compte` verrouille son mutex dans `solde()` et dans `retirer()`. Un appelant écrit
+      `if (compte.solde() >= 100) compte.retirer(100);`, et le compte passe parfois en négatif. Pourquoi ?
+    choices:
+      - {text: "Un autre thread peut retirer entre le test et le retrait : il faut une seule opération sous verrou", correct: true}
+      - {text: "Le mutex est verrouillé deux fois par le même thread, ce qui annule sa protection", correct: false}
+      - {text: "La fonction `solde()` renvoie une valeur périmée, car elle est déclarée `const`", correct: false}
+      - {text: "Le compilateur réordonne le test et le retrait, puisqu'ils sont sur la même ligne", correct: false}
+    answer: |-
+      Chaque fonction est sûre, mais leur enchaînement ne l'est pas : le verrou est relâché entre les deux. Il faut
+      une fonction `retirer_si_possible(montant)` qui teste et retire sous un seul verrouillage.

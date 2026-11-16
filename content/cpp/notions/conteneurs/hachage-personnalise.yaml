@@ -1,0 +1,493 @@
+notion: hachage-personnalise
+lesson: |-
+  Pour servir de clé à une `std::unordered_map` ou d'élément à un `std::unordered_set`, un type doit fournir deux
+  choses :
+
+  1. une **fonction de hachage**, qui transforme la valeur en un `std::size_t` ;
+  2. une **égalité** (`operator==`), qui distingue deux clés tombées dans la même case.
+
+  Les types fondamentaux, les pointeurs, `std::string` et `std::string_view` ont déjà un hachage : `std::hash<T>`.
+  Un type à soi n'en a pas : sans lui, la table **ne compile pas**. (`std::pair` et `std::tuple` n'en ont pas non
+  plus.)
+
+  **Première façon : spécialiser `std::hash`.**
+
+  ```cpp
+  struct Point {
+      int x;
+      int y;
+      bool operator==(const Point&) const = default;
+  };
+
+  template <>
+  struct std::hash<Point> {
+      std::size_t operator()(const Point& p) const noexcept {
+          return std::hash<int>{}(p.x) ^ (std::hash<int>{}(p.y) << 1);
+      }
+  };
+
+  std::unordered_set<Point> points;      // fonctionne tel quel
+  ```
+
+  **Seconde façon : passer un foncteur à la table.** Utile quand on ne veut pas, ou ne peut pas, toucher à `std`.
+
+  ```cpp
+  struct HachagePoint {
+      std::size_t operator()(const Point& p) const noexcept { /* ... */ }
+  };
+
+  std::unordered_set<Point, HachagePoint> points;
+  std::unordered_map<Point, std::string, HachagePoint> noms;
+  ```
+
+  Le hachage est le **deuxième** argument de template de `std::unordered_set`, le **troisième** de
+  `std::unordered_map`. L'égalité vient ensuite ; par défaut, c'est `std::equal_to`, donc `operator==`.
+
+  **La règle à respecter.** Deux clés **égales** doivent avoir le **même hachage**. Sinon la table cherche dans la
+  mauvaise case, et ne retrouve pas ce qu'elle contient. Conséquence : le hachage ne s'appuie que sur les membres
+  que compare `operator==`, et sur tous si possible.
+
+  L'inverse n'est pas exigé : deux clés différentes **peuvent** avoir le même hachage. C'est une **collision**,
+  que `==` départage.
+
+  **Un bon hachage.**
+
+  - **Déterministe** : la même valeur donne toujours le même résultat.
+  - **Bien réparti** : des valeurs différentes donnent le plus souvent des résultats différents. Un hachage qui
+    renvoie toujours `0` est correct, mais transforme la table en liste : chaque recherche devient O(n).
+  - **Rapide**, et `noexcept`.
+
+  **Combiner plusieurs membres.** Un simple `^` est symétrique : `{1, 2}` et `{2, 1}` entrent en collision. On
+  décale, ou l'on mélange davantage (c'est ce que fait `boost::hash_combine`).
+
+  **Ne pas modifier une clé.** Une clé rangée dans la table ne doit plus changer de hachage. C'est pourquoi les
+  éléments d'un `std::unordered_set` sont constants.
+
+  **En entretien** : « Une clé de table de hachage demande un hachage et une égalité. Je spécialise `std::hash`
+  pour mon type, ou je passe un foncteur en argument de template. La règle : deux clés égales ont le même
+  hachage. Un mauvais hachage reste correct, mais dégrade la table en O(n). »
+cards:
+  - key: exigences
+    format: course
+    question: "Que faut-il fournir pour qu'un type `Point` serve de clé à une `std::unordered_map` ?"
+    choices:
+      - {text: "Une fonction de hachage, et une égalité `operator==`", correct: true}
+      - {text: "Un `operator<`, et un constructeur par défaut", correct: false}
+      - {text: "Une conversion vers `std::string`, et un `operator<`", correct: false}
+      - {text: "Un destructeur virtuel, et une égalité `operator==`", correct: false}
+    answer: "Le hachage désigne la case ; l'égalité départage les clés d'une même case. `operator<` est ce que demande `std::map`."
+  - key: regle
+    format: course
+    question: "Quelle règle lie le hachage et l'égalité d'un type ?"
+    choices:
+      - {text: "Deux valeurs égales doivent avoir le même hachage", correct: true}
+      - {text: "Deux valeurs différentes doivent avoir des hachages différents", correct: false}
+      - {text: "Deux valeurs de même hachage doivent être égales", correct: false}
+      - {text: "Le hachage doit croître avec la valeur", correct: false}
+    answer: "Sinon, la table cherche une clé dans une autre case que celle où elle l'a rangée. Deux valeurs différentes peuvent, elles, partager un hachage : c'est une collision."
+  - key: deux-facons
+    format: course
+    question: "Comment donnes-tu un hachage à ton type sans spécialiser `std::hash` ?"
+    choices:
+      - {text: "En passant un foncteur de hachage en argument de template de la table", correct: true}
+      - {text: "En ajoutant au type une fonction membre nommée `hash`", correct: false}
+      - {text: "En faisant hériter le type de `std::hash`", correct: false}
+      - {text: "En déclarant le type avec le mot-clé `hashable`", correct: false}
+    answer: "`std::unordered_set<Point, HachagePoint>` : le foncteur a un `operator()` qui renvoie un `std::size_t`. La table n'appelle jamais une fonction membre `hash`."
+  - key: mauvais-hachage
+    format: course
+    question: "Que se passe-t-il si un hachage renvoie toujours `0` ?"
+    choices:
+      - {text: "La table reste correcte, mais chaque recherche devient linéaire", correct: true}
+      - {text: "La table ne garde qu'un seul élément, les autres sont écrasés", correct: false}
+      - {text: "La table lève une exception à la deuxième insertion", correct: false}
+      - {text: "La table refuse de compiler", correct: false}
+    answer: "Toutes les clés tombent dans la même case, où `==` les distingue une par une. Rien n'est perdu, sauf la vitesse : O(n) au lieu de O(1)."
+  - key: vf-pair
+    format: true-false
+    question: "`std::pair<int, int>` peut servir de clé à une `std::unordered_map` sans rien écrire."
+    truth: false
+    answer: "La bibliothèque standard ne fournit pas de `std::hash` pour `std::pair`. Il faut un foncteur de hachage, ou une `std::map`."
+  - key: vf-collision
+    format: true-false
+    question: "Deux clés différentes peuvent avoir le même hachage."
+    truth: true
+    answer: "C'est une collision, un cas normal : l'égalité les départage."
+  - key: vf-string
+    format: true-false
+    question: "`std::string` a déjà une spécialisation de `std::hash`."
+    truth: true
+    answer: "Comme les types fondamentaux, les pointeurs et `std::string_view`."
+  - key: vf-membres
+    format: true-false
+    question: "Le hachage peut s'appuyer sur un membre que `operator==` ne compare pas."
+    truth: false
+    answer: "Deux objets égaux pourraient alors avoir des hachages différents, et la table ne retrouverait plus ses clés."
+  - key: qcm-type-retour
+    format: multiple-choice
+    question: "Quel type renvoie l'`operator()` d'un foncteur de hachage ?"
+    choices:
+      - {text: "`std::size_t`", correct: true}
+      - {text: "`bool`", correct: false}
+      - {text: "`std::string`", correct: false}
+      - {text: "`double`", correct: false}
+    answer: "Un entier non signé, que la table ramène ensuite à un numéro de case."
+  - key: qcm-position
+    format: multiple-choice
+    question: "Quelle déclaration passe le foncteur `HachagePoint` à une table dont la clé est `Point` ?"
+    choices:
+      - {text: "`std::unordered_map<Point, int, HachagePoint>`", correct: true}
+      - {text: "`std::unordered_map<Point, HachagePoint, int>`", correct: false}
+      - {text: "`std::unordered_map<HachagePoint, Point, int>`", correct: false}
+      - {text: "`std::unordered_map<Point, int>(HachagePoint)`", correct: false}
+    answer: "Dans l'ordre : la clé, la valeur, le hachage, puis l'égalité. Pour `std::unordered_set`, le hachage est le deuxième argument."
+  - key: qcm-hacher-int
+    format: multiple-choice
+    question: "Quelle expression calcule le hachage standard de l'entier `n` ?"
+    choices:
+      - {text: "`std::hash<int>{}(n)`", correct: true}
+      - {text: "`std::hash(n)`", correct: false}
+      - {text: "`n.hash()`", correct: false}
+      - {text: "`std::hash<int>::of(n)`", correct: false}
+    answer: "`std::hash<int>` est une classe : on en crée un objet avec `{}`, puis on l'appelle."
+  - key: qcm-symetrie
+    format: multiple-choice
+    question: "Pourquoi évite-t-on de combiner deux membres par un simple `h(x) ^ h(y)` ?"
+    choices:
+      - {text: "`{1, 2}` et `{2, 1}` auraient le même hachage", correct: true}
+      - {text: "L'opérateur `^` n'existe pas pour `std::size_t`", correct: false}
+      - {text: "Le résultat pourrait être négatif", correct: false}
+      - {text: "Le calcul serait trop lent", correct: false}
+    answer: "Le ou exclusif est symétrique, et `h(x) ^ h(x)` vaut toujours 0. On décale l'un des deux, ou l'on mélange davantage."
+  - key: trous-hash
+    format: fill-in
+    question: |-
+      Complète pour spécialiser le hachage standard pour `Point` :
+      ```cpp
+      template <>
+      struct std::___<Point> {
+          std::size_t operator()(const Point& p) const noexcept;
+      };
+      ```
+    blanks:
+      - [hash]
+    answer: "`std::hash<Point>` est la spécialisation que cherchent les conteneurs `unordered_`."
+  - key: trous-size-t
+    format: fill-in
+    question: |-
+      Complète le type de retour du foncteur de hachage :
+      ```cpp
+      struct HachagePoint {
+          std::___ operator()(const Point& p) const noexcept;
+      };
+      ```
+    blanks:
+      - [size_t]
+    answer: "Un hachage est un `std::size_t`."
+  - key: trous-egalite
+    format: fill-in
+    question: |-
+      Complète pour que le compilateur génère l'égalité membre à membre :
+      ```cpp
+      struct Point {
+          int x;
+          int y;
+          bool operator==(const Point&) const = ___;
+      };
+      ```
+    blanks:
+      - [default]
+    answer: "`= default` génère la comparaison de tous les membres, dans l'ordre."
+  - key: trous-foncteur
+    format: fill-in
+    question: |-
+      Complète pour que l'ensemble utilise le foncteur `HachagePoint` :
+      ```cpp
+      std::unordered_set<Point, ___> points;
+      ```
+    blanks:
+      - [HachagePoint]
+    answer: "Le hachage est le deuxième argument de template de `std::unordered_set`."
+  - key: code-specialisation
+    format: code-output
+    question: |-
+      ```cpp
+      #include <functional>
+      #include <print>
+      #include <unordered_set>
+
+      struct Point {
+          int x;
+          int y;
+          bool operator==(const Point&) const = default;
+      };
+
+      template <>
+      struct std::hash<Point> {
+          std::size_t operator()(const Point& p) const noexcept {
+              return std::hash<int>{}(p.x) ^ (std::hash<int>{}(p.y) << 1);
+          }
+      };
+
+      int main() {
+          std::unordered_set<Point> points{{1, 2}, {2, 1}, {1, 2}};
+          std::println("{} {}", points.size(), points.contains(Point{2, 1}));
+      }
+      ```
+    choices:
+      - {text: "`2 true`", correct: true}
+      - {text: "`3 true`", correct: false}
+      - {text: "`1 true`", correct: false}
+      - {text: "`2 false`", correct: false}
+    answer: "`2 true` : `{1, 2}` apparaît deux fois, et l'ensemble n'en garde qu'un. `{2, 1}` est un autre point, que `==` distingue."
+    check:
+      output: "2 true"
+  - key: code-hachage-constant
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+      #include <unordered_set>
+
+      struct Constant {
+          std::size_t operator()(int) const noexcept { return 0; }
+      };
+
+      int main() {
+          std::unordered_set<int, Constant> s{4, 8, 15, 8};
+          std::println("{} {} {}", s.size(), s.contains(15), s.contains(16));
+      }
+      ```
+    choices:
+      - {text: "`3 true false`", correct: true}
+      - {text: "`1 true true`", correct: false}
+      - {text: "`1 false false`", correct: false}
+      - {text: "`4 true false`", correct: false}
+    answer: "`3 true false` : un hachage constant met tout dans la même case, mais `==` distingue les valeurs. L'ensemble reste correct ; il est seulement lent."
+    check:
+      output: "3 true false"
+  - key: code-foncteur
+    format: code-output
+    question: |-
+      ```cpp
+      #include <functional>
+      #include <print>
+      #include <string>
+      #include <unordered_map>
+
+      struct Cle {
+          std::string nom;
+          int version;
+          bool operator==(const Cle&) const = default;
+      };
+
+      struct HachageCle {
+          std::size_t operator()(const Cle& c) const noexcept {
+              return std::hash<std::string>{}(c.nom) ^ (std::hash<int>{}(c.version) << 1);
+          }
+      };
+
+      int main() {
+          std::unordered_map<Cle, int, HachageCle> m;
+          m[Cle{"app", 1}] = 10;
+          m[Cle{"app", 2}] = 20;
+          m[Cle{"app", 1}] = 30;
+          std::println("{} {}", m.size(), m.at(Cle{"app", 1}));
+      }
+      ```
+    choices:
+      - {text: "`2 30`", correct: true}
+      - {text: "`3 30`", correct: false}
+      - {text: "`2 10`", correct: false}
+      - {text: "`1 30`", correct: false}
+    answer: "`2 30` : `{\"app\", 1}` est la même clé les deux fois : sa valeur est remplacée. `{\"app\", 2}` en est une autre."
+    check:
+      output: "2 30"
+  - key: code-egalite-partielle
+    format: code-output
+    question: |-
+      ```cpp
+      #include <functional>
+      #include <print>
+      #include <unordered_set>
+
+      struct Produit {
+          int reference;
+          int prix;
+          bool operator==(const Produit& autre) const { return reference == autre.reference; }
+      };
+
+      struct HachageProduit {
+          std::size_t operator()(const Produit& p) const noexcept { return std::hash<int>{}(p.reference); }
+      };
+
+      int main() {
+          std::unordered_set<Produit, HachageProduit> s;
+          s.insert(Produit{7, 100});
+          s.insert(Produit{7, 250});
+          s.insert(Produit{8, 100});
+          std::println("{} {}", s.size(), s.find(Produit{7, 0})->prix);
+      }
+      ```
+    choices:
+      - {text: "`2 100`", correct: true}
+      - {text: "`3 100`", correct: false}
+      - {text: "`2 250`", correct: false}
+      - {text: "`2 0`", correct: false}
+    answer: "`2 100` : l'égalité ne regarde que la référence. Le second produit 7 est donc « déjà présent », et `insert` garde le premier, à 100."
+    check:
+      output: "2 100"
+  - key: bug-sans-hachage
+    format: bug-fix
+    question: |-
+      Le compilateur refuse de construire cet ensemble : « use of deleted function », suivi d'une note sur
+      `std::hash<Point>`. Quelle correction est la bonne ?
+      ```cpp
+      #include <print>
+      #include <unordered_set>
+
+      struct Point {
+          int x;
+          int y;
+          bool operator==(const Point&) const = default;
+      };
+
+      int main() {
+          std::unordered_set<Point> points;
+          points.insert(Point{1, 2});
+          std::println("{}", points.size());
+      }
+      ```
+    choices:
+      - {text: "Écrire une spécialisation de `std::hash<Point>`, avant `main`", correct: true}
+      - {text: "Écrire un `operator<` dans la struct `Point`", correct: false}
+      - {text: "Retirer l'`operator==` de la struct `Point`", correct: false}
+      - {text: "Appeler `points.reserve(1);` avant l'insertion", correct: false}
+    answer: |-
+      ```cpp
+      template <>
+      struct std::hash<Point> {
+          std::size_t operator()(const Point& p) const noexcept {
+              return std::hash<int>{}(p.x) ^ (std::hash<int>{}(p.y) << 1);
+          }
+      };
+      ```
+      Un conteneur `unordered_` a besoin d'un hachage, que `Point` n'a pas. `operator<` servirait à un `std::set`.
+  - key: bug-sans-egalite
+    format: bug-fix
+    question: |-
+      Le hachage est fourni, mais le compilateur répond « no match for 'operator==' (operand types are 'const
+      Point' and 'const Point') ». Quelle correction est la bonne ?
+      ```cpp
+      #include <functional>
+      #include <print>
+      #include <unordered_set>
+
+      struct Point {
+          int x;
+          int y;
+      };
+
+      struct HachagePoint {
+          std::size_t operator()(const Point& p) const noexcept {
+              return std::hash<int>{}(p.x) ^ (std::hash<int>{}(p.y) << 1);
+          }
+      };
+
+      int main() {
+          std::unordered_set<Point, HachagePoint> points;
+          points.insert(Point{1, 2});
+          std::println("{}", points.size());
+      }
+      ```
+    choices:
+      - {text: "Ajouter à `Point` : `bool operator==(const Point&) const = default;`", correct: true}
+      - {text: "Ajouter à `Point` : `bool operator<(const Point&) const = default;`", correct: false}
+      - {text: "Ajouter à `HachagePoint` un second `operator()` à deux paramètres", correct: false}
+      - {text: "Retirer `noexcept` de l'`operator()` de `HachagePoint`", correct: false}
+    answer: |-
+      ```cpp
+      struct Point {
+          int x;
+          int y;
+          bool operator==(const Point&) const = default;
+      };
+      ```
+      La table compare les clés d'une même case avec `==`. Le hachage seul ne suffit pas.
+  - key: bug-hachage-incoherent
+    format: bug-fix
+    question: |-
+      Ce programme devrait afficher `true` : les deux produits sont égaux, puisqu'ils ont la même référence. Il
+      affiche `false`. Quelle correction est la bonne ?
+      ```cpp
+      #include <functional>
+      #include <print>
+      #include <unordered_set>
+
+      struct Produit {
+          int reference;
+          int prix;
+          bool operator==(const Produit& autre) const { return reference == autre.reference; }
+      };
+
+      struct HachageProduit {
+          std::size_t operator()(const Produit& p) const noexcept { return std::hash<int>{}(p.prix); }
+      };
+
+      int main() {
+          std::unordered_set<Produit, HachageProduit> s;
+          s.insert(Produit{7, 100});
+          std::println("{}", s.contains(Produit{7, 250}));
+      }
+      ```
+    choices:
+      - {text: "Hacher `p.reference`, le membre que compare `operator==`", correct: true}
+      - {text: "Hacher `p.prix + p.reference`, pour mêler les deux membres", correct: false}
+      - {text: "Renvoyer `p.prix` directement, sans passer par `std::hash`", correct: false}
+      - {text: "Déclarer l'`operator()` sans le mot-clé `noexcept`", correct: false}
+    answer: |-
+      ```cpp
+      std::size_t operator()(const Produit& p) const noexcept { return std::hash<int>{}(p.reference); }
+      ```
+      Deux produits égaux doivent avoir le même hachage. Ici, il dépend du prix, que l'égalité ignore : la table
+      cherche dans une autre case, et ne trouve rien.
+  - key: bug-position-foncteur
+    format: bug-fix
+    question: |-
+      Le compilateur refuse cette table : le foncteur de hachage n'est pas à la bonne place. Quelle correction est
+      la bonne ?
+      ```cpp
+      #include <functional>
+      #include <print>
+      #include <string>
+      #include <unordered_map>
+
+      struct Point {
+          int x;
+          int y;
+          bool operator==(const Point&) const = default;
+      };
+
+      struct HachagePoint {
+          std::size_t operator()(const Point& p) const noexcept {
+              return std::hash<int>{}(p.x) ^ (std::hash<int>{}(p.y) << 1);
+          }
+      };
+
+      int main() {
+          std::unordered_map<Point, HachagePoint, std::string> noms;
+          noms[Point{0, 0}] = "origine";
+          std::println("{}", noms.size());
+      }
+      ```
+    choices:
+      - {text: "Écrire `std::unordered_map<Point, std::string, HachagePoint>`", correct: true}
+      - {text: "Écrire `std::unordered_map<HachagePoint, Point, std::string>`", correct: false}
+      - {text: "Écrire `std::unordered_map<Point, std::string>`, sans le foncteur", correct: false}
+      - {text: "Écrire `std::unordered_map<std::string, Point, HachagePoint>`", correct: false}
+    answer: |-
+      ```cpp
+      std::unordered_map<Point, std::string, HachagePoint> noms;
+      ```
+      Les arguments sont, dans l'ordre : la clé, la valeur, le hachage. Sans le foncteur, la table chercherait
+      `std::hash<Point>`, qui n'existe pas.

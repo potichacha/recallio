@@ -1,0 +1,422 @@
+notion: error-code
+lesson: |-
+  Le système d'exploitation signale ses erreurs par des **numéros** : `ENOENT` (fichier absent), `EACCES` (accès
+  refusé)... `std::error_code`, de l'en-tête `<system_error>`, transporte un tel numéro sans le réduire à un simple
+  `int`.
+
+  **Ce qu'il contient.** Deux choses : une **valeur** entière, et une **catégorie**, qui dit d'où vient ce numéro
+  et sait le traduire en texte.
+
+  ```cpp
+  std::error_code ec = std::make_error_code(std::errc::no_such_file_or_directory);
+  ec.value();             // 2 sous Linux
+  ec.message();           // "No such file or directory"
+  ec.category().name();   // "generic"
+  ```
+
+  Un `std::error_code` construit par défaut vaut 0 : **pas d'erreur**. Converti en booléen, il est **vrai quand il
+  y a une erreur**.
+
+  ```cpp
+  if (ec) {
+      std::println("échec : {}", ec.message());
+  }
+  ```
+
+  **Les deux catégories courantes.**
+
+  - `std::generic_category()` : les codes **portables**, ceux de l'énumération `std::errc` (les `errno` de POSIX).
+  - `std::system_category()` : les codes **bruts** du système, différents sous Linux et sous Windows.
+
+  **Comparer de façon portable.** On ne compare pas `ec.value()` à un nombre : on compare l'objet à une valeur de
+  `std::errc`.
+
+  ```cpp
+  if (ec == std::errc::no_such_file_or_directory) { ... }
+  ```
+
+  La comparaison passe par la catégorie, qui sait qu'un code du système correspond à cette condition générique.
+
+  **Deux styles d'API.** Beaucoup de fonctions de la bibliothèque existent en deux versions, notamment dans
+  `<filesystem>` :
+
+  ```cpp
+  auto taille = std::filesystem::file_size(chemin);        // lance std::filesystem::filesystem_error
+  auto taille = std::filesystem::file_size(chemin, ec);    // ne lance pas : remplit ec
+  ```
+
+  La seconde convient quand l'échec est **courant** et traité sur place. Elle remet `ec` à zéro en cas de succès.
+  Encore faut-il **tester `ec`** : la valeur renvoyée en cas d'échec n'a pas de sens.
+
+  **`std::system_error`.** C'est l'exception qui **emballe** un `std::error_code`. Les threads, les mutex, le
+  système de fichiers la lancent. On retrouve le code avec `code()` :
+
+  ```cpp
+  try {
+      verrou.lock();
+  } catch (const std::system_error& e) {
+      if (e.code() == std::errc::resource_deadlock_would_occur) { ... }
+  }
+  ```
+
+  **Ses propres erreurs.** On peut définir une énumération d'erreurs et sa catégorie (une classe dérivée de
+  `std::error_category`) : le code d'erreur reste alors léger, copiable, sans allocation, et comparable.
+
+  **En entretien** : « `std::error_code`, c'est une valeur et une catégorie : léger, sans allocation, vrai quand il
+  y a une erreur. Je le compare à `std::errc` pour rester portable. Les fonctions de `<filesystem>` ont une
+  version qui le remplit au lieu de lancer ; `std::system_error` est l'exception qui le transporte. »
+cards:
+  - key: contenu
+    format: course
+    question: "Que contient un `std::error_code` ?"
+    choices:
+      - {text: "Une valeur entière, et une catégorie qui dit d'où elle vient", correct: true}
+      - {text: "Un message d'erreur, alloué dans une `std::string`", correct: false}
+      - {text: "Une exception, gardée pour être relancée plus tard", correct: false}
+      - {text: "La pile des appels au moment de l'erreur", correct: false}
+    answer: "Un entier et un pointeur vers une catégorie : il se copie sans allocation. Le texte n'est fabriqué qu'à la demande, par `message()`."
+  - key: booleen
+    format: course
+    question: "Que vaut un `std::error_code` converti en booléen ?"
+    choices:
+      - {text: "`true` s'il représente une erreur, `false` si sa valeur est 0", correct: true}
+      - {text: "`true` si l'opération a réussi, `false` si elle a échoué", correct: false}
+      - {text: "`true` s'il a été testé, `false` s'il a été ignoré", correct: false}
+      - {text: "Toujours `true`, dès qu'il a été rempli par une fonction", correct: false}
+    answer: "`if (ec)` se lit « s'il y a une erreur ». C'est l'inverse d'un `std::optional` ou d'un `std::expected`, vrais en cas de succès."
+  - key: portable
+    format: course
+    question: "Comment tester de façon portable qu'un `std::error_code` signale un fichier absent ?"
+    choices:
+      - {text: "En le comparant à `std::errc::no_such_file_or_directory`", correct: true}
+      - {text: "En comparant `ec.value()` au nombre 2", correct: false}
+      - {text: "En comparant `ec.message()` à un texte en anglais", correct: false}
+      - {text: "En comparant `ec.category().name()` à `\"system\"`", correct: false}
+    answer: "Les numéros bruts et les messages changent d'un système à l'autre. `std::errc` nomme les conditions portables, et la comparaison passe par la catégorie."
+  - key: system-error
+    format: course
+    question: "Qu'est-ce que `std::system_error` ?"
+    choices:
+      - {text: "Une exception qui transporte un `std::error_code`, lu avec `code()`", correct: true}
+      - {text: "Une fonction qui renvoie la dernière erreur du système", correct: false}
+      - {text: "Une catégorie d'erreurs propre à Windows", correct: false}
+      - {text: "Une macro qui arrête le programme sur une erreur du système", correct: false}
+    answer: "Elle dérive de `std::runtime_error`. `std::thread`, `std::mutex` et `<filesystem>` la lancent, ou une de ses classes dérivées."
+  - key: vf-defaut
+    format: true-false
+    question: "Un `std::error_code` construit par défaut représente l'absence d'erreur."
+    truth: true
+    answer: "Sa valeur est 0, dans la catégorie du système. `if (ec)` est faux."
+  - key: vf-allocation
+    format: true-false
+    question: "Copier un `std::error_code` alloue de la mémoire pour son message."
+    truth: false
+    answer: "Il ne contient qu'un entier et un pointeur. Le message est produit par la catégorie, quand on appelle `message()`."
+  - key: vf-surcharge
+    format: true-false
+    question: "La surcharge `std::filesystem::file_size(chemin, ec)` lance une exception quand le fichier est absent."
+    truth: false
+    answer: "Elle range l'erreur dans `ec` et ne lance pas. C'est la version sans `ec` qui lance `std::filesystem::filesystem_error`."
+  - key: vf-errc
+    format: true-false
+    question: "Les valeurs de `std::errc` correspondent aux codes `errno` de POSIX."
+    truth: true
+    answer: "`std::errc::permission_denied` vaut `EACCES`, par exemple. Elles appartiennent à la catégorie générique."
+  - key: qcm-message
+    format: multiple-choice
+    question: "Quelle fonction donne le texte qui décrit un `std::error_code` ?"
+    choices:
+      - {text: "`ec.message()`", correct: true}
+      - {text: "`ec.what()`", correct: false}
+      - {text: "`ec.text()`", correct: false}
+      - {text: "`ec.name()`", correct: false}
+    answer: "`message()` interroge la catégorie. `what()` appartient aux exceptions, comme `std::system_error`."
+  - key: qcm-en-tete
+    format: multiple-choice
+    question: "Quel en-tête déclare `std::error_code` et `std::errc` ?"
+    choices:
+      - {text: "`<system_error>`", correct: true}
+      - {text: "`<stdexcept>`", correct: false}
+      - {text: "`<cerrno>`", correct: false}
+      - {text: "`<exception>`", correct: false}
+    answer: "`<system_error>` déclare aussi `std::error_category` et l'exception `std::system_error`."
+  - key: qcm-fabriquer
+    format: multiple-choice
+    question: "Quelle expression fabrique un `std::error_code` pour « accès refusé » ?"
+    choices:
+      - {text: "`std::make_error_code(std::errc::permission_denied)`", correct: true}
+      - {text: "`std::error_code{\"permission denied\"}`", correct: false}
+      - {text: "`std::errc{std::error_code::permission_denied}`", correct: false}
+      - {text: "`std::system_error::permission_denied()`", correct: false}
+    answer: "`std::make_error_code` associe la valeur de `std::errc` à la catégorie générique."
+  - key: qcm-code
+    format: multiple-choice
+    question: "Dans `catch (const std::system_error& e)`, comment retrouves-tu le `std::error_code` ?"
+    choices:
+      - {text: "`e.code()`", correct: true}
+      - {text: "`e.error()`", correct: false}
+      - {text: "`e.value()`", correct: false}
+      - {text: "`e.errno()`", correct: false}
+    answer: "`code()` renvoie le `std::error_code` emballé ; `what()` donne le texte complet."
+  - key: trous-error-code
+    format: fill-in
+    question: |-
+      Complète le type de la variable que la fonction va remplir :
+      ```cpp
+      std::___ ec;
+      const auto taille = std::filesystem::file_size(chemin, ec);
+      ```
+    blanks:
+      - [error_code]
+    answer: "La surcharge sans exception reçoit un `std::error_code&`."
+  - key: trous-message
+    format: fill-in
+    question: |-
+      Complète pour afficher la description de l'erreur :
+      ```cpp
+      if (ec) {
+          std::println("{}", ec.___());
+      }
+      ```
+    blanks:
+      - [message]
+    answer: "`message()` renvoie une `std::string` qui décrit l'erreur."
+  - key: trous-errc
+    format: fill-in
+    question: |-
+      Complète pour comparer à une condition portable :
+      ```cpp
+      if (ec == std::___::no_such_file_or_directory) {
+          std::println("fichier absent");
+      }
+      ```
+    blanks:
+      - [errc]
+    answer: "`std::errc` est l'énumération des erreurs portables."
+  - key: trous-code
+    format: fill-in
+    question: |-
+      Complète pour lire le code d'erreur que transporte l'exception :
+      ```cpp
+      catch (const std::system_error& e) {
+          std::println("{}", e.___().value());
+      }
+      ```
+    blanks:
+      - [code]
+    answer: "`code()` renvoie le `std::error_code` de l'exception."
+  - key: code-defaut
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+      #include <system_error>
+
+      int main() {
+          const std::error_code vide;
+          const std::error_code refus = std::make_error_code(std::errc::permission_denied);
+          std::println("{} {} {}", static_cast<bool>(vide), vide.value(), static_cast<bool>(refus));
+      }
+      ```
+    choices:
+      - {text: "`false 0 true`", correct: true}
+      - {text: "`true 0 false`", correct: false}
+      - {text: "`false -1 true`", correct: false}
+      - {text: "`true 0 true`", correct: false}
+    answer: "`false 0 true` : un code par défaut vaut 0, « pas d'erreur », donc faux. Un code d'erreur est vrai."
+    check:
+      output: "false 0 true"
+  - key: code-categorie
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+      #include <system_error>
+
+      int main() {
+          const std::error_code ec = std::make_error_code(std::errc::no_such_file_or_directory);
+          std::println("{} {}", ec.category().name(), ec == std::errc::no_such_file_or_directory);
+      }
+      ```
+    choices:
+      - {text: "`generic true`", correct: true}
+      - {text: "`system true`", correct: false}
+      - {text: "`generic false`", correct: false}
+      - {text: "`errc true`", correct: false}
+    answer: "`generic true` : `std::make_error_code` sur une valeur de `std::errc` donne la catégorie générique, et le code se compare égal à cette valeur."
+    check:
+      output: "generic true"
+  - key: code-filesystem
+    format: code-output
+    question: |-
+      ```cpp
+      #include <filesystem>
+      #include <print>
+      #include <system_error>
+
+      int main() {
+          std::error_code ec;
+          std::filesystem::file_size("/dossier/qui/n/existe/pas", ec);
+          std::print("{} ", ec == std::errc::no_such_file_or_directory);
+          std::filesystem::exists("/", ec);
+          std::println("{}", static_cast<bool>(ec));
+      }
+      ```
+    choices:
+      - {text: "`true false`", correct: true}
+      - {text: "`true true`", correct: false}
+      - {text: "`false false`", correct: false}
+      - {text: "Rien : `file_size` lance une exception", correct: false}
+    answer: "`true false` : la surcharge avec `ec` ne lance pas, et signale le fichier absent. L'appel suivant réussit, et remet `ec` à zéro."
+    check:
+      output: "true false"
+  - key: code-system-error
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+      #include <system_error>
+
+      int main() {
+          try {
+              throw std::system_error{std::make_error_code(std::errc::permission_denied), "ouverture"};
+          } catch (const std::runtime_error& e) {
+              const auto& erreur = dynamic_cast<const std::system_error&>(e);
+              std::println("{} {}", erreur.code() == std::errc::permission_denied, erreur.code().value());
+          }
+      }
+      ```
+    choices:
+      - {text: "`true 13`", correct: true}
+      - {text: "`false 13`", correct: false}
+      - {text: "`true 0`", correct: false}
+      - {text: "Rien : le `catch` ne correspond pas", correct: false}
+    answer: "`true 13` : `std::system_error` dérive de `std::runtime_error`, donc le `catch` l'attrape. Elle transporte le code, qui vaut 13 (`EACCES`) sous Linux."
+    check:
+      output: "true 13"
+  - key: bug-ec-ignore
+    format: bug-fix
+    question: |-
+      Ce programme devrait afficher `fichier illisible`. Il affiche `18446744073709551615`. Quelle correction est la
+      bonne ?
+      ```cpp
+      #include <filesystem>
+      #include <print>
+      #include <system_error>
+
+      int main() {
+          std::error_code ec;
+          const auto taille = std::filesystem::file_size("/dossier/absent/donnees.bin", ec);
+          std::println("{}", taille);
+      }
+      ```
+    choices:
+      - {text: "Tester `ec` après l'appel, et n'afficher la taille que s'il est faux", correct: true}
+      - {text: "Tester `taille == 0` après l'appel, et afficher l'erreur dans ce cas", correct: false}
+      - {text: "Déclarer `ec` avec `const`, pour qu'il garde l'erreur de l'appel", correct: false}
+      - {text: "Entourer l'appel d'un `try`, et afficher l'erreur dans le `catch`", correct: false}
+    answer: |-
+      ```cpp
+      if (ec) {
+          std::println("fichier illisible");
+      } else {
+          std::println("{}", taille);
+      }
+      ```
+      La surcharge avec `ec` ne lance rien : un `try` n'attraperait rien. En cas d'échec, elle renvoie une valeur
+      sans signification, ici le plus grand entier non signé. C'est `ec` qu'il faut lire.
+  - key: bug-test-inverse
+    format: bug-fix
+    question: |-
+      Le répertoire racine existe, et pourtant ce programme affiche `erreur : Success`. Quelle correction est la
+      bonne ?
+      ```cpp
+      #include <filesystem>
+      #include <print>
+      #include <system_error>
+
+      int main() {
+          std::error_code ec;
+          std::filesystem::exists("/", ec);
+          if (ec) {
+              std::println("ok");
+          } else {
+              std::println("erreur : {}", ec.message());
+          }
+      }
+      ```
+    choices:
+      - {text: "Écrire `if (!ec)` : un code d'erreur est vrai quand il y a une erreur", correct: true}
+      - {text: "Écrire `if (ec.value() != 0)` à la place de `if (ec)`", correct: false}
+      - {text: "Écrire `if (ec.message().empty())` à la place de `if (ec)`", correct: false}
+      - {text: "Écrire `if (&ec)` à la place de `if (ec)`", correct: false}
+    answer: |-
+      ```cpp
+      if (!ec) {
+          std::println("ok");
+      }
+      ```
+      `if (ec)` veut dire « s'il y a une erreur ». Le test était à l'envers : la branche d'erreur s'exécutait sur un
+      succès, dont le message est `Success`.
+  - key: bug-valeur-brute
+    format: bug-fix
+    question: |-
+      Ce programme a été écrit sous Windows, où « chemin introuvable » porte le numéro 3. Sous Linux, il affiche
+      `autre erreur` au lieu de `fichier absent`. Quelle correction est la bonne ?
+      ```cpp
+      #include <filesystem>
+      #include <print>
+      #include <system_error>
+
+      int main() {
+          std::error_code ec;
+          std::filesystem::file_size("/dossier/absent/donnees.bin", ec);
+          if (ec.value() == 3) {
+              std::println("fichier absent");
+          } else {
+              std::println("autre erreur");
+          }
+      }
+      ```
+    choices:
+      - {text: "Comparer `ec` à `std::errc::no_such_file_or_directory`", correct: true}
+      - {text: "Comparer `ec.value()` au nombre 2, celui de Linux", correct: false}
+      - {text: "Comparer `ec.message()` au texte `\"No such file or directory\"`", correct: false}
+      - {text: "Comparer `ec.category().name()` au texte `\"generic\"`", correct: false}
+    answer: |-
+      ```cpp
+      if (ec == std::errc::no_such_file_or_directory) {
+      ```
+      Les numéros du système ne sont pas portables : 3 sous Windows, 2 sous Linux. `std::errc` nomme la condition,
+      et la catégorie fait la correspondance. Écrire 2 ne ferait que déplacer le problème.
+  - key: bug-surcharge-qui-lance
+    format: bug-fix
+    question: |-
+      Un fichier absent est ici un cas normal. Le programme devrait afficher `absent` ; il s'arrête sur une
+      exception `filesystem_error` que personne n'attrape. Quelle correction est la bonne ?
+      ```cpp
+      #include <filesystem>
+      #include <print>
+      #include <system_error>
+
+      int main() {
+          std::error_code ec;
+          const auto taille = std::filesystem::file_size("/dossier/absent/donnees.bin");
+          if (ec) {
+              std::println("absent");
+          } else {
+              std::println("{}", taille);
+          }
+      }
+      ```
+    choices:
+      - {text: "Passer `ec` en second argument de `file_size`", correct: true}
+      - {text: "Passer `ec` en premier argument de `file_size`", correct: false}
+      - {text: "Initialiser `ec` avec `std::errc::no_such_file_or_directory`", correct: false}
+      - {text: "Déclarer `ec` avec le mot-clé `static`", correct: false}
+    answer: |-
+      ```cpp
+      const auto taille = std::filesystem::file_size("/dossier/absent/donnees.bin", ec);
+      ```
+      Sans `ec`, c'est la version qui lance qui est appelée, et la variable `ec` n'est jamais remplie. La surcharge à
+      deux arguments range l'erreur dans `ec` au lieu de lancer.

@@ -1,0 +1,332 @@
+notion: string-sso
+lesson: |-
+  Une `std::string` ressemble à un `std::vector<char>` : un pointeur vers un tampon sur le tas, une **taille** et
+  une **capacité**. Mais la plupart des chaînes d'un programme sont courtes, et une allocation pour cinq caractères
+  coûterait plus que les caractères eux-mêmes. D'où une optimisation présente dans toutes les bibliothèques
+  courantes.
+
+  **La petite chaîne optimisée** (*small string optimization*, SSO). L'objet `std::string` contient un petit tampon
+  **à l'intérieur de lui-même**. Tant que le texte y tient, il y est rangé : **aucune allocation**. Au-delà, la
+  chaîne alloue sur le tas, comme un vecteur.
+
+  | Bibliothèque | `sizeof(std::string)` | Caractères sans allocation |
+  |---|---|---|
+  | libstdc++ (GCC) | 32 | 15 |
+  | libc++ (Clang) | 24 | 22 |
+  | MSVC | 32 | 15 |
+
+  Ces chiffres ne sont **pas** dans le standard : ils dépendent de l'implémentation. Avec GCC, une chaîne vide a
+  déjà une `capacity()` de 15.
+
+  **Taille et capacité.** Comme pour un vecteur :
+
+  | Fonction | Effet |
+  |---|---|
+  | `size()`, `length()` | le nombre de caractères (d'octets) |
+  | `capacity()` | ce que le tampon peut contenir sans réallouer |
+  | `reserve(n)` | prépare la place pour `n` caractères |
+  | `shrink_to_fit()` | demande de rendre la place inutilisée |
+  | `clear()` | vide la chaîne, **sans** rendre la capacité |
+
+  Quand la capacité est dépassée, la chaîne **réalloue** un tampon plus grand (le double, avec GCC) et y recopie
+  ses caractères. Construire une longue chaîne par petits ajouts provoque donc plusieurs réallocations, qu'un
+  `reserve` évite quand on connaît la taille finale.
+
+  **Ce que l'optimisation change.**
+
+  - **Le coût.** Créer, copier ou détruire une chaîne courte ne touche pas à l'allocateur : c'est très rapide.
+  - **Le déplacement.** Déplacer une longue chaîne vole son pointeur. Déplacer une chaîne **courte** recopie ses
+    caractères : il n'y a rien à voler. Le déplacement n'est donc pas « gratuit » pour elles, mais il reste
+    borné.
+  - **Les pointeurs.** Un pointeur, une référence ou une `std::string_view` vers les caractères d'une chaîne
+    courte désignent l'**intérieur de l'objet**. Si la chaîne est **déplacée** (y compris par la réallocation d'un
+    vecteur qui la contient), ils deviennent pendants, alors qu'avec une longue chaîne le tampon du tas serait
+    resté en place.
+
+  **Mesurer plutôt que deviner.** Un code qui s'appuie sur le seuil de 15 caractères n'est pas portable. Ce qu'on
+  retient : les chaînes courtes ne coûtent presque rien, les longues se réservent, et `std::string_view` évite de
+  fabriquer une chaîne quand on ne fait que lire.
+
+  **En entretien** : « `std::string` range les petites chaînes dans l'objet lui-même, sans allocation : quinze
+  caractères avec GCC. Au-delà, elle se comporte comme un vecteur, avec une capacité qui double. Conséquence :
+  déplacer une chaîne courte copie ses caractères, et une vue vers elle ne survit pas au déplacement. »
+cards:
+  - key: principe
+    format: course
+    question: "Que fait la petite chaîne optimisée (SSO) de `std::string` ?"
+    choices:
+      - {text: "Elle range les chaînes courtes dans l'objet lui-même, sans allocation sur le tas", correct: true}
+      - {text: "Elle partage un même tampon entre toutes les chaînes de même contenu", correct: false}
+      - {text: "Elle compresse les chaînes courtes pour qu'elles occupent moins d'octets", correct: false}
+      - {text: "Elle range les chaînes courtes dans une table globale, au démarrage", correct: false}
+    answer: "L'objet contient un petit tampon interne. Tant que le texte y tient, aucune mémoire n'est demandée à l'allocateur."
+  - key: seuil
+    format: course
+    question: "Combien de caractères une `std::string` de GCC (libstdc++) contient-elle sans allocation ?"
+    choices:
+      - {text: "15, mais ce nombre dépend de la bibliothèque", correct: true}
+      - {text: "15, comme l'impose le standard C++", correct: false}
+      - {text: "32, la taille de l'objet", correct: false}
+      - {text: "Aucun : toute chaîne non vide alloue", correct: false}
+    answer: "Le standard ne parle pas du SSO. libstdc++ et MSVC s'arrêtent à 15 caractères, libc++ à 22."
+  - key: deplacement
+    format: course
+    question: "Que coûte le déplacement d'une `std::string` courte, rangée dans son tampon interne ?"
+    choices:
+      - {text: "La recopie de ses caractères : il n'y a pas de pointeur à voler", correct: true}
+      - {text: "Rien : seul un pointeur change de propriétaire", correct: false}
+      - {text: "Une allocation sur le tas, puis une recopie", correct: false}
+      - {text: "Une exception `std::length_error`", correct: false}
+    answer: "Le déplacement d'une longue chaîne transfère son tampon. Pour une courte, les caractères sont dans l'objet : il faut les copier, ce qui reste très rapide."
+  - key: croissance
+    format: course
+    question: "Que fait une `std::string` quand un ajout dépasse sa capacité ?"
+    choices:
+      - {text: "Elle alloue un tampon plus grand, et y recopie ses caractères", correct: true}
+      - {text: "Elle tronque le texte ajouté à la place disponible", correct: false}
+      - {text: "Elle chaîne un second tampon à la suite du premier", correct: false}
+      - {text: "Elle lance `std::out_of_range`", correct: false}
+    answer: "Comme un vecteur. La capacité croît par multiplication : les ajouts restent en temps constant amorti, et `reserve` évite les réallocations."
+  - key: vf-standard
+    format: true-false
+    question: "Le standard C++ impose le nombre de caractères qu'une `std::string` range sans allocation."
+    truth: false
+    answer: "La petite chaîne optimisée est un choix d'implémentation. Le seuil varie d'une bibliothèque à l'autre."
+  - key: vf-clear
+    format: true-false
+    question: "`clear()` rend au système la mémoire d'une longue `std::string`."
+    truth: false
+    answer: "La taille passe à 0, la capacité est conservée. `shrink_to_fit()` demande de la rendre."
+  - key: vf-vue-pendante
+    format: true-false
+    question: "Une `std::string_view` vers une chaîne courte reste valable après le déplacement de cette chaîne."
+    truth: false
+    answer: "Les caractères d'une chaîne courte sont dans l'objet : déplacé, il les emporte ailleurs. La vue désigne l'ancien emplacement."
+  - key: vf-capacite-vide
+    format: true-false
+    question: "Avec GCC, une `std::string` vide a une capacité de 15."
+    truth: true
+    answer: "C'est la taille de son tampon interne, toujours disponible."
+  - key: qcm-sizeof
+    format: multiple-choice
+    question: "Que vaut `sizeof(std::string)` avec GCC sur Linux 64 bits ?"
+    choices:
+      - {text: "32", correct: true}
+      - {text: "8", correct: false}
+      - {text: "15", correct: false}
+      - {text: "La longueur du texte", correct: false}
+    answer: "Un pointeur, une taille, et 16 octets qui servent de tampon interne ou de capacité. `sizeof` ne dépend jamais du texte contenu."
+  - key: qcm-reserve
+    format: multiple-choice
+    question: "Tu vas construire un texte de 10 000 caractères par ajouts successifs. Quelle fonction évite les réallocations ?"
+    choices:
+      - {text: "`reserve(10000)`", correct: true}
+      - {text: "`resize(10000)`", correct: false}
+      - {text: "`shrink_to_fit()`", correct: false}
+      - {text: "`clear()`", correct: false}
+    answer: "`reserve` alloue une fois. `resize` créerait 10 000 caractères nuls, après lesquels les ajouts s'empileraient."
+  - key: qcm-rendre
+    format: multiple-choice
+    question: "Quelle fonction demande à une `std::string` de rendre la capacité qu'elle n'utilise plus ?"
+    choices:
+      - {text: "`shrink_to_fit()`", correct: true}
+      - {text: "`clear()`", correct: false}
+      - {text: "`reserve(0)` avant C++20", correct: false}
+      - {text: "`erase()`", correct: false}
+    answer: "C'est une demande, que l'implémentation peut ignorer. `clear()` et `erase()` ne changent que la taille."
+  - key: qcm-lecture
+    format: multiple-choice
+    question: "Une fonction ne fait que lire un texte. Quel type de paramètre évite de fabriquer une `std::string` ?"
+    choices:
+      - {text: "`std::string_view`", correct: true}
+      - {text: "`std::string`", correct: false}
+      - {text: "`std::string&&`", correct: false}
+      - {text: "`char`", correct: false}
+    answer: "Une vue désigne des caractères existants, sans copie ni allocation, quelle que soit leur longueur."
+  - key: situation-vecteur
+    format: scenario
+    question: |-
+      Un programme garde des `std::string_view` vers les éléments d'un `std::vector<std::string>`, puis continue
+      d'ajouter des chaînes. Les vues vers les noms courts deviennent illisibles ; celles vers les noms longs
+      semblent tenir. Pourquoi ?
+    choices:
+      - {text: "À la réallocation, les chaînes courtes emportent leurs caractères ; le tampon des longues reste sur le tas", correct: true}
+      - {text: "Le vecteur ne recopie que les chaînes courtes, et laisse les longues à leur place", correct: false}
+      - {text: "Une `std::string_view` ne peut pas désigner une chaîne de moins de seize caractères", correct: false}
+      - {text: "Les chaînes longues sont partagées entre l'ancien et le nouveau bloc du vecteur", correct: false}
+    answer: |-
+      Le vecteur déplace ses éléments dans un nouveau bloc. Une chaîne courte a ses caractères dans l'objet déplacé :
+      la vue désigne l'ancien bloc, libéré. Une longue garde son tampon, mais s'y fier est fragile : on garde des
+      indices, ou des copies.
+  - key: situation-concatenation
+    format: scenario
+    question: |-
+      Une fonction construit un rapport de plusieurs mégaoctets avec `rapport += ligne;`, des centaines de milliers
+      de fois. Le profileur montre du temps passé dans `realloc` et `memcpy`. Que proposes-tu ?
+    choices:
+      - {text: "Appeler `rapport.reserve(...)` avec une estimation de la taille finale", correct: true}
+      - {text: "Appeler `rapport.shrink_to_fit()` après chaque ligne ajoutée", correct: false}
+      - {text: "Appeler `rapport.clear()` avant chaque ligne ajoutée", correct: false}
+      - {text: "Déclarer `rapport` comme une `std::string_view`", correct: false}
+    answer: |-
+      Sans réserve, la chaîne double sa capacité une vingtaine de fois, en recopiant tout à chaque fois. Une
+      estimation, même grossière, ramène cela à une allocation. `shrink_to_fit` après chaque ajout serait le pire
+      choix : une réallocation par ligne.
+  - key: situation-seuil
+    format: scenario
+    question: |-
+      Un collègue raccourcit des identifiants à 15 caractères « pour rester sous le seuil du SSO », et affirme que
+      le programme n'allouera donc jamais. Le code doit aussi tourner avec Clang et sa libc++. Que lui dis-tu ?
+    choices:
+      - {text: "Que ce seuil est celui de GCC : s'y fier rend le code dépendant de la bibliothèque", correct: true}
+      - {text: "Que le seuil est de 15 caractères partout, puisqu'il est fixé par le standard", correct: false}
+      - {text: "Que Clang n'a pas de petite chaîne optimisée, et alloue toujours", correct: false}
+      - {text: "Que le seuil se règle avec une option du compilateur", correct: false}
+    answer: |-
+      Chaque bibliothèque a sa propre disposition : 15 caractères pour libstdc++ et MSVC, 22 pour libc++. C'est une
+      optimisation dont on profite, pas une garantie sur laquelle bâtir. Si l'absence d'allocation est une
+      exigence, on mesure, ou l'on choisit un type à capacité fixe.
+  - key: situation-memoire
+    format: scenario
+    question: |-
+      Un service garde en mémoire dix millions de `std::string` de quatre caractères. Sa consommation est bien plus
+      élevée que les 40 Mo de texte attendus. D'où vient la différence ?
+    choices:
+      - {text: "Chaque objet `std::string` occupe 32 octets, quel que soit son contenu", correct: true}
+      - {text: "Chaque chaîne de quatre caractères alloue un tampon de 4 Ko sur le tas", correct: false}
+      - {text: "Chaque chaîne garde une copie de sauvegarde de son texte", correct: false}
+      - {text: "Chaque caractère occupe quatre octets dans une `std::string`", correct: false}
+    answer: |-
+      `sizeof(std::string)` vaut 32 avec GCC : dix millions d'objets font 320 Mo, sans une seule allocation. Pour
+      des clés très courtes et très nombreuses, un `std::array<char, 4>` ou un entier convient mieux.
+  - key: definition-sso
+    format: definition
+    question: "Qu'est-ce que la petite chaîne optimisée (SSO) ?"
+    choices:
+      - {text: "Le rangement d'une chaîne courte dans l'objet `std::string`, sans mémoire du tas", correct: true}
+      - {text: "Le partage d'un même tampon par plusieurs chaînes identiques", correct: false}
+      - {text: "La suppression des espaces en fin de chaîne", correct: false}
+      - {text: "Le calcul d'une chaîne à la compilation", correct: false}
+    answer: "En anglais, *small string optimization*. Toutes les bibliothèques standard courantes la pratiquent, chacune avec son seuil."
+  - key: definition-capacite
+    format: definition
+    question: "Qu'est-ce que la capacité d'une `std::string` ?"
+    choices:
+      - {text: "Le nombre de caractères qu'elle peut contenir sans réallouer", correct: true}
+      - {text: "Le nombre de caractères qu'elle contient", correct: false}
+      - {text: "Le nombre maximal de caractères permis par le système", correct: false}
+      - {text: "Le nombre d'octets de l'objet `std::string`", correct: false}
+    answer: "`capacity()` est toujours supérieure ou égale à `size()`. Le maximum théorique est `max_size()`, et la taille de l'objet est `sizeof`."
+  - key: definition-reallocation
+    format: definition
+    question: "Qu'appelle-t-on la réallocation d'une chaîne ?"
+    choices:
+      - {text: "L'allocation d'un tampon plus grand, où ses caractères sont recopiés", correct: true}
+      - {text: "La remise à zéro de tous ses caractères", correct: false}
+      - {text: "Le passage de la chaîne de la pile vers le tas", correct: false}
+      - {text: "La conversion de la chaîne dans un autre encodage", correct: false}
+    answer: "Elle invalide les pointeurs, les références, les itérateurs et les vues vers les caractères."
+  - key: definition-copie-ecriture
+    format: definition
+    question: "Qu'était la copie à l'écriture (copy-on-write), abandonnée par `std::string` depuis C++11 ?"
+    choices:
+      - {text: "Le partage du tampon entre copies, dupliqué seulement à la première modification", correct: true}
+      - {text: "L'écriture de chaque copie d'une chaîne dans un fichier", correct: false}
+      - {text: "La recopie du texte dans l'objet quand il est court", correct: false}
+      - {text: "L'interdiction de modifier une chaîne après sa copie", correct: false}
+    answer: "Les anciennes versions de libstdc++ procédaient ainsi. C++11 l'a rendue non conforme : elle se mariait mal avec les threads et avec les garanties sur les références."
+  - key: code-sizeof
+    format: code-output
+    question: |-
+      Avec GCC sur Linux 64 bits :
+      ```cpp
+      #include <print>
+      #include <string>
+
+      int main() {
+          const std::string vide;
+          const std::string longue(100, 'x');
+          std::println("{} {} {}", sizeof(vide), sizeof(longue), vide.capacity());
+      }
+      ```
+    choices:
+      - {text: "`32 32 15`", correct: true}
+      - {text: "`32 132 15`", correct: false}
+      - {text: "`0 100 0`", correct: false}
+      - {text: "`32 32 0`", correct: false}
+    answer: "`32 32 15` : `sizeof` ne dépend pas du contenu, les cent caractères sont sur le tas. Une chaîne vide dispose déjà de son tampon interne de 15 caractères."
+    check:
+      output: "32 32 15"
+  - key: code-interne
+    format: code-output
+    question: |-
+      Avec GCC sur Linux 64 bits :
+      ```cpp
+      #include <functional>
+      #include <print>
+      #include <string>
+
+      bool dans_l_objet(const std::string& s) {
+          const char* debut = reinterpret_cast<const char*>(&s);
+          const std::less<const char*> avant;
+          return !avant(s.data(), debut) && avant(s.data(), debut + sizeof(s));
+      }
+
+      int main() {
+          const std::string courte = "bonjour";
+          const std::string longue(40, 'x');
+          std::println("{} {}", dans_l_objet(courte), dans_l_objet(longue));
+      }
+      ```
+    choices:
+      - {text: "`true false`", correct: true}
+      - {text: "`false true`", correct: false}
+      - {text: "`true true`", correct: false}
+      - {text: "`false false`", correct: false}
+    answer: "`true false` : les caractères de la chaîne courte sont à l'intérieur de l'objet ; ceux de la longue sont ailleurs, sur le tas."
+    check:
+      output: "true false"
+  - key: code-croissance
+    format: code-output
+    question: |-
+      Avec GCC sur Linux 64 bits :
+      ```cpp
+      #include <print>
+      #include <string>
+
+      int main() {
+          std::string s(15, 'a');
+          const auto avant = s.capacity();
+          s.push_back('b');
+          std::println("{} {} {}", avant, s.size(), s.capacity());
+      }
+      ```
+    choices:
+      - {text: "`15 16 30`", correct: true}
+      - {text: "`15 16 16`", correct: false}
+      - {text: "`15 16 15`", correct: false}
+      - {text: "`16 16 32`", correct: false}
+    answer: "`15 16 30` : quinze caractères remplissent le tampon interne. Le seizième oblige à allouer sur le tas, et la capacité double."
+    check:
+      output: "15 16 30"
+  - key: code-clear
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+      #include <string>
+
+      int main() {
+          std::string s(100, 'x');
+          s.clear();
+          std::println("{} {} {}", s.size(), s.empty(), s.capacity() >= 100);
+      }
+      ```
+    choices:
+      - {text: "`0 true true`", correct: true}
+      - {text: "`0 true false`", correct: false}
+      - {text: "`100 false true`", correct: false}
+      - {text: "`0 false true`", correct: false}
+    answer: "`0 true true` : `clear` vide la chaîne, mais garde son tampon. La capacité n'a pas diminué."
+    check:
+      output: "0 true true"

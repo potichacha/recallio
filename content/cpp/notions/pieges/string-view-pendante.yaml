@@ -1,0 +1,457 @@
+notion: string-view-pendante
+lesson: |-
+  `std::string_view` et `std::span` sont des **vues** : un pointeur et une taille, qui **désignent** des données
+  sans les **posséder**. Les copier ne coûte rien. La contrepartie : une vue ne prolonge pas la vie de ce qu'elle
+  regarde. Si la source disparaît ou déménage, la vue devient **pendante**, exactement comme un pointeur, et s'en
+  servir est un comportement indéfini.
+
+  **Les quatre façons de fabriquer une vue pendante.**
+
+  **1. Renvoyer une vue vers une variable locale.**
+
+  ```cpp
+  std::string_view prenom() {
+      std::string nom = "Ada Lovelace";
+      return nom;                  // nom est détruite au retour
+  }
+  ```
+
+  **2. Lier une vue à un temporaire.**
+
+  ```cpp
+  std::string_view vue = std::string{"Ada"} + " Lovelace";   // le temporaire meurt au point-virgule
+  std::string_view autre = lire_nom();                       // lire_nom() renvoie une std::string
+  ```
+
+  La `std::string` créée par l'expression n'a pas de nom : elle est détruite à la fin de l'instruction. La vue,
+  elle, reste.
+
+  **3. Garder une vue dans un membre.**
+
+  ```cpp
+  struct Etiquette {
+      std::string_view texte;      // qui possède les caractères ?
+  };
+  ```
+
+  L'objet vit souvent plus longtemps que la chaîne qu'on lui a passée. Un objet qui **garde** du texte le garde
+  dans une **`std::string`**.
+
+  **4. Modifier la source.** Une `std::string` ou un `std::vector` qui grandit peut **réallouer** : ses éléments
+  déménagent, et toutes les vues désignent l'ancien bloc.
+
+  ```cpp
+  std::vector<int> v{1, 2, 3};
+  std::span<int> vue{v};
+  v.push_back(4);                  // réallocation : vue est pendante
+  ```
+
+  **Ce qui est sûr.**
+
+  - Une vue passée **en paramètre** : la source vit dans l'appelant pendant tout l'appel. C'est l'usage pour lequel
+    les vues sont faites.
+  - Une vue vers un **littéral** : `"bonjour"` vit pendant tout le programme.
+  - Une vue vers un objet qui vit **plus longtemps** qu'elle, et qu'on ne modifie pas entre-temps.
+
+  **La règle.**
+
+  | Usage | Type |
+  |---|---|
+  | paramètre qu'on lit | `std::string_view`, `std::span<const T>` |
+  | valeur de retour | `std::string` ou `std::vector`, sauf si la vue désigne un argument ou un membre qui survit |
+  | membre d'une classe | `std::string`, `std::vector` |
+  | variable locale | une vue, si la source est une variable nommée qui lui survit |
+
+  **Pourquoi le compilateur ne dit rien.** La conversion de `std::string` vers `std::string_view` est implicite,
+  et légale. GCC signale quelques cas simples (`-Wdangling-reference`, `-Wreturn-local-addr`) ; le reste se trouve
+  avec AddressSanitizer.
+
+  **Le symptôme trompeur.** Pour une chaîne courte, les caractères sont rangés dans l'objet `std::string`
+  lui-même. Après sa destruction, ils traînent souvent encore sur la pile : la vue pendante « affiche le bon
+  texte », jusqu'au jour où un autre appel réutilise cet emplacement.
+
+  **En entretien** : « Une `string_view` ne possède rien : elle ne doit pas survivre à sa source. Je m'en sers en
+  paramètre, jamais pour renvoyer une locale ni en membre, et je ne la lie pas à un temporaire. Même logique pour
+  `std::span`, qu'une réallocation du vecteur invalide. »
+cards:
+  - key: possession
+    format: course
+    question: "Pourquoi une `std::string_view` peut-elle devenir pendante ?"
+    choices:
+      - {text: "Elle désigne des caractères qu'elle ne possède pas, et ne prolonge pas leur durée de vie", correct: true}
+      - {text: "Elle copie les caractères dans un tampon qu'elle libère trop tôt", correct: false}
+      - {text: "Elle se détruit d'elle-même dès qu'on la copie dans une autre vue", correct: false}
+      - {text: "Elle exige un caractère nul final, que la source peut ne pas avoir", correct: false}
+    answer: "Une vue est un pointeur et une taille. Quand la chaîne d'origine est détruite ou réallouée, la vue garde l'ancienne adresse."
+  - key: temporaire
+    format: course
+    question: "Que vaut `vue` après `std::string_view vue = std::string{\"Ada\"} + \" Lovelace\";` ?"
+    choices:
+      - {text: "Une vue pendante : la chaîne temporaire est détruite à la fin de l'instruction", correct: true}
+      - {text: "Une vue valide : le temporaire vit aussi longtemps que la vue", correct: false}
+      - {text: "Une vue vide : une vue ne peut pas désigner un temporaire", correct: false}
+      - {text: "Rien : la ligne ne compile pas", correct: false}
+    answer: "Le résultat de la concaténation est une `std::string` sans nom, détruite au point-virgule. Une vue ne prolonge pas sa vie, contrairement à une référence constante."
+  - key: parametre
+    format: course
+    question: "Dans quel usage une `std::string_view` est-elle sûre ?"
+    choices:
+      - {text: "En paramètre de fonction : la source vit chez l'appelant pendant tout l'appel", correct: true}
+      - {text: "En valeur de retour, pour renvoyer une chaîne construite dans la fonction", correct: false}
+      - {text: "En membre de classe, pour garder un texte reçu par le constructeur", correct: false}
+      - {text: "En variable globale, initialisée à partir d'une chaîne locale", correct: false}
+    answer: "Les vues sont faites pour passer des données en lecture. Dès qu'il faut les garder au-delà de l'appel, on prend une `std::string`."
+  - key: reallocation
+    format: course
+    question: "Un `std::span<int>` désigne les éléments d'un vecteur. Que se passe-t-il après un `push_back` qui réalloue ?"
+    choices:
+      - {text: "Le span désigne l'ancien bloc, libéré : il est pendant", correct: true}
+      - {text: "Le span suit le vecteur, et désigne le nouveau bloc", correct: false}
+      - {text: "Le span grandit d'un élément, comme le vecteur", correct: false}
+      - {text: "Le `push_back` est refusé tant que le span existe", correct: false}
+    answer: "Un span ne sait rien du vecteur : il garde un pointeur et une taille. C'est la même invalidation que pour un itérateur ou une référence."
+  - key: vf-litteral
+    format: true-false
+    question: "Une `std::string_view` vers un littéral comme `\"bonjour\"` reste valide pendant tout le programme."
+    truth: true
+    answer: "Un littéral de chaîne a une durée de vie statique. Une fonction peut renvoyer une vue vers lui sans danger."
+  - key: vf-prolonge
+    format: true-false
+    question: "Lier une `std::string_view` à une chaîne temporaire prolonge la vie de cette chaîne."
+    truth: false
+    answer: "Seule une référence liée directement au temporaire prolonge sa vie. Une vue n'est pas une référence : c'est un objet qui recopie un pointeur."
+  - key: vf-compilateur
+    format: true-false
+    question: "Le compilateur refuse de construire une `std::string_view` à partir d'une `std::string` temporaire."
+    truth: false
+    answer: "La conversion est implicite et légale : c'est ce qui permet de passer un temporaire en paramètre. GCC n'avertit que dans quelques cas simples."
+  - key: vf-membre
+    format: true-false
+    question: "Une classe qui doit conserver un texte le garde de préférence dans une `std::string`, pas dans une `std::string_view`."
+    truth: true
+    answer: "L'objet possède ainsi ses caractères. Avec une vue en membre, il dépendrait d'une chaîne dont il ne maîtrise pas la durée de vie."
+  - key: qcm-retour
+    format: multiple-choice
+    question: "Une fonction construit un message dans une `std::string` locale. Quel type renvoie-t-elle ?"
+    choices:
+      - {text: "`std::string`", correct: true}
+      - {text: "`std::string_view`", correct: false}
+      - {text: "`const std::string&`", correct: false}
+      - {text: "`const char*`", correct: false}
+    answer: "Par valeur : la chaîne est déplacée ou construite chez l'appelant. Une vue, une référence ou un pointeur désigneraient la locale détruite."
+  - key: qcm-outil
+    format: multiple-choice
+    question: "Quel outil détecte, à l'exécution, la lecture à travers une vue pendante vers le tas ?"
+    choices:
+      - {text: "AddressSanitizer", correct: true}
+      - {text: "ThreadSanitizer", correct: false}
+      - {text: "Le préprocesseur", correct: false}
+      - {text: "L'éditeur de liens", correct: false}
+    answer: "Il signale « heap-use-after-free », avec l'endroit de la libération et celui de la lecture."
+  - key: qcm-sso
+    format: multiple-choice
+    question: "Pourquoi une vue pendante vers une chaîne courte « affiche-t-elle souvent le bon texte » ?"
+    choices:
+      - {text: "Les caractères étaient rangés dans l'objet lui-même, et traînent encore sur la pile", correct: true}
+      - {text: "Les chaînes courtes ne sont jamais détruites par le compilateur", correct: false}
+      - {text: "La vue copie les chaînes de moins de seize caractères", correct: false}
+      - {text: "Le système restaure les chaînes courtes à la demande", correct: false}
+    answer: "C'est l'optimisation des petites chaînes. Rien n'a effacé l'emplacement : le comportement reste indéfini, et change dès qu'un autre appel réutilise la pile."
+  - key: qcm-span-const
+    format: multiple-choice
+    question: "Quel type de paramètre accepte en lecture un `std::vector<int>`, un `std::array<int, 3>` et un tableau `int[3]` ?"
+    choices:
+      - {text: "`std::span<const int>`", correct: true}
+      - {text: "`const std::vector<int>&`", correct: false}
+      - {text: "`std::string_view`", correct: false}
+      - {text: "`const int&`", correct: false}
+    answer: "`std::span` est aux tableaux ce que `std::string_view` est aux chaînes : une vue sur des éléments contigus, quel que soit leur conteneur."
+  - key: code-sous-chaine
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+      #include <string>
+      #include <string_view>
+
+      int main() {
+          const std::string texte = "bonjour le monde";
+          const std::string_view vue = texte;
+          const std::string_view mot = vue.substr(0, 7);
+          std::println("{} {} {}", mot, mot.size(), mot.data() == texte.data());
+      }
+      ```
+    choices:
+      - {text: "`bonjour 7 true`", correct: true}
+      - {text: "`bonjour 7 false`", correct: false}
+      - {text: "`bonjour le monde 16 true`", correct: false}
+      - {text: "`bonjour 8 true`", correct: false}
+    answer: "`bonjour 7 true` : `substr` sur une vue ne copie rien. `mot` désigne les sept premiers caractères de `texte`, qui vit jusqu'à la fin de `main`."
+    check:
+      output: "bonjour 7 true"
+  - key: code-litteral
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+      #include <string_view>
+
+      std::string_view salutation(bool matin) {
+          return matin ? "bonjour" : "bonsoir";
+      }
+
+      int main() {
+          const std::string_view a = salutation(true);
+          const std::string_view b = salutation(false);
+          std::println("{} {}", a, b);
+      }
+      ```
+    choices:
+      - {text: "`bonjour bonsoir`", correct: true}
+      - {text: "`bonsoir bonsoir`", correct: false}
+      - {text: "`bonjour bonjour`", correct: false}
+      - {text: "Rien", correct: false}
+    answer: "`bonjour bonsoir` : les littéraux vivent pendant tout le programme. Renvoyer une vue vers eux est sûr."
+    check:
+      output: "bonjour bonsoir"
+  - key: code-source-modifiee
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+      #include <string>
+      #include <string_view>
+
+      int main() {
+          std::string texte = "chat";
+          const std::string_view vue = texte;
+          texte[0] = 'r';
+          std::println("{} {}", vue, vue.size());
+      }
+      ```
+    choices:
+      - {text: "`rhat 4`", correct: true}
+      - {text: "`chat 4`", correct: false}
+      - {text: "`rhat 0`", correct: false}
+      - {text: "`r 1`", correct: false}
+    answer: "`rhat 4` : la vue ne copie pas les caractères, elle les regarde. Modifier un caractère en place se voit à travers elle ; ici, aucune réallocation n'a lieu."
+    check:
+      output: "rhat 4"
+  - key: code-span
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+      #include <span>
+      #include <vector>
+
+      int somme(std::span<const int> valeurs) {
+          int total = 0;
+          for (const int v : valeurs) {
+              total += v;
+          }
+          return total;
+      }
+
+      int main() {
+          const std::vector<int> v{1, 2, 3, 4};
+          const int tableau[] = {10, 20};
+          std::println("{} {} {}", somme(v), somme(tableau), somme(std::span{v}.first(2)));
+      }
+      ```
+    choices:
+      - {text: "`10 30 3`", correct: true}
+      - {text: "`10 30 10`", correct: false}
+      - {text: "`4 2 2`", correct: false}
+      - {text: "`10 20 3`", correct: false}
+    answer: "`10 30 3` : en paramètre, le span désigne des données qui vivent chez l'appelant. `first(2)` est une vue sur les deux premiers éléments : 1 + 2."
+    check:
+      output: "10 30 3"
+  - key: bug-retour-locale
+    format: bug-fix
+    question: |-
+      Ce programme devrait afficher un message de bienvenue. Son comportement est indéfini : la vue renvoyée désigne
+      une chaîne détruite. Quelle correction est la bonne ?
+      ```cpp
+      #include <print>
+      #include <string>
+      #include <string_view>
+
+      std::string_view message(const std::string& nom) {
+          const std::string texte = "Bienvenue parmi nous, " + nom + " !";
+          return texte;
+      }
+
+      int main() {
+          std::println("{}", message("Ada Lovelace"));
+      }
+      ```
+    choices:
+      - {text: "Renvoyer une `std::string` : `std::string message(const std::string& nom)`", correct: true}
+      - {text: "Renvoyer une référence : `const std::string& message(const std::string& nom)`", correct: false}
+      - {text: "Renvoyer `texte.data()`, avec le type de retour `const char*`", correct: false}
+      - {text: "Renvoyer `std::string_view{texte}`, en construisant la vue explicitement", correct: false}
+    answer: |-
+      ```cpp
+      std::string message(const std::string& nom) {
+          return "Bienvenue parmi nous, " + nom + " !";
+      }
+      ```
+      `texte` est détruite à la sortie de la fonction. Une vue, une référence ou un pointeur vers elle sont tous
+      pendants. Une chaîne construite dans la fonction se renvoie par valeur.
+  - key: bug-temporaire
+    format: bug-fix
+    question: |-
+      Ce programme devrait afficher le nom complet. Son comportement est indéfini : la vue est liée à une chaîne
+      temporaire. Quelle correction est la bonne ?
+      ```cpp
+      #include <print>
+      #include <string>
+      #include <string_view>
+
+      int main() {
+          const std::string prenom = "Augusta Ada";
+          const std::string_view complet = prenom + " King, comtesse de Lovelace";
+          std::println("{}", complet);
+      }
+      ```
+    choices:
+      - {text: "Déclarer `complet` comme une `std::string`", correct: true}
+      - {text: "Déclarer `complet` avec `static const std::string_view`", correct: false}
+      - {text: "Déclarer `prenom` comme une `std::string_view`", correct: false}
+      - {text: "Déclarer `complet` avec `auto`, pour déduire une vue", correct: false}
+    answer: |-
+      ```cpp
+      const std::string complet = prenom + " King, comtesse de Lovelace";
+      ```
+      La concaténation crée une `std::string` temporaire, détruite au point-virgule. La vue en garde l'adresse.
+      Une `std::string` possède ses caractères. Avec `auto`, le type déduit serait d'ailleurs `std::string`, pas
+      une vue.
+  - key: bug-span-reallocation
+    format: bug-fix
+    question: |-
+      Ce programme garde un span sur un vecteur, puis agrandit le vecteur. Son comportement est indéfini : le span
+      désigne l'ancien bloc. Quelle correction est la bonne ?
+      ```cpp
+      #include <print>
+      #include <span>
+      #include <vector>
+
+      int main() {
+          std::vector<int> mesures{3, 5, 8};
+          const std::span<const int> vue{mesures};
+          for (int i = 0; i < 100; ++i) {
+              mesures.push_back(i);
+          }
+          std::println("{}", vue[0]);
+      }
+      ```
+    choices:
+      - {text: "Créer le span après les ajouts, juste avant de s'en servir", correct: true}
+      - {text: "Créer le span avec `std::span<int>`, sans `const`", correct: false}
+      - {text: "Remplacer `push_back` par `emplace_back` dans la boucle", correct: false}
+      - {text: "Lire `vue.front()` à la place de `vue[0]`", correct: false}
+    answer: |-
+      ```cpp
+      for (int i = 0; i < 100; ++i) {
+          mesures.push_back(i);
+      }
+      const std::span<const int> vue{mesures};
+      ```
+      Les `push_back` réallouent le vecteur : ses éléments déménagent, et le span garde l'ancienne adresse. Une vue
+      se crée au moment de s'en servir, sur une source qui ne bouge plus.
+  - key: bug-membre
+    format: bug-fix
+    question: |-
+      Ce programme devrait afficher le texte de l'étiquette. Son comportement est indéfini : le membre désigne une
+      chaîne locale détruite. Quelle correction est la bonne ?
+      ```cpp
+      #include <print>
+      #include <string>
+      #include <string_view>
+
+      struct Etiquette {
+          std::string_view texte;
+      };
+
+      Etiquette creer(int numero) {
+          const std::string texte = "Colis fragile numéro " + std::to_string(numero);
+          return Etiquette{texte};
+      }
+
+      int main() {
+          const Etiquette etiquette = creer(42);
+          std::println("{}", etiquette.texte);
+      }
+      ```
+    choices:
+      - {text: "Déclarer le membre `std::string texte;`", correct: true}
+      - {text: "Déclarer le membre `const std::string_view texte;`", correct: false}
+      - {text: "Déclarer le membre `std::string_view& texte;`", correct: false}
+      - {text: "Déclarer le membre `const char* texte;`", correct: false}
+    answer: |-
+      ```cpp
+      struct Etiquette {
+          std::string texte;
+      };
+      ```
+      L'étiquette survit à la chaîne locale de `creer`. Un objet qui garde un texte le possède : une
+      `std::string`. Une vue ou un pointeur en membre ne font que désigner la chaîne d'un autre.
+  - key: situation-configuration
+    format: scenario
+    question: |-
+      Une classe `Configuration` garde ses clés dans des membres `std::string_view`, « pour éviter les copies ».
+      Elles viennent de lignes lues dans un fichier, une par une, dans une même variable. À l'usage, toutes les
+      clés contiennent n'importe quoi. Pourquoi ?
+    choices:
+      - {text: "Les vues désignent la variable de lecture, réutilisée puis détruite : la classe doit posséder ses chaînes", correct: true}
+      - {text: "Une `std::string_view` ne peut pas désigner un texte qui vient d'un fichier", correct: false}
+      - {text: "Les vues ont copié les lignes dans un tampon trop petit pour les contenir", correct: false}
+      - {text: "Le fichier a été fermé, ce qui efface toutes les chaînes qui en viennent", correct: false}
+    answer: |-
+      Chaque vue garde l'adresse de la ligne courante, écrasée à la lecture suivante, puis détruite. Économiser une
+      copie n'a de sens que si quelqu'un d'autre garde les données. Ici, personne : les membres doivent être des
+      `std::string`.
+  - key: situation-revue-retour
+    format: scenario
+    question: |-
+      En revue de code, une fonction a pour signature `std::string_view nom_complet(const Client& client)`, et son
+      corps renvoie `client.prenom() + " " + client.nom()`. Que dis-tu ?
+    choices:
+      - {text: "Qu'elle renvoie une vue vers un temporaire : elle doit renvoyer une `std::string`", correct: true}
+      - {text: "Qu'elle est correcte : la vue garde le temporaire en vie", correct: false}
+      - {text: "Qu'elle doit recevoir le client par valeur pour que la vue soit valide", correct: false}
+      - {text: "Qu'elle doit renvoyer une `const std::string_view&` pour éviter la copie", correct: false}
+    answer: |-
+      La concaténation fabrique une chaîne nouvelle, qui n'appartient à personne : elle est détruite au `return`.
+      Une vue n'est légitime en retour que si elle désigne quelque chose qui survit à l'appel, comme un membre du
+      client.
+  - key: situation-intermittent
+    format: scenario
+    question: |-
+      Un programme affiche correctement un identifiant de huit caractères tenu par une `std::string_view`, mais du
+      texte illisible quand l'identifiant en fait quarante. La vue vient d'une fonction qui renvoie une
+      `std::string`. Qu'en conclus-tu ?
+    choices:
+      - {text: "La vue est pendante dans les deux cas ; pour le texte court, les caractères traînaient encore sur la pile", correct: true}
+      - {text: "La vue n'est pendante que pour les chaînes de plus de quinze caractères", correct: false}
+      - {text: "Une `std::string_view` ne peut pas désigner plus de trente-deux caractères", correct: false}
+      - {text: "La fonction renvoie une chaîne tronquée quand le texte est trop long", correct: false}
+    answer: |-
+      La chaîne renvoyée est un temporaire, détruit aussitôt. Une chaîne courte est rangée dans l'objet lui-même :
+      ses caractères restent lisibles par chance. Une longue est sur le tas, libérée et réutilisée. Le bug est le
+      même ; on garde le résultat dans une `std::string`.
+  - key: situation-api
+    format: scenario
+    question: |-
+      Tu conçois `class Journal`, avec `void ajouter(... message)` qui range le message dans un vecteur, et
+      `... dernier() const` qui renvoie le dernier message. Quels types choisis-tu ?
+    choices:
+      - {text: "Un paramètre `std::string_view`, un vecteur de `std::string`, un retour `std::string_view`", correct: true}
+      - {text: "Un paramètre `std::string_view`, un vecteur de `std::string_view`, un retour `std::string`", correct: false}
+      - {text: "Un paramètre `std::string&`, un vecteur de `const char*`, un retour `const char*`", correct: false}
+      - {text: "Un paramètre `std::string`, un vecteur de `std::string_view`, un retour `std::string_view`", correct: false}
+    answer: |-
+      Le paramètre ne fait que passer : une vue. Le journal **garde** les messages : il les possède, en
+      `std::string`. Le retour peut être une vue, car elle désigne un membre qui vit autant que le journal, à
+      condition de ne pas la garder au-delà du prochain ajout.

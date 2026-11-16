@@ -1,0 +1,408 @@
+notion: packaged-task
+lesson: |-
+  `std::packaged_task` (en-tête `<future>`) **emballe un appelable** (fonction, lambda) et lui attache un
+  `std::future`. Quand on appelle la tâche, le résultat de l'appelable, ou son exception, arrive dans le futur.
+
+  ```cpp
+  std::packaged_task<int(int, int)> tache{[](int a, int b) { return a + b; }};
+  std::future<int> resultat = tache.get_future();
+
+  tache(2, 3);                          // exécute l'appelable, ici dans le thread courant
+  std::println("{}", resultat.get());   // 5
+  ```
+
+  Le paramètre de template est la **signature** de l'appelable : `int(int, int)`.
+
+  **Sa place parmi les outils.**
+
+  | Outil | Qui lance le calcul | Qui remplit le futur |
+  |---|---|---|
+  | `std::async` | la bibliothèque, tout de suite ou à la demande | la bibliothèque |
+  | `std::packaged_task` | **toi**, où et quand tu veux | la tâche, à son appel |
+  | `std::promise` | toi | **toi**, à la main (`set_value`) |
+
+  `std::packaged_task` sépare la **création** du travail de son **exécution** : on fabrique la tâche ici, on garde
+  le futur, et l'on envoie la tâche ailleurs. C'est la brique d'un **pool de threads** : la file contient des
+  tâches, l'appelant garde les futurs.
+
+  ```cpp
+  std::packaged_task<int()> tache{calculer};
+  auto resultat = tache.get_future();
+  std::thread t{std::move(tache)};      // la tâche s'exécute dans le thread
+  t.join();
+  resultat.get();
+  ```
+
+  **Les règles.**
+
+  - Une tâche **ne se copie pas** : elle se **déplace** (`std::move`).
+  - `get_future()` ne s'appelle **qu'une fois** ; une seconde fois lance `std::future_error`.
+  - Une tâche ne s'exécute **qu'une fois** ; la rappeler lance `std::future_error`. `reset()` la réarme, avec un
+    nouveau futur.
+  - Construire la tâche **ne l'exécute pas** : tant que personne ne l'appelle, `get()` attend.
+  - Si l'appelable **lance une exception**, elle est rangée dans le futur, et relancée par `get()`.
+  - Une tâche **détruite sans avoir été appelée** casse la promesse : `get()` lance `std::future_error`
+    (`broken_promise`).
+  - À la différence du futur de `std::async`, le destructeur de ce futur **n'attend pas**.
+
+  **En entretien** : « `std::packaged_task` emballe une fonction et lui associe un futur ; c'est moi qui décide où
+  et quand elle s'exécute. Elle se déplace, s'exécute une fois, et transmet la valeur ou l'exception au futur.
+  C'est ce qu'on range dans la file d'un pool de threads. »
+cards:
+  - key: role
+    format: course
+    question: "Que fait `std::packaged_task` ?"
+    choices:
+      - {text: "Il emballe un appelable, et range son résultat dans un `std::future` quand on l'appelle", correct: true}
+      - {text: "Il lance un appelable dans un nouveau thread dès sa construction", correct: false}
+      - {text: "Il répète un appelable à intervalles réguliers", correct: false}
+      - {text: "Il protège un appelable par un mutex", correct: false}
+    answer: "La tâche ne lance rien toute seule : elle attend d'être appelée. Le futur, obtenu par `get_future()`, recevra la valeur ou l'exception."
+  - key: difference-async
+    format: course
+    question: "Quelle différence entre `std::packaged_task` et `std::async` ?"
+    choices:
+      - {text: "Avec `packaged_task`, c'est toi qui décides où et quand la tâche s'exécute", correct: true}
+      - {text: "Avec `packaged_task`, la tâche s'exécute toujours dans un nouveau thread", correct: false}
+      - {text: "Avec `packaged_task`, le résultat ne peut pas être récupéré", correct: false}
+      - {text: "Avec `packaged_task`, les exceptions sont ignorées", correct: false}
+    answer: "`std::async` lance lui-même le calcul. La tâche emballée s'envoie où l'on veut : un thread, une file, plus tard."
+  - key: exception
+    format: course
+    question: "L'appelable d'une `std::packaged_task` lance une exception. Que devient-elle ?"
+    choices:
+      - {text: "Elle est rangée dans le futur, et relancée par `get()`", correct: true}
+      - {text: "Elle remonte dans le thread qui a appelé la tâche", correct: false}
+      - {text: "Elle arrête le programme par `std::terminate`", correct: false}
+      - {text: "Elle est perdue, et `get()` renvoie une valeur nulle", correct: false}
+    answer: "La tâche attrape l'exception et la confie à son état partagé. Celui qui appelle `get()` la reçoit, même dans un autre thread."
+  - key: usage
+    format: course
+    question: "Dans quel composant `std::packaged_task` est-il la brique naturelle ?"
+    choices:
+      - {text: "Un pool de threads : la file garde les tâches, l'appelant les futurs", correct: true}
+      - {text: "Un compteur partagé entre plusieurs threads", correct: false}
+      - {text: "Un verrou qui laisse passer plusieurs lecteurs", correct: false}
+      - {text: "Un cache propre à chaque thread", correct: false}
+    answer: "La tâche sépare la soumission du travail de son exécution : exactement ce que fait un pool."
+  - key: vf-copie
+    format: true-false
+    question: "Une `std::packaged_task` peut être copiée."
+    truth: false
+    answer: "Elle possède un état partagé unique : elle se déplace avec `std::move`."
+  - key: vf-construction
+    format: true-false
+    question: "Construire une `std::packaged_task` exécute son appelable."
+    truth: false
+    answer: Rien ne s'exécute avant l'appel de la tâche, par toi ou par le thread à qui tu l'as donnée.
+  - key: vf-une-fois
+    format: true-false
+    question: "Appeler deux fois la même `std::packaged_task` sans `reset()` lance une exception."
+    truth: true
+    answer: "`std::future_error` : la promesse est déjà satisfaite. `reset()` prépare un nouvel état, et un nouveau futur."
+  - key: vf-en-tete
+    format: true-false
+    question: "`std::packaged_task` est déclaré dans l'en-tête `<future>`."
+    truth: true
+    answer: "Avec `std::future`, `std::promise` et `std::async`."
+  - key: qcm-signature
+    format: multiple-choice
+    question: "Comment déclares-tu une tâche qui emballe une fonction prenant deux `int` et renvoyant un `double` ?"
+    choices:
+      - {text: "`std::packaged_task<double(int, int)> tache{f};`", correct: true}
+      - {text: "`std::packaged_task<double, int, int> tache{f};`", correct: false}
+      - {text: "`std::packaged_task<int(double, double)> tache{f};`", correct: false}
+      - {text: "`std::packaged_task<double> tache{f, int, int};`", correct: false}
+    answer: "Le paramètre de template est une signature de fonction : type de retour, puis paramètres entre parenthèses, comme pour `std::function`."
+  - key: qcm-thread
+    format: multiple-choice
+    question: "Comment donnes-tu une tâche `tache` à un nouveau thread ?"
+    choices:
+      - {text: "`std::thread t{std::move(tache)};`", correct: true}
+      - {text: "`std::thread t{tache};`", correct: false}
+      - {text: "`std::thread t{&tache};`", correct: false}
+      - {text: "`std::thread t{tache()};`", correct: false}
+    answer: "La tâche ne se copie pas : on la déplace. `tache()` l'exécuterait tout de suite, dans le thread courant."
+  - key: qcm-futur
+    format: multiple-choice
+    question: "Comment obtiens-tu le futur associé à une tâche ?"
+    choices:
+      - {text: "`tache.get_future()`", correct: true}
+      - {text: "`tache.get()`", correct: false}
+      - {text: "`tache.future()`", correct: false}
+      - {text: "`std::future{tache}`", correct: false}
+    answer: "`get_future()`, à appeler une seule fois, avant de déplacer la tâche."
+  - key: qcm-jamais-appelee
+    format: multiple-choice
+    question: "Une tâche est détruite sans avoir été appelée. Que fait `get()` sur son futur ?"
+    choices:
+      - {text: "Il lance `std::future_error` : promesse rompue", correct: true}
+      - {text: "Il attend sans fin", correct: false}
+      - {text: "Il renvoie une valeur nulle", correct: false}
+      - {text: "Il exécute lui-même l'appelable", correct: false}
+    answer: "L'erreur est `broken_promise`. Tant que la tâche existe sans être appelée, en revanche, `get()` attend."
+  - key: trous-get-future
+    format: fill-in
+    question: |-
+      Complète pour obtenir le futur de la tâche :
+      ```cpp
+      std::packaged_task<int()> tache{calculer};
+      std::future<int> resultat = tache.___();
+      ```
+    blanks:
+      - [get_future]
+    answer: "`get_future()` renvoie le futur qui recevra le résultat."
+  - key: trous-move
+    format: fill-in
+    question: |-
+      Complète pour donner la tâche au thread :
+      ```cpp
+      std::thread t{std::___(tache)};
+      ```
+    blanks:
+      - [move]
+    answer: "Une tâche se déplace : elle n'a pas de constructeur de copie."
+  - key: trous-type
+    format: fill-in
+    question: |-
+      Complète avec le type qui emballe la fonction et lui associe un futur :
+      ```cpp
+      std::___<int(int)> tache{carre};
+      ```
+    blanks:
+      - [packaged_task]
+    answer: "`std::packaged_task<int(int)>` : une tâche qui prend un `int` et en renvoie un."
+  - key: trous-get
+    format: fill-in
+    question: |-
+      Complète pour attendre le résultat et le lire :
+      ```cpp
+      tache(5);
+      std::println("{}", resultat.___());
+      ```
+    blanks:
+      - [get]
+    answer: "`get()` attend que la tâche ait été exécutée, puis renvoie sa valeur."
+  - key: code-appel
+    format: code-output
+    question: |-
+      ```cpp
+      #include <future>
+      #include <print>
+
+      int main() {
+          std::packaged_task<int(int, int)> tache{[](int a, int b) { return a * b; }};
+          auto resultat = tache.get_future();
+          tache(6, 7);
+          std::println("{}", resultat.get());
+      }
+      ```
+    choices:
+      - {text: "`42`", correct: true}
+      - {text: "`13`", correct: false}
+      - {text: "`0`", correct: false}
+      - {text: "Rien : `get()` attend sans fin", correct: false}
+    answer: "`42` : appeler la tâche exécute la lambda dans le thread courant, et range 42 dans le futur."
+    check:
+      output: "42"
+  - key: code-thread
+    format: code-output
+    question: |-
+      ```cpp
+      #include <future>
+      #include <print>
+      #include <thread>
+
+      int somme(int n) {
+          int total = 0;
+          for (int i = 1; i <= n; ++i) {
+              total += i;
+          }
+          return total;
+      }
+
+      int main() {
+          std::packaged_task<int(int)> tache{somme};
+          auto resultat = tache.get_future();
+          std::thread t{std::move(tache), 4};
+          t.join();
+          std::println("{}", resultat.get());
+      }
+      ```
+    choices:
+      - {text: "`10`", correct: true}
+      - {text: "`4`", correct: false}
+      - {text: "`0`", correct: false}
+      - {text: "Ça ne compile pas", correct: false}
+    answer: "`10` : la tâche, déplacée dans le thread, y est appelée avec 4. Le futur gardé par `main` reçoit 1 + 2 + 3 + 4."
+    check:
+      output: "10"
+  - key: code-exception
+    format: code-output
+    question: |-
+      ```cpp
+      #include <future>
+      #include <print>
+      #include <stdexcept>
+
+      int main() {
+          std::packaged_task<int()> tache{[]() -> int { throw std::runtime_error{"panne"}; }};
+          auto resultat = tache.get_future();
+          tache();
+          std::print("appelée ");
+          try {
+              resultat.get();
+          } catch (const std::runtime_error& e) {
+              std::println("{}", e.what());
+          }
+      }
+      ```
+    choices:
+      - {text: "`appelée panne`", correct: true}
+      - {text: "`panne appelée`", correct: false}
+      - {text: "`appelée`", correct: false}
+      - {text: "`panne`", correct: false}
+    answer: "`appelée panne` : l'exception ne sort pas de l'appel de la tâche. Elle est rangée dans le futur, et relancée par `get()`."
+    check:
+      output: "appelée panne"
+  - key: code-reset
+    format: code-output
+    question: |-
+      ```cpp
+      #include <future>
+      #include <print>
+
+      int main() {
+          int appels = 0;
+          std::packaged_task<int()> tache{[&appels] { return ++appels; }};
+          auto premier = tache.get_future();
+          tache();
+          tache.reset();
+          auto second = tache.get_future();
+          tache();
+          std::println("{} {}", premier.get(), second.get());
+      }
+      ```
+    choices:
+      - {text: "`1 2`", correct: true}
+      - {text: "`1 1`", correct: false}
+      - {text: "`2 2`", correct: false}
+      - {text: "`2 1`", correct: false}
+    answer: "`1 2` : `reset()` réarme la tâche avec un nouvel état partagé. Chaque exécution remplit son propre futur."
+    check:
+      output: "1 2"
+  - key: bug-copie
+    format: bug-fix
+    question: |-
+      Le compilateur refuse la construction du thread : la tâche lui est passée par copie, et ne se copie pas.
+      Quelle correction est la bonne ?
+      ```cpp
+      #include <future>
+      #include <print>
+      #include <thread>
+
+      int main() {
+          std::packaged_task<int()> tache{[] { return 7; }};
+          auto resultat = tache.get_future();
+          std::thread t{tache};
+          t.join();
+          std::println("{}", resultat.get());
+      }
+      ```
+    choices:
+      - {text: "Écrire `std::thread t{std::move(tache)};`", correct: true}
+      - {text: "Écrire `std::thread t{&tache};`", correct: false}
+      - {text: "Écrire `std::thread t{tache()};`", correct: false}
+      - {text: "Écrire `std::thread t{std::ref(resultat)};`", correct: false}
+    answer: |-
+      ```cpp
+      std::thread t{std::move(tache)};
+      ```
+      Une `std::packaged_task` ne se copie pas : elle se déplace dans le thread, qui l'exécutera.
+  - key: bug-jamais-appelee
+    format: bug-fix
+    question: |-
+      Ce programme ne se termine jamais : `get()` attend un résultat que personne ne calcule. Quelle correction est
+      la bonne ?
+      ```cpp
+      #include <future>
+      #include <print>
+
+      int main() {
+          std::packaged_task<int()> tache{[] { return 7; }};
+          auto resultat = tache.get_future();
+          std::println("{}", resultat.get());
+      }
+      ```
+    choices:
+      - {text: "Appeler `tache();` avant `resultat.get()`", correct: true}
+      - {text: "Appeler `tache.reset();` avant `resultat.get()`", correct: false}
+      - {text: "Appeler `resultat.wait();` avant `resultat.get()`", correct: false}
+      - {text: "Appeler `tache.get_future();` une seconde fois", correct: false}
+    answer: |-
+      ```cpp
+      tache();
+      std::println("{}", resultat.get());
+      ```
+      Construire la tâche ne l'exécute pas. Il faut l'appeler, ici ou dans un autre thread, pour que le futur
+      reçoive une valeur.
+  - key: bug-double-appel
+    format: bug-fix
+    question: |-
+      Ce programme s'arrête sur `std::future_error` (« Promise already satisfied »). Il devrait afficher `1`, puis
+      `2`. Quelle correction est la bonne ?
+      ```cpp
+      #include <future>
+      #include <print>
+
+      int main() {
+          int appels = 0;
+          std::packaged_task<int()> tache{[&appels] { return ++appels; }};
+          auto resultat = tache.get_future();
+          tache();
+          std::println("{}", resultat.get());
+          tache();
+          std::println("{}", appels);
+      }
+      ```
+    choices:
+      - {text: "Appeler `tache.reset();` avant le second appel de la tâche", correct: true}
+      - {text: "Appeler `resultat.get();` une seconde fois avant le second appel", correct: false}
+      - {text: "Appeler `tache.get_future();` avant le second appel, sans `reset()`", correct: false}
+      - {text: "Déclarer la tâche avec le mot-clé `const`", correct: false}
+    answer: |-
+      ```cpp
+      tache.reset();
+      tache();
+      ```
+      Une tâche ne remplit son état partagé qu'une fois. `reset()` lui en donne un neuf, dont on peut demander le
+      futur.
+  - key: bug-futur-apres-move
+    format: bug-fix
+    question: |-
+      Ce programme s'arrête sur `std::future_error` (« No associated state ») : le futur est demandé après le
+      déplacement de la tâche. Quelle correction est la bonne ?
+      ```cpp
+      #include <future>
+      #include <print>
+      #include <thread>
+
+      int main() {
+          std::packaged_task<int()> tache{[] { return 7; }};
+          std::thread t{std::move(tache)};
+          auto resultat = tache.get_future();
+          t.join();
+          std::println("{}", resultat.get());
+      }
+      ```
+    choices:
+      - {text: "Appeler `tache.get_future()` avant de déplacer la tâche dans le thread", correct: true}
+      - {text: "Appeler `t.join()` avant de déplacer la tâche dans le thread", correct: false}
+      - {text: "Passer `std::ref(tache)` au thread, puis demander le futur deux fois", correct: false}
+      - {text: "Déclarer `resultat` avec le type `std::shared_future<int>`", correct: false}
+    answer: |-
+      ```cpp
+      auto resultat = tache.get_future();
+      std::thread t{std::move(tache)};
+      ```
+      Après `std::move`, la tâche n'a plus d'état partagé. On prend le futur d'abord, on déplace ensuite.

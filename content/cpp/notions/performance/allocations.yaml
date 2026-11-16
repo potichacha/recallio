@@ -1,0 +1,340 @@
+notion: allocations
+lesson: |-
+  Allouer sur le **tas** (`new`, `std::make_unique`, un conteneur qui grandit) n'est pas gratuit. L'allocateur doit
+  trouver un bloc libre de la bonne taille, tenir ses registres à jour, et se protéger des autres threads. L'ordre
+  de grandeur : **quelques dizaines à quelques centaines de nanosecondes**, contre **rien** pour une variable de la
+  pile, qui ne demande que de déplacer un pointeur. Dans une boucle exécutée des millions de fois, c'est souvent le
+  premier poste de dépense.
+
+  S'y ajoutent des coûts indirects : des objets alloués un par un sont **dispersés** en mémoire (défauts de cache),
+  et l'alternance d'allocations et de libérations **fragmente** le tas.
+
+  **Où se cachent les allocations.**
+
+  - Un `std::vector` qui grandit sans `reserve` : une réallocation à chaque doublement.
+  - Une `std::string` plus longue que son tampon interne (15 caractères avec GCC, au-delà : le tas).
+  - Chaque nœud d'une `std::list`, d'une `std::map`, d'une `std::unordered_map`.
+  - `std::function` qui capture trop pour son tampon interne ; `std::shared_ptr` créé sans `make_shared` (deux
+    allocations au lieu d'une).
+  - Une copie de conteneur ou de chaîne, par exemple un paramètre passé par valeur.
+
+  **Les réduire.**
+
+  | Technique | Effet |
+  |---|---|
+  | `reserve(n)` avant de remplir | une allocation au lieu d'une dizaine |
+  | Sortir le conteneur de la boucle, et le vider avec `clear()` | la capacité est réutilisée à chaque tour |
+  | `std::array`, ou une variable locale | la pile, sans allocation |
+  | `std::string_view`, `std::span` en paramètre | pas de copie, donc pas d'allocation |
+  | `std::vector` plutôt que `std::list` ou `std::map` | un bloc contigu au lieu d'un nœud par élément |
+  | `std::make_shared` | une seule allocation pour l'objet et son compteur |
+
+  **Les allocateurs.** Chaque conteneur standard accepte un **allocateur**, qui décide d'où vient sa mémoire. Depuis
+  C++17, l'espace de noms `std::pmr` (*polymorphic memory resource*) rend cela simple :
+
+  ```cpp
+  #include <memory_resource>
+
+  std::array<std::byte, 4096> tampon;
+  std::pmr::monotonic_buffer_resource ressource{tampon.data(), tampon.size()};
+  std::pmr::vector<int> valeurs{&ressource};      // alloue dans le tampon, sur la pile
+  ```
+
+  - `monotonic_buffer_resource` : distribue la mémoire d'un tampon **à la suite**, et ne libère rien avant sa propre
+    destruction. Une allocation y coûte un déplacement de pointeur. Idéal pour des données qui vivent le temps
+    d'une requête.
+  - `unsynchronized_pool_resource` : des réserves de blocs de même taille, pour les conteneurs à nœuds.
+
+  Si le tampon est épuisé, la ressource retombe sur le tas : le programme reste correct.
+
+  **Mesurer d'abord.** Un profileur montre le temps passé dans `malloc` et `free`. On n'introduit un allocateur
+  spécialisé qu'après avoir épuisé les remèdes simples : `reserve`, réutilisation, moins de copies.
+
+  **En entretien** : « Une allocation sur le tas coûte des dizaines de nanosecondes et disperse les données. Je
+  commence par `reserve`, la réutilisation des tampons et des vues en paramètre. Pour aller plus loin, les
+  allocateurs `std::pmr`, comme `monotonic_buffer_resource`, qui alloue dans un tampon par simple incrément. »
+cards:
+  - key: cout
+    format: course
+    question: "Pourquoi une allocation sur le tas coûte-t-elle plus cher qu'une variable sur la pile ?"
+    choices:
+      - {text: "L'allocateur doit chercher un bloc libre et tenir ses registres ; la pile déplace un pointeur", correct: true}
+      - {text: "La mémoire du tas est plus lente à lire et à écrire que la mémoire de la pile", correct: false}
+      - {text: "Le tas est stocké sur le disque, alors que la pile est en mémoire vive", correct: false}
+      - {text: "Le compilateur vérifie chaque accès au tas, et aucun accès à la pile", correct: false}
+    answer: "C'est la gestion qui coûte, pas la mémoire elle-même : chercher, découper, verrouiller. L'ordre de grandeur est de quelques dizaines de nanosecondes par allocation."
+  - key: cachees
+    format: course
+    question: "Laquelle de ces opérations alloue sur le tas à chaque fois ?"
+    choices:
+      - {text: "Insérer un élément dans une `std::map`", correct: true}
+      - {text: "Déclarer un `std::array<int, 8>` local", correct: false}
+      - {text: "Construire une `std::string_view` sur un littéral", correct: false}
+      - {text: "Appeler `clear()` sur un `std::vector`", correct: false}
+    answer: "Chaque élément d'une map vit dans son propre nœud, alloué séparément. Un `std::array` vit sur la pile, une vue ne possède rien, et `clear()` garde la capacité."
+  - key: reutiliser
+    format: course
+    question: "Une boucle crée à chaque tour un `std::vector` temporaire. Comment supprimes-tu ses allocations répétées ?"
+    choices:
+      - {text: "En déclarant le vecteur avant la boucle, et en appelant `clear()` à chaque tour", correct: true}
+      - {text: "En déclarant le vecteur `const` à l'intérieur de la boucle", correct: false}
+      - {text: "En appelant `shrink_to_fit()` à la fin de chaque tour", correct: false}
+      - {text: "En remplaçant le vecteur par une `std::list` dans la boucle", correct: false}
+    answer: "`clear()` retire les éléments sans rendre la mémoire : après le premier tour, la capacité suffit, et plus rien n'est alloué."
+  - key: monotonic
+    format: course
+    question: "Comment `std::pmr::monotonic_buffer_resource` rend-il une allocation presque gratuite ?"
+    choices:
+      - {text: "Elle avance un pointeur dans un tampon, et ne libère rien avant sa propre destruction", correct: true}
+      - {text: "Elle garde chaque bloc libéré dans une liste, triée par taille croissante", correct: false}
+      - {text: "Elle demande au système une page de mémoire par objet alloué", correct: false}
+      - {text: "Elle compresse les objets alloués pour qu'ils occupent moins de place", correct: false}
+    answer: "Aucune recherche, aucun registre : allouer, c'est incrémenter. La contrepartie est que la mémoire n'est rendue qu'en bloc, à la fin."
+  - key: vf-reserve
+    format: true-false
+    question: "Appeler `reserve` avec la taille finale réduit à une seule les allocations d'un `std::vector` qu'on remplit."
+    truth: true
+    answer: "Sans `reserve`, le vecteur réalloue à chaque doublement de capacité : une dizaine de fois pour mille éléments."
+  - key: vf-sso
+    format: true-false
+    question: "Avec GCC, une `std::string` de dix caractères alloue sur le tas."
+    truth: false
+    answer: "Les chaînes courtes (jusqu'à 15 caractères avec libstdc++) tiennent dans l'objet lui-même : c'est l'optimisation des petites chaînes."
+  - key: vf-pmr-epuise
+    format: true-false
+    question: "Quand son tampon est plein, une `monotonic_buffer_resource` fait planter le programme."
+    truth: false
+    answer: "Elle demande la suite à la ressource en amont, par défaut le tas. Le programme reste correct, seulement moins rapide."
+  - key: vf-make-shared
+    format: true-false
+    question: "`std::make_shared` alloue l'objet et son bloc de contrôle en une seule fois."
+    truth: true
+    answer: "`std::shared_ptr<T>(new T)` fait deux allocations : une pour l'objet, une pour le compteur."
+  - key: qcm-espace-de-noms
+    format: multiple-choice
+    question: "Dans quel espace de noms trouve-t-on les conteneurs à allocateur polymorphe de C++17 ?"
+    choices:
+      - {text: "`std::pmr`", correct: true}
+      - {text: "`std::alloc`", correct: false}
+      - {text: "`std::ranges`", correct: false}
+      - {text: "`std::chrono`", correct: false}
+    answer: "`std::pmr::vector`, `std::pmr::string`... Ils prennent un pointeur vers une `std::pmr::memory_resource`."
+  - key: qcm-noeuds
+    format: multiple-choice
+    question: "Quel conteneur fait le moins d'allocations pour ranger dix mille entiers ?"
+    choices:
+      - {text: "Un `std::vector` rempli après `reserve(10000)`", correct: true}
+      - {text: "Une `std::list` remplie par `push_back`", correct: false}
+      - {text: "Un `std::set` rempli par `insert`", correct: false}
+      - {text: "Une `std::map` remplie par `operator[]`", correct: false}
+    answer: "Le vecteur fait une seule allocation. Les conteneurs à nœuds en font une par élément, soit dix mille."
+  - key: qcm-parametre
+    format: multiple-choice
+    question: "Quel type de paramètre évite toute allocation quand on passe un littéral de texte ?"
+    choices:
+      - {text: "`std::string_view`", correct: true}
+      - {text: "`const std::string&`", correct: false}
+      - {text: "`std::string`", correct: false}
+      - {text: "`std::string&&`", correct: false}
+    answer: "Les trois autres construisent une `std::string` temporaire, qui alloue si le texte dépasse le tampon interne."
+  - key: qcm-profil
+    format: multiple-choice
+    question: "Quel signe, dans un profil, désigne les allocations comme goulot d'étranglement ?"
+    choices:
+      - {text: "Une part importante du temps passée dans `malloc` et `free`", correct: true}
+      - {text: "Une part importante du temps passée dans `main`", correct: false}
+      - {text: "Un grand nombre de fichiers source dans le projet", correct: false}
+      - {text: "Un exécutable de grande taille sur le disque", correct: false}
+    answer: "`operator new` appelle `malloc`. Quand ces fonctions dominent le profil, on cherche qui alloue, avant de changer d'allocateur."
+  - key: situation-boucle
+    format: scenario
+    question: |-
+      Une fonction appelée un million de fois par seconde construit une `std::string` de quarante caractères, la
+      passe à une autre fonction, puis la détruit. Le profileur montre 40 % du temps dans `malloc`. Que proposes-tu
+      d'abord ?
+    choices:
+      - {text: "Réutiliser un tampon gardé d'un appel à l'autre, ou passer une `std::string_view`", correct: true}
+      - {text: "Remplacer la chaîne par une `std::list<char>` de quarante éléments", correct: false}
+      - {text: "Allouer la chaîne avec `new`, et la libérer avec `delete`", correct: false}
+      - {text: "Écrire un allocateur global qui remplace `malloc` dans tout le programme", correct: false}
+    answer: |-
+      Quarante caractères dépassent le tampon interne : chaque appel alloue et libère. Le remède le plus simple est
+      de ne pas créer la chaîne (une vue), ou de la garder en vie. Un allocateur spécialisé ne vient qu'après.
+  - key: situation-requete
+    format: scenario
+    question: |-
+      Un serveur construit, pour chaque requête, des dizaines de petits conteneurs, tous jetés à la fin de la
+      requête. Les allocations dominent le profil, même après avoir ajouté des `reserve`. Quel outil convient ?
+    choices:
+      - {text: "Des conteneurs `std::pmr` sur une `monotonic_buffer_resource` par requête", correct: true}
+      - {text: "Des conteneurs déclarés `static`, partagés entre toutes les requêtes", correct: false}
+      - {text: "Des `std::shared_ptr` vers chaque conteneur, créés avec `new`", correct: false}
+      - {text: "Un appel à `shrink_to_fit` sur chaque conteneur avant sa destruction", correct: false}
+    answer: |-
+      Des données qui naissent et meurent ensemble sont le cas d'école de l'allocateur monotone : chaque allocation
+      avance un pointeur, et tout est rendu d'un coup à la fin de la requête.
+  - key: situation-liste
+    format: scenario
+    question: |-
+      Une file de traitement est une `std::list<Tache>` de cent mille éléments, parcourue sans cesse. Le profil
+      montre beaucoup de défauts de cache, et du temps dans l'allocateur. Que proposes-tu ?
+    choices:
+      - {text: "Un `std::vector<Tache>` ou une `std::deque<Tache>` : moins d'allocations, données contiguës", correct: true}
+      - {text: "Une `std::map<int, Tache>` : ses nœuds sont plus petits que ceux d'une liste", correct: false}
+      - {text: "Une `std::list<Tache*>` : les pointeurs sont plus rapides à parcourir", correct: false}
+      - {text: "Une `std::list<Tache>` par thread : chacune est plus courte", correct: false}
+    answer: |-
+      Une liste alloue un nœud par élément, dispersé en mémoire. Un vecteur range tout dans un bloc : une
+      allocation, et un parcours qui profite du cache. Une liste de pointeurs ajouterait une indirection.
+  - key: situation-prematuree
+    format: scenario
+    question: |-
+      Un collègue veut réécrire tout un module avec un allocateur maison, « parce que `new` est lent ». Le module
+      n'a jamais été profilé. Que lui réponds-tu ?
+    choices:
+      - {text: "De mesurer d'abord : si `malloc` ne pèse pas dans le profil, l'allocateur n'apportera rien", correct: true}
+      - {text: "De le faire tout de suite : un allocateur maison est toujours plus rapide que `malloc`", correct: false}
+      - {text: "De remplacer plutôt tous les `new` du module par des variables globales", correct: false}
+      - {text: "De compiler le module sans optimisation, pour voir le vrai coût de `new`", correct: false}
+    answer: |-
+      Les allocateurs généraux sont très optimisés. Un allocateur spécialisé ne gagne que sur un schéma précis, que
+      seul un profil révèle. Et les remèdes simples, `reserve` ou la réutilisation, suffisent souvent.
+  - key: code-reserve
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+      #include <vector>
+
+      int reallocations(std::vector<int>& v) {
+          int total = 0;
+          auto capacite = v.capacity();
+          for (int i = 0; i < 1000; ++i) {
+              v.push_back(i);
+              if (v.capacity() != capacite) {
+                  ++total;
+                  capacite = v.capacity();
+              }
+          }
+          return total;
+      }
+
+      int main() {
+          std::vector<int> sans;
+          std::vector<int> avec;
+          avec.reserve(1000);
+          std::println("{} {}", reallocations(sans), reallocations(avec));
+      }
+      ```
+    choices:
+      - {text: "`11 0`", correct: true}
+      - {text: "`1000 0`", correct: false}
+      - {text: "`11 1`", correct: false}
+      - {text: "`1 0`", correct: false}
+    answer: "`11 0` : avec GCC, la capacité double (1, 2, 4... 1024), soit onze changements pour mille éléments. Après `reserve(1000)`, aucun."
+    check:
+      output: "11 0"
+  - key: code-sso
+    format: code-output
+    question: |-
+      Avec la bibliothèque de GCC :
+      ```cpp
+      #include <print>
+      #include <string>
+
+      int main() {
+          const std::string courte = "abc";
+          const std::string longue(40, 'x');
+          std::println("{} {}", courte.capacity(), longue.capacity() >= 40);
+      }
+      ```
+    choices:
+      - {text: "`15 true`", correct: true}
+      - {text: "`3 true`", correct: false}
+      - {text: "`15 false`", correct: false}
+      - {text: "`0 true`", correct: false}
+    answer: "`15 true` : une chaîne courte loge dans le tampon interne de 15 caractères, sans allocation. La longue a dû allouer au moins 40 caractères sur le tas."
+    check:
+      output: "15 true"
+  - key: code-pmr
+    format: code-output
+    question: |-
+      ```cpp
+      #include <array>
+      #include <cstddef>
+      #include <memory_resource>
+      #include <print>
+      #include <vector>
+
+      int main() {
+          std::array<std::byte, 1024> tampon;
+          std::pmr::monotonic_buffer_resource ressource{tampon.data(), tampon.size()};
+          std::pmr::vector<int> v{&ressource};
+          for (int i = 0; i < 10; ++i) {
+              v.push_back(i);
+          }
+          const auto* debut = reinterpret_cast<const std::byte*>(v.data());
+          const bool dans_le_tampon = debut >= tampon.data() && debut < tampon.data() + tampon.size();
+          std::println("{} {}", dans_le_tampon, v.size());
+      }
+      ```
+    choices:
+      - {text: "`true 10`", correct: true}
+      - {text: "`false 10`", correct: false}
+      - {text: "`true 1024`", correct: false}
+      - {text: "`false 0`", correct: false}
+    answer: "`true 10` : le vecteur prend sa mémoire dans le tampon local, par l'intermédiaire de la ressource. Ses dix éléments n'ont demandé aucune allocation sur le tas."
+    check:
+      output: "true 10"
+  - key: code-allocateur-compteur
+    format: code-output
+    question: |-
+      ```cpp
+      #include <cstddef>
+      #include <memory>
+      #include <print>
+      #include <vector>
+
+      int allocations = 0;
+
+      template <typename T>
+      struct Compteur {
+          using value_type = T;
+          Compteur() = default;
+          template <typename U>
+          Compteur(const Compteur<U>&) {}
+          T* allocate(std::size_t n) {
+              ++allocations;
+              return std::allocator<T>{}.allocate(n);
+          }
+          void deallocate(T* p, std::size_t n) { std::allocator<T>{}.deallocate(p, n); }
+          bool operator==(const Compteur&) const = default;
+      };
+
+      int main() {
+          {
+              std::vector<int, Compteur<int>> v;
+              for (int i = 0; i < 5; ++i) {
+                  v.push_back(i);
+              }
+          }
+          const int sans = allocations;
+          allocations = 0;
+          {
+              std::vector<int, Compteur<int>> v;
+              v.reserve(5);
+              for (int i = 0; i < 5; ++i) {
+                  v.push_back(i);
+              }
+          }
+          std::println("{} {}", sans, allocations);
+      }
+      ```
+    choices:
+      - {text: "`4 1`", correct: true}
+      - {text: "`5 1`", correct: false}
+      - {text: "`4 0`", correct: false}
+      - {text: "`5 5`", correct: false}
+    answer: "`4 1` : sans `reserve`, la capacité passe par 1, 2, 4 puis 8, soit quatre allocations pour cinq éléments. Avec `reserve(5)`, une seule."
+    check:
+      output: "4 1"

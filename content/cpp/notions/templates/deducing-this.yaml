@@ -1,0 +1,439 @@
+notion: deducing-this
+lesson: |-
+  Dans une fonction membre, l'objet courant est un paramètre **caché** : `this`. C++23 permet de le déclarer
+  **explicitement**, comme premier paramètre, précédé du mot-clé `this`. On parle de **paramètre objet explicite**,
+  ou de *deducing this*.
+
+  ```cpp
+  struct Compteur {
+      int n = 0;
+      void incrementer(this Compteur& self) { ++self.n; }
+  };
+
+  Compteur c;
+  c.incrementer();        // s'appelle comme une fonction membre ordinaire
+  ```
+
+  **Les règles.**
+
+  - Le paramètre s'écrit `this Type nom`, en **premier**. Le nom est libre ; l'usage est `self`.
+  - Dans le corps, il n'y a **plus de pointeur `this`**, ni d'accès implicite aux membres : on écrit `self.n`.
+  - La fonction ne peut être ni `static`, ni `virtual`, ni suivie de `const` ou de `&` : ces qualificatifs
+    s'expriment par le **type** du paramètre, `this const Compteur& self`.
+
+  **1. Déduire le type de l'objet.** Le paramètre peut être un template :
+
+  ```cpp
+  struct Boite {
+      int valeur = 0;
+
+      template <typename Self>
+      auto&& contenu(this Self&& self) {
+          return std::forward<Self>(self).valeur;
+      }
+  };
+  ```
+
+  Une seule fonction remplace les versions `const` et non `const`, et celles pour les rvalues : `Self` est déduit
+  en `Boite&`, `const Boite&` ou `Boite`, selon l'objet sur lequel on l'appelle.
+
+  **2. Les lambdas récursives.** Une lambda n'a pas de nom par lequel se rappeler. Avec `this auto self`, elle se
+  reçoit elle-même :
+
+  ```cpp
+  auto factorielle = [](this auto self, int n) -> int {
+      return n <= 1 ? 1 : n * self(n - 1);
+  };
+  ```
+
+  **3. Le CRTP sans template.** Dans une classe de base, `Self` est déduit en type **dérivé** :
+
+  ```cpp
+  struct Forme {
+      double double_aire(this const auto& self) { return 2 * self.aire(); }
+  };
+
+  struct Carre : Forme {
+      double aire() const { return 4; }
+  };
+  ```
+
+  Plus besoin de `Forme<Carre>` ni de `static_cast`.
+
+  **4. Prendre l'objet par valeur.** `void consommer(this Tampon self)` reçoit une **copie** de l'objet, ou
+  l'objet déplacé : utile pour une fonction qui vide son objet. C'est aussi un piège : une modification faite sur
+  `self` par valeur est perdue.
+
+  **Le support.** GCC 14, Clang 18 et les versions récentes de MSVC.
+
+  **En entretien** : « En C++23, je peux déclarer l'objet courant comme premier paramètre : `this Self&& self`.
+  Son type est alors déduit : une seule fonction couvre `const`, non `const` et rvalue, une lambda peut s'appeler
+  elle-même, et le CRTP se passe de template de classe. »
+cards:
+  - key: definition
+    format: course
+    question: "Qu'est-ce que le paramètre objet explicite de C++23 ?"
+    choices:
+      - {text: "L'objet courant, déclaré comme premier paramètre d'une fonction membre : `this Type self`", correct: true}
+      - {text: "Un pointeur `this` que l'appelant doit passer lui-même à chaque appel", correct: false}
+      - {text: "Un paramètre par défaut qui vaut l'objet global du programme", correct: false}
+      - {text: "Un paramètre de template qui remplace le nom de la classe", correct: false}
+    answer: "Le paramètre caché `this` devient un paramètre visible, qu'on nomme. L'appel, lui, ne change pas : `objet.fonction()`."
+  - key: deduire
+    format: course
+    question: "Qu'apporte `template <typename Self> auto&& contenu(this Self&& self)` ?"
+    choices:
+      - {text: "Une seule fonction pour les objets `const`, non `const` et temporaires", correct: true}
+      - {text: "Une fonction appelable sans objet, comme une fonction statique", correct: false}
+      - {text: "Une fonction virtuelle dont le type de retour varie", correct: false}
+      - {text: "Une fonction qui copie l'objet avant chaque appel", correct: false}
+    answer: "`Self` est déduit d'après l'objet : `Boite&`, `const Boite&` ou `Boite`. Avant C++23, il fallait écrire deux ou quatre surcharges."
+  - key: lambda-recursive
+    format: course
+    question: "Comment une lambda peut-elle s'appeler elle-même en C++23 ?"
+    choices:
+      - {text: "En se recevant en premier paramètre : `[](this auto self, int n)`", correct: true}
+      - {text: "En se nommant dans ses crochets : `[self](int n)`", correct: false}
+      - {text: "En appelant `this(n - 1)` dans son corps", correct: false}
+      - {text: "En se déclarant avec le mot-clé `recursive`", correct: false}
+    answer: "`self` désigne la lambda elle-même : `self(n - 1)` est l'appel récursif. Avant, il fallait un `std::function` ou passer la lambda en argument."
+  - key: regles
+    format: course
+    question: "Comment accède-t-on à un membre dans une fonction à paramètre objet explicite ?"
+    choices:
+      - {text: "Par le paramètre : `self.valeur` ; il n'y a plus de `this` implicite", correct: true}
+      - {text: "Par `this->valeur`, comme dans toute fonction membre", correct: false}
+      - {text: "Par `valeur` seul, sans rien devant", correct: false}
+      - {text: "Par `Classe::valeur`, comme pour un membre statique", correct: false}
+    answer: "Le corps se comporte comme celui d'une fonction statique : les membres ne sont accessibles qu'à travers le paramètre objet."
+  - key: vf-const-apres
+    format: true-false
+    question: "Une fonction à paramètre objet explicite peut être suivie du qualificatif `const`."
+    truth: false
+    answer: "La constance s'exprime dans le type du paramètre : `this const Compteur& self`."
+  - key: vf-virtual
+    format: true-false
+    question: "Une fonction à paramètre objet explicite peut être déclarée `virtual`."
+    truth: false
+    answer: "Ni `virtual`, ni `static`. Elle reste une fonction membre, appelée sur un objet."
+  - key: vf-appel
+    format: true-false
+    question: "Une fonction déclarée `void f(this Compteur& self)` s'appelle par `c.f()`."
+    truth: true
+    answer: "L'objet placé devant le point devient l'argument du paramètre `self`. Rien ne change pour l'appelant."
+  - key: vf-par-valeur
+    format: true-false
+    question: "Avec `this Compteur self`, la fonction travaille sur une copie de l'objet."
+    truth: true
+    answer: "Le paramètre est pris par valeur : une modification de `self` ne touche pas l'objet d'origine."
+  - key: qcm-syntaxe
+    format: multiple-choice
+    question: "Quelle déclaration est une fonction membre à paramètre objet explicite, qui ne modifie pas l'objet ?"
+    choices:
+      - {text: "`int lire(this const Compteur& self);`", correct: true}
+      - {text: "`int lire(const Compteur& this);`", correct: false}
+      - {text: "`int lire(Compteur self this) const;`", correct: false}
+      - {text: "`this int lire(const Compteur& self);`", correct: false}
+    answer: "Le mot-clé `this` précède le type du premier paramètre."
+  - key: qcm-crtp
+    format: multiple-choice
+    question: "Dans une classe de base, que vaut le type déduit de `self` dans `void f(this const auto& self)`, appelée sur un objet dérivé ?"
+    choices:
+      - {text: "Le type de la classe dérivée", correct: true}
+      - {text: "Le type de la classe de base", correct: false}
+      - {text: "Le type `void*`", correct: false}
+      - {text: "Le type `auto`, résolu à l'exécution", correct: false}
+    answer: "La déduction part de l'objet réellement utilisé dans l'appel. La base peut donc appeler les fonctions de la dérivée, sans CRTP ni `virtual`."
+  - key: qcm-norme
+    format: multiple-choice
+    question: "Quelle norme a introduit le paramètre objet explicite ?"
+    choices:
+      - {text: "C++23", correct: true}
+      - {text: "C++20", correct: false}
+      - {text: "C++17", correct: false}
+      - {text: "C++11", correct: false}
+    answer: "C++23, sous le nom *deducing this*. GCC le prend en charge à partir de la version 14."
+  - key: qcm-forward
+    format: multiple-choice
+    question: "Dans `auto&& contenu(this Self&& self)`, comment renvoie-t-on le membre avec la catégorie de valeur de l'objet ?"
+    choices:
+      - {text: "`return std::forward<Self>(self).valeur;`", correct: true}
+      - {text: "`return std::move(self).valeur;`", correct: false}
+      - {text: "`return this->valeur;`", correct: false}
+      - {text: "`return *self.valeur;`", correct: false}
+    answer: "`std::forward<Self>` rend `self` tel qu'il a été reçu : le membre est renvoyé par référence pour une variable, déplaçable pour un temporaire."
+  - key: trous-this
+    format: fill-in
+    question: |-
+      Complète pour déclarer l'objet courant comme paramètre explicite :
+      ```cpp
+      struct Compteur {
+          int n = 0;
+          void incrementer(___ Compteur& self) { ++self.n; }
+      };
+      ```
+    blanks:
+      - [this]
+    answer: "Le mot-clé `this` précède le premier paramètre."
+  - key: trous-self
+    format: fill-in
+    question: |-
+      Complète pour lire le membre à travers le paramètre objet :
+      ```cpp
+      struct Point {
+          int x = 0;
+          int lire(this const Point& self) { return ___.x; }
+      };
+      ```
+    blanks:
+      - [self]
+    answer: "Il n'y a pas d'accès implicite aux membres : on passe par `self`."
+  - key: trous-auto
+    format: fill-in
+    question: |-
+      Complète pour que la lambda puisse s'appeler elle-même :
+      ```cpp
+      auto somme = [](this ___ self, int n) -> int {
+          return n == 0 ? 0 : n + self(n - 1);
+      };
+      ```
+    blanks:
+      - [auto]
+    answer: "`this auto self` : la lambda se reçoit elle-même, quel que soit son type."
+  - key: trous-const
+    format: fill-in
+    question: |-
+      Complète pour que la fonction puisse être appelée sur un objet constant :
+      ```cpp
+      struct Point {
+          int x = 0;
+          int lire(this ___ Point& self) { return self.x; }
+      };
+      ```
+    blanks:
+      - [const]
+    answer: "La constance se dit dans le type du paramètre objet."
+  - key: code-base
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+
+      struct Point {
+          int x = 0;
+          int double_x(this const Point& self) { return self.x * 2; }
+          void avancer(this Point& self, int pas) { self.x += pas; }
+      };
+
+      int main() {
+          Point p{20};
+          p.avancer(1);
+          std::println("{}", p.double_x());
+      }
+      ```
+    choices:
+      - {text: "`42`", correct: true}
+      - {text: "`40`", correct: false}
+      - {text: "`21`", correct: false}
+      - {text: "Ça ne compile pas", correct: false}
+    answer: "`42` : les deux fonctions s'appellent comme des fonctions membres ordinaires. `avancer` reçoit l'objet par référence, et le modifie."
+    check:
+      output: "42"
+  - key: code-deduction
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+      #include <type_traits>
+      #include <utility>
+
+      struct Boite {
+          int valeur = 1;
+
+          template <typename Self>
+          auto&& contenu(this Self&& self) {
+              return std::forward<Self>(self).valeur;
+          }
+      };
+
+      int main() {
+          Boite b;
+          const Boite c;
+          std::println("{} {} {}",
+                       std::is_same_v<decltype(b.contenu()), int&>,
+                       std::is_same_v<decltype(c.contenu()), const int&>,
+                       std::is_same_v<decltype(Boite{}.contenu()), int&>);
+      }
+      ```
+    choices:
+      - {text: "`true true false`", correct: true}
+      - {text: "`true true true`", correct: false}
+      - {text: "`true false false`", correct: false}
+      - {text: "`false true false`", correct: false}
+    answer: "`true true false` : une seule fonction rend `int&` pour une variable, `const int&` pour une constante, et `int&&` pour un temporaire."
+    check:
+      output: "true true false"
+  - key: code-lambda
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+
+      int main() {
+          auto factorielle = [](this auto self, int n) -> int {
+              return n <= 1 ? 1 : n * self(n - 1);
+          };
+          std::println("{}", factorielle(5));
+      }
+      ```
+    choices:
+      - {text: "`120`", correct: true}
+      - {text: "`5`", correct: false}
+      - {text: "`24`", correct: false}
+      - {text: "Ça ne compile pas", correct: false}
+    answer: "`120` : `self` est la lambda elle-même. `self(n - 1)` est l'appel récursif."
+    check:
+      output: "120"
+  - key: code-crtp
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+
+      struct Forme {
+          double double_aire(this const auto& self) { return 2 * self.aire(); }
+      };
+
+      struct Carre : Forme {
+          double aire() const { return 4; }
+      };
+
+      struct Disque : Forme {
+          double aire() const { return 3; }
+      };
+
+      int main() {
+          std::println("{} {}", Carre{}.double_aire(), Disque{}.double_aire());
+      }
+      ```
+    choices:
+      - {text: "`8 6`", correct: true}
+      - {text: "`4 3`", correct: false}
+      - {text: "`8 8`", correct: false}
+      - {text: "Ça ne compile pas", correct: false}
+    answer: "`8 6` : `self` est déduit en `Carre`, puis en `Disque`. La base appelle la fonction de la dérivée, sans template de classe ni `virtual`."
+    check:
+      output: "8 6"
+  - key: bug-membre-sans-self
+    format: bug-fix
+    question: |-
+      Le compilateur refuse `return x;` dans cette fonction : le membre n'est pas accessible sans objet. Quelle
+      correction est la bonne ?
+      ```cpp
+      #include <print>
+
+      struct Point {
+          int x = 7;
+          int lire(this const Point& self) { return x; }
+      };
+
+      int main() {
+          std::println("{}", Point{}.lire());
+      }
+      ```
+    choices:
+      - {text: "Écrire `return self.x;`", correct: true}
+      - {text: "Écrire `return this->x;`", correct: false}
+      - {text: "Écrire `return ::x;`", correct: false}
+      - {text: "Écrire `return *x;`", correct: false}
+    answer: |-
+      ```cpp
+      int lire(this const Point& self) { return self.x; }
+      ```
+      Avec un paramètre objet explicite, il n'y a ni `this` ni accès implicite aux membres : tout passe par le
+      paramètre.
+  - key: bug-const-en-trop
+    format: bug-fix
+    question: |-
+      Le compilateur refuse le `const` placé après les paramètres de cette fonction. Quelle correction est la
+      bonne ?
+      ```cpp
+      #include <print>
+
+      struct Point {
+          int x = 7;
+          int lire(this Point& self) const { return self.x; }
+      };
+
+      int main() {
+          const Point p;
+          std::println("{}", p.lire());
+      }
+      ```
+    choices:
+      - {text: "Écrire `int lire(this const Point& self) { return self.x; }`", correct: true}
+      - {text: "Écrire `int lire(this Point& self) const&  { return self.x; }`", correct: false}
+      - {text: "Écrire `const int lire(this Point& self) { return self.x; }`", correct: false}
+      - {text: "Écrire `static int lire(this Point& self) { return self.x; }`", correct: false}
+    answer: |-
+      ```cpp
+      int lire(this const Point& self) { return self.x; }
+      ```
+      Une fonction à paramètre objet explicite n'accepte pas de qualificatif après ses paramètres. La constance
+      fait partie du type de `self`.
+  - key: bug-lambda-recursive
+    format: bug-fix
+    question: |-
+      Le compilateur répond « use of 'somme' before deduction of 'auto' ». Quelle correction est la bonne ?
+      ```cpp
+      #include <print>
+
+      int main() {
+          auto somme = [](int n) -> int {
+              return n == 0 ? 0 : n + somme(n - 1);
+          };
+          std::println("{}", somme(4));
+      }
+      ```
+    choices:
+      - {text: "Écrire `[](this auto self, int n) -> int` et appeler `self(n - 1)`", correct: true}
+      - {text: "Écrire `[somme](int n) -> int`, en capturant la lambda par valeur", correct: false}
+      - {text: "Écrire `[](int n) -> auto`, pour que le retour soit déduit", correct: false}
+      - {text: "Écrire `[this](int n) -> int`, en capturant l'objet courant", correct: false}
+    answer: |-
+      ```cpp
+      auto somme = [](this auto self, int n) -> int {
+          return n == 0 ? 0 : n + self(n - 1);
+      };
+      ```
+      Dans son propre corps, la variable `somme` n'a pas encore de type : elle ne peut ni être appelée ni être
+      capturée. Avec `this auto self`, la lambda se reçoit elle-même.
+  - key: bug-self-par-valeur
+    format: bug-fix
+    question: |-
+      Ce programme devrait afficher `1` après l'incrémentation. Il affiche `0`. Quelle correction est la bonne ?
+      ```cpp
+      #include <print>
+
+      struct Compteur {
+          int n = 0;
+          void incrementer(this Compteur self) { ++self.n; }
+      };
+
+      int main() {
+          Compteur c;
+          c.incrementer();
+          std::println("{}", c.n);
+      }
+      ```
+    choices:
+      - {text: "Écrire `void incrementer(this Compteur& self)`", correct: true}
+      - {text: "Écrire `void incrementer(this const Compteur& self)`", correct: false}
+      - {text: "Écrire `void incrementer(this Compteur self) const`", correct: false}
+      - {text: "Écrire `static void incrementer(Compteur self)`", correct: false}
+    answer: |-
+      ```cpp
+      void incrementer(this Compteur& self) { ++self.n; }
+      ```
+      Par valeur, `self` est une copie de `c` : l'incrémentation est perdue. Pour modifier l'objet, le paramètre
+      objet est une référence.

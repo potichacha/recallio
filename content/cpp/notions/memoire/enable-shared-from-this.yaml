@@ -1,0 +1,451 @@
+notion: enable-shared-from-this
+lesson: |-
+  Un objet tenu par un `std::shared_ptr` a parfois besoin de donner **un `std::shared_ptr` vers lui-même** : pour
+  s'inscrire auprès d'un autre objet, ou pour rester en vie pendant une opération asynchrone.
+
+  **L'erreur à ne pas commettre.**
+
+  ```cpp
+  struct Session {
+      std::shared_ptr<Session> moi() { return std::shared_ptr<Session>{this}; }    // faux
+  };
+  ```
+
+  Ce `std::shared_ptr` neuf crée un **second bloc de contrôle**, qui ignore le premier. Chacun croit être seul
+  propriétaire : l'objet est détruit **deux fois**.
+
+  **La solution : `std::enable_shared_from_this`.**
+
+  ```cpp
+  struct Session : std::enable_shared_from_this<Session> {
+      std::shared_ptr<Session> moi() { return shared_from_this(); }
+  };
+
+  auto session = std::make_shared<Session>();
+  auto autre = session->moi();           // partage le même bloc de contrôle
+  ```
+
+  La classe de base range un `std::weak_ptr` vers l'objet, que le premier `std::shared_ptr` renseigne à sa
+  création. `shared_from_this()` en tire un `std::shared_ptr` qui **partage le même compteur**.
+
+  **Les conditions.**
+
+  - L'objet doit **déjà être possédé par un `std::shared_ptr`**. Sur un objet de la pile, ou créé par `new` sans
+    `std::shared_ptr`, `shared_from_this()` lance **`std::bad_weak_ptr`**.
+  - On ne l'appelle **pas dans le constructeur** : aucun `std::shared_ptr` ne possède encore l'objet.
+  - L'héritage doit être **public** : sinon le `std::shared_ptr` ne voit pas la classe de base, et le
+    `std::weak_ptr` interne reste vide.
+  - Le paramètre de template est **la classe elle-même** : `enable_shared_from_this<Session>` (c'est le CRTP).
+
+  **`weak_from_this()` (C++17)** renvoie le `std::weak_ptr`, sans lancer : il est simplement vide si l'objet n'est
+  pas partagé.
+
+  **L'usage type : rester en vie pendant un rappel.**
+
+  ```cpp
+  void Session::demarrer() {
+      minuteur.attendre([moi = shared_from_this()] { moi->expirer(); });
+  }
+  ```
+
+  La lambda copie un `std::shared_ptr` : la session ne peut pas être détruite avant l'appel. Capturer `this` seul
+  laisserait un pointeur pendant. Si le rappel ne doit **pas** prolonger la vie de l'objet, on capture
+  `weak_from_this()` et l'on teste `lock()`.
+
+  **Forcer la création par `std::shared_ptr`.** Pour qu'on ne puisse pas créer l'objet autrement, on rend le
+  constructeur privé, et l'on offre une fonction de fabrique statique qui renvoie un `std::shared_ptr`.
+
+  **En entretien** : « `std::shared_ptr<T>{this}` crée un second bloc de contrôle, donc une double destruction.
+  En héritant publiquement de `std::enable_shared_from_this<T>`, `shared_from_this()` rend un `std::shared_ptr` qui
+  partage le compteur existant. L'objet doit déjà être tenu par un `std::shared_ptr`, sinon `std::bad_weak_ptr`. »
+cards:
+  - key: probleme
+    format: course
+    question: "Pourquoi ne faut-il pas écrire `std::shared_ptr<Session>{this}` dans une fonction membre ?"
+    choices:
+      - {text: "Il crée un second bloc de contrôle : l'objet sera détruit deux fois", correct: true}
+      - {text: "Il ne compile pas : `this` ne se convertit pas en `std::shared_ptr`", correct: false}
+      - {text: "Il copie l'objet entier, au lieu de le partager", correct: false}
+      - {text: "Il crée un cycle de références, qui empêche la destruction", correct: false}
+    answer: "Le nouveau `std::shared_ptr` ignore celui qui possède déjà l'objet. Chaque groupe détruit l'objet quand son propre compteur tombe à zéro."
+  - key: solution
+    format: course
+    question: "Que renvoie `shared_from_this()` ?"
+    choices:
+      - {text: "Un `std::shared_ptr` vers l'objet, qui partage le compteur des propriétaires existants", correct: true}
+      - {text: "Un `std::shared_ptr` vers une copie de l'objet", correct: false}
+      - {text: "Un `std::unique_ptr` vers l'objet, qui retire la possession aux autres", correct: false}
+      - {text: "Le pointeur brut `this`, sans compteur", correct: false}
+    answer: "La classe de base garde un `std::weak_ptr` vers l'objet ; `shared_from_this()` le convertit en `std::shared_ptr`."
+  - key: condition
+    format: course
+    question: "Que se passe-t-il quand on appelle `shared_from_this()` sur un objet qu'aucun `std::shared_ptr` ne possède ?"
+    choices:
+      - {text: "Une exception `std::bad_weak_ptr` est lancée", correct: true}
+      - {text: "Un `std::shared_ptr` nul est renvoyé", correct: false}
+      - {text: "Un nouveau bloc de contrôle est créé pour l'objet", correct: false}
+      - {text: "Le programme ne compile pas", correct: false}
+    answer: "Le `std::weak_ptr` interne est vide. Depuis C++17, c'est une exception garantie. `weak_from_this()`, lui, renvoie un `std::weak_ptr` vide."
+  - key: usage
+    format: course
+    question: "Pourquoi une lambda de rappel capture-t-elle `shared_from_this()` plutôt que `this` ?"
+    choices:
+      - {text: "Pour que l'objet reste en vie jusqu'à l'appel de la lambda", correct: true}
+      - {text: "Pour que la lambda puisse être copiée", correct: false}
+      - {text: "Pour que la lambda s'exécute dans un autre thread", correct: false}
+      - {text: "Pour que l'objet soit détruit dès l'appel de la lambda", correct: false}
+    answer: "La lambda devient copropriétaire. Avec `this` seul, l'objet pourrait être détruit avant le rappel : pointeur pendant."
+  - key: vf-constructeur
+    format: true-false
+    question: "On peut appeler `shared_from_this()` dans le constructeur de l'objet."
+    truth: false
+    answer: "Aucun `std::shared_ptr` ne possède encore l'objet à ce moment : `std::bad_weak_ptr` est lancée."
+  - key: vf-heritage-public
+    format: true-false
+    question: "L'héritage de `std::enable_shared_from_this` doit être public."
+    truth: true
+    answer: "Sinon le `std::shared_ptr` ne peut pas renseigner le `std::weak_ptr` interne, et `shared_from_this()` lance."
+  - key: vf-pile
+    format: true-false
+    question: "`shared_from_this()` fonctionne sur un objet déclaré comme variable locale."
+    truth: false
+    answer: "Un objet de la pile n'est possédé par aucun `std::shared_ptr`."
+  - key: vf-weak-from-this
+    format: true-false
+    question: "`weak_from_this()` lance une exception quand l'objet n'est pas partagé."
+    truth: false
+    answer: "Il renvoie un `std::weak_ptr` vide, sans lancer."
+  - key: qcm-declaration
+    format: multiple-choice
+    question: "Quelle déclaration permet à `Session` d'appeler `shared_from_this()` ?"
+    choices:
+      - {text: "`struct Session : std::enable_shared_from_this<Session> {};`", correct: true}
+      - {text: "`struct Session : std::enable_shared_from_this<> {};`", correct: false}
+      - {text: "`struct Session : std::shared_ptr<Session> {};`", correct: false}
+      - {text: "`struct Session : std::weak_ptr<Session> {};`", correct: false}
+    answer: "La classe se passe elle-même en paramètre de template : c'est le CRTP."
+  - key: qcm-exception
+    format: multiple-choice
+    question: "Quelle exception lance `shared_from_this()` sur un objet non partagé ?"
+    choices:
+      - {text: "`std::bad_weak_ptr`", correct: true}
+      - {text: "`std::bad_alloc`", correct: false}
+      - {text: "`std::bad_cast`", correct: false}
+      - {text: "`std::logic_error`", correct: false}
+    answer: "La même que la construction d'un `std::shared_ptr` à partir d'un `std::weak_ptr` expiré."
+  - key: qcm-compteur
+    format: multiple-choice
+    question: "`a` est le seul `std::shared_ptr` d'une session. Que vaut `a.use_count()` après `auto b = a->shared_from_this();` ?"
+    choices:
+      - {text: "2", correct: true}
+      - {text: "1", correct: false}
+      - {text: "0", correct: false}
+      - {text: "3", correct: false}
+    answer: "`b` partage le même bloc de contrôle : il y a maintenant deux propriétaires."
+  - key: qcm-ne-pas-prolonger
+    format: multiple-choice
+    question: "Un rappel ne doit pas prolonger la vie de l'objet. Que capture-t-il ?"
+    choices:
+      - {text: "`weak_from_this()`, dont il teste `lock()` à l'appel", correct: true}
+      - {text: "`shared_from_this()`, qu'il garde par copie", correct: false}
+      - {text: "`this`, le pointeur brut, sans rien d'autre", correct: false}
+      - {text: "`*this`, l'objet lui-même, par référence", correct: false}
+    answer: "Un `std::weak_ptr` observe sans posséder. Si l'objet a disparu, `lock()` rend un pointeur nul, et le rappel ne fait rien."
+  - key: trous-base
+    format: fill-in
+    question: |-
+      Complète la classe de base :
+      ```cpp
+      struct Session : std::___<Session> {
+      };
+      ```
+    blanks:
+      - [enable_shared_from_this]
+    answer: "`std::enable_shared_from_this<Session>` fournit `shared_from_this()`."
+  - key: trous-appel
+    format: fill-in
+    question: |-
+      Complète pour renvoyer un `std::shared_ptr` vers l'objet courant :
+      ```cpp
+      std::shared_ptr<Session> moi() {
+          return ___();
+      }
+      ```
+    blanks:
+      - [shared_from_this]
+    answer: "`shared_from_this()` partage le compteur des propriétaires existants."
+  - key: trous-make-shared
+    format: fill-in
+    question: |-
+      Complète pour créer la session de façon que `shared_from_this()` fonctionne :
+      ```cpp
+      auto session = std::___<Session>();
+      ```
+    blanks:
+      - [make_shared]
+    answer: "L'objet doit être possédé par un `std::shared_ptr` dès sa création."
+  - key: trous-weak
+    format: fill-in
+    question: |-
+      Complète avec la fonction qui ne lance jamais :
+      ```cpp
+      std::weak_ptr<Session> observateur = ___();
+      ```
+    blanks:
+      - [weak_from_this]
+    answer: "`weak_from_this()` (C++17) renvoie le `std::weak_ptr` interne."
+  - key: code-compteur
+    format: code-output
+    question: |-
+      ```cpp
+      #include <memory>
+      #include <print>
+
+      struct Session : std::enable_shared_from_this<Session> {
+          std::shared_ptr<Session> moi() { return shared_from_this(); }
+      };
+
+      int main() {
+          const auto a = std::make_shared<Session>();
+          const auto b = a->moi();
+          std::println("{} {}", a.use_count(), a == b);
+      }
+      ```
+    choices:
+      - {text: "`2 true`", correct: true}
+      - {text: "`1 true`", correct: false}
+      - {text: "`2 false`", correct: false}
+      - {text: "`1 false`", correct: false}
+    answer: "`2 true` : `b` désigne le même objet et partage le même compteur. Il y a deux propriétaires."
+    check:
+      output: "2 true"
+  - key: code-bad-weak-ptr
+    format: code-output
+    question: |-
+      ```cpp
+      #include <memory>
+      #include <print>
+
+      struct Session : std::enable_shared_from_this<Session> {
+          std::shared_ptr<Session> moi() { return shared_from_this(); }
+      };
+
+      int main() {
+          Session locale;
+          try {
+              const auto p = locale.moi();
+              std::println("partagée");
+          } catch (const std::bad_weak_ptr&) {
+              std::println("non partagée");
+          }
+      }
+      ```
+    choices:
+      - {text: "`non partagée`", correct: true}
+      - {text: "`partagée`", correct: false}
+      - {text: "Rien", correct: false}
+      - {text: "Ça ne compile pas", correct: false}
+    answer: "`non partagée` : l'objet est sur la pile, aucun `std::shared_ptr` ne le possède. `shared_from_this()` lance `std::bad_weak_ptr`."
+    check:
+      output: "non partagée"
+  - key: code-rappel
+    format: code-output
+    question: |-
+      ```cpp
+      #include <functional>
+      #include <memory>
+      #include <print>
+
+      struct Session : std::enable_shared_from_this<Session> {
+          ~Session() { std::print("détruite "); }
+          std::function<void()> rappel() {
+              return [moi = shared_from_this()] { std::print("rappel "); };
+          }
+      };
+
+      int main() {
+          std::function<void()> f;
+          {
+              const auto session = std::make_shared<Session>();
+              f = session->rappel();
+          }
+          std::print("bloc ");
+          f();
+          f = nullptr;
+          std::println("fin");
+      }
+      ```
+    choices:
+      - {text: "`bloc rappel détruite fin`", correct: true}
+      - {text: "`détruite bloc rappel fin`", correct: false}
+      - {text: "`bloc rappel fin détruite`", correct: false}
+      - {text: "`bloc détruite rappel fin`", correct: false}
+    answer: "`bloc rappel détruite fin` : la lambda possède la session, qui survit au bloc. Elle n'est détruite que lorsque la lambda l'est."
+    check:
+      output: "bloc rappel détruite fin"
+  - key: code-weak
+    format: code-output
+    question: |-
+      ```cpp
+      #include <memory>
+      #include <print>
+
+      struct Session : std::enable_shared_from_this<Session> {
+          std::weak_ptr<Session> observateur() { return weak_from_this(); }
+      };
+
+      int main() {
+          std::weak_ptr<Session> observateur;
+          {
+              const auto session = std::make_shared<Session>();
+              observateur = session->observateur();
+              std::print("{} ", observateur.expired());
+          }
+          Session locale;
+          std::println("{} {}", observateur.expired(), locale.observateur().expired());
+      }
+      ```
+    choices:
+      - {text: "`false true true`", correct: true}
+      - {text: "`false false true`", correct: false}
+      - {text: "`true true true`", correct: false}
+      - {text: "`false true false`", correct: false}
+    answer: "`false true true` : l'observateur ne prolonge pas la vie de la session, détruite à la fin du bloc. Pour un objet de la pile, `weak_from_this()` est vide d'emblée."
+    check:
+      output: "false true true"
+  - key: bug-shared-ptr-this
+    format: bug-fix
+    question: |-
+      Ce programme affiche `1`, puis détruit la session deux fois : il s'arrête sur « double free or corruption ».
+      Quelle correction est la bonne ?
+      ```cpp
+      #include <memory>
+      #include <print>
+
+      struct Session {
+          std::shared_ptr<Session> moi() { return std::shared_ptr<Session>{this}; }
+      };
+
+      int main() {
+          const auto a = std::make_shared<Session>();
+          const auto b = a->moi();
+          std::println("{}", a.use_count());
+      }
+      ```
+    choices:
+      - {text: "Hériter de `std::enable_shared_from_this<Session>`, et renvoyer `shared_from_this()`", correct: true}
+      - {text: "Renvoyer `std::make_shared<Session>(*this)` depuis la fonction `moi()`", correct: false}
+      - {text: "Renvoyer `std::unique_ptr<Session>{this}` depuis la fonction `moi()`", correct: false}
+      - {text: "Déclarer `b` avec le type `std::weak_ptr<Session>`", correct: false}
+    answer: |-
+      ```cpp
+      struct Session : std::enable_shared_from_this<Session> {
+          std::shared_ptr<Session> moi() { return shared_from_this(); }
+      };
+      ```
+      `std::shared_ptr<Session>{this}` crée un second compteur : `a` et `b` détruisent chacun l'objet.
+      `std::make_shared<Session>(*this)` créerait une copie, pas un partage.
+  - key: bug-heritage-prive
+    format: bug-fix
+    question: |-
+      Ce programme se termine sur une exception `std::bad_weak_ptr`, alors que la session est bien créée par
+      `std::make_shared`. Quelle correction est la bonne ?
+      ```cpp
+      #include <memory>
+      #include <print>
+
+      class Session : std::enable_shared_from_this<Session> {
+      public:
+          std::shared_ptr<Session> moi() { return shared_from_this(); }
+      };
+
+      int main() {
+          const auto a = std::make_shared<Session>();
+          const auto b = a->moi();
+          std::println("{}", a.use_count());
+      }
+      ```
+    choices:
+      - {text: "Hériter publiquement : `class Session : public std::enable_shared_from_this<Session>`", correct: true}
+      - {text: "Créer la session avec `new Session` à la place de `std::make_shared`", correct: false}
+      - {text: "Déclarer la fonction `moi()` avec le mot-clé `const`", correct: false}
+      - {text: "Appeler `weak_from_this()` à la place de `shared_from_this()`", correct: false}
+    answer: |-
+      ```cpp
+      class Session : public std::enable_shared_from_this<Session> {
+      ```
+      Avec `class`, l'héritage est privé par défaut. Le `std::shared_ptr` ne voit pas la classe de base, et ne
+      renseigne pas son `std::weak_ptr` interne : `shared_from_this()` lance.
+  - key: bug-dans-constructeur
+    format: bug-fix
+    question: |-
+      Ce programme se termine sur une exception `std::bad_weak_ptr`. Quelle correction est la bonne ?
+      ```cpp
+      #include <memory>
+      #include <print>
+      #include <vector>
+
+      struct Session;
+      std::vector<std::shared_ptr<Session>> registre;
+
+      struct Session : std::enable_shared_from_this<Session> {
+          Session() { registre.push_back(shared_from_this()); }
+      };
+
+      int main() {
+          const auto session = std::make_shared<Session>();
+          std::println("{}", registre.size());
+      }
+      ```
+    choices:
+      - {text: "Inscrire la session après sa création, dans une fonction de fabrique", correct: true}
+      - {text: "Inscrire la session dans le destructeur, à la place du constructeur", correct: false}
+      - {text: "Inscrire `std::shared_ptr<Session>{this}` dans le constructeur", correct: false}
+      - {text: "Créer la session avec `new`, pour que le constructeur réussisse", correct: false}
+    answer: |-
+      ```cpp
+      static std::shared_ptr<Session> creer() {
+          auto session = std::make_shared<Session>();
+          registre.push_back(session);
+          return session;
+      }
+      ```
+      Pendant le constructeur, aucun `std::shared_ptr` ne possède encore l'objet. On l'inscrit une fois le
+      `std::shared_ptr` créé.
+  - key: bug-this-pendant
+    format: bug-fix
+    question: |-
+      Ce rappel capture `this`, et s'exécute après la destruction de la session : le comportement est indéfini.
+      Quelle correction est la bonne ?
+      ```cpp
+      #include <functional>
+      #include <memory>
+      #include <print>
+
+      struct Session : std::enable_shared_from_this<Session> {
+          int numero = 7;
+          std::function<void()> rappel() {
+              return [this] { std::println("{}", numero); };
+          }
+      };
+
+      int main() {
+          std::function<void()> f;
+          {
+              const auto session = std::make_shared<Session>();
+              f = session->rappel();
+          }
+          f();
+      }
+      ```
+    choices:
+      - {text: "Capturer `moi = shared_from_this()`, et lire `moi->numero`", correct: true}
+      - {text: "Capturer `&numero`, et lire `numero`", correct: false}
+      - {text: "Capturer `[&]`, et lire `numero`", correct: false}
+      - {text: "Déclarer la fonction `rappel()` avec le mot-clé `const`", correct: false}
+    answer: |-
+      ```cpp
+      return [moi = shared_from_this()] { std::println("{}", moi->numero); };
+      ```
+      `this` est un pointeur brut : il ne retient pas l'objet. En capturant un `std::shared_ptr`, la lambda garde
+      la session en vie jusqu'à son propre appel.

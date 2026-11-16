@@ -1,0 +1,447 @@
+notion: semaphores-latch
+lesson: |-
+  C++20 ajoute trois outils de synchronisation plus simples à utiliser qu'une variable de condition, quand le
+  besoin leur correspond.
+
+  **Le sémaphore** (`<semaphore>`) est un **compteur de jetons**.
+
+  - `acquire()` prend un jeton ; s'il n'y en a pas, le thread **attend**.
+  - `release()` en rend un, et réveille un thread en attente.
+
+  ```cpp
+  std::counting_semaphore<3> places{3};    // au plus 3 threads à la fois
+
+  void telecharger() {
+      places.acquire();
+      // ... au plus trois threads ici
+      places.release();
+  }
+  ```
+
+  `std::counting_semaphore<N>` a un maximum de `N` jetons. `std::binary_semaphore` en a un seul. À la différence
+  d'un mutex, un sémaphore **n'a pas de propriétaire** : un thread peut rendre un jeton qu'un autre a pris. C'est
+  ce qui en fait un **signal** d'un thread à un autre.
+
+  **Le loquet** `std::latch` (`<latch>`) est un compte à rebours **à usage unique**.
+
+  - `count_down()` décrémente ;
+  - `wait()` bloque jusqu'à ce que le compteur atteigne **zéro**.
+
+  ```cpp
+  std::latch pret{3};
+  // chaque thread de travail : pret.count_down();
+  pret.wait();          // repart quand les trois ont fini
+  ```
+
+  Une fois à zéro, il y reste : il ne se réarme pas.
+
+  **La barrière** `std::barrier` (`<barrier>`) est un point de rencontre **réutilisable** : chaque thread appelle
+  `arrive_and_wait()`, et tous repartent ensemble quand le nombre attendu est arrivé. Elle sert aux calculs par
+  **phases**. Une fonction, donnée à la construction, peut s'exécuter à chaque franchissement.
+
+  **Lequel choisir.**
+
+  | Besoin | Outil |
+  |---|---|
+  | Limiter à N le nombre de threads dans une section | `std::counting_semaphore<N>` |
+  | Signaler un événement d'un thread à un autre | `std::binary_semaphore` |
+  | Attendre une fois que N tâches soient finies, ou donner un départ | `std::latch` |
+  | Synchroniser des threads à chaque étape d'un calcul | `std::barrier` |
+  | Protéger une donnée partagée | `std::mutex`, pas un sémaphore |
+  | Attendre une condition quelconque sur un état | `std::condition_variable` |
+
+  **Les pièges.**
+
+  - Un `acquire()` sans `release()` sur un chemin (un `return`, une exception) **perd un jeton** pour toujours.
+    Aucune garde standard ne le rend à ta place.
+  - Rendre plus de jetons que le maximum du sémaphore est un comportement indéfini.
+  - Un `count_down()` oublié laisse `wait()` bloqué sans fin.
+  - Un sémaphore binaire **n'est pas un mutex** : il ne vérifie pas que c'est le bon thread qui relâche.
+
+  **En entretien** : « Un sémaphore compte des jetons : `acquire` en prend un ou attend, `release` en rend un,
+  depuis n'importe quel thread. Un `std::latch` est un compte à rebours à usage unique ; une `std::barrier` un
+  rencontre réutilisable. Pour protéger une donnée, je garde un mutex. »
+cards:
+  - key: semaphore
+    format: course
+    question: "Que fait `acquire()` sur un sémaphore qui n'a plus de jeton ?"
+    choices:
+      - {text: "Il bloque le thread jusqu'à ce qu'un `release()` rende un jeton", correct: true}
+      - {text: "Il renvoie `false` aussitôt, sans attendre", correct: false}
+      - {text: "Il lance une exception `std::system_error`", correct: false}
+      - {text: "Il crée un nouveau jeton, au-delà du maximum", correct: false}
+    answer: "Le sémaphore compte des jetons. `acquire()` en prend un ou attend ; `try_acquire()` est la version qui n'attend pas."
+  - key: proprietaire
+    format: course
+    question: "Qu'est-ce qui distingue un `std::binary_semaphore` d'un `std::mutex` ?"
+    choices:
+      - {text: "Il n'a pas de propriétaire : un thread peut rendre le jeton pris par un autre", correct: true}
+      - {text: "Il laisse entrer deux threads à la fois dans la section", correct: false}
+      - {text: "Il se déverrouille tout seul à la fin de la portée", correct: false}
+      - {text: "Il ne peut être utilisé que par deux threads", correct: false}
+    answer: "Un mutex doit être relâché par le thread qui le tient. Un sémaphore sert donc de signal entre threads, ce qu'un mutex ne sait pas faire."
+  - key: latch
+    format: course
+    question: "Que fait `wait()` sur un `std::latch` ?"
+    choices:
+      - {text: "Il bloque jusqu'à ce que le compteur ait été ramené à zéro par des `count_down()`", correct: true}
+      - {text: "Il bloque jusqu'à ce qu'un autre thread appelle `wait()` à son tour", correct: false}
+      - {text: "Il décrémente le compteur, puis rend la main", correct: false}
+      - {text: "Il remet le compteur à sa valeur de départ", correct: false}
+    answer: "Le loquet est un compte à rebours. Une fois à zéro, tous les `wait()`, présents et futurs, passent."
+  - key: latch-ou-barrier
+    format: course
+    question: "Quelle différence entre `std::latch` et `std::barrier` ?"
+    choices:
+      - {text: "Le loquet sert une seule fois ; la barrière se réarme après chaque franchissement", correct: true}
+      - {text: "Le loquet se réarme après chaque franchissement ; la barrière sert une seule fois", correct: false}
+      - {text: "Le loquet protège une donnée ; la barrière limite le nombre de threads", correct: false}
+      - {text: "Aucune : ce sont deux noms du même type", correct: false}
+    answer: "`std::latch` : une seule rencontre. `std::barrier` : une rencontre par phase, autant de fois qu'il le faut."
+  - key: vf-latch-reutilisable
+    format: true-false
+    question: "Un `std::latch` arrivé à zéro peut être réarmé pour un nouvel usage."
+    truth: false
+    answer: Il est à usage unique. Pour une rencontre répétée, on prend `std::barrier`.
+  - key: vf-release-autre-thread
+    format: true-false
+    question: "Un thread peut appeler `release()` sur un sémaphore sans avoir appelé `acquire()`."
+    truth: true
+    answer: Le sémaphore n'a pas de propriétaire. C'est ainsi qu'un thread en réveille un autre.
+  - key: vf-mutex
+    format: true-false
+    question: "Un sémaphore est l'outil recommandé pour protéger une donnée partagée."
+    truth: false
+    answer: "Un mutex, avec sa garde, exprime mieux l'exclusion mutuelle et se relâche tout seul. Le sémaphore sert à compter ou à signaler."
+  - key: vf-cpp20
+    format: true-false
+    question: "`std::counting_semaphore`, `std::latch` et `std::barrier` datent de C++20."
+    truth: true
+    answer: "Ils ont chacun leur en-tête : `<semaphore>`, `<latch>`, `<barrier>`."
+  - key: qcm-limiter
+    format: multiple-choice
+    question: "Tu veux qu'au plus quatre threads téléchargent en même temps. Quel outil choisis-tu ?"
+    choices:
+      - {text: "`std::counting_semaphore<4>`", correct: true}
+      - {text: "`std::latch` initialisé à 4", correct: false}
+      - {text: "`std::mutex`", correct: false}
+      - {text: "`std::once_flag`", correct: false}
+    answer: "Quatre jetons : le cinquième thread attend qu'un autre en rende un."
+  - key: qcm-depart
+    format: multiple-choice
+    question: "`main` doit attendre, une seule fois, que cinq threads aient fini leur préparation. Quel outil convient ?"
+    choices:
+      - {text: "`std::latch` initialisé à 5", correct: true}
+      - {text: "`std::barrier` de 5 participants", correct: false}
+      - {text: "`std::binary_semaphore`", correct: false}
+      - {text: "`std::shared_mutex`", correct: false}
+    answer: "Chaque thread appelle `count_down()`, `main` appelle `wait()`. La barrière ferait attendre les threads eux-mêmes."
+  - key: qcm-phases
+    format: multiple-choice
+    question: "Des threads calculent par étapes, et doivent tous finir une étape avant de commencer la suivante. Quel outil convient ?"
+    choices:
+      - {text: "`std::barrier`", correct: true}
+      - {text: "`std::latch`", correct: false}
+      - {text: "`std::counting_semaphore`", correct: false}
+      - {text: "`std::once_flag`", correct: false}
+    answer: "Chaque thread appelle `arrive_and_wait()` en fin d'étape. La barrière se réarme pour l'étape suivante."
+  - key: qcm-try-acquire
+    format: multiple-choice
+    question: "Quelle fonction tente de prendre un jeton sans jamais attendre ?"
+    choices:
+      - {text: "`try_acquire()`", correct: true}
+      - {text: "`acquire()`", correct: false}
+      - {text: "`release()`", correct: false}
+      - {text: "`count_down()`", correct: false}
+    answer: "`try_acquire()` renvoie `true` s'il a pris un jeton, `false` sinon."
+  - key: trous-acquire
+    format: fill-in
+    question: |-
+      Complète pour prendre un jeton avant d'entrer :
+      ```cpp
+      places.___();
+      telecharger();
+      places.release();
+      ```
+    blanks:
+      - [acquire]
+    answer: "`acquire()` prend un jeton, ou attend qu'il y en ait un."
+  - key: trous-count-down
+    format: fill-in
+    question: |-
+      Complète pour signaler au loquet que ce thread a fini :
+      ```cpp
+      std::latch fini{3};
+      // dans chaque thread :
+      fini.___();
+      ```
+    blanks:
+      - [count_down]
+    answer: "`count_down()` décrémente le compteur du loquet."
+  - key: trous-latch-wait
+    format: fill-in
+    question: |-
+      Complète pour attendre que le loquet soit à zéro :
+      ```cpp
+      fini.___();
+      std::println("tout le monde a fini");
+      ```
+    blanks:
+      - [wait]
+    answer: "`wait()` bloque jusqu'à ce que le compteur atteigne zéro."
+  - key: trous-binary
+    format: fill-in
+    question: |-
+      Complète avec le sémaphore à un seul jeton, vide au départ :
+      ```cpp
+      std::___ signal{0};
+      ```
+    blanks:
+      - [binary_semaphore]
+    answer: "`std::binary_semaphore` est un `std::counting_semaphore<1>`."
+  - key: code-jetons
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+      #include <semaphore>
+
+      int main() {
+          std::counting_semaphore<2> places{2};
+          const bool a = places.try_acquire();
+          const bool b = places.try_acquire();
+          const bool c = places.try_acquire();
+          places.release();
+          const bool d = places.try_acquire();
+          std::println("{} {} {} {}", a, b, c, d);
+      }
+      ```
+    choices:
+      - {text: "`true true false true`", correct: true}
+      - {text: "`true true true true`", correct: false}
+      - {text: "`true true false false`", correct: false}
+      - {text: "`true false false true`", correct: false}
+    answer: "`true true false true` : deux jetons, donc le troisième essai échoue. Après `release()`, un jeton est de nouveau disponible."
+    check:
+      output: "true true false true"
+  - key: code-latch
+    format: code-output
+    question: |-
+      ```cpp
+      #include <atomic>
+      #include <latch>
+      #include <print>
+      #include <thread>
+      #include <vector>
+
+      int main() {
+          std::latch fini{3};
+          std::atomic<int> total{0};
+          std::vector<std::jthread> threads;
+          for (int i = 1; i <= 3; ++i) {
+              threads.emplace_back([&, i] {
+                  total += i;
+                  fini.count_down();
+              });
+          }
+          fini.wait();
+          std::println("{}", total.load());
+      }
+      ```
+    choices:
+      - {text: "`6`", correct: true}
+      - {text: "`0`", correct: false}
+      - {text: "`3`", correct: false}
+      - {text: "Un nombre entre 0 et 6, selon l'exécution", correct: false}
+    answer: "`6` : `wait()` ne rend la main qu'après les trois `count_down()`, chacun fait après l'addition de son thread."
+    check:
+      output: "6"
+  - key: code-signal
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+      #include <semaphore>
+      #include <thread>
+
+      int main() {
+          std::binary_semaphore signal{0};
+          int valeur = 0;
+          std::thread t{[&] {
+              signal.acquire();
+              valeur *= 2;
+          }};
+          valeur = 21;
+          signal.release();
+          t.join();
+          std::println("{}", valeur);
+      }
+      ```
+    choices:
+      - {text: "`42`", correct: true}
+      - {text: "`0`", correct: false}
+      - {text: "`21`", correct: false}
+      - {text: "`0` ou `42`, selon l'exécution", correct: false}
+    answer: "`42` : le thread attend le jeton. `main` écrit 21, puis le rend ; le thread double alors la valeur. Le sémaphore ordonne les deux accès."
+    check:
+      output: "42"
+  - key: code-latch-zero
+    format: code-output
+    question: |-
+      ```cpp
+      #include <latch>
+      #include <print>
+
+      int main() {
+          std::latch loquet{2};
+          std::print("{} ", loquet.try_wait());
+          loquet.count_down();
+          loquet.count_down();
+          std::print("{} ", loquet.try_wait());
+          loquet.wait();
+          std::println("{}", loquet.try_wait());
+      }
+      ```
+    choices:
+      - {text: "`false true true`", correct: true}
+      - {text: "`false true false`", correct: false}
+      - {text: "`true true true`", correct: false}
+      - {text: "`false false true`", correct: false}
+    answer: "`false true true` : `try_wait()` dit si le compteur est à zéro. Après deux `count_down()`, il l'est, et le reste : `wait()` passe sans bloquer."
+    check:
+      output: "false true true"
+  - key: bug-release-oublie
+    format: bug-fix
+    question: |-
+      Ce programme se fige au troisième appel : un jeton n'est jamais rendu. Quelle correction est la bonne ?
+      ```cpp
+      #include <print>
+      #include <semaphore>
+
+      std::counting_semaphore<2> places{2};
+
+      bool traiter(int valeur) {
+          places.acquire();
+          if (valeur < 0) {
+              return false;
+          }
+          places.release();
+          return true;
+      }
+
+      int main() {
+          traiter(-1);
+          traiter(-2);
+          std::println("{}", traiter(3));
+      }
+      ```
+    choices:
+      - {text: "Appeler `places.release();` avant le `return false;`", correct: true}
+      - {text: "Appeler `places.acquire();` une seconde fois avant le `return false;`", correct: false}
+      - {text: "Déclarer le sémaphore avec `std::counting_semaphore<1>`", correct: false}
+      - {text: "Remplacer `places.acquire()` par `places.try_acquire()`, sans tester le résultat", correct: false}
+    answer: |-
+      ```cpp
+      if (valeur < 0) {
+          places.release();
+          return false;
+      }
+      ```
+      Chaque `acquire()` doit avoir son `release()` sur tous les chemins. Aucune garde standard ne le fait : on
+      peut en écrire une petite, dont le destructeur rend le jeton.
+  - key: bug-count-down-manquant
+    format: bug-fix
+    question: |-
+      Ce programme ne se termine jamais : le loquet attend trois signaux, et n'en reçoit que deux. Quelle correction
+      est la bonne ?
+      ```cpp
+      #include <latch>
+      #include <print>
+      #include <thread>
+
+      int main() {
+          std::latch fini{3};
+          std::jthread a{[&] { fini.count_down(); }};
+          std::jthread b{[&] { fini.count_down(); }};
+          fini.wait();
+          std::println("fin");
+      }
+      ```
+    choices:
+      - {text: "Initialiser le loquet à 2, le nombre de threads", correct: true}
+      - {text: "Appeler `fini.wait();` dans chacun des deux threads", correct: false}
+      - {text: "Remplacer `std::jthread` par `std::thread`", correct: false}
+      - {text: "Appeler `fini.wait();` deux fois de suite dans `main`", correct: false}
+    answer: |-
+      ```cpp
+      std::latch fini{2};
+      ```
+      Le compteur doit valoir exactement le nombre de `count_down()` qui auront lieu. Sinon `wait()` ne se débloque
+      jamais.
+  - key: bug-jeton-initial
+    format: bug-fix
+    question: |-
+      Ce programme se fige dès le premier `acquire()`. Quelle correction est la bonne ?
+      ```cpp
+      #include <print>
+      #include <semaphore>
+
+      int main() {
+          std::counting_semaphore<3> places{0};
+          places.acquire();
+          std::println("entré");
+          places.release();
+      }
+      ```
+    choices:
+      - {text: "Initialiser le sémaphore à 3 jetons : `places{3}`", correct: true}
+      - {text: "Déclarer le sémaphore avec `std::counting_semaphore<0>`", correct: false}
+      - {text: "Appeler `places.acquire()` deux fois de suite", correct: false}
+      - {text: "Remplacer `places.release()` par `places.try_acquire()`", correct: false}
+    answer: |-
+      ```cpp
+      std::counting_semaphore<3> places{3};
+      ```
+      Le paramètre de template est le **maximum** ; l'argument du constructeur est le nombre de jetons au
+      **départ**. Avec zéro jeton, le premier `acquire()` attend un `release()` qui ne vient pas.
+  - key: bug-latch-reutilise
+    format: bug-fix
+    question: |-
+      Ce programme veut synchroniser deux phases avec le même loquet. La seconde attente ne bloque pas, et il
+      affiche `0` au lieu de `1`. Quelle correction est la bonne ?
+      ```cpp
+      #include <atomic>
+      #include <chrono>
+      #include <latch>
+      #include <print>
+      #include <thread>
+
+      int main() {
+          std::latch phase{1};
+          std::atomic<int> faits{0};
+          phase.count_down();
+          phase.wait();
+          std::jthread t{[&] {
+              std::this_thread::sleep_for(std::chrono::milliseconds{50});
+              ++faits;
+          }};
+          phase.wait();
+          std::println("{}", faits.load());
+      }
+      ```
+    choices:
+      - {text: "Créer un second `std::latch` pour la seconde phase, que le thread décrémente", correct: true}
+      - {text: "Appeler `phase.count_down()` une seconde fois avant la seconde attente", correct: false}
+      - {text: "Initialiser le loquet `phase` à 2 au lieu de 1", correct: false}
+      - {text: "Appeler `phase.wait()` trois fois au lieu de deux", correct: false}
+    answer: |-
+      ```cpp
+      std::latch seconde{1};
+      std::jthread t{[&] {
+          ++faits;
+          seconde.count_down();
+      }};
+      seconde.wait();
+      ```
+      Un loquet arrivé à zéro y reste : son second `wait()` passe aussitôt. Il est à usage unique ; pour des phases
+      répétées, il y a `std::barrier`.

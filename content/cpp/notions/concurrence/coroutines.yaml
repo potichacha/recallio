@@ -1,0 +1,384 @@
+notion: coroutines
+lesson: |-
+  Une **coroutine** est une fonction qui peut **se suspendre** au milieu de son corps, rendre la main à son
+  appelant, puis **reprendre** plus tard là où elle s'était arrêtée, avec ses variables locales intactes.
+
+  **Ce qui fait une coroutine.** Une fonction devient une coroutine dès que son corps contient l'un de ces trois
+  mots-clés (C++20) :
+
+  | Mot-clé | Effet |
+  |---|---|
+  | `co_await expression` | suspend la coroutine jusqu'à ce que l'expression soit prête |
+  | `co_yield valeur` | produit une valeur, et suspend |
+  | `co_return valeur` | termine la coroutine |
+
+  ```cpp
+  std::generator<int> compter(int n) {
+      for (int i = 0; i < n; ++i) {
+          co_yield i;              // rend i, se suspend ; reprend ici à la demande suivante
+      }
+  }
+  ```
+
+  **Comment elle garde son état.** À l'appel, le compilateur alloue un **cadre de coroutine** (en général sur le
+  tas), qui contient les paramètres, les variables locales et le point de reprise. La coroutine ne vit donc pas sur
+  la pile de l'appelant : c'est une coroutine **sans pile** (*stackless*).
+
+  **Le type de retour fait tout.** Le langage fournit le mécanisme, pas les types. Le type renvoyé (`std::generator`,
+  une `Tache` d'une bibliothèque) doit avoir un **`promise_type`**, qui dit comment la coroutine se comporte :
+
+  - `initial_suspend()` : démarre-t-elle tout de suite (`std::suspend_never`), ou attend-elle qu'on la reprenne
+    (`std::suspend_always`) ? Une coroutine qui attend est dite **paresseuse**.
+  - `yield_value`, `return_value` ou `return_void` : que faire des valeurs produites.
+  - `unhandled_exception()` : que faire d'une exception.
+
+  L'appelant la pilote par une **poignée**, `std::coroutine_handle` : `resume()` la relance, `done()` dit si elle
+  est finie, `destroy()` libère le cadre.
+
+  **À quoi elles servent.**
+
+  - Les **générateurs** : produire une suite de valeurs à la demande, même infinie.
+  - Le code **asynchrone** : écrire une suite d'attentes (réseau, minuterie) comme du code séquentiel, sans
+    enchaîner des fonctions de rappel. `co_await` suspend la coroutine sans bloquer le thread.
+
+  **Ce qu'elles ne sont pas.** Une coroutine **n'est pas un thread** : elle ne crée aucun parallélisme. Elle
+  s'exécute dans le thread qui la reprend, et ne rend la main qu'à ses points de suspension.
+
+  **Les pièges.**
+
+  - Un **paramètre par référence**, ou une capture de lambda, doit vivre aussi longtemps que la coroutine : après
+    la première suspension, un temporaire passé en argument est détruit.
+  - En C++20, la bibliothèque n'offre que les briques ; `std::generator` n'arrive qu'en C++23. Pour l'asynchrone,
+    on passe par une bibliothèque (Asio, cppcoro, folly).
+
+  **En entretien** : « Une coroutine est une fonction qui se suspend et reprend ; elle contient `co_await`,
+  `co_yield` ou `co_return`. Son état vit dans un cadre alloué à part, et son comportement est défini par le
+  `promise_type` de son type de retour. Elle sert aux générateurs et à l'asynchrone, et ne crée pas de thread. »
+cards:
+  - key: definition
+    format: course
+    question: "Qu'est-ce qu'une coroutine ?"
+    choices:
+      - {text: "Une fonction qui peut se suspendre, rendre la main, puis reprendre où elle s'était arrêtée", correct: true}
+      - {text: "Une fonction qui s'exécute dans un thread créé à chacun de ses appels", correct: false}
+      - {text: "Une fonction qui s'appelle elle-même jusqu'à une condition d'arrêt", correct: false}
+      - {text: "Une fonction dont le résultat est calculé à la compilation", correct: false}
+    answer: "Ses variables locales survivent à la suspension. Elle reprend dans le thread qui la relance, sans rien de parallèle."
+  - key: mots-cles
+    format: course
+    question: "Qu'est-ce qui fait d'une fonction une coroutine, en C++20 ?"
+    choices:
+      - {text: "La présence de `co_await`, `co_yield` ou `co_return` dans son corps", correct: true}
+      - {text: "Le mot-clé `coroutine` devant sa déclaration", correct: false}
+      - {text: "Le mot-clé `async` devant sa déclaration", correct: false}
+      - {text: "Un type de retour `void` et un paramètre `std::thread`", correct: false}
+    answer: "Aucun marqueur dans la signature : c'est le corps qui décide. Le type de retour doit, lui, fournir un `promise_type`."
+  - key: cadre
+    format: course
+    question: "Où une coroutine garde-t-elle ses variables locales pendant qu'elle est suspendue ?"
+    choices:
+      - {text: "Dans un cadre de coroutine, alloué à part, en général sur le tas", correct: true}
+      - {text: "Sur la pile de la fonction qui l'a appelée", correct: false}
+      - {text: "Dans des variables globales générées par le compilateur", correct: false}
+      - {text: "Dans la pile d'un thread créé pour elle", correct: false}
+    answer: "Le cadre contient les paramètres, les locales et le point de reprise. C'est ce qui permet à la coroutine de survivre au retour vers l'appelant."
+  - key: promise-type
+    format: course
+    question: "À quoi sert le `promise_type` du type de retour d'une coroutine ?"
+    choices:
+      - {text: "À définir son comportement : démarrage, valeurs produites, fin, exceptions", correct: true}
+      - {text: "À promettre que la coroutine ne lancera pas d'exception", correct: false}
+      - {text: "À lancer la coroutine dans un `std::thread`", correct: false}
+      - {text: "À rendre la coroutine copiable", correct: false}
+    answer: "Le compilateur appelle ses fonctions (`initial_suspend`, `yield_value`, `return_void`...) aux moments clés. Il n'a rien à voir avec `std::promise`."
+  - key: vf-thread
+    format: true-false
+    question: "Chaque coroutine s'exécute dans son propre thread."
+    truth: false
+    answer: Une coroutine ne crée aucun thread. Elle s'exécute dans celui qui l'appelle ou la reprend.
+  - key: vf-locales
+    format: true-false
+    question: "Les variables locales d'une coroutine gardent leur valeur d'une suspension à la reprise."
+    truth: true
+    answer: Elles vivent dans le cadre de la coroutine, pas sur la pile de l'appelant.
+  - key: vf-cpp20-generator
+    format: true-false
+    question: "C++20 fournit `std::generator` dans sa bibliothèque standard."
+    truth: false
+    answer: "C++20 apporte le mécanisme du langage et quelques briques. `std::generator` arrive avec C++23."
+  - key: vf-co-await-bloque
+    format: true-false
+    question: "`co_await` suspend la coroutine sans bloquer le thread qui l'exécutait."
+    truth: true
+    answer: Le thread retourne à l'appelant et peut faire autre chose. C'est tout l'intérêt pour le code asynchrone.
+  - key: qcm-produire
+    format: multiple-choice
+    question: "Quel mot-clé produit une valeur et suspend la coroutine ?"
+    choices:
+      - {text: "`co_yield`", correct: true}
+      - {text: "`co_return`", correct: false}
+      - {text: "`co_await`", correct: false}
+      - {text: "`yield`", correct: false}
+    answer: "`co_yield valeur` rend la valeur à l'appelant et suspend. `co_return` termine ; `co_await` attend une opération."
+  - key: qcm-poignee
+    format: multiple-choice
+    question: "Par quel type l'appelant reprend-il une coroutine suspendue ?"
+    choices:
+      - {text: "`std::coroutine_handle`", correct: true}
+      - {text: "`std::thread`", correct: false}
+      - {text: "`std::future`", correct: false}
+      - {text: "`std::function`", correct: false}
+    answer: "La poignée offre `resume()`, `done()` et `destroy()`. Les types comme `std::generator` la cachent derrière une interface commode."
+  - key: qcm-paresseuse
+    format: multiple-choice
+    question: "Que renvoie `initial_suspend()` pour une coroutine paresseuse, qui ne démarre qu'à sa première reprise ?"
+    choices:
+      - {text: "`std::suspend_always`", correct: true}
+      - {text: "`std::suspend_never`", correct: false}
+      - {text: "`std::defer_lock`", correct: false}
+      - {text: "`std::launch::deferred`", correct: false}
+    answer: "`std::suspend_always` suspend dès l'entrée : rien du corps ne s'exécute avant le premier `resume()`."
+  - key: qcm-en-tete
+    format: multiple-choice
+    question: "Quel en-tête déclare `std::coroutine_handle` et `std::suspend_always` ?"
+    choices:
+      - {text: "`<coroutine>`", correct: true}
+      - {text: "`<thread>`", correct: false}
+      - {text: "`<future>`", correct: false}
+      - {text: "`<functional>`", correct: false}
+    answer: "`<coroutine>` contient les briques du mécanisme. `std::generator` a son en-tête, `<generator>`."
+  - key: situation-rappels
+    format: scenario
+    question: |-
+      Un client réseau enchaîne quatre opérations asynchrones par des fonctions de rappel imbriquées. Le code est
+      illisible, et les erreurs se perdent. Que peuvent apporter les coroutines ?
+    choices:
+      - {text: "Écrire les quatre attentes à la suite avec `co_await`, comme du code séquentiel", correct: true}
+      - {text: "Exécuter les quatre opérations dans quatre threads, sans attente", correct: false}
+      - {text: "Supprimer le besoin d'une bibliothèque réseau asynchrone", correct: false}
+      - {text: "Rendre les quatre opérations plus rapides sur le réseau", correct: false}
+    answer: |-
+      `co_await` suspend la coroutine jusqu'à la fin de l'opération, sans bloquer le thread. Le code se lit de haut
+      en bas, et un `try`/`catch` ordinaire couvre l'ensemble. Il faut toujours une bibliothèque qui fournit les
+      opérations attendables.
+  - key: situation-reference
+    format: scenario
+    question: |-
+      Une coroutine `std::generator<char> lettres(const std::string& texte)` est appelée avec un temporaire :
+      `lettres(lire())`. Le programme affiche n'importe quoi. Pourquoi ?
+    choices:
+      - {text: "Le temporaire est détruit après l'appel ; la coroutine garde une référence pendante", correct: true}
+      - {text: "Une coroutine ne peut pas prendre de paramètre de type chaîne", correct: false}
+      - {text: "Le générateur copie la chaîne à chaque valeur produite", correct: false}
+      - {text: "Le cadre de la coroutine est trop petit pour une chaîne", correct: false}
+    answer: |-
+      Le cadre copie le paramètre, c'est-à-dire la référence, pas la chaîne. Quand la coroutine reprend, la chaîne
+      temporaire n'existe plus. On prend le paramètre par valeur.
+  - key: situation-parallelisme
+    format: scenario
+    question: |-
+      Un collègue réécrit un calcul lourd en coroutines, et s'étonne qu'il n'utilise toujours qu'un cœur. Que lui
+      expliques-tu ?
+    choices:
+      - {text: "Qu'une coroutine ne crée pas de thread : elle s'exécute là où on la reprend", correct: true}
+      - {text: "Qu'il faut compiler avec une option qui active le parallélisme des coroutines", correct: false}
+      - {text: "Qu'il faut déclarer chaque coroutine `thread_local`", correct: false}
+      - {text: "Qu'une coroutine n'utilise plusieurs cœurs qu'au-delà de mille suspensions", correct: false}
+    answer: |-
+      Les coroutines servent à entrelacer des tâches qui attendent, pas à calculer en parallèle. Pour utiliser
+      plusieurs cœurs, il faut des threads, sur lesquels un ordonnanceur peut reprendre les coroutines.
+  - key: situation-generateur
+    format: scenario
+    question: |-
+      Une fonction calcule un million de valeurs dans un vecteur et le renvoie ; l'appelant n'en lit que les dix
+      premières. Que proposes-tu ?
+    choices:
+      - {text: "Un générateur : chaque valeur n'est calculée que lorsqu'elle est demandée", correct: true}
+      - {text: "Un thread qui remplit le vecteur pendant que l'appelant lit", correct: false}
+      - {text: "Un `std::array` d'un million d'éléments, alloué sur la pile", correct: false}
+      - {text: "Un vecteur réservé à dix millions d'éléments, pour aller plus vite", correct: false}
+    answer: |-
+      Avec `co_yield`, la fonction produit une valeur puis se suspend. Si l'appelant s'arrête après dix valeurs, le
+      reste n'est jamais calculé, et aucun vecteur n'est alloué.
+  - key: definition-coroutine
+    format: definition
+    question: "Que désigne le mot « coroutine » ?"
+    choices:
+      - {text: "Une fonction dont l'exécution peut être suspendue puis reprise", correct: true}
+      - {text: "Une fonction exécutée par deux threads à la fois", correct: false}
+      - {text: "Une fonction définie à l'intérieur d'une autre", correct: false}
+      - {text: "Une fonction appelée à la fin d'une autre", correct: false}
+    answer: "Une fonction ordinaire s'exécute d'un trait. Une coroutine a des points de suspension."
+  - key: definition-cadre
+    format: definition
+    question: "Qu'est-ce que le cadre d'une coroutine ?"
+    choices:
+      - {text: "La mémoire qui garde ses paramètres, ses locales et son point de reprise", correct: true}
+      - {text: "La fenêtre graphique dans laquelle elle s'affiche", correct: false}
+      - {text: "Le thread qui l'exécute", correct: false}
+      - {text: "La fonction qui l'a appelée", correct: false}
+    answer: "Il est alloué à l'appel, et détruit quand la coroutine est finie ou que sa poignée est détruite."
+  - key: definition-sans-pile
+    format: definition
+    question: "Que veut dire qu'une coroutine C++ est « sans pile » (stackless) ?"
+    choices:
+      - {text: "Qu'elle n'a que son cadre, et ne se suspend que depuis son corps", correct: true}
+      - {text: "Qu'elle ne peut déclarer aucune variable locale", correct: false}
+      - {text: "Qu'elle ne peut appeler aucune autre fonction", correct: false}
+      - {text: "Qu'elle s'exécute sans utiliser de mémoire", correct: false}
+    answer: "Elle n'a pas de pile d'appels à elle : une fonction ordinaire qu'elle appelle ne peut pas la suspendre."
+  - key: definition-point-de-suspension
+    format: definition
+    question: "Qu'est-ce qu'un point de suspension ?"
+    choices:
+      - {text: "Un endroit de la coroutine où elle peut rendre la main : `co_await`, `co_yield`", correct: true}
+      - {text: "Un endroit où le programme attend une saisie de l'utilisateur", correct: false}
+      - {text: "Un endroit où le débogueur arrête le programme", correct: false}
+      - {text: "Un endroit où un thread attend un verrou", correct: false}
+    answer: "Entre deux points de suspension, la coroutine s'exécute sans interruption, comme une fonction ordinaire."
+  - key: code-paresseuse
+    format: code-output
+    question: |-
+      ```cpp
+      #include <coroutine>
+      #include <print>
+
+      struct Tache {
+          struct promise_type {
+              Tache get_return_object() {
+                  return Tache{std::coroutine_handle<promise_type>::from_promise(*this)};
+              }
+              std::suspend_always initial_suspend() noexcept { return {}; }
+              std::suspend_always final_suspend() noexcept { return {}; }
+              void return_void() {}
+              void unhandled_exception() {}
+          };
+          std::coroutine_handle<promise_type> poignee;
+          ~Tache() { poignee.destroy(); }
+      };
+
+      Tache etapes() {
+          std::print("a ");
+          co_await std::suspend_always{};
+          std::print("b ");
+      }
+
+      int main() {
+          Tache tache = etapes();
+          std::print("1 ");
+          tache.poignee.resume();
+          std::print("2 ");
+          tache.poignee.resume();
+          std::println("{}", tache.poignee.done());
+      }
+      ```
+    choices:
+      - {text: "`1 a 2 b true`", correct: true}
+      - {text: "`a 1 b 2 true`", correct: false}
+      - {text: "`a b 1 2 true`", correct: false}
+      - {text: "`1 a 2 b false`", correct: false}
+    answer: "`1 a 2 b true` : `initial_suspend` suspend la coroutine avant sa première ligne. Chaque `resume()` l'avance jusqu'au point de suspension suivant."
+    check:
+      output: "1 a 2 b true"
+  - key: code-immediate
+    format: code-output
+    question: |-
+      ```cpp
+      #include <coroutine>
+      #include <print>
+
+      struct Tache {
+          struct promise_type {
+              Tache get_return_object() {
+                  return Tache{std::coroutine_handle<promise_type>::from_promise(*this)};
+              }
+              std::suspend_never initial_suspend() noexcept { return {}; }
+              std::suspend_always final_suspend() noexcept { return {}; }
+              void return_void() {}
+              void unhandled_exception() {}
+          };
+          std::coroutine_handle<promise_type> poignee;
+          ~Tache() { poignee.destroy(); }
+      };
+
+      Tache etapes() {
+          std::print("a ");
+          co_await std::suspend_always{};
+          std::print("b ");
+      }
+
+      int main() {
+          Tache tache = etapes();
+          std::print("1 ");
+          tache.poignee.resume();
+          std::println("2");
+      }
+      ```
+    choices:
+      - {text: "`a 1 b 2`", correct: true}
+      - {text: "`1 a b 2`", correct: false}
+      - {text: "`1 a 2`", correct: false}
+      - {text: "`a b 1 2`", correct: false}
+    answer: "`a 1 b 2` : avec `std::suspend_never` au départ, la coroutine s'exécute dès l'appel, jusqu'à son premier `co_await`. Le `resume()` fait le reste."
+    check:
+      output: "a 1 b 2"
+  - key: code-entrelacement
+    format: code-output
+    question: |-
+      ```cpp
+      #include <generator>
+      #include <print>
+
+      std::generator<int> compter() {
+          std::print("début ");
+          co_yield 1;
+          std::print("milieu ");
+          co_yield 2;
+          std::print("fin ");
+      }
+
+      int main() {
+          for (int valeur : compter()) {
+              std::print("{} ", valeur);
+          }
+          std::println("ok");
+      }
+      ```
+    choices:
+      - {text: "`début 1 milieu 2 fin ok`", correct: true}
+      - {text: "`début milieu fin 1 2 ok`", correct: false}
+      - {text: "`1 2 début milieu fin ok`", correct: false}
+      - {text: "`début 1 milieu 2 ok`", correct: false}
+    answer: "`début 1 milieu 2 fin ok` : la coroutine et la boucle s'exécutent tour à tour. Chaque `co_yield` rend la main, chaque tour de boucle la reprend."
+    check:
+      output: "début 1 milieu 2 fin ok"
+  - key: code-locales
+    format: code-output
+    question: |-
+      ```cpp
+      #include <generator>
+      #include <print>
+
+      std::generator<int> cumul() {
+          int total = 0;
+          for (int i = 1; i <= 4; ++i) {
+              total += i;
+              co_yield total;
+          }
+      }
+
+      int main() {
+          for (int valeur : cumul()) {
+              std::print("{} ", valeur);
+          }
+          std::println("fin");
+      }
+      ```
+    choices:
+      - {text: "`1 3 6 10 fin`", correct: true}
+      - {text: "`1 2 3 4 fin`", correct: false}
+      - {text: "`1 1 1 1 fin`", correct: false}
+      - {text: "`10 10 10 10 fin`", correct: false}
+    answer: "`1 3 6 10 fin` : `total` et `i` vivent dans le cadre de la coroutine. Ils gardent leur valeur d'une suspension à la reprise."
+    check:
+      output: "1 3 6 10 fin"

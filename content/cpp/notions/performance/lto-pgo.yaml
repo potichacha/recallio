@@ -1,0 +1,239 @@
+notion: lto-pgo
+lesson: |-
+  Par défaut, le compilateur optimise **un fichier source à la fois**, sans rien savoir de l'usage réel du
+  programme. Deux techniques lèvent ces deux limites.
+
+  **L'optimisation à l'édition de liens (LTO, *link-time optimization*).** Le compilateur ne voit qu'une unité de
+  traduction : il ne peut pas inliner une fonction **définie dans un autre `.cpp`**, puisqu'il n'en a que la
+  déclaration. Avec LTO, les fichiers objets contiennent une forme intermédiaire du code, et l'optimisation est
+  **refaite au moment de la liaison**, sur le programme entier.
+
+  ```
+  g++ -O2 -flto -c a.cpp b.cpp
+  g++ -O2 -flto a.o b.o -o programme
+  ```
+
+  L'option se passe **à la compilation et à la liaison**. Avec CMake :
+  `set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ON)`.
+
+  Ce qu'elle permet :
+
+  - l'**inlining entre fichiers** ;
+  - la **dévirtualisation**, quand le programme entier ne contient qu'une implémentation ;
+  - la suppression du **code jamais appelé** ;
+  - la propagation de constantes d'un fichier à l'autre.
+
+  Son prix : une **édition de liens plus lente** et plus gourmande en mémoire. Le gain habituel est de **quelques
+  pour cent**, parfois plus sur du code très découpé.
+
+  **L'optimisation guidée par profil (PGO, *profile-guided optimization*).** Le compilateur ignore quelles branches
+  sont prises, quelles fonctions sont chaudes. PGO le lui apprend, en trois temps :
+
+  ```
+  g++ -O2 -fprofile-generate main.cpp -o programme     # 1. construction instrumentée
+  ./programme < charge_representative                  # 2. exécution : écrit des fichiers .gcda
+  g++ -O2 -fprofile-use main.cpp -o programme          # 3. reconstruction avec le profil
+  ```
+
+  Fort de ces mesures, il :
+
+  - **inline** les fonctions vraiment chaudes, et laisse les froides compactes ;
+  - **dispose** le code : chemin fréquent en ligne droite, chemin rare à l'écart ;
+  - range les fonctions chaudes côte à côte, pour le cache d'instructions ;
+  - dévirtualise de façon **spéculative** : « si c'est un `Cercle`, appel direct ; sinon, appel virtuel ».
+
+  Le gain habituel va de **5 à 20 %** sur les gros programmes à nombreux branchements (compilateurs, navigateurs,
+  bases de données).
+
+  **Les conditions.** Le profil doit venir d'une charge **représentative** : un profil trompeur optimise le mauvais
+  chemin. Il faut le **régénérer** quand le code évolue, et la chaîne de construction se complique.
+
+  **Ensemble.** LTO et PGO se combinent, et s'ajoutent à `-O2` ; ils ne remplacent ni un bon algorithme ni une
+  bonne organisation des données. On les active à la fin, **après** avoir profilé et corrigé le code, et l'on
+  **mesure** le gain.
+
+  **En entretien** : « LTO optimise le programme entier à la liaison : inlining entre unités de traduction,
+  dévirtualisation, code mort. PGO réutilise un profil d'exécution pour inliner et disposer le code selon l'usage
+  réel. Quelques pour cent pour l'un, 5 à 20 % pour l'autre, au prix d'une construction plus lourde. »
+cards:
+  - key: lto
+    format: course
+    question: "Que permet l'optimisation à l'édition de liens (LTO) ?"
+    choices:
+      - {text: "D'optimiser le programme entier, par exemple en inlinant une fonction d'un autre fichier source", correct: true}
+      - {text: "De lier le programme plus vite, en sautant l'étape d'optimisation de chaque fichier", correct: false}
+      - {text: "De remplacer les bibliothèques dynamiques par des bibliothèques statiques", correct: false}
+      - {text: "De vérifier à la liaison qu'aucune fonction n'est définie deux fois", correct: false}
+    answer: "Sans LTO, le compilateur n'a que la déclaration d'une fonction définie ailleurs. Avec LTO, l'optimiseur revoit tout au moment de la liaison."
+  - key: pgo
+    format: course
+    question: "Sur quoi s'appuie l'optimisation guidée par profil (PGO) ?"
+    choices:
+      - {text: "Sur des mesures prises en exécutant une version instrumentée du programme", correct: true}
+      - {text: "Sur les attributs `[[likely]]` que le programmeur a posés dans le code", correct: false}
+      - {text: "Sur une analyse du code source, sans jamais exécuter le programme", correct: false}
+      - {text: "Sur le nombre de lignes de chaque fonction du programme", correct: false}
+    answer: "Le compilateur apprend quelles fonctions et quelles branches sont chaudes, puis recompile en conséquence."
+  - key: trois-temps
+    format: course
+    question: "Quelles sont, dans l'ordre, les étapes d'une construction avec PGO ?"
+    choices:
+      - {text: "Compiler une version instrumentée, l'exécuter sur une charge type, recompiler avec le profil", correct: true}
+      - {text: "Recompiler avec le profil, exécuter le programme, puis compiler une version instrumentée", correct: false}
+      - {text: "Exécuter le programme livré, puis lui appliquer le profil sans recompiler", correct: false}
+      - {text: "Compiler une seule fois, avec les deux options de profil ensemble", correct: false}
+    answer: "`-fprofile-generate`, puis une exécution qui écrit le profil, puis `-fprofile-use`."
+  - key: condition
+    format: course
+    question: "De quoi dépend la qualité d'une optimisation guidée par profil ?"
+    choices:
+      - {text: "De la charge utilisée pour le profil, qui doit ressembler à l'usage réel", correct: true}
+      - {text: "De la vitesse de la machine sur laquelle le profil est pris", correct: false}
+      - {text: "Du nombre de fichiers source que compte le programme", correct: false}
+      - {text: "De l'ordre dans lequel les fichiers sont donnés à l'éditeur de liens", correct: false}
+    answer: "Le compilateur optimise les chemins vus pendant le profilage. Un profil non représentatif favorise le mauvais chemin."
+  - key: vf-lto-liaison
+    format: true-false
+    question: "L'option `-flto` se passe à la compilation et à l'édition de liens."
+    truth: true
+    answer: "À la compilation, elle fait ranger la forme intermédiaire dans les fichiers objets ; à la liaison, elle déclenche l'optimisation d'ensemble."
+  - key: vf-lto-plus-rapide
+    format: true-false
+    question: "Avec LTO, l'édition de liens est plus rapide."
+    truth: false
+    answer: "Elle est plus lente, et demande plus de mémoire : l'optimisation de tout le programme s'y fait."
+  - key: vf-remplace
+    format: true-false
+    question: "LTO et PGO dispensent de choisir un bon algorithme."
+    truth: false
+    answer: "Ils apportent quelques pour cent, parfois 20 %. Un meilleur algorithme ou une meilleure organisation des données apportent des facteurs entiers."
+  - key: vf-regenerer
+    format: true-false
+    question: "Un profil PGO doit être régénéré quand le code évolue."
+    truth: true
+    answer: "Un profil ancien ne correspond plus aux fonctions du programme : le compilateur l'ignore en partie, ou optimise sur de fausses bases."
+  - key: qcm-option-lto
+    format: multiple-choice
+    question: "Quelle option de GCC active l'optimisation à l'édition de liens ?"
+    choices:
+      - {text: "`-flto`", correct: true}
+      - {text: "`-fpic`", correct: false}
+      - {text: "`-fno-rtti`", correct: false}
+      - {text: "`-fopenmp`", correct: false}
+    answer: "`-flto`, avec le niveau d'optimisation habituel. Avec CMake : `CMAKE_INTERPROCEDURAL_OPTIMIZATION`."
+  - key: qcm-option-pgo
+    format: multiple-choice
+    question: "Quelle option de GCC compile la version instrumentée, première étape de PGO ?"
+    choices:
+      - {text: "`-fprofile-generate`", correct: true}
+      - {text: "`-fprofile-use`", correct: false}
+      - {text: "`-fsanitize=address`", correct: false}
+      - {text: "`-pg -O0`", correct: false}
+    answer: "`-fprofile-generate` ajoute des compteurs ; `-fprofile-use` les exploite à la reconstruction."
+  - key: qcm-gain
+    format: multiple-choice
+    question: "Quel ordre de grandeur de gain attend-on de PGO sur un gros programme à nombreux branchements ?"
+    choices:
+      - {text: "De 5 à 20 %", correct: true}
+      - {text: "Un facteur 10", correct: false}
+      - {text: "Moins de 0,1 %", correct: false}
+      - {text: "Un facteur 100", correct: false}
+    answer: "C'est un ordre de grandeur, à mesurer sur son propre programme. Les compilateurs et les navigateurs sont construits ainsi."
+  - key: qcm-quand
+    format: multiple-choice
+    question: "À quel moment d'un travail d'optimisation active-t-on LTO et PGO ?"
+    choices:
+      - {text: "À la fin, après avoir profilé et corrigé le code", correct: true}
+      - {text: "Au tout début, avant d'écrire la première fonction", correct: false}
+      - {text: "À la place du profilage, qu'ils rendent inutile", correct: false}
+      - {text: "Seulement en construction de débogage", correct: false}
+    answer: "Ils polissent un programme déjà sain. Et l'on mesure leur gain, qui varie beaucoup d'un programme à l'autre."
+  - key: situation-petites-fonctions
+    format: scenario
+    question: |-
+      Un projet range chaque petite fonction utilitaire dans son propre `.cpp`. Le profil montre de nombreux appels
+      à ces fonctions d'une ligne, jamais inlinées. Sans déplacer le code, que proposes-tu ?
+    choices:
+      - {text: "Activer LTO : l'optimiseur pourra les inliner d'un fichier à l'autre", correct: true}
+      - {text: "Activer `-O0` : le compilateur respectera mieux le découpage", correct: false}
+      - {text: "Marquer chaque fonction `virtual` : les appels seront plus rapides", correct: false}
+      - {text: "Marquer chaque fonction `noexcept` : le compilateur les inlinera", correct: false}
+    answer: |-
+      Le compilateur ne peut inliner que ce dont il voit le corps. LTO lui donne le programme entier. L'autre voie
+      est de définir ces fonctions `inline` dans un en-tête.
+  - key: situation-profil-trompeur
+    format: scenario
+    question: |-
+      Une équipe prend son profil PGO en lançant la suite de tests unitaires, qui exerce surtout les cas d'erreur.
+      En production, le programme est plus lent qu'avant. Pourquoi ?
+    choices:
+      - {text: "Le profil a fait optimiser les chemins d'erreur, au détriment du chemin normal", correct: true}
+      - {text: "Les tests unitaires ont modifié le code source du programme", correct: false}
+      - {text: "PGO ralentit toujours un programme qui a des tests unitaires", correct: false}
+      - {text: "Le profil a désactivé l'optimisation `-O2` du programme", correct: false}
+    answer: |-
+      Le compilateur croit ce que le profil lui montre. Il faut une charge qui ressemble à la production : un jeu
+      de données réelles, un scénario type.
+  - key: situation-cout-construction
+    format: scenario
+    question: |-
+      Après l'activation de LTO sur tout le projet, la reconstruction après chaque modification passe de dix
+      secondes à trois minutes, et les développeurs se plaignent. Que proposes-tu ?
+    choices:
+      - {text: "Réserver LTO à la construction de livraison, et l'ôter des constructions de développement", correct: true}
+      - {text: "Retirer LTO de toutes les constructions : son gain ne vaut jamais ce prix", correct: false}
+      - {text: "Demander aux développeurs de compiler moins souvent, une fois par jour", correct: false}
+      - {text: "Remplacer LTO par l'option `-O0` en livraison", correct: false}
+    answer: |-
+      LTO refait l'optimisation de tout le programme à chaque liaison. On le garde pour la version livrée et pour
+      l'intégration continue ; le cycle de développement reste rapide. La variante « thin LTO » de Clang réduit
+      aussi ce coût.
+  - key: situation-entretien
+    format: scenario
+    question: |-
+      En entretien, on te demande ce que le compilateur peut encore faire pour un service déjà compilé en `-O2`.
+      Que réponds-tu ?
+    choices:
+      - {text: "LTO, pour optimiser entre fichiers, et PGO, pour optimiser selon l'usage réel mesuré", correct: true}
+      - {text: "Rien : `-O2` est le maximum que le compilateur sait faire", correct: false}
+      - {text: "Passer en `-O0`, qui est plus rapide sur les serveurs", correct: false}
+      - {text: "Ajouter `-g`, qui accélère l'exécution du programme", correct: false}
+    answer: |-
+      Les deux lèvent les deux angles morts du compilateur : il ne voit qu'un fichier, et ignore ce qui est chaud.
+      On mesure le gain, et l'on compte le coût sur la chaîne de construction.
+  - key: definition-lto
+    format: definition
+    question: "Qu'est-ce que la LTO ?"
+    choices:
+      - {text: "Une optimisation faite à l'édition de liens, sur l'ensemble du programme", correct: true}
+      - {text: "Une optimisation faite par le préprocesseur, sur les macros", correct: false}
+      - {text: "Une optimisation faite à l'exécution, par le système", correct: false}
+      - {text: "Une optimisation faite à la main, fonction par fonction", correct: false}
+    answer: "*Link-time optimization*. Elle franchit la frontière des unités de traduction."
+  - key: definition-pgo
+    format: definition
+    question: "Qu'est-ce que la PGO ?"
+    choices:
+      - {text: "Une optimisation guidée par un profil d'exécution du programme", correct: true}
+      - {text: "Une optimisation guidée par les commentaires du code source", correct: false}
+      - {text: "Une optimisation guidée par la taille des fichiers objets", correct: false}
+      - {text: "Une optimisation guidée par l'ordre des fichiers à la liaison", correct: false}
+    answer: "*Profile-guided optimization*. Le compilateur optimise d'après ce que le programme fait vraiment."
+  - key: definition-instrumentee
+    format: definition
+    question: "Qu'est-ce qu'une construction instrumentée ?"
+    choices:
+      - {text: "Un binaire auquel le compilateur a ajouté des compteurs, pour enregistrer son exécution", correct: true}
+      - {text: "Un binaire compilé sans aucune optimisation, pour le débogueur", correct: false}
+      - {text: "Un binaire dont on a retiré les informations de débogage", correct: false}
+      - {text: "Un binaire lié à toutes ses bibliothèques de façon statique", correct: false}
+    answer: "Elle est plus lente que la normale, et ne sert qu'à produire le profil. On ne la livre pas."
+  - key: definition-interprocedurale
+    format: definition
+    question: "Qu'appelle-t-on une optimisation interprocédurale ?"
+    choices:
+      - {text: "Une optimisation qui porte sur plusieurs fonctions à la fois, comme l'inlining", correct: true}
+      - {text: "Une optimisation qui porte sur une seule instruction à la fois", correct: false}
+      - {text: "Une optimisation qui porte sur les commentaires d'une fonction", correct: false}
+      - {text: "Une optimisation qui porte sur l'ordre des `#include`", correct: false}
+    answer: "Elle raisonne au-delà des frontières d'une fonction. LTO l'étend au-delà des frontières d'un fichier."

@@ -1,0 +1,206 @@
+notion: lock-free
+lesson: |-
+  Une structure **sans verrou** (*lock-free*) se partage entre threads sans mutex. Elle s'appuie sur des opérations
+  atomiques, surtout **`compare_exchange`** : « si la valeur est toujours celle que j'ai lue, remplace-la ».
+
+  **Ce que le mot garantit.**
+
+  | Terme | Garantie |
+  |---|---|
+  | bloquant (avec mutex) | un thread suspendu pendant qu'il tient le verrou bloque tous les autres |
+  | **lock-free** | à tout moment, **au moins un** thread progresse |
+  | wait-free | **chaque** thread finit en un nombre borné d'étapes |
+
+  Lock-free ne veut pas dire « plus rapide » : cela veut dire qu'aucun thread arrêté ne peut bloquer le système.
+
+  **Le schéma : lire, préparer, tenter, recommencer.**
+
+  ```cpp
+  void empiler(Noeud* nouveau) {
+      nouveau->suivant = tete.load();
+      while (!tete.compare_exchange_weak(nouveau->suivant, nouveau)) {
+          // un autre thread a changé la tête : suivant a été mis à jour, on réessaie
+      }
+  }
+  ```
+
+  `compare_exchange_weak` peut échouer sans raison (échec *spurious*) : on l'emploie dans une boucle.
+  `compare_exchange_strong` n'échoue que si la valeur a changé.
+
+  **Le problème ABA.** `compare_exchange` vérifie que la valeur est **la même**, pas qu'elle **n'a pas bougé**.
+
+  1. Un thread lit la tête `A`, et son suivant `B`. Il est interrompu.
+  2. Un autre dépile `A`, dépile `B`, puis rempile un nœud alloué à la **même adresse** que `A`.
+  3. Le premier reprend : la tête vaut encore `A`, donc son `compare_exchange` réussit, et installe `B`, un nœud
+     **libéré**.
+
+  La pile est corrompue, sans qu'aucune opération ait « échoué ».
+
+  **Les remèdes à ABA.**
+
+  - Un **compteur de version** accolé au pointeur, incrémenté à chaque modification : `A` version 1 n'est plus `A`
+    version 3.
+  - Une **récupération différée de la mémoire** : *hazard pointers*, RCU, époques. Un nœud n'est réutilisé que
+    lorsque plus aucun thread ne peut le tenir. C++26 standardise les *hazard pointers* et RCU.
+  - `std::atomic<std::shared_ptr<T>>` (C++20), qui compte les références, au prix d'une implémentation qui peut
+    verrouiller.
+
+  **Faut-il en écrire ?** Presque jamais.
+
+  - C'est **très difficile** : ABA, libération de la mémoire, ordres mémoire, preuve de correction.
+  - Ce n'est **pas toujours plus rapide** qu'un mutex peu disputé : la boucle de tentatives coûte aussi.
+  - Des implémentations éprouvées existent : files de Boost.Lockfree, de Folly, de moodycamel.
+
+  On le justifie par une **mesure** montrant le mutex comme goulot, ou par une contrainte : un gestionnaire de
+  signal, du temps réel. `x.is_lock_free()` dit si un `std::atomic` l'est réellement sur la plateforme.
+
+  **En entretien** : « Lock-free garantit qu'au moins un thread progresse, par des boucles de
+  `compare_exchange`. Le piège classique est ABA : la valeur est revenue à l'identique, mais l'objet a changé. On
+  s'en protège par un compteur de version ou une récupération différée. En pratique, je prends un mutex, ou une
+  bibliothèque éprouvée. »
+cards:
+  - key: garantie
+    format: course
+    question: "Que garantit une structure « lock-free » ?"
+    choices:
+      - {text: "Qu'à tout moment au moins un thread progresse, même si d'autres sont suspendus", correct: true}
+      - {text: "Que chaque thread termine son opération en un temps borné", correct: false}
+      - {text: "Qu'elle est toujours plus rapide qu'une structure protégée par un mutex", correct: false}
+      - {text: "Qu'elle n'utilise aucune opération atomique", correct: false}
+    answer: "Aucun thread arrêté ne peut bloquer les autres. La garantie par thread, plus forte, s'appelle wait-free ; la vitesse n'est pas promise."
+  - key: schema
+    format: course
+    question: "Quel est le schéma d'une opération sans verrou ?"
+    choices:
+      - {text: "Lire l'état, préparer le nouvel état, tenter un `compare_exchange`, recommencer en cas d'échec", correct: true}
+      - {text: "Verrouiller un mutex, modifier l'état, déverrouiller le mutex", correct: false}
+      - {text: "Copier la structure entière, la modifier, puis attendre les autres threads", correct: false}
+      - {text: "Écrire le nouvel état directement, sans rien lire avant", correct: false}
+    answer: "Le `compare_exchange` n'installe le nouvel état que si personne n'a modifié l'ancien entre-temps. Sinon, on repart de la valeur actuelle."
+  - key: aba
+    format: course
+    question: "Qu'est-ce que le problème ABA ?"
+    choices:
+      - {text: "La valeur lue est redevenue la même, alors que l'objet a changé entre-temps", correct: true}
+      - {text: "Deux threads attendent chacun un verrou tenu par l'autre", correct: false}
+      - {text: "Trois threads écrivent la même variable sans synchronisation", correct: false}
+      - {text: "Une valeur est lue avant d'avoir été initialisée", correct: false}
+    answer: "`compare_exchange` compare des valeurs. Un pointeur libéré puis réalloué à la même adresse le trompe : il réussit sur un état périmé."
+  - key: quand
+    format: course
+    question: "Quand se justifie l'écriture d'une structure sans verrou ?"
+    choices:
+      - {text: "Quand une mesure désigne le mutex comme goulot, ou qu'un verrou est interdit", correct: true}
+      - {text: "Dès qu'une donnée est partagée entre deux threads", correct: false}
+      - {text: "Dès qu'on veut éviter d'écrire `std::lock_guard`", correct: false}
+      - {text: "Jamais : le standard interdit les structures sans verrou", correct: false}
+    answer: "C'est difficile à écrire juste, et pas toujours plus rapide. Un mutex, ou une bibliothèque éprouvée, reste le choix par défaut."
+  - key: vf-plus-rapide
+    format: true-false
+    question: "Une structure sans verrou est toujours plus rapide qu'une structure protégée par un mutex."
+    truth: false
+    answer: Un mutex peu disputé coûte très peu. Les boucles de tentatives et les allers-retours de lignes de cache ont aussi un prix.
+  - key: vf-weak
+    format: true-false
+    question: "`compare_exchange_weak` peut échouer alors que la valeur attendue est bien la valeur courante."
+    truth: true
+    answer: "C'est l'échec dit *spurious*. On l'utilise donc dans une boucle ; `compare_exchange_strong` n'a pas ce défaut."
+  - key: vf-aba-compare
+    format: true-false
+    question: "`compare_exchange` détecte qu'une valeur a été modifiée puis remise à l'identique."
+    truth: false
+    answer: Il compare la valeur actuelle à la valeur attendue. Si elles sont égales, il réussit, quoi qu'il se soit passé entre-temps.
+  - key: vf-wait-free
+    format: true-false
+    question: "Wait-free est une garantie plus forte que lock-free."
+    truth: true
+    answer: "Wait-free borne le travail de chaque thread ; lock-free promet seulement que l'un d'eux avance."
+  - key: qcm-remede-aba
+    format: multiple-choice
+    question: "Lequel de ces mécanismes protège du problème ABA ?"
+    choices:
+      - {text: "Un compteur de version accolé au pointeur, incrémenté à chaque modification", correct: true}
+      - {text: "Le mot-clé `volatile` sur le pointeur de tête", correct: false}
+      - {text: "Un second `compare_exchange` juste après le premier", correct: false}
+      - {text: "L'ordre mémoire `relaxed` sur toutes les opérations", correct: false}
+    answer: "Avec la version, la paire (pointeur, compteur) ne revient jamais à l'identique. L'autre voie est de retarder la réutilisation de la mémoire (hazard pointers, RCU)."
+  - key: qcm-is-lock-free
+    format: multiple-choice
+    question: "Quelle fonction dit si un `std::atomic<T>` est réellement sans verrou sur la plateforme ?"
+    choices:
+      - {text: "`is_lock_free()`", correct: true}
+      - {text: "`is_atomic()`", correct: false}
+      - {text: "`try_lock()`", correct: false}
+      - {text: "`owns_lock()`", correct: false}
+    answer: "Pour un type trop gros, la bibliothèque peut cacher un verrou. `is_always_lock_free` est la version connue à la compilation."
+  - key: qcm-boucle
+    format: multiple-choice
+    question: "Pourquoi `compare_exchange_weak` s'emploie-t-il dans une boucle ?"
+    choices:
+      - {text: "Il peut échouer, même sans raison : on réessaie jusqu'au succès", correct: true}
+      - {text: "Il n'écrit qu'un octet à chaque appel", correct: false}
+      - {text: "Il doit être appelé une fois par thread présent", correct: false}
+      - {text: "Il ne compile pas en dehors d'un `while`", correct: false}
+    answer: "À chaque échec, la valeur attendue est mise à jour avec la valeur courante : la boucle repart du bon état."
+  - key: qcm-bibliotheque
+    format: multiple-choice
+    question: "Tu as besoin d'une file sans verrou entre plusieurs threads. Que fais-tu d'abord ?"
+    choices:
+      - {text: "Je prends une implémentation éprouvée, comme celles de Boost ou de Folly", correct: true}
+      - {text: "J'écris la mienne, à partir d'une `std::list` et d'un `std::atomic<bool>`", correct: false}
+      - {text: "Je retire le mutex de ma file existante, sans rien changer d'autre", correct: false}
+      - {text: "Je déclare tous les membres de ma file `volatile`", correct: false}
+    answer: "Ces structures demandent des années de mise au point. Retirer un mutex ne rend pas une structure sans verrou : cela la rend fausse."
+  - key: situation-pile-corrompue
+    format: scenario
+    question: |-
+      Une pile sans verrou maison fonctionne aux tests, puis corrompt la mémoire en production, sous forte charge.
+      Chaque `depiler` lit la tête, lit son suivant, puis fait un `compare_exchange` ; les nœuds dépilés sont
+      aussitôt libérés avec `delete`. Que soupçonnes-tu ?
+    choices:
+      - {text: "Le problème ABA : un nœud libéré est réalloué à la même adresse, et l'échange réussit sur un suivant périmé", correct: true}
+      - {text: "Un interblocage : deux threads attendent chacun le `compare_exchange` de l'autre", correct: false}
+      - {text: "Une fuite de mémoire : les nœuds dépilés ne sont jamais libérés", correct: false}
+      - {text: "Un débordement d'entier dans le compteur de la pile", correct: false}
+    answer: |-
+      Entre la lecture et l'échange, un autre thread peut dépiler, libérer, puis rempiler un nœud à la même
+      adresse. La tête « n'a pas changé » aux yeux de `compare_exchange`. Il faut un compteur de version, ou une
+      libération différée.
+  - key: situation-mutex-suffit
+    format: scenario
+    question: |-
+      Un service protège une petite file par un mutex. Le profileur montre que le verrou n'occupe que 0,5 % du
+      temps. Un collègue veut la réécrire sans verrou, « pour la performance ». Que lui réponds-tu ?
+    choices:
+      - {text: "Que le mutex n'est pas le goulot : la réécriture apporte du risque, et aucun gain mesurable", correct: true}
+      - {text: "Qu'il a raison : une structure sans verrou est toujours plus rapide", correct: false}
+      - {text: "Qu'il suffit de retirer le mutex, la file étant petite", correct: false}
+      - {text: "Qu'il faut d'abord doubler le nombre de threads", correct: false}
+    answer: |-
+      On optimise ce que la mesure désigne. Une structure sans verrou coûte cher à écrire, à relire et à prouver ;
+      à 0,5 %, il n'y a rien à gagner.
+  - key: situation-signal
+    format: scenario
+    question: |-
+      Un gestionnaire de signal doit transmettre un événement au reste du programme. Un mutex y est interdit : le
+      signal peut interrompre le thread qui le tient déjà. Quelle approche convient ?
+    choices:
+      - {text: "Un `std::atomic` sans verrou, écrit par le gestionnaire et lu par le programme", correct: true}
+      - {text: "Un `std::mutex` pris avec `try_lock`, sans tester le résultat", correct: false}
+      - {text: "Un `std::recursive_mutex`, que le même thread peut reprendre", correct: false}
+      - {text: "Un `std::vector` global, auquel le gestionnaire ajoute l'événement", correct: false}
+    answer: |-
+      C'est l'un des rares contextes où le sans-verrou s'impose. Le standard garantit qu'un atomique sans verrou
+      est utilisable depuis un gestionnaire de signal ; `push_back` alloue, ce qui y est interdit.
+  - key: situation-entretien
+    format: scenario
+    question: |-
+      En entretien, on te demande ce que signifie « lock-free ». Quelle réponse est juste ?
+    choices:
+      - {text: "Qu'au moins un thread progresse toujours ; ce n'est pas une promesse de vitesse", correct: true}
+      - {text: "Qu'aucun thread n'attend jamais, quelle que soit la charge", correct: false}
+      - {text: "Que le code n'utilise ni atomique ni mutex", correct: false}
+      - {text: "Que le code ne peut pas contenir de course aux données", correct: false}
+    answer: |-
+      C'est une garantie de progression globale. Un thread donné peut réessayer longtemps ; celui qui ne peut pas
+      être retardé demande wait-free. Et une structure sans verrou mal écrite a bel et bien des courses.

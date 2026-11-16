@@ -1,0 +1,354 @@
+notion: type-erasure
+lesson: |-
+  L'**effacement de type** (*type erasure*) consiste à cacher le type concret d'un objet derrière une **interface
+  unique**, sans exiger de lui un héritage. C'est ce qui permet à `std::function<int(int)>` de contenir aussi bien
+  une fonction, une lambda ou un foncteur, pourtant de types sans rapport.
+
+  ```cpp
+  std::function<int(int)> f = doubler;          // une fonction
+  f = [](int x) { return x + 1; };              // une lambda
+  f = Tripler{};                                // un objet avec operator()
+  ```
+
+  **Le problème résolu.** Le polymorphisme par héritage est **intrusif** : chaque type doit dériver d'une classe de
+  base. Les templates acceptent n'importe quel type, mais chaque type donne un **type différent** : on ne peut pas
+  les ranger ensemble. L'effacement de type réunit les deux : n'importe quel type qui a la bonne **forme**, sous un
+  seul type.
+
+  **Comment c'est fait.** Trois pièces, écrites une fois :
+
+  ```cpp
+  class Forme {
+      struct Concept {                                  // 1. l'interface interne, virtuelle
+          virtual ~Concept() = default;
+          virtual double aire() const = 0;
+      };
+
+      template <typename T>
+      struct Modele : Concept {                         // 2. un adaptateur généré pour chaque type
+          T objet;
+          explicit Modele(T o) : objet{std::move(o)} {}
+          double aire() const override { return objet.aire(); }
+      };
+
+      std::unique_ptr<Concept> contenu_;                // 3. le pointeur vers l'adaptateur
+
+  public:
+      template <typename T>
+      Forme(T objet) : contenu_{std::make_unique<Modele<T>>(std::move(objet))} {}
+
+      double aire() const { return contenu_->aire(); }
+  };
+  ```
+
+  Le **constructeur template** se souvient du type réel en instanciant `Modele<T>`. Ensuite, `Forme` ne connaît
+  plus que `Concept` : le type est « effacé ». `Carre` et `Disque` n'héritent de rien ; il leur suffit d'avoir une
+  fonction `aire()`.
+
+  **Dans la bibliothèque.**
+
+  | Type | Ce qu'il efface |
+  |---|---|
+  | `std::function<R(Args...)>` | tout appelable de cette signature, copiable |
+  | `std::move_only_function` (C++23) | idem, pour les appelables non copiables |
+  | `std::any` | n'importe quel type copiable |
+  | `std::shared_ptr<T>` | le destructeur (*deleter*) |
+  | `std::string_view`, `std::span` | le conteneur d'où viennent les données |
+
+  **Ce que cela coûte.**
+
+  - un **appel indirect** à chaque utilisation, que le compilateur n'intègre pas ;
+  - souvent une **allocation** sur le tas, sauf pour les petits objets, rangés sur place (*small buffer
+    optimization*) ;
+  - la perte du type : pour le retrouver, il faut `std::any_cast` ou `target<T>()`.
+
+  **Quand s'en servir.** Pour **stocker** des appelables de types divers (fonctions de rappel, file de tâches), ou
+  pour une interface qui ne doit pas être un template. Quand le type est connu là où l'on s'en sert, un paramètre
+  de template est gratuit : `template <typename F> void appliquer(F f)` plutôt que `std::function`.
+
+  **En entretien** : « L'effacement de type cache un type concret derrière une interface, sans héritage imposé :
+  un constructeur template fabrique un adaptateur virtuel pour le type reçu. `std::function` et `std::any`
+  fonctionnent ainsi. Le prix : un appel indirect, et souvent une allocation. »
+cards:
+  - key: definition
+    format: course
+    question: "Qu'est-ce que l'effacement de type ?"
+    choices:
+      - {text: "Cacher le type concret d'un objet derrière une interface unique, sans lui imposer d'héritage", correct: true}
+      - {text: "Retirer d'un type ses qualificatifs `const` et ses références, à la compilation", correct: false}
+      - {text: "Convertir un objet en suite d'octets, pour l'écrire dans un fichier", correct: false}
+      - {text: "Supprimer du programme les types qui ne sont jamais instanciés", correct: false}
+    answer: "Un seul type, comme `std::function<int(int)>`, peut alors contenir des objets de types sans rapport, pourvu qu'ils aient la bonne forme."
+  - key: std-function
+    format: course
+    question: "Comment `std::function<int(int)>` peut-il contenir une lambda, dont le type n'a pas de nom ?"
+    choices:
+      - {text: "Son constructeur template fabrique un adaptateur virtuel pour le type reçu", correct: true}
+      - {text: "Il convertit la lambda en pointeur de fonction ordinaire", correct: false}
+      - {text: "Il recopie le code source de la lambda dans un tampon", correct: false}
+      - {text: "Il exige que la lambda dérive d'une classe de base de la bibliothèque", correct: false}
+    answer: "Le type réel n'est connu que dans le constructeur, qui instancie un objet interne capable d'appeler la lambda. Ensuite, seul le pointeur vers l'interface interne est gardé."
+  - key: cout
+    format: course
+    question: "Quel est le coût d'un `std::function` par rapport à un paramètre de template ?"
+    choices:
+      - {text: "Un appel indirect, et souvent une allocation sur le tas", correct: true}
+      - {text: "Une copie du code de la fonction à chaque appel", correct: false}
+      - {text: "Une vérification du type de l'argument à l'exécution", correct: false}
+      - {text: "Aucun : le compilateur les traite de la même façon", correct: false}
+    answer: "L'appel passe par un pointeur, et ne peut pas être intégré. Un appelable trop gros pour le tampon interne est alloué sur le tas."
+  - key: difference-heritage
+    format: course
+    question: "Qu'apporte l'effacement de type par rapport à une classe de base à fonctions virtuelles ?"
+    choices:
+      - {text: "Les types rangés n'ont pas à dériver d'une base : il leur suffit d'avoir la bonne forme", correct: true}
+      - {text: "Les appels sont résolus à la compilation, sans indirection", correct: false}
+      - {text: "Les objets rangés occupent toujours moins de mémoire", correct: false}
+      - {text: "Les types rangés peuvent changer de fonctions à l'exécution", correct: false}
+    answer: "L'héritage est intrusif. Avec l'effacement de type, un `int(*)(int)`, une lambda ou une classe d'une autre bibliothèque conviennent tels quels."
+  - key: vf-heritage
+    format: true-false
+    question: "Pour être rangé dans un `std::function`, un foncteur doit dériver d'une classe de la bibliothèque standard."
+    truth: false
+    answer: "Il lui suffit d'être appelable avec la bonne signature. C'est tout l'intérêt de l'effacement de type."
+  - key: vf-inline
+    format: true-false
+    question: "Un appel à travers un `std::function` est aussi facilement intégré par le compilateur qu'un appel de template."
+    truth: false
+    answer: "L'appel est indirect : le compilateur ne sait pas, en général, quelle fonction se cache derrière."
+  - key: vf-any
+    format: true-false
+    question: "`std::any` est un exemple d'effacement de type."
+    truth: true
+    answer: "Il peut contenir une valeur de n'importe quel type copiable. On la retrouve avec `std::any_cast<T>`."
+  - key: vf-vide
+    format: true-false
+    question: "Appeler un `std::function` vide lève une exception `std::bad_function_call`."
+    truth: true
+    answer: "Un `std::function` construit par défaut ne contient rien. On le teste comme un booléen avant de l'appeler."
+  - key: qcm-stocker
+    format: multiple-choice
+    question: "Quel type range dans un même vecteur des lambdas, des fonctions et des foncteurs de signature `void()` ?"
+    choices:
+      - {text: "`std::vector<std::function<void()>>`", correct: true}
+      - {text: "`std::vector<auto>`", correct: false}
+      - {text: "`std::vector<void()>`", correct: false}
+      - {text: "`std::vector<decltype(auto)>`", correct: false}
+    answer: "`std::function<void()>` est un type unique, quel que soit l'appelable qu'il contient."
+  - key: qcm-parametre
+    format: multiple-choice
+    question: "Une fonction reçoit un prédicat et l'appelle aussitôt, sans le garder. Quelle signature évite tout surcoût ?"
+    choices:
+      - {text: "`template <typename F> void filtrer(F predicat);`", correct: true}
+      - {text: "`void filtrer(std::function<bool(int)> predicat);`", correct: false}
+      - {text: "`void filtrer(std::any predicat);`", correct: false}
+      - {text: "`void filtrer(void* predicat);`", correct: false}
+    answer: "Un paramètre de template garde le type réel : l'appel est direct, et intégrable. `std::function` sert à stocker, pas à passer."
+  - key: qcm-non-copiable
+    format: multiple-choice
+    question: "Quel type de C++23 range un appelable qui ne se copie pas, comme une lambda qui capture un `std::unique_ptr` ?"
+    choices:
+      - {text: "`std::move_only_function`", correct: true}
+      - {text: "`std::function`", correct: false}
+      - {text: "`std::reference_wrapper`", correct: false}
+      - {text: "`std::unique_function_ptr`", correct: false}
+    answer: "`std::function` exige un appelable copiable. `std::move_only_function` lève cette contrainte."
+  - key: qcm-petit-tampon
+    format: multiple-choice
+    question: "Qu'est-ce que la *small buffer optimization* d'un `std::function` ?"
+    choices:
+      - {text: "Un petit appelable est rangé dans l'objet lui-même, sans allocation", correct: true}
+      - {text: "Un petit appelable est appelé directement, sans indirection", correct: false}
+      - {text: "Un petit appelable est compilé deux fois, pour aller plus vite", correct: false}
+      - {text: "Un petit appelable est partagé entre toutes les copies", correct: false}
+    answer: "Un pointeur de fonction ou une lambda sans grosse capture tiennent dans le tampon interne. Au-delà, l'appelable va sur le tas."
+  - key: situation-rappels
+    format: scenario
+    question: |-
+      Tu écris un bouton d'interface, qui doit garder une action à exécuter au clic. Les utilisateurs veulent lui
+      passer une fonction, une lambda avec captures, ou une fonction membre liée. Quel type de membre choisis-tu ?
+    choices:
+      - {text: "Un `std::function<void()>`", correct: true}
+      - {text: "Un pointeur de fonction `void (*)()`", correct: false}
+      - {text: "Un paramètre de template sur la classe `Bouton`", correct: false}
+      - {text: "Un pointeur `void*` vers l'action", correct: false}
+    answer: |-
+      Il faut **stocker** un appelable de type inconnu : c'est le cas d'usage de `std::function`. Un pointeur de
+      fonction refuse les lambdas à captures ; un paramètre de template ferait de chaque bouton un type différent.
+  - key: situation-boucle
+    format: scenario
+    question: |-
+      Une fonction de tri reçoit sa comparaison par `std::function<bool(int, int)>`, et l'appelle des millions de
+      fois. Elle est trois fois plus lente que `std::sort` avec une lambda. Que proposes-tu ?
+    choices:
+      - {text: "Recevoir la comparaison par un paramètre de template : l'appel devient direct", correct: true}
+      - {text: "Recevoir la comparaison par `const std::function&`, pour éviter l'indirection", correct: false}
+      - {text: "Recevoir la comparaison par `std::any`, plus léger que `std::function`", correct: false}
+      - {text: "Recevoir la comparaison par un pointeur vers un `std::function`", correct: false}
+    answer: |-
+      `std::function` impose un appel indirect, que le compilateur n'intègre pas. Avec un template, le type de la
+      lambda est connu : la comparaison est intégrée dans la boucle. La référence constante évite une copie, pas
+      l'indirection.
+  - key: situation-bibliotheque-tierce
+    format: scenario
+    question: |-
+      Tu veux ranger dans une même liste des objets « dessinables » venus de trois bibliothèques, que tu ne peux
+      pas modifier. Chacun a une fonction `dessiner()`, mais aucune base commune. Que proposes-tu ?
+    choices:
+      - {text: "Une classe d'effacement de type, dont le constructeur template accepte tout objet qui a `dessiner()`", correct: true}
+      - {text: "Une classe de base `Dessinable`, dont on fait dériver les classes des trois bibliothèques", correct: false}
+      - {text: "Un `std::vector<auto>`, qui accepte des éléments de types différents", correct: false}
+      - {text: "Un `reinterpret_cast` de chaque objet vers une classe commune", correct: false}
+    answer: |-
+      On ne peut pas ajouter de base à des classes qu'on ne possède pas. L'effacement de type n'exige rien d'elles :
+      l'adaptateur interne, généré pour chaque type, fait le lien avec l'interface commune.
+  - key: situation-entretien
+    format: scenario
+    question: |-
+      En entretien, on te demande : « `std::function` est-il un template ou du polymorphisme dynamique ? » Quelle
+      réponse est la plus juste ?
+    choices:
+      - {text: "Les deux : un constructeur template capture le type, puis l'appel passe par une interface virtuelle", correct: true}
+      - {text: "Un template seulement : tout est résolu à la compilation, sans indirection", correct: false}
+      - {text: "Du polymorphisme seulement : l'appelable doit dériver d'une classe de base", correct: false}
+      - {text: "Ni l'un ni l'autre : c'est un mot-clé traité à part par le compilateur", correct: false}
+    answer: |-
+      C'est le principe de l'effacement de type : le template sert à l'entrée, pour fabriquer l'adaptateur du type
+      reçu ; le dynamique sert ensuite, pour appeler sans connaître ce type.
+  - key: code-function
+    format: code-output
+    question: |-
+      ```cpp
+      #include <functional>
+      #include <print>
+      #include <vector>
+
+      int doubler(int x) {
+          return 2 * x;
+      }
+
+      struct Tripler {
+          int operator()(int x) const { return 3 * x; }
+      };
+
+      int main() {
+          const std::vector<std::function<int(int)>> operations{doubler, Tripler{}, [](int x) { return x + 1; }};
+          for (const auto& operation : operations) {
+              std::print("{} ", operation(10));
+          }
+          std::println("fin");
+      }
+      ```
+    choices:
+      - {text: "`20 30 11 fin`", correct: true}
+      - {text: "`20 20 20 fin`", correct: false}
+      - {text: "`11 30 20 fin`", correct: false}
+      - {text: "Ça ne compile pas", correct: false}
+    answer: "`20 30 11 fin` : une fonction, un foncteur et une lambda, de trois types différents, tiennent dans le même `std::function<int(int)>`."
+    check:
+      output: "20 30 11 fin"
+  - key: code-fait-main
+    format: code-output
+    question: |-
+      ```cpp
+      #include <memory>
+      #include <print>
+      #include <utility>
+      #include <vector>
+
+      class Forme {
+          struct Concept {
+              virtual ~Concept() = default;
+              virtual double aire() const = 0;
+          };
+          template <typename T>
+          struct Modele : Concept {
+              T objet;
+              explicit Modele(T o) : objet{std::move(o)} {}
+              double aire() const override { return objet.aire(); }
+          };
+          std::unique_ptr<Concept> contenu_;
+
+      public:
+          template <typename T>
+          Forme(T objet) : contenu_{std::make_unique<Modele<T>>(std::move(objet))} {}
+          double aire() const { return contenu_->aire(); }
+      };
+
+      struct Carre {
+          double aire() const { return 4; }
+      };
+
+      struct Rectangle {
+          double aire() const { return 6; }
+      };
+
+      int main() {
+          std::vector<Forme> formes;
+          formes.emplace_back(Carre{});
+          formes.emplace_back(Rectangle{});
+          double total = 0;
+          for (const auto& forme : formes) {
+              total += forme.aire();
+          }
+          std::println("{}", total);
+      }
+      ```
+    choices:
+      - {text: "`10`", correct: true}
+      - {text: "`8`", correct: false}
+      - {text: "`12`", correct: false}
+      - {text: "Ça ne compile pas", correct: false}
+    answer: "`10` : `Carre` et `Rectangle` n'héritent de rien. Le constructeur template de `Forme` fabrique pour chacun un `Modele`, appelé ensuite par l'interface `Concept`."
+    check:
+      output: "10"
+  - key: code-any
+    format: code-output
+    question: |-
+      ```cpp
+      #include <any>
+      #include <print>
+      #include <string>
+
+      int main() {
+          std::any valeur = 5;
+          std::print("{} ", std::any_cast<int>(valeur));
+          valeur = std::string{"texte"};
+          std::println("{} {}", valeur.type() == typeid(std::string), std::any_cast<std::string>(valeur));
+      }
+      ```
+    choices:
+      - {text: "`5 true texte`", correct: true}
+      - {text: "`5 false texte`", correct: false}
+      - {text: "`5 true 5`", correct: false}
+      - {text: "Ça ne compile pas", correct: false}
+    answer: "`5 true texte` : un `std::any` contient tour à tour un `int`, puis une `std::string`. Il se souvient du type courant, et `std::any_cast` le vérifie."
+    check:
+      output: "5 true texte"
+  - key: code-vide
+    format: code-output
+    question: |-
+      ```cpp
+      #include <functional>
+      #include <print>
+
+      int main() {
+          std::function<int()> action;
+          std::print("{} ", static_cast<bool>(action));
+          try {
+              action();
+          } catch (const std::bad_function_call&) {
+              std::print("vide ");
+          }
+          action = [] { return 7; };
+          std::println("{}", action());
+      }
+      ```
+    choices:
+      - {text: "`false vide 7`", correct: true}
+      - {text: "`true vide 7`", correct: false}
+      - {text: "`false 0 7`", correct: false}
+      - {text: "`false vide 0`", correct: false}
+    answer: "`false vide 7` : un `std::function` construit par défaut est vide, et l'appeler lève `std::bad_function_call`. Une fois affecté, il appelle la lambda."
+    check:
+      output: "false vide 7"

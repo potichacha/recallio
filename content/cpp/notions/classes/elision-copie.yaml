@@ -1,0 +1,455 @@
+notion: elision-copie
+lesson: |-
+  L'**élision de copie** est le droit, et parfois l'obligation, pour le compilateur de **ne pas créer d'objet
+  intermédiaire** : au lieu de construire un objet puis de le copier ou de le déplacer ailleurs, il le construit
+  **directement à sa destination**. Ni constructeur de copie, ni constructeur de déplacement ne sont appelés.
+
+  **Le cas garanti (C++17) : renvoyer ou passer un temporaire.**
+
+  ```cpp
+  Image creer() {
+      return Image{800, 600};      // construit directement chez l'appelant
+  }
+
+  Image image = creer();           // aucun constructeur de copie ni de déplacement
+  ```
+
+  Depuis C++17, ce n'est plus une optimisation : un temporaire (une *prvalue*) n'est matérialisé qu'à l'endroit
+  où il sert. Le code compile même si `Image` n'est **ni copiable ni déplaçable**. On l'appelle RVO (*return value
+  optimization*).
+
+  **Le cas permis : renvoyer une variable locale nommée (NRVO).**
+
+  ```cpp
+  Image charger() {
+      Image image{800, 600};
+      image.remplir();
+      return image;                // presque toujours élidé, sans garantie
+  }
+  ```
+
+  Le compilateur a le droit de construire `image` directement chez l'appelant, et il le fait dans les cas simples.
+  S'il ne le fait pas, l'objet est **déplacé** ; s'il n'y a pas de déplacement, copié. Le type doit donc rester
+  déplaçable ou copiable, même si le constructeur n'est finalement pas appelé.
+
+  **Ce qui empêche la NRVO.**
+
+  - Renvoyer **deux variables différentes** selon une condition : `return condition ? a : b;`, ou deux `return`
+    de deux objets distincts.
+  - Renvoyer un **paramètre** de la fonction, ou un **membre**.
+  - Écrire **`return std::move(image);`** : l'expression n'est plus le nom d'une variable locale, l'élision est
+    interdite, et l'on force un déplacement. GCC avertit : `-Wpessimizing-move`.
+
+  **La règle de retour.** Dans `return variable_locale;`, le compilateur essaie d'abord l'élision, puis le
+  **déplacement** (la variable est traitée comme une rvalue), puis la copie. On écrit donc toujours
+  `return image;`, sans `std::move`.
+
+  **Conséquences pratiques.**
+
+  - **Renvoyer par valeur** un gros objet ne coûte rien : inutile de passer par un paramètre de sortie ou un
+    pointeur.
+  - Un constructeur de copie ne doit pas avoir d'**effet de bord** dont le programme dépend (compteur, journal) :
+    le nombre de copies n'est pas garanti.
+  - Passer un temporaire à un paramètre par valeur l'y construit directement : `traiter(Image{800, 600});`.
+
+  **En entretien** : « Depuis C++17, renvoyer un temporaire le construit directement chez l'appelant : c'est
+  garanti. Pour une variable locale nommée, c'est la NRVO, permise et presque toujours faite, sinon un
+  déplacement. J'écris `return x;`, jamais `return std::move(x);`, qui empêche l'élision. »
+cards:
+  - key: definition
+    format: course
+    question: "Qu'est-ce que l'élision de copie ?"
+    choices:
+      - {text: "Construire l'objet directement à sa destination, sans copie ni déplacement", correct: true}
+      - {text: "Remplacer une copie par un déplacement, quand le type le permet", correct: false}
+      - {text: "Supprimer le constructeur de copie d'une classe avec `= delete`", correct: false}
+      - {text: "Copier un objet membre par membre, sans appeler de constructeur", correct: false}
+    answer: "L'objet intermédiaire n'existe pas : aucun constructeur de copie ni de déplacement n'est appelé."
+  - key: garantie
+    format: course
+    question: "Dans quel cas l'élision de copie est-elle garantie depuis C++17 ?"
+    choices:
+      - {text: "Quand une fonction renvoie un temporaire : `return Image{800, 600};`", correct: true}
+      - {text: "Quand une fonction renvoie une variable locale nommée", correct: false}
+      - {text: "Quand une fonction renvoie l'un de ses paramètres", correct: false}
+      - {text: "Quand une fonction renvoie un membre de l'objet courant", correct: false}
+    answer: "Un temporaire est construit directement dans la variable de l'appelant. Pour une variable locale nommée, l'élision est seulement permise."
+  - key: nrvo
+    format: course
+    question: "Que fait le compilateur de `return image;`, où `image` est une variable locale, s'il n'élide pas la copie ?"
+    choices:
+      - {text: "Il la déplace, et ne la copie que si le déplacement est impossible", correct: true}
+      - {text: "Il la copie toujours, même si le type est déplaçable", correct: false}
+      - {text: "Il refuse de compiler la fonction", correct: false}
+      - {text: "Il renvoie une référence vers la variable locale", correct: false}
+    answer: "Une variable locale renvoyée est traitée comme une rvalue : le déplacement est tenté avant la copie, sans `std::move`."
+  - key: return-move
+    format: course
+    question: "Pourquoi ne faut-il pas écrire `return std::move(image);` pour une variable locale ?"
+    choices:
+      - {text: "Cela interdit l'élision : l'objet est déplacé, alors qu'il aurait pu ne rien coûter", correct: true}
+      - {text: "Cela provoque une copie de l'objet, à la place d'un déplacement", correct: false}
+      - {text: "Cela renvoie une référence pendante vers la variable locale", correct: false}
+      - {text: "Cela ne compile pas quand le type de retour est une valeur", correct: false}
+    answer: "L'élision ne s'applique qu'au nom d'une variable locale. `std::move(image)` est une autre expression : il reste un déplacement, forcé."
+  - key: vf-non-deplacable
+    format: true-false
+    question: "Depuis C++17, une fonction peut renvoyer par valeur un temporaire d'un type ni copiable ni déplaçable."
+    truth: true
+    answer: "L'élision est garantie pour un temporaire : aucun constructeur de copie ou de déplacement n'est requis."
+  - key: vf-nrvo-garantie
+    format: true-false
+    question: "L'élision est garantie quand une fonction renvoie une variable locale nommée."
+    truth: false
+    answer: "La NRVO est permise, pas obligatoire. Le type doit rester déplaçable ou copiable."
+  - key: vf-effets
+    format: true-false
+    question: "Un programme peut compter sur le nombre exact d'appels au constructeur de copie."
+    truth: false
+    answer: "Le compilateur peut élider des copies. Un constructeur de copie ne doit pas avoir d'effet dont le programme dépend."
+  - key: vf-parametre
+    format: true-false
+    question: "Renvoyer un paramètre de la fonction bénéficie de la NRVO."
+    truth: false
+    answer: "Un paramètre est construit par l'appelant, ailleurs que le résultat. Il est déplacé au retour, pas élidé."
+  - key: qcm-sigle
+    format: multiple-choice
+    question: "Que désigne le sigle NRVO ?"
+    choices:
+      - {text: "L'élision de copie pour une variable locale nommée, au retour", correct: true}
+      - {text: "L'interdiction de renvoyer une référence vers une locale", correct: false}
+      - {text: "Le déplacement automatique d'un paramètre, au retour", correct: false}
+      - {text: "La suppression du constructeur de copie d'une classe", correct: false}
+    answer: "*Named return value optimization*. La RVO, sans le N, concerne le retour d'un temporaire."
+  - key: qcm-ecrire
+    format: multiple-choice
+    question: "Comment renvoies-tu le vecteur local `resultat` pour laisser le compilateur élider la copie ?"
+    choices:
+      - {text: "`return resultat;`", correct: true}
+      - {text: "`return std::move(resultat);`", correct: false}
+      - {text: "`return &resultat;`", correct: false}
+      - {text: "`return std::ref(resultat);`", correct: false}
+    answer: "Le simple nom de la variable. Le compilateur élide, ou à défaut déplace."
+  - key: qcm-empeche
+    format: multiple-choice
+    question: "Laquelle de ces fonctions ne peut pas bénéficier de la NRVO ?"
+    choices:
+      - {text: "Celle qui écrit `return grand ? a : b;` avec deux locales", correct: true}
+      - {text: "Celle qui écrit `return a;` avec une seule locale", correct: false}
+      - {text: "Celle qui modifie sa locale avant `return a;`", correct: false}
+      - {text: "Celle qui déclare sa locale `a` au début du corps", correct: false}
+    answer: "Le compilateur ne peut pas construire deux objets à la même destination. Avec l'opérateur ternaire, le résultat est en plus copié."
+  - key: qcm-avertissement
+    format: multiple-choice
+    question: "Quel avertissement de GCC signale `return std::move(locale);` ?"
+    choices:
+      - {text: "`-Wpessimizing-move`", correct: true}
+      - {text: "`-Wunused-variable`", correct: false}
+      - {text: "`-Wsign-compare`", correct: false}
+      - {text: "`-Wreturn-type`", correct: false}
+    answer: "« Moving a local object in a return statement prevents copy elision. » Il fait partie de `-Wall`."
+  - key: code-rvo
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+
+      struct Trace {
+          Trace() { std::print("c "); }
+          Trace(const Trace&) { std::print("copie "); }
+          Trace(Trace&&) noexcept { std::print("déplacement "); }
+      };
+
+      Trace creer() {
+          return Trace{};
+      }
+
+      int main() {
+          Trace t = creer();
+          std::println("fin");
+      }
+      ```
+    choices:
+      - {text: "`c fin`", correct: true}
+      - {text: "`c déplacement fin`", correct: false}
+      - {text: "`c copie fin`", correct: false}
+      - {text: "`c déplacement déplacement fin`", correct: false}
+    answer: "`c fin` : le temporaire est construit directement dans `t`. Depuis C++17, c'est garanti."
+    check:
+      output: "c fin"
+  - key: code-return-move
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+      #include <utility>
+
+      struct Trace {
+          Trace() { std::print("c "); }
+          Trace(const Trace&) { std::print("copie "); }
+          Trace(Trace&&) noexcept { std::print("déplacement "); }
+      };
+
+      Trace creer() {
+          Trace t;
+          return std::move(t);
+      }
+
+      int main() {
+          Trace t = creer();
+          std::println("fin");
+      }
+      ```
+    choices:
+      - {text: "`c déplacement fin`", correct: true}
+      - {text: "`c fin`", correct: false}
+      - {text: "`c copie fin`", correct: false}
+      - {text: "`c déplacement déplacement fin`", correct: false}
+    answer: "`c déplacement fin` : `std::move` interdit l'élision, et force un déplacement que `return t;` aurait évité."
+    check:
+      output: "c déplacement fin"
+  - key: code-parametre
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+
+      struct Trace {
+          Trace() { std::print("c "); }
+          Trace(const Trace&) { std::print("copie "); }
+          Trace(Trace&&) noexcept { std::print("déplacement "); }
+      };
+
+      Trace identite(Trace t) {
+          return t;
+      }
+
+      int main() {
+          Trace resultat = identite(Trace{});
+          std::println("fin");
+      }
+      ```
+    choices:
+      - {text: "`c déplacement fin`", correct: true}
+      - {text: "`c fin`", correct: false}
+      - {text: "`c copie fin`", correct: false}
+      - {text: "`c copie déplacement fin`", correct: false}
+    answer: "`c déplacement fin` : le temporaire est construit directement dans le paramètre. Mais un paramètre ne peut pas être élidé au retour : il est déplacé."
+    check:
+      output: "c déplacement fin"
+  - key: code-non-copiable
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+
+      struct Verrou {
+          Verrou() = default;
+          Verrou(const Verrou&) = delete;
+          Verrou(Verrou&&) = delete;
+          int valeur = 5;
+      };
+
+      Verrou creer() {
+          return Verrou{};
+      }
+
+      int main() {
+          Verrou v = creer();
+          std::println("{}", v.valeur);
+      }
+      ```
+    choices:
+      - {text: "`5`", correct: true}
+      - {text: "`0`", correct: false}
+      - {text: "Ça ne compile pas", correct: false}
+      - {text: "Rien", correct: false}
+    answer: "`5` : renvoyer un temporaire ne demande ni copie ni déplacement, depuis C++17. Le code compile bien que les deux constructeurs soient supprimés."
+    check:
+      output: "5"
+  - key: bug-pessimisation
+    format: bug-fix
+    question: |-
+      Avec `-Wall`, GCC avertit : « moving a local object in a return statement prevents copy elision ». Quelle
+      correction est la bonne ?
+      ```cpp
+      #include <print>
+      #include <string>
+      #include <utility>
+
+      std::string titre() {
+          std::string texte = "Chapitre premier";
+          return std::move(texte);
+      }
+
+      int main() {
+          std::println("{}", titre());
+      }
+      ```
+    choices:
+      - {text: "Écrire `return texte;`", correct: true}
+      - {text: "Écrire `return std::forward<std::string>(texte);`", correct: false}
+      - {text: "Renvoyer `std::string&&` à la place de `std::string`", correct: false}
+      - {text: "Écrire `return std::move(std::move(texte));`", correct: false}
+    answer: |-
+      ```cpp
+      return texte;
+      ```
+      Le nom seul permet l'élision, et à défaut le déplacement est automatique. Renvoyer `std::string&&`
+      donnerait une référence pendante vers la locale.
+  - key: bug-reference-vers-locale
+    format: bug-fix
+    question: |-
+      Pour « éviter une copie », cette fonction renvoie une référence vers sa variable locale. Le programme plante.
+      Quelle correction est la bonne ?
+      ```cpp
+      #include <print>
+      #include <vector>
+
+      const std::vector<int>& creer() {
+          std::vector<int> v{1, 2, 3};
+          return v;
+      }
+
+      int main() {
+          std::println("{}", creer().size());
+      }
+      ```
+    choices:
+      - {text: "Renvoyer par valeur : `std::vector<int> creer()`", correct: true}
+      - {text: "Renvoyer `std::vector<int>&`, sans `const`", correct: false}
+      - {text: "Renvoyer `std::vector<int>&&`, avec `std::move(v)`", correct: false}
+      - {text: "Renvoyer `const std::vector<int>*`, avec `&v`", correct: false}
+    answer: |-
+      ```cpp
+      std::vector<int> creer() {
+          std::vector<int> v{1, 2, 3};
+          return v;
+      }
+      ```
+      `v` est détruite au retour : toute référence ou tout pointeur vers elle est pendant. Le retour par valeur ne
+      copie rien, grâce à l'élision.
+  - key: bug-non-deplacable-nomme
+    format: bug-fix
+    question: |-
+      Le compilateur répond « use of deleted function 'Verrou::Verrou(Verrou&&)' » sur le `return`. Quelle
+      correction est la bonne ?
+      ```cpp
+      #include <print>
+
+      struct Verrou {
+          Verrou() = default;
+          Verrou(const Verrou&) = delete;
+          Verrou(Verrou&&) = delete;
+          int valeur = 5;
+      };
+
+      Verrou creer() {
+          Verrou v;
+          return v;
+      }
+
+      int main() {
+          std::println("{}", creer().valeur);
+      }
+      ```
+    choices:
+      - {text: "Renvoyer un temporaire : `return Verrou{};`", correct: true}
+      - {text: "Renvoyer la locale déplacée : `return std::move(v);`", correct: false}
+      - {text: "Renvoyer une référence : `Verrou& creer()`", correct: false}
+      - {text: "Déclarer la locale `static Verrou v;`, sans changer le retour", correct: false}
+    answer: |-
+      ```cpp
+      Verrou creer() {
+          return Verrou{};
+      }
+      ```
+      Pour une variable nommée, l'élision n'est que permise : le type doit rester déplaçable. Pour un temporaire,
+      elle est garantie, et aucun constructeur n'est requis.
+  - key: bug-compteur-de-copies
+    format: bug-fix
+    question: |-
+      Ce programme compte les jetons créés, et devrait afficher `1`. Il affiche `0`. Quelle correction est la bonne ?
+      ```cpp
+      #include <print>
+
+      struct Jeton {
+          Jeton() = default;
+          Jeton(const Jeton&) { ++crees; }
+          static inline int crees = 0;
+      };
+
+      Jeton creer() {
+          Jeton jeton;
+          return jeton;
+      }
+
+      int main() {
+          Jeton jeton = creer();
+          std::println("{}", Jeton::crees);
+      }
+      ```
+    choices:
+      - {text: "Compter aussi dans le constructeur par défaut : `Jeton() { ++crees; }`", correct: true}
+      - {text: "Déclarer le compteur `crees` avec le mot-clé `volatile`", correct: false}
+      - {text: "Déclarer la fonction `creer` avec le mot-clé `noexcept`", correct: false}
+      - {text: "Compiler le programme sans optimisation, avec l'option `-O0`", correct: false}
+    answer: |-
+      ```cpp
+      Jeton() { ++crees; }
+      Jeton(const Jeton&) { ++crees; }
+      ```
+      Le compilateur construit le jeton directement chez l'appelant : la copie du retour est élidée, même sans
+      optimisation. Un programme ne doit pas dépendre du nombre de copies : on compte dans chaque constructeur.
+  - key: situation-parametre-de-sortie
+    format: scenario
+    question: |-
+      Une fonction a pour signature `void charger(std::vector<Ligne>& sortie)`. L'auteur explique : « renvoyer le
+      vecteur le copierait ». Que réponds-tu ?
+    choices:
+      - {text: "Que le retour par valeur est élidé ou déplacé : `std::vector<Ligne> charger()` ne copie rien", correct: true}
+      - {text: "Qu'il a raison : un vecteur renvoyé par valeur est toujours recopié élément par élément", correct: false}
+      - {text: "Qu'il faut renvoyer un pointeur vers un vecteur alloué avec `new`", correct: false}
+      - {text: "Qu'il faut renvoyer une référence vers le vecteur local de la fonction", correct: false}
+    answer: |-
+      La NRVO construit le vecteur directement chez l'appelant ; sinon, il est déplacé, ce qui revient à copier
+      trois pointeurs. Le paramètre de sortie est une habitude d'avant C++11, qui rend l'appel moins lisible.
+  - key: situation-deux-retours
+    format: scenario
+    question: |-
+      Une fonction construit deux gros objets `a` et `b`, puis renvoie l'un ou l'autre selon une condition. Le
+      profileur montre un déplacement à chaque appel. Est-ce un défaut ?
+    choices:
+      - {text: "Non : avec deux candidats, la NRVO est impossible, et le déplacement est le repli normal", correct: true}
+      - {text: "Oui : il faut écrire `std::move` sur chacun des deux `return`, pour élider", correct: false}
+      - {text: "Oui : il faut renvoyer une référence constante vers l'objet choisi", correct: false}
+      - {text: "Non : le profileur se trompe, l'élision est garantie dans tous les cas", correct: false}
+    answer: |-
+      Le compilateur ne peut pas construire deux objets au même endroit. Chaque `return` déplace alors sa locale,
+      ce qui est bon marché. Si cela compte, on restructure pour n'avoir qu'un objet résultat.
+  - key: situation-revue-move
+    format: scenario
+    question: |-
+      En revue de code, tu vois `return std::move(resultat);` à la fin de vingt fonctions, « pour la performance ».
+      Que demandes-tu ?
+    choices:
+      - {text: "De retirer ces `std::move` : ils empêchent l'élision, et le déplacement est déjà automatique", correct: true}
+      - {text: "De les garder : sans `std::move`, chaque retour copierait l'objet", correct: false}
+      - {text: "De les remplacer par `std::forward`, plus rapide au retour", correct: false}
+      - {text: "De renvoyer `auto&&` partout, pour éviter tout constructeur", correct: false}
+    answer: |-
+      `return resultat;` donne l'élision quand elle est possible, et un déplacement sinon. Le `std::move` explicite
+      ne peut que faire perdre le premier cas. GCC le signale avec `-Wpessimizing-move`.
+  - key: situation-entretien
+    format: scenario
+    question: |-
+      En entretien, on te demande : « Combien de fois le constructeur de copie est-il appelé dans
+      `Image img = creer();`, si `creer` fait `return Image{};` ? » Que réponds-tu ?
+    choices:
+      - {text: "Aucune : depuis C++17, le temporaire est construit directement dans `img`", correct: true}
+      - {text: "Une : le temporaire renvoyé est ensuite copié dans `img`", correct: false}
+      - {text: "Deux : une au retour de la fonction, une à l'initialisation", correct: false}
+      - {text: "Cela dépend du niveau d'optimisation choisi à la compilation", correct: false}
+    answer: |-
+      L'élision est garantie pour un temporaire, même sans optimisation, et même si le type n'est pas copiable.
+      Avant C++17, c'était une optimisation permise, que tous les compilateurs faisaient déjà.

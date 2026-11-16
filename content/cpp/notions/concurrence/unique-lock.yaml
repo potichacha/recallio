@@ -1,0 +1,463 @@
+notion: unique-lock
+lesson: |-
+  `std::unique_lock` (en-tête `<mutex>`) est une garde de mutex, comme `std::lock_guard` : elle déverrouille dans
+  son destructeur. Mais elle est **souple** : on peut la déverrouiller et la reverrouiller, différer le
+  verrouillage, la déplacer.
+
+  ```cpp
+  std::mutex verrou;
+
+  std::unique_lock garde{verrou};      // verrouille, comme lock_guard
+  // ... section critique ...
+  garde.unlock();                      // relâche avant la fin du bloc
+  // ... travail long, hors du verrou ...
+  garde.lock();                        // reprend
+  ```
+
+  **Ce qu'elle sait faire de plus que `std::lock_guard`.**
+
+  | Capacité | Écriture |
+  |---|---|
+  | Déverrouiller et reverrouiller | `garde.unlock();`, `garde.lock();` |
+  | Ne pas verrouiller à la construction | `std::unique_lock garde{verrou, std::defer_lock};` |
+  | Tenter sans attendre | `std::unique_lock garde{verrou, std::try_to_lock};` |
+  | Adopter un mutex déjà verrouillé | `std::unique_lock garde{verrou, std::adopt_lock};` |
+  | Savoir si elle tient le mutex | `garde.owns_lock()`, ou `if (garde)` |
+  | Changer de portée | elle se **déplace** (`std::move`), mais ne se copie pas |
+
+  **Le verrouillage différé.** Avec `std::defer_lock`, la garde est associée au mutex **sans le prendre**. On
+  verrouille plus tard, par `garde.lock()`, ou par `std::lock`, qui prend **plusieurs** gardes ensemble sans
+  interblocage :
+
+  ```cpp
+  std::unique_lock ga{a, std::defer_lock};
+  std::unique_lock gb{b, std::defer_lock};
+  std::lock(ga, gb);                   // les deux, sans risque d'interblocage
+  ```
+
+  Depuis C++17, `std::scoped_lock garde{a, b};` fait la même chose en une ligne.
+
+  **La tentative.** Avec `std::try_to_lock`, le constructeur n'attend pas : si le mutex est pris, la garde est
+  simplement **vide**. On teste avant d'entrer dans la section critique :
+
+  ```cpp
+  std::unique_lock garde{verrou, std::try_to_lock};
+  if (garde.owns_lock()) {
+      // on a le verrou
+  }
+  ```
+
+  **Le destructeur ne déverrouille que si la garde tient le mutex.** Après un `unlock()`, ou une tentative ratée,
+  il ne fait rien : pas de double déverrouillage.
+
+  **L'usage qui l'impose : `std::condition_variable`.** Sa fonction `wait` doit **relâcher** le mutex pendant
+  l'attente, puis le **reprendre** au réveil. Seule une `std::unique_lock` le permet : `std::lock_guard` ne
+  convient pas.
+
+  **Laquelle choisir.**
+
+  | Besoin | Garde |
+  |---|---|
+  | Verrouiller un mutex pour tout un bloc | `std::lock_guard` |
+  | Verrouiller plusieurs mutex ensemble | `std::scoped_lock` |
+  | Déverrouiller en cours de route, différer, tenter, déplacer, attendre une condition | `std::unique_lock` |
+
+  `std::unique_lock` garde un booléen en plus, et coûte un peu plus cher : on la prend quand on a besoin de sa
+  souplesse.
+
+  **Les pièges.** Appeler `lock()` sur une garde qui tient déjà le mutex, ou `unlock()` sur une garde qui ne le
+  tient pas, lance `std::system_error`.
+
+  **En entretien** : « `std::unique_lock` est une garde RAII qu'on peut déverrouiller, reverrouiller, construire
+  sans verrouiller avec `std::defer_lock`, et déplacer. C'est elle qu'exige `std::condition_variable`. Pour un
+  simple bloc, `std::lock_guard` suffit. »
+cards:
+  - key: difference
+    format: course
+    question: "Que permet `std::unique_lock`, que `std::lock_guard` ne permet pas ?"
+    choices:
+      - {text: "Déverrouiller et reverrouiller le mutex avant la fin du bloc", correct: true}
+      - {text: "Déverrouiller le mutex automatiquement à la fin du bloc", correct: false}
+      - {text: "Verrouiller le mutex depuis plusieurs threads à la fois", correct: false}
+      - {text: "Verrouiller le mutex sans jamais faire attendre personne", correct: false}
+    answer: "Les deux déverrouillent dans leur destructeur. `std::unique_lock` ajoute `unlock()`, `lock()`, le verrouillage différé, la tentative et le déplacement."
+  - key: defer-lock
+    format: course
+    question: "Que fait `std::unique_lock garde{verrou, std::defer_lock};` ?"
+    choices:
+      - {text: "Il associe la garde au mutex, sans le verrouiller : on verrouillera plus tard", correct: true}
+      - {text: "Il verrouille le mutex, et le garde verrouillé après la destruction de la garde", correct: false}
+      - {text: "Il attend que le mutex soit libre, puis le verrouille dans un autre thread", correct: false}
+      - {text: "Il tente de verrouiller le mutex, et lance une exception s'il est pris", correct: false}
+    answer: "Le verrouillage est différé : `garde.lock()`, ou `std::lock(ga, gb)` pour en prendre plusieurs ensemble."
+  - key: condition-variable
+    format: course
+    question: "Pourquoi `std::condition_variable::wait` exige-t-elle une `std::unique_lock` ?"
+    choices:
+      - {text: "Elle doit relâcher le mutex pendant l'attente, puis le reprendre au réveil", correct: true}
+      - {text: "Elle doit copier la garde dans le thread qui la réveillera", correct: false}
+      - {text: "Elle doit verrouiller deux mutex à la fois, ce que `lock_guard` ne sait pas faire", correct: false}
+      - {text: "Elle doit détruire la garde pour signaler la condition", correct: false}
+    answer: "Un `std::lock_guard` ne sait que verrouiller à la construction et déverrouiller à la destruction : `wait` ne pourrait pas libérer le mutex pour les autres threads."
+  - key: destructeur
+    format: course
+    question: "Que fait le destructeur d'une `std::unique_lock` après un appel à `unlock()` ?"
+    choices:
+      - {text: "Rien : il ne déverrouille que si la garde tient encore le mutex", correct: true}
+      - {text: "Il déverrouille une seconde fois, ce qui est un comportement indéfini", correct: false}
+      - {text: "Il reverrouille le mutex, pour le laisser dans son état de départ", correct: false}
+      - {text: "Il lance `std::system_error`, car le mutex est déjà libre", correct: false}
+    answer: "La garde sait si elle possède le verrou (`owns_lock()`). Son destructeur agit en conséquence : pas de double déverrouillage."
+  - key: vf-copie
+    format: true-false
+    question: "Une `std::unique_lock` peut être copiée."
+    truth: false
+    answer: "Deux gardes déverrouilleraient le même mutex. Elle se déplace avec `std::move`, ce qui transfère la possession du verrou."
+  - key: vf-raii
+    format: true-false
+    question: "Une `std::unique_lock` qui tient le mutex le déverrouille à sa destruction."
+    truth: true
+    answer: "C'est une garde RAII, comme `std::lock_guard` : le mutex est relâché même si une exception quitte le bloc."
+  - key: vf-try-to-lock
+    format: true-false
+    question: "Avec `std::try_to_lock`, le constructeur attend que le mutex se libère."
+    truth: false
+    answer: "Il tente une fois, sans attendre. Si le mutex est pris, la garde est vide : `owns_lock()` vaut `false`."
+  - key: vf-cout
+    format: true-false
+    question: "`std::unique_lock` est un peu plus coûteuse que `std::lock_guard`."
+    truth: true
+    answer: "Elle garde un booléen qui dit si elle tient le mutex, et le teste. Pour un simple bloc, `std::lock_guard` suffit."
+  - key: qcm-tester
+    format: multiple-choice
+    question: "Quelle fonction dit si une `std::unique_lock` tient actuellement son mutex ?"
+    choices:
+      - {text: "`owns_lock()`", correct: true}
+      - {text: "`is_locked()`", correct: false}
+      - {text: "`joinable()`", correct: false}
+      - {text: "`try_lock()`", correct: false}
+    answer: "`owns_lock()`, ou la conversion en booléen : `if (garde)`. `try_lock()` tente de verrouiller."
+  - key: qcm-plusieurs
+    format: multiple-choice
+    question: "`ga` et `gb` sont deux `std::unique_lock` construites avec `std::defer_lock`. Quelle ligne les verrouille sans risque d'interblocage ?"
+    choices:
+      - {text: "`std::lock(ga, gb);`", correct: true}
+      - {text: "`ga.lock(); gb.lock();`", correct: false}
+      - {text: "`std::unlock(ga, gb);`", correct: false}
+      - {text: "`ga = gb;`", correct: false}
+    answer: "`std::lock` acquiert tous ses arguments ensemble, par un algorithme qui évite l'interblocage. Deux `lock()` successifs dépendraient de l'ordre."
+  - key: qcm-choix
+    format: multiple-choice
+    question: "Tu verrouilles un seul mutex, pour toute la durée d'une fonction courte. Quelle garde choisis-tu ?"
+    choices:
+      - {text: "`std::lock_guard`", correct: true}
+      - {text: "`std::unique_lock`", correct: false}
+      - {text: "`std::shared_lock`", correct: false}
+      - {text: "`std::defer_lock`", correct: false}
+    answer: "La plus simple suffit. `std::unique_lock` se justifie quand on a besoin de déverrouiller en route, de différer, de déplacer, ou d'attendre une condition."
+  - key: qcm-adopt
+    format: multiple-choice
+    question: "Que signifie `std::adopt_lock`, passé au constructeur d'une garde ?"
+    choices:
+      - {text: "Le mutex est déjà verrouillé par ce thread : la garde en prend seulement la charge", correct: true}
+      - {text: "Le mutex ne doit pas être verrouillé tout de suite : on le fera plus tard", correct: false}
+      - {text: "Le mutex doit être tenté une fois, sans attendre s'il est pris", correct: false}
+      - {text: "Le mutex appartient à un autre thread, à qui la garde le prend", correct: false}
+    answer: "La garde ne verrouille pas, mais déverrouillera à sa destruction. Différer, c'est `std::defer_lock` ; tenter, `std::try_to_lock`."
+  - key: trous-unique-lock
+    format: fill-in
+    question: |-
+      Complète avec la garde que l'on peut déverrouiller avant la fin du bloc :
+      ```cpp
+      std::___ garde{verrou};
+      total += valeur;
+      garde.unlock();
+      ```
+    blanks:
+      - [unique_lock]
+    answer: "`std::unique_lock` offre `unlock()` et `lock()`."
+  - key: trous-defer-lock
+    format: fill-in
+    question: |-
+      Complète pour construire la garde sans verrouiller le mutex :
+      ```cpp
+      std::unique_lock garde{verrou, std::___};
+      ```
+    blanks:
+      - [defer_lock]
+    answer: "`std::defer_lock` diffère le verrouillage."
+  - key: trous-owns-lock
+    format: fill-in
+    question: |-
+      Complète pour vérifier que la tentative a réussi :
+      ```cpp
+      std::unique_lock garde{verrou, std::try_to_lock};
+      if (garde.___()) {
+          ++compteur;
+      }
+      ```
+    blanks:
+      - [owns_lock]
+    answer: "`owns_lock()` vaut `true` si la garde tient le mutex."
+  - key: trous-unlock
+    format: fill-in
+    question: |-
+      Complète pour relâcher le mutex avant le calcul long :
+      ```cpp
+      std::unique_lock garde{verrou};
+      const auto copie = donnees;
+      garde.___();
+      calculer(copie);
+      ```
+    blanks:
+      - [unlock]
+    answer: "`unlock()` relâche le mutex ; le destructeur ne le déverrouillera pas une seconde fois."
+  - key: code-defer
+    format: code-output
+    question: |-
+      ```cpp
+      #include <mutex>
+      #include <print>
+
+      int main() {
+          std::mutex verrou;
+          std::unique_lock garde{verrou, std::defer_lock};
+          std::print("{} ", garde.owns_lock());
+          garde.lock();
+          std::print("{} ", garde.owns_lock());
+          garde.unlock();
+          std::println("{}", garde.owns_lock());
+      }
+      ```
+    choices:
+      - {text: "`false true false`", correct: true}
+      - {text: "`true true false`", correct: false}
+      - {text: "`false true true`", correct: false}
+      - {text: "`false false false`", correct: false}
+    answer: "`false true false` : avec `std::defer_lock`, la garde ne verrouille pas à la construction. `lock()` puis `unlock()` changent ce que rend `owns_lock()`."
+    check:
+      output: "false true false"
+  - key: code-try-to-lock
+    format: code-output
+    question: |-
+      ```cpp
+      #include <mutex>
+      #include <print>
+      #include <thread>
+
+      int main() {
+          std::mutex verrou;
+          std::unique_lock principale{verrou};
+          bool obtenu = true;
+          std::thread t{[&] {
+              std::unique_lock tentative{verrou, std::try_to_lock};
+              obtenu = tentative.owns_lock();
+          }};
+          t.join();
+          std::println("{} {}", principale.owns_lock(), obtenu);
+      }
+      ```
+    choices:
+      - {text: "`true false`", correct: true}
+      - {text: "`true true`", correct: false}
+      - {text: "`false true`", correct: false}
+      - {text: "Rien : le programme se fige", correct: false}
+    answer: "`true false` : `main` tient le mutex. Dans le thread, la tentative échoue sans attendre : la garde est vide, et son destructeur ne déverrouille rien."
+    check:
+      output: "true false"
+  - key: code-move
+    format: code-output
+    question: |-
+      ```cpp
+      #include <mutex>
+      #include <print>
+      #include <utility>
+
+      int main() {
+          std::mutex verrou;
+          std::unique_lock a{verrou};
+          std::unique_lock b{std::move(a)};
+          std::println("{} {}", a.owns_lock(), b.owns_lock());
+      }
+      ```
+    choices:
+      - {text: "`false true`", correct: true}
+      - {text: "`true true`", correct: false}
+      - {text: "`true false`", correct: false}
+      - {text: "Ça ne compile pas", correct: false}
+    answer: "`false true` : le déplacement transfère la possession du verrou. `a` ne tient plus rien, et seul `b` déverrouillera."
+    check:
+      output: "false true"
+  - key: code-std-lock
+    format: code-output
+    question: |-
+      ```cpp
+      #include <mutex>
+      #include <print>
+      #include <thread>
+
+      int main() {
+          std::mutex a;
+          std::mutex b;
+          int total = 0;
+          auto travail = [&](bool inverse) {
+              for (int i = 0; i < 1000; ++i) {
+                  std::unique_lock ga{a, std::defer_lock};
+                  std::unique_lock gb{b, std::defer_lock};
+                  if (inverse) {
+                      std::lock(gb, ga);
+                  } else {
+                      std::lock(ga, gb);
+                  }
+                  ++total;
+              }
+          };
+          std::thread t{travail, false};
+          std::thread u{travail, true};
+          t.join();
+          u.join();
+          std::println("{}", total);
+      }
+      ```
+    choices:
+      - {text: "`2000`", correct: true}
+      - {text: "Rien : le programme se fige", correct: false}
+      - {text: "Un nombre inférieur à 2000, selon l'exécution", correct: false}
+      - {text: "`1000`", correct: false}
+    answer: "`2000` : `std::lock` prend les deux gardes ensemble, sans interblocage, quel que soit l'ordre des arguments. Chaque incrémentation se fait sous les deux verrous."
+    check:
+      output: "2000"
+  - key: bug-defer-sans-lock
+    format: bug-fix
+    question: |-
+      Ce code croit protéger `total`, mais le mutex n'est jamais verrouillé : c'est une course aux données. Quelle
+      correction est la bonne ?
+      ```cpp
+      #include <mutex>
+      #include <print>
+      #include <thread>
+
+      int main() {
+          std::mutex verrou;
+          int total = 0;
+          auto travail = [&] {
+              for (int i = 0; i < 1000; ++i) {
+                  std::unique_lock garde{verrou, std::defer_lock};
+                  ++total;
+              }
+          };
+          std::thread a{travail};
+          std::thread b{travail};
+          a.join();
+          b.join();
+          std::println("{}", total);
+      }
+      ```
+    choices:
+      - {text: "Retirer `std::defer_lock` : la garde verrouille alors à sa construction", correct: true}
+      - {text: "Remplacer `std::defer_lock` par `std::try_to_lock`, sans rien tester", correct: false}
+      - {text: "Appeler `garde.unlock();` juste après l'incrémentation", correct: false}
+      - {text: "Déclarer la garde avant la boucle `for`, avec `std::defer_lock`", correct: false}
+    answer: |-
+      ```cpp
+      std::unique_lock garde{verrou};
+      ++total;
+      ```
+      `std::defer_lock` construit une garde qui ne verrouille pas. Sans `garde.lock()`, rien n'est protégé. Une
+      tentative non testée ne protégerait pas davantage quand elle échoue.
+  - key: bug-lock-guard-unlock
+    format: bug-fix
+    question: |-
+      Le compilateur répond « 'class std::lock_guard<std::mutex>' has no member named 'unlock' ». Quelle correction
+      est la bonne ?
+      ```cpp
+      #include <mutex>
+      #include <print>
+
+      int main() {
+          std::mutex verrou;
+          int donnee = 5;
+          std::lock_guard garde{verrou};
+          const int copie = donnee;
+          garde.unlock();
+          std::println("{}", copie * 2);
+      }
+      ```
+    choices:
+      - {text: "Déclarer `std::unique_lock garde{verrou};`", correct: true}
+      - {text: "Déclarer `std::scoped_lock garde{verrou};`", correct: false}
+      - {text: "Appeler `verrou.unlock();` à la place de `garde.unlock();`", correct: false}
+      - {text: "Appeler `garde.release();` à la place de `garde.unlock();`", correct: false}
+    answer: |-
+      ```cpp
+      std::unique_lock garde{verrou};
+      const int copie = donnee;
+      garde.unlock();
+      ```
+      `std::lock_guard` et `std::scoped_lock` ne se déverrouillent qu'à leur destruction. Déverrouiller le mutex
+      dans leur dos provoquerait un second déverrouillage par le destructeur. L'autre voie : limiter la garde à un
+      bloc.
+  - key: bug-double-lock
+    format: bug-fix
+    question: |-
+      Ce programme s'arrête sur une exception `std::system_error` : « Resource deadlock avoided ». Quelle
+      correction est la bonne ?
+      ```cpp
+      #include <mutex>
+      #include <print>
+
+      int main() {
+          std::mutex verrou;
+          std::unique_lock garde{verrou};
+          garde.lock();
+          std::println("verrouillé");
+      }
+      ```
+    choices:
+      - {text: "Retirer `garde.lock();` : le constructeur a déjà verrouillé", correct: true}
+      - {text: "Écrire `garde.try_lock();` à la place de `garde.lock();`", correct: false}
+      - {text: "Écrire `verrou.lock();` à la place de `garde.lock();`", correct: false}
+      - {text: "Déclarer la garde avec `std::adopt_lock`", correct: false}
+    answer: |-
+      ```cpp
+      std::unique_lock garde{verrou};
+      std::println("verrouillé");
+      ```
+      Sans `std::defer_lock`, la garde verrouille à sa construction. Un second `lock()` sur une garde qui tient
+      déjà le mutex lance `std::system_error` ; `try_lock()` ferait de même.
+  - key: bug-tentative-non-testee
+    format: bug-fix
+    question: |-
+      Ce programme devrait afficher `0` : la tentative échoue, puisque `main` tient le mutex, et le compteur ne
+      devrait pas être touché. Il affiche `1`. Quelle correction est la bonne ?
+      ```cpp
+      #include <mutex>
+      #include <print>
+      #include <thread>
+
+      int main() {
+          std::mutex verrou;
+          int compteur = 0;
+          std::unique_lock principale{verrou};
+          std::thread t{[&] {
+              std::unique_lock tentative{verrou, std::try_to_lock};
+              ++compteur;
+          }};
+          t.join();
+          std::println("{}", compteur);
+      }
+      ```
+    choices:
+      - {text: "N'incrémenter que si `tentative.owns_lock()` est vrai", correct: true}
+      - {text: "N'incrémenter que si `verrou.try_lock()` est vrai", correct: false}
+      - {text: "Appeler `tentative.unlock();` avant l'incrémentation", correct: false}
+      - {text: "Remplacer `std::try_to_lock` par `std::adopt_lock`", correct: false}
+    answer: |-
+      ```cpp
+      std::unique_lock tentative{verrou, std::try_to_lock};
+      if (tentative.owns_lock()) {
+          ++compteur;
+      }
+      ```
+      Une tentative peut échouer : la garde est alors vide, et le code qui suit s'exécute sans protection. On teste
+      toujours `owns_lock()` avant d'entrer dans la section critique.

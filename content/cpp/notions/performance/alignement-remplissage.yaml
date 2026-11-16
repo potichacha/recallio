@@ -1,0 +1,451 @@
+notion: alignement-remplissage
+lesson: |-
+  La taille d'une `struct` n'est pas toujours la somme des tailles de ses membres. Le compilateur y glisse des
+  octets inutilisés, le **remplissage** (*padding*), pour respecter l'**alignement** de chaque membre.
+
+  **L'alignement.** Chaque type a un alignement : son adresse doit être un **multiple** de cette valeur. Pour les
+  types fondamentaux, c'est en général leur taille. Sur Linux x86-64 :
+
+  | Type | `sizeof` | `alignof` |
+  |---|---|---|
+  | `char`, `bool` | 1 | 1 |
+  | `short` | 2 | 2 |
+  | `int`, `float` | 4 | 4 |
+  | `long`, `double`, pointeur | 8 | 8 |
+
+  Un `int` rangé à une adresse multiple de 4 se lit en une seule opération ; mal aligné, il serait plus lent, voire
+  interdit sur certains processeurs.
+
+  **Le remplissage.** Les membres sont rangés **dans l'ordre de leur déclaration**. Avant chacun, le compilateur
+  ajoute les octets qu'il faut pour l'aligner.
+
+  ```cpp
+  struct Mesure {
+      char type;       // décalage 0
+                       // 3 octets de remplissage
+      int valeur;      // décalage 4
+  };                   // sizeof = 8, pas 5
+  ```
+
+  **Deux règles.**
+
+  - L'alignement d'une `struct` est celui de son membre **le plus exigeant**.
+  - Sa taille est **arrondie** à un multiple de cet alignement, par un remplissage final : ainsi, dans un tableau,
+    chaque élément est bien aligné.
+
+  **L'ordre des membres change la taille.**
+
+  ```cpp
+  struct Gaspillage {      // 24 octets
+      char a;              // 1, puis 7 de remplissage
+      double d;            // 8
+      char b;              // 1, puis 7 de remplissage final
+  };
+
+  struct Compacte {        // 16 octets
+      double d;            // 8
+      char a;              // 1
+      char b;              // 1, puis 6 de remplissage final
+  };
+  ```
+
+  La règle pratique : déclarer les membres **du plus grand au plus petit**. Le compilateur ne réordonne jamais
+  lui-même. Sur un million d'objets, huit octets de moins par objet font huit mégaoctets, et davantage d'objets
+  par ligne de cache.
+
+  **Les outils.**
+
+  | Outil | Rôle |
+  |---|---|
+  | `sizeof(T)` | la taille, remplissage compris |
+  | `alignof(T)` | l'alignement exigé |
+  | `offsetof(T, membre)` (`<cstddef>`) | le décalage d'un membre depuis le début |
+  | `alignas(n)` | impose un alignement **plus strict** : `alignas(64)` pour isoler sur une ligne de cache |
+  | `static_assert(sizeof(T) == 16);` | fige une taille dont le code dépend |
+
+  **Les pièges.**
+
+  - **Comparer deux objets avec `std::memcmp`** compare aussi les octets de remplissage, dont la valeur n'est pas
+    définie. On compare avec `operator==`.
+  - **Écrire une `struct` telle quelle dans un fichier ou sur le réseau** : sa disposition dépend du compilateur
+    et de la plateforme. On écrit les champs un par un.
+  - **Supposer** que `sizeof` vaut la somme des membres.
+  - Les `struct` « compactées » (`#pragma pack`, `__attribute__((packed))`) suppriment le remplissage, au prix
+    d'accès non alignés : à réserver aux formats binaires imposés.
+
+  Outils : `-Wpadded` signale chaque remplissage ; `pahole` affiche la disposition d'une `struct`.
+
+  **En entretien** : « Chaque type doit être à une adresse multiple de son alignement : le compilateur insère du
+  remplissage entre les membres, et à la fin. La taille dépend donc de l'ordre des membres : je les range du plus
+  grand au plus petit. Et je ne compare ni ne sérialise une struct octet par octet. »
+cards:
+  - key: remplissage
+    format: course
+    question: "Pourquoi `struct Mesure { char type; int valeur; };` occupe-t-elle 8 octets, et non 5 ?"
+    choices:
+      - {text: "Trois octets de remplissage suivent `type`, pour que `valeur` soit à une adresse multiple de 4", correct: true}
+      - {text: "Un `char` occupe 4 octets dès qu'il est rangé dans une `struct`", correct: false}
+      - {text: "Toute `struct` a une taille minimale de 8 octets sur une machine 64 bits", correct: false}
+      - {text: "Trois octets sont réservés au pointeur de table virtuelle de la `struct`", correct: false}
+    answer: "Un `int` s'aligne sur 4 octets. Le compilateur insère le remplissage nécessaire avant lui. Un `char` garde sa taille de 1."
+  - key: ordre
+    format: course
+    question: "Comment ordonner les membres d'une `struct` pour réduire sa taille ?"
+    choices:
+      - {text: "Du plus grand au plus petit alignement", correct: true}
+      - {text: "Par ordre alphabétique des noms", correct: false}
+      - {text: "Du plus petit au plus grand, en alternant", correct: false}
+      - {text: "Peu importe : le compilateur les réordonne", correct: false}
+    answer: "Les gros membres d'abord ne laissent pas de trous entre eux ; les petits se tassent à la fin. Le compilateur respecte toujours l'ordre de déclaration."
+  - key: remplissage-final
+    format: course
+    question: "Pourquoi le compilateur ajoute-t-il du remplissage à la fin d'une `struct` ?"
+    choices:
+      - {text: "Pour que sa taille soit un multiple de son alignement : chaque élément d'un tableau reste aligné", correct: true}
+      - {text: "Pour laisser de la place aux membres qu'on ajoutera dans une version future", correct: false}
+      - {text: "Pour y ranger la taille de la `struct`, que `sizeof` lit à l'exécution", correct: false}
+      - {text: "Pour marquer la fin de la `struct` par des octets nuls, comme une chaîne", correct: false}
+    answer: "Dans un tableau, les éléments se suivent sans espace : si la taille n'était pas un multiple de l'alignement, le deuxième élément serait mal aligné."
+  - key: memcmp
+    format: course
+    question: "Pourquoi ne compare-t-on pas deux `struct` avec `std::memcmp` ?"
+    choices:
+      - {text: "Il compare aussi les octets de remplissage, dont la valeur n'est pas définie", correct: true}
+      - {text: "Il ne compare que le premier membre de chaque `struct`", correct: false}
+      - {text: "Il modifie les deux `struct` pendant la comparaison", correct: false}
+      - {text: "Il refuse de compiler quand on lui passe une `struct`", correct: false}
+    answer: "Deux objets aux membres égaux peuvent différer par leur remplissage. On compare membre à membre : `bool operator==(const T&) const = default;`."
+  - key: vf-somme
+    format: true-false
+    question: "Sur x86-64, `sizeof` d'une `struct` qui contient un `char` puis un `double` vaut 9."
+    truth: false
+    answer: "Il vaut 16 : sept octets de remplissage séparent le `char` du `double`, aligné sur 8."
+  - key: vf-reordonner
+    format: true-false
+    question: "Le compilateur réordonne les membres d'une `struct` pour réduire le remplissage."
+    truth: false
+    answer: "L'ordre de déclaration est respecté. C'est au programmeur de bien ranger."
+  - key: vf-alignement-struct
+    format: true-false
+    question: "L'alignement d'une `struct` est celui de son membre le plus exigeant."
+    truth: true
+    answer: "Une `struct` qui contient un `double` s'aligne sur 8, même si ses autres membres sont des `char`."
+  - key: vf-alignas
+    format: true-false
+    question: "`alignas(64)` permet d'imposer à un type un alignement plus strict que son alignement naturel."
+    truth: true
+    answer: "On s'en sert pour placer une donnée sur sa propre ligne de cache. On ne peut pas, en revanche, demander moins que l'alignement naturel."
+  - key: qcm-alignof
+    format: multiple-choice
+    question: "Quel opérateur donne l'alignement exigé par un type ?"
+    choices:
+      - {text: "`alignof`", correct: true}
+      - {text: "`sizeof`", correct: false}
+      - {text: "`offsetof`", correct: false}
+      - {text: "`typeid`", correct: false}
+    answer: "`alignof(double)` vaut 8 sur x86-64. `sizeof` donne la taille, `offsetof` le décalage d'un membre."
+  - key: qcm-taille-double-char
+    format: multiple-choice
+    question: "Sur Linux x86-64, que vaut `sizeof` de `struct S { double d; char c; };` ?"
+    choices:
+      - {text: "16", correct: true}
+      - {text: "9", correct: false}
+      - {text: "12", correct: false}
+      - {text: "10", correct: false}
+    answer: "8 + 1 = 9, arrondi au multiple de 8 suivant : sept octets de remplissage final."
+  - key: qcm-serialisation
+    format: multiple-choice
+    question: "Comment écris-tu une `struct` dans un fichier lisible par un autre programme ?"
+    choices:
+      - {text: "Champ par champ, dans un format défini", correct: true}
+      - {text: "D'un bloc, avec `sizeof` octets depuis son adresse", correct: false}
+      - {text: "D'un bloc, après l'avoir alignée avec `alignas`", correct: false}
+      - {text: "D'un bloc, en mode binaire plutôt qu'en mode texte", correct: false}
+    answer: "La disposition en mémoire, remplissage compris, dépend du compilateur, des options et du processeur. Un format d'échange décrit chaque champ."
+  - key: qcm-avertissement
+    format: multiple-choice
+    question: "Quelle option de GCC signale chaque remplissage inséré dans une `struct` ?"
+    choices:
+      - {text: "`-Wpadded`", correct: true}
+      - {text: "`-Wall`", correct: false}
+      - {text: "`-Wshadow`", correct: false}
+      - {text: "`-Wconversion`", correct: false}
+    answer: "`-Wpadded` n'est pas dans `-Wall` : il est trop bavard pour un usage courant, mais utile pour examiner une structure précise."
+  - key: code-char-int
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+
+      struct Mesure {
+          char type;
+          int valeur;
+      };
+
+      int main() {
+          std::println("{} {}", sizeof(Mesure), alignof(Mesure));
+      }
+      ```
+    choices:
+      - {text: "`8 4`", correct: true}
+      - {text: "`5 4`", correct: false}
+      - {text: "`5 1`", correct: false}
+      - {text: "`8 8`", correct: false}
+    answer: "`8 4` : trois octets de remplissage alignent `valeur` sur 4. L'alignement de la struct est celui de l'`int`."
+    check:
+      output: "8 4"
+  - key: code-ordre
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+
+      struct Gaspillage {
+          char a;
+          double d;
+          char b;
+      };
+
+      struct Compacte {
+          double d;
+          char a;
+          char b;
+      };
+
+      int main() {
+          std::println("{} {}", sizeof(Gaspillage), sizeof(Compacte));
+      }
+      ```
+    choices:
+      - {text: "`24 16`", correct: true}
+      - {text: "`10 10`", correct: false}
+      - {text: "`16 16`", correct: false}
+      - {text: "`24 24`", correct: false}
+    answer: "`24 16` : dans la première, chaque `char` est suivi de sept octets de remplissage. Dans la seconde, les deux `char` se suivent, et six octets terminent."
+    check:
+      output: "24 16"
+  - key: code-chars
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+
+      struct Couleur {
+          char rouge;
+          char vert;
+          char bleu;
+      };
+
+      int main() {
+          std::println("{} {}", sizeof(Couleur), alignof(Couleur));
+      }
+      ```
+    choices:
+      - {text: "`3 1`", correct: true}
+      - {text: "`4 4`", correct: false}
+      - {text: "`4 1`", correct: false}
+      - {text: "`8 8`", correct: false}
+    answer: "`3 1` : un `char` s'aligne sur 1. Aucun membre n'exige de remplissage, ni entre eux ni à la fin."
+    check:
+      output: "3 1"
+  - key: code-offsetof
+    format: code-output
+    question: |-
+      ```cpp
+      #include <cstddef>
+      #include <print>
+
+      struct Entete {
+          char type;
+          short version;
+          int longueur;
+      };
+
+      int main() {
+          std::println("{} {} {}", offsetof(Entete, version), offsetof(Entete, longueur), sizeof(Entete));
+      }
+      ```
+    choices:
+      - {text: "`2 4 8`", correct: true}
+      - {text: "`1 3 7`", correct: false}
+      - {text: "`4 8 12`", correct: false}
+      - {text: "`1 4 8`", correct: false}
+    answer: "`2 4 8` : `version`, un `short`, s'aligne sur 2 : un octet de remplissage après `type`. `longueur` tombe à 4, déjà aligné. Total : 8."
+    check:
+      output: "2 4 8"
+  - key: bug-ordre-des-membres
+    format: bug-fix
+    question: |-
+      Un million de ces objets sont rangés dans un vecteur. Le programme affiche `24` : chaque objet occupe 24
+      octets, alors que ses membres n'en demandent que 10. Quelle correction est la bonne ?
+      ```cpp
+      #include <print>
+
+      struct Capteur {
+          bool actif;
+          double valeur;
+          bool calibre;
+      };
+
+      int main() {
+          std::println("{}", sizeof(Capteur));
+      }
+      ```
+    choices:
+      - {text: "Déclarer `valeur` en premier, puis les deux `bool`", correct: true}
+      - {text: "Déclarer les deux `bool` en premier, puis `valeur`", correct: false}
+      - {text: "Déclarer la struct avec `alignas(16)`", correct: false}
+      - {text: "Déclarer `valeur` avec le type `long double`", correct: false}
+    answer: |-
+      ```cpp
+      struct Capteur {
+          double valeur;
+          bool actif;
+          bool calibre;
+      };
+      ```
+      Chaque `bool` isolé entraîne sept octets de remplissage. Regroupés après le `double`, ils n'en laissent que
+      six à la fin : 16 octets. Les deux `bool` d'abord donneraient aussi 16 ; la règle « du plus grand au plus
+      petit » évite d'avoir à compter.
+  - key: bug-somme-des-membres
+    format: bug-fix
+    question: |-
+      Ce programme devrait afficher `4`, le nombre d'éléments du tableau. Il affiche `6`. Quelle correction est la
+      bonne ?
+      ```cpp
+      #include <print>
+
+      struct Mesure {
+          char type;
+          int valeur;
+      };
+
+      int main() {
+          Mesure mesures[4] = {};
+          std::println("{}", sizeof(mesures) / (sizeof(char) + sizeof(int)));
+      }
+      ```
+    choices:
+      - {text: "Diviser par `sizeof(Mesure)`", correct: true}
+      - {text: "Diviser par `alignof(Mesure)`", correct: false}
+      - {text: "Diviser par `sizeof(int) * 2 - 1`", correct: false}
+      - {text: "Diviser par `sizeof(mesures)`", correct: false}
+    answer: |-
+      ```cpp
+      std::println("{}", sizeof(mesures) / sizeof(Mesure));
+      ```
+      Le tableau occupe 4 × 8 = 32 octets, remplissage compris. La somme des membres, 5, ne tient pas compte du
+      remplissage. `std::size(mesures)` donne le nombre d'éléments sans calcul.
+  - key: bug-static-assert
+    format: bug-fix
+    question: |-
+      Le compilateur répond « static assertion failed ». L'auteur pensait que l'en-tête occupait 5 octets. Quelle
+      correction est la bonne ?
+      ```cpp
+      #include <print>
+
+      struct Entete {
+          char type;
+          int longueur;
+      };
+
+      static_assert(sizeof(Entete) == 5);
+
+      int main() {
+          std::println("{}", sizeof(Entete));
+      }
+      ```
+    choices:
+      - {text: "Corriger l'hypothèse : `static_assert(sizeof(Entete) == 8);`", correct: true}
+      - {text: "Retirer l'assertion, et écrire 5 octets de l'objet dans le fichier", correct: false}
+      - {text: "Écrire `static_assert(alignof(Entete) == 5);`", correct: false}
+      - {text: "Déclarer `longueur` avant `type`, sans toucher à l'assertion", correct: false}
+    answer: |-
+      ```cpp
+      static_assert(sizeof(Entete) == 8);
+      ```
+      Trois octets de remplissage suivent `type`. L'assertion a fait son travail : révéler une hypothèse fausse à
+      la compilation. Inverser les membres donne aussi 8, avec le remplissage à la fin.
+  - key: bug-memcmp
+    format: bug-fix
+    question: |-
+      Cette fonction peut répondre `false` pour deux objets dont tous les membres sont égaux : elle compare aussi
+      les octets de remplissage. Quelle correction est la bonne ?
+      ```cpp
+      #include <cstring>
+      #include <print>
+
+      struct Mesure {
+          char type;
+          int valeur;
+      };
+
+      bool egales(const Mesure& a, const Mesure& b) {
+          return std::memcmp(&a, &b, sizeof(Mesure)) == 0;
+      }
+
+      int main() {
+          Mesure a;
+          a.type = 'x';
+          a.valeur = 1;
+          Mesure b;
+          b.type = 'x';
+          b.valeur = 1;
+          std::println("{}", egales(a, b) || !egales(a, b));
+      }
+      ```
+    choices:
+      - {text: "Comparer les membres : `a.type == b.type && a.valeur == b.valeur`", correct: true}
+      - {text: "Comparer `sizeof(a) == sizeof(b)`, à la place du `std::memcmp`", correct: false}
+      - {text: "Comparer avec `std::memcmp(&a, &b, 5)`, sans le remplissage final", correct: false}
+      - {text: "Comparer les adresses : `&a == &b`", correct: false}
+    answer: |-
+      ```cpp
+      bool egales(const Mesure& a, const Mesure& b) {
+          return a.type == b.type && a.valeur == b.valeur;
+      }
+      ```
+      Les trois octets entre `type` et `valeur` n'ont pas de valeur définie. La comparaison porte sur les membres ;
+      `bool operator==(const Mesure&) const = default;` la génère.
+  - key: trous-alignof
+    format: fill-in
+    question: |-
+      Complète pour afficher l'alignement exigé par le type :
+      ```cpp
+      std::println("{}", ___(double));
+      ```
+    blanks:
+      - [alignof]
+    answer: "`alignof(T)` donne l'alignement du type : 8 pour un `double` sur x86-64."
+  - key: trous-alignas
+    format: fill-in
+    question: |-
+      Complète pour aligner le compteur sur 64 octets, la taille d'une ligne de cache :
+      ```cpp
+      struct ___(64) Compteur {
+          long valeur;
+      };
+      ```
+    blanks:
+      - [alignas]
+    answer: "`alignas(64)` impose un alignement plus strict ; la taille de la struct passe à 64."
+  - key: trous-offsetof
+    format: fill-in
+    question: |-
+      Complète pour afficher le décalage du membre `longueur` depuis le début de la struct :
+      ```cpp
+      std::println("{}", ___(Entete, longueur));
+      ```
+    blanks:
+      - [offsetof]
+    answer: "`offsetof(type, membre)`, déclaré dans `<cstddef>`."
+  - key: trous-static-assert
+    format: fill-in
+    question: |-
+      Complète pour que la compilation échoue si la taille de la struct change :
+      ```cpp
+      ___(sizeof(Entete) == 8);
+      ```
+    blanks:
+      - [static_assert]
+    answer: "`static_assert` vérifie une condition à la compilation."

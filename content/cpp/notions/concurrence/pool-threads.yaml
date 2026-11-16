@@ -1,0 +1,332 @@
+notion: pool-threads
+lesson: |-
+  Un **pool de threads** (*thread pool*) garde en vie un petit nombre de threads, qui exécutent à tour de rôle les
+  **tâches** d'une file. On soumet du travail ; on ne crée plus de thread.
+
+  **Pourquoi.**
+
+  - Créer et détruire un thread coûte des dizaines de microsecondes, et chacun réserve une pile : pour des
+    milliers de petites tâches, ce coût domine.
+  - Plus de threads actifs que de cœurs, et ils se disputent le processeur. Le pool **borne** leur nombre.
+  - La file **absorbe** les pics : le travail attend, au lieu de lancer mille threads.
+
+  **Les quatre pièces.**
+
+  1. Une **file de tâches** : `std::queue<std::function<void()>>`.
+  2. Un **mutex**, qui protège la file.
+  3. Une **variable de condition**, sur laquelle les threads dorment quand la file est vide.
+  4. Un **drapeau d'arrêt**, pour terminer proprement.
+
+  **La boucle d'un thread de travail.**
+
+  ```cpp
+  void travailler() {
+      while (true) {
+          std::function<void()> tache;
+          {
+              std::unique_lock garde{verrou_};
+              condition_.wait(garde, [this] { return arret_ || !taches_.empty(); });
+              if (arret_ && taches_.empty()) {
+                  return;
+              }
+              tache = std::move(taches_.front());
+              taches_.pop();
+          }
+          tache();                    // exécutée HORS du verrou
+      }
+  }
+  ```
+
+  **Soumettre.** On ajoute la tâche sous le verrou, puis on réveille **un** thread : `notify_one()`. Pour rendre
+  un résultat, on emballe le travail dans un `std::packaged_task` et l'on renvoie son `std::future`.
+
+  **Arrêter.** Le destructeur lève le drapeau **sous le verrou**, appelle `notify_all()`, puis fait `join()` sur
+  chaque thread. Sans cela, les threads dorment pour toujours et le programme ne se termine pas.
+
+  **Les pièges.**
+
+  - Exécuter la tâche **sous le verrou** : un seul thread travaille à la fois, le pool ne sert plus à rien.
+  - Attendre avec `if` au lieu d'un prédicat : un **réveil intempestif** fait lire une file vide.
+  - Une tâche qui **lance une exception** hors d'un `std::packaged_task` tue le thread, et le programme avec.
+  - Une tâche qui **attend le résultat d'une autre tâche du même pool** : si tous les threads font de même, plus
+    personne n'exécute rien. C'est un interblocage.
+  - Des tâches qui **bloquent** longtemps (réseau, disque) immobilisent les threads : on leur donne un pool à
+    part.
+  - Les variables `thread_local` **survivent** d'une tâche à la suivante.
+
+  **Combien de threads.** Pour du calcul, autant que de cœurs : `std::thread::hardware_concurrency()`. Pour des
+  tâches qui attendent surtout, davantage.
+
+  **En pratique**, on n'écrit pas le sien pour la production : la bibliothèque standard n'en fournit pas encore
+  (`std::execution` arrive avec C++26), mais Boost.Asio, TBB ou BS::thread_pool en proposent d'éprouvés.
+
+  **En entretien** : « Un pool de threads, c'est une file de tâches protégée par un mutex, une variable de
+  condition pour endormir les threads, et un drapeau d'arrêt. Chaque thread prend une tâche sous le verrou et
+  l'exécute dehors. Je rends les résultats par `std::packaged_task` et `std::future`. »
+cards:
+  - key: pourquoi
+    format: course
+    question: "Pourquoi utiliser un pool de threads plutôt que créer un thread par tâche ?"
+    choices:
+      - {text: "Pour réutiliser les threads et borner leur nombre, au lieu de payer une création par tâche", correct: true}
+      - {text: "Pour que chaque tâche s'exécute dans un processus séparé du programme", correct: false}
+      - {text: "Pour que les tâches s'exécutent toujours dans l'ordre de leur soumission", correct: false}
+      - {text: "Pour que les tâches n'aient plus besoin de synchroniser leurs données", correct: false}
+    answer: "La création d'un thread coûte cher au regard d'une petite tâche, et trop de threads se gênent. Le pool en garde quelques-uns, qui se partagent le travail."
+  - key: pieces
+    format: course
+    question: "De quoi est fait un pool de threads minimal ?"
+    choices:
+      - {text: "Une file de tâches, un mutex, une variable de condition et un drapeau d'arrêt", correct: true}
+      - {text: "Une file de tâches et un `std::atomic<int>`, sans aucun verrou", correct: false}
+      - {text: "Un thread par tâche, et un `std::latch` pour les attendre", correct: false}
+      - {text: "Un `std::shared_mutex` et une table de hachage des résultats", correct: false}
+    answer: "Le mutex protège la file ; la variable de condition endort les threads quand elle est vide ; le drapeau leur dit de s'arrêter."
+  - key: hors-verrou
+    format: course
+    question: "Pourquoi un thread de travail exécute-t-il la tâche après avoir relâché le verrou de la file ?"
+    choices:
+      - {text: "Sinon un seul thread travaillerait à la fois, les autres attendant", correct: true}
+      - {text: "Sinon la tâche ne pourrait pas lancer d'exception", correct: false}
+      - {text: "Sinon la tâche serait exécutée deux fois", correct: false}
+      - {text: "Sinon la tâche ne pourrait pas renvoyer de résultat", correct: false}
+    answer: "Le verrou protège la file, pas le travail. On sort la tâche sous le verrou, puis on l'exécute dehors, en parallèle des autres."
+  - key: arret
+    format: course
+    question: "Comment arrête-t-on proprement un pool de threads ?"
+    choices:
+      - {text: "On lève le drapeau d'arrêt sous le verrou, on appelle `notify_all()`, puis on `join` chaque thread", correct: true}
+      - {text: "On détache chaque thread avec `detach()`, puis on détruit la file de tâches", correct: false}
+      - {text: "On vide la file de tâches, et les threads s'arrêtent tout seuls", correct: false}
+      - {text: "On détruit le mutex, ce qui réveille les threads endormis", correct: false}
+    answer: "Les threads dorment sur la variable de condition : il faut les réveiller tous, et que leur prédicat voie le drapeau. Puis on attend leur fin."
+  - key: vf-ordre
+    format: true-false
+    question: "Un pool de threads garantit que les tâches se terminent dans l'ordre où elles ont été soumises."
+    truth: false
+    answer: "Elles sont prises dans l'ordre, mais exécutées en parallèle : une tâche courte soumise après une longue finit avant."
+  - key: vf-notify-one
+    format: true-false
+    question: "Après avoir ajouté une tâche à la file, `notify_one()` suffit à réveiller un thread de travail."
+    truth: true
+    answer: "Une tâche, un thread. `notify_all()` sert à l'arrêt, quand tous doivent se réveiller."
+  - key: vf-exception
+    format: true-false
+    question: "Une exception qui sort d'une tâche exécutée directement par un thread du pool arrête le programme."
+    truth: true
+    answer: "Une exception non attrapée dans un thread appelle `std::terminate`. Emballée dans un `std::packaged_task`, elle part dans le futur."
+  - key: vf-standard
+    format: true-false
+    question: "La bibliothèque standard de C++23 fournit une classe de pool de threads."
+    truth: false
+    answer: "Pas encore : `std::execution` arrive avec C++26. On écrit le sien, ou l'on prend Boost.Asio, TBB ou une bibliothèque dédiée."
+  - key: qcm-resultat
+    format: multiple-choice
+    question: "Comment un pool rend-il à l'appelant le résultat d'une tâche ?"
+    choices:
+      - {text: "Par le `std::future` d'un `std::packaged_task` qui emballe la tâche", correct: true}
+      - {text: "Par la valeur de retour de `join()` sur le thread", correct: false}
+      - {text: "Par une variable `thread_local` lue par l'appelant", correct: false}
+      - {text: "Par une variable globale, sans synchronisation", correct: false}
+    answer: "`soumettre` renvoie le futur ; la tâche emballée part dans la file. La valeur, ou l'exception, arrive dans le futur."
+  - key: qcm-taille
+    format: multiple-choice
+    question: "Combien de threads donne-t-on à un pool destiné à du calcul pur ?"
+    choices:
+      - {text: "À peu près autant que de cœurs", correct: true}
+      - {text: "Un par tâche soumise", correct: false}
+      - {text: "Toujours deux", correct: false}
+      - {text: "Dix fois le nombre de cœurs", correct: false}
+    answer: "`std::thread::hardware_concurrency()` donne ce nombre. Au-delà, les threads de calcul se partagent les cœurs sans rien gagner."
+  - key: qcm-attente
+    format: multiple-choice
+    question: "Comment un thread de travail attend-il une tâche quand la file est vide ?"
+    choices:
+      - {text: "Il dort sur une variable de condition, avec un prédicat", correct: true}
+      - {text: "Il teste la file en boucle, sans s'arrêter", correct: false}
+      - {text: "Il se termine, et le pool en crée un autre", correct: false}
+      - {text: "Il dort une seconde, puis regarde de nouveau", correct: false}
+    answer: "La variable de condition endort le thread sans consommer de processeur, et le réveille à la soumission. Le prédicat couvre les réveils intempestifs."
+  - key: qcm-type-file
+    format: multiple-choice
+    question: "Quel type range-t-on d'ordinaire dans la file d'un pool ?"
+    choices:
+      - {text: "`std::function<void()>`", correct: true}
+      - {text: "`std::thread`", correct: false}
+      - {text: "`std::mutex`", correct: false}
+      - {text: "`std::future<void>`", correct: false}
+    answer: "Une tâche est un appelable sans argument : la lambda soumise a capturé ce qu'il lui faut. Pour des tâches seulement déplaçables, C++23 offre `std::move_only_function`."
+  - key: situation-tache-qui-attend
+    format: scenario
+    question: |-
+      Dans un pool de quatre threads, chaque tâche soumet une sous-tâche au même pool, puis attend son résultat avec
+      `get()`. Sous charge, le programme se fige. Que se passe-t-il ?
+    choices:
+      - {text: "Les quatre threads attendent des sous-tâches que plus aucun thread ne peut exécuter", correct: true}
+      - {text: "Les quatre threads se disputent le mutex de la file, qui reste verrouillé", correct: false}
+      - {text: "La file de tâches est pleine, et refuse les sous-tâches", correct: false}
+      - {text: "Les sous-tâches sont exécutées deux fois, ce qui double le travail", correct: false}
+    answer: |-
+      Chaque thread est bloqué dans un `get()`, et les sous-tâches attendent dans la file un thread libre qui
+      n'existe pas : un interblocage. Une tâche d'un pool ne doit pas attendre une autre tâche du même pool.
+  - key: situation-taches-bloquantes
+    format: scenario
+    question: |-
+      Un pool de huit threads sert à la fois des calculs courts et des appels réseau de plusieurs secondes. Par
+      moments, les calculs attendent longtemps. Que proposes-tu ?
+    choices:
+      - {text: "Deux pools : un pour le calcul, un autre pour les tâches qui bloquent", correct: true}
+      - {text: "Un seul thread dans le pool, pour que les tâches ne se gênent plus", correct: false}
+      - {text: "Un mutex global pris par chaque tâche, pour les ordonner", correct: false}
+      - {text: "Des threads détachés pour les calculs, sans pool", correct: false}
+    answer: |-
+      Huit appels réseau suffisent à immobiliser les huit threads. En séparant les deux sortes de travail, les
+      tâches lentes n'affament plus les rapides ; le pool des attentes peut avoir plus de threads que de cœurs.
+  - key: situation-ne-termine-pas
+    format: scenario
+    question: |-
+      Un programme utilise un pool maison. À la fin de `main`, il ne se termine pas : les threads de travail sont
+      endormis sur la variable de condition. Que manque-t-il au destructeur du pool ?
+    choices:
+      - {text: "Lever le drapeau sous le verrou, `notify_all()`, puis `join` sur chaque thread", correct: true}
+      - {text: "Appeler `detach()` sur chaque thread, sans rien signaler", correct: false}
+      - {text: "Vider la file de tâches avec `clear()`", correct: false}
+      - {text: "Appeler `notify_one()` une seule fois, sans drapeau", correct: false}
+    answer: |-
+      Rien ne réveille des threads qui attendent une tâche. Le drapeau, levé sous le verrou pour ne pas manquer un
+      thread sur le point de s'endormir, puis `notify_all()`, font sortir chacun de sa boucle.
+  - key: situation-entretien
+    format: scenario
+    question: |-
+      En entretien, on te demande d'esquisser un pool de threads. Par quoi commences-tu ?
+    choices:
+      - {text: "Par la boucle du thread : attendre sous le verrou, prendre une tâche, relâcher, exécuter", correct: true}
+      - {text: "Par un thread créé à chaque soumission, détruit à la fin de la tâche", correct: false}
+      - {text: "Par une file sans verrou écrite à la main, avec des `compare_exchange`", correct: false}
+      - {text: "Par une variable globale où chaque tâche range son résultat", correct: false}
+    answer: |-
+      Tout le pool est dans cette boucle : mutex, variable de condition avec prédicat, drapeau d'arrêt, exécution
+      hors du verrou. Viennent ensuite la soumission (`notify_one`) et l'arrêt (`notify_all`, `join`).
+  - key: bug-tache-sous-verrou
+    format: bug-fix
+    question: |-
+      Dans ce pool, un seul thread travaille à la fois, quel que soit leur nombre. Quelle correction est la bonne ?
+      ```cpp
+      void travailler() {
+          while (true) {
+              std::unique_lock garde{verrou_};
+              condition_.wait(garde, [this] { return arret_ || !taches_.empty(); });
+              if (arret_ && taches_.empty()) {
+                  return;
+              }
+              auto tache = std::move(taches_.front());
+              taches_.pop();
+              tache();
+          }
+      }
+      ```
+    choices:
+      - {text: "Appeler `garde.unlock();` avant `tache();`", correct: true}
+      - {text: "Appeler `condition_.notify_all();` avant `tache();`", correct: false}
+      - {text: "Remplacer `std::unique_lock` par `std::lock_guard`", correct: false}
+      - {text: "Appeler `tache();` deux fois, sous le verrou puis dehors", correct: false}
+    answer: |-
+      ```cpp
+      taches_.pop();
+      garde.unlock();
+      tache();
+      ```
+      La tâche s'exécute sous le verrou de la file : les autres threads ne peuvent ni prendre de tâche, ni en
+      recevoir. Le verrou ne protège que la file.
+  - key: bug-if-sans-predicat
+    format: bug-fix
+    question: |-
+      Ce thread de travail appelle parfois `front()` sur une file vide, après un réveil intempestif. Quelle
+      correction est la bonne ?
+      ```cpp
+      void travailler() {
+          while (true) {
+              std::function<void()> tache;
+              {
+                  std::unique_lock garde{verrou_};
+                  if (taches_.empty()) {
+                      condition_.wait(garde);
+                  }
+                  tache = std::move(taches_.front());
+                  taches_.pop();
+              }
+              tache();
+          }
+      }
+      ```
+    choices:
+      - {text: "Attendre avec un prédicat : `condition_.wait(garde, [this] { return !taches_.empty(); });`", correct: true}
+      - {text: "Attendre deux fois de suite : `condition_.wait(garde); condition_.wait(garde);`", correct: false}
+      - {text: "Attendre sans verrou : appeler `garde.unlock();` avant `condition_.wait(garde);`", correct: false}
+      - {text: "Attendre avec `notify_one()` : remplacer `wait` par `condition_.notify_one();`", correct: false}
+    answer: |-
+      ```cpp
+      condition_.wait(garde, [this] { return !taches_.empty(); });
+      ```
+      `wait` peut se réveiller sans notification, ou après qu'un autre thread a pris la tâche. Le prédicat est
+      revérifié à chaque réveil.
+  - key: bug-pas-d-arret
+    format: bug-fix
+    question: |-
+      Le destructeur de ce pool se bloque : les threads ne sortent jamais de leur boucle. Quelle correction est la
+      bonne ?
+      ```cpp
+      ~Pool() {
+          for (auto& thread : threads_) {
+              thread.join();
+          }
+      }
+      ```
+    choices:
+      - {text: "Lever `arret_` sous le verrou et appeler `condition_.notify_all()` avant les `join`", correct: true}
+      - {text: "Appeler `thread.detach()` puis `thread.join()` dans la boucle", correct: false}
+      - {text: "Appeler `condition_.notify_one()` une fois, après les `join`", correct: false}
+      - {text: "Vider `taches_` avec une boucle de `pop()` avant les `join`", correct: false}
+    answer: |-
+      ```cpp
+      ~Pool() {
+          {
+              std::lock_guard garde{verrou_};
+              arret_ = true;
+          }
+          condition_.notify_all();
+          for (auto& thread : threads_) {
+              thread.join();
+          }
+      }
+      ```
+      `join` attend des threads qui attendent eux-mêmes une tâche. Il faut d'abord leur dire d'arrêter, et les
+      réveiller tous.
+  - key: bug-soumission-sans-verrou
+    format: bug-fix
+    question: |-
+      Cette fonction ajoute une tâche à la file pendant que les threads de travail la lisent : c'est une course aux
+      données. Quelle correction est la bonne ?
+      ```cpp
+      void soumettre(std::function<void()> tache) {
+          taches_.push(std::move(tache));
+          condition_.notify_one();
+      }
+      ```
+    choices:
+      - {text: "Verrouiller `verrou_` pendant le `push`, puis notifier", correct: true}
+      - {text: "Appeler `notify_one()` avant le `push`, sans verrou", correct: false}
+      - {text: "Appeler `notify_all()` à la place de `notify_one()`", correct: false}
+      - {text: "Recevoir la tâche par référence constante, sans `std::move`", correct: false}
+    answer: |-
+      ```cpp
+      void soumettre(std::function<void()> tache) {
+          {
+              std::lock_guard garde{verrou_};
+              taches_.push(std::move(tache));
+          }
+          condition_.notify_one();
+      }
+      ```
+      La file est partagée : toute modification passe par son mutex. On notifie après avoir relâché, pour que le
+      thread réveillé trouve le verrou libre.

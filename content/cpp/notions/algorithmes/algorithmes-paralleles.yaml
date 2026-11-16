@@ -1,0 +1,198 @@
+notion: algorithmes-paralleles
+lesson: |-
+  Depuis C++17, la plupart des algorithmes de `<algorithm>` et de `<numeric>` acceptent en premier argument une
+  **politique d'exécution** (en-tête `<execution>`), qui autorise la bibliothèque à les exécuter sur plusieurs
+  cœurs.
+
+  ```cpp
+  #include <execution>
+
+  std::sort(std::execution::par, v.begin(), v.end());
+  ```
+
+  **Les politiques.**
+
+  | Politique | Autorise |
+  |---|---|
+  | `std::execution::seq` | rien de plus : exécution séquentielle |
+  | `std::execution::par` | plusieurs threads |
+  | `std::execution::par_unseq` | plusieurs threads, et la vectorisation (SIMD) dans chacun |
+  | `std::execution::unseq` (C++20) | la vectorisation, sur un seul thread |
+
+  Une politique est une **permission**, pas un ordre : la bibliothèque peut quand même exécuter en séquentiel.
+
+  **Ce que tu promets en échange.**
+
+  - **Aucune course aux données.** La fonction que tu passes est appelée depuis plusieurs threads en même temps.
+    Si elle écrit dans une variable partagée, c'est à toi de la protéger, par un `std::atomic` ou un mutex.
+  - Avec `par_unseq` et `unseq` : **ni verrou, ni allocation** dans la fonction. Les appels peuvent s'entrelacer
+    sur un même thread : verrouiller un mutex y mène à l'interblocage.
+  - **Pas d'exception.** Si la fonction en laisse sortir une, le programme appelle `std::terminate`.
+
+  **Les algorithmes pensés pour cela.** `std::accumulate` additionne **de gauche à droite** : il n'a pas de version
+  parallèle. Son équivalent est **`std::reduce`**, qui regroupe les éléments dans un ordre quelconque. Il exige
+  donc une opération **associative et commutative** : l'addition d'entiers convient, la soustraction non, et
+  l'addition de flottants peut donner un résultat légèrement différent d'une exécution à l'autre.
+  `std::transform_reduce` combine une transformation et une réduction.
+
+  **Quand cela vaut la peine.** Lancer des threads et répartir le travail a un coût fixe. Le gain n'apparaît que
+  pour **beaucoup d'éléments** (des dizaines de milliers et plus), ou un **traitement coûteux** par élément. Sur
+  mille entiers, la version parallèle est plus lente. Et le gain dépend de la mémoire : un tri parallèle
+  n'accélère pas autant qu'il y a de cœurs.
+
+  **La disponibilité.** Avec GCC, les politiques parallèles s'appuient sur la bibliothèque **Intel TBB** : il faut
+  l'installer, et lier avec `-ltbb`. Sans elle, le code compile mais s'exécute en séquentiel. MSVC les fournit
+  d'origine ; la bibliothèque de Clang les fournit encore partiellement.
+
+  **La démarche.** Écrire d'abord la version séquentielle, **mesurer**, ajouter `std::execution::par` là où le
+  profil le justifie, **mesurer de nouveau**, et vérifier l'absence de courses avec ThreadSanitizer.
+
+  **En entretien** : « En C++17, j'ajoute `std::execution::par` en premier argument d'un algorithme : la
+  bibliothèque peut le répartir sur plusieurs cœurs. Je garantis l'absence de course dans ma fonction, je prends
+  `std::reduce` plutôt que `std::accumulate`, et je mesure : pour peu d'éléments, c'est plus lent. »
+cards:
+  - key: principe
+    format: course
+    question: "Que change `std::execution::par`, passé en premier argument de `std::sort` ?"
+    choices:
+      - {text: "Il autorise la bibliothèque à exécuter le tri sur plusieurs threads", correct: true}
+      - {text: "Il oblige la bibliothèque à lancer un thread par élément du vecteur", correct: false}
+      - {text: "Il demande un tri stable, qui garde l'ordre des éléments égaux", correct: false}
+      - {text: "Il lance le tri en tâche de fond, et rend la main tout de suite", correct: false}
+    answer: "C'est une permission : la bibliothèque décide. L'appel reste bloquant, et le résultat est le même qu'en séquentiel."
+  - key: responsabilite
+    format: course
+    question: "Qui garantit l'absence de course aux données dans la fonction passée à un algorithme parallèle ?"
+    choices:
+      - {text: "Le programmeur : la bibliothèque appelle la fonction depuis plusieurs threads, sans rien protéger", correct: true}
+      - {text: "La bibliothèque : elle verrouille un mutex autour de chaque appel de la fonction", correct: false}
+      - {text: "Le compilateur : il refuse une fonction qui écrit dans une variable partagée", correct: false}
+      - {text: "Le système : il exécute la fonction sur un seul cœur à la fois", correct: false}
+    answer: "Si la lambda incrémente un compteur capturé par référence, c'est une course. Il faut un `std::atomic`, un mutex, ou mieux, un algorithme de réduction."
+  - key: reduce
+    format: course
+    question: "Pourquoi utilise-t-on `std::reduce` plutôt que `std::accumulate` avec une politique parallèle ?"
+    choices:
+      - {text: "`std::accumulate` impose l'ordre de gauche à droite : il n'a pas de version parallèle", correct: true}
+      - {text: "`std::accumulate` ne fonctionne qu'avec des entiers, pas avec des flottants", correct: false}
+      - {text: "`std::accumulate` copie le conteneur avant de le parcourir", correct: false}
+      - {text: "`std::accumulate` est déprécié depuis C++17", correct: false}
+    answer: "`std::reduce` regroupe les éléments dans n'importe quel ordre, ce qui permet de répartir le calcul. Il exige une opération associative et commutative."
+  - key: exception
+    format: course
+    question: "Que se passe-t-il quand la fonction passée à un algorithme parallèle laisse sortir une exception ?"
+    choices:
+      - {text: "Le programme appelle `std::terminate`", correct: true}
+      - {text: "L'exception remonte vers l'appelant, comme en séquentiel", correct: false}
+      - {text: "L'algorithme recommence en mode séquentiel", correct: false}
+      - {text: "L'exception est ignorée, et l'élément est sauté", correct: false}
+    answer: "Avec une politique d'exécution, une exception non attrapée arrête le programme. On la traite dans la fonction elle-même."
+  - key: vf-toujours-rapide
+    format: true-false
+    question: "Avec `std::execution::par`, un algorithme est toujours plus rapide qu'en séquentiel."
+    truth: false
+    answer: "Répartir le travail a un coût fixe. Pour quelques milliers d'éléments simples, la version parallèle est plus lente."
+  - key: vf-en-tete
+    format: true-false
+    question: "Les politiques d'exécution sont déclarées dans l'en-tête `<execution>`."
+    truth: true
+    answer: "Depuis C++17. On les passe en premier argument des algorithmes qui les acceptent."
+  - key: vf-par-unseq-mutex
+    format: true-false
+    question: "Avec `std::execution::par_unseq`, la fonction passée peut verrouiller un mutex sans risque."
+    truth: false
+    answer: "Les appels peuvent s'entrelacer sur un même thread : verrouiller deux fois le même mutex mène à l'interblocage. Ni verrou ni allocation avec cette politique."
+  - key: vf-gcc-tbb
+    format: true-false
+    question: "Avec GCC, les politiques parallèles s'appuient sur la bibliothèque Intel TBB."
+    truth: true
+    answer: "Il faut l'installer et lier avec `-ltbb`. Sans elle, le code compile, mais s'exécute en séquentiel."
+  - key: qcm-politique
+    format: multiple-choice
+    question: "Quelle politique autorise à la fois plusieurs threads et la vectorisation ?"
+    choices:
+      - {text: "`std::execution::par_unseq`", correct: true}
+      - {text: "`std::execution::par`", correct: false}
+      - {text: "`std::execution::seq`", correct: false}
+      - {text: "`std::execution::unseq`", correct: false}
+    answer: "`par` : plusieurs threads. `unseq` : la vectorisation sur un seul thread. `par_unseq` : les deux."
+  - key: qcm-operation
+    format: multiple-choice
+    question: "Laquelle de ces opérations peut-on passer sans risque à `std::reduce` ?"
+    choices:
+      - {text: "L'addition d'entiers", correct: true}
+      - {text: "La soustraction d'entiers", correct: false}
+      - {text: "La division d'entiers", correct: false}
+      - {text: "La concaténation de chaînes", correct: false}
+    answer: "L'opération doit être associative et commutative. La soustraction et la division ne le sont pas ; la concaténation est associative, mais pas commutative."
+  - key: qcm-norme
+    format: multiple-choice
+    question: "Dans quelle norme les politiques d'exécution sont-elles entrées ?"
+    choices:
+      - {text: "C++17", correct: true}
+      - {text: "C++11", correct: false}
+      - {text: "C++14", correct: false}
+      - {text: "C++23", correct: false}
+    answer: "C++17 a ajouté `seq`, `par` et `par_unseq`. C++20 a ajouté `unseq`."
+  - key: qcm-appel
+    format: multiple-choice
+    question: "Quelle ligne demande un tri parallèle du vecteur `v` ?"
+    choices:
+      - {text: "`std::sort(std::execution::par, v.begin(), v.end());`", correct: true}
+      - {text: "`std::sort(v.begin(), v.end(), std::execution::par);`", correct: false}
+      - {text: "`std::parallel_sort(v.begin(), v.end());`", correct: false}
+      - {text: "`std::sort<std::execution::par>(v.begin(), v.end());`", correct: false}
+    answer: "La politique est le premier argument. En dernière position, elle serait prise pour une comparaison."
+  - key: situation-compteur
+    format: scenario
+    question: |-
+      Un collègue parallélise un comptage :
+      `std::for_each(std::execution::par, v.begin(), v.end(), [&](int x) { if (x > 0) ++total; });`.
+      Le total change d'une exécution à l'autre. Que proposes-tu ?
+    choices:
+      - {text: "`std::count_if(std::execution::par, ...)` : l'algorithme fait la réduction sans variable partagée", correct: true}
+      - {text: "La politique `std::execution::par_unseq`, qui protège les variables capturées", correct: false}
+      - {text: "Une capture de `total` par valeur, pour que chaque thread ait sa copie", correct: false}
+      - {text: "Un second appel de `std::for_each`, pour corriger le total", correct: false}
+    answer: |-
+      `++total` depuis plusieurs threads est une course aux données. Un `std::atomic<int>` la supprimerait, mais
+      l'algorithme adapté rend la question sans objet : il compte dans chaque thread, puis additionne.
+  - key: situation-petit
+    format: scenario
+    question: |-
+      Un collègue ajoute `std::execution::par` à tous les algorithmes du projet. Une fonction qui trie des
+      vecteurs de vingt éléments, appelée des millions de fois, devient dix fois plus lente. Pourquoi ?
+    choices:
+      - {text: "Le coût de répartir le travail entre threads dépasse de loin celui de trier vingt éléments", correct: true}
+      - {text: "Le tri parallèle recopie le vecteur dans chaque thread avant de le trier", correct: false}
+      - {text: "Le tri parallèle est quadratique, alors que le tri séquentiel est en O(n log n)", correct: false}
+      - {text: "Le tri parallèle attend que tous les cœurs de la machine soient libres", correct: false}
+    answer: |-
+      Le parallélisme a un coût fixe, rentable seulement sur de gros volumes ou des traitements lourds. On le
+      réserve aux endroits que la mesure désigne.
+  - key: situation-flottants
+    format: scenario
+    question: |-
+      Après le passage de `std::accumulate` à `std::reduce(std::execution::par, ...)`, la somme d'un million de
+      `double` diffère au quinzième chiffre, et varie d'une exécution à l'autre. Est-ce un bug ?
+    choices:
+      - {text: "Non : l'addition de flottants n'est pas associative, et l'ordre de regroupement change", correct: true}
+      - {text: "Oui : c'est une course aux données dans la bibliothèque standard", correct: false}
+      - {text: "Oui : `std::reduce` perd des éléments quand il y a trop de threads", correct: false}
+      - {text: "Non : `std::reduce` arrondit volontairement son résultat", correct: false}
+    answer: |-
+      `(a + b) + c` et `a + (b + c)` peuvent différer d'un arrondi. `std::reduce` regroupe selon la répartition
+      entre threads. Si le résultat doit être reproductible au bit près, on garde `std::accumulate`.
+  - key: situation-pas-de-gain
+    format: scenario
+    question: |-
+      Tu ajoutes `std::execution::par` à un `std::transform` sur dix millions d'éléments, avec GCC. Le temps
+      d'exécution ne change pas, et un seul cœur travaille. Que vérifies-tu ?
+    choices:
+      - {text: "Que la bibliothèque TBB est installée, et que le programme est lié avec `-ltbb`", correct: true}
+      - {text: "Que le vecteur est trié avant l'appel de `std::transform`", correct: false}
+      - {text: "Que le programme est compilé sans optimisation, avec `-O0`", correct: false}
+      - {text: "Que la lambda passée à `std::transform` capture tout par référence", correct: false}
+    answer: |-
+      Avec libstdc++, les politiques parallèles reposent sur TBB. Sans elle, le code compile et s'exécute en
+      séquentiel, sans avertissement. Une politique est une permission, pas une garantie.

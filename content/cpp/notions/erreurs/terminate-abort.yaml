@@ -1,0 +1,412 @@
+notion: terminate-abort
+lesson: |-
+  Un programme C++ peut s'arrêter de quatre façons, qui ne font pas le même ménage. La différence se voit sur ce
+  qui est **détruit** et sur ce qui est **écrit** avant la fin.
+
+  | Sortie | Objets locaux | Objets statiques, `atexit` | Flux vidés | Code |
+  |---|---|---|---|---|
+  | `return` depuis `main` | détruits | détruits, appelés | oui | la valeur renvoyée |
+  | `std::exit(code)` | **non** | détruits, appelés | oui | `code` |
+  | `std::quick_exit(code)` | non | non (seulement `at_quick_exit`) | non | `code` |
+  | `std::abort()` | non | non | pas garanti | signal `SIGABRT` (134 dans un shell) |
+
+  **`std::terminate`.** C'est la fonction que le langage appelle quand la gestion des exceptions **ne peut pas
+  continuer** :
+
+  - une exception n'est attrapée par **personne** ;
+  - une exception sort d'une fonction **`noexcept`**, ou d'un destructeur ;
+  - un destructeur lance **pendant le déroulement de la pile** ;
+  - `throw;` est exécuté sans exception en cours ;
+  - un `std::thread` encore **joignable** est détruit.
+
+  Elle appelle le **gestionnaire de terminaison**, qui par défaut appelle `std::abort()`. D'où le message de GCC :
+  « terminate called after throwing an instance of '...' », suivi de « Aborted ».
+
+  **`std::set_terminate`.** On peut installer son propre gestionnaire, pour journaliser avant de mourir. Il **ne
+  doit pas revenir** : s'il se termine normalement, le programme est avorté quand même. On n'y « répare » rien.
+
+  ```cpp
+  std::set_terminate([] {
+      std::println(stderr, "erreur fatale");
+      std::abort();
+  });
+  ```
+
+  **`std::abort`.** L'arrêt brutal : aucun destructeur, aucune fonction `atexit`, et un fichier *core* si le
+  système en produit. C'est ce que fait `assert` quand il échoue. On le réserve à l'état **incohérent**, où
+  exécuter du code de nettoyage serait plus dangereux que de s'arrêter.
+
+  **`std::exit`.** L'arrêt ordonné, mais **sans dérouler la pile** : les variables locales de `main` et des
+  fonctions en cours ne sont **pas** détruites. Un verrou, un fichier temporaire, une transaction tenus par un
+  objet local ne sont pas relâchés par leur destructeur.
+
+  **`std::atexit`.** Enregistre une fonction à appeler à la sortie normale (`return` de `main` ou `std::exit`).
+  Les fonctions sont appelées dans l'**ordre inverse** de leur enregistrement.
+
+  **La bonne pratique.** Dans un programme ordinaire, on **ne s'arrête que par `return` depuis `main`** : une
+  erreur fatale remonte par une exception, que `main` attrape, et tous les destructeurs passent.
+
+  ```cpp
+  int main() {
+      try {
+          return executer();
+      } catch (const std::exception& e) {
+          std::println(stderr, "erreur : {}", e.what());
+          return EXIT_FAILURE;
+      }
+  }
+  ```
+
+  **En entretien** : « `std::terminate` est appelée quand une exception ne peut pas être traitée : non attrapée,
+  sortie d'un `noexcept`, thread joignable détruit ; par défaut elle appelle `std::abort`, sans aucun destructeur.
+  `std::exit` appelle les destructeurs statiques, pas ceux des objets locaux. Je préfère remonter jusqu'à `main` et
+  faire un `return`. »
+cards:
+  - key: terminate-quand
+    format: course
+    question: "Dans lequel de ces cas le langage appelle-t-il `std::terminate` ?"
+    choices:
+      - {text: "Quand une exception sort d'une fonction déclarée `noexcept`", correct: true}
+      - {text: "Quand une fonction renvoie une valeur que l'appelant ignore", correct: false}
+      - {text: "Quand `main` se termine par `return 1;`", correct: false}
+      - {text: "Quand un `std::vector` réalloue sa mémoire", correct: false}
+    answer: "Les autres cas : une exception que personne n'attrape, un destructeur qui lance pendant un déroulement de pile, un `throw;` sans exception en cours, un `std::thread` joignable détruit."
+  - key: exit-locaux
+    format: course
+    question: "Que fait `std::exit(0)` des objets locaux des fonctions en cours ?"
+    choices:
+      - {text: "Il ne les détruit pas : seuls les objets statiques le sont", correct: true}
+      - {text: "Il les détruit, dans l'ordre inverse de leur création", correct: false}
+      - {text: "Il les détruit, mais seulement ceux de la fonction `main`", correct: false}
+      - {text: "Il les copie sur le disque avant de quitter", correct: false}
+    answer: "`std::exit` ne déroule pas la pile. Il appelle les fonctions `atexit`, détruit les objets statiques et vide les flux ; les destructeurs des variables locales ne s'exécutent pas."
+  - key: abort
+    format: course
+    question: "Qu'est-ce qui distingue `std::abort()` de `std::exit()` ?"
+    choices:
+      - {text: "`std::abort` n'appelle aucun destructeur ni aucune fonction `atexit`", correct: true}
+      - {text: "`std::abort` appelle les destructeurs locaux, que `std::exit` ignore", correct: false}
+      - {text: "`std::abort` renvoie le code 0 au système, `std::exit` le code 1", correct: false}
+      - {text: "`std::abort` peut être annulé par un `catch (...)`", correct: false}
+    answer: "`std::abort` envoie le signal `SIGABRT` : le programme meurt sur place, éventuellement avec un fichier core. Aucune exception n'est en jeu : rien à attraper."
+  - key: gestionnaire
+    format: course
+    question: "Que peut faire un gestionnaire installé par `std::set_terminate` ?"
+    choices:
+      - {text: "Journaliser, puis arrêter le programme : il ne doit pas revenir", correct: true}
+      - {text: "Attraper l'exception, puis laisser le programme reprendre son cours", correct: false}
+      - {text: "Relancer l'exception vers le `catch` le plus proche", correct: false}
+      - {text: "Redémarrer la fonction `main` depuis le début", correct: false}
+    answer: "`std::terminate` est une voie sans retour. Si le gestionnaire se termine normalement, le programme est avorté quand même."
+  - key: vf-non-attrapee
+    format: true-false
+    question: "Une exception que personne n'attrape provoque l'appel de `std::terminate`."
+    truth: true
+    answer: "Par défaut, `std::terminate` appelle `std::abort` : le programme s'arrête, avec le message « terminate called after throwing an instance of... »."
+  - key: vf-atexit-ordre
+    format: true-false
+    question: "Les fonctions enregistrées par `std::atexit` sont appelées dans l'ordre de leur enregistrement."
+    truth: false
+    answer: "Dans l'ordre inverse : la dernière enregistrée est appelée la première, comme pour les destructeurs."
+  - key: vf-abort-atexit
+    format: true-false
+    question: "`std::abort()` appelle les fonctions enregistrées par `std::atexit`."
+    truth: false
+    answer: "Il n'appelle rien : ni `atexit`, ni destructeurs. Seuls `std::exit` et le retour de `main` les appellent."
+  - key: vf-return-main
+    format: true-false
+    question: "`return` depuis `main` détruit les variables locales de `main`, puis les objets statiques."
+    truth: true
+    answer: "C'est la seule sortie qui détruit tout. C'est pourquoi on fait remonter les erreurs jusqu'à `main`."
+  - key: qcm-assert
+    format: multiple-choice
+    question: "Quelle fonction `assert` appelle-t-il quand sa condition est fausse ?"
+    choices:
+      - {text: "`std::abort`", correct: true}
+      - {text: "`std::exit`", correct: false}
+      - {text: "`std::quick_exit`", correct: false}
+      - {text: "`std::atexit`", correct: false}
+    answer: "Après avoir affiché l'expression, le fichier et la ligne, `assert` avorte le programme : aucun destructeur ne s'exécute."
+  - key: qcm-code-echec
+    format: multiple-choice
+    question: "Quelle constante de `<cstdlib>` renvoie-t-on depuis `main` pour signaler un échec ?"
+    choices:
+      - {text: "`EXIT_FAILURE`", correct: true}
+      - {text: "`EXIT_ERROR`", correct: false}
+      - {text: "`EXIT_ABORT`", correct: false}
+      - {text: "`EXIT_SUCCESS`", correct: false}
+    answer: "`EXIT_FAILURE` et `EXIT_SUCCESS` sont les deux codes portables. Sous Linux, ils valent 1 et 0."
+  - key: qcm-thread
+    format: multiple-choice
+    question: "Un `std::thread` encore joignable est détruit. Que se passe-t-il ?"
+    choices:
+      - {text: "Son destructeur appelle `std::terminate`", correct: true}
+      - {text: "Son destructeur appelle `std::exit(0)`", correct: false}
+      - {text: "Son destructeur attend la fin du thread", correct: false}
+      - {text: "Son destructeur lance `std::system_error`", correct: false}
+    answer: "Le standard refuse de choisir entre attendre et abandonner. `std::jthread`, lui, fait le `join`."
+  - key: qcm-erreur-fatale
+    format: multiple-choice
+    question: "Une fonction profonde détecte une erreur fatale. Comment arrêter le programme en laissant passer tous les destructeurs ?"
+    choices:
+      - {text: "Lancer une exception, attrapée dans `main`, qui renvoie `EXIT_FAILURE`", correct: true}
+      - {text: "Appeler `std::exit(EXIT_FAILURE)` dans la fonction", correct: false}
+      - {text: "Appeler `std::abort()` dans la fonction", correct: false}
+      - {text: "Appeler `std::quick_exit(EXIT_FAILURE)` dans la fonction", correct: false}
+    answer: "L'exception déroule la pile jusqu'à `main` : chaque objet local est détruit en chemin. Les trois autres quittent sans détruire les variables locales."
+  - key: code-exit
+    format: code-output
+    question: |-
+      ```cpp
+      #include <cstdlib>
+      #include <print>
+
+      struct Trace {
+          const char* nom;
+          ~Trace() { std::print(" ~{}", nom); }
+      };
+
+      Trace globale{"globale"};
+
+      int main() {
+          Trace locale{"locale"};
+          std::print("main");
+          std::exit(0);
+      }
+      ```
+    choices:
+      - {text: "`main ~globale`", correct: true}
+      - {text: "`main ~locale ~globale`", correct: false}
+      - {text: "`main`", correct: false}
+      - {text: "`main ~globale ~locale`", correct: false}
+    answer: "`main ~globale` : `std::exit` détruit les objets statiques, mais ne déroule pas la pile. Le destructeur de `locale` n'est jamais appelé."
+    check:
+      output: "main ~globale"
+  - key: code-return
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+
+      struct Trace {
+          const char* nom;
+          ~Trace() { std::print(" ~{}", nom); }
+      };
+
+      Trace globale{"globale"};
+
+      int main() {
+          Trace locale{"locale"};
+          std::print("main");
+          return 0;
+      }
+      ```
+    choices:
+      - {text: "`main ~locale ~globale`", correct: true}
+      - {text: "`main ~globale ~locale`", correct: false}
+      - {text: "`main ~globale`", correct: false}
+      - {text: "`main ~locale`", correct: false}
+    answer: "`main ~locale ~globale` : le `return` détruit d'abord les variables locales de `main`, puis les objets statiques."
+    check:
+      output: "main ~locale ~globale"
+  - key: code-atexit
+    format: code-output
+    question: |-
+      ```cpp
+      #include <cstdlib>
+      #include <print>
+
+      void premier() { std::print(" premier"); }
+      void second() { std::print(" second"); }
+
+      int main() {
+          std::atexit(premier);
+          std::atexit(second);
+          std::print("main");
+      }
+      ```
+    choices:
+      - {text: "`main second premier`", correct: true}
+      - {text: "`main premier second`", correct: false}
+      - {text: "`premier second main`", correct: false}
+      - {text: "`main`", correct: false}
+    answer: "`main second premier` : les fonctions `atexit` sont appelées après `main`, dans l'ordre inverse de leur enregistrement."
+    check:
+      output: "main second premier"
+  - key: code-set-terminate
+    format: code-output
+    question: |-
+      ```cpp
+      #include <cstdlib>
+      #include <exception>
+      #include <print>
+      #include <stdexcept>
+
+      int main() {
+          std::set_terminate([] {
+              std::print(" gestionnaire");
+              std::exit(0);
+          });
+          std::print("avant");
+          throw std::runtime_error{"panne"};
+          std::print(" après");
+      }
+      ```
+    choices:
+      - {text: "`avant gestionnaire`", correct: true}
+      - {text: "`avant gestionnaire après`", correct: false}
+      - {text: "`avant`", correct: false}
+      - {text: "`avant après`", correct: false}
+    answer: "`avant gestionnaire` : personne n'attrape l'exception, donc `std::terminate` appelle le gestionnaire installé. Il quitte le programme : la suite de `main` ne s'exécute pas."
+    check:
+      output: "avant gestionnaire"
+  - key: bug-exit-saute-destructeur
+    format: bug-fix
+    question: |-
+      Ce programme devrait afficher `sauvegardé` avant de quitter. Il n'affiche que `erreur`. Quelle correction est
+      la bonne ?
+      ```cpp
+      #include <cstdlib>
+      #include <print>
+
+      struct Document {
+          ~Document() { std::println("sauvegardé"); }
+      };
+
+      void traiter() {
+          std::println("erreur");
+          std::exit(EXIT_FAILURE);
+      }
+
+      int main() {
+          Document document;
+          traiter();
+      }
+      ```
+    choices:
+      - {text: "Lancer une exception dans `traiter`, attrapée dans `main`, qui renvoie `EXIT_FAILURE`", correct: true}
+      - {text: "Appeler `std::abort()` à la place de `std::exit(EXIT_FAILURE)` dans `traiter`", correct: false}
+      - {text: "Appeler `std::quick_exit(EXIT_FAILURE)` à la place de `std::exit` dans `traiter`", correct: false}
+      - {text: "Déclarer le destructeur de `Document` avec le mot-clé `virtual`", correct: false}
+    answer: |-
+      ```cpp
+      void traiter() {
+          throw std::runtime_error{"erreur"};
+      }
+
+      int main() {
+          try {
+              Document document;
+              traiter();
+          } catch (const std::exception& e) {
+              std::println("{}", e.what());
+              return EXIT_FAILURE;
+          }
+      }
+      ```
+      `std::exit` ne détruit pas les variables locales : le document n'est jamais sauvegardé. Une exception déroule
+      la pile, et son destructeur s'exécute.
+  - key: bug-abort-pour-une-erreur
+    format: bug-fix
+    question: |-
+      Pour une simple erreur de saisie, ce programme meurt sur « Aborted », sans appeler la fonction de nettoyage :
+      il devrait afficher `nettoyage`. Quelle correction est la bonne ?
+      ```cpp
+      #include <cstdlib>
+      #include <print>
+
+      void nettoyer() { std::println("nettoyage"); }
+
+      int main() {
+          std::atexit(nettoyer);
+          const int age = -1;
+          if (age < 0) {
+              std::println("âge invalide");
+              std::abort();
+          }
+          std::println("{}", age);
+      }
+      ```
+    choices:
+      - {text: "Écrire `return EXIT_FAILURE;` à la place de `std::abort();`", correct: true}
+      - {text: "Écrire `std::terminate();` à la place de `std::abort();`", correct: false}
+      - {text: "Écrire `std::quick_exit(1);` à la place de `std::abort();`", correct: false}
+      - {text: "Écrire `throw;` à la place de `std::abort();`", correct: false}
+    answer: |-
+      ```cpp
+      std::println("âge invalide");
+      return EXIT_FAILURE;
+      ```
+      `std::abort` est fait pour l'état incohérent : il n'appelle ni `atexit` ni destructeurs. Une erreur prévue se
+      termine par un `return` de `main`, avec un code d'échec.
+  - key: bug-gestionnaire-qui-revient
+    format: bug-fix
+    question: |-
+      L'auteur pensait qu'après son gestionnaire, le programme continuerait et afficherait `fin`. Il affiche
+      `on continue`, puis meurt sur « Aborted ». Quelle correction est la bonne ?
+      ```cpp
+      #include <exception>
+      #include <print>
+      #include <stdexcept>
+
+      void risquer() {
+          throw std::runtime_error{"panne"};
+      }
+
+      int main() {
+          std::set_terminate([] { std::println("on continue"); });
+          risquer();
+          std::println("fin");
+      }
+      ```
+    choices:
+      - {text: "Attraper l'exception par un `try`/`catch` autour de `risquer()`", correct: true}
+      - {text: "Appeler `std::set_terminate` deux fois, avant et après `risquer()`", correct: false}
+      - {text: "Terminer le gestionnaire par l'instruction `return;`", correct: false}
+      - {text: "Déclarer la fonction `risquer` avec le mot-clé `noexcept`", correct: false}
+    answer: |-
+      ```cpp
+      try {
+          risquer();
+      } catch (const std::runtime_error&) {
+          std::println("on continue");
+      }
+      std::println("fin");
+      ```
+      Un gestionnaire de terminaison ne reprend rien : quand il revient, le programme est avorté. Pour continuer
+      après une erreur, il faut l'attraper.
+  - key: bug-atexit-et-abort
+    format: bug-fix
+    question: |-
+      Ce programme devrait afficher `fichier temporaire supprimé` en quittant. Il affiche seulement `arrêt`, puis
+      « Aborted ». Quelle correction est la bonne ?
+      ```cpp
+      #include <cstdlib>
+      #include <print>
+
+      void supprimer_temporaire() { std::println("fichier temporaire supprimé"); }
+
+      void arreter() {
+          std::println("arrêt");
+          std::abort();
+      }
+
+      int main() {
+          std::atexit(supprimer_temporaire);
+          arreter();
+      }
+      ```
+    choices:
+      - {text: "Appeler `std::exit(EXIT_FAILURE)` dans `arreter`, qui exécute les fonctions `atexit`", correct: true}
+      - {text: "Appeler `std::quick_exit(EXIT_FAILURE)` dans `arreter`, plus rapide", correct: false}
+      - {text: "Enregistrer `supprimer_temporaire` deux fois avec `std::atexit`", correct: false}
+      - {text: "Enregistrer `supprimer_temporaire` après l'appel de `arreter()`", correct: false}
+    answer: |-
+      ```cpp
+      void arreter() {
+          std::println("arrêt");
+          std::exit(EXIT_FAILURE);
+      }
+      ```
+      `std::abort` et `std::quick_exit` n'appellent pas les fonctions `atexit`. `std::exit` les appelle ; mieux
+      encore, un objet RAII et un `return` de `main` supprimeraient le fichier sans rien enregistrer.

@@ -1,0 +1,459 @@
+notion: future-promise
+lesson: |-
+  Un `std::thread` ne rend rien : la valeur de retour de sa fonction est perdue, et une exception qui en sort
+  arrête le programme. L'en-tête `<future>` fournit un **canal à usage unique** pour transmettre un résultat, ou
+  une erreur, d'un thread à un autre.
+
+  Le canal a deux bouts :
+
+  - la **`std::promise<T>`**, côté **producteur** : on y **dépose** la valeur ;
+  - le **`std::future<T>`**, côté **consommateur** : on y **attend** la valeur.
+
+  ```cpp
+  std::promise<int> promesse;
+  std::future<int> futur = promesse.get_future();
+
+  std::thread t{[&promesse] {
+      promesse.set_value(42);              // dépose le résultat
+  }};
+
+  int resultat = futur.get();              // attend, puis rend 42
+  t.join();
+  ```
+
+  **`get()` bloque** jusqu'à ce que la valeur soit disponible. Aucun mutex, aucune condition variable à écrire :
+  tout est dans le canal.
+
+  **`get()` ne s'appelle qu'une fois.** Il **déplace** la valeur hors du futur, qui devient **invalide**
+  (`valid()` renvoie `false`). Un second `get()` est un comportement indéfini ; la bibliothèque de GCC lance
+  `std::future_error`.
+
+  **Transmettre une erreur.** La promesse peut déposer une **exception** à la place d'une valeur. `get()` la
+  **relance** alors dans le thread qui attend :
+
+  ```cpp
+  try {
+      promesse.set_value(calculer());
+  } catch (...) {
+      promesse.set_exception(std::current_exception());
+  }
+  ```
+
+  C'est la façon de faire traverser une exception d'un thread à l'autre.
+
+  **La promesse rompue.** Si la promesse est **détruite sans avoir rien déposé**, le futur ne restera pas bloqué :
+  `get()` lance `std::future_error`, avec le code `std::future_errc::broken_promise`.
+
+  **Une seule valeur.** Un second `set_value` sur la même promesse lance `std::future_error`
+  (`promise_already_satisfied`).
+
+  **Attendre sans bloquer indéfiniment.**
+
+  | Fonction | Effet |
+  |---|---|
+  | `futur.wait()` | attend, sans retirer la valeur |
+  | `futur.wait_for(100ms)` | attend au plus ce délai ; renvoie `std::future_status::ready` ou `timeout` |
+  | `futur.valid()` | vrai tant que le futur est relié à un résultat non retiré |
+
+  **Plusieurs consommateurs.** Un `std::future` ne se copie pas. `futur.share()` donne un `std::shared_future`,
+  copiable, dont `get()` peut être appelé plusieurs fois, par plusieurs threads.
+
+  **`std::promise<void>`** ne transporte aucune valeur : seulement le signal « c'est fait ».
+
+  **Plus simple, le plus souvent.** `std::async` crée la promesse, le thread et le futur pour toi.
+  `std::packaged_task` enveloppe une fonction, et relie son résultat à un futur. On n'écrit une promesse à la main
+  que quand le résultat est produit ailleurs que dans le retour d'une fonction.
+
+  **En entretien** : « La promesse est le bout qui écrit, le futur celui qui lit : `get()` bloque jusqu'au
+  résultat, ne s'appelle qu'une fois, et relance l'exception déposée par `set_exception`. Une promesse détruite
+  sans valeur donne `broken_promise`. Le plus souvent, `std::async` me donne le futur directement. »
+cards:
+  - key: deux-bouts
+    format: course
+    question: "Quel est le rôle de `std::promise` et de `std::future` ?"
+    choices:
+      - {text: "La promesse dépose un résultat ; le futur l'attend et le récupère", correct: true}
+      - {text: "La promesse attend un résultat ; le futur le dépose pour elle", correct: false}
+      - {text: "La promesse verrouille un mutex ; le futur le déverrouille plus tard", correct: false}
+      - {text: "La promesse lance un thread ; le futur le rejoint à sa place", correct: false}
+    answer: "C'est un canal à usage unique entre deux threads : `set_value` d'un côté, `get` de l'autre."
+  - key: get
+    format: course
+    question: "Que fait `futur.get()` quand le résultat n'est pas encore disponible ?"
+    choices:
+      - {text: "Il bloque le thread appelant jusqu'à ce que le résultat soit déposé", correct: true}
+      - {text: "Il renvoie aussitôt une valeur par défaut", correct: false}
+      - {text: "Il lance aussitôt une exception `std::future_error`", correct: false}
+      - {text: "Il renvoie un `std::optional` vide", correct: false}
+    answer: "`get()` attend, puis rend la valeur, ou relance l'exception déposée. Pour ne pas attendre sans fin : `wait_for`."
+  - key: exception
+    format: course
+    question: "Comment une exception survenue dans un thread parvient-elle à celui qui attend le résultat ?"
+    choices:
+      - {text: "Le thread la dépose avec `set_exception`, et `get()` la relance chez l'appelant", correct: true}
+      - {text: "Elle remonte d'elle-même vers le thread qui a créé le premier", correct: false}
+      - {text: "Elle est convertie en valeur nulle, que `get()` renvoie", correct: false}
+      - {text: "Elle est écrite dans `errno`, que l'appelant consulte", correct: false}
+    answer: "Une exception ne traverse pas les threads toute seule. `promesse.set_exception(std::current_exception())` la range dans le canal ; `get()` la relance."
+  - key: promesse-rompue
+    format: course
+    question: "Que se passe-t-il quand une promesse est détruite sans avoir déposé de valeur ?"
+    choices:
+      - {text: "`get()` lance `std::future_error`, avec le code `broken_promise`", correct: true}
+      - {text: "`get()` reste bloqué pour toujours", correct: false}
+      - {text: "`get()` renvoie une valeur nulle, sans erreur", correct: false}
+      - {text: "Le programme s'arrête par `std::terminate`", correct: false}
+    answer: "Le destructeur de la promesse dépose cette erreur : le thread qui attend est débloqué, et sait que le résultat ne viendra pas."
+  - key: vf-get-deux-fois
+    format: true-false
+    question: "On peut appeler `get()` plusieurs fois sur le même `std::future`."
+    truth: false
+    answer: "`get()` retire la valeur : le futur devient invalide. Pour plusieurs lectures, on passe par un `std::shared_future`."
+  - key: vf-copie
+    format: true-false
+    question: "Un `std::future` peut être copié."
+    truth: false
+    answer: "Il se déplace seulement. `share()` le transforme en `std::shared_future`, qui se copie."
+  - key: vf-valid
+    format: true-false
+    question: "Après `get()`, `futur.valid()` renvoie `false`."
+    truth: true
+    answer: "Le futur n'est plus relié à aucun résultat : la valeur a été déplacée vers l'appelant."
+  - key: vf-set-value-deux-fois
+    format: true-false
+    question: "Un second `set_value` sur la même promesse remplace la première valeur."
+    truth: false
+    answer: "Il lance `std::future_error` : une promesse ne se remplit qu'une fois."
+  - key: qcm-obtenir-futur
+    format: multiple-choice
+    question: "Comment obtient-on le futur associé à une `std::promise<int> promesse` ?"
+    choices:
+      - {text: "`promesse.get_future()`", correct: true}
+      - {text: "`promesse.future()`", correct: false}
+      - {text: "`std::future<int>{promesse}`", correct: false}
+      - {text: "`promesse.get()`", correct: false}
+    answer: "`get_future()` ne s'appelle qu'une fois par promesse. `get()` appartient au futur."
+  - key: qcm-en-tete
+    format: multiple-choice
+    question: "Quel en-tête déclare `std::promise` et `std::future` ?"
+    choices:
+      - {text: "`<future>`", correct: true}
+      - {text: "`<promise>`", correct: false}
+      - {text: "`<thread>`", correct: false}
+      - {text: "`<mutex>`", correct: false}
+    answer: "`<future>` déclare aussi `std::async`, `std::packaged_task` et `std::shared_future`."
+  - key: qcm-delai
+    format: multiple-choice
+    question: "Que renvoie `futur.wait_for(10ms)` quand le résultat n'est pas arrivé dans le délai ?"
+    choices:
+      - {text: "`std::future_status::timeout`", correct: true}
+      - {text: "`std::future_status::ready`", correct: false}
+      - {text: "`false`", correct: false}
+      - {text: "Rien : il lance une exception", correct: false}
+    answer: "`wait_for` renvoie un `std::future_status` : `ready` si le résultat est là, `timeout` sinon. Il ne retire pas la valeur."
+  - key: qcm-plusieurs-lecteurs
+    format: multiple-choice
+    question: "Trois threads doivent lire le même résultat. Quel type leur donnes-tu ?"
+    choices:
+      - {text: "Un `std::shared_future`, copié dans chacun", correct: true}
+      - {text: "Le même `std::future`, par référence, dont chacun appelle `get()`", correct: false}
+      - {text: "Trois `std::promise`, une par thread", correct: false}
+      - {text: "Un `std::future`, copié dans chacun", correct: false}
+    answer: "`futur.share()` donne un `std::shared_future`, dont `get()` se répète. Un `std::future` ne se copie pas, et son `get()` ne sert qu'une fois."
+  - key: trous-set-value
+    format: fill-in
+    question: |-
+      Complète pour déposer le résultat dans la promesse :
+      ```cpp
+      std::promise<int> promesse;
+      promesse.___(42);
+      ```
+    blanks:
+      - [set_value]
+    answer: "`set_value` dépose la valeur, que le futur recevra."
+  - key: trous-get
+    format: fill-in
+    question: |-
+      Complète pour attendre le résultat, et le récupérer :
+      ```cpp
+      std::future<int> futur = promesse.get_future();
+      const int resultat = futur.___();
+      ```
+    blanks:
+      - [get]
+    answer: "`get()` bloque jusqu'au résultat, puis le rend."
+  - key: trous-get-future
+    format: fill-in
+    question: |-
+      Complète pour obtenir le futur relié à la promesse :
+      ```cpp
+      std::promise<int> promesse;
+      std::future<int> futur = promesse.___();
+      ```
+    blanks:
+      - [get_future]
+    answer: "`get_future()` crée le bout « lecture » du canal."
+  - key: trous-set-exception
+    format: fill-in
+    question: |-
+      Complète pour transmettre l'exception en cours au thread qui attend :
+      ```cpp
+      try {
+          promesse.set_value(calculer());
+      } catch (...) {
+          promesse.___(std::current_exception());
+      }
+      ```
+    blanks:
+      - [set_exception]
+    answer: "`set_exception` dépose l'erreur, que `get()` relancera."
+  - key: code-valeur
+    format: code-output
+    question: |-
+      ```cpp
+      #include <future>
+      #include <print>
+      #include <thread>
+
+      int main() {
+          std::promise<int> promesse;
+          std::future<int> futur = promesse.get_future();
+          std::thread t{[&promesse] { promesse.set_value(6 * 7); }};
+          const int resultat = futur.get();
+          t.join();
+          std::println("{} {}", resultat, futur.valid());
+      }
+      ```
+    choices:
+      - {text: "`42 false`", correct: true}
+      - {text: "`42 true`", correct: false}
+      - {text: "`0 false`", correct: false}
+      - {text: "`0` ou `42`, selon l'exécution", correct: false}
+    answer: "`42 false` : `get()` attend que le thread ait déposé la valeur. Une fois lue, le futur n'est plus valide."
+    check:
+      output: "42 false"
+  - key: code-exception
+    format: code-output
+    question: |-
+      ```cpp
+      #include <future>
+      #include <print>
+      #include <stdexcept>
+      #include <thread>
+
+      int main() {
+          std::promise<int> promesse;
+          std::future<int> futur = promesse.get_future();
+          std::thread t{[&promesse] {
+              try {
+                  throw std::runtime_error{"panne"};
+              } catch (...) {
+                  promesse.set_exception(std::current_exception());
+              }
+          }};
+          try {
+              std::println("{}", futur.get());
+          } catch (const std::runtime_error& e) {
+              std::println("reçu : {}", e.what());
+          }
+          t.join();
+      }
+      ```
+    choices:
+      - {text: "`reçu : panne`", correct: true}
+      - {text: "`0`", correct: false}
+      - {text: "Rien : le programme s'arrête par `std::terminate`", correct: false}
+      - {text: "`reçu : std::exception`", correct: false}
+    answer: "`reçu : panne` : l'exception est rangée dans la promesse, puis relancée par `get()` dans `main`, avec son type et son message."
+    check:
+      output: "reçu : panne"
+  - key: code-promesse-rompue
+    format: code-output
+    question: |-
+      ```cpp
+      #include <future>
+      #include <print>
+
+      int main() {
+          std::future<int> futur;
+          {
+              std::promise<int> promesse;
+              futur = promesse.get_future();
+          }
+          try {
+              std::println("{}", futur.get());
+          } catch (const std::future_error& e) {
+              std::println("{}", e.code() == std::future_errc::broken_promise);
+          }
+      }
+      ```
+    choices:
+      - {text: "`true`", correct: true}
+      - {text: "`false`", correct: false}
+      - {text: "`0`", correct: false}
+      - {text: "Rien : le programme attend indéfiniment", correct: false}
+    answer: "`true` : la promesse est détruite sans valeur. `get()` ne reste pas bloqué : il lance `std::future_error`, avec le code `broken_promise`."
+    check:
+      output: "true"
+  - key: code-wait-for
+    format: code-output
+    question: |-
+      ```cpp
+      #include <chrono>
+      #include <future>
+      #include <print>
+
+      int main() {
+          using namespace std::chrono_literals;
+          std::promise<int> promesse;
+          std::future<int> futur = promesse.get_future();
+          const bool avant = futur.wait_for(10ms) == std::future_status::ready;
+          promesse.set_value(5);
+          const bool apres = futur.wait_for(10ms) == std::future_status::ready;
+          std::println("{} {} {}", avant, apres, futur.get());
+      }
+      ```
+    choices:
+      - {text: "`false true 5`", correct: true}
+      - {text: "`true true 5`", correct: false}
+      - {text: "`false false 5`", correct: false}
+      - {text: "`false true 0`", correct: false}
+    answer: "`false true 5` : avant `set_value`, l'attente expire. Après, le résultat est prêt ; `wait_for` ne le retire pas, donc `get()` le rend encore."
+    check:
+      output: "false true 5"
+  - key: bug-get-deux-fois
+    format: bug-fix
+    question: |-
+      Ce programme s'arrête sur « terminate called after throwing an instance of 'std::future_error' » : le
+      résultat est lu deux fois. Quelle correction est la bonne ?
+      ```cpp
+      #include <future>
+      #include <print>
+
+      int main() {
+          std::promise<int> promesse;
+          std::future<int> futur = promesse.get_future();
+          promesse.set_value(21);
+          std::println("{}", futur.get() + futur.get());
+      }
+      ```
+    choices:
+      - {text: "Lire une fois dans une variable : `const int v = futur.get();`, puis afficher `v + v`", correct: true}
+      - {text: "Appeler `promesse.set_value(21);` une seconde fois, avant le second `get()`", correct: false}
+      - {text: "Appeler `futur.wait();` entre les deux appels de `get()`", correct: false}
+      - {text: "Déclarer `futur` avec le mot-clé `const`", correct: false}
+    answer: |-
+      ```cpp
+      const int v = futur.get();
+      std::println("{}", v + v);
+      ```
+      `get()` retire la valeur : le futur est ensuite invalide. Pour plusieurs lectures, on garde la valeur, ou
+      l'on prend un `std::shared_future`.
+  - key: bug-promesse-oubliee
+    format: bug-fix
+    question: |-
+      Ce programme s'arrête sur une exception `std::future_error` : « Broken promise ». Le thread a calculé le
+      résultat, mais ne l'a jamais déposé. Quelle correction est la bonne ?
+      ```cpp
+      #include <future>
+      #include <print>
+      #include <thread>
+      #include <utility>
+
+      int main() {
+          std::promise<int> promesse;
+          std::future<int> futur = promesse.get_future();
+          std::thread t{[p = std::move(promesse)]() mutable {
+              const int resultat = 6 * 7;
+          }};
+          std::println("{}", futur.get());
+          t.join();
+      }
+      ```
+    choices:
+      - {text: "Appeler `p.set_value(resultat);` dans le thread", correct: true}
+      - {text: "Appeler `futur.wait();` avant `futur.get()`", correct: false}
+      - {text: "Appeler `t.join();` avant `futur.get()`", correct: false}
+      - {text: "Renvoyer `resultat` avec `return resultat;` dans la lambda", correct: false}
+    answer: |-
+      ```cpp
+      std::thread t{[p = std::move(promesse)]() mutable {
+          const int resultat = 6 * 7;
+          p.set_value(resultat);
+      }};
+      ```
+      La promesse est détruite à la fin du thread sans avoir rien reçu : le futur apprend que le résultat ne
+      viendra pas. La valeur de retour de la fonction d'un `std::thread`, elle, est perdue.
+  - key: bug-exception-dans-thread
+    format: bug-fix
+    question: |-
+      Ce programme s'arrête par `std::terminate`, malgré le `catch` de `main` : l'exception sort de la fonction du
+      thread. Quelle correction est la bonne ?
+      ```cpp
+      #include <future>
+      #include <print>
+      #include <stdexcept>
+      #include <thread>
+
+      int calculer() {
+          throw std::runtime_error{"panne"};
+      }
+
+      int main() {
+          std::promise<int> promesse;
+          std::future<int> futur = promesse.get_future();
+          std::thread t{[&promesse] { promesse.set_value(calculer()); }};
+          try {
+              std::println("{}", futur.get());
+          } catch (const std::runtime_error& e) {
+              std::println("{}", e.what());
+          }
+          t.join();
+      }
+      ```
+    choices:
+      - {text: "Attraper dans le thread, et appeler `promesse.set_exception(std::current_exception());`", correct: true}
+      - {text: "Attraper `const std::exception&` dans `main`, à la place de `std::runtime_error`", correct: false}
+      - {text: "Appeler `t.join();` avant le bloc `try` de `main`", correct: false}
+      - {text: "Déclarer la fonction `calculer` avec le mot-clé `noexcept`", correct: false}
+    answer: |-
+      ```cpp
+      std::thread t{[&promesse] {
+          try {
+              promesse.set_value(calculer());
+          } catch (...) {
+              promesse.set_exception(std::current_exception());
+          }
+      }};
+      ```
+      Une exception qui quitte la fonction d'un thread arrête le programme : elle ne rejoint pas `main` toute
+      seule. Déposée dans la promesse, elle est relancée par `get()`.
+  - key: bug-copie-futur
+    format: bug-fix
+    question: |-
+      Le compilateur répond « use of deleted function » : un `std::future` ne se copie pas. Le programme veut lire
+      le résultat à deux endroits. Quelle correction est la bonne ?
+      ```cpp
+      #include <future>
+      #include <print>
+
+      int main() {
+          std::promise<int> promesse;
+          std::future<int> futur = promesse.get_future();
+          std::future<int> copie = futur;
+          promesse.set_value(8);
+          std::println("{}", futur.get() + copie.get());
+      }
+      ```
+    choices:
+      - {text: "Déclarer `std::shared_future<int> futur = promesse.get_future().share();`, et le copier", correct: true}
+      - {text: "Déclarer `std::future<int>& copie = futur;`, puis appeler `get()` sur les deux", correct: false}
+      - {text: "Appeler `promesse.get_future()` une seconde fois, pour obtenir `copie`", correct: false}
+      - {text: "Déclarer `copie` avec `auto` à la place de `std::future<int>`", correct: false}
+    answer: |-
+      ```cpp
+      std::shared_future<int> futur = promesse.get_future().share();
+      std::shared_future<int> copie = futur;
+      ```
+      Un `std::shared_future` se copie, et son `get()` peut être appelé plusieurs fois. Une référence désignerait
+      le même futur, lu deux fois ; et `get_future()` ne s'appelle qu'une fois par promesse.

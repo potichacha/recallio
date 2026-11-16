@@ -1,0 +1,234 @@
+notion: faux-partage
+lesson: |-
+  Deux threads qui écrivent dans deux variables **différentes** n'ont rien à synchroniser. Ils peuvent pourtant se
+  ralentir l'un l'autre, parfois d'un facteur dix, si ces variables sont **voisines en mémoire**. C'est le **faux
+  partage** (*false sharing*).
+
+  **La cause : la ligne de cache.** Un processeur ne charge pas la mémoire octet par octet, mais par blocs de
+  **64 octets** en général : les **lignes de cache**. Chaque cœur a son propre cache. Quand un cœur **écrit** dans
+  une ligne, les copies de cette ligne dans les autres cœurs sont **invalidées** : ils doivent la recharger.
+
+  ```cpp
+  struct Compteurs {
+      std::atomic<long> a;    // écrit par le thread 1
+      std::atomic<long> b;    // écrit par le thread 2, 8 octets plus loin : même ligne
+  };
+  ```
+
+  Les deux threads ne partagent aucune donnée, mais ils se disputent la même ligne, qui fait la navette entre
+  leurs caches à chaque écriture. Le programme est **correct**, et lent.
+
+  **Le reconnaître.**
+
+  - Un programme qui **ralentit** quand on ajoute des threads, ou accélère bien moins que prévu.
+  - Des compteurs par thread, des éléments voisins d'un tableau, des membres voisins d'une structure, **écrits**
+    par des threads différents.
+  - `perf c2c`, sous Linux, désigne les lignes de cache disputées.
+
+  **Les remèdes.**
+
+  1. **Travailler sur une variable locale**, et n'écrire le résultat partagé **qu'une fois**, à la fin. C'est le
+     remède le plus simple, et souvent le meilleur.
+  2. **Séparer** les variables, en alignant chacune sur une ligne de cache :
+
+     ```cpp
+     struct Compteurs {
+         alignas(64) std::atomic<long> a;
+         alignas(64) std::atomic<long> b;
+     };
+     ```
+
+     La constante `std::hardware_destructive_interference_size` (`<new>`) donne la taille à utiliser, là où la
+     bibliothèque la fournit.
+  3. **Regrouper** ce qu'un même thread utilise, et **éloigner** ce que des threads différents écrivent.
+
+  **Le prix.** L'alignement fait grossir la structure : 128 octets au lieu de 16, ici. On le réserve aux données
+  réellement disputées, après **mesure**.
+
+  **Ce que ce n'est pas.** Le faux partage n'est pas une course aux données : le résultat est juste. Il ne concerne
+  que les **écritures** : des threads qui ne font que lire la même ligne ne se gênent pas.
+
+  **En entretien** : « Le faux partage, c'est quand deux threads écrivent des variables distinctes placées sur la
+  même ligne de cache : chaque écriture invalide la ligne chez l'autre cœur. Le programme reste correct, mais ne
+  passe pas à l'échelle. Je sépare ces données avec `alignas`, ou mieux, j'accumule dans une variable locale. »
+cards:
+  - key: definition
+    format: course
+    question: "Qu'est-ce que le faux partage ?"
+    choices:
+      - {text: "Des threads écrivent des variables différentes, placées sur la même ligne de cache", correct: true}
+      - {text: "Des threads écrivent la même variable, sans aucune synchronisation", correct: false}
+      - {text: "Des threads attendent chacun un verrou que l'autre détient", correct: false}
+      - {text: "Des threads lisent la même variable, qui ne change jamais", correct: false}
+    answer: "Aucune donnée n'est réellement partagée, d'où le nom. Mais la ligne de cache, elle, l'est, et chaque écriture l'arrache à l'autre cœur."
+  - key: mecanisme
+    format: course
+    question: "Pourquoi une écriture dans une ligne de cache ralentit-elle un autre cœur qui utilise cette ligne ?"
+    choices:
+      - {text: "Elle invalide la copie de la ligne dans le cache de l'autre cœur, qui doit la recharger", correct: true}
+      - {text: "Elle verrouille la ligne pour l'autre cœur, jusqu'à la fin du thread", correct: false}
+      - {text: "Elle recopie toute la mémoire du programme vers l'autre cœur", correct: false}
+      - {text: "Elle oblige l'autre cœur à vider tous ses registres", correct: false}
+    answer: "Chaque cœur garde sa copie des lignes qu'il utilise. Une écriture ailleurs la rend périmée : la ligne fait la navette entre les caches."
+  - key: consequence
+    format: course
+    question: "Quel est l'effet du faux partage sur un programme ?"
+    choices:
+      - {text: "Il reste correct, mais ralentit quand on ajoute des threads", correct: true}
+      - {text: "Il donne des résultats faux de temps en temps", correct: false}
+      - {text: "Il se fige, sans consommer de processeur", correct: false}
+      - {text: "Il s'arrête sur une erreur de segmentation", correct: false}
+    answer: "C'est un défaut de performance, pas de correction. Les résultats sont justes ; c'est le passage à l'échelle qui disparaît."
+  - key: remede
+    format: course
+    question: "Quel est le remède le plus simple au faux partage sur des compteurs par thread ?"
+    choices:
+      - {text: "Accumuler dans une variable locale, puis écrire une fois à la fin", correct: true}
+      - {text: "Protéger chaque compteur par son propre mutex", correct: false}
+      - {text: "Déclarer les compteurs `volatile`", correct: false}
+      - {text: "Ranger les compteurs dans une `std::list`", correct: false}
+    answer: "Une variable locale vit sur la pile du thread, loin des autres. Il ne reste qu'une écriture partagée par thread."
+  - key: vf-course
+    format: true-false
+    question: "Le faux partage est une course aux données."
+    truth: false
+    answer: Les threads écrivent des objets distincts. Le comportement est défini et le résultat juste ; seule la vitesse souffre.
+  - key: vf-lectures
+    format: true-false
+    question: "Des threads qui ne font que lire des variables voisines provoquent du faux partage."
+    truth: false
+    answer: Des lectures n'invalident rien. Il faut qu'au moins un thread écrive dans la ligne.
+  - key: vf-taille
+    format: true-false
+    question: "Une ligne de cache fait le plus souvent 64 octets."
+    truth: true
+    answer: C'est le cas des processeurs x86-64 et de la plupart des ARM actuels. Certains en ont de 128.
+  - key: vf-alignas-cout
+    format: true-false
+    question: "Aligner deux compteurs sur 64 octets avec `alignas` augmente la taille de la structure qui les contient."
+    truth: true
+    answer: Chaque compteur occupe alors une ligne entière. C'est le prix de la séparation.
+  - key: qcm-alignas
+    format: multiple-choice
+    question: "Quelle déclaration place un compteur sur sa propre ligne de cache ?"
+    choices:
+      - {text: "`alignas(64) std::atomic<long> compteur;`", correct: true}
+      - {text: "`volatile std::atomic<long> compteur;`", correct: false}
+      - {text: "`static std::atomic<long> compteur;`", correct: false}
+      - {text: "`mutable std::atomic<long> compteur;`", correct: false}
+    answer: "`alignas(64)` fait commencer l'objet sur une frontière de 64 octets : deux objets ainsi alignés ne partagent pas de ligne."
+  - key: qcm-constante
+    format: multiple-choice
+    question: "Quelle constante de la bibliothèque donne la distance qui évite le faux partage ?"
+    choices:
+      - {text: "`std::hardware_destructive_interference_size`", correct: true}
+      - {text: "`std::hardware_concurrency`", correct: false}
+      - {text: "`std::numeric_limits<long>::max()`", correct: false}
+      - {text: "`std::thread::id`", correct: false}
+    answer: "Elle est déclarée dans `<new>`. Sa jumelle, `hardware_constructive_interference_size`, dit ce qui tient ensemble dans une ligne."
+  - key: qcm-outil
+    format: multiple-choice
+    question: "Quel outil Linux désigne les lignes de cache que se disputent plusieurs cœurs ?"
+    choices:
+      - {text: "`perf c2c`", correct: true}
+      - {text: "`gdb`", correct: false}
+      - {text: "`valgrind --leak-check`", correct: false}
+      - {text: "`clang-format`", correct: false}
+    answer: "`perf c2c` (*cache to cache*) relève les transferts de lignes entre cœurs, et les adresses en cause."
+  - key: qcm-symptome
+    format: multiple-choice
+    question: "Quel symptôme fait penser à du faux partage ?"
+    choices:
+      - {text: "Huit threads vont à peine plus vite, ou moins vite, qu'un seul", correct: true}
+      - {text: "Le total calculé change d'une exécution à l'autre", correct: false}
+      - {text: "Le programme se fige après quelques secondes", correct: false}
+      - {text: "La mémoire utilisée grossit sans fin", correct: false}
+    answer: "Un total qui change évoque une course, un blocage un interblocage, une mémoire qui grossit une fuite. Le faux partage ne touche que la vitesse."
+  - key: situation-compteurs
+    format: scenario
+    question: |-
+      Huit threads incrémentent chacun leur case d'un tableau `long compteurs[8]`, des millions de fois. Le
+      programme est plus lent avec huit threads qu'avec un seul. Les résultats sont justes. Que proposes-tu ?
+    choices:
+      - {text: "Que chaque thread compte dans une variable locale, et range son total dans le tableau à la fin", correct: true}
+      - {text: "Que chaque incrémentation soit protégée par un mutex commun aux huit threads", correct: false}
+      - {text: "Que le tableau soit déclaré `volatile`, pour que les écritures soient immédiates", correct: false}
+      - {text: "Que le tableau soit agrandi à seize cases, dont huit restent inutilisées", correct: false}
+    answer: |-
+      Les huit cases tiennent dans une seule ligne de cache, que les huit cœurs s'arrachent à chaque écriture. Avec
+      un compteur local, chaque thread travaille dans sa pile, et n'écrit la ligne partagée qu'une fois.
+  - key: situation-structure
+    format: scenario
+    question: |-
+      Une file entre deux threads garde côte à côte un indice de tête, écrit par le consommateur, et un indice de
+      queue, écrit par le producteur. Le débit est décevant. Que soupçonnes-tu, et que fais-tu ?
+    choices:
+      - {text: "Du faux partage entre les deux indices : je les sépare avec `alignas(64)`", correct: true}
+      - {text: "Une course aux données entre les deux indices : je les protège par un mutex", correct: false}
+      - {text: "Un interblocage entre les deux threads : je fixe un ordre de verrouillage", correct: false}
+      - {text: "Une fuite de mémoire dans la file : je la vide plus souvent", correct: false}
+    answer: |-
+      Chaque thread écrit son indice, sur la même ligne que celui de l'autre. C'est le cas d'école des files sans
+      verrou : on place chaque indice sur sa propre ligne de cache.
+  - key: situation-mesurer
+    format: scenario
+    question: |-
+      Un collègue veut ajouter `alignas(64)` devant tous les membres de toutes les structures partagées, « pour
+      éviter le faux partage ». Que lui réponds-tu ?
+    choices:
+      - {text: "De mesurer d'abord : l'alignement gonfle les structures, et ne sert que sur les données disputées", correct: true}
+      - {text: "De le faire : aligner n'a aucun coût, ni en mémoire ni en vitesse", correct: false}
+      - {text: "De le faire seulement pour les membres déclarés `const`", correct: false}
+      - {text: "De remplacer plutôt tous les membres par des pointeurs", correct: false}
+    answer: |-
+      Une structure de 16 octets en fait 128 : moins d'objets tiennent en cache, ce qui ralentit ailleurs. Le
+      remède se réserve aux variables écrites par des threads différents, que la mesure a désignées.
+  - key: situation-lecture-seule
+    format: scenario
+    question: |-
+      Vingt threads lisent en boucle une table de constantes de 32 octets, jamais modifiée. Un collègue craint du
+      faux partage, puisque tout tient dans une ligne. Que lui dis-tu ?
+    choices:
+      - {text: "Qu'il n'y en a pas : sans écriture, aucune ligne n'est invalidée", correct: true}
+      - {text: "Qu'il y en a : vingt lecteurs d'une même ligne se ralentissent toujours", correct: false}
+      - {text: "Qu'il faut recopier la table dans chaque thread", correct: false}
+      - {text: "Qu'il faut protéger la table par un `std::shared_mutex`", correct: false}
+    answer: |-
+      Chaque cœur garde sa copie de la ligne, valable tant que personne n'écrit. Des données en lecture seule se
+      partagent sans coût : les regrouper est même un avantage.
+  - key: definition-faux-partage
+    format: definition
+    question: "Que désigne l'expression « false sharing » ?"
+    choices:
+      - {text: "Le ralentissement dû à des écritures de threads différents sur une même ligne de cache", correct: true}
+      - {text: "L'accès simultané de deux threads à une même variable, sans verrou", correct: false}
+      - {text: "Le partage d'un objet par deux `std::shared_ptr` indépendants", correct: false}
+      - {text: "La copie involontaire d'un objet passé par valeur", correct: false}
+    answer: "Le partage est « faux » parce que les variables sont distinctes : seule la ligne de cache est commune."
+  - key: definition-ligne-de-cache
+    format: definition
+    question: "Que désigne une ligne de cache, pour un processeur à plusieurs cœurs ?"
+    choices:
+      - {text: "Le bloc d'environ 64 octets que chaque cœur charge d'un coup dans son cache", correct: true}
+      - {text: "La file des instructions en attente dans le processeur", correct: false}
+      - {text: "La liste des threads qui attendent un verrou", correct: false}
+      - {text: "La zone de la pile réservée à une fonction", correct: false}
+    answer: "Le cache ne travaille pas à l'octet : toute donnée y entre avec ses voisines."
+  - key: definition-alignement
+    format: definition
+    question: "Que fait `alignas(64)` devant une variable ?"
+    choices:
+      - {text: "Il impose que son adresse soit un multiple de 64", correct: true}
+      - {text: "Il réserve 64 exemplaires de la variable", correct: false}
+      - {text: "Il limite la variable à 64 valeurs possibles", correct: false}
+      - {text: "Il aligne le texte du code source sur 64 colonnes", correct: false}
+    answer: "Deux objets alignés sur 64 commencent chacun au début d'une ligne de cache : ils ne peuvent pas en partager une."
+  - key: definition-passage-echelle
+    format: definition
+    question: "Que veut dire qu'un programme « passe à l'échelle » avec le nombre de cœurs ?"
+    choices:
+      - {text: "Que son débit augmente à peu près en proportion des cœurs utilisés", correct: true}
+      - {text: "Que sa mémoire augmente en proportion des cœurs utilisés", correct: false}
+      - {text: "Que son code source grossit avec le nombre de threads", correct: false}
+      - {text: "Que ses résultats changent avec le nombre de cœurs", correct: false}
+    answer: "Le faux partage, comme un verrou trop disputé, casse ce passage à l'échelle."

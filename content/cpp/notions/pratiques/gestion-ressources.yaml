@@ -1,0 +1,208 @@
+notion: gestion-ressources
+lesson: |-
+  Dans un programme C++ sain, on sait répondre, pour **chaque objet**, à une question : **qui le possède ?**
+  Autrement dit : qui est responsable de sa destruction, et jusqu'à quand vit-il ? Quand la réponse est floue, les
+  fuites, les doubles libérations et les pointeurs pendants suivent.
+
+  **Posséder ou observer.**
+
+  - Un **propriétaire** décide de la durée de vie : quand il disparaît, l'objet disparaît.
+  - Un **observateur** se sert de l'objet, sans le garder en vie. Il doit vivre **moins longtemps** que lui.
+
+  **Le vocabulaire des types.** En C++ moderne, la possession se lit dans le type.
+
+  | Écriture | Sens |
+  |---|---|
+  | `T` (membre, variable locale, élément d'un conteneur) | possession **directe** : le plus simple, le défaut |
+  | `std::unique_ptr<T>` | possession **exclusive** d'un objet du tas, transférable |
+  | `std::shared_ptr<T>` | possession **partagée** : vit tant qu'un propriétaire existe |
+  | `std::weak_ptr<T>` | **observe** un objet partagé ; sait s'il existe encore |
+  | `T&`, `const T&` | **observe** ; jamais nul |
+  | `T*` | **observe** ; peut être nul |
+  | `std::string_view`, `std::span<T>` | **observent** une suite d'éléments |
+
+  **Dessiner la propriété.** On trace une flèche de chaque propriétaire vers ce qu'il possède. Un bon dessin est
+  un **arbre** : chaque objet a **un seul** propriétaire, et tout remonte à quelques racines (`main`, un objet
+  application). Détruire une racine détruit tout ce qui est dessous, dans l'ordre.
+
+  ```
+  Application
+  ├── Configuration                     (membre direct)
+  ├── std::vector<Session>              (possède les sessions)
+  │     └── Session ──observe──▶ Configuration   (const Configuration&)
+  └── std::unique_ptr<Journal>          (possède le journal)
+  ```
+
+  Les flèches d'observation vont vers un objet qui vit **au moins aussi longtemps** : ici, la configuration,
+  détruite après les sessions.
+
+  **Les signes d'un dessin malade.**
+
+  - Un **`std::shared_ptr` partout** : « je ne sais pas qui possède, alors tout le monde possède ». La durée de
+    vie devient imprévisible, et les **cycles** fuient.
+  - Un **cycle** de possession : A possède B, qui possède A. Aucun des deux n'est jamais détruit. Le lien de
+    retour doit être une observation : `std::weak_ptr`, ou un pointeur brut.
+  - Un **`new` nu**, dont le résultat va dans un pointeur brut : personne n'est désigné pour le `delete`.
+  - Un observateur qui **survit** à ce qu'il observe : une référence gardée dans un membre, une lambda qui
+    capture une variable locale, une vue sur une chaîne temporaire.
+
+  **Les règles pratiques.**
+
+  1. Par défaut, la **valeur** : un membre, une variable locale.
+  2. S'il faut le tas (polymorphisme, gros objet, durée de vie qui dépasse la portée) : `std::unique_ptr`.
+  3. `std::shared_ptr` seulement quand **plusieurs** propriétaires sont réellement à égalité, sans qu'aucun ne
+     vive plus longtemps que les autres.
+  4. Les fonctions qui **utilisent** reçoivent une référence ou un pointeur brut ; celles qui **prennent
+     possession** reçoivent le pointeur intelligent par valeur.
+  5. Un propriétaire est déclaré **avant** ses observateurs : il est alors détruit après eux.
+
+  **En entretien** : « Pour chaque objet, je sais dire qui le possède. La possession est un arbre : valeurs et
+  `unique_ptr` vers le bas, références et pointeurs bruts pour observer. `shared_ptr` est l'exception, pour un
+  vrai partage, et un lien de retour est un `weak_ptr`, sinon le cycle fuit. »
+cards:
+  - key: question
+    format: course
+    question: "Que veut dire « posséder » un objet, en C++ ?"
+    choices:
+      - {text: "Être responsable de sa destruction : il vit tant que son propriétaire vit", correct: true}
+      - {text: "Être le seul à pouvoir lire ou modifier ses membres publics", correct: false}
+      - {text: "Être la fonction qui l'a déclaré, avec ou sans `const`", correct: false}
+      - {text: "Être le thread qui l'a créé", correct: false}
+    answer: "Le propriétaire décide de la durée de vie. Tous les autres observent : ils se servent de l'objet sans le garder en vie."
+  - key: arbre
+    format: course
+    question: "Quelle forme a le dessin de la possession dans un programme bien conçu ?"
+    choices:
+      - {text: "Un arbre : chaque objet a un seul propriétaire, jusqu'à quelques racines", correct: true}
+      - {text: "Un cycle : chaque objet possède celui qui le possède", correct: false}
+      - {text: "Une étoile : une variable globale possède directement tous les objets", correct: false}
+      - {text: "Un graphe complet : chaque objet partage la possession de tous les autres", correct: false}
+    answer: "Détruire une racine détruit alors tout ce qui est dessous, dans un ordre prévisible. Les liens transversaux sont des observations, pas des possessions."
+  - key: observer
+    format: course
+    question: "Quelle condition un observateur (référence, pointeur brut, vue) doit-il respecter ?"
+    choices:
+      - {text: "Ne pas servir après la destruction de l'objet observé", correct: true}
+      - {text: "Libérer l'objet observé quand il n'en a plus besoin", correct: false}
+      - {text: "Copier l'objet observé avant chaque lecture", correct: false}
+      - {text: "Être déclaré dans le même fichier que l'objet observé", correct: false}
+    answer: "Un observateur ne prolonge pas la vie de l'objet. S'il lui survit, il devient pendant : c'est un comportement indéfini."
+  - key: shared-ptr-quand
+    format: course
+    question: "Quand la possession partagée de `std::shared_ptr` est-elle justifiée ?"
+    choices:
+      - {text: "Quand plusieurs propriétaires sont à égalité, sans qu'on sache lequel finira le dernier", correct: true}
+      - {text: "Dès qu'un objet est passé en paramètre à une fonction qui le lit", correct: false}
+      - {text: "Dès qu'un objet est alloué sur le tas, quel que soit son usage", correct: false}
+      - {text: "Quand on préfère ne pas chercher qui, au juste, possède l'objet", correct: false}
+    answer: "Le partage est une décision de conception. S'en servir pour éviter la question rend les durées de vie imprévisibles, et ouvre la porte aux cycles."
+  - key: vf-pointeur-brut
+    format: true-false
+    question: "En C++ moderne, un pointeur brut `T*` annonce que l'on possède l'objet désigné."
+    truth: false
+    answer: "Par convention, il observe. La possession s'écrit avec une valeur, un `std::unique_ptr` ou un `std::shared_ptr`."
+  - key: vf-cycle
+    format: true-false
+    question: "Deux objets qui se possèdent mutuellement par `std::shared_ptr` ne sont jamais détruits."
+    truth: true
+    answer: "Chacun maintient le compteur de l'autre au-dessus de zéro. L'un des deux liens doit devenir un `std::weak_ptr`."
+  - key: vf-membre
+    format: true-false
+    question: "Un membre déclaré par valeur est possédé par l'objet qui le contient."
+    truth: true
+    answer: "C'est la possession la plus simple : le membre est construit et détruit avec l'objet, sans allocation ni pointeur."
+  - key: vf-reference-prolonge
+    format: true-false
+    question: "Garder une référence vers un objet, dans un membre, empêche cet objet d'être détruit."
+    truth: false
+    answer: "Une référence observe. Si l'objet est détruit avant celui qui garde la référence, elle devient pendante."
+  - key: qcm-exclusif
+    format: multiple-choice
+    question: "Quel type exprime la possession exclusive d'un objet alloué sur le tas ?"
+    choices:
+      - {text: "`std::unique_ptr<T>`", correct: true}
+      - {text: "`std::shared_ptr<T>`", correct: false}
+      - {text: "`std::weak_ptr<T>`", correct: false}
+      - {text: "`T*`", correct: false}
+    answer: "Un seul propriétaire à la fois ; la possession se transfère par `std::move`."
+  - key: qcm-lien-retour
+    format: multiple-choice
+    question: "Un `Parent` possède ses `Enfant` par `std::shared_ptr`. Par quoi chaque enfant désigne-t-il son parent ?"
+    choices:
+      - {text: "Par un `std::weak_ptr<Parent>`", correct: true}
+      - {text: "Par un `std::shared_ptr<Parent>`", correct: false}
+      - {text: "Par un `std::unique_ptr<Parent>`", correct: false}
+      - {text: "Par une copie du `Parent`", correct: false}
+    answer: "Le lien de retour observe : un `std::weak_ptr` ne compte pas parmi les propriétaires, et le cycle disparaît."
+  - key: qcm-utiliser
+    format: multiple-choice
+    question: "Une fonction lit un `Document` tenu par un `std::unique_ptr` chez l'appelant, sans en prendre possession. Que reçoit-elle ?"
+    choices:
+      - {text: "`const Document&`", correct: true}
+      - {text: "`std::unique_ptr<Document>`", correct: false}
+      - {text: "`std::shared_ptr<Document>`", correct: false}
+      - {text: "`std::unique_ptr<Document>&&`", correct: false}
+    answer: "Elle observe le temps de l'appel. L'appelant passe `*doc` ; la façon dont il possède le document ne regarde pas la fonction."
+  - key: qcm-ordre
+    format: multiple-choice
+    question: "Une `Session` garde une référence vers une `Configuration`. Dans quel ordre les déclares-tu dans une même fonction ?"
+    choices:
+      - {text: "La `Configuration` d'abord : elle sera détruite après la `Session`", correct: true}
+      - {text: "La `Session` d'abord : elle sera détruite après la `Configuration`", correct: false}
+      - {text: "Dans n'importe quel ordre : une référence garde l'objet en vie", correct: false}
+      - {text: "Dans n'importe quel ordre : les deux sont détruites en même temps", correct: false}
+    answer: "Les variables locales sont détruites dans l'ordre inverse de leur déclaration. L'objet observé doit vivre plus longtemps que son observateur."
+  - key: situation-fuite-cycle
+    format: scenario
+    question: |-
+      Dans une interface graphique, chaque `Fenetre` tient ses `Bouton` par `std::shared_ptr`, et chaque `Bouton`
+      tient sa `Fenetre` par `std::shared_ptr` pour la prévenir d'un clic. Fermer une fenêtre ne libère rien.
+      Que changes-tu ?
+    choices:
+      - {text: "Le lien du bouton vers la fenêtre devient un `std::weak_ptr`, ou une référence", correct: true}
+      - {text: "Le lien de la fenêtre vers ses boutons devient un pointeur brut, libéré à la main", correct: false}
+      - {text: "Chaque bouton appelle `delete` sur sa fenêtre dans son destructeur", correct: false}
+      - {text: "La fenêtre appelle `reset()` deux fois sur chacun de ses boutons", correct: false}
+    answer: |-
+      La fenêtre possède ses boutons ; le bouton n'a pas à posséder sa fenêtre : il l'observe. Une fois le lien
+      de retour affaibli, la possession redevient un arbre, et détruire la fenêtre détruit tout.
+  - key: situation-shared-ptr-partout
+    format: scenario
+    question: |-
+      En revue de code, toutes les classes d'un module tiennent leurs dépendances par `std::shared_ptr`. Quand tu
+      demandes « qui possède le `Journal` ? », l'auteur répond « tout le monde ». Que proposes-tu ?
+    choices:
+      - {text: "Désigner un propriétaire, qui le tient par valeur ou `unique_ptr` ; les autres reçoivent une référence", correct: true}
+      - {text: "Garder les `std::shared_ptr` : c'est la façon la plus sûre de gérer la mémoire en C++", correct: false}
+      - {text: "Remplacer tous les `std::shared_ptr` par des pointeurs bruts créés avec `new`", correct: false}
+      - {text: "Ranger le `Journal` dans une variable globale, pour que plus personne ne le possède", correct: false}
+    answer: |-
+      « Tout le monde possède » veut dire que personne ne sait quand l'objet meurt. Un propriétaire unique, qui
+      vit plus longtemps que les utilisateurs, rend la durée de vie lisible, et supprime les compteurs.
+  - key: situation-reference-membre
+    format: scenario
+    question: |-
+      Une classe `Rapport` garde un membre `const Client& client_`. Une fonction crée un `Client` local,
+      construit un `Rapport` avec lui, et renvoie le rapport. Plus tard, le nom du client est illisible. Pourquoi ?
+    choices:
+      - {text: "Le rapport observe un client détruit au retour de la fonction : il doit en garder une copie", correct: true}
+      - {text: "Une référence constante ne permet pas de lire le nom du client", correct: false}
+      - {text: "Le rapport a été copié au retour, ce qui a effacé le client", correct: false}
+      - {text: "Le client a été déplacé dans le rapport, puis détruit deux fois", correct: false}
+    answer: |-
+      L'observateur survit à l'objet observé : la référence est pendante. Si le rapport doit vivre plus longtemps
+      que le client, il le possède : un membre `Client client_`, par valeur.
+  - key: situation-new-nu
+    format: scenario
+    question: |-
+      Une fonction contient `Analyseur* a = new Analyseur; a->lancer(); delete a;`. Quand `lancer()` lance une
+      exception, la mémoire fuit. Quelle correction est la plus simple ?
+    choices:
+      - {text: "Déclarer une variable locale : `Analyseur a; a.lancer();`", correct: true}
+      - {text: "Entourer `a->lancer()` d'un `try`, et écrire `delete a;` dans chaque `catch`", correct: false}
+      - {text: "Tenir l'analyseur par un `std::shared_ptr`, passé à `lancer()`", correct: false}
+      - {text: "Appeler `delete a;` avant `a->lancer();`", correct: false}
+    answer: |-
+      Rien n'exige ici le tas. Une variable locale est possédée par sa portée, et détruite à toute sortie, même
+      par exception. Le premier réflexe est la valeur ; `std::unique_ptr` vient ensuite, quand le tas est
+      nécessaire.

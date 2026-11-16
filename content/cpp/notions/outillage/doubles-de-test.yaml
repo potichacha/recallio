@@ -1,0 +1,373 @@
+notion: doubles-de-test
+lesson: |-
+  Un test unitaire doit être **rapide** et **déterministe**. Or le code à tester dépend souvent de choses qui ne le
+  sont pas : une base de données, le réseau, l'horloge, un capteur. Une **doublure de test** remplace cette
+  dépendance par un objet qu'on maîtrise.
+
+  **Étape 1 : une interface.** Le code ne doit plus dépendre d'une classe concrète, mais d'une **classe
+  abstraite**.
+
+  ```cpp
+  class Horloge {
+  public:
+      virtual ~Horloge() = default;
+      virtual int heure() const = 0;
+  };
+  ```
+
+  **Étape 2 : l'injection de dépendance.** L'objet **reçoit** sa dépendance, au lieu de la créer lui-même.
+
+  ```cpp
+  class Accueil {
+  public:
+      explicit Accueil(const Horloge& horloge) : horloge_{horloge} {}
+      std::string message() const {
+          return horloge_.heure() < 18 ? "Bonjour" : "Bonsoir";
+      }
+  private:
+      const Horloge& horloge_;
+  };
+  ```
+
+  En production, on lui passe une `HorlogeSysteme`. Dans un test, une doublure :
+
+  ```cpp
+  class HorlogeFixe : public Horloge {
+  public:
+      explicit HorlogeFixe(int heure) : heure_{heure} {}
+      int heure() const override { return heure_; }
+  private:
+      int heure_;
+  };
+
+  TEST_CASE("salue le soir") {
+      const HorlogeFixe horloge{20};
+      CHECK(Accueil{horloge}.message() == "Bonsoir");
+  }
+  ```
+
+  **Les sortes de doublures.**
+
+  | Doublure | Ce qu'elle fait |
+  |---|---|
+  | **bouchon** (*stub*) | renvoie des réponses fixées d'avance |
+  | **faux** (*fake*) | une vraie implémentation, simplifiée : une base en mémoire |
+  | **espion** (*spy*) | enregistre les appels reçus, qu'on vérifie ensuite |
+  | **simulacre** (*mock*) | est programmé avec les appels **attendus**, et fait échouer le test s'ils n'ont pas lieu |
+
+  **GoogleMock** génère des simulacres :
+
+  ```cpp
+  class MockHorloge : public Horloge {
+  public:
+      MOCK_METHOD(int, heure, (), (const, override));
+  };
+
+  TEST(Accueil, SalueLeSoir) {
+      MockHorloge horloge;
+      EXPECT_CALL(horloge, heure()).WillOnce(testing::Return(20));
+      EXPECT_EQ(Accueil{horloge}.message(), "Bonsoir");
+  }
+  ```
+
+  `EXPECT_CALL` fixe la réponse **et** vérifie que l'appel a lieu.
+
+  **Les pièges.**
+
+  - **Trop de simulacres** : un test qui vérifie chaque appel interne casse à la moindre réorganisation. On
+    vérifie le **résultat** quand c'est possible, les **interactions** seulement quand elles sont le comportement
+    (un courriel a bien été envoyé).
+  - **Oublier `override`** dans la doublure : une signature légèrement différente crée une nouvelle fonction, et
+    la vraie n'est pas remplacée.
+  - **Créer la dépendance à l'intérieur** de la classe (`HorlogeSysteme horloge_;`) : plus rien à injecter.
+  - Le coût : une fonction virtuelle. Quand il compte, on injecte par **template**, sans interface.
+
+  **En entretien** : « Pour tester sans base ni horloge, j'extrais une interface, je l'injecte par le
+  constructeur, et le test passe une doublure : un bouchon, un faux ou un simulacre GoogleMock. Je vérifie de
+  préférence l'état final, et les interactions seulement quand elles sont le résultat attendu. »
+cards:
+  - key: role
+    format: course
+    question: "À quoi sert une doublure de test ?"
+    choices:
+      - {text: "À remplacer une dépendance lente ou imprévisible par un objet que le test maîtrise", correct: true}
+      - {text: "À exécuter deux fois chaque test, pour confirmer son résultat", correct: false}
+      - {text: "À copier la base de données de production sur le poste du développeur", correct: false}
+      - {text: "À mesurer la part du code que les tests ont exécutée", correct: false}
+    answer: "Réseau, base, horloge, hasard : la doublure les remplace par des réponses choisies. Le test devient rapide et répétable."
+  - key: injection
+    format: course
+    question: "Qu'est-ce que l'injection de dépendance ?"
+    choices:
+      - {text: "Un objet reçoit ses dépendances, au lieu de les créer lui-même", correct: true}
+      - {text: "Un objet crée ses dépendances dans son constructeur, avec `new`", correct: false}
+      - {text: "Un objet accède à ses dépendances par des variables globales", correct: false}
+      - {text: "Un objet hérite de toutes les classes dont il dépend", correct: false}
+    answer: "Passée par le constructeur, la dépendance peut être la vraie en production, et une doublure dans un test."
+  - key: mock-ou-stub
+    format: course
+    question: "Quelle différence entre un bouchon (stub) et un simulacre (mock) ?"
+    choices:
+      - {text: "Le bouchon fournit des réponses ; le simulacre vérifie en plus les appels attendus", correct: true}
+      - {text: "Le bouchon vérifie les appels attendus ; le simulacre ne fournit que des réponses", correct: false}
+      - {text: "Le bouchon appelle la vraie dépendance ; le simulacre ne l'appelle jamais", correct: false}
+      - {text: "Le bouchon sert en production ; le simulacre sert seulement en test", correct: false}
+    answer: "Avec un bouchon, on vérifie le résultat du code testé. Avec un simulacre, le test échoue si les interactions prévues n'ont pas lieu."
+  - key: exces
+    format: course
+    question: "Quel est le risque de vérifier chaque appel interne avec des simulacres ?"
+    choices:
+      - {text: "Les tests cassent à chaque réorganisation, sans qu'aucun comportement ait changé", correct: true}
+      - {text: "Les tests deviennent trop rapides pour détecter un défaut", correct: false}
+      - {text: "Les tests ne compilent plus avec un compilateur récent", correct: false}
+      - {text: "Les tests modifient la base de données de production", correct: false}
+    answer: "Un test lié aux détails de l'implémentation la fige. On vérifie l'état ou le résultat ; les interactions, seulement quand elles sont le comportement voulu."
+  - key: vf-interface
+    format: true-false
+    question: "Pour substituer une doublure par héritage, le code testé doit dépendre d'une interface, pas d'une classe concrète."
+    truth: true
+    answer: "La doublure et la vraie implémentation dérivent de la même classe abstraite : le code testé ne fait pas la différence."
+  - key: vf-fake
+    format: true-false
+    question: "Un faux (fake) est une implémentation qui fonctionne réellement, mais simplifiée."
+    truth: true
+    answer: "Une base de données en mémoire, par exemple : elle range et retrouve vraiment, sans disque ni réseau."
+  - key: vf-creer-dedans
+    format: true-false
+    question: "Une classe qui crée elle-même sa connexion à la base se teste facilement avec une doublure."
+    truth: false
+    answer: "Rien ne peut être substitué : la dépendance est soudée. Il faut l'injecter."
+  - key: vf-expect-call
+    format: true-false
+    question: "Avec GoogleMock, `EXPECT_CALL` fait échouer le test si l'appel attendu n'a pas lieu."
+    truth: true
+    answer: "L'attente est vérifiée à la destruction du simulacre. Pour seulement fixer une réponse, on écrit `ON_CALL`."
+  - key: qcm-macro
+    format: multiple-choice
+    question: "Quelle macro de GoogleMock déclare une fonction simulée dans une classe de simulacre ?"
+    choices:
+      - {text: "`MOCK_METHOD`", correct: true}
+      - {text: "`EXPECT_CALL`", correct: false}
+      - {text: "`TEST_CASE`", correct: false}
+      - {text: "`CHECK_THROWS`", correct: false}
+    answer: "`MOCK_METHOD(type, nom, (paramètres), (const, override))`. `EXPECT_CALL` exprime ensuite une attente sur cette fonction."
+  - key: qcm-horloge
+    format: multiple-choice
+    question: "Une fonction dépend de l'heure courante. Comment la rends-tu testable ?"
+    choices:
+      - {text: "En lui faisant recevoir une horloge, que le test remplace par une heure fixe", correct: true}
+      - {text: "En lançant les tests uniquement le matin, à heure fixe", correct: false}
+      - {text: "En ajoutant une pause avant chaque appel de la fonction", correct: false}
+      - {text: "En lui faisant lire l'heure dans une variable d'environnement", correct: false}
+    answer: "L'horloge devient une dépendance injectée. Le test choisit l'heure, et donne toujours le même résultat."
+  - key: qcm-espion
+    format: multiple-choice
+    question: "Quelle doublure enregistre les appels reçus, pour que le test les examine après coup ?"
+    choices:
+      - {text: "Un espion", correct: true}
+      - {text: "Un bouchon", correct: false}
+      - {text: "Un faux", correct: false}
+      - {text: "Un singleton", correct: false}
+    answer: "L'espion note ce qu'on lui a demandé : le test vérifie ensuite, par exemple, qu'un message a été envoyé une seule fois."
+  - key: qcm-sans-virtuel
+    format: multiple-choice
+    question: "Comment injecte-t-on une doublure sans payer le coût d'une fonction virtuelle ?"
+    choices:
+      - {text: "Par un paramètre de template, choisi à la compilation", correct: true}
+      - {text: "Par une variable globale, modifiée par le test", correct: false}
+      - {text: "Par un `const_cast` sur la vraie dépendance", correct: false}
+      - {text: "Par une macro qui renomme la classe dans les tests", correct: false}
+    answer: "`template <typename Horloge> class Accueil` : la production instancie avec la vraie horloge, le test avec la doublure. Aucune interface, aucun appel virtuel."
+  - key: situation-base
+    format: scenario
+    question: |-
+      Les tests d'un service de commandes se connectent à une vraie base de données. Ils durent huit minutes, et
+      échouent quand le réseau est lent. Que proposes-tu ?
+    choices:
+      - {text: "Une interface de dépôt, injectée dans le service, et un faux en mémoire pour les tests", correct: true}
+      - {text: "Une base de données plus rapide, installée sur le serveur de tests", correct: false}
+      - {text: "La suppression des tests du service, trop lents pour être utiles", correct: false}
+      - {text: "Trois relances automatiques de chaque test qui échoue", correct: false}
+    answer: |-
+      La logique du service se teste sans base : le faux range les commandes dans un conteneur. Quelques tests
+      d'intégration, à part, vérifient la vraie base.
+  - key: situation-courriel
+    format: scenario
+    question: |-
+      Tu testes une fonction qui doit envoyer un courriel de confirmation après une commande. Elle ne renvoie rien.
+      Comment vérifies-tu son comportement ?
+    choices:
+      - {text: "Avec un espion ou un simulacre de l'envoyeur, dont je vérifie qu'il a reçu un appel", correct: true}
+      - {text: "Avec un vrai serveur de courriel, dont je lis la boîte de réception", correct: false}
+      - {text: "Avec un `CHECK_NOTHROW` sur l'appel, qui suffit à tout vérifier", correct: false}
+      - {text: "Avec un bouchon qui renvoie toujours `true`, sans rien noter", correct: false}
+    answer: |-
+      Ici, l'interaction **est** le comportement : il n'y a ni valeur de retour ni état à observer. C'est le bon
+      usage du simulacre.
+  - key: situation-tests-fragiles
+    format: scenario
+    question: |-
+      Une suite de tests utilise des simulacres partout, avec l'ordre exact de chaque appel interne. Chaque
+      réorganisation du code en fait échouer une cinquantaine, sans bug réel. Que proposes-tu ?
+    choices:
+      - {text: "Vérifier les résultats et l'état final ; garder les attentes d'appels pour les seuls effets externes", correct: true}
+      - {text: "Ajouter des simulacres aux classes qui n'en ont pas encore, par cohérence", correct: false}
+      - {text: "Interdire toute réorganisation du code, pour protéger les tests", correct: false}
+      - {text: "Désactiver les cinquante tests à chaque réorganisation, puis les réactiver", correct: false}
+    answer: |-
+      Ces tests décrivent **comment** le code fait son travail, pas **ce qu'il** fait. Avec des bouchons et des
+      faux, on observe le résultat, et l'implémentation reste libre de changer.
+  - key: situation-code-ancien
+    format: scenario
+    question: |-
+      Une classe ancienne écrit `Imprimante::instance().imprimer(texte)` en plein milieu d'un calcul que tu veux
+      tester. Comment la rends-tu testable avec le moins de changements ?
+    choices:
+      - {text: "Je lui fais recevoir une interface d'impression par son constructeur, la vraie par défaut en production", correct: true}
+      - {text: "Je branche une vraie imprimante sur le serveur d'intégration continue", correct: false}
+      - {text: "Je recopie le calcul dans le fichier de test, sans l'appel d'impression", correct: false}
+      - {text: "Je mets l'appel d'impression en commentaire pendant les tests", correct: false}
+    answer: |-
+      Le singleton est une dépendance cachée. L'exposer comme paramètre ouvre une « couture » où le test glisse
+      une doublure, sans réécrire le calcul.
+  - key: bug-override-oublie
+    format: bug-fix
+    question: |-
+      Ce programme devrait afficher `Bonsoir` : la doublure fixe l'heure à 20. Il affiche `Bonjour`. Quelle
+      correction est la bonne ?
+      ```cpp
+      #include <print>
+      #include <string>
+
+      class Horloge {
+      public:
+          virtual ~Horloge() = default;
+          virtual int heure() const { return 9; }
+      };
+
+      class HorlogeFixe : public Horloge {
+      public:
+          int heure() { return 20; }
+      };
+
+      std::string message(const Horloge& horloge) {
+          return horloge.heure() < 18 ? "Bonjour" : "Bonsoir";
+      }
+
+      int main() {
+          const HorlogeFixe horloge;
+          std::println("{}", message(horloge));
+      }
+      ```
+    choices:
+      - {text: "Déclarer `int heure() const override { return 20; }` dans la doublure", correct: true}
+      - {text: "Déclarer `virtual int heure() { return 20; }` dans la doublure", correct: false}
+      - {text: "Déclarer `static int heure() { return 20; }` dans la doublure", correct: false}
+      - {text: "Déclarer `int heure() noexcept { return 20; }` dans la doublure", correct: false}
+    answer: |-
+      ```cpp
+      int heure() const override { return 20; }
+      ```
+      Sans `const`, la fonction de la doublure n'a pas la même signature : elle ne redéfinit pas celle de la base,
+      elle la masque. Avec `override`, le compilateur aurait refusé cette erreur.
+  - key: bug-dependance-interne
+    format: bug-fix
+    question: |-
+      Cette classe ne peut pas être testée avec une heure choisie : elle crée elle-même son horloge. Quelle
+      correction est la bonne ?
+      ```cpp
+      class HorlogeSysteme {
+      public:
+          int heure() const;
+      };
+
+      class Accueil {
+      public:
+          std::string message() const {
+              return horloge_.heure() < 18 ? "Bonjour" : "Bonsoir";
+          }
+
+      private:
+          HorlogeSysteme horloge_;
+      };
+      ```
+    choices:
+      - {text: "Recevoir une `const Horloge&` par le constructeur, `Horloge` étant une interface", correct: true}
+      - {text: "Déclarer le membre `horloge_` avec le mot-clé `mutable`", correct: false}
+      - {text: "Déclarer le membre `horloge_` avec le mot-clé `static`", correct: false}
+      - {text: "Rendre le membre `horloge_` public, pour que le test le lise", correct: false}
+    answer: |-
+      ```cpp
+      class Accueil {
+      public:
+          explicit Accueil(const Horloge& horloge) : horloge_{horloge} {}
+          // ...
+      private:
+          const Horloge& horloge_;
+      };
+      ```
+      La dépendance concrète est soudée dans la classe. Injectée sous forme d'interface, elle peut être la vraie
+      horloge ou une doublure.
+  - key: bug-destructeur-interface
+    format: bug-fix
+    question: |-
+      Le test détruit sa doublure par un pointeur vers l'interface. GCC avertit avec `-Wall` : « deleting object of
+      abstract class type 'Depot' which has non-virtual destructor will cause undefined behavior ». Quelle
+      correction est la bonne ?
+      ```cpp
+      #include <memory>
+
+      class Depot {
+      public:
+          virtual int compter() const = 0;
+      };
+
+      class DepotEnMemoire : public Depot {
+      public:
+          int compter() const override { return 0; }
+      };
+
+      int main() {
+          const std::unique_ptr<Depot> depot = std::make_unique<DepotEnMemoire>();
+          return depot->compter();
+      }
+      ```
+    choices:
+      - {text: "Ajouter `virtual ~Depot() = default;` à l'interface", correct: true}
+      - {text: "Ajouter `~DepotEnMemoire() {}` à la doublure", correct: false}
+      - {text: "Ajouter `final` à la déclaration de l'interface", correct: false}
+      - {text: "Ajouter `explicit` devant `compter` dans l'interface", correct: false}
+    answer: |-
+      ```cpp
+      class Depot {
+      public:
+          virtual ~Depot() = default;
+          virtual int compter() const = 0;
+      };
+      ```
+      Une interface destinée à être implémentée, puis détruite par un pointeur de base, a besoin d'un destructeur
+      virtuel.
+  - key: bug-reference-pendante
+    format: bug-fix
+    question: |-
+      Ce test passe une doublure temporaire à un objet qui en garde une référence. Son comportement est indéfini.
+      Quelle correction est la bonne ?
+      ```cpp
+      TEST_CASE("salue le soir") {
+          const Accueil accueil{HorlogeFixe{20}};
+          CHECK(accueil.message() == "Bonsoir");
+      }
+      ```
+    choices:
+      - {text: "Déclarer la doublure dans une variable, qui vit aussi longtemps que `accueil`", correct: true}
+      - {text: "Déclarer `accueil` sans le mot-clé `const`, pour qu'il garde sa doublure", correct: false}
+      - {text: "Remplacer `CHECK` par `REQUIRE`, qui arrête le test avant la lecture", correct: false}
+      - {text: "Appeler `accueil.message()` deux fois de suite", correct: false}
+    answer: |-
+      ```cpp
+      const HorlogeFixe horloge{20};
+      const Accueil accueil{horloge};
+      CHECK(accueil.message() == "Bonsoir");
+      ```
+      Le temporaire est détruit à la fin de la ligne : `accueil` garde une référence pendante. Une dépendance
+      injectée par référence doit survivre à l'objet qui la reçoit.

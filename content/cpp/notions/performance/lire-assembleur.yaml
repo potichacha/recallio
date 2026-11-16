@@ -1,0 +1,253 @@
+notion: lire-assembleur
+lesson: |-
+  Lire l'**assembleur** que produit le compilateur répond à des questions qu'aucun benchmark ne tranche aussi
+  vite : cette fonction a-t-elle été inlinée ? cette boucle a-t-elle été vectorisée ? ce calcul a-t-il disparu ?
+  Il ne s'agit pas d'en écrire, seulement d'y **reconnaître quelques formes**.
+
+  **Compiler Explorer** (godbolt.org) est l'outil de référence : on colle du C++ à gauche, l'assembleur apparaît à
+  droite, coloré ligne par ligne, pour le compilateur et les options de son choix. En local :
+
+  ```
+  g++ -O2 -S -masm=intel main.cpp          # écrit main.s
+  objdump -d -C programme                  # désassemble un binaire ; -C rend les noms C++ lisibles
+  ```
+
+  **Toujours compiler avec optimisation** (`-O2`) : l'assembleur d'une construction `-O0` range chaque variable sur
+  la pile, et ne dit rien du programme livré.
+
+  **Le vocabulaire minimal (x86-64, syntaxe Intel).**
+
+  | Élément | Sens |
+  |---|---|
+  | `rax`, `rdi`, `rsi`... | registres de 64 bits ; `eax`, `edi` sont leurs moitiés de 32 bits |
+  | `xmm0`, `ymm0` | registres vectoriels : nombres à virgule, et calculs sur plusieurs valeurs à la fois |
+  | `mov a, b` | copie `b` dans `a` |
+  | `add`, `sub`, `imul` | arithmétique |
+  | `lea` | calcule une adresse ; souvent détourné pour une addition ou une multiplication |
+  | `cmp` puis `jl`, `je`, `jne`... | comparaison, puis saut conditionnel |
+  | `call f` | appel de fonction |
+  | `ret` | retour à l'appelant |
+  | `[rdi + 4]` | accès à la mémoire, à l'adresse `rdi + 4` |
+
+  **La convention d'appel (Linux).** Les premiers arguments entiers arrivent dans `rdi`, `rsi`, `rdx`, `rcx` ; la
+  valeur de retour entière part dans `rax` (ou `eax`).
+
+  ```cpp
+  int carre(int x) { return x * x; }
+  ```
+
+  ```
+  carre(int):
+      imul    edi, edi
+      mov     eax, edi
+      ret
+  ```
+
+  **Ce qu'on y cherche.**
+
+  - **L'inlining** : un `call` vers la petite fonction est-il encore là ? S'il a disparu, elle a été fondue chez
+    l'appelant.
+  - **La vectorisation** : des instructions sur `xmm` ou `ymm` avec un suffixe « paqueté » (`paddd`, `vaddps`)
+    traitent 4 ou 8 éléments par tour.
+  - **Le calcul fait à la compilation** : une fonction réduite à `mov eax, 42` puis `ret`.
+  - **Le code supprimé** : dans un benchmark, la boucle mesurée a-t-elle survécu ?
+  - **Les appels cachés** : `call operator new`, `call memcpy`, un appel de constructeur de copie.
+  - **Les vérifications** : un `call` vers `__throw_out_of_range` trahit un `at()`.
+
+  **Ses limites.** Moins d'instructions ne veut pas dire plus rapide : le cache et la prédiction de branchement ne
+  se voient pas dans le texte. L'assembleur **explique** une mesure ; il ne la remplace pas.
+
+  **En entretien** : « Je passe par Compiler Explorer, en `-O2`, pour vérifier une hypothèse précise : inlining,
+  vectorisation, appel caché à `new` ou à `memcpy`. Je sais lire `mov`, `call`, `cmp` et les sauts, et je sais que
+  la valeur de retour est dans `rax`. Ensuite, je mesure. »
+cards:
+  - key: pourquoi
+    format: course
+    question: "À quoi sert de lire l'assembleur produit par le compilateur ?"
+    choices:
+      - {text: "À vérifier ce qu'il a réellement fait : inlining, vectorisation, code supprimé", correct: true}
+      - {text: "À réécrire à la main les fonctions lentes du programme, en assembleur", correct: false}
+      - {text: "À trouver les fautes de syntaxe que le compilateur n'a pas signalées", correct: false}
+      - {text: "À mesurer précisément le temps d'exécution de chaque fonction", correct: false}
+    answer: "On confirme une hypothèse d'optimisation en la voyant. Le temps, lui, se mesure : l'assembleur ne montre ni le cache ni les erreurs de prédiction."
+  - key: outil
+    format: course
+    question: "Qu'est-ce que Compiler Explorer (godbolt.org) ?"
+    choices:
+      - {text: "Un site qui affiche l'assembleur produit pour un code, par le compilateur et les options choisis", correct: true}
+      - {text: "Un débogueur qui exécute le programme pas à pas sur une machine distante", correct: false}
+      - {text: "Un profileur qui dessine un graphe en flammes du programme", correct: false}
+      - {text: "Un gestionnaire de paquets qui installe les compilateurs C++", correct: false}
+    answer: "On y compare aussi deux compilateurs, ou deux niveaux d'optimisation, côte à côte, avec la correspondance entre lignes source et instructions."
+  - key: optimisation
+    format: course
+    question: "Avec quel niveau d'optimisation lit-on l'assembleur pour juger des performances ?"
+    choices:
+      - {text: "Avec `-O2`, comme le programme livré", correct: true}
+      - {text: "Avec `-O0`, pour voir chaque variable", correct: false}
+      - {text: "Avec `-g` seul, sans optimisation", correct: false}
+      - {text: "Peu importe : l'assembleur est le même", correct: false}
+    answer: "En `-O0`, tout passe par la pile, rien n'est inliné : le texte obtenu ne ressemble pas à ce qui s'exécutera en production."
+  - key: inlining
+    format: course
+    question: "Comment vois-tu, dans l'assembleur, qu'une petite fonction a été inlinée ?"
+    choices:
+      - {text: "Il n'y a plus de `call` vers elle chez l'appelant", correct: true}
+      - {text: "Il y a deux `call` vers elle chez l'appelant", correct: false}
+      - {text: "Son nom est précédé du mot `inline`", correct: false}
+      - {text: "Elle se termine par deux instructions `ret`", correct: false}
+    answer: "Le corps de la fonction a été recopié à la place de l'appel. L'instruction `call` a disparu, et souvent le calcul a été simplifié avec ce qui l'entoure."
+  - key: vf-moins-instructions
+    format: true-false
+    question: "De deux versions d'une fonction, celle qui a le moins d'instructions est toujours la plus rapide."
+    truth: false
+    answer: "Une boucle vectorisée est plus longue et plus rapide. Et les défauts de cache ou de prédiction ne se lisent pas dans le texte."
+  - key: vf-rax
+    format: true-false
+    question: "Sous Linux x86-64, une fonction renvoie sa valeur entière dans le registre `rax`."
+    truth: true
+    answer: "Ou `eax`, sa moitié basse, pour un `int`. Les premiers arguments entiers arrivent dans `rdi`, `rsi`, `rdx`, `rcx`."
+  - key: vf-o0
+    format: true-false
+    question: "L'assembleur d'une construction `-O0` montre fidèlement ce que fera le programme optimisé."
+    truth: false
+    answer: "Sans optimisation, le compilateur traduit ligne à ligne. Avec `-O2`, il réorganise, fusionne et supprime."
+  - key: vf-xmm
+    format: true-false
+    question: "Des instructions paquetées sur les registres `xmm` ou `ymm` dans une boucle indiquent qu'elle a été vectorisée."
+    truth: true
+    answer: "`paddd`, `vaddps` traitent plusieurs éléments à la fois : 4 entiers par registre `xmm`, 8 par registre `ymm`."
+  - key: qcm-call-new
+    format: multiple-choice
+    question: "Dans l'assembleur d'une boucle chaude, tu vois `call operator new(unsigned long)`. Que révèle cette ligne ?"
+    choices:
+      - {text: "Une allocation sur le tas à chaque tour, peut-être due à une copie", correct: true}
+      - {text: "Une fonction virtuelle appelée à chaque tour de boucle", correct: false}
+      - {text: "Une boucle que le compilateur a vectorisée", correct: false}
+      - {text: "Une variable que le compilateur a rangée sur la pile", correct: false}
+    answer: "L'assembleur montre les appels que le code source cache : une `std::string` ou un `std::vector` construits ou copiés dans la boucle."
+  - key: qcm-constante
+    format: multiple-choice
+    question: "Une fonction compilée se réduit à `mov eax, 42` puis `ret`. Que s'est-il passé ?"
+    choices:
+      - {text: "Le compilateur a calculé le résultat à la compilation", correct: true}
+      - {text: "Le compilateur a refusé d'optimiser la fonction", correct: false}
+      - {text: "La fonction lit sa valeur dans un fichier à l'exécution", correct: false}
+      - {text: "La fonction a été remplacée par un appel virtuel", correct: false}
+    answer: "Tout le calcul a été replié en une constante : la fonction ne fait plus que charger 42 dans le registre de retour."
+  - key: qcm-objdump
+    format: multiple-choice
+    question: "Quelle commande désassemble un exécutable déjà construit ?"
+    choices:
+      - {text: "`objdump -d programme`", correct: true}
+      - {text: "`g++ -E programme`", correct: false}
+      - {text: "`perf stat programme`", correct: false}
+      - {text: "`cmake --build programme`", correct: false}
+    answer: "`objdump -d` affiche les instructions du binaire ; `-C` rend lisibles les noms C++ encodés."
+  - key: qcm-cmp
+    format: multiple-choice
+    question: "Dans l'assembleur, que forment une instruction `cmp` suivie de `jl` ?"
+    choices:
+      - {text: "Une comparaison, puis un saut si le premier opérande est plus petit", correct: true}
+      - {text: "Une copie, puis un appel de fonction", correct: false}
+      - {text: "Une addition, puis un retour à l'appelant", correct: false}
+      - {text: "Une multiplication, puis un accès à la mémoire", correct: false}
+    answer: "C'est la traduction d'un `if` ou d'une condition de boucle : `cmp` positionne des drapeaux, `jl` (*jump if less*) saute selon eux."
+  - key: trous-s
+    format: fill-in
+    question: |-
+      Complète la commande qui fait écrire l'assembleur dans `main.s`, au lieu de produire un exécutable :
+      ```
+      g++ -O2 -___ main.cpp
+      ```
+    blanks:
+      - [S]
+    answer: "`-S` arrête le compilateur après la génération de l'assembleur."
+  - key: trous-call
+    format: fill-in
+    question: |-
+      Complète avec l'instruction qui appelle une fonction :
+      ```
+      mov     edi, 5
+      ___     carre(int)
+      ```
+    blanks:
+      - [call]
+    answer: "`call` saute à la fonction, en notant où revenir. `ret`, à la fin de celle-ci, y retourne."
+  - key: trous-ret
+    format: fill-in
+    question: |-
+      Complète avec l'instruction qui termine la fonction et rend la main à l'appelant :
+      ```
+      carre(int):
+          imul    edi, edi
+          mov     eax, edi
+          ___
+      ```
+    blanks:
+      - [ret]
+    answer: "`ret` revient à l'instruction qui suit le `call`. La valeur renvoyée est dans `eax`."
+  - key: trous-eax
+    format: fill-in
+    question: |-
+      Complète avec le registre de 32 bits qui porte la valeur de retour d'une fonction `int` :
+      ```
+      reponse():
+          mov     ___, 42
+          ret
+      ```
+    blanks:
+      - [eax]
+    answer: "`eax` est la moitié basse de `rax`, le registre de retour des entiers sous Linux x86-64."
+  - key: situation-benchmark-zero
+    format: scenario
+    question: |-
+      Ton benchmark affiche un temps nul pour une boucle de calcul. Avant d'accuser l'horloge, comment vérifies-tu
+      ce qui se passe ?
+    choices:
+      - {text: "Je regarde l'assembleur en `-O2` : la boucle a sans doute été supprimée", correct: true}
+      - {text: "Je relance le benchmark dix fois, jusqu'à obtenir un temps non nul", correct: false}
+      - {text: "Je compile en `-O0`, et je garde cette mesure comme résultat", correct: false}
+      - {text: "Je remplace l'horloge par un compteur de tours de boucle", correct: false}
+    answer: |-
+      Si le résultat du calcul n'est pas utilisé, l'optimiseur retire la boucle : dans l'assembleur, il ne reste que
+      les deux lectures de l'horloge. La preuve est immédiate.
+  - key: situation-vectorisation
+    format: scenario
+    question: |-
+      Deux boucles presque identiques additionnent des tableaux ; l'une est quatre fois plus rapide. Que cherches-tu
+      dans l'assembleur pour l'expliquer ?
+    choices:
+      - {text: "Des instructions paquetées sur `xmm` ou `ymm` dans la boucle rapide, absentes de l'autre", correct: true}
+      - {text: "Un plus grand nombre d'instructions `ret` dans la boucle rapide", correct: false}
+      - {text: "Des noms de variables plus courts dans la boucle rapide", correct: false}
+      - {text: "Des commentaires du compilateur dans la boucle lente", correct: false}
+    answer: |-
+      Un facteur 4 ou 8 est la signature de la vectorisation. Si une boucle n'est pas vectorisée, on cherche ce qui
+      l'empêche : un appel de fonction, un branchement, un risque de recouvrement entre les tableaux.
+  - key: situation-copie-cachee
+    format: scenario
+    question: |-
+      Une fonction d'une ligne, appelée dans une boucle, apparaît dans le profil avec `memcpy` et `operator new`.
+      Le code source ne montre aucune allocation. Que t'apprend l'assembleur ?
+    choices:
+      - {text: "Où une copie implicite a lieu : un paramètre par valeur, ou un `auto` sans `&`", correct: true}
+      - {text: "Que le profileur s'est trompé de fonction dans son rapport", correct: false}
+      - {text: "Que la fonction est virtuelle, et appelée par la vtable", correct: false}
+      - {text: "Que la fonction a été compilée sans optimisation", correct: false}
+    answer: |-
+      Les `call` vers un constructeur de copie, `memcpy` ou `operator new` désignent la ligne coupable, que
+      Compiler Explorer colore en regard du source.
+  - key: situation-limite
+    format: scenario
+    question: |-
+      Un collègue réécrit une fonction pour qu'elle compte trois instructions de moins, et affirme qu'elle est donc
+      plus rapide. Que lui réponds-tu ?
+    choices:
+      - {text: "Que le nombre d'instructions ne fait pas le temps : il faut mesurer les deux versions", correct: true}
+      - {text: "Qu'il a raison : chaque instruction prend exactement un cycle", correct: false}
+      - {text: "Qu'il doit encore retirer trois instructions pour que le gain soit visible", correct: false}
+      - {text: "Qu'il doit compiler en `-O0` pour comparer les deux versions", correct: false}
+    answer: |-
+      Une division coûte des dizaines de cycles, un `mov` presque rien ; un défaut de cache, des centaines.
+      L'assembleur donne des indices, le benchmark et le profil donnent la réponse.

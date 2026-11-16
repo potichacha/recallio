@@ -1,0 +1,379 @@
+notion: ordre-memoire
+lesson: |-
+  Chaque opération d'un `std::atomic` accepte un argument `std::memory_order`. Il dit **quelles garanties
+  d'ordre** l'opération donne aux autres threads. Plus la garantie est faible, plus le processeur et le compilateur
+  sont libres de réordonner, et plus le code peut être rapide, et faux.
+
+  **L'atomicité n'est pas en cause** : quelle que soit la valeur de l'argument, l'opération reste indivisible. Ce
+  qui change, c'est ce qu'un autre thread a le droit de conclure sur les **autres** écritures, faites avant.
+
+  | Ordre | Garantie |
+  |---|---|
+  | `seq_cst` (le défaut) | toutes les opérations atomiques du programme se rangent dans **un seul ordre**, le même pour tous les threads |
+  | `release` (écriture) | publie tout ce que ce thread a écrit **avant** |
+  | `acquire` (lecture) | voit tout ce qui a été publié par l'écriture `release` dont elle lit la valeur |
+  | `acq_rel` (lecture-modification-écriture) | les deux à la fois |
+  | `relaxed` | **aucune** : l'opération est atomique, c'est tout |
+
+  **La paire `release` / `acquire`.** C'est le schéma de la **publication** : un thread prépare des données
+  ordinaires, puis lève un drapeau.
+
+  ```cpp
+  int donnees = 0;
+  std::atomic<bool> pret{false};
+
+  void producteur() {
+      donnees = 42;                                    // écriture ordinaire
+      pret.store(true, std::memory_order_release);     // publie ce qui précède
+  }
+
+  void consommateur() {
+      while (!pret.load(std::memory_order_acquire)) {}
+      // ici, donnees vaut 42 à coup sûr
+  }
+  ```
+
+  Avec `relaxed` des deux côtés, le consommateur pourrait voir le drapeau levé **sans** voir `donnees = 42` : une
+  course aux données.
+
+  **`relaxed`.** Il convient à une valeur **isolée**, dont rien d'autre ne dépend : un compteur de statistiques
+  qu'on lit à la fin, par exemple. Dès qu'une autre donnée doit être cohérente avec la valeur lue, il ne suffit
+  plus.
+
+  **`seq_cst`.** Le plus simple à raisonner : le programme se comporte comme si les opérations atomiques
+  s'entrelaçaient une par une. Il coûte une barrière mémoire sur les écritures, surtout sensible sur x86.
+
+  **Pourquoi les bugs se cachent.** Les processeurs x86 ordonnent fortement la mémoire : un code faux avec
+  `relaxed` y fonctionne souvent. Sur ARM, moins strict, il casse. Tester sur sa machine ne prouve donc rien.
+
+  **La règle.**
+
+  1. Garder **`seq_cst`**, le défaut.
+  2. N'en changer que si un **profil** montre que cette opération compte.
+  3. Alors, s'en tenir aux schémas connus (compteur `relaxed`, publication `release`/`acquire`), et faire relire.
+
+  **En entretien** : « L'ordre mémoire ne touche pas à l'atomicité, mais à ce qu'un thread peut déduire des autres
+  écritures. `seq_cst` par défaut donne un ordre global ; `release` et `acquire` suffisent à publier des données ;
+  `relaxed` ne garantit rien d'autre que l'atomicité. Je garde le défaut tant qu'une mesure ne m'en fait pas
+  sortir. »
+cards:
+  - key: role
+    format: course
+    question: "Que règle l'argument `std::memory_order` d'une opération atomique ?"
+    choices:
+      - {text: "Les garanties d'ordre que l'opération donne aux autres threads, pas son atomicité", correct: true}
+      - {text: "Le nombre d'octets que l'opération lit ou écrit en une seule fois", correct: false}
+      - {text: "La priorité du thread qui exécute l'opération par rapport aux autres", correct: false}
+      - {text: "L'atomicité de l'opération, qui disparaît avec les ordres les plus faibles", correct: false}
+    answer: "L'opération reste indivisible avec tous les ordres. L'argument dit ce que les autres threads peuvent conclure sur les écritures voisines."
+  - key: defaut
+    format: course
+    question: "Quel ordre mémoire s'applique quand on n'en précise aucun ?"
+    choices:
+      - {text: "`std::memory_order_seq_cst`, le plus strict", correct: true}
+      - {text: "`std::memory_order_relaxed`, le plus rapide", correct: false}
+      - {text: "`std::memory_order_acquire`, pour les lectures", correct: false}
+      - {text: "Aucun : l'argument est obligatoire", correct: false}
+    answer: "Le défaut est le plus sûr : toutes les opérations atomiques s'ordonnent dans une seule suite, commune à tous les threads."
+  - key: release-acquire
+    format: course
+    question: "Que garantit une écriture `release` lue par une lecture `acquire` ?"
+    choices:
+      - {text: "Le lecteur voit tout ce que l'écrivain avait écrit avant son écriture `release`", correct: true}
+      - {text: "Le lecteur attend que l'écrivain ait terminé sa fonction", correct: false}
+      - {text: "Le lecteur et l'écrivain s'exécutent sur le même cœur", correct: false}
+      - {text: "Le lecteur obtient un verrou que l'écrivain vient de relâcher", correct: false}
+    answer: "C'est le schéma de la publication : on prépare des données ordinaires, puis on lève un drapeau en `release`. Qui lit le drapeau en `acquire` voit les données prêtes."
+  - key: relaxed
+    format: course
+    question: "Dans quel cas `std::memory_order_relaxed` convient-il ?"
+    choices:
+      - {text: "Un compteur isolé, dont aucune autre donnée ne dépend", correct: true}
+      - {text: "Un drapeau qui annonce que d'autres données sont prêtes", correct: false}
+      - {text: "Un pointeur vers un objet qu'un autre thread vient de construire", correct: false}
+      - {text: "Un verrou écrit à la main avec un booléen atomique", correct: false}
+    answer: "`relaxed` ne garantit que l'atomicité. Dès qu'une autre donnée doit être vue cohérente avec la valeur lue, il faut au moins `release` et `acquire`."
+  - key: vf-atomicite
+    format: true-false
+    question: "Avec `std::memory_order_relaxed`, un `fetch_add` peut perdre une incrémentation."
+    truth: false
+    answer: L'opération reste atomique. Seules les garanties d'ordre avec les autres accès mémoire sont relâchées.
+  - key: vf-x86
+    format: true-false
+    question: "Un code qui fonctionne sur x86 avec `relaxed` est donc correct sur toutes les architectures."
+    truth: false
+    answer: Le x86 ordonne fortement la mémoire et masque beaucoup de fautes. Sur ARM, le même code peut échouer.
+  - key: vf-seq-cst
+    format: true-false
+    question: "`seq_cst` donne à toutes les opérations atomiques un ordre unique, identique pour tous les threads."
+    truth: true
+    answer: C'est ce qui le rend simple à raisonner, et c'est pourquoi il est le défaut.
+  - key: vf-mesure
+    format: true-false
+    question: "On affaiblit l'ordre mémoire d'une opération seulement quand une mesure en montre l'intérêt."
+    truth: true
+    answer: Le gain est souvent faible, et le risque d'une faute invisible est grand.
+  - key: qcm-publication
+    format: multiple-choice
+    question: "Un thread écrit des données, puis lève un drapeau atomique. Quel ordre met-il sur l'écriture du drapeau, au minimum ?"
+    choices:
+      - {text: "`std::memory_order_release`", correct: true}
+      - {text: "`std::memory_order_relaxed`", correct: false}
+      - {text: "`std::memory_order_acquire`", correct: false}
+      - {text: "`std::memory_order_consume`", correct: false}
+    answer: "`release` publie les écritures qui précèdent. Le lecteur lira le drapeau en `acquire`."
+  - key: qcm-lecture
+    format: multiple-choice
+    question: "Quel ordre met le thread qui lit le drapeau, pour voir les données publiées ?"
+    choices:
+      - {text: "`std::memory_order_acquire`", correct: true}
+      - {text: "`std::memory_order_release`", correct: false}
+      - {text: "`std::memory_order_relaxed`", correct: false}
+      - {text: "`std::memory_order_acq_rel`", correct: false}
+    answer: "Une lecture se fait en `acquire`. `release` vaut pour une écriture, `acq_rel` pour une opération qui lit et écrit, comme `fetch_add`."
+  - key: qcm-compteur
+    format: multiple-choice
+    question: "Un compteur de requêtes n'est lu qu'à l'arrêt du programme. Quel ordre suffit pour `fetch_add` ?"
+    choices:
+      - {text: "`std::memory_order_relaxed`", correct: true}
+      - {text: "`std::memory_order_seq_cst`, obligatoirement", correct: false}
+      - {text: "`std::memory_order_acquire`", correct: false}
+      - {text: "`std::memory_order_release`", correct: false}
+    answer: "Aucune autre donnée ne dépend du compteur : l'atomicité suffit. C'est l'usage type de `relaxed`."
+  - key: qcm-cout
+    format: multiple-choice
+    question: "Où `seq_cst` coûte-t-il le plus cher, sur x86 ?"
+    choices:
+      - {text: "Sur les écritures, qui posent une barrière mémoire", correct: true}
+      - {text: "Sur les lectures, qui prennent un verrou", correct: false}
+      - {text: "Sur la construction de la variable atomique", correct: false}
+      - {text: "Nulle part : il est gratuit sur toutes les machines", correct: false}
+    answer: "Une écriture `seq_cst` doit vider le tampon d'écriture du processeur. Les lectures, elles, sont de simples lectures sur x86."
+  - key: situation-drapeau
+    format: scenario
+    question: |-
+      Un thread remplit une structure, puis fait `pret.store(true, std::memory_order_relaxed)`. Un autre attend
+      `pret.load(std::memory_order_relaxed)`, puis lit la structure, et y trouve parfois des champs vides, sur un
+      serveur ARM seulement. Que proposes-tu ?
+    choices:
+      - {text: "`release` sur l'écriture et `acquire` sur la lecture, ou simplement l'ordre par défaut", correct: true}
+      - {text: "Une pause d'une milliseconde après la lecture du drapeau", correct: false}
+      - {text: "Le mot-clé `volatile` sur les champs de la structure", correct: false}
+      - {text: "Deux lectures successives du drapeau avant de lire la structure", correct: false}
+    answer: |-
+      `relaxed` ne relie pas le drapeau aux écritures qui le précèdent : le lecteur peut voir `true` avant les
+      champs. La paire `release`/`acquire` établit ce lien. Le x86 masquait la faute.
+  - key: situation-optimisation
+    format: scenario
+    question: |-
+      Un collègue veut passer toutes les opérations atomiques du projet en `relaxed`, « pour les performances ».
+      Aucune mesure n'a été faite. Que réponds-tu ?
+    choices:
+      - {text: "De garder `seq_cst`, et de ne toucher qu'aux opérations qu'un profil désigne", correct: true}
+      - {text: "De le faire : `relaxed` est toujours correct, puisque l'opération reste atomique", correct: false}
+      - {text: "De le faire seulement pour les drapeaux, jamais pour les compteurs", correct: false}
+      - {text: "De remplacer plutôt tous les atomiques par des variables `volatile`", correct: false}
+    answer: |-
+      L'atomicité ne suffit pas quand d'autres données dépendent de la valeur. Le gain est rarement mesurable, et
+      la faute introduite ne se voit que sur certaines machines, de temps en temps.
+  - key: situation-statistiques
+    format: scenario
+    question: |-
+      Un serveur incrémente un compteur de requêtes des millions de fois par seconde, depuis tous ses threads. Le
+      compteur n'est lu que par un tableau de bord, qui tolère une valeur légèrement en retard. Le profil montre le
+      coût de ces incrémentations. Que proposes-tu ?
+    choices:
+      - {text: "`fetch_add(1, std::memory_order_relaxed)` : rien d'autre ne dépend de ce compteur", correct: true}
+      - {text: "Un `int` ordinaire, sans atomique : une valeur approchée suffit", correct: false}
+      - {text: "Un `std::mutex` autour de chaque incrémentation", correct: false}
+      - {text: "`fetch_add(1, std::memory_order_acquire)`, plus rapide que le défaut", correct: false}
+    answer: |-
+      Le compteur est isolé : aucune incrémentation ne se perd, et aucun autre état ne doit être cohérent avec lui.
+      Un `int` ordinaire serait une course aux données, donc un comportement indéfini.
+  - key: situation-revue
+    format: scenario
+    question: |-
+      En revue de code, tu lis un verrou écrit à la main : `while (occupe.exchange(true,
+      std::memory_order_relaxed)) {}`, puis `occupe.store(false, std::memory_order_relaxed)` pour le relâcher. Que
+      dis-tu ?
+    choices:
+      - {text: "Que le verrou doit publier la section critique : `acquire` à la prise, `release` au relâchement", correct: true}
+      - {text: "Que `relaxed` suffit, puisque `exchange` est atomique", correct: false}
+      - {text: "Que `exchange` doit être remplacé par deux appels, `load` puis `store`", correct: false}
+      - {text: "Que le verrou doit être déclaré `volatile` plutôt qu'atomique", correct: false}
+    answer: |-
+      Un verrou sert à ce que le thread suivant voie les écritures du précédent. Avec `relaxed`, l'exclusion
+      mutuelle tient, mais pas cette visibilité. Mieux encore : un `std::mutex`.
+  - key: definition-seq-cst
+    format: definition
+    question: "Que veut dire « séquentiellement cohérent » (`seq_cst`) ?"
+    choices:
+      - {text: "Que les opérations atomiques se rangent dans un seul ordre, vu par tous les threads", correct: true}
+      - {text: "Que les threads s'exécutent l'un après l'autre, jamais ensemble", correct: false}
+      - {text: "Que chaque thread voit son propre ordre des opérations", correct: false}
+      - {text: "Que les opérations s'exécutent dans l'ordre du code source", correct: false}
+    answer: "Le programme se comporte comme si les opérations atomiques s'entrelaçaient une à une."
+  - key: definition-barriere
+    format: definition
+    question: "Qu'est-ce qu'une barrière mémoire ?"
+    choices:
+      - {text: "Une instruction qui interdit au processeur de réordonner les accès mémoire", correct: true}
+      - {text: "Une zone de mémoire interdite, placée après un tableau", correct: false}
+      - {text: "Un verrou pris par le système sur une page de mémoire", correct: false}
+      - {text: "Une limite à la mémoire qu'un thread peut allouer", correct: false}
+    answer: "Les ordres mémoire forts se traduisent, selon l'architecture, par de telles instructions."
+  - key: definition-happens-before
+    format: definition
+    question: "Que désigne la relation « se produit avant » (happens-before) entre deux opérations ?"
+    choices:
+      - {text: "La garantie que la seconde voit les effets de la première", correct: true}
+      - {text: "Le fait que la première figure plus haut dans le fichier source", correct: false}
+      - {text: "Le fait que la première ait duré moins longtemps", correct: false}
+      - {text: "La priorité du thread de la première sur celui de la seconde", correct: false}
+    answer: "Un `join`, un mutex, une paire `release`/`acquire` créent cette relation. Sans elle, deux accès dont une écriture forment une course aux données."
+  - key: definition-relaxed
+    format: definition
+    question: "Que garantit `std::memory_order_relaxed` ?"
+    choices:
+      - {text: "L'atomicité de l'opération, et rien sur l'ordre avec les autres accès", correct: true}
+      - {text: "Un ordre global de toutes les opérations atomiques", correct: false}
+      - {text: "La visibilité des écritures faites avant par le même thread", correct: false}
+      - {text: "L'absence de toute attente pour le thread appelant", correct: false}
+    answer: "C'est l'ordre le plus faible : la valeur lue est une valeur qui a été écrite, sans plus."
+  - key: bug-publication-relaxed
+    format: bug-fix
+    question: |-
+      Ce programme publie une donnée ordinaire derrière un drapeau en `relaxed`. Le lecteur peut voir le drapeau
+      sans la donnée : c'est une course aux données. Quelle correction est la bonne ?
+      ```cpp
+      #include <atomic>
+      #include <print>
+      #include <thread>
+
+      int main() {
+          int donnees = 0;
+          std::atomic<bool> pret{false};
+          std::thread t{[&] {
+              donnees = 42;
+              pret.store(true, std::memory_order_relaxed);
+          }};
+          while (!pret.load(std::memory_order_relaxed)) {
+              std::this_thread::yield();
+          }
+          std::println("{}", donnees);
+          t.join();
+      }
+      ```
+    choices:
+      - {text: "Écrire le drapeau en `release` et le lire en `acquire`", correct: true}
+      - {text: "Écrire le drapeau en `acquire` et le lire en `release`", correct: false}
+      - {text: "Déclarer `donnees` avec le mot-clé `volatile`", correct: false}
+      - {text: "Écrire le drapeau avant d'affecter `donnees`", correct: false}
+    answer: |-
+      ```cpp
+      pret.store(true, std::memory_order_release);
+      // ...
+      while (!pret.load(std::memory_order_acquire)) {
+      ```
+      `release` publie `donnees = 42` ; `acquire` garantit que le lecteur la voit. Laisser l'ordre par défaut
+      conviendrait aussi.
+  - key: bug-ordre-inverse
+    format: bug-fix
+    question: |-
+      Le compilateur accepte ce code sans rien dire, mais `memory_order_release` n'est pas permis pour une
+      lecture. Quelle correction est la bonne ?
+      ```cpp
+      #include <atomic>
+      #include <print>
+
+      int main() {
+          std::atomic<int> valeur{5};
+          std::println("{}", valeur.load(std::memory_order_release));
+      }
+      ```
+    choices:
+      - {text: "Lire avec `std::memory_order_acquire`", correct: true}
+      - {text: "Lire avec `std::memory_order_acq_rel`", correct: false}
+      - {text: "Lire avec `valeur.store(std::memory_order_release)`", correct: false}
+      - {text: "Lire avec `valeur.exchange(std::memory_order_release)`", correct: false}
+    answer: |-
+      ```cpp
+      valeur.load(std::memory_order_acquire)
+      ```
+      Un `load` accepte `relaxed`, `acquire`, `consume` ou `seq_cst`. `release` et `acq_rel` supposent une
+      écriture : les passer à `load` est un comportement indéfini.
+  - key: bug-drapeau-avant-donnees
+    format: bug-fix
+    question: |-
+      Le lecteur peut voir `0` au lieu de `42`, malgré les bons ordres mémoire. Quelle correction est la bonne ?
+      ```cpp
+      #include <atomic>
+      #include <print>
+      #include <thread>
+
+      int main() {
+          int donnees = 0;
+          std::atomic<bool> pret{false};
+          std::thread t{[&] {
+              pret.store(true, std::memory_order_release);
+              donnees = 42;
+          }};
+          while (!pret.load(std::memory_order_acquire)) {
+              std::this_thread::yield();
+          }
+          std::println("{}", donnees);
+          t.join();
+      }
+      ```
+    choices:
+      - {text: "Affecter `donnees` avant de lever le drapeau", correct: true}
+      - {text: "Lever le drapeau deux fois, avant et après l'affectation", correct: false}
+      - {text: "Remplacer `release` et `acquire` par `relaxed`", correct: false}
+      - {text: "Lire le drapeau en `seq_cst` au lieu d'`acquire`", correct: false}
+    answer: |-
+      ```cpp
+      donnees = 42;
+      pret.store(true, std::memory_order_release);
+      ```
+      `release` ne publie que ce qui a été écrit **avant** lui. Ici, le drapeau annonce une donnée pas encore
+      écrite : le lecteur la lit pendant que l'autre thread l'écrit.
+  - key: bug-deux-relaxed
+    format: bug-fix
+    question: |-
+      Ce code veut garantir que les deux threads ne voient pas tous les deux `0`. Avec `relaxed`, ce résultat reste
+      possible. Quelle correction est la bonne ?
+      ```cpp
+      #include <atomic>
+      #include <print>
+      #include <thread>
+
+      int main() {
+          std::atomic<int> x{0};
+          std::atomic<int> y{0};
+          int a = -1;
+          int b = -1;
+          std::thread t{[&] {
+              x.store(1, std::memory_order_relaxed);
+              a = y.load(std::memory_order_relaxed);
+          }};
+          std::thread u{[&] {
+              y.store(1, std::memory_order_relaxed);
+              b = x.load(std::memory_order_relaxed);
+          }};
+          t.join();
+          u.join();
+          std::println("{}", a + b >= 0);
+      }
+      ```
+    choices:
+      - {text: "Utiliser l'ordre par défaut, `seq_cst`, pour les quatre opérations", correct: true}
+      - {text: "Utiliser `release` pour les écritures et `acquire` pour les lectures", correct: false}
+      - {text: "Utiliser `relaxed` pour les écritures seulement", correct: false}
+      - {text: "Déclarer `a` et `b` comme des `std::atomic<int>`", correct: false}
+    answer: |-
+      ```cpp
+      x.store(1);
+      a = y.load();
+      ```
+      Chaque thread écrit une variable, puis lit l'autre. Seul un ordre global, `seq_cst`, interdit que les deux
+      lectures précèdent les deux écritures. `release` et `acquire` n'ordonnent pas des variables différentes.

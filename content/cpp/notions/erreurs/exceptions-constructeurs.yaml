@@ -1,0 +1,548 @@
+notion: exceptions-constructeurs
+lesson: |-
+  Un constructeur n'a pas de valeur de retour : pour dire qu'il a échoué, il **lance une exception**. Un
+  destructeur, à l'inverse, ne doit **jamais** en laisser sortir. Les deux règles découlent de la même idée : un
+  objet existe entièrement, ou pas du tout.
+
+  **Quand un constructeur lance.**
+
+  - L'objet **n'a jamais existé** : son **destructeur n'est pas appelé**.
+  - Les **classes de base** et les **membres déjà construits** sont détruits, dans l'ordre inverse de leur
+    construction.
+  - Si l'objet était créé par `new`, la mémoire est **rendue automatiquement**.
+
+  ```cpp
+  class Session {
+  public:
+      Session() : journal_{"session.log"}, connexion_{"serveur"} {}   // si connexion_ lance, journal_ est détruit
+  private:
+      Journal journal_;
+      Connexion connexion_;
+  };
+  ```
+
+  D'où la règle : **chaque ressource dans son propre membre RAII**. Un pointeur brut acquis dans le corps du
+  constructeur fuit si une ligne suivante lance, puisque le destructeur ne passera pas.
+
+  **Lancer plutôt qu'un objet « zombie ».** L'autre façon de faire, un constructeur qui n'échoue jamais suivi d'un
+  `init()` ou d'un `est_valide()` à tester, laisse circuler des objets à moitié construits, que chaque fonction
+  doit vérifier. Un constructeur qui lance garantit l'**invariant** : si l'objet existe, il est utilisable.
+
+  **Le bloc `try` de fonction.** Un `try` dans le corps du constructeur ne voit pas les exceptions de la **liste
+  d'initialisation**, qui s'exécute avant. Pour les voir, on écrit le `try` avant les deux-points :
+
+  ```cpp
+  Session::Session()
+  try : journal_{"session.log"}, connexion_{"serveur"} {
+  } catch (const std::exception& e) {
+      journaliser(e.what());
+  }   // l'exception est relancée ici, automatiquement
+  ```
+
+  On peut y journaliser ou **traduire** l'exception, mais **pas l'avaler** : à la fin du `catch`, elle est relancée
+  d'office. Un objet dont un membre n'a pas pu être construit ne peut pas exister.
+
+  **Quand un destructeur lance.**
+
+  - Un destructeur est **`noexcept` par défaut** : une exception qui en sort appelle `std::terminate`.
+  - Même déclaré `noexcept(false)`, s'il lance **pendant le déroulement de la pile** d'une autre exception, c'est
+    encore `std::terminate` : deux exceptions ne remontent pas ensemble.
+
+  Un destructeur qui appelle une opération faillible l'entoure donc d'un `try`/`catch`, et avale l'erreur (en la
+  journalisant). Pour que l'appelant puisse la traiter, la classe offre une fonction explicite, `fermer()`, à
+  appeler **avant** la destruction.
+
+  **L'ordre compte.** Un constructeur fait d'abord ce qui peut échouer, et **ensuite** ce qui a un effet visible à
+  l'extérieur (s'inscrire dans un registre, lancer un thread) : sinon, l'effet survit à un objet qui n'existe pas.
+
+  **En entretien** : « Un constructeur signale l'échec par une exception : le destructeur n'est pas appelé, mais
+  les membres déjà construits sont détruits, d'où l'intérêt de membres RAII. Un destructeur ne lance pas : il est
+  `noexcept`, et une exception pendant le déroulement de la pile termine le programme. »
+cards:
+  - key: echec-constructeur
+    format: course
+    question: "Comment un constructeur signale-t-il qu'il ne peut pas construire son objet ?"
+    choices:
+      - {text: "En lançant une exception : il n'a pas de valeur de retour", correct: true}
+      - {text: "En renvoyant `false` à l'appelant, qui teste le résultat", correct: false}
+      - {text: "En renvoyant un pointeur nul à la place de l'objet", correct: false}
+      - {text: "En appelant lui-même le destructeur de l'objet", correct: false}
+    answer: "L'exception empêche l'objet d'exister. L'appelant ne peut pas se retrouver avec un objet à moitié construit."
+  - key: membres-detruits
+    format: course
+    question: "Un constructeur lance après l'initialisation de ses deux premiers membres sur trois. Qu'est-ce qui est détruit ?"
+    choices:
+      - {text: "Les deux membres construits, dans l'ordre inverse ; pas l'objet lui-même", correct: true}
+      - {text: "L'objet entier, par son destructeur, puis ses trois membres", correct: false}
+      - {text: "Rien : les deux membres restent en mémoire jusqu'à la fin du programme", correct: false}
+      - {text: "Les trois membres, y compris celui qui n'a pas été construit", correct: false}
+    answer: "Seul ce qui a été entièrement construit est détruit. Le destructeur de la classe n'est pas appelé : l'objet n'a jamais existé."
+  - key: try-de-fonction
+    format: course
+    question: "À quoi sert un bloc `try` de fonction sur un constructeur ?"
+    choices:
+      - {text: "À voir les exceptions de la liste d'initialisation, pour les journaliser ou les traduire", correct: true}
+      - {text: "À avaler les exceptions des membres, pour que l'objet soit construit quand même", correct: false}
+      - {text: "À rendre le constructeur `noexcept`, quel que soit son corps", correct: false}
+      - {text: "À appeler le destructeur de l'objet quand son constructeur échoue", correct: false}
+    answer: "Le `try` placé avant les deux-points couvre l'initialisation des membres et des bases. Mais à la fin de son `catch`, l'exception est relancée d'office."
+  - key: destructeur-lance
+    format: course
+    question: "Que se passe-t-il quand un destructeur lance pendant qu'une autre exception déroule la pile ?"
+    choices:
+      - {text: "Le programme appelle `std::terminate`", correct: true}
+      - {text: "La seconde exception remplace la première", correct: false}
+      - {text: "La seconde exception est ignorée sans bruit", correct: false}
+      - {text: "Les deux exceptions remontent l'une après l'autre", correct: false}
+    answer: "Deux exceptions ne peuvent pas se propager en même temps. C'est vrai même pour un destructeur déclaré `noexcept(false)`."
+  - key: vf-destructeur-appele
+    format: true-false
+    question: "Quand le constructeur d'une classe lance, le destructeur de cette même classe est appelé."
+    truth: false
+    answer: "L'objet n'a jamais fini d'être construit : seuls ses membres et ses classes de base déjà construits sont détruits."
+  - key: vf-new
+    format: true-false
+    question: "Si le constructeur lance dans `new Session{}`, la mémoire allouée par `new` est rendue automatiquement."
+    truth: true
+    answer: "Le compilateur appelle l'`operator delete` correspondant. Il n'y a pas de fuite du bloc lui-même."
+  - key: vf-avaler
+    format: true-false
+    question: "Le `catch` d'un bloc `try` de fonction peut empêcher l'exception d'un membre de sortir du constructeur."
+    truth: false
+    answer: "S'il ne lance rien lui-même, l'exception d'origine est relancée à la fin du `catch`. Un objet sans tous ses membres ne peut pas exister."
+  - key: vf-noexcept-false
+    format: true-false
+    question: "Un destructeur déclaré `noexcept(false)` peut laisser sortir une exception sans risque, dans tous les cas."
+    truth: false
+    answer: "Hors de tout déroulement de pile, l'exception se propage. Mais s'il lance pendant qu'une autre exception remonte, le programme est terminé."
+  - key: qcm-ressource
+    format: multiple-choice
+    question: "Un constructeur acquiert deux ressources, et la seconde acquisition peut lancer. Comment éviter que la première fuie ?"
+    choices:
+      - {text: "En confiant chaque ressource à un membre RAII", correct: true}
+      - {text: "En libérant la première dans le destructeur", correct: false}
+      - {text: "En déclarant le constructeur `noexcept`", correct: false}
+      - {text: "En acquérant la seconde avant la première", correct: false}
+    answer: "Un membre déjà construit est détruit quand le constructeur lance. Le destructeur de la classe, lui, ne sera pas appelé."
+  - key: qcm-zombie
+    format: multiple-choice
+    question: "Quel est le défaut d'un constructeur qui n'échoue jamais, suivi d'un `init()` à appeler ?"
+    choices:
+      - {text: "Des objets inutilisables circulent, et chaque fonction doit les tester", correct: true}
+      - {text: "L'objet est construit deux fois, ce qui double le coût", correct: false}
+      - {text: "La fonction `init()` ne peut pas accéder aux membres privés", correct: false}
+      - {text: "Le compilateur refuse une classe sans constructeur qui lance", correct: false}
+    answer: "C'est l'initialisation en deux temps. Entre le constructeur et `init()`, l'objet existe sans respecter son invariant."
+  - key: qcm-fermeture
+    format: multiple-choice
+    question: "La fermeture d'une ressource peut échouer, et l'appelant veut le savoir. Que proposes-tu ?"
+    choices:
+      - {text: "Une fonction `fermer()` qui signale l'échec, et un destructeur qui avale l'erreur", correct: true}
+      - {text: "Un destructeur déclaré `noexcept(false)`, qui lance en cas d'échec", correct: false}
+      - {text: "Un destructeur qui appelle `std::terminate` en cas d'échec", correct: false}
+      - {text: "Un destructeur qui renvoie un booléen à l'appelant", correct: false}
+    answer: "Celui qui tient à l'erreur appelle `fermer()` lui-même. Le destructeur reste un filet, qui ne lance pas. C'est le modèle de `std::ofstream::close`."
+  - key: qcm-uncaught
+    format: multiple-choice
+    question: "Quelle fonction dit combien d'exceptions sont en cours de propagation ?"
+    choices:
+      - {text: "`std::uncaught_exceptions()`", correct: true}
+      - {text: "`std::current_exception()`", correct: false}
+      - {text: "`std::terminate()`", correct: false}
+      - {text: "`std::rethrow_exception()`", correct: false}
+    answer: "Un destructeur peut ainsi savoir s'il s'exécute pendant un déroulement de pile. `std::current_exception()` donne l'exception en cours de traitement dans un `catch`."
+  - key: code-ordre
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+      #include <stdexcept>
+
+      struct A {
+          A() { std::print("A "); }
+          ~A() { std::print("~A "); }
+      };
+
+      struct B {
+          B() { std::print("B "); }
+          ~B() { std::print("~B "); }
+      };
+
+      struct C {
+          A a;
+          B b;
+          C() {
+              std::print("C ");
+              throw std::runtime_error{"panne"};
+          }
+          ~C() { std::print("~C "); }
+      };
+
+      int main() {
+          try {
+              C c;
+          } catch (const std::runtime_error&) {
+              std::println("catch");
+          }
+      }
+      ```
+    choices:
+      - {text: "`A B C ~B ~A catch`", correct: true}
+      - {text: "`A B C ~C ~B ~A catch`", correct: false}
+      - {text: "`A B C ~A ~B catch`", correct: false}
+      - {text: "`A B C catch`", correct: false}
+    answer: "`A B C ~B ~A catch` : les membres sont construits, puis le corps lance. Ils sont détruits dans l'ordre inverse ; `~C` n'est pas appelé."
+    check:
+      output: "A B C ~B ~A catch"
+  - key: code-membre-qui-lance
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+      #include <stdexcept>
+
+      struct A {
+          A() { std::print("A "); }
+          ~A() { std::print("~A "); }
+      };
+
+      struct Lance {
+          Lance() { throw std::runtime_error{"panne"}; }
+      };
+
+      struct B {
+          B() { std::print("B "); }
+          ~B() { std::print("~B "); }
+      };
+
+      struct Objet {
+          A a;
+          Lance l;
+          B b;
+      };
+
+      int main() {
+          try {
+              Objet o;
+          } catch (const std::runtime_error&) {
+              std::println("catch");
+          }
+      }
+      ```
+    choices:
+      - {text: "`A ~A catch`", correct: true}
+      - {text: "`A B ~B ~A catch`", correct: false}
+      - {text: "`A catch`", correct: false}
+      - {text: "`A ~B ~A catch`", correct: false}
+    answer: "`A ~A catch` : le deuxième membre lance. Le troisième n'est jamais construit ; seul le premier, déjà construit, est détruit."
+    check:
+      output: "A ~A catch"
+  - key: code-try-de-fonction
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+      #include <stdexcept>
+
+      struct Membre {
+          Membre() { throw std::runtime_error{"membre"}; }
+      };
+
+      struct Objet {
+          Membre m;
+          Objet() try : m{} {
+              std::print("corps ");
+          } catch (const std::exception& e) {
+              std::print("{} ", e.what());
+          }
+      };
+
+      int main() {
+          try {
+              Objet o;
+              std::print("construit ");
+          } catch (const std::exception&) {
+              std::println("relancée");
+          }
+      }
+      ```
+    choices:
+      - {text: "`membre relancée`", correct: true}
+      - {text: "`membre construit`", correct: false}
+      - {text: "`corps membre relancée`", correct: false}
+      - {text: "`relancée`", correct: false}
+    answer: "`membre relancée` : le `catch` du constructeur voit l'exception du membre, puis elle est relancée d'office. L'objet n'est pas construit."
+    check:
+      output: "membre relancée"
+  - key: code-vivants
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+      #include <stdexcept>
+
+      struct Piece {
+          static inline int construites = 0;
+          static inline int vivantes = 0;
+          explicit Piece(int numero) {
+              if (numero == 3) {
+                  throw std::runtime_error{"défaut"};
+              }
+              ++construites;
+              ++vivantes;
+          }
+          ~Piece() { --vivantes; }
+      };
+
+      int main() {
+          try {
+              Piece a{1};
+              Piece b{2};
+              Piece c{3};
+              Piece d{4};
+          } catch (const std::runtime_error&) {
+              std::println("{} {}", Piece::construites, Piece::vivantes);
+          }
+      }
+      ```
+    choices:
+      - {text: "`2 0`", correct: true}
+      - {text: "`3 0`", correct: false}
+      - {text: "`2 2`", correct: false}
+      - {text: "`2 -1`", correct: false}
+    answer: "`2 0` : deux pièces sont construites, la troisième lance. Son destructeur n'est pas appelé ; ceux des deux premières le sont, avant le `catch`."
+    check:
+      output: "2 0"
+  - key: bug-objet-zombie
+    format: bug-fix
+    question: |-
+      Ce programme devrait afficher `capteur invalide`. Il affiche `-5` : un capteur au numéro négatif a été créé
+      et utilisé. Quelle correction est la bonne ?
+      ```cpp
+      #include <print>
+      #include <stdexcept>
+
+      class Capteur {
+      public:
+          explicit Capteur(int numero) : numero_{numero}, valide_{numero >= 0} {}
+          bool valide() const { return valide_; }
+          int numero() const { return numero_; }
+
+      private:
+          int numero_;
+          bool valide_;
+      };
+
+      int main() {
+          try {
+              const Capteur capteur{-5};
+              std::println("{}", capteur.numero());
+          } catch (const std::invalid_argument&) {
+              std::println("capteur invalide");
+          }
+      }
+      ```
+    choices:
+      - {text: "Lancer `std::invalid_argument` dans le constructeur quand le numéro est négatif", correct: true}
+      - {text: "Renvoyer `false` depuis le constructeur quand le numéro est négatif", correct: false}
+      - {text: "Déclarer le constructeur `noexcept`, pour qu'il refuse un numéro négatif", correct: false}
+      - {text: "Appeler le destructeur dans le constructeur quand le numéro est négatif", correct: false}
+    answer: |-
+      ```cpp
+      explicit Capteur(int numero) : numero_{numero} {
+          if (numero < 0) {
+              throw std::invalid_argument{"numéro négatif"};
+          }
+      }
+      ```
+      Un drapeau `valide_` laisse exister un objet inutilisable, que l'appelant oublie de tester. En lançant, le
+      constructeur garantit qu'un capteur qui existe est valide.
+  - key: bug-destructeur-faillible
+    format: bug-fix
+    question: |-
+      Ce programme s'arrête sur « terminate called after throwing an instance of 'std::runtime_error' », malgré
+      le `catch`. Quelle correction est la bonne ?
+      ```cpp
+      #include <print>
+      #include <stdexcept>
+
+      class Connexion {
+      public:
+          void fermer() { throw std::runtime_error{"réseau coupé"}; }
+          ~Connexion() { fermer(); }
+      };
+
+      int main() {
+          try {
+              Connexion connexion;
+          } catch (const std::runtime_error&) {
+              std::println("erreur");
+          }
+      }
+      ```
+    choices:
+      - {text: "Entourer l'appel de `fermer()` d'un `try`/`catch` dans le destructeur", correct: true}
+      - {text: "Attraper `const std::exception&` à la place de `std::runtime_error`", correct: false}
+      - {text: "Déclarer la fonction `fermer()` avec le mot-clé `noexcept`", correct: false}
+      - {text: "Déclarer la variable `connexion` avant le bloc `try`", correct: false}
+    answer: |-
+      ```cpp
+      ~Connexion() {
+          try {
+              fermer();
+          } catch (const std::exception&) {
+              // journaliser, sans relancer
+          }
+      }
+      ```
+      Un destructeur est `noexcept` : l'exception qui en sort termine le programme, quel que soit le `catch`
+      autour. Il doit attraper lui-même ce que ses appels peuvent lancer.
+  - key: bug-inscription-prematuree
+    format: bug-fix
+    question: |-
+      Ce programme devrait afficher `0` : le capteur refusé ne devrait pas rester dans le registre. Il affiche `1`,
+      et le registre garde un pointeur vers un objet qui n'existe pas. Quelle correction est la bonne ?
+      ```cpp
+      #include <print>
+      #include <stdexcept>
+      #include <vector>
+
+      class Capteur;
+      std::vector<const Capteur*> registre;
+
+      class Capteur {
+      public:
+          explicit Capteur(int numero) {
+              registre.push_back(this);
+              if (numero < 0) {
+                  throw std::invalid_argument{"numéro négatif"};
+              }
+          }
+      };
+
+      int main() {
+          try {
+              const Capteur capteur{-1};
+          } catch (const std::invalid_argument&) {
+          }
+          std::println("{}", registre.size());
+      }
+      ```
+    choices:
+      - {text: "Vérifier le numéro d'abord, et n'inscrire le capteur qu'à la fin du constructeur", correct: true}
+      - {text: "Retirer le capteur du registre dans le destructeur de la classe `Capteur`", correct: false}
+      - {text: "Déclarer le registre comme un `std::vector<Capteur>` au lieu de pointeurs", correct: false}
+      - {text: "Attraper l'exception avec `catch (...)` au lieu de `std::invalid_argument`", correct: false}
+    answer: |-
+      ```cpp
+      explicit Capteur(int numero) {
+          if (numero < 0) {
+              throw std::invalid_argument{"numéro négatif"};
+          }
+          registre.push_back(this);
+      }
+      ```
+      Le destructeur n'est pas appelé quand le constructeur lance : il ne retirerait rien. Un constructeur fait
+      d'abord ce qui peut échouer, puis ce qui se voit de l'extérieur.
+  - key: bug-try-dans-le-corps
+    format: bug-fix
+    question: |-
+      L'auteur voulait journaliser l'échec du membre, et afficher `journal : membre`. Le `try` du corps ne voit
+      rien : le programme affiche seulement `échec`. Quelle correction est la bonne ?
+      ```cpp
+      #include <print>
+      #include <stdexcept>
+
+      struct Membre {
+          Membre() { throw std::runtime_error{"membre"}; }
+      };
+
+      struct Objet {
+          Membre m;
+          Objet() {
+              try {
+              } catch (const std::exception& e) {
+                  std::println("journal : {}", e.what());
+                  throw;
+              }
+          }
+      };
+
+      int main() {
+          try {
+              Objet o;
+          } catch (const std::exception&) {
+              std::println("échec");
+          }
+      }
+      ```
+    choices:
+      - {text: "Écrire un bloc `try` de fonction : `Objet() try : m{} { } catch (...) { ... }`", correct: true}
+      - {text: "Déplacer la déclaration du membre `m` après le constructeur de `Objet`", correct: false}
+      - {text: "Écrire `m = Membre{};` dans le `try` du corps, sans rien changer d'autre", correct: false}
+      - {text: "Déclarer le constructeur de `Membre` avec le mot-clé `noexcept`", correct: false}
+    answer: |-
+      ```cpp
+      Objet() try : m{} {
+      } catch (const std::exception& e) {
+          std::println("journal : {}", e.what());
+      }
+      ```
+      Les membres sont construits avant l'entrée dans le corps : son `try` arrive trop tard. Le bloc `try` de
+      fonction couvre la liste d'initialisation, et relance l'exception à la fin de son `catch`.
+  - key: situation-fuite
+    format: scenario
+    question: |-
+      Le constructeur d'une classe ouvre un fichier avec `std::fopen`, puis alloue un tampon avec `new[]`, qui lance
+      parfois `std::bad_alloc`. Le destructeur ferme le fichier et libère le tampon. Des descripteurs de fichiers
+      fuient. Pourquoi ?
+    choices:
+      - {text: "Quand le constructeur lance, le destructeur n'est pas appelé : le fichier reste ouvert", correct: true}
+      - {text: "Le destructeur est appelé deux fois, et la seconde fermeture échoue", correct: false}
+      - {text: "`std::bad_alloc` ne peut pas être attrapée, donc rien n'est libéré", correct: false}
+      - {text: "`new[]` ferme les fichiers ouverts quand il manque de mémoire", correct: false}
+    answer: |-
+      Le nettoyage écrit dans le destructeur ne sert qu'aux objets entièrement construits. Avec un membre RAII pour
+      le fichier (un `std::unique_ptr` muni d'un destructeur sur mesure, ou un `std::ifstream`) et un `std::vector`
+      pour le tampon, chaque ressource déjà acquise est rendue.
+  - key: situation-init
+    format: scenario
+    question: |-
+      Une équipe interdit les exceptions dans les constructeurs : chaque classe a un `bool init()` à appeler après
+      la construction. Plusieurs bugs viennent d'objets utilisés sans `init()`. Sans changer la règle sur les
+      constructeurs, que proposes-tu ?
+    choices:
+      - {text: "Une fonction de fabrique qui construit, initialise, et renvoie un `std::optional` ou un `std::expected`", correct: true}
+      - {text: "Un commentaire en tête de chaque classe, qui rappelle d'appeler `init()` après la construction", correct: false}
+      - {text: "Un appel de `init()` dans le destructeur, pour les objets que personne n'a initialisés", correct: false}
+      - {text: "Un second constructeur vide, qui appelle `init()` et ignore son résultat", correct: false}
+    answer: |-
+      Avec un constructeur privé et une fabrique statique, l'appelant ne reçoit jamais d'objet non initialisé : il
+      obtient un objet valide, ou une erreur. L'invariant est de nouveau garanti par le type, sans exception.
+  - key: situation-flush
+    format: scenario
+    question: |-
+      Le destructeur d'une classe `Export` écrit la fin d'un fichier, ce qui peut échouer. Un collègue le déclare
+      `noexcept(false)` et y lance une exception. En production, le programme est parfois terminé brutalement.
+      Dans quel cas ?
+    choices:
+      - {text: "Quand l'`Export` est détruit pendant qu'une autre exception déroule la pile", correct: true}
+      - {text: "Quand l'`Export` est détruit à la fin normale de sa portée", correct: false}
+      - {text: "Quand l'`Export` est un membre d'une autre classe", correct: false}
+      - {text: "Quand l'`Export` est créé dans la fonction `main`", correct: false}
+    answer: |-
+      Tant qu'aucune exception n'est en cours, celle du destructeur se propage. Mais si une erreur fait déjà
+      quitter la fonction, la seconde exception appelle `std::terminate`. On offre un `terminer()` explicite, et le
+      destructeur ne lance pas.
+  - key: situation-entretien
+    format: scenario
+    question: |-
+      En entretien, on te demande : « Un constructeur a-t-il le droit de lancer une exception ? » Que réponds-tu ?
+    choices:
+      - {text: "Oui, c'est sa façon d'échouer : l'objet n'existe pas, et les membres déjà construits sont détruits", correct: true}
+      - {text: "Non : un constructeur est `noexcept` par défaut, comme un destructeur", correct: false}
+      - {text: "Oui, mais le destructeur est alors appelé sur l'objet à moitié construit", correct: false}
+      - {text: "Non : il doit renvoyer un code d'erreur, que l'appelant teste", correct: false}
+    answer: |-
+      C'est même la pratique recommandée : elle garantit qu'un objet qui existe respecte son invariant. La
+      condition pour que ce soit sûr : des membres qui gèrent chacun leur ressource.

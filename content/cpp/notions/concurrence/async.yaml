@@ -1,0 +1,494 @@
+notion: async
+lesson: |-
+  `std::async` (en-tête `<future>`) lance une fonction **en tâche de fond**, et renvoie un `std::future` par lequel
+  on récupère son **résultat**, ou son **exception**. C'est la façon la plus simple de lancer un calcul en
+  parallèle : ni thread à rejoindre, ni promesse à écrire.
+
+  ```cpp
+  std::future<int> futur = std::async(std::launch::async, calculer, 21);
+  // ... autre travail pendant ce temps ...
+  int resultat = futur.get();          // attend, puis rend le résultat
+  ```
+
+  Les arguments se passent comme à `std::thread` : copiés, ou par `std::ref`.
+
+  **Les politiques de lancement.** Le premier argument, facultatif, dit **comment** exécuter la fonction.
+
+  | Politique | Effet |
+  |---|---|
+  | `std::launch::async` | lance **tout de suite**, dans un **nouveau thread** |
+  | `std::launch::deferred` | ne lance **rien** : la fonction s'exécutera **au moment de `get()` ou `wait()`**, dans le thread qui les appelle |
+  | aucune (les deux) | l'implémentation **choisit** entre les deux |
+
+  **Sans politique, on ne sait pas.** La fonction peut tourner dans un autre thread, ou attendre le `get()`. Si
+  l'on veut du parallélisme, on écrit **`std::launch::async`**. Et une tâche différée dont on n'appelle jamais
+  `get()` **ne s'exécute jamais**.
+
+  **Les exceptions.** Une exception lancée par la fonction est rangée dans le futur, et **relancée par `get()`**.
+  Rien n'appelle `std::terminate`, contrairement à `std::thread`.
+
+  **Le destructeur qui attend.** Le futur renvoyé par `std::async` a une particularité : si la tâche a été lancée
+  avec la politique `async`, **son destructeur attend la fin de la tâche**. Conséquence, le piège classique :
+
+  ```cpp
+  std::async(std::launch::async, tache_a);     // futur temporaire, détruit à la fin de la ligne :
+  std::async(std::launch::async, tache_b);     // la ligne attend la fin de tache_a
+  ```
+
+  Ces deux tâches s'exécutent **l'une après l'autre**. Pour qu'elles tournent ensemble, on **garde** les futurs :
+
+  ```cpp
+  auto a = std::async(std::launch::async, tache_a);
+  auto b = std::async(std::launch::async, tache_b);
+  a.get();
+  b.get();
+  ```
+
+  **Les limites.**
+
+  - `std::launch::async` crée **un thread par appel** : pas de groupe de threads. Pour des milliers de petites
+    tâches, c'est trop cher.
+  - On ne peut **pas annuler** une tâche lancée.
+  - Les données partagées restent à synchroniser : `std::async` ne protège de rien.
+
+  **`std::async`, `std::thread` ou `std::jthread` ?**
+
+  | Besoin | Outil |
+  |---|---|
+  | Un calcul dont on veut le **résultat** | `std::async` |
+  | Une activité de fond, sans résultat, qu'on veut pouvoir **arrêter** | `std::jthread` |
+  | Beaucoup de petites tâches | un groupe de threads |
+
+  **En entretien** : « `std::async` lance une fonction et rend un futur ; `get()` donne le résultat ou relance
+  l'exception. Je précise `std::launch::async`, car sans politique l'exécution peut être différée jusqu'au
+  `get()`. Et je garde le futur : un futur temporaire bloque dans son destructeur. »
+cards:
+  - key: role
+    format: course
+    question: "Que renvoie `std::async(std::launch::async, calculer, 21)` ?"
+    choices:
+      - {text: "Un `std::future`, par lequel on récupérera le résultat de `calculer(21)`", correct: true}
+      - {text: "Le résultat de `calculer(21)`, une fois le calcul terminé", correct: false}
+      - {text: "Un `std::thread`, qu'il faudra rejoindre avec `join()`", correct: false}
+      - {text: "Un `std::promise`, dans lequel on déposera le résultat", correct: false}
+    answer: "L'appel revient tout de suite, avec un futur. `futur.get()` attend la fin du calcul, et rend sa valeur."
+  - key: politiques
+    format: course
+    question: "Quelle différence entre `std::launch::async` et `std::launch::deferred` ?"
+    choices:
+      - {text: "`async` lance tout de suite dans un nouveau thread ; `deferred` attend l'appel de `get()`", correct: true}
+      - {text: "`async` attend l'appel de `get()` ; `deferred` lance tout de suite dans un nouveau thread", correct: false}
+      - {text: "`async` lance dans un nouveau thread ; `deferred` lance dans un nouveau processus", correct: false}
+      - {text: "`async` rend un résultat ; `deferred` n'en rend jamais", correct: false}
+    answer: "Une tâche différée s'exécute dans le thread qui appelle `get()` ou `wait()`, à ce moment-là. Sans cet appel, elle ne s'exécute jamais."
+  - key: defaut
+    format: course
+    question: "Que se passe-t-il quand on appelle `std::async` sans préciser de politique ?"
+    choices:
+      - {text: "L'implémentation choisit : un nouveau thread, ou une exécution différée", correct: true}
+      - {text: "La fonction est toujours lancée dans un nouveau thread", correct: false}
+      - {text: "La fonction est toujours différée jusqu'à l'appel de `get()`", correct: false}
+      - {text: "Le compilateur refuse l'appel : la politique est obligatoire", correct: false}
+    answer: "La politique par défaut est `async | deferred`. Pour être sûr d'obtenir du parallélisme, on écrit `std::launch::async`."
+  - key: destructeur
+    format: course
+    question: "Que fait le destructeur du futur renvoyé par `std::async(std::launch::async, f)` ?"
+    choices:
+      - {text: "Il attend la fin de la tâche", correct: true}
+      - {text: "Il annule la tâche en cours", correct: false}
+      - {text: "Il détache la tâche, qui continue seule", correct: false}
+      - {text: "Il appelle `std::terminate`", correct: false}
+    answer: "C'est propre aux futurs de `std::async`. Un futur temporaire, non rangé dans une variable, bloque donc la ligne jusqu'à la fin de la tâche."
+  - key: vf-exception
+    format: true-false
+    question: "Une exception lancée dans la fonction passée à `std::async` est relancée par `get()`."
+    truth: true
+    answer: "Elle est rangée dans le futur. Avec `std::thread`, la même exception arrêterait le programme."
+  - key: vf-deferred-jamais
+    format: true-false
+    question: "Une tâche lancée avec `std::launch::deferred` s'exécute même si l'on n'appelle ni `get()` ni `wait()`."
+    truth: false
+    answer: "Elle ne s'exécute qu'à la demande. Sans `get()` ni `wait()`, elle n'est jamais lancée."
+  - key: vf-pool
+    format: true-false
+    question: "`std::async(std::launch::async, f)` réutilise les threads d'un groupe géré par la bibliothèque standard."
+    truth: false
+    answer: "Le standard exige un comportement « comme dans un nouveau thread ». Avec GCC, chaque appel crée un thread."
+  - key: vf-join
+    format: true-false
+    question: "Avec `std::async`, il n'y a pas de `join()` à appeler."
+    truth: true
+    answer: "Le futur s'en charge : `get()` attend le résultat, et à défaut le destructeur du futur attend la tâche."
+  - key: qcm-parallele
+    format: multiple-choice
+    question: "Quelle écriture garantit que `calculer` s'exécute dans un autre thread ?"
+    choices:
+      - {text: "`std::async(std::launch::async, calculer)`", correct: true}
+      - {text: "`std::async(calculer)`", correct: false}
+      - {text: "`std::async(std::launch::deferred, calculer)`", correct: false}
+      - {text: "`std::async(std::launch::any, calculer)`", correct: false}
+    answer: "Sans politique, l'exécution peut être différée. Seule `std::launch::async` impose un nouveau thread."
+  - key: qcm-en-tete
+    format: multiple-choice
+    question: "Quel en-tête déclare `std::async` ?"
+    choices:
+      - {text: "`<future>`", correct: true}
+      - {text: "`<async>`", correct: false}
+      - {text: "`<thread>`", correct: false}
+      - {text: "`<execution>`", correct: false}
+    answer: "`<future>`, avec `std::future` et `std::promise`."
+  - key: qcm-thread-deferred
+    format: multiple-choice
+    question: "Dans quel thread s'exécute une tâche lancée avec `std::launch::deferred` ?"
+    choices:
+      - {text: "Dans le thread qui appelle `get()` ou `wait()`", correct: true}
+      - {text: "Dans un nouveau thread, créé à l'appel de `get()`", correct: false}
+      - {text: "Dans le thread principal, quel que soit l'appelant", correct: false}
+      - {text: "Dans un thread du groupe de la bibliothèque", correct: false}
+    answer: "Une tâche différée est un simple appel de fonction, retardé : aucun thread n'est créé."
+  - key: qcm-choix
+    format: multiple-choice
+    question: "Tu veux une activité de fond sans résultat, que tu puisses arrêter proprement. Quel outil choisis-tu ?"
+    choices:
+      - {text: "`std::jthread`, avec son `std::stop_token`", correct: true}
+      - {text: "`std::async`, dont le futur peut être annulé", correct: false}
+      - {text: "`std::async` avec `std::launch::deferred`", correct: false}
+      - {text: "`std::promise<void>`, sans thread", correct: false}
+    answer: "Une tâche de `std::async` ne s'annule pas. `std::jthread` offre l'arrêt coopératif. `std::async` convient au calcul dont on attend le résultat."
+  - key: trous-async
+    format: fill-in
+    question: |-
+      Complète pour lancer le calcul en tâche de fond :
+      ```cpp
+      std::future<int> futur = std::___(std::launch::async, calculer, 21);
+      ```
+    blanks:
+      - [async]
+    answer: "`std::async` lance la fonction et renvoie un futur."
+  - key: trous-launch-async
+    format: fill-in
+    question: |-
+      Complète pour imposer un nouveau thread :
+      ```cpp
+      auto futur = std::async(std::launch::___, calculer);
+      ```
+    blanks:
+      - [async]
+    answer: "`std::launch::async` : exécution immédiate, dans un nouveau thread."
+  - key: trous-get
+    format: fill-in
+    question: |-
+      Complète pour attendre et récupérer le résultat :
+      ```cpp
+      auto futur = std::async(std::launch::async, calculer);
+      const int resultat = futur.___();
+      ```
+    blanks:
+      - [get]
+    answer: "`get()` attend la fin de la tâche, rend sa valeur ou relance son exception."
+  - key: trous-deferred
+    format: fill-in
+    question: |-
+      Complète pour que la fonction ne s'exécute qu'au moment de `get()` :
+      ```cpp
+      auto futur = std::async(std::launch::___, calculer);
+      ```
+    blanks:
+      - [deferred]
+    answer: "`std::launch::deferred` : exécution paresseuse, dans le thread qui demande le résultat."
+  - key: code-resultat
+    format: code-output
+    question: |-
+      ```cpp
+      #include <future>
+      #include <print>
+
+      int carre(int n) {
+          return n * n;
+      }
+
+      int main() {
+          auto a = std::async(std::launch::async, carre, 3);
+          auto b = std::async(std::launch::async, carre, 4);
+          std::println("{}", a.get() + b.get());
+      }
+      ```
+    choices:
+      - {text: "`25`", correct: true}
+      - {text: "`7`", correct: false}
+      - {text: "`9` ou `16`, selon l'exécution", correct: false}
+      - {text: "`12`", correct: false}
+    answer: "`25` : les deux calculs tournent chacun dans leur thread. `get()` attend chaque résultat : 9 + 16, quel que soit l'ordre d'exécution."
+    check:
+      output: "25"
+  - key: code-deferred
+    format: code-output
+    question: |-
+      ```cpp
+      #include <future>
+      #include <print>
+
+      int main() {
+          int appels = 0;
+          auto futur = std::async(std::launch::deferred, [&appels] {
+              ++appels;
+              return 7;
+          });
+          const int avant = appels;
+          const int valeur = futur.get();
+          std::println("{} {} {}", avant, appels, valeur);
+      }
+      ```
+    choices:
+      - {text: "`0 1 7`", correct: true}
+      - {text: "`1 1 7`", correct: false}
+      - {text: "`0 0 7`", correct: false}
+      - {text: "`0` ou `1`, puis `1 7`, selon l'exécution", correct: false}
+    answer: "`0 1 7` : avec `deferred`, rien ne s'exécute à l'appel de `std::async`. La lambda tourne au moment de `get()`, dans `main`."
+    check:
+      output: "0 1 7"
+  - key: code-thread-id
+    format: code-output
+    question: |-
+      ```cpp
+      #include <future>
+      #include <print>
+      #include <thread>
+
+      int main() {
+          const auto ici = std::this_thread::get_id();
+          auto differee = std::async(std::launch::deferred, [] { return std::this_thread::get_id(); });
+          auto lancee = std::async(std::launch::async, [] { return std::this_thread::get_id(); });
+          std::println("{} {}", differee.get() == ici, lancee.get() == ici);
+      }
+      ```
+    choices:
+      - {text: "`true false`", correct: true}
+      - {text: "`false false`", correct: false}
+      - {text: "`true true`", correct: false}
+      - {text: "`false true`", correct: false}
+    answer: "`true false` : la tâche différée s'exécute dans le thread qui appelle `get()`, ici `main`. La tâche lancée avec `async` a son propre thread."
+    check:
+      output: "true false"
+  - key: code-exception
+    format: code-output
+    question: |-
+      ```cpp
+      #include <future>
+      #include <print>
+      #include <stdexcept>
+
+      int charger() {
+          throw std::runtime_error{"introuvable"};
+      }
+
+      int main() {
+          auto futur = std::async(std::launch::async, charger);
+          std::print("lancé ");
+          try {
+              std::println("{}", futur.get());
+          } catch (const std::runtime_error& e) {
+              std::println("{}", e.what());
+          }
+      }
+      ```
+    choices:
+      - {text: "`lancé introuvable`", correct: true}
+      - {text: "`introuvable lancé`", correct: false}
+      - {text: "`lancé 0`", correct: false}
+      - {text: "Rien : le programme s'arrête par `std::terminate`", correct: false}
+    answer: "`lancé introuvable` : l'exception reste dans le futur jusqu'à `get()`, qui la relance dans `main`. Elle n'arrête pas le programme."
+    check:
+      output: "lancé introuvable"
+  - key: bug-futur-temporaire
+    format: bug-fix
+    question: |-
+      Ces deux tâches devraient tourner en même temps. Elles s'exécutent l'une après l'autre : le programme affiche
+      `false`. Quelle correction est la bonne ?
+      ```cpp
+      #include <atomic>
+      #include <chrono>
+      #include <future>
+      #include <print>
+      #include <thread>
+
+      int main() {
+          using namespace std::chrono_literals;
+          std::atomic<int> en_cours{0};
+          std::atomic<bool> ensemble{false};
+          auto tache = [&] {
+              if (++en_cours == 2) {
+                  ensemble = true;
+              }
+              std::this_thread::sleep_for(100ms);
+              --en_cours;
+          };
+          std::async(std::launch::async, tache);
+          std::async(std::launch::async, tache);
+          std::println("{}", ensemble.load());
+      }
+      ```
+    choices:
+      - {text: "Ranger chaque futur dans une variable : `auto a = std::async(...);`, `auto b = std::async(...);`", correct: true}
+      - {text: "Lancer chaque tâche sans politique : `std::async(tache);`, deux fois de suite", correct: false}
+      - {text: "Lancer chaque tâche avec `std::launch::deferred` à la place de `std::launch::async`", correct: false}
+      - {text: "Ajouter une pause de cent millisecondes entre les deux appels de `std::async`", correct: false}
+    answer: |-
+      ```cpp
+      auto a = std::async(std::launch::async, tache);
+      auto b = std::async(std::launch::async, tache);
+      a.get();
+      b.get();
+      ```
+      Un futur de `std::async` attend sa tâche dans son destructeur. Temporaire, il est détruit à la fin de la
+      ligne : la seconde tâche ne démarre qu'après la première. Gardés dans des variables, les deux futurs laissent
+      les tâches tourner ensemble.
+  - key: bug-deferred-oublie
+    format: bug-fix
+    question: |-
+      Ce programme devrait afficher `1` : la tâche devrait avoir écrit dans le journal. Il affiche `0`. Quelle
+      correction est la bonne ?
+      ```cpp
+      #include <future>
+      #include <print>
+      #include <vector>
+
+      int main() {
+          std::vector<int> journal;
+          auto futur = std::async(std::launch::deferred, [&journal] { journal.push_back(1); });
+          std::println("{}", journal.size());
+      }
+      ```
+    choices:
+      - {text: "Appeler `futur.get();` avant l'affichage", correct: true}
+      - {text: "Appeler `futur.valid();` avant l'affichage", correct: false}
+      - {text: "Déclarer `futur` avec le mot-clé `const`", correct: false}
+      - {text: "Capturer `journal` par valeur dans la lambda", correct: false}
+    answer: |-
+      ```cpp
+      futur.get();
+      std::println("{}", journal.size());
+      ```
+      Une tâche différée ne s'exécute qu'à l'appel de `get()` ou de `wait()`. Sans eux, elle n'est jamais lancée.
+      Avec `std::launch::async`, il faudrait de toute façon attendre le futur avant de lire `journal`.
+  - key: bug-reference-sans-ref
+    format: bug-fix
+    question: |-
+      Le compilateur refuse cet appel de `std::async` : comme `std::thread`, il copie ses arguments, et la copie ne
+      se lie pas à `int&`. Quelle correction est la bonne ?
+      ```cpp
+      #include <future>
+      #include <print>
+
+      void doubler(int& n) {
+          n *= 2;
+      }
+
+      int main() {
+          int valeur = 21;
+          auto futur = std::async(std::launch::async, doubler, valeur);
+          futur.get();
+          std::println("{}", valeur);
+      }
+      ```
+    choices:
+      - {text: "Passer `std::ref(valeur)`", correct: true}
+      - {text: "Passer `&valeur`", correct: false}
+      - {text: "Passer `std::move(valeur)`", correct: false}
+      - {text: "Passer `valeur` avec `std::launch::deferred`", correct: false}
+    answer: |-
+      ```cpp
+      auto futur = std::async(std::launch::async, doubler, std::ref(valeur));
+      ```
+      `std::ref` (en-tête `<functional>`) transmet une vraie référence. Ici, `main` attend le futur avant de lire
+      `valeur` : la référence est sûre.
+  - key: bug-get-oublie
+    format: bug-fix
+    question: |-
+      La tâche échoue, mais ce programme affiche `terminé` comme si tout allait bien : l'exception est restée dans
+      le futur. Quelle correction est la bonne ?
+      ```cpp
+      #include <future>
+      #include <print>
+      #include <stdexcept>
+
+      void enregistrer() {
+          throw std::runtime_error{"disque plein"};
+      }
+
+      int main() {
+          auto futur = std::async(std::launch::async, enregistrer);
+          futur.wait();
+          std::println("terminé");
+      }
+      ```
+    choices:
+      - {text: "Appeler `futur.get();` dans un `try`, et traiter l'exception dans le `catch`", correct: true}
+      - {text: "Appeler `futur.wait();` une seconde fois, avant l'affichage", correct: false}
+      - {text: "Tester `futur.valid()` avant l'affichage, pour détecter l'échec", correct: false}
+      - {text: "Déclarer la fonction `enregistrer` avec le mot-clé `noexcept`", correct: false}
+    answer: |-
+      ```cpp
+      try {
+          futur.get();
+          std::println("terminé");
+      } catch (const std::runtime_error& e) {
+          std::println("échec : {}", e.what());
+      }
+      ```
+      `wait()` attend, mais ne relance rien. Seul `get()` fait ressortir l'exception. Un futur qu'on ne lit jamais
+      avale les erreurs en silence.
+  - key: situation-sequentiel
+    format: scenario
+    question: |-
+      Un programme lance quatre téléchargements par quatre lignes `std::async(std::launch::async, telecharger,
+      url);`, sans garder les futurs. Il met quatre fois le temps d'un seul. Pourquoi ?
+    choices:
+      - {text: "Chaque futur temporaire attend sa tâche dans son destructeur : les appels se suivent", correct: true}
+      - {text: "`std::async` ne lance jamais plus d'une tâche à la fois, par sécurité", correct: false}
+      - {text: "Les quatre tâches partagent un seul thread, qu'elles se passent tour à tour", correct: false}
+      - {text: "`std::launch::async` diffère l'exécution jusqu'à la fin du programme", correct: false}
+    answer: |-
+      Le futur renvoyé par `std::async` bloque à sa destruction. Non rangé dans une variable, il est détruit à la
+      fin de l'instruction. Il faut garder les quatre futurs, dans un vecteur par exemple, puis les lire.
+  - key: situation-politique
+    format: scenario
+    question: |-
+      Une interface lance un calcul long par `std::async(calculer)`, sans politique, pour ne pas se figer. Sur
+      certaines machines, elle se fige quand même au moment de `get()`. Que proposes-tu ?
+    choices:
+      - {text: "Préciser `std::launch::async` : sans politique, l'exécution peut être différée jusqu'au `get()`", correct: true}
+      - {text: "Préciser `std::launch::deferred` : l'exécution est alors lancée dans un autre thread", correct: false}
+      - {text: "Appeler `get()` deux fois : le premier appel lance le calcul, le second le lit", correct: false}
+      - {text: "Appeler `futur.valid()` avant `get()`, ce qui démarre le calcul", correct: false}
+    answer: |-
+      La politique par défaut laisse le choix à l'implémentation. Si elle diffère, tout le calcul se fait dans le
+      thread qui appelle `get()` : l'interface. `std::launch::async` impose un autre thread ; il reste à ne lire le
+      futur que lorsqu'il est prêt (`wait_for`).
+  - key: situation-milliers
+    format: scenario
+    question: |-
+      Un service lance un `std::async(std::launch::async, ...)` pour chacune des dix mille petites requêtes d'un
+      lot. Il ralentit, et manque parfois de ressources. Que proposes-tu ?
+    choices:
+      - {text: "Un groupe de threads, dont le nombre est fixé, qui prend les requêtes dans une file", correct: true}
+      - {text: "La politique `std::launch::deferred`, pour que les requêtes tournent en parallèle", correct: false}
+      - {text: "Un `std::async` sans politique, qui partage un seul thread entre toutes les requêtes", correct: false}
+      - {text: "Un `std::thread` détaché par requête, plus léger qu'un `std::async`", correct: false}
+    answer: |-
+      `std::launch::async` crée un thread par appel : dix mille threads coûtent de la mémoire et du temps. Un groupe
+      de quelques threads réutilisés traite les tâches à la suite. Différer supprimerait tout parallélisme.
+  - key: situation-entretien
+    format: scenario
+    question: |-
+      En entretien, on te demande : « Quel avantage a `std::async` sur `std::thread` pour lancer un calcul ? » Que
+      réponds-tu ?
+    choices:
+      - {text: "Il rend le résultat, ou l'exception, par un futur, sans `join` ni variable partagée à écrire", correct: true}
+      - {text: "Il s'exécute toujours plus vite, car il n'utilise aucun thread", correct: false}
+      - {text: "Il protège automatiquement les variables partagées contre les courses aux données", correct: false}
+      - {text: "Il permet d'annuler le calcul en cours, ce qu'un thread ne permet pas", correct: false}
+    answer: |-
+      Avec `std::thread`, la valeur de retour est perdue et une exception arrête le programme. `std::async` range
+      l'une ou l'autre dans un futur. Ses limites : pas d'annulation, un thread par appel, et un futur qui bloque
+      à sa destruction.

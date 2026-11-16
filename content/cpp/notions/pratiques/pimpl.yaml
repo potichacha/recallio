@@ -1,0 +1,363 @@
+notion: pimpl
+lesson: |-
+  **PIMPL** (*pointer to implementation*) sort les membres privés d'une classe de son en-tête. La classe publique
+  ne garde qu'**un pointeur** vers une classe d'implémentation, déclarée dans l'en-tête et **définie dans le
+  `.cpp`**.
+
+  ```cpp
+  // moteur.hpp
+  #include <memory>
+
+  class Moteur {
+  public:
+      Moteur();
+      ~Moteur();                         // déclaré ici, défini dans le .cpp
+      Moteur(Moteur&&) noexcept;
+      Moteur& operator=(Moteur&&) noexcept;
+
+      void demarrer();
+
+  private:
+      class Impl;                        // déclaration anticipée
+      std::unique_ptr<Impl> impl_;
+  };
+  ```
+
+  ```cpp
+  // moteur.cpp
+  #include "moteur.hpp"
+  #include "bibliotheque_lourde.hpp"     // invisible pour les utilisateurs de Moteur
+
+  class Moteur::Impl {
+  public:
+      void demarrer() { /* ... */ }
+      Etat etat_;
+  };
+
+  Moteur::Moteur() : impl_{std::make_unique<Impl>()} {}
+  Moteur::~Moteur() = default;           // ici, Impl est complet
+  Moteur::Moteur(Moteur&&) noexcept = default;
+  Moteur& Moteur::operator=(Moteur&&) noexcept = default;
+
+  void Moteur::demarrer() { impl_->demarrer(); }
+  ```
+
+  **Ce qu'on y gagne.**
+
+  - **Un pare-feu de compilation** : modifier les membres privés ne touche que `moteur.cpp`. Les fichiers qui
+    incluent `moteur.hpp` ne sont **pas recompilés**.
+  - **Des en-têtes légers** : les dépendances lourdes ne sont incluses que dans le `.cpp`.
+  - **Une ABI stable** : la taille de `Moteur` reste celle d'un pointeur. On peut livrer une nouvelle version de
+    la bibliothèque sans que ses utilisateurs recompilent.
+
+  **Le piège du destructeur.** `std::unique_ptr<Impl>` doit connaître `Impl` **en entier** pour le détruire. Si le
+  destructeur de `Moteur` est généré dans l'en-tête, là où `Impl` n'est que déclaré, la compilation échoue
+  (« invalid application of 'sizeof' to incomplete type »). On **déclare** donc le destructeur dans l'en-tête, et
+  on le **définit dans le `.cpp`**, même avec `= default`. Il en va de même des opérations de déplacement.
+
+  **La copie.** `std::unique_ptr` ne se copie pas : la classe non plus, par défaut. Pour la rendre copiable, on
+  écrit un constructeur de copie qui duplique l'implémentation : `impl_{std::make_unique<Impl>(*autre.impl_)}`.
+
+  **Ce que ça coûte.** Une **allocation** sur le tas par objet, une **indirection** à chaque appel, pas d'inlining
+  à travers la frontière, et du code de transfert à écrire. On le réserve aux classes des **interfaces de
+  bibliothèque**, pas aux petits types créés par millions.
+
+  **En entretien** : « PIMPL cache les membres privés derrière un `std::unique_ptr` vers une classe définie dans
+  le `.cpp` : moins de recompilation, des en-têtes légers, une ABI stable. Le destructeur doit être défini dans le
+  `.cpp`, là où l'implémentation est complète. Le prix : une allocation et une indirection. »
+cards:
+  - key: principe
+    format: course
+    question: "En quoi consiste l'idiome PIMPL ?"
+    choices:
+      - {text: "À ne garder dans la classe qu'un pointeur vers une implémentation définie dans le `.cpp`", correct: true}
+      - {text: "À rendre publics tous les membres d'une classe, pour les tester plus facilement", correct: false}
+      - {text: "À définir toutes les fonctions membres dans l'en-tête, pour les rendre `inline`", correct: false}
+      - {text: "À remplacer chaque membre d'une classe par une variable globale du `.cpp`", correct: false}
+    answer: "L'en-tête ne montre plus les membres privés : seulement `class Impl;` et un `std::unique_ptr<Impl>`."
+  - key: pare-feu
+    format: course
+    question: "Pourquoi PIMPL réduit-il les temps de recompilation ?"
+    choices:
+      - {text: "Modifier l'implémentation ne change pas l'en-tête : ses utilisateurs ne sont pas recompilés", correct: true}
+      - {text: "Le compilateur traite plus vite une classe qui ne contient qu'un pointeur", correct: false}
+      - {text: "L'éditeur de liens ignore les classes dont les membres sont cachés", correct: false}
+      - {text: "Le pointeur vers l'implémentation est partagé entre tous les fichiers", correct: false}
+    answer: "Un en-tête modifié fait recompiler tout ce qui l'inclut. Avec PIMPL, les membres privés vivent dans le `.cpp`, seul fichier touché."
+  - key: destructeur
+    format: course
+    question: "Pourquoi le destructeur d'une classe PIMPL est-il défini dans le `.cpp` ?"
+    choices:
+      - {text: "`std::unique_ptr` doit connaître la classe d'implémentation en entier pour la détruire", correct: true}
+      - {text: "Un destructeur ne peut jamais être défini dans un fichier d'en-tête", correct: false}
+      - {text: "Le destructeur doit être virtuel, ce qui exige un fichier `.cpp`", correct: false}
+      - {text: "L'éditeur de liens refuse deux destructeurs dans le même en-tête", correct: false}
+    answer: "Dans l'en-tête, `Impl` n'est que déclaré : le compilateur ne sait pas le détruire. Dans le `.cpp`, après sa définition, `= default` suffit."
+  - key: cout
+    format: course
+    question: "Que coûte l'idiome PIMPL à l'exécution ?"
+    choices:
+      - {text: "Une allocation sur le tas par objet, et une indirection à chaque appel", correct: true}
+      - {text: "Une copie complète de l'objet à chaque appel de fonction membre", correct: false}
+      - {text: "Un verrou pris et relâché à chaque accès à un membre", correct: false}
+      - {text: "Rien : le compilateur supprime le pointeur à l'optimisation", correct: false}
+    answer: "Chaque objet alloue son implémentation, et chaque fonction passe par le pointeur. C'est négligeable pour une classe de service, sensible pour un petit type créé par millions."
+  - key: vf-abi
+    format: true-false
+    question: "Avec PIMPL, ajouter un membre privé ne change pas la taille de la classe publique."
+    truth: true
+    answer: "Elle contient toujours un seul pointeur. C'est ce qui garde l'ABI stable d'une version à l'autre de la bibliothèque."
+  - key: vf-copie
+    format: true-false
+    question: "Une classe PIMPL fondée sur `std::unique_ptr` est copiable sans rien écrire."
+    truth: false
+    answer: "`std::unique_ptr` ne se copie pas. Il faut écrire un constructeur de copie qui duplique l'implémentation."
+  - key: vf-includes
+    format: true-false
+    question: "Avec PIMPL, les en-têtes dont seule l'implémentation a besoin sont inclus dans le `.cpp`."
+    truth: true
+    answer: "Les utilisateurs de la classe ne les voient plus, et ne paient plus leur temps de compilation."
+  - key: vf-partout
+    format: true-false
+    question: "PIMPL convient à toutes les classes, y compris un petit `Point` créé par millions."
+    truth: false
+    answer: "Une allocation par point ruinerait les performances. PIMPL se réserve aux classes d'interface, peu nombreuses et durables."
+  - key: qcm-declaration
+    format: multiple-choice
+    question: "Que contient l'en-tête d'une classe `Moteur` écrite en PIMPL, dans sa partie privée ?"
+    choices:
+      - {text: "`class Impl;` et `std::unique_ptr<Impl> impl_;`", correct: true}
+      - {text: "La définition complète de la classe `Impl`", correct: false}
+      - {text: "Un `#include \"moteur.cpp\"`", correct: false}
+      - {text: "Tous les membres privés, marqués `mutable`", correct: false}
+    answer: "Une déclaration anticipée suffit pour déclarer un pointeur intelligent vers `Impl`."
+  - key: qcm-destructeur
+    format: multiple-choice
+    question: "Comment définit-on le destructeur d'une classe PIMPL ?"
+    choices:
+      - {text: "`Moteur::~Moteur() = default;` dans le `.cpp`, après la définition de `Impl`", correct: true}
+      - {text: "`~Moteur() = default;` dans l'en-tête, dans la classe", correct: false}
+      - {text: "`~Moteur() { delete impl_; }` dans l'en-tête", correct: false}
+      - {text: "Nulle part : il est toujours généré correctement", correct: false}
+    answer: "`= default` reste possible, à condition de l'écrire là où `Impl` est complet."
+  - key: qcm-copie
+    format: multiple-choice
+    question: "Comment un constructeur de copie duplique-t-il l'implémentation ?"
+    choices:
+      - {text: "`impl_{std::make_unique<Impl>(*autre.impl_)}`", correct: true}
+      - {text: "`impl_{autre.impl_}`", correct: false}
+      - {text: "`impl_{std::move(autre.impl_)}`", correct: false}
+      - {text: "`impl_{autre.impl_.get()}`", correct: false}
+    answer: "On construit un nouvel `Impl`, copie de celui de l'autre. Copier le pointeur ne compile pas ; `get()` ferait deux propriétaires du même objet."
+  - key: qcm-quand
+    format: multiple-choice
+    question: "Pour quelle classe PIMPL est-il le plus justifié ?"
+    choices:
+      - {text: "Une classe publique d'une bibliothèque livrée sous forme binaire", correct: true}
+      - {text: "Un itérateur, copié à chaque tour de boucle", correct: false}
+      - {text: "Une `struct` de deux entiers, passée par valeur", correct: false}
+      - {text: "Un template, défini dans son en-tête", correct: false}
+    answer: "Là, la stabilité de l'ABI et la légèreté des en-têtes comptent, et le coût d'une allocation est négligeable."
+  - key: situation-recompilation
+    format: scenario
+    question: |-
+      Un en-tête `document.hpp` est inclus par trois cents fichiers. Chaque fois qu'on ajoute un membre privé à
+      `Document`, tout le projet recompile pendant dix minutes. Que proposes-tu ?
+    choices:
+      - {text: "Passer `Document` en PIMPL : ses membres privés quittent l'en-tête", correct: true}
+      - {text: "Rendre publics les membres de `Document`, pour ne plus les modifier", correct: false}
+      - {text: "Recopier la définition de `Document` dans chacun des trois cents fichiers", correct: false}
+      - {text: "Interdire l'ajout de membres à `Document`", correct: false}
+    answer: |-
+      L'en-tête ne change plus quand l'implémentation évolue : seul `document.cpp` est recompilé. C'est le
+      « pare-feu de compilation ».
+  - key: situation-abi
+    format: scenario
+    question: |-
+      Tu publies une bibliothèque partagée. Après l'ajout d'un champ privé à une classe, les programmes de tes
+      clients, non recompilés, plantent. Pourquoi, et comment l'éviter à l'avenir ?
+    choices:
+      - {text: "La taille de la classe a changé ; avec PIMPL, elle reste celle d'un pointeur", correct: true}
+      - {text: "Le nom de la classe a changé ; il faut le fixer par une macro", correct: false}
+      - {text: "Le champ ajouté était public ; il faut le déclarer `private`", correct: false}
+      - {text: "La bibliothèque a été compilée sans optimisation ; il faut `-O2`", correct: false}
+    answer: |-
+      Le code des clients a été compilé avec l'ancienne taille et l'ancienne disposition des membres. PIMPL les
+      cache derrière un pointeur : l'interface binaire ne bouge plus.
+  - key: situation-performance
+    format: scenario
+    question: |-
+      Un collègue applique PIMPL à une classe `Vecteur3`, créée des millions de fois par image dans un moteur de
+      rendu. Le programme devient dix fois plus lent. Que lui expliques-tu ?
+    choices:
+      - {text: "Que chaque objet alloue sur le tas, et que chaque accès passe par un pointeur", correct: true}
+      - {text: "Que PIMPL interdit au compilateur toute optimisation du programme", correct: false}
+      - {text: "Que PIMPL copie l'objet entier à chaque lecture d'un membre", correct: false}
+      - {text: "Que PIMPL verrouille un mutex à chaque appel de fonction", correct: false}
+    answer: |-
+      Un petit type de valeur doit vivre sur la pile, contigu dans les tableaux, avec des fonctions `inline`. PIMPL
+      détruit tout cela : il est fait pour des objets rares et durables.
+  - key: situation-dependance
+    format: scenario
+    question: |-
+      L'en-tête public de ta bibliothèque inclut `<windows.h>` parce qu'une classe a un membre privé de type
+      `HANDLE`. Tes utilisateurs se plaignent des macros que cet en-tête leur impose. Que fais-tu ?
+    choices:
+      - {text: "Je cache le membre derrière PIMPL, et j'inclus `<windows.h>` dans le `.cpp` seulement", correct: true}
+      - {text: "Je demande aux utilisateurs d'inclure `<windows.h>` avant mon en-tête", correct: false}
+      - {text: "Je recopie le contenu de `<windows.h>` dans mon propre en-tête", correct: false}
+      - {text: "Je rends le membre public, pour qu'il ne soit plus un détail privé", correct: false}
+    answer: |-
+      Un détail d'implémentation ne doit pas fuir dans l'interface. Avec PIMPL, la dépendance n'est visible que du
+      fichier source.
+  - key: bug-destructeur-en-tete
+    format: bug-fix
+    question: |-
+      `main.cpp` inclut cet en-tête et crée un `Moteur`. Le compilateur répond « invalid application of 'sizeof' to
+      incomplete type 'Moteur::Impl' ». Quelle correction est la bonne ?
+      ```cpp
+      // moteur.hpp
+      #include <memory>
+
+      class Moteur {
+      public:
+          Moteur();
+          void demarrer();
+
+      private:
+          class Impl;
+          std::unique_ptr<Impl> impl_;
+      };
+      ```
+    choices:
+      - {text: "Déclarer `~Moteur();` dans la classe, et le définir dans `moteur.cpp`", correct: true}
+      - {text: "Déclarer `~Moteur() = default;` dans la classe, dans l'en-tête", correct: false}
+      - {text: "Remplacer `class Impl;` par `struct Impl;` dans l'en-tête", correct: false}
+      - {text: "Inclure `moteur.cpp` à la fin de l'en-tête", correct: false}
+    answer: |-
+      ```cpp
+      // moteur.hpp
+      ~Moteur();
+
+      // moteur.cpp, après la définition de Impl
+      Moteur::~Moteur() = default;
+      ```
+      Le destructeur implicite est généré là où `Moteur` est détruit, dans `main.cpp`, où `Impl` est incomplet.
+      Défini dans le `.cpp`, il voit la classe entière.
+  - key: bug-copie-superficielle
+    format: bug-fix
+    question: |-
+      Cette classe PIMPL utilise un pointeur brut. Le programme libère deux fois la même implémentation. Quelle
+      correction est la bonne ?
+      ```cpp
+      #include <print>
+
+      class Compteur {
+      public:
+          Compteur() : impl_{new Impl{}} {}
+          ~Compteur() { delete impl_; }
+          int valeur() const { return impl_->valeur; }
+
+      private:
+          struct Impl {
+              int valeur = 7;
+          };
+          Impl* impl_;
+      };
+
+      int main() {
+          const Compteur a;
+          const Compteur b = a;
+          std::println("{}", b.valeur());
+      }
+      ```
+    choices:
+      - {text: "Tenir l'implémentation par `std::unique_ptr<Impl>`, et écrire une copie qui la duplique", correct: true}
+      - {text: "Mettre `impl_` à `nullptr` dans le destructeur, juste après le `delete`", correct: false}
+      - {text: "Déclarer le destructeur de `Compteur` avec le mot-clé `virtual`", correct: false}
+      - {text: "Retirer le `delete` du destructeur, pour ne plus libérer deux fois", correct: false}
+    answer: |-
+      ```cpp
+      Compteur() : impl_{std::make_unique<Impl>()} {}
+      Compteur(const Compteur& autre) : impl_{std::make_unique<Impl>(*autre.impl_)} {}
+      // ...
+      std::unique_ptr<Impl> impl_;
+      ```
+      La copie générée recopie le pointeur : `a` et `b` libèrent le même objet. Avec `std::unique_ptr`, la copie
+      implicite disparaît, et celle qu'on écrit duplique l'implémentation.
+  - key: bug-apres-deplacement
+    format: bug-fix
+    question: |-
+      Ce programme plante : il appelle une fonction sur un objet PIMPL dont l'implémentation a été déplacée.
+      Quelle correction est la bonne ?
+      ```cpp
+      #include <memory>
+      #include <print>
+      #include <utility>
+
+      class Session {
+      public:
+          Session() : impl_{std::make_unique<Impl>()} {}
+          int numero() const { return impl_->numero; }
+
+      private:
+          struct Impl {
+              int numero = 42;
+          };
+          std::unique_ptr<Impl> impl_;
+      };
+
+      int main() {
+          Session a;
+          const Session b = std::move(a);
+          std::println("{}", a.numero());
+      }
+      ```
+    choices:
+      - {text: "Lire `b.numero()` : après le déplacement, `a` n'a plus d'implémentation", correct: true}
+      - {text: "Déclarer `a` avec `const`, pour que son implémentation reste en place", correct: false}
+      - {text: "Écrire `std::move(a)` une seconde fois avant la lecture", correct: false}
+      - {text: "Déclarer `numero()` sans `const`", correct: false}
+    answer: |-
+      ```cpp
+      std::println("{}", b.numero());
+      ```
+      Le déplacement a transféré le `std::unique_ptr` : celui de `a` est nul. Un objet PIMPL déplacé ne doit plus
+      être utilisé, sauf pour être détruit ou réaffecté.
+  - key: bug-impl-non-cree
+    format: bug-fix
+    question: |-
+      Ce programme plante au premier appel : le constructeur n'a jamais créé l'implémentation. Quelle correction
+      est la bonne ?
+      ```cpp
+      #include <memory>
+      #include <print>
+
+      class Journal {
+      public:
+          Journal() {}
+          int lignes() const { return impl_->lignes; }
+
+      private:
+          struct Impl {
+              int lignes = 0;
+          };
+          std::unique_ptr<Impl> impl_;
+      };
+
+      int main() {
+          const Journal journal;
+          std::println("{}", journal.lignes());
+      }
+      ```
+    choices:
+      - {text: "Initialiser le membre : `Journal() : impl_{std::make_unique<Impl>()} {}`", correct: true}
+      - {text: "Tester `impl_ != nullptr` dans `lignes()`, et renvoyer 0 sinon", correct: false}
+      - {text: "Déclarer `impl_` avec le mot-clé `mutable`", correct: false}
+      - {text: "Déclarer `Journal() = default;` à la place de `Journal() {}`", correct: false}
+    answer: |-
+      ```cpp
+      Journal() : impl_{std::make_unique<Impl>()} {}
+      ```
+      Un `std::unique_ptr` est nul par défaut. Le constructeur doit allouer l'implémentation : c'est l'invariant
+      de la classe.

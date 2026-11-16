@@ -1,0 +1,495 @@
+notion: weak-ptr
+lesson: |-
+  `std::weak_ptr<T>` (en-tête `<memory>`) **observe** un objet tenu par des `std::shared_ptr`, **sans le posséder**.
+  Il ne compte pas parmi les propriétaires : il n'empêche pas la destruction de l'objet, et sait dire si elle a eu
+  lieu.
+
+  ```cpp
+  auto proprietaire = std::make_shared<int>(42);
+  std::weak_ptr<int> observateur = proprietaire;     // le compteur de propriétaires reste à 1
+  ```
+
+  **S'en servir : `lock()`.** Un `std::weak_ptr` ne se déréférence pas. On lui demande un `std::shared_ptr`
+  temporaire, qui garde l'objet en vie le temps de l'utiliser :
+
+  ```cpp
+  if (auto p = observateur.lock()) {
+      std::println("{}", *p);          // l'objet existe, et ne sera pas détruit pendant ce bloc
+  } else {
+      std::println("objet détruit");
+  }
+  ```
+
+  | Fonction | Résultat |
+  |---|---|
+  | `lock()` | un `std::shared_ptr` vers l'objet, **nul** s'il a été détruit |
+  | `expired()` | `true` si l'objet a été détruit |
+  | `use_count()` | le nombre de `std::shared_ptr` propriétaires |
+
+  On préfère `lock()` à `expired()` suivi d'un accès : entre les deux, un autre thread pourrait détruire l'objet.
+
+  **Premier usage : casser un cycle.** Deux objets qui se tiennent l'un l'autre par `std::shared_ptr` ne sont
+  **jamais détruits** : chacun garde le compteur de l'autre au-dessus de zéro. C'est une fuite.
+
+  ```cpp
+  struct Enfant;
+  struct Parent {
+      std::shared_ptr<Enfant> enfant;      // le parent possède son enfant
+  };
+  struct Enfant {
+      std::weak_ptr<Parent> parent;        // l'enfant observe son parent : pas de cycle
+  };
+  ```
+
+  La règle : la possession va dans **un seul sens** ; le lien de retour est un `std::weak_ptr`.
+
+  **Second usage : un cache, des abonnés.** Un cache qui garde des `std::weak_ptr` ne prolonge pas la vie des
+  objets : quand leur dernier propriétaire disparaît, l'entrée du cache expire, et `lock()` le dit. C'est un
+  pointeur pendant **détectable**.
+
+  **Ce qu'il coûte.** Le `std::shared_ptr` range ses compteurs dans un **bloc de contrôle**. Ce bloc survit tant
+  qu'il reste un `std::weak_ptr`, même après la destruction de l'objet.
+
+  **Ses limites.** Il ne se crée qu'à partir d'un `std::shared_ptr` (ou d'un autre `std::weak_ptr`), jamais d'un
+  pointeur brut ni d'un `std::unique_ptr`.
+
+  **En entretien** : « Un `std::weak_ptr` observe un objet partagé sans le posséder. Pour y accéder, j'appelle
+  `lock()`, qui rend un `std::shared_ptr`, nul si l'objet a disparu. Il sert à casser les cycles de
+  `std::shared_ptr`, et aux caches et abonnés qui ne doivent pas garder leurs objets en vie. »
+cards:
+  - key: definition
+    format: course
+    question: "Qu'est-ce qu'un `std::weak_ptr` ?"
+    choices:
+      - {text: "Un pointeur qui observe un objet tenu par `std::shared_ptr`, sans le posséder", correct: true}
+      - {text: "Un pointeur qui possède son objet de façon exclusive, sans compteur", correct: false}
+      - {text: "Un pointeur brut que le compilateur met à nul après un `delete`", correct: false}
+      - {text: "Un pointeur qui partage la possession, avec un compteur plus léger", correct: false}
+    answer: "Il n'augmente pas le compteur de propriétaires : l'objet est détruit quand son dernier `std::shared_ptr` disparaît, qu'il reste ou non des observateurs."
+  - key: lock
+    format: course
+    question: "Comment accède-t-on à l'objet qu'observe un `std::weak_ptr` ?"
+    choices:
+      - {text: "Par `lock()`, qui rend un `std::shared_ptr`, nul si l'objet a été détruit", correct: true}
+      - {text: "Par l'opérateur `*`, comme avec un pointeur ordinaire", correct: false}
+      - {text: "Par `get()`, qui rend un pointeur brut vers l'objet", correct: false}
+      - {text: "Par `release()`, qui rend la possession de l'objet", correct: false}
+    answer: "Un `std::weak_ptr` n'a ni `*`, ni `->`, ni `get()`. Le `std::shared_ptr` rendu par `lock()` garde l'objet en vie pendant qu'on s'en sert."
+  - key: cycle
+    format: course
+    question: "Pourquoi deux objets qui se tiennent l'un l'autre par `std::shared_ptr` ne sont-ils jamais détruits ?"
+    choices:
+      - {text: "Chacun garde le compteur de l'autre au-dessus de zéro", correct: true}
+      - {text: "Le compilateur refuse de détruire un objet encore pointé", correct: false}
+      - {text: "Leurs destructeurs s'appellent l'un l'autre sans fin", correct: false}
+      - {text: "Un `std::shared_ptr` ne libère jamais un objet d'une classe", correct: false}
+    answer: "C'est un cycle de possession : aucun compteur n'atteint zéro, et la mémoire fuit. On le casse en remplaçant l'un des deux liens par un `std::weak_ptr`."
+  - key: lock-ou-expired
+    format: course
+    question: "Pourquoi préférer `lock()` à un test `expired()` suivi d'un accès ?"
+    choices:
+      - {text: "Entre le test et l'accès, un autre thread peut détruire l'objet", correct: true}
+      - {text: "`expired()` détruit l'objet quand il renvoie `false`", correct: false}
+      - {text: "`expired()` ne fonctionne que sur un pointeur nul", correct: false}
+      - {text: "`lock()` est le seul des deux à compiler en C++23", correct: false}
+    answer: "`lock()` teste et prend la possession en une seule opération : si le `std::shared_ptr` rendu n'est pas nul, l'objet restera en vie tant qu'on le tient."
+  - key: vf-compteur
+    format: true-false
+    question: "Créer un `std::weak_ptr` à partir d'un `std::shared_ptr` augmente son `use_count()`."
+    truth: false
+    answer: "`use_count()` compte les propriétaires. Un observateur n'en est pas un."
+  - key: vf-dereferencer
+    format: true-false
+    question: "On peut déréférencer un `std::weak_ptr` avec `*`."
+    truth: false
+    answer: "Il n'a pas cet opérateur. Il faut passer par `lock()`."
+  - key: vf-unique-ptr
+    format: true-false
+    question: "Un `std::weak_ptr` peut observer un objet tenu par un `std::unique_ptr`."
+    truth: false
+    answer: "Il ne se construit qu'à partir d'un `std::shared_ptr`, ou d'un autre `std::weak_ptr`."
+  - key: vf-expired
+    format: true-false
+    question: "`expired()` renvoie `true` quand l'objet observé a été détruit."
+    truth: true
+    answer: "C'est ce qui distingue un `std::weak_ptr` d'un pointeur brut pendant : il sait que l'objet a disparu."
+  - key: qcm-lien-retour
+    format: multiple-choice
+    question: "Un `Parent` possède ses `Enfant` par `std::shared_ptr`. Comment un enfant désigne-t-il son parent ?"
+    choices:
+      - {text: "Par un `std::weak_ptr<Parent>`", correct: true}
+      - {text: "Par un `std::shared_ptr<Parent>`", correct: false}
+      - {text: "Par un `std::unique_ptr<Parent>`", correct: false}
+      - {text: "Par une copie du `Parent`", correct: false}
+    answer: "La possession va dans un seul sens. Le lien de retour observe : avec un second `std::shared_ptr`, parent et enfant formeraient un cycle."
+  - key: qcm-lock-detruit
+    format: multiple-choice
+    question: "Que renvoie `observateur.lock()` quand l'objet observé a été détruit ?"
+    choices:
+      - {text: "Un `std::shared_ptr` nul", correct: true}
+      - {text: "Un pointeur pendant", correct: false}
+      - {text: "Une exception `std::bad_weak_ptr`", correct: false}
+      - {text: "Un nouvel objet construit par défaut", correct: false}
+    answer: "`lock()` ne lance jamais : il rend un pointeur nul, que l'on teste. C'est le constructeur de `std::shared_ptr` à partir d'un `std::weak_ptr` expiré qui lance `std::bad_weak_ptr`."
+  - key: qcm-cache
+    format: multiple-choice
+    question: "Pourquoi un cache garde-t-il des `std::weak_ptr` plutôt que des `std::shared_ptr` ?"
+    choices:
+      - {text: "Pour ne pas maintenir en vie des objets que plus personne n'utilise", correct: true}
+      - {text: "Pour que les objets du cache soient copiés à chaque lecture", correct: false}
+      - {text: "Pour que les objets du cache ne puissent plus être modifiés", correct: false}
+      - {text: "Pour que le cache libère les objets dès leur insertion", correct: false}
+    answer: "Avec des `std::shared_ptr`, le cache serait lui-même propriétaire : rien ne serait jamais libéré. Avec des observateurs, l'entrée expire quand le dernier utilisateur lâche l'objet."
+  - key: qcm-en-tete
+    format: multiple-choice
+    question: "Quel en-tête déclare `std::weak_ptr` ?"
+    choices:
+      - {text: "`<memory>`", correct: true}
+      - {text: "`<weak>`", correct: false}
+      - {text: "`<utility>`", correct: false}
+      - {text: "`<functional>`", correct: false}
+    answer: "`<memory>`, avec `std::unique_ptr` et `std::shared_ptr`."
+  - key: trous-lock
+    format: fill-in
+    question: |-
+      Complète pour obtenir un `std::shared_ptr` vers l'objet observé :
+      ```cpp
+      if (auto p = observateur.___()) {
+          std::println("{}", *p);
+      }
+      ```
+    blanks:
+      - [lock]
+    answer: "`lock()` rend un `std::shared_ptr`, nul si l'objet a été détruit."
+  - key: trous-weak-ptr
+    format: fill-in
+    question: |-
+      Complète pour que l'enfant observe son parent sans le posséder :
+      ```cpp
+      struct Enfant {
+          std::___<Parent> parent;
+      };
+      ```
+    blanks:
+      - [weak_ptr]
+    answer: "`std::weak_ptr<Parent>` : un lien de retour qui ne crée pas de cycle."
+  - key: trous-expired
+    format: fill-in
+    question: |-
+      Complète pour savoir si l'objet observé a été détruit :
+      ```cpp
+      if (observateur.___()) {
+          std::println("objet détruit");
+      }
+      ```
+    blanks:
+      - [expired]
+    answer: "`expired()` vaut `true` quand il ne reste plus aucun propriétaire."
+  - key: trous-use-count
+    format: fill-in
+    question: |-
+      Complète pour afficher le nombre de propriétaires de l'objet observé :
+      ```cpp
+      std::println("{}", observateur.___());
+      ```
+    blanks:
+      - [use_count]
+    answer: "`use_count()` compte les `std::shared_ptr`, pas les observateurs."
+  - key: code-compteur
+    format: code-output
+    question: |-
+      ```cpp
+      #include <memory>
+      #include <print>
+
+      int main() {
+          const auto proprietaire = std::make_shared<int>(42);
+          const std::weak_ptr<int> observateur = proprietaire;
+          const auto second = observateur.lock();
+          std::println("{} {} {}", proprietaire.use_count(), *second, observateur.expired());
+      }
+      ```
+    choices:
+      - {text: "`2 42 false`", correct: true}
+      - {text: "`3 42 false`", correct: false}
+      - {text: "`1 42 false`", correct: false}
+      - {text: "`2 42 true`", correct: false}
+    answer: "`2 42 false` : le `std::weak_ptr` ne compte pas. `lock()` crée un second propriétaire : le compteur vaut 2."
+    check:
+      output: "2 42 false"
+  - key: code-expire
+    format: code-output
+    question: |-
+      ```cpp
+      #include <memory>
+      #include <print>
+
+      int main() {
+          std::weak_ptr<int> observateur;
+          {
+              const auto proprietaire = std::make_shared<int>(7);
+              observateur = proprietaire;
+              std::print("{} ", *observateur.lock());
+          }
+          std::println("{} {}", observateur.expired(), observateur.lock() == nullptr);
+      }
+      ```
+    choices:
+      - {text: "`7 true true`", correct: true}
+      - {text: "`7 false false`", correct: false}
+      - {text: "`7 true false`", correct: false}
+      - {text: "`0 true true`", correct: false}
+    answer: "`7 true true` : dans le bloc, l'objet existe. À sa sortie, le seul propriétaire disparaît : l'observateur est expiré, et `lock()` rend un pointeur nul."
+    check:
+      output: "7 true true"
+  - key: code-cycle-casse
+    format: code-output
+    question: |-
+      ```cpp
+      #include <memory>
+      #include <print>
+
+      struct Parent;
+
+      struct Enfant {
+          std::weak_ptr<Parent> parent;
+          ~Enfant() { std::print("enfant "); }
+      };
+
+      struct Parent {
+          std::shared_ptr<Enfant> enfant;
+          ~Parent() { std::print("parent "); }
+      };
+
+      int main() {
+          {
+              const auto parent = std::make_shared<Parent>();
+              parent->enfant = std::make_shared<Enfant>();
+              parent->enfant->parent = parent;
+          }
+          std::println("fin");
+      }
+      ```
+    choices:
+      - {text: "`parent enfant fin`", correct: true}
+      - {text: "`fin`", correct: false}
+      - {text: "`enfant parent fin`", correct: false}
+      - {text: "`parent fin`", correct: false}
+    answer: "`parent enfant fin` : le lien de retour est un `std::weak_ptr`, donc pas de cycle. Le parent est détruit, puis son membre `enfant`."
+    check:
+      output: "parent enfant fin"
+  - key: code-cycle
+    format: code-output
+    question: |-
+      ```cpp
+      #include <memory>
+      #include <print>
+
+      struct Noeud {
+          std::shared_ptr<Noeud> autre;
+          ~Noeud() { std::print("détruit "); }
+      };
+
+      int main() {
+          {
+              const auto a = std::make_shared<Noeud>();
+              const auto b = std::make_shared<Noeud>();
+              a->autre = b;
+              b->autre = a;
+              std::print("{} ", a.use_count());
+          }
+          std::println("fin");
+      }
+      ```
+    choices:
+      - {text: "`2 fin`", correct: true}
+      - {text: "`2 détruit détruit fin`", correct: false}
+      - {text: "`1 détruit détruit fin`", correct: false}
+      - {text: "`2 détruit fin`", correct: false}
+    answer: "`2 fin` : chaque nœud est tenu par une variable et par l'autre nœud. À la sortie du bloc, les compteurs tombent à 1, jamais à 0 : aucun destructeur n'est appelé."
+    check:
+      output: "2 fin"
+  - key: bug-cycle
+    format: bug-fix
+    question: |-
+      Ce programme devrait afficher `parent détruit` avant `fin`. Il n'affiche que `fin` : les deux objets fuient.
+      Quelle correction est la bonne ?
+      ```cpp
+      #include <memory>
+      #include <print>
+
+      struct Parent;
+
+      struct Enfant {
+          std::shared_ptr<Parent> parent;
+      };
+
+      struct Parent {
+          std::shared_ptr<Enfant> enfant;
+          ~Parent() { std::println("parent détruit"); }
+      };
+
+      int main() {
+          {
+              const auto parent = std::make_shared<Parent>();
+              parent->enfant = std::make_shared<Enfant>();
+              parent->enfant->parent = parent;
+          }
+          std::println("fin");
+      }
+      ```
+    choices:
+      - {text: "Déclarer `std::weak_ptr<Parent> parent;` dans `Enfant`", correct: true}
+      - {text: "Déclarer `std::unique_ptr<Parent> parent;` dans `Enfant`", correct: false}
+      - {text: "Appeler `parent.reset();` deux fois à la fin du bloc", correct: false}
+      - {text: "Déclarer le destructeur de `Parent` avec `virtual`", correct: false}
+    answer: |-
+      ```cpp
+      struct Enfant {
+          std::weak_ptr<Parent> parent;
+      };
+      ```
+      Le parent tient l'enfant, qui tient le parent : aucun compteur n'atteint zéro. Le lien de retour doit
+      observer, pas posséder.
+  - key: bug-dereferencer
+    format: bug-fix
+    question: |-
+      Le compilateur répond « no match for 'operator*' ». Quelle correction est la bonne ?
+      ```cpp
+      #include <memory>
+      #include <print>
+
+      int main() {
+          const auto proprietaire = std::make_shared<int>(5);
+          const std::weak_ptr<int> observateur = proprietaire;
+          std::println("{}", *observateur);
+      }
+      ```
+    choices:
+      - {text: "Appeler `lock()`, tester le résultat, puis le déréférencer", correct: true}
+      - {text: "Écrire `observateur.get()` à la place de `*observateur`", correct: false}
+      - {text: "Écrire `**observateur` à la place de `*observateur`", correct: false}
+      - {text: "Écrire `observateur->value()` à la place de `*observateur`", correct: false}
+    answer: |-
+      ```cpp
+      if (const auto p = observateur.lock()) {
+          std::println("{}", *p);
+      }
+      ```
+      Un `std::weak_ptr` ne donne pas d'accès direct : l'objet pourrait avoir disparu. `lock()` rend un
+      `std::shared_ptr` à tester.
+  - key: bug-lock-sans-test
+    format: bug-fix
+    question: |-
+      Ce programme déréférence le résultat de `lock()` alors que l'objet a été détruit. Il plante sur une erreur de
+      segmentation. Quelle correction est la bonne ?
+      ```cpp
+      #include <memory>
+      #include <print>
+
+      int main() {
+          std::weak_ptr<int> observateur;
+          {
+              const auto proprietaire = std::make_shared<int>(5);
+              observateur = proprietaire;
+          }
+          std::println("{}", *observateur.lock());
+      }
+      ```
+    choices:
+      - {text: "Ranger le résultat de `lock()` dans une variable, et ne le lire que s'il n'est pas nul", correct: true}
+      - {text: "Appeler `observateur.lock()` deux fois de suite avant de le déréférencer", correct: false}
+      - {text: "Écrire `observateur.expired()` à la place de `*observateur.lock()`, sans test", correct: false}
+      - {text: "Déclarer `observateur` avec `const`, pour que l'objet ne soit pas détruit", correct: false}
+    answer: |-
+      ```cpp
+      if (const auto p = observateur.lock()) {
+          std::println("{}", *p);
+      } else {
+          std::println("objet détruit");
+      }
+      ```
+      À la sortie du bloc, l'entier est détruit : `lock()` rend un pointeur nul. On le teste toujours avant de le
+      déréférencer.
+  - key: bug-depuis-brut
+    format: bug-fix
+    question: |-
+      Le compilateur refuse de construire le `std::weak_ptr` à partir d'un pointeur brut. Quelle correction est la
+      bonne ?
+      ```cpp
+      #include <memory>
+      #include <print>
+
+      int main() {
+          int* brut = new int{5};
+          const std::weak_ptr<int> observateur = brut;
+          std::println("{}", observateur.expired());
+          delete brut;
+      }
+      ```
+    choices:
+      - {text: "Créer l'entier avec `std::make_shared<int>(5)`, et observer ce `std::shared_ptr`", correct: true}
+      - {text: "Créer l'entier avec `std::make_unique<int>(5)`, et observer ce `std::unique_ptr`", correct: false}
+      - {text: "Écrire `std::weak_ptr<int> observateur{&brut};` avec l'adresse du pointeur", correct: false}
+      - {text: "Écrire `std::weak_ptr<int*> observateur = brut;` avec un type pointeur", correct: false}
+    answer: |-
+      ```cpp
+      const auto proprietaire = std::make_shared<int>(5);
+      const std::weak_ptr<int> observateur = proprietaire;
+      ```
+      Un `std::weak_ptr` lit les compteurs d'un `std::shared_ptr` : il ne peut observer que ce qu'un
+      `std::shared_ptr` possède.
+  - key: situation-abonnes
+    format: scenario
+    question: |-
+      Un `Editeur` garde la liste de ses abonnés par `std::shared_ptr<Abonne>`. Les abonnés fermés par
+      l'utilisateur continuent de recevoir les messages, et leur mémoire n'est jamais rendue. Que proposes-tu ?
+    choices:
+      - {text: "Garder des `std::weak_ptr<Abonne>`, et retirer ceux dont `lock()` rend un pointeur nul", correct: true}
+      - {text: "Garder des `Abonne*` bruts, et tester `!= nullptr` avant chaque envoi", correct: false}
+      - {text: "Garder des copies des abonnés, pour ne plus dépendre de leur durée de vie", correct: false}
+      - {text: "Garder des `std::unique_ptr<Abonne>`, que l'éditeur est seul à posséder", correct: false}
+    answer: |-
+      L'éditeur, en possédant ses abonnés, les empêche de mourir. Il doit seulement les observer : un abonné détruit
+      se reconnaît à son `lock()` nul. Un pointeur brut serait pendant, sans moyen de le savoir.
+  - key: situation-fuite-graphe
+    format: scenario
+    question: |-
+      Une liste doublement chaînée tient ses nœuds par `std::shared_ptr` dans les deux sens : `suivant` et
+      `precedent`. Un outil de détection signale que tous les nœuds fuient. Que changes-tu ?
+    choices:
+      - {text: "`precedent` devient un `std::weak_ptr` : seul `suivant` possède", correct: true}
+      - {text: "`suivant` et `precedent` deviennent tous deux des `std::weak_ptr`", correct: false}
+      - {text: "`suivant` et `precedent` deviennent tous deux des `std::unique_ptr`", correct: false}
+      - {text: "Rien : il faut appeler `delete` sur chaque nœud à la fin", correct: false}
+    answer: |-
+      Chaque paire de voisins forme un cycle. La possession doit aller dans un seul sens : chaque nœud possède le
+      suivant et observe le précédent. Avec deux `std::weak_ptr`, plus personne ne posséderait les nœuds.
+  - key: situation-rappel
+    format: scenario
+    question: |-
+      Un objet `Session`, tenu par `std::shared_ptr`, enregistre auprès d'un minuteur une lambda qui capture
+      `this`. Quand la session est fermée avant l'échéance, le programme plante. Que proposes-tu ?
+    choices:
+      - {text: "Capturer un `std::weak_ptr` vers la session, et appeler `lock()` dans la lambda", correct: true}
+      - {text: "Capturer `this` par référence : `[&this]`", correct: false}
+      - {text: "Capturer une copie de la session : `[*this]`, qui reste liée à l'originale", correct: false}
+      - {text: "Capturer `this`, et tester `this != nullptr` dans la lambda", correct: false}
+    answer: |-
+      `this` est un pointeur brut : après la destruction de la session, il est pendant, et rien ne permet de le
+      tester. Un `std::weak_ptr` (obtenu par `weak_from_this()`) expire avec la session : si `lock()` est nul, la
+      lambda ne fait rien.
+  - key: situation-entretien
+    format: scenario
+    question: |-
+      En entretien, on te demande : « Pourquoi ne pas remplacer le `std::weak_ptr` par un pointeur brut, qui
+      n'est pas propriétaire non plus ? » Que réponds-tu ?
+    choices:
+      - {text: "Qu'un pointeur brut ne sait pas que l'objet est mort ; un `std::weak_ptr` le sait, par `lock()`", correct: true}
+      - {text: "Qu'un pointeur brut augmente le compteur de références, au contraire du `std::weak_ptr`", correct: false}
+      - {text: "Qu'un pointeur brut ne peut pas désigner un objet tenu par `std::shared_ptr`", correct: false}
+      - {text: "Qu'un pointeur brut est plus lent à copier qu'un `std::weak_ptr`", correct: false}
+    answer: |-
+      Les deux observent sans posséder. Mais si l'objet peut disparaître avant l'observateur, le pointeur brut
+      devient pendant en silence. Quand la durée de vie est garantie par ailleurs, un pointeur brut ou une référence
+      suffisent, et coûtent moins.
