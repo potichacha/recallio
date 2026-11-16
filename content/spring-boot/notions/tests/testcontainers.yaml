@@ -1,0 +1,262 @@
+notion: testcontainers
+lesson: |-
+  Une base en mémoire comme H2 n'est pas PostgreSQL : autre dialecte, autres types (`jsonb`, tableaux), autres
+  fonctions. Un test vert sur H2 peut cacher une requête qui échoue en production. **Testcontainers** démarre de
+  vrais services (PostgreSQL, Kafka, Redis...) dans des conteneurs **Docker**, le temps des tests, puis les
+  supprime. Il faut donc un moteur Docker accessible, sur le poste comme en CI.
+
+  **Avec JUnit.** L'extension de Testcontainers démarre les champs `@Container` : un champ `static` sert à toute la
+  classe, un champ d'instance serait recréé pour chaque test.
+
+  **Avec Spring Boot** (module `spring-boot-testcontainers`), `@ServiceConnection` relie le conteneur à
+  l'application : Spring Boot lit son adresse, son utilisateur et son mot de passe, et configure la source de
+  données. Aucune propriété à recopier.
+
+  ```java
+  @Testcontainers
+  @SpringBootTest
+  class CommandeRepositoryIT {
+
+      @Container
+      @ServiceConnection
+      static PostgreSQLContainer postgres = new PostgreSQLContainer("postgres:17-alpine");
+
+      @Autowired
+      CommandeRepository commandes;
+  }
+  ```
+
+  Avant `@ServiceConnection`, ou pour un service qu'il ne connaît pas, on passe les propriétés par une méthode
+  statique `@DynamicPropertySource`, appelée une fois le conteneur démarré :
+
+  ```java
+  @DynamicPropertySource
+  static void proprietes(DynamicPropertyRegistry registry) {
+      registry.add("spring.datasource.url", postgres::getJdbcUrl);
+      registry.add("spring.datasource.username", postgres::getUsername);
+      registry.add("spring.datasource.password", postgres::getPassword);
+  }
+  ```
+
+  **Avec une tranche.** Avec Spring Boot 4, `@DataJpaTest` garde une source de données fournie par le test
+  (`@ServiceConnection`, `@DynamicPropertySource`) au lieu de la remplacer par une base en mémoire : la tranche JPA
+  tourne alors sur le vrai PostgreSQL.
+
+  **Le coût, et le partage.** Un conteneur démarre en quelques secondes, et chaque conteneur différent donne une
+  autre configuration, donc un **autre contexte Spring**. On partage :
+
+  | Technique | Effet |
+  |---|---|
+  | un conteneur `static` dans une classe de base commune | un seul conteneur et un seul contexte pour toutes les classes qui en héritent |
+  | les conteneurs déclarés en `@Bean @ServiceConnection` dans une `@TestConfiguration` importée partout | Spring gère leur cycle de vie, avec le contexte |
+  | la réutilisation (`withReuse(true)`, autorisée dans la configuration de Testcontainers du poste) | le conteneur survit d'un lancement à l'autre, en développement |
+
+  **En développement**, la même configuration démarre l'application avec ses conteneurs : une classe `main` de
+  test appelle `SpringApplication.from(BoutiqueApplication::main).with(ConteneursDeTest.class).run(args)`.
+
+  Avec Spring Boot 4 arrive Testcontainers 2, dont les modules et les packages ont été renommés : on suit sa
+  documentation pour les imports.
+
+  **En entretien** : « Je teste la persistance sur le vrai moteur, avec Testcontainers, plutôt que sur H2 qui n'a
+  ni le même dialecte ni les mêmes types. `@ServiceConnection` branche le conteneur sans propriété à recopier. Je
+  partage un seul conteneur entre les classes, pour garder un seul contexte et une suite rapide. »
+cards:
+  - key: apport-testcontainers
+    format: course
+    question: "Qu'apporte Testcontainers aux tests d'une application Spring Boot ?"
+    choices:
+      - {text: "De vrais services, PostgreSQL ou Kafka, démarrés dans Docker le temps des tests", correct: true}
+      - {text: "Une base H2 réglée pour imiter le dialecte de PostgreSQL", correct: false}
+      - {text: "Des mocks de JDBC qui simulent les réponses de la base", correct: false}
+      - {text: "Un serveur PostgreSQL partagé, installé une fois pour toute l'équipe", correct: false}
+    answer: "Les tests tournent sur le même moteur que la production, dans un conteneur jetable : mêmes types, même SQL, mêmes contraintes."
+  - key: role-serviceconnection
+    format: course
+    question: "Que fait `@ServiceConnection` sur un champ conteneur d'un test Spring Boot ?"
+    choices:
+      - {text: "Spring Boot en tire les informations de connexion, sans propriété à écrire", correct: true}
+      - {text: "Il démarre le conteneur avant chaque méthode de test, puis l'arrête", correct: false}
+      - {text: "Il partage le conteneur entre toutes les JVM du build", correct: false}
+      - {text: "Il remplace le conteneur par une base en mémoire quand Docker manque", correct: false}
+    answer: "Spring Boot crée les détails de connexion (URL, utilisateur, mot de passe) à partir du conteneur, et la source de données les utilise."
+  - key: champ-container-static
+    format: course
+    question: "Pourquoi déclare-t-on en `static` le champ `@Container` d'une classe de test ?"
+    choices:
+      - {text: "Pour démarrer un seul conteneur pour la classe, et non un par test", correct: true}
+      - {text: "Parce que JUnit refuse les champs d'instance annotés", correct: false}
+      - {text: "Pour que Spring puisse l'injecter dans les beans", correct: false}
+      - {text: "Pour que Docker garde le conteneur après les tests", correct: false}
+    answer: "L'extension de Testcontainers démarre un champ `static` avant tous les tests de la classe, et un champ d'instance avant chacun : bien plus lent."
+  - key: pourquoi-pas-h2
+    format: course
+    question: "Pourquoi tester ses requêtes sur PostgreSQL plutôt que sur H2 ?"
+    choices:
+      - {text: "H2 n'a ni le même dialecte ni les mêmes types : un test vert peut tromper", correct: true}
+      - {text: "H2 ne sait pas créer les tables à partir des entités JPA", correct: false}
+      - {text: "La licence de H2 interdit son usage dans les tests d'intégration", correct: false}
+      - {text: "H2 ne gère aucune transaction, donc aucun rollback de test", correct: false}
+    answer: "Une requête native, un type `jsonb` ou une fonction propre à PostgreSQL peuvent manquer à H2, ou s'y comporter autrement."
+  - key: vf-docker-requis
+    format: true-false
+    question: "Testcontainers a besoin d'un moteur Docker accessible pendant les tests."
+    truth: true
+    answer: "Il pilote Docker (ou un moteur compatible) pour démarrer les conteneurs. Une CI sans Docker ne peut pas les lancer."
+  - key: vf-url-a-recopier
+    format: true-false
+    question: "Avec `@ServiceConnection`, il faut encore recopier l'URL du conteneur dans `spring.datasource.url`."
+    truth: false
+    answer: "C'est justement ce que l'annotation évite : Spring Boot lit la connexion sur le conteneur. `@DynamicPropertySource` reste utile pour un service qu'elle ne connaît pas."
+  - key: vf-conteneur-partage
+    format: true-false
+    question: "Un conteneur déclaré dans un champ `static` d'une classe de base peut servir à plusieurs classes de test."
+    truth: true
+    answer: "Les classes filles héritent du champ : un seul conteneur, et la même configuration, donc un seul contexte en cache."
+  - key: vf-datajpatest-remplace
+    format: true-false
+    question: "Avec Spring Boot 4, `@DataJpaTest` remplace par une base en mémoire la source de données d'un conteneur `@ServiceConnection`."
+    truth: false
+    answer: "Le mode par défaut de `@AutoConfigureTestDatabase`, `NON_TEST`, garde une source fournie par le test : la tranche JPA tourne sur le conteneur."
+  - key: qcm-avant-serviceconnection
+    format: multiple-choice
+    question: "Sans `@ServiceConnection`, comment passe-t-on l'URL d'un conteneur, connue seulement à son démarrage, à Spring ?"
+    choices:
+      - {text: "Par une méthode statique `@DynamicPropertySource`", correct: true}
+      - {text: "Par `@SpringBootTest(properties = \"spring.datasource.url=...\")`", correct: false}
+      - {text: "Par une variable d'environnement fixée dans le `pom.xml`", correct: false}
+      - {text: "Par `@Value` sur le champ du conteneur", correct: false}
+    answer: "La méthode reçoit un `DynamicPropertyRegistry`, où l'on ajoute des fournisseurs (`postgres::getJdbcUrl`), lus quand le contexte démarre. `properties` n'accepte que des valeurs fixes."
+  - key: qcm-module-serviceconnection
+    format: multiple-choice
+    question: "Quel module de Spring Boot apporte `@ServiceConnection` pour les conteneurs de test ?"
+    choices:
+      - {text: "`spring-boot-testcontainers`", correct: true}
+      - {text: "`spring-boot-starter-test`", correct: false}
+      - {text: "`spring-boot-docker-compose`", correct: false}
+      - {text: "`spring-boot-starter-data-jpa-test`", correct: false}
+    answer: "Il relie Testcontainers à l'auto-configuration. `spring-boot-docker-compose` démarre des services pendant le développement, à partir d'un fichier Compose."
+  - key: qcm-application-en-dev
+    format: multiple-choice
+    question: "Comment lances-tu l'application en développement avec les conteneurs déclarés pour tes tests ?"
+    choices:
+      - {text: "Par une classe `main` de test qui appelle `SpringApplication.from(...).with(...)`", correct: true}
+      - {text: "Par `mvn spring-boot:run -Dtestcontainers=true`, sans autre classe", correct: false}
+      - {text: "Par un `@SpringBootTest` dont la méthode de test ne se termine jamais", correct: false}
+      - {text: "Par un `docker run` par service, puis l'URL recopiée dans la configuration", correct: false}
+    answer: "`SpringApplication.from(BoutiqueApplication::main).with(ConteneursDeTest.class)` démarre l'application avec la configuration de test, ses conteneurs et leurs `@ServiceConnection`."
+  - key: qcm-cout-conteneur-par-classe
+    format: multiple-choice
+    question: "Que coûte une classe de test qui déclare son propre conteneur `@ServiceConnection` ?"
+    choices:
+      - {text: "Un conteneur et un contexte Spring de plus, rien que pour elle", correct: true}
+      - {text: "Rien : Testcontainers partage toujours les conteneurs de même image", correct: false}
+      - {text: "Une connexion de plus à un conteneur partagé par la JVM", correct: false}
+      - {text: "Un test plus lent, mais le même contexte Spring que les autres", correct: false}
+    answer: "Un autre conteneur donne d'autres détails de connexion, donc une autre clé de cache : le contexte est recréé. D'où le conteneur partagé dans une base commune."
+  - key: trous-serviceconnection
+    format: fill-in
+    question: |-
+      Complète pour que Spring Boot configure la source de données à partir du conteneur :
+      ```java
+      @Container
+      @___
+      static PostgreSQLContainer postgres = new PostgreSQLContainer("postgres:17-alpine");
+      ```
+    blanks:
+      - [ServiceConnection]
+    answer: "`@ServiceConnection` remplace les propriétés `spring.datasource.*` : l'URL, l'utilisateur et le mot de passe viennent du conteneur."
+  - key: trous-extension-testcontainers
+    format: fill-in
+    question: |-
+      Complète pour activer l'extension JUnit de Testcontainers dans cette classe :
+      ```java
+      @___
+      @SpringBootTest
+      class CommandeRepositoryIT {
+
+          @Container
+          @ServiceConnection
+          static PostgreSQLContainer postgres = new PostgreSQLContainer("postgres:17-alpine");
+      }
+      ```
+    blanks:
+      - [Testcontainers]
+    answer: "`@Testcontainers` enregistre l'extension, qui démarre les champs `@Container` avant les tests et les arrête après."
+  - key: trous-dynamic-property-source
+    format: fill-in
+    question: |-
+      Complète pour passer l'URL du conteneur à Spring, une fois celui-ci démarré :
+      ```java
+      @___
+      static void proprietes(DynamicPropertyRegistry registry) {
+          registry.add("spring.datasource.url", postgres::getJdbcUrl);
+      }
+      ```
+    blanks:
+      - [DynamicPropertySource]
+    answer: "La méthode est statique, et ses fournisseurs sont lus au démarrage du contexte, quand le conteneur connaît son port."
+  - key: trous-container
+    format: fill-in
+    question: |-
+      Complète pour que l'extension démarre ce conteneur avant les tests de la classe, et l'arrête après :
+      ```java
+      @___
+      @ServiceConnection
+      static PostgreSQLContainer postgres = new PostgreSQLContainer("postgres:17-alpine");
+      ```
+    blanks:
+      - [Container]
+    answer: "`@Container` désigne les conteneurs que gère l'extension. En `static`, un seul pour toute la classe."
+  - key: situation-jsonb
+    format: scenario
+    question: |-
+      Tes tests de repository passent sur H2, mais une requête native qui lit une colonne `jsonb` échoue en
+      production sur PostgreSQL. Que changes-tu ?
+    choices:
+      - {text: "Je teste les repositories sur un PostgreSQL de Testcontainers", correct: true}
+      - {text: "Je règle H2 en mode de compatibilité avec PostgreSQL", correct: false}
+      - {text: "Je remplace la requête native par du JPQL, partout", correct: false}
+      - {text: "Je retire ce test, que H2 ne sait pas jouer", correct: false}
+    answer: |-
+      Le mode de compatibilité de H2 imite la syntaxe, pas tout le moteur : `jsonb` et ses opérateurs n'y sont
+      pas. Seul le vrai PostgreSQL prouve la requête ; `@DataJpaTest` avec `@ServiceConnection` reste une tranche
+      rapide.
+  - key: situation-dix-conteneurs
+    format: scenario
+    question: |-
+      Chacune de tes dix classes de test d'intégration démarre son propre PostgreSQL : la suite dure huit minutes.
+      Que fais-tu ?
+    choices:
+      - {text: "Un seul conteneur partagé, dans une classe de base ou une configuration commune", correct: true}
+      - {text: "Un conteneur par méthode de test, pour mieux isoler les données", correct: false}
+      - {text: "`@DirtiesContext` sur chaque classe, pour libérer Docker plus tôt", correct: false}
+      - {text: "Une image PostgreSQL plus récente, plus rapide à démarrer", correct: false}
+    answer: |-
+      Dix conteneurs, ce sont dix démarrages et dix contextes Spring. Partagé, le conteneur démarre une fois, et le
+      contexte reste en cache. Les données s'isolent par les transactions annulées ou un nettoyage entre tests.
+  - key: situation-ci-sans-docker
+    format: scenario
+    question: |-
+      Ta CI n'a pas de Docker, et tes tests Testcontainers échouent au démarrage. Un collègue propose
+      `@Testcontainers(disabledWithoutDocker = true)`. Que réponds-tu ?
+    choices:
+      - {text: "Qu'il faut donner un moteur Docker à la CI : sinon ces tests ne tournent jamais", correct: true}
+      - {text: "Que c'est parfait : la CI reste verte, et les tests tournent sur les postes", correct: false}
+      - {text: "Qu'il vaut mieux remplacer chaque conteneur par un `@MockitoBean`", correct: false}
+      - {text: "Qu'il suffit de passer ces tests en `RANDOM_PORT`", correct: false}
+    answer: |-
+      Désactiver les tests sans Docker rend la CI verte en silence : les tests d'intégration ne protègent plus
+      rien. La CI doit fournir un moteur Docker, ou un service distant de conteneurs.
+  - key: situation-reutiliser-en-dev
+    format: scenario
+    question: |-
+      Un développeur relance souvent ses tests d'intégration et attend à chaque fois le démarrage de PostgreSQL. Il
+      voudrait garder le conteneur d'un lancement à l'autre, sur son poste. Que lui proposes-tu ?
+    choices:
+      - {text: "La réutilisation : `withReuse(true)`, autorisée dans sa configuration locale", correct: true}
+      - {text: "Un conteneur `static` sans `@Container`, que personne n'arrête jamais", correct: false}
+      - {text: "Un PostgreSQL installé à la main, avec son URL codée dans les tests", correct: false}
+      - {text: "La réutilisation activée aussi en CI, pour accélérer tous les builds", correct: false}
+    answer: |-
+      Un conteneur réutilisable survit à la JVM, si le poste l'autorise (`testcontainers.reuse.enable=true` dans
+      sa configuration Testcontainers). En CI, on garde des conteneurs neufs, pour des builds reproductibles.

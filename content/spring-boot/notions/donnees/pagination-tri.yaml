@@ -1,0 +1,308 @@
+notion: pagination-tri
+lesson: |-
+  On ne renvoie jamais une table entière : on la découpe en **pages**, triées.
+
+  **Les types de Spring Data.**
+  - `Sort` décrit le tri : `Sort.by("prix").descending()`, `Sort.by("categorie").and(Sort.by("nom"))`.
+  - `Pageable` décrit la page demandée ; on le crée avec `PageRequest.of(numero, taille, tri)`. **Les pages sont
+    numérotées à partir de 0.**
+  - `Page<T>` est le résultat : le contenu, plus le nombre total d'éléments et de pages.
+  - `Slice<T>` est un résultat sans total : le contenu, et s'il existe une page suivante.
+
+  ```java
+  public interface ProduitRepository extends JpaRepository<Produit, Long> {
+      Page<Produit> findByCategorie(Categorie categorie, Pageable pageable);
+      Slice<Produit> findByPrixLessThan(int prix, Pageable pageable);
+  }
+
+  Page<Produit> page = produits.findByCategorie(LIVRE, PageRequest.of(0, 20, Sort.by("nom")));
+  page.getContent();         // les 20 premiers livres
+  page.getTotalElements();   // combien en tout
+  page.getTotalPages();
+  page.hasNext();
+  ```
+
+  **Page ou Slice ?** Pour connaître le total, `Page` envoie une **seconde requête**, un `select count(*)`. Sur une
+  grosse table, elle peut coûter plus cher que la page elle-même. `Slice` s'en passe : Spring Data demande un
+  élément de plus que la taille de la page, pour savoir s'il y a une suite. C'est le bon choix d'un défilement infini.
+
+  **Dans un contrôleur.** Spring Data lit la page dans les paramètres de la requête :
+
+  ```java
+  @GetMapping("/produits")
+  public PageDto<ProduitDto> lister(@PageableDefault(size = 20, sort = "nom") Pageable pageable) {
+      return PageDto.de(produits.findAll(pageable).map(ProduitDto::de));
+  }
+  // GET /produits?page=2&size=50&sort=prix,desc
+  ```
+
+  Par défaut, 20 éléments par page, et jamais plus de 2 000, même si le client le demande. On renvoie un DTO de
+  page (ou le `PagedModel` de Spring Data), pas un `PageImpl` sérialisé tel quel, dont le JSON n'est pas un contrat
+  stable.
+
+  **Un tri stable.** Sans `order by`, la base ne garantit aucun ordre ; avec un tri sur une colonne qui a des
+  doublons (le prix), l'ordre entre ex aequo peut changer d'une requête à l'autre : un produit apparaît sur deux pages,
+  un autre sur aucune. On ajoute un critère unique en dernier : `Sort.by("prix").and(Sort.by("id"))`.
+
+  **Un tri sur une propriété inconnue** échoue : « No property 'prixx' found for type 'Produit'; Did you mean
+  'prix' ». Quand le tri vient du client, on limite les propriétés permises.
+
+  **Les pages lointaines.** `offset 100000` oblige la base à parcourir puis jeter 100 000 lignes. Pour aller loin, on
+  pagine par clé (« les 20 suivants après tel identifiant ») : Spring Data le propose avec `ScrollPosition` et
+  `Window`.
+
+  **En entretien** : « Je pagine avec un `Pageable`, créé par `PageRequest.of(page, taille, tri)` ou lu dans la
+  requête HTTP, et des pages numérotées à partir de 0. `Page` donne le total au prix d'un `count`, `Slice` s'en passe
+  pour un défilement infini. Je garde un tri déterministe, avec l'identifiant en dernier critère, et je borne la
+  taille des pages. »
+cards:
+  - key: numerotation
+    format: course
+    question: "Quelle page désigne `PageRequest.of(1, 20)` ?"
+    choices:
+      - {text: "La deuxième page : les éléments 21 à 40", correct: true}
+      - {text: "La première page : les éléments 1 à 20", correct: false}
+      - {text: "Une page d'un élément, à partir du 20e", correct: false}
+      - {text: "Les éléments 1 à 20, en commençant au 1er", correct: false}
+    answer: "Les pages sont numérotées à partir de 0 : `PageRequest.of(0, 20)` est la première, `of(1, 20)` la deuxième."
+  - key: page-cout
+    format: course
+    question: "Pourquoi une méthode qui renvoie `Page<Produit>` coûte-t-elle souvent deux requêtes ?"
+    choices:
+      - {text: "Il lui faut un `select count(*)` pour connaître le nombre total d'éléments", correct: true}
+      - {text: "Elle lit d'abord les identifiants, puis les entités une par une", correct: false}
+      - {text: "Elle charge la page demandée et, par avance, la page suivante", correct: false}
+      - {text: "Elle vérifie d'abord que la table existe, puis lit la page", correct: false}
+    answer: "`getTotalElements()` et `getTotalPages()` exigent un comptage. Spring Data l'économise quand la première page n'est pas pleine. `Slice` n'en fait jamais."
+  - key: slice
+    format: course
+    question: "Comment une `Slice` sait-elle qu'il existe une page suivante, sans requête de comptage ?"
+    choices:
+      - {text: "Elle demande un élément de plus que la taille de la page", correct: true}
+      - {text: "Elle lit le nombre de lignes dans les statistiques de la base", correct: false}
+      - {text: "Elle envoie une seconde requête qui lit la première ligne suivante", correct: false}
+      - {text: "Elle ne le sait pas : `hasNext()` renvoie toujours `true`", correct: false}
+    answer: "Pour une page de 20, elle lit 21 lignes : si la 21e existe, `hasNext()` vaut `true`, et elle n'est pas rendue. Une seule requête, sans `count`."
+  - key: tri-stable
+    format: course
+    question: "Pourquoi ajouter l'identifiant en dernier critère de tri d'une liste paginée par prix ?"
+    choices:
+      - {text: "Sans lui, l'ordre des ex aequo peut changer d'une page à l'autre", correct: true}
+      - {text: "Sans lui, Spring Data refuse de paginer une requête triée", correct: false}
+      - {text: "Sans lui, la base ne peut pas utiliser d'index pour le tri", correct: false}
+      - {text: "Sans lui, la requête de comptage renvoie un total faux", correct: false}
+    answer: "Deux produits au même prix n'ont pas d'ordre garanti : l'un peut apparaître en page 1 et en page 2, l'autre nulle part. Un critère unique en dernier rend l'ordre déterministe."
+  - key: vf-premiere-page
+    format: true-false
+    question: "`PageRequest.of(0, 20)` désigne la première page."
+    truth: true
+    answer: "La numérotation commence à 0. Une option de Spring Data permet de recevoir des numéros à partir de 1 dans l'URL, mais `PageRequest` compte toujours à partir de 0."
+  - key: vf-slice-total
+    format: true-false
+    question: "Une `Slice` connaît le nombre total d'éléments."
+    truth: false
+    answer: "Elle sait seulement s'il y a une page suivante. Pour le total, il faut une `Page`, et sa requête de comptage."
+  - key: vf-ordre-sans-tri
+    format: true-false
+    question: "Sans critère de tri, la base garantit que les lignes reviennent toujours dans le même ordre."
+    truth: false
+    answer: "Sans `order by`, l'ordre dépend du plan d'exécution et du stockage : il peut changer d'une requête à l'autre. Une pagination sans tri peut sauter ou répéter des lignes."
+  - key: vf-taille-max
+    format: true-false
+    question: "Avec la configuration par défaut de Spring Data, un client qui envoie `?size=100000` reçoit 100 000 éléments."
+    truth: false
+    answer: "La taille est plafonnée à 2 000 par défaut (`spring.data.web.pageable.max-page-size`). On peut abaisser ce plafond."
+  - key: qcm-parametres-url
+    format: multiple-choice
+    question: "Quelle URL demande la troisième page de 50 produits, du plus cher au moins cher ?"
+    choices:
+      - {text: "`/produits?page=2&size=50&sort=prix,desc`", correct: true}
+      - {text: "`/produits?page=3&size=50&sort=prix,desc`", correct: false}
+      - {text: "`/produits?page=2&limit=50&order=-prix`", correct: false}
+      - {text: "`/produits?offset=100&size=50&sort=desc(prix)`", correct: false}
+    answer: "`page` compte à partir de 0, donc 2 pour la troisième ; `size` donne la taille ; `sort` prend la propriété puis le sens, séparés par une virgule."
+  - key: qcm-tri-descendant
+    format: multiple-choice
+    question: "Quelle expression trie les produits du plus cher au moins cher ?"
+    choices:
+      - {text: "`Sort.by(\"prix\").descending()`", correct: true}
+      - {text: "`Sort.by(\"prix\").ascending()`", correct: false}
+      - {text: "`Sort.by(\"-prix\")`", correct: false}
+      - {text: "`Sort.by(\"prix desc\")`", correct: false}
+    answer: "`descending()` inverse le sens ; `Sort.by(Sort.Direction.DESC, \"prix\")` est équivalent. `\"-prix\"` et `\"prix desc\"` seraient lus comme des noms de propriété, et refusés."
+  - key: qcm-defilement
+    format: multiple-choice
+    question: "Une application mobile affiche les produits en défilement infini, sans jamais montrer de total. Quel type de retour choisis-tu ?"
+    choices:
+      - {text: "`Slice<Produit>`", correct: true}
+      - {text: "`Page<Produit>`", correct: false}
+      - {text: "`List<Produit>` sans `Pageable`", correct: false}
+      - {text: "`Stream<Produit>` sans `Pageable`", correct: false}
+    answer: "`Slice` dit s'il reste des éléments, sans requête de comptage. `Page` paierait un `count(*)` à chaque défilement ; une liste ou un flux sans `Pageable` chargerait tout."
+  - key: qcm-total-pages
+    format: multiple-choice
+    question: "Quelle méthode de `Page` donne le nombre de pages ?"
+    choices:
+      - {text: "`getTotalPages()`", correct: true}
+      - {text: "`getTotalElements()`", correct: false}
+      - {text: "`getNumberOfElements()`", correct: false}
+      - {text: "`getSize()`", correct: false}
+    answer: "`getTotalElements()` donne le nombre d'éléments en tout, `getNumberOfElements()` celui de la page courante, et `getSize()` la taille demandée."
+  - key: trous-page-request
+    format: fill-in
+    question: |-
+      Complète pour demander la première page de 20 produits, triés par nom :
+      ```java
+      Pageable premiere = PageRequest.___(0, 20, Sort.by("nom"));
+      ```
+    blanks:
+      - [of]
+    answer: "`PageRequest.of(numero, taille, tri)`, avec un numéro qui commence à 0."
+  - key: trous-pageable
+    format: fill-in
+    question: |-
+      Complète pour qu'une requête dérivée accepte une pagination :
+      ```java
+      Page<Produit> findByCategorie(Categorie categorie, ___ pageable);
+      ```
+    blanks:
+      - [Pageable]
+    answer: "Un paramètre `Pageable` en dernier : Spring Data ajoute le tri, la limite et le décalage à la requête."
+  - key: trous-descending
+    format: fill-in
+    question: |-
+      Complète pour trier du plus récent au plus ancien :
+      ```java
+      Sort recents = Sort.by("creeLe").___();
+      ```
+    blanks:
+      - [descending]
+    answer: "`descending()` renvoie un nouveau `Sort`, en sens inverse."
+  - key: trous-pageable-default
+    format: fill-in
+    question: |-
+      Complète pour que le contrôleur renvoie 50 éléments par page quand le client ne précise rien :
+      ```java
+      @GetMapping("/produits")
+      public PageDto<ProduitDto> lister(@PageableDefault(___ = 50) Pageable pageable) { ... }
+      ```
+    blanks:
+      - [size]
+    answer: "`@PageableDefault` fixe la taille et le tri par défaut ; le client peut les changer, dans la limite du plafond."
+  - key: bug-premiere-page
+    format: bug-fix
+    question: |-
+      L'écran « Nouveautés » n'affiche jamais les 10 produits les plus récents : il commence au 11e. Quelle correction
+      est la bonne ?
+      ```java
+      public List<Produit> nouveautes() {
+          return produits.findAll(PageRequest.of(1, 10, Sort.by("creeLe").descending())).getContent();
+      }
+      ```
+    choices:
+      - {text: "Écrire `PageRequest.of(0, 10, ...)`", correct: true}
+      - {text: "Écrire `PageRequest.of(1, 11, ...)`", correct: false}
+      - {text: "Écrire `Sort.by(\"creeLe\").ascending()`", correct: false}
+      - {text: "Écrire `PageRequest.of(1, 10)` sans tri", correct: false}
+    answer: |-
+      ```java
+      return produits.findAll(PageRequest.of(0, 10, Sort.by("creeLe").descending())).getContent();
+      ```
+      Les pages commencent à 0 : `of(1, 10)` est la deuxième page, les éléments 11 à 20.
+  - key: bug-propriete-inconnue
+    format: bug-fix
+    question: |-
+      La liste échoue : `PropertyReferenceException: No property 'prixx' found for type 'Produit'; Did you mean
+      'prix'`. Quelle correction est la bonne ?
+      ```java
+      public Page<Produit> moinsChers(int page) {
+          return produits.findAll(PageRequest.of(page, 20, Sort.by("prixx")));
+      }
+      ```
+    choices:
+      - {text: "Écrire `Sort.by(\"prix\")`", correct: true}
+      - {text: "Écrire `Sort.by(\"PRIX\")`", correct: false}
+      - {text: "Écrire `Sort.by(\"p.prixx\")`", correct: false}
+      - {text: "Écrire `Sort.unsorted()`", correct: false}
+    answer: |-
+      ```java
+      return produits.findAll(PageRequest.of(page, 20, Sort.by("prix")));
+      ```
+      `Sort` nomme une propriété de l'entité, vérifiée par Spring Data. Retirer le tri ferait disparaître l'erreur,
+      mais aussi l'ordre des prix, et la pagination deviendrait instable.
+  - key: bug-tri-instable
+    format: bug-fix
+    question: |-
+      Des utilisateurs voient le même produit en bas de la page 1 et en haut de la page 2 ; d'autres produits au même
+      prix n'apparaissent jamais. Quelle correction est la bonne ?
+      ```java
+      Pageable pageable = PageRequest.of(numero, 20, Sort.by("prix"));
+      return produits.findAll(pageable);
+      ```
+    choices:
+      - {text: "Trier par `Sort.by(\"prix\").and(Sort.by(\"id\"))`", correct: true}
+      - {text: "Trier par `Sort.by(\"prix\").descending()`", correct: false}
+      - {text: "Passer la taille de page de 20 à 21 éléments", correct: false}
+      - {text: "Renvoyer une `Slice` plutôt qu'une `Page`", correct: false}
+    answer: |-
+      ```java
+      Pageable pageable = PageRequest.of(numero, 20, Sort.by("prix").and(Sort.by("id")));
+      ```
+      Entre produits de même prix, la base ne garantit aucun ordre : il peut changer d'une requête à l'autre, donc
+      d'une page à l'autre. L'identifiant, unique, départage les ex aequo et rend chaque page déterministe.
+  - key: bug-count-defilement
+    format: bug-fix
+    question: |-
+      Le défilement infini de l'application mobile ralentit à mesure que la table grandit : chaque chargement envoie
+      un `select count(*)` sur 30 millions de lignes, alors que l'écran n'affiche jamais de total. Quelle correction
+      est la bonne ?
+      ```java
+      Page<Evenement> findByUtilisateurId(Long utilisateurId, Pageable pageable);
+      ```
+    choices:
+      - {text: "Renvoyer `Slice<Evenement>` à la place de `Page<Evenement>`", correct: true}
+      - {text: "Renvoyer `List<Evenement>` et retirer le paramètre `Pageable`", correct: false}
+      - {text: "Passer la taille des pages de 20 à 200 éléments par appel", correct: false}
+      - {text: "Ajouter `@Transactional(readOnly = true)` sur cette méthode", correct: false}
+    answer: |-
+      ```java
+      Slice<Evenement> findByUtilisateurId(Long utilisateurId, Pageable pageable);
+      ```
+      `Page` compte toutes les lignes pour donner un total, inutile ici. `Slice` lit un élément de plus que la page
+      pour savoir s'il y a une suite : une seule requête. Sans `Pageable`, tout l'historique serait chargé.
+  - key: situation-taille-enorme
+    format: scenario
+    question: "Un partenaire appelle `GET /produits?size=1000000` pour tout récupérer d'un coup, et ton API souffre. Que proposes-tu ?"
+    choices:
+      - {text: "Plafonner la taille des pages, et lui faire parcourir les pages", correct: true}
+      - {text: "Supprimer la pagination et renvoyer toute la table en un flux", correct: false}
+      - {text: "Mettre la réponse complète en cache pour accélérer ses appels", correct: false}
+      - {text: "Augmenter la mémoire du serveur pour supporter un million d'objets", correct: false}
+    answer: "Spring Data plafonne déjà à 2 000 par défaut ; on peut descendre ce plafond (`spring.data.web.pageable.max-page-size`). Pour un export complet, une API dédiée (fichier, pagination par clé) vaut mieux qu'une page géante."
+  - key: situation-defilement-infini
+    format: scenario
+    question: "Le fil d'actualité défile sans fin et n'affiche jamais de nombre total. Ton collègue a écrit une méthode qui renvoie `Page`. Que proposes-tu ?"
+    choices:
+      - {text: "Une `Slice`, qui dit s'il y a une suite sans compter les lignes", correct: true}
+      - {text: "Une `List` complète, découpée en morceaux par l'application", correct: false}
+      - {text: "Une `Page`, avec la requête de comptage mise en cache", correct: false}
+      - {text: "Un `Stream` sans `Pageable`, lu au fur et à mesure", correct: false}
+    answer: "Le total n'est jamais affiché : la requête de comptage est un coût pur. `Slice` répond à la seule question utile, « y a-t-il une suite ? »."
+  - key: situation-pages-lointaines
+    format: scenario
+    question: "L'export parcourt toute la table par pages de 500 ; les dernières pages prennent plusieurs secondes chacune. Que proposes-tu ?"
+    choices:
+      - {text: "Paginer par clé : les 500 suivants après le dernier identifiant lu", correct: true}
+      - {text: "Passer à des pages de 50 000 éléments pour faire moins d'appels", correct: false}
+      - {text: "Retirer le tri pour que la base n'ait plus à ranger les lignes", correct: false}
+      - {text: "Renvoyer une `Page` à la place d'une `Slice` dans le repository", correct: false}
+    answer: "Avec un `offset` de 500 000, la base lit puis jette 500 000 lignes à chaque page. Une condition `where id > :dernier order by id` va droit au bon endroit grâce à l'index. Spring Data le propose avec `ScrollPosition` et `Window`."
+  - key: situation-json-page
+    format: scenario
+    question: "Ton contrôleur renvoie directement un `Page<Produit>` d'entités. Le front dépend de son JSON. Que proposes-tu ?"
+    choices:
+      - {text: "Renvoyer un DTO de page, avec des DTO de produits dedans", correct: true}
+      - {text: "Garder `Page<Produit>` : son JSON est un contrat stable", correct: false}
+      - {text: "Renvoyer une `List<Produit>` et donner le total dans les logs", correct: false}
+      - {text: "Renvoyer un `Slice<Produit>`, dont le JSON est plus court", correct: false}
+    answer: "Le JSON de `PageImpl` n'est pas un contrat garanti par Spring Data, et des entités exposent le schéma. Un record `PageDto(contenu, page, taille, total)` avec des `ProduitDto`, ou le `PagedModel` de Spring Data, fixe le format."

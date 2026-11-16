@@ -1,0 +1,212 @@
+notion: migrations
+lesson: |-
+  Le schéma de la base évolue avec le code : une table, une colonne, un index de plus à chaque version. Laisser
+  Hibernate le modifier (`ddl-auto=update`) ne laisse ni trace, ni relecture, ni retour possible, et il ne sait ni
+  renommer ni migrer des données. On écrit plutôt des **migrations** : des scripts versionnés, rangés avec le code,
+  appliqués dans l'ordre sur chaque base.
+
+  **Flyway.** Avec Spring Boot 4, on ajoute `spring-boot-starter-flyway` (et, pour PostgreSQL, le module
+  `flyway-database-postgresql`). Les scripts vont dans `src/main/resources/db/migration` :
+
+  ```
+  db/migration/
+  ├── V1__creer_produit.sql
+  ├── V2__ajouter_stock_au_produit.sql
+  └── V3__creer_commande.sql
+  ```
+
+  Le nom suit le motif `V<version>__<description>.sql`, avec **deux** soulignés. Au démarrage, Spring Boot lance
+  Flyway **avant** Hibernate : Flyway lit sa table `flyway_schema_history`, qui liste les versions déjà appliquées
+  avec la somme de contrôle de chaque script, puis applique les nouvelles, dans l'ordre.
+
+  **Les règles.**
+  - **Ne jamais modifier une migration déjà appliquée** : sa somme de contrôle ne correspondrait plus, et Flyway
+    refuserait de démarrer. On corrige par une nouvelle migration.
+  - Les scripts répétables, `R__vues.sql`, sont rejoués chaque fois que leur contenu change (vues, fonctions).
+  - Une base qui existait avant Flyway démarre par une **ligne de base** : `spring.flyway.baseline-on-migrate=true`.
+  - Avec un outil de migration, `spring.jpa.hibernate.ddl-auto` vaut `none` par défaut ; on le met à `validate` pour
+    qu'Hibernate vérifie que les entités correspondent au schéma.
+
+  **Liquibase**, l'autre outil courant, décrit les changements dans un *changelog* (XML, YAML ou SQL), par défaut
+  `db/changelog/db.changelog-master.yaml`, fait de *changesets* identifiés par un `id` et un `author`. Il note ce qui
+  est appliqué dans `DATABASECHANGELOG`, et verrouille les exécutions concurrentes avec `DATABASECHANGELOGLOCK`. Il
+  sait aussi décrire un retour arrière.
+
+  **Migrer sans arrêter le service.** Pendant un déploiement, l'ancienne version du code tourne encore sur le
+  nouveau schéma : une migration doit rester **compatible** avec la version précédente. On **ajoute avant de
+  supprimer** : pour renommer une colonne, on crée la nouvelle, on copie, le code écrit dans les deux, puis une
+  version suivante retire l'ancienne.
+
+  **En entretien** : « Je versionne le schéma avec Flyway : des scripts `V1__...sql` appliqués dans l'ordre au
+  démarrage, et une table d'historique avec leurs sommes de contrôle. Je ne modifie jamais une migration appliquée, je
+  corrige par une nouvelle. Hibernate est en `validate`, et chaque migration reste compatible avec la version
+  précédente du code : j'ajoute avant de supprimer. »
+cards:
+  - key: pourquoi
+    format: course
+    question: "Pourquoi préférer des migrations Flyway à `spring.jpa.hibernate.ddl-auto=update` en production ?"
+    choices:
+      - {text: "Les changements sont versionnés, relus, rejoués à l'identique sur chaque base", correct: true}
+      - {text: "Flyway génère le SQL depuis les entités, plus vite qu'Hibernate ne le fait", correct: false}
+      - {text: "`update` supprime les tables à chaque démarrage, ce que Flyway ne fait jamais", correct: false}
+      - {text: "Hibernate refuse `update` dès qu'une base contient plus de mille lignes", correct: false}
+    answer: "`update` modifie le schéma sans trace ni relecture, ne sait pas renommer ni migrer les données, et ne supprime rien. Une migration est un script relu en pull request, appliqué dans le même ordre partout."
+  - key: nommage
+    format: course
+    question: "Comment Flyway reconnaît-il l'ordre de ses scripts ?"
+    choices:
+      - {text: "Par la version dans le nom : `V1__...`, `V2__...`, `V3__...`", correct: true}
+      - {text: "Par la date de modification de chaque fichier sur le disque", correct: false}
+      - {text: "Par l'ordre alphabétique de la description après le préfixe", correct: false}
+      - {text: "Par une liste des fichiers déclarée dans `application.yaml`", correct: false}
+    answer: "Le motif est `V<version>__<description>.sql`, avec deux soulignés. Flyway applique les versions absentes de son historique, dans l'ordre croissant."
+  - key: historique
+    format: course
+    question: "À quoi sert la table `flyway_schema_history` ?"
+    choices:
+      - {text: "Elle liste les migrations appliquées, avec la somme de contrôle de chaque script", correct: true}
+      - {text: "Elle garde une copie des données avant chaque migration, pour revenir en arrière", correct: false}
+      - {text: "Elle journalise chaque requête SQL envoyée par l'application à la base", correct: false}
+      - {text: "Elle stocke les entités JPA dont le schéma doit encore être validé", correct: false}
+    answer: "Flyway y lit ce qui est déjà fait, applique le reste, et vérifie qu'aucun script appliqué n'a été modifié depuis."
+  - key: corriger
+    format: course
+    question: "Une migration `V4` déjà appliquée en production contient une erreur. Comment la corriges-tu ?"
+    choices:
+      - {text: "Par une nouvelle migration `V5` qui corrige le schéma", correct: true}
+      - {text: "En modifiant le fichier `V4`, puis en redéployant", correct: false}
+      - {text: "En supprimant `V4` et sa ligne de l'historique", correct: false}
+      - {text: "En renommant `V4` en `V4_1` avec la correction", correct: false}
+    answer: "Modifier un script appliqué change sa somme de contrôle : Flyway refuse alors de démarrer. L'historique ne se réécrit pas ; une nouvelle version corrige."
+  - key: vf-avant-hibernate
+    format: true-false
+    question: "Au démarrage, Spring Boot applique les migrations Flyway avant d'initialiser Hibernate."
+    truth: true
+    answer: "L'`EntityManagerFactory` attend Flyway : quand Hibernate valide le schéma, les migrations sont déjà passées."
+  - key: vf-script-modifie
+    format: true-false
+    question: "Modifier le contenu d'une migration déjà appliquée fait échouer la validation de Flyway au démarrage suivant."
+    truth: true
+    answer: "La somme de contrôle du fichier ne correspond plus à celle de l'historique. C'est voulu : deux bases ne doivent pas avoir appliqué deux versions différentes du même script."
+  - key: vf-ddl-auto-flyway
+    format: true-false
+    question: "Avec Flyway et une base H2 embarquée, `spring.jpa.hibernate.ddl-auto` vaut `create-drop` par défaut."
+    truth: false
+    answer: "Dès qu'un outil de migration est présent, le défaut est `none` : c'est lui qui gère le schéma. `create-drop` n'est le défaut qu'avec une base embarquée et sans outil de migration."
+  - key: vf-liquibase-table
+    format: true-false
+    question: "Liquibase note les changements appliqués dans une table `DATABASECHANGELOG`."
+    truth: true
+    answer: "Et il verrouille les exécutions concurrentes avec `DATABASECHANGELOGLOCK`, pour que deux instances qui démarrent ensemble ne migrent pas en même temps."
+  - key: qcm-nom-fichier
+    format: multiple-choice
+    question: "Quel nom de fichier Flyway reconnaît-il comme la migration de version 3 ?"
+    choices:
+      - {text: "`V3__ajouter_stock.sql`", correct: true}
+      - {text: "`V3_ajouter_stock.sql`", correct: false}
+      - {text: "`3__ajouter_stock.sql`", correct: false}
+      - {text: "`V3-ajouter-stock.sql`", correct: false}
+    answer: "Le préfixe `V`, la version, **deux** soulignés, puis la description. Avec un seul souligné, Flyway ne reconnaît pas le fichier."
+  - key: qcm-emplacement
+    format: multiple-choice
+    question: "Où Flyway cherche-t-il les scripts par défaut, dans un projet Spring Boot ?"
+    choices:
+      - {text: "`src/main/resources/db/migration`", correct: true}
+      - {text: "`src/main/resources/flyway`", correct: false}
+      - {text: "`src/main/sql/migrations`", correct: false}
+      - {text: "`src/main/resources/schema.sql`", correct: false}
+    answer: "C'est `classpath:db/migration`, modifiable par `spring.flyway.locations`. `schema.sql` relève d'un autre mécanisme de Spring Boot, sans versions."
+  - key: qcm-repetable
+    format: multiple-choice
+    question: "Quel préfixe désigne un script Flyway rejoué chaque fois que son contenu change ?"
+    choices:
+      - {text: "`R__`", correct: true}
+      - {text: "`V0__`", correct: false}
+      - {text: "`U__`", correct: false}
+      - {text: "`A__`", correct: false}
+    answer: "Un script répétable (`R__vues.sql`) convient aux vues ou aux fonctions, qu'on redéfinit en entier. Il passe après les migrations versionnées."
+  - key: qcm-validate
+    format: multiple-choice
+    question: "Avec Flyway, quelle valeur de `spring.jpa.hibernate.ddl-auto` vérifie que les entités correspondent au schéma, sans rien modifier ?"
+    choices:
+      - {text: "`validate`", correct: true}
+      - {text: "`update`", correct: false}
+      - {text: "`none`", correct: false}
+      - {text: "`create`", correct: false}
+    answer: "`validate` fait échouer le démarrage si une colonne manque ou a un mauvais type. `none` ne vérifie rien ; `update` et `create` toucheraient au schéma géré par Flyway."
+  - key: trous-dossier
+    format: fill-in
+    question: |-
+      Complète le chemin où Flyway cherche ses scripts par défaut :
+      ```
+      src/main/resources/db/___/V1__creer_produit.sql
+      ```
+    blanks:
+      - [migration]
+    answer: "`db/migration`, sur le classpath."
+  - key: trous-ddl-auto
+    format: fill-in
+    question: |-
+      Complète pour qu'Hibernate vérifie le schéma créé par Flyway, sans le modifier :
+      ```properties
+      spring.jpa.hibernate.ddl-auto=___
+      ```
+    blanks:
+      - [validate]
+    answer: "`validate` compare les entités au schéma au démarrage."
+  - key: trous-baseline
+    format: fill-in
+    question: |-
+      Complète pour adopter Flyway sur une base de production qui a déjà ses tables :
+      ```properties
+      spring.flyway.___=true
+      ```
+    blanks:
+      - [baseline-on-migrate]
+    answer: "`baseline-on-migrate` marque l'état actuel comme ligne de base, puis n'applique que les versions suivantes."
+  - key: trous-historique
+    format: fill-in
+    question: |-
+      Complète pour voir les migrations appliquées :
+      ```sql
+      select version, description, success from ___ order by installed_rank;
+      ```
+    blanks:
+      - [flyway_schema_history]
+    answer: "`flyway_schema_history` est la table d'historique de Flyway."
+  - key: situation-renommer
+    format: scenario
+    question: "Tu dois renommer la colonne `nom` en `libelle`, sans interrompre le service : pendant le déploiement, l'ancienne version du code tourne encore. Que proposes-tu ?"
+    choices:
+      - {text: "Ajouter `libelle`, copier, écrire dans les deux, puis retirer `nom` plus tard", correct: true}
+      - {text: "Une seule migration `alter table produit rename column nom to libelle`", correct: false}
+      - {text: "Passer `ddl-auto` à `update` le temps du déploiement, puis le remettre", correct: false}
+      - {text: "Arrêter les deux versions, migrer, puis redémarrer la nouvelle seule", correct: false}
+    answer: "Un renommage direct casse l'ancienne version, qui lit encore `nom`. En ajoutant avant de supprimer, chaque migration reste compatible avec le code précédent ; la colonne `nom` disparaît dans une version ultérieure."
+  - key: situation-v3-modifiee
+    format: scenario
+    question: "Un collègue a corrigé une faute dans `V3__creer_commande.sql`, déjà appliquée partout. L'application ne démarre plus. Que proposes-tu ?"
+    choices:
+      - {text: "Annuler sa modification de `V3`, et écrire la correction en `V8`", correct: true}
+      - {text: "Supprimer la table `flyway_schema_history` pour tout rejouer", correct: false}
+      - {text: "Désactiver Flyway jusqu'à la prochaine mise en production", correct: false}
+      - {text: "Renommer le fichier en `V3_1__creer_commande.sql`", correct: false}
+    answer: "Flyway a détecté que la somme de contrôle de `V3` a changé. On rétablit le script d'origine et l'on corrige par une nouvelle version. Effacer l'historique ferait rejouer des scripts sur des tables qui existent déjà."
+  - key: situation-deux-v7
+    format: scenario
+    question: "Deux développeurs ont chacun créé une `V7` sur leur branche. Après les deux merges, Flyway refuse de démarrer. Que proposes-tu ?"
+    choices:
+      - {text: "Renuméroter la migration la plus récente avant qu'elle ne soit appliquée nulle part", correct: true}
+      - {text: "Fusionner les deux fichiers en un seul `V7`, déjà appliqué sur une base", correct: false}
+      - {text: "Laisser Flyway choisir : il applique le fichier le plus récent des deux", correct: false}
+      - {text: "Passer `ddl-auto` à `update` pour que Hibernate crée le reste du schéma", correct: false}
+    answer: "Deux scripts ne peuvent pas porter la même version. Tant que l'un n'est appliqué sur aucune base partagée, on le renomme en `V8`. Certaines équipes numérotent par horodatage pour éviter ces collisions."
+  - key: situation-entretien-migrations
+    format: scenario
+    question: "En entretien : « Comment gères-tu l'évolution du schéma de ta base ? » Que réponds-tu ?"
+    choices:
+      - {text: "Des migrations Flyway versionnées, compatibles avec la version précédente", correct: true}
+      - {text: "`ddl-auto=update` partout : Hibernate met le schéma à jour au démarrage", correct: false}
+      - {text: "Un script SQL complet, rejoué à la main par l'administrateur à chaque version", correct: false}
+      - {text: "Des entités JPA seules : le schéma se déduit d'elles, sans autre outil", correct: false}
+    answer: "Des scripts relus en pull request, appliqués dans l'ordre par Flyway au démarrage, jamais modifiés après coup, et pensés pour que l'ancienne version du code tourne encore sur le nouveau schéma. Hibernate valide le résultat."

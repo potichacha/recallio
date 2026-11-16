@@ -1,0 +1,368 @@
+notion: isolation-verrous
+lesson: |-
+  Deux transactions qui travaillent en même temps sur les mêmes lignes peuvent se gêner. Le **niveau d'isolation**
+  dit ce qu'une transaction voit des autres ; les **verrous** empêchent deux écritures de s'écraser.
+
+  **Les anomalies.**
+
+  | Anomalie | Ce qui arrive |
+  |---|---|
+  | Lecture sale | on lit une valeur qu'une autre transaction n'a pas encore validée |
+  | Lecture non répétable | relire la même ligne donne une autre valeur, validée entre-temps |
+  | Lecture fantôme | relancer la même requête ramène de nouvelles lignes |
+  | Mise à jour perdue | deux transactions lisent, modifient, puis écrivent : la seconde écrase la première |
+
+  **Les niveaux**, du plus permissif au plus strict : `READ_UNCOMMITTED`, `READ_COMMITTED`, `REPEATABLE_READ`,
+  `SERIALIZABLE`. Avec Spring : `@Transactional(isolation = Isolation.REPEATABLE_READ)`. Par défaut
+  (`Isolation.DEFAULT`), c'est le niveau de la base : `READ_COMMITTED` pour PostgreSQL, `REPEATABLE_READ` pour MySQL
+  avec InnoDB. Plus le niveau est strict, plus les transactions s'attendent ou échouent.
+
+  **La mise à jour perdue**, le cas le plus courant. En `READ_COMMITTED`, deux requêtes qui font
+  « lire le stock, retirer 1, enregistrer » en même temps lisent toutes deux 10 et écrivent toutes deux 9.
+
+  **Le verrouillage optimiste : `@Version`.** On ajoute un champ de version à l'entité :
+
+  ```java
+  @Entity
+  public class Produit {
+      @Id @GeneratedValue private Long id;
+      private int stock;
+      @Version private Long version;   // 0 à la création, +1 à chaque UPDATE
+  }
+  ```
+
+  Hibernate écrit `update produit set stock=?, version=? where id=? and version=?`. Si une autre transaction a changé
+  la ligne entre-temps, aucune ligne ne correspond : Spring lève `ObjectOptimisticLockingFailureException` (« Row was
+  already updated or deleted by another transaction »). Personne ne bloque personne ; le perdant **réessaie** dans
+  une **nouvelle** transaction (la sienne est condamnée), ou l'API répond **409 Conflict**. Pour un formulaire édité
+  longtemps, la version voyage dans le DTO et revient avec la modification.
+
+  **Le verrouillage pessimiste : `@Lock`.** On verrouille la ligne dès la lecture :
+
+  ```java
+  @Lock(LockModeType.PESSIMISTIC_WRITE)
+  @Query("select p from Produit p where p.id = :id")
+  Optional<Produit> verrouiller(@Param("id") Long id);   // select ... for update
+  ```
+
+  Les autres transactions qui veulent la même ligne **attendent** le commit. Il faut une transaction ouverte (sinon
+  `InvalidDataAccessApiUsageException: No active transaction`), et elle doit rester courte.
+
+  **Une mise à jour atomique** évite parfois tout verrou : `update produit set stock = stock - 1 where id = :id and
+  stock > 0`, puis on regarde le nombre de lignes modifiées.
+
+  | Choix | Quand |
+  |---|---|
+  | Optimiste (`@Version`) | conflits rares, lectures nombreuses, édition longue côté utilisateur |
+  | Pessimiste (`@Lock`) | conflits fréquents sur une ligne très disputée, transaction courte |
+  | Mise à jour atomique | une opération simple qui tient dans un seul `UPDATE` |
+
+  **En entretien** : « L'isolation dit ce qu'une transaction voit des autres ; par défaut c'est celui de la base,
+  `READ_COMMITTED` sur PostgreSQL, qui n'empêche pas la mise à jour perdue. Contre elle, je mets un `@Version` :
+  verrouillage optimiste, le perdant reçoit une `ObjectOptimisticLockingFailureException` et réessaie. Quand les
+  conflits sont fréquents, je verrouille la ligne avec `@Lock(PESSIMISTIC_WRITE)`, un `select ... for update`. »
+cards:
+  - key: mise-a-jour-perdue
+    format: course
+    question: "Deux requêtes lisent le stock (10), retirent 1, puis enregistrent, en même temps, sur PostgreSQL au niveau par défaut. Que vaut le stock à la fin ?"
+    choices:
+      - {text: "9 : la seconde écriture écrase la première", correct: true}
+      - {text: "8 : PostgreSQL enchaîne les deux mises à jour", correct: false}
+      - {text: "10 : PostgreSQL annule les deux transactions", correct: false}
+      - {text: "8 ou une exception : PostgreSQL détecte le conflit", correct: false}
+    answer: "C'est la mise à jour perdue. En `READ_COMMITTED`, chacune a lu 10 avant que l'autre n'écrive, et chacune écrit 9. Un `@Version` ou un verrou pessimiste l'empêche."
+  - key: version-principe
+    format: course
+    question: "Comment Hibernate détecte-t-il un conflit sur une entité qui a un champ `@Version` ?"
+    choices:
+      - {text: "Son UPDATE filtre sur l'ancienne version, et ne touche alors aucune ligne", correct: true}
+      - {text: "Il relit la ligne juste avant chaque UPDATE et compare tous les champs", correct: false}
+      - {text: "Il pose un verrou `for update` sur chaque ligne qu'il charge en mémoire", correct: false}
+      - {text: "Il compare l'horloge de la base avec celle du serveur d'application", correct: false}
+    answer: "`update ... set version = 1 where id = ? and version = 0` : si quelqu'un a déjà incrémenté la version, zéro ligne modifiée, et Hibernate lève une exception d'état périmé, que Spring traduit en `ObjectOptimisticLockingFailureException`."
+  - key: pessimiste-principe
+    format: course
+    question: "Que fait `@Lock(LockModeType.PESSIMISTIC_WRITE)` sur une méthode de repository ?"
+    choices:
+      - {text: "Il lit la ligne avec `select ... for update`, qui la verrouille jusqu'au commit", correct: true}
+      - {text: "Il ajoute un contrôle de version à l'UPDATE envoyé lors du prochain flush", correct: false}
+      - {text: "Il passe toute la transaction au niveau d'isolation `SERIALIZABLE`", correct: false}
+      - {text: "Il interdit aux autres transactions de lire la table pendant l'appel", correct: false}
+    answer: "Les autres transactions qui veulent écrire la même ligne (ou la verrouiller) attendent la fin de la transaction. Les simples lectures, elles, ne sont pas bloquées sur PostgreSQL."
+  - key: isolation-defaut
+    format: course
+    question: "Quel niveau d'isolation applique `@Transactional` sans attribut `isolation` ?"
+    choices:
+      - {text: "Celui de la base de données", correct: true}
+      - {text: "`SERIALIZABLE`, le plus sûr", correct: false}
+      - {text: "`READ_UNCOMMITTED`, le plus rapide", correct: false}
+      - {text: "`REPEATABLE_READ`, sur toutes les bases", correct: false}
+    answer: "`Isolation.DEFAULT` laisse la base décider : `READ_COMMITTED` pour PostgreSQL, Oracle et SQL Server, `REPEATABLE_READ` pour MySQL avec InnoDB."
+  - key: vf-read-committed-perdue
+    format: true-false
+    question: "Le niveau `READ_COMMITTED` empêche à lui seul la mise à jour perdue d'un « lire, modifier, écrire »."
+    truth: false
+    answer: "Il empêche seulement de lire des données non validées. Deux transactions peuvent lire la même valeur validée, puis s'écraser. Il faut un `@Version`, un verrou, ou une mise à jour atomique."
+  - key: vf-version-initiale
+    format: true-false
+    question: "Avec `@Version private Long version;`, la version d'une entité vaut 0 juste après son premier `save`."
+    truth: true
+    answer: "Hibernate l'initialise à 0 à l'INSERT, puis l'incrémente à chaque UPDATE. Un champ `null` signale d'ailleurs à Spring Data une entité nouvelle."
+  - key: vf-lock-sans-transaction
+    format: true-false
+    question: "Une méthode de repository annotée `@Lock(LockModeType.PESSIMISTIC_WRITE)` peut s'appeler hors de toute transaction."
+    truth: false
+    answer: "Un verrou dure jusqu'à la fin de la transaction : sans transaction, Hibernate refuse, et Spring lève `InvalidDataAccessApiUsageException: No active transaction`."
+  - key: vf-optimiste-bloque
+    format: true-false
+    question: "Avec le verrouillage optimiste, une transaction attend que l'autre ait fini avant de lire la ligne."
+    truth: false
+    answer: "Personne n'attend : les deux lisent et travaillent librement. Le conflit n'apparaît qu'à l'écriture, quand la version ne correspond plus. C'est le verrouillage pessimiste qui fait attendre."
+  - key: qcm-exception-version
+    format: multiple-choice
+    question: "Quelle exception Spring lève-t-il quand l'UPDATE d'une entité versionnée ne trouve plus la bonne version ?"
+    choices:
+      - {text: "`ObjectOptimisticLockingFailureException`", correct: true}
+      - {text: "`PessimisticLockingFailureException`", correct: false}
+      - {text: "`DataIntegrityViolationException`", correct: false}
+      - {text: "`IncorrectResultSizeDataAccessException`", correct: false}
+    answer: "Elle enveloppe l'exception d'Hibernate (`StaleObjectStateException`) ; son message : « Row was already updated or deleted by another transaction ». Elle hérite d'`OptimisticLockingFailureException`, qu'on peut attraper plus largement."
+  - key: qcm-sql-pessimiste
+    format: multiple-choice
+    question: "Quelle requête SQL Hibernate envoie-t-il pour une lecture en `PESSIMISTIC_WRITE` ?"
+    choices:
+      - {text: "`select ... from produit where id = ? for update`", correct: true}
+      - {text: "`select ... from produit where id = ? and version = ?`", correct: false}
+      - {text: "`lock table produit in exclusive mode`, puis la lecture", correct: false}
+      - {text: "`set transaction isolation level serializable`, puis la lecture", correct: false}
+    answer: "`for update` verrouille les lignes lues jusqu'au commit. Le filtre sur la version appartient au verrouillage optimiste, et sur l'UPDATE, pas sur la lecture."
+  - key: qcm-anomalie
+    format: multiple-choice
+    question: "Une transaction relit la même ligne et obtient une autre valeur, validée entre-temps par une autre transaction. Comment s'appelle cette anomalie ?"
+    choices:
+      - {text: "Une lecture non répétable", correct: true}
+      - {text: "Une lecture sale", correct: false}
+      - {text: "Une lecture fantôme", correct: false}
+      - {text: "Une mise à jour perdue", correct: false}
+    answer: "La lecture sale porte sur des données non validées ; la lecture fantôme, sur de nouvelles lignes qui apparaissent ; la mise à jour perdue, sur deux écritures qui s'écrasent. `REPEATABLE_READ` empêche la lecture non répétable."
+  - key: qcm-choisir
+    format: multiple-choice
+    question: "Des milliers d'acheteurs réservent en même temps les places d'un même concert, et chaque réservation est une transaction courte. Que choisis-tu ?"
+    choices:
+      - {text: "Une mise à jour atomique, ou un verrou pessimiste sur la ligne", correct: true}
+      - {text: "Un `@Version`, avec un message d'erreur au perdant à chaque conflit", correct: false}
+      - {text: "Le niveau `READ_UNCOMMITTED`, pour lire le stock le plus récent", correct: false}
+      - {text: "Aucune protection : la base sérialise d'elle-même les écritures", correct: false}
+    answer: "Sur une ligne très disputée, l'optimiste ferait échouer presque toutes les transactions. Un `update ... set places = places - 1 where places > 0`, ou un `for update` court, fait passer les écritures une par une."
+  - key: trous-version
+    format: fill-in
+    question: |-
+      Complète pour activer le verrouillage optimiste :
+      ```java
+      @Entity
+      public class Produit {
+          @Id @GeneratedValue private Long id;
+          private int stock;
+          @___ private Long version;
+      }
+      ```
+    blanks:
+      - [Version]
+    answer: "`@Version` (de `jakarta.persistence`) : Hibernate l'incrémente à chaque UPDATE et le vérifie dans la clause `where`."
+  - key: trous-lock
+    format: fill-in
+    question: |-
+      Complète pour lire la ligne en la verrouillant jusqu'au commit :
+      ```java
+      @Lock(LockModeType.___)
+      @Query("select p from Produit p where p.id = :id")
+      Optional<Produit> verrouiller(@Param("id") Long id);
+      ```
+    blanks:
+      - [PESSIMISTIC_WRITE]
+    answer: "`PESSIMISTIC_WRITE` produit un `select ... for update`. `PESSIMISTIC_READ` demande un verrou partagé, quand la base le permet."
+  - key: trous-isolation
+    format: fill-in
+    question: |-
+      Complète pour exiger le niveau d'isolation le plus strict :
+      ```java
+      @Transactional(isolation = Isolation.___)
+      public Rapport cloturerMois() { ... }
+      ```
+    blanks:
+      - [SERIALIZABLE]
+    answer: "`SERIALIZABLE` fait comme si les transactions s'exécutaient l'une après l'autre. Sur PostgreSQL, une transaction en conflit échoue et doit être rejouée."
+  - key: trous-409
+    format: fill-in
+    question: |-
+      Complète pour répondre « 409 Conflict » quand la version ne correspond plus :
+      ```java
+      @ExceptionHandler(ObjectOptimisticLockingFailureException.class)
+      @ResponseStatus(HttpStatus.___)
+      public ProblemDetail conflit() { ... }
+      ```
+    blanks:
+      - [CONFLICT]
+    answer: "409 dit au client que la ressource a changé depuis sa lecture : il relit, puis renvoie sa modification."
+  - key: bug-mise-a-jour-perdue
+    format: bug-fix
+    question: |-
+      Sous charge, le stock baisse moins vite que les ventes : deux réservations simultanées n'en retirent qu'une.
+      Quelle correction est la bonne ?
+      ```java
+      @Entity
+      public class Produit {
+          @Id @GeneratedValue private Long id;
+          private int stock;
+
+          public void retirer(int quantite) { stock -= quantite; }
+      }
+
+      @Transactional
+      public void reserver(long id, int quantite) {
+          produits.findById(id).orElseThrow().retirer(quantite);
+      }
+      ```
+    choices:
+      - {text: "Ajouter un champ `@Version private Long version;` à `Produit`", correct: true}
+      - {text: "Déclarer la méthode `retirer` de l'entité avec `synchronized`", correct: false}
+      - {text: "Passer la méthode en `isolation = Isolation.READ_UNCOMMITTED`", correct: false}
+      - {text: "Appeler `produits.save` explicitement après `retirer(quantite)`", correct: false}
+    answer: |-
+      ```java
+      @Version private Long version;
+      ```
+      Les deux transactions lisent le même stock, puis écrivent chacune le sien : la seconde écrase la première. Avec
+      `@Version`, l'UPDATE de la seconde ne trouve plus la bonne version et échoue au lieu d'écraser : on la rejoue
+      avec le stock à jour. `synchronized` ne protège pas deux instances de l'application, ni deux objets chargés séparément.
+  - key: bug-conflit-en-500
+    format: bug-fix
+    question: |-
+      Quand deux personnes modifient la même fiche, la seconde reçoit une erreur 500 avec
+      `ObjectOptimisticLockingFailureException: Row was already updated or deleted by another transaction for entity
+      [boutique.Produit with id '42']`. Le comportement attendu : un 409 qui l'invite à recharger. Quelle correction
+      est la bonne ?
+      ```java
+      @PutMapping("/produits/{id}")
+      public ProduitDto modifier(@PathVariable long id, @RequestBody ModificationProduit modification) {
+          return produitService.modifier(id, modification);
+      }
+      ```
+    choices:
+      - {text: "Traduire cette exception en 409 avec un `@ExceptionHandler`", correct: true}
+      - {text: "Retirer le champ `@Version` de l'entité `Produit`", correct: false}
+      - {text: "Attraper l'exception dans le service et renvoyer `null`", correct: false}
+      - {text: "Passer la méthode du service en `readOnly = true`", correct: false}
+    answer: |-
+      ```java
+      @ExceptionHandler(ObjectOptimisticLockingFailureException.class)
+      public ProblemDetail conflit() {
+          return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, "La fiche a changé : recharge-la.");
+      }
+      ```
+      L'exception est le signe que le verrouillage optimiste fonctionne : il a empêché d'écraser la modification de
+      l'autre. Il reste à la présenter au client comme un conflit, pas comme une panne. Retirer `@Version` ferait
+      revenir la mise à jour perdue.
+  - key: bug-lock-sans-transaction
+    format: bug-fix
+    question: |-
+      L'appel lève `InvalidDataAccessApiUsageException: No active transaction`. Quelle correction est la bonne ?
+      ```java
+      @Service
+      public class BilletterieService {
+          public void reserver(long concertId) {
+              Concert concert = concerts.verrouiller(concertId).orElseThrow();   // @Lock(PESSIMISTIC_WRITE)
+              concert.retirerUnePlace();
+          }
+      }
+      ```
+    choices:
+      - {text: "Annoter `reserver` avec `@Transactional`", correct: true}
+      - {text: "Retirer `@Lock` de la méthode `verrouiller`", correct: false}
+      - {text: "Annoter `reserver` avec `@Transactional(readOnly = true)`", correct: false}
+      - {text: "Remplacer `verrouiller` par `getReferenceById`", correct: false}
+    answer: |-
+      ```java
+      @Transactional
+      public void reserver(long concertId) {
+      ```
+      Un verrou pessimiste dure jusqu'à la fin de la transaction : sans transaction, il n'a pas de sens, et Hibernate
+      refuse. La transaction du service couvre la lecture verrouillée et la modification. En lecture seule, la
+      modification ne serait pas écrite.
+  - key: bug-reessai-meme-transaction
+    format: bug-fix
+    question: |-
+      Ce réessai ne réussit jamais : après un conflit, la méthode finit par `UnexpectedRollbackException: Transaction
+      silently rolled back because it has been marked as rollback-only`. Quelle correction est la bonne ?
+      ```java
+      @Transactional
+      public void reserver(long id) {
+          for (int essai = 1; essai <= 3; essai++) {
+              try {
+                  Produit produit = produits.findById(id).orElseThrow();
+                  produit.retirer(1);
+                  produits.saveAndFlush(produit);
+                  return;
+              } catch (ObjectOptimisticLockingFailureException e) {
+                  // on recommence
+              }
+          }
+      }
+      ```
+    choices:
+      - {text: "Réessayer depuis l'appelant, une transaction neuve par essai", correct: true}
+      - {text: "Ajouter `noRollbackFor` pour l'exception de verrouillage", correct: false}
+      - {text: "Remplacer `saveAndFlush` par `save` dans la boucle de réessai", correct: false}
+      - {text: "Passer `reserver` en `propagation = Propagation.SUPPORTS`", correct: false}
+    answer: |-
+      ```java
+      public void reserverAvecReessais(long id) {     // pas de @Transactional ici
+          for (int essai = 1; essai <= 3; essai++) {
+              try {
+                  reservation.reserver(id);           // @Transactional, dans un autre bean
+                  return;
+              } catch (ObjectOptimisticLockingFailureException e) {
+                  // une nouvelle transaction au prochain tour
+              }
+          }
+      }
+      ```
+      Dès le premier échec, la transaction est marquée rollback-only, et le contexte de persistance garde l'entité
+      périmée : les essais suivants ne peuvent pas réussir dans la même transaction. Chaque essai doit avoir la sienne,
+      donc la boucle se place hors de la méthode transactionnelle.
+  - key: situation-formulaire
+    format: scenario
+    question: "Deux gestionnaires ouvrent la même fiche produit, la modifient pendant dix minutes, puis enregistrent. Le second écrase le premier sans le savoir. Que proposes-tu ?"
+    choices:
+      - {text: "Un `@Version`, renvoyé par le client avec sa modification et vérifié", correct: true}
+      - {text: "Un verrou `for update` pris à l'ouverture de la fiche, pour dix minutes", correct: false}
+      - {text: "Le niveau `SERIALIZABLE` sur la méthode qui enregistre la fiche", correct: false}
+      - {text: "Un `synchronized` sur la méthode du service qui enregistre la fiche", correct: false}
+    answer: "Une édition longue appelle le verrouillage optimiste : la version lue part dans le DTO et revient avec la modification ; si elle a changé, on répond 409. Un verrou tenu dix minutes bloquerait tout le monde, et une transaction ne dure pas le temps d'une saisie."
+  - key: situation-stock-atomique
+    format: scenario
+    question: "Le retrait du stock fait « lire, vérifier, écrire » et subit des mises à jour perdues. Ton collègue propose `SERIALIZABLE` sur toute l'application. Que proposes-tu à la place ?"
+    choices:
+      - {text: "Un `update ... set stock = stock - :q where id = :id and stock >= :q`", correct: true}
+      - {text: "Le niveau `READ_UNCOMMITTED`, pour voir tout de suite le stock des autres", correct: false}
+      - {text: "Un cache du stock en mémoire, mis à jour par chaque instance de l'application", correct: false}
+      - {text: "Une transaction `REQUIRES_NEW` pour chaque lecture du stock dans le service", correct: false}
+    answer: "La base fait le calcul et la vérification dans un seul UPDATE atomique : pas de mise à jour perdue, pas de verrou tenu longtemps. Le nombre de lignes modifiées (0 ou 1) dit si le stock suffisait. `SERIALIZABLE` partout ferait échouer et rejouer beaucoup de transactions."
+  - key: situation-entretien-optimiste
+    format: scenario
+    question: "En entretien : « Optimiste ou pessimiste, comment choisis-tu ? » Quelle réponse donnes-tu ?"
+    choices:
+      - {text: "Optimiste si les conflits sont rares, pessimiste si une ligne est très disputée", correct: true}
+      - {text: "Toujours pessimiste : c'est le seul qui garantit l'absence de mise à jour perdue", correct: false}
+      - {text: "Toujours optimiste : les verrous pessimistes sont interdits avec Spring Data JPA", correct: false}
+      - {text: "Optimiste pour les lectures, pessimiste pour les écritures, dans chaque transaction", correct: false}
+    answer: "L'optimiste ne bloque personne et coûte un réessai en cas de conflit : idéal quand ils sont rares. Le pessimiste fait attendre, mais évite les échecs répétés sur une ligne très demandée. Les deux empêchent la mise à jour perdue."
+  - key: situation-deadlock
+    format: scenario
+    question: "Deux virements simultanés, A vers B et B vers A, verrouillent chacun leur compte source avec `PESSIMISTIC_WRITE`, puis le compte cible. La base signale un interblocage. Que proposes-tu ?"
+    choices:
+      - {text: "Verrouiller les deux comptes toujours dans le même ordre, par identifiant", correct: true}
+      - {text: "Retirer les verrous et passer les deux virements en `READ_UNCOMMITTED`", correct: false}
+      - {text: "Mettre chaque verrou dans sa propre transaction `REQUIRES_NEW`", correct: false}
+      - {text: "Verrouiller le compte cible avant le compte source, dans les deux cas", correct: false}
+    answer: "Chaque transaction tient un verrou et attend celui de l'autre. Prendre les verrous dans un ordre global (le plus petit identifiant d'abord) supprime le cycle. Inverser source et cible ne change rien : A vers B et B vers A se croiseraient toujours."

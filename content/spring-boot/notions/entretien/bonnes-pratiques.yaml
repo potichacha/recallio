@@ -1,0 +1,392 @@
+notion: bonnes-pratiques
+lesson: |-
+  Une application Spring Boot démarre vite, même mal écrite. Les bonnes pratiques servent à ce qu'elle reste
+  **testable, lisible et sûre** quand elle grandit. Elles reviennent dans chaque revue de code, et dans beaucoup
+  d'entretiens.
+
+  **1. L'injection par constructeur.** Les dépendances arrivent par le constructeur, dans des champs `final` :
+
+  ```java
+  @Service
+  public class CommandeService {
+      private final CommandeRepository commandes;
+      private final Clock clock;
+
+      public CommandeService(CommandeRepository commandes, Clock clock) {
+          this.commandes = commandes;
+          this.clock = clock;
+      }
+  }
+  ```
+
+  - les dépendances se **voient** dans la signature : un constructeur à huit paramètres dit que la classe en fait
+    trop ;
+  - elles sont **obligatoires** et **immuables** : l'objet est complet dès sa création ;
+  - la classe se **teste sans Spring**, avec un simple `new` et des doublures ;
+  - avec un seul constructeur, `@Autowired` est inutile.
+
+  L'injection **par champ** (`@Autowired private CommandeRepository commandes;`) cache tout cela : le champ ne peut
+  pas être `final`, et un `new CommandeService()` dans un test laisse le champ à `null`. L'injection par setter reste
+  pour une dépendance vraiment facultative.
+
+  **2. Des beans sans état.** Un `@Service` est un **singleton** : la même instance sert toutes les requêtes, sur
+  plusieurs threads à la fois. Un champ modifiable propre à une requête (un total, un utilisateur courant) y devient
+  une donnée partagée, et les clients se voient mutuellement. L'état d'un calcul vit dans des **variables locales** ;
+  l'état durable, dans la base.
+
+  **3. Des DTO aux frontières.** L'API reçoit et renvoie des **DTO**, de préférence des `record`, jamais les entités
+  JPA :
+
+  | Renvoyer l'entité | Renvoyer un DTO |
+  |---|---|
+  | expose tous ses getters (un mot de passe haché, un champ interne) | expose seulement ce qu'on a choisi |
+  | lie le contrat de l'API au schéma de la base | l'entité peut changer sans casser les clients |
+  | peut déclencher du chargement paresseux pendant la sérialisation | les données sont chargées dans le service |
+  | en entrée, laisse le client écrire n'importe quel champ (`"admin": true`) | en entrée, seuls les champs prévus existent |
+
+  ```java
+  public record CommandeReponse(Long id, BigDecimal total, List<String> produits) {
+      static CommandeReponse depuis(Commande commande) { ... }
+  }
+  ```
+
+  **4. Une configuration typée.** Les réglages d'une fonctionnalité se regroupent dans une classe
+  `@ConfigurationProperties`, validée au démarrage :
+
+  ```java
+  @ConfigurationProperties("relances")
+  @Validated
+  public record RelancesProperties(@NotNull Duration delai, @Min(1) int tentatives) {
+  }
+  ```
+
+  Plutôt que des `@Value("${relances.delai}")` répétés dans six classes : un seul endroit, des types, une erreur
+  claire au démarrage si une clé manque. Une **valeur par défaut** dans `@Value("${cle:defaut}")` masque une faute de
+  frappe : la propriété du fichier est ignorée sans un mot. Les **secrets** ne sont jamais dans le dépôt : variables
+  d'environnement ou coffre.
+
+  **5. Les couches.** Le contrôleur traduit HTTP (paramètres, statuts) ; le **service** porte le cas d'usage et la
+  transaction (`@Transactional` sur ses méthodes publiques) ; le repository accède aux données.
+
+  **6. Les erreurs.** Des exceptions métier explicites (`CommandeIntrouvableException`), traduites en un seul endroit
+  par un `@RestControllerAdvice`, au format `ProblemDetail` (RFC 9457), avec le bon statut : 404, 409, 422. Jamais un
+  200 qui contient une erreur, ni une trace de pile dans la réponse.
+
+  **7. Le reste, en bref.** `spring.jpa.open-in-view=false` ; des logs paramétrés sans données personnelles ; une
+  `Clock` injectée pour tout ce qui dépend de l'heure ; des tests unitaires d'abord, puis des tranches
+  (`@WebMvcTest`, `@DataJpaTest`).
+
+  **En entretien** : « J'injecte par constructeur, dans des champs `final`, et mes beans n'ont pas d'état propre à une
+  requête. Mon API ne parle qu'en DTO, jamais en entités. Et ma configuration est typée et validée au démarrage, avec
+  les secrets hors du dépôt. »
+cards:
+  - key: constructeur-pourquoi
+    format: course
+    question: "En revue de code, pourquoi préfères-tu l'injection par constructeur à l'injection par champ ?"
+    choices:
+      - {text: "Les dépendances sont `final`, visibles, et la classe se teste avec un simple `new`", correct: true}
+      - {text: "Spring n'utilise plus la réflexion, et l'application démarre deux fois plus vite", correct: false}
+      - {text: "Spring peut alors créer plusieurs instances du même service, une par appelant", correct: false}
+      - {text: "La classe n'a plus besoin d'être annotée `@Service` pour être détectée par le scan", correct: false}
+    answer: "Le constructeur rend les dépendances obligatoires et immuables, et les montre dans la signature. Un test les fournit sans conteneur. Le gain au démarrage, lui, est négligeable."
+  - key: dto-pourquoi
+    format: course
+    question: "Pourquoi une API Spring bien conçue ne renvoie-t-elle pas directement ses entités JPA ?"
+    choices:
+      - {text: "Elle exposerait son schéma, des champs sensibles et des associations paresseuses", correct: true}
+      - {text: "Jackson refuse de sérialiser une classe annotée `@Entity` et lève une exception", correct: false}
+      - {text: "Une entité ne peut pas porter `@JsonIgnore`, contrairement à un `record` de réponse", correct: false}
+      - {text: "Une entité est un proxy, que le contrôleur n'a pas le droit de renvoyer tel quel", correct: false}
+    answer: "Jackson sérialise très bien une entité : c'est justement le problème. Tout getter part dans la réponse, le contrat suit le schéma, et une association paresseuse peut se charger pendant la sérialisation."
+  - key: etat-singleton
+    format: course
+    question: "Un `@Service` est un singleton. Quelle règle en découle pour ses champs ?"
+    choices:
+      - {text: "Aucun champ modifiable propre à une requête : il est partagé entre les threads", correct: true}
+      - {text: "Tous ses champs doivent être `static`, pour être partagés entre les instances", correct: false}
+      - {text: "Ses champs doivent être `volatile`, pour être relus à chaque nouvelle requête", correct: false}
+      - {text: "Ses champs sont copiés pour chaque requête : il peut les modifier librement", correct: false}
+    answer: "La même instance sert toutes les requêtes, en parallèle. Les dépendances `final` ne posent aucun problème ; un total ou un utilisateur courant en champ mélange les clients."
+  - key: configuration-typee
+    format: course
+    question: "Pourquoi regrouper les réglages d'une fonctionnalité dans un `@ConfigurationProperties` plutôt que dans des `@Value` épars ?"
+    choices:
+      - {text: "Les clés sont typées, validées au démarrage, et réunies dans un seul objet", correct: true}
+      - {text: "`@Value` est déprécié depuis Spring Boot 4, et sera retiré dans la version suivante", correct: false}
+      - {text: "`@Value` ne lit que `application.properties`, jamais les variables d'environnement", correct: false}
+      - {text: "`@ConfigurationProperties` relit le fichier à chaque appel, sans redémarrage", correct: false}
+    answer: "`@Value` marche et n'est pas déprécié, mais il disperse les clés et ne valide rien. Un `record` `@ConfigurationProperties` annoté `@Validated` refuse de démarrer quand un réglage manque ou est faux."
+  - key: vf-autowired-inutile
+    format: true-false
+    question: "Avec un seul constructeur, une classe `@Service` n'a pas besoin d'`@Autowired` pour recevoir ses dépendances."
+    truth: true
+    answer: "Depuis Spring 4.3, un constructeur unique est utilisé d'office. `@Autowired` ne sert qu'à désigner le bon constructeur quand il y en a plusieurs."
+  - key: vf-serialisation-requetes
+    format: true-false
+    question: "Une entité JPA renvoyée par un contrôleur peut déclencher des requêtes SQL pendant sa sérialisation en JSON."
+    truth: true
+    answer: "Jackson appelle chaque getter, y compris celui d'une association paresseuse. Avec `open-in-view` actif, la session encore ouverte la charge : des requêtes en plus, parfois un N+1. Sans, c'est une `LazyInitializationException`."
+  - key: vf-defaut-faute-frappe
+    format: true-false
+    question: "Une valeur par défaut dans `@Value(\"${cle:defaut}\")` aide à repérer une faute de frappe dans le nom de la clé."
+    truth: false
+    answer: "C'est l'inverse : la clé mal écrite n'est jamais trouvée, la valeur par défaut s'applique, et l'application démarre sans signaler l'erreur. Sans défaut, le démarrage échoue et nomme la clé."
+  - key: vf-champ-final
+    format: true-false
+    question: "L'injection par champ empêche de déclarer la dépendance `final`."
+    truth: true
+    answer: "Un champ `final` doit être affecté par le constructeur. Spring injecte un champ `@Autowired` après la construction : il ne peut donc pas être `final`."
+  - key: qcm-ou-transaction
+    format: multiple-choice
+    question: "Dans une application en couches, où places-tu `@Transactional` ?"
+    choices:
+      - {text: "Sur les méthodes publiques des services, qui portent les cas d'usage", correct: true}
+      - {text: "Sur les méthodes des contrôleurs, pour couvrir toute la requête HTTP", correct: false}
+      - {text: "Sur chaque méthode des repositories, une par une", correct: false}
+      - {text: "Sur les entités JPA, pour qu'elles s'enregistrent seules", correct: false}
+    answer: "Le service délimite l'unité de travail : tout réussit ou tout est annulé. Le contrôleur ne fait que traduire HTTP ; les méthodes de `JpaRepository` sont déjà transactionnelles, chacune à part."
+  - key: qcm-forme-dto
+    format: multiple-choice
+    question: "Quelle forme donnes-tu à un DTO de réponse, en Java 25 ?"
+    choices:
+      - {text: "Un `record`, immuable, avec les seuls champs que l'API expose", correct: true}
+      - {text: "Une sous-classe de l'entité, qui en masque les champs sensibles", correct: false}
+      - {text: "Une `Map<String, Object>` remplie à la main dans le contrôleur", correct: false}
+      - {text: "L'entité elle-même, avec `@JsonIgnore` sur chaque champ privé", correct: false}
+    answer: "Un `record` est court, immuable, et Jackson le sérialise et le désérialise directement. Une sous-classe de l'entité garderait tous ses getters ; une `Map` perdrait les types."
+  - key: qcm-mot-de-passe-base
+    format: multiple-choice
+    question: "Où ranges-tu le mot de passe de la base de production d'une application Spring Boot ?"
+    choices:
+      - {text: "Dans une variable d'environnement ou un coffre, lu par la configuration", correct: true}
+      - {text: "Dans `application-prod.properties`, versionné avec le reste du code", correct: false}
+      - {text: "Dans une constante Java, compilée une fois pour toutes dans le jar", correct: false}
+      - {text: "Dans `application.yml`, encodé en Base64 pour qu'on ne le lise pas", correct: false}
+    answer: "Spring Boot lit `SPRING_DATASOURCE_PASSWORD` comme `spring.datasource.password`. Un secret versionné reste dans l'historique Git ; le Base64 n'est pas un chiffrement."
+  - key: qcm-commande-introuvable
+    format: multiple-choice
+    question: "Comment une API Spring Boot bien conçue répond-elle à une commande introuvable ?"
+    choices:
+      - {text: "Une exception métier, traduite en 404 et `ProblemDetail` par un `@RestControllerAdvice`", correct: true}
+      - {text: "Un statut 200, avec un champ `erreur` rempli dans le corps JSON de la réponse", correct: false}
+      - {text: "Un statut 500, avec la trace de la pile de l'exception dans le corps de la réponse", correct: false}
+      - {text: "Un statut 204 et un corps vide, que le client interprète comme il veut", correct: false}
+    answer: "Le statut dit ce qui s'est passé, le `ProblemDetail` (RFC 9457) l'explique dans un format standard. La trace de pile renseigne surtout un attaquant."
+  - key: bug-injection-champ
+    format: bug-fix
+    question: |-
+      Ce test unitaire échoue sur une `NullPointerException` : « Cannot invoke
+      "boutique.CommandeRepository.enregistrer(String)" because "this.repository" is null ». Quelle correction est la
+      bonne ?
+      ```java
+      @Service
+      public class CommandeService {
+          @Autowired
+          private CommandeRepository repository;
+
+          public void commander(String produit) {
+              repository.enregistrer(produit);
+          }
+      }
+
+      class CommandeServiceTest {
+          @Test
+          void enregistreLaCommande() {
+              CommandeRepository repository = mock(CommandeRepository.class);
+              CommandeService service = new CommandeService();
+              service.commander("livre");
+              verify(repository).enregistrer("livre");
+          }
+      }
+      ```
+    choices:
+      - {text: "Injecter le repository par le constructeur, et le passer au `new` du test", correct: true}
+      - {text: "Ajouter `@Autowired` devant la variable locale `service` du test", correct: false}
+      - {text: "Déclarer le champ `repository` en `static`, pour qu'il soit partagé", correct: false}
+      - {text: "Annoter la classe de test `@ExtendWith(MockitoExtension.class)`", correct: false}
+    answer: |-
+      ```java
+      @Service
+      public class CommandeService {
+          private final CommandeRepository repository;
+
+          public CommandeService(CommandeRepository repository) {
+              this.repository = repository;
+          }
+          ...
+      }
+
+      CommandeService service = new CommandeService(repository);
+      ```
+      Le `new` du test ne passe pas par Spring : rien ne remplit le champ `@Autowired`. Avec un constructeur, la
+      dépendance est obligatoire, et le test la fournit sans conteneur. L'extension Mockito seule n'injecte rien dans
+      un objet créé à la main.
+  - key: bug-entite-exposee
+    format: bug-fix
+    question: |-
+      La réponse de `GET /utilisateurs/1` contient le champ `motDePasseHache`. Quelle correction est la bonne ?
+      ```java
+      @Entity
+      public class Utilisateur {
+          @Id
+          @GeneratedValue
+          private Long id;
+          private String email;
+          private String motDePasseHache;
+
+          public Long getId() { return id; }
+          public String getEmail() { return email; }
+          public String getMotDePasseHache() { return motDePasseHache; }
+      }
+
+      @RestController
+      class UtilisateurController {
+          private final UtilisateurRepository utilisateurs;
+
+          UtilisateurController(UtilisateurRepository utilisateurs) {
+              this.utilisateurs = utilisateurs;
+          }
+
+          @GetMapping("/utilisateurs/{id}")
+          Utilisateur lire(@PathVariable Long id) {
+              return utilisateurs.findById(id).orElseThrow();
+          }
+      }
+      ```
+    choices:
+      - {text: "Renvoyer un `record UtilisateurReponse(Long id, String email)` construit depuis l'entité", correct: true}
+      - {text: "Renvoyer `ResponseEntity.ok(utilisateur)` plutôt que l'entité seule", correct: false}
+      - {text: "Déclarer le champ `motDePasseHache` en `private final` dans l'entité", correct: false}
+      - {text: "Ajouter `produces = \"application/json\"` sur l'annotation `@GetMapping`", correct: false}
+    answer: |-
+      ```java
+      public record UtilisateurReponse(Long id, String email) {
+      }
+
+      @GetMapping("/utilisateurs/{id}")
+      UtilisateurReponse lire(@PathVariable Long id) {
+          Utilisateur u = utilisateurs.findById(id).orElseThrow();
+          return new UtilisateurReponse(u.getId(), u.getEmail());
+      }
+      ```
+      Jackson sérialise chaque getter : le hachage part avec le reste. Le DTO dit exactement ce que l'API expose, et
+      l'entité peut évoluer sans changer le contrat. `ResponseEntity` ne change rien au corps.
+  - key: bug-etat-singleton
+    format: bug-fix
+    question: |-
+      Sous charge, un client reçoit parfois le total du panier d'un autre client. Quelle correction est la bonne ?
+      ```java
+      @Service
+      public class TarifService {
+          private int total;
+
+          public int totalDuPanier(List<Integer> prix) {
+              total = 0;
+              for (int p : prix) {
+                  total += p;
+              }
+              return total;
+          }
+      }
+      ```
+    choices:
+      - {text: "Calculer dans une variable locale, et supprimer le champ `total`", correct: true}
+      - {text: "Annoter la méthode `@Transactional`, pour isoler chaque appel", correct: false}
+      - {text: "Déclarer le champ `total` en `volatile`, pour qu'il soit relu", correct: false}
+      - {text: "Déclarer le champ `total` en `static`, pour un compteur unique", correct: false}
+    answer: |-
+      ```java
+      public int totalDuPanier(List<Integer> prix) {
+          int total = 0;
+          for (int p : prix) {
+              total += p;
+          }
+          return total;
+      }
+      ```
+      Le service est un singleton : toutes les requêtes partagent le même champ, et deux calculs simultanés
+      s'écrasent. Une variable locale appartient au thread qui l'exécute. `volatile` rend une écriture visible, il ne
+      protège pas une suite d'opérations ; `@Transactional` concerne la base.
+  - key: bug-cle-mal-ecrite
+    format: bug-fix
+    question: |-
+      `application.properties` contient `relances.delai=5m`. Au démarrage, l'application s'arrête sur
+      « PlaceholderResolutionException: Could not resolve placeholder 'relance.delai' in value "${relance.delai}" ».
+      Quelle correction est la bonne ?
+      ```java
+      @Component
+      public class Relances {
+          private final Duration delai;
+
+          public Relances(@Value("${relance.delai}") Duration delai) {
+              this.delai = delai;
+          }
+      }
+      ```
+    choices:
+      - {text: "Écrire `${relances.delai}`, la clé exacte du fichier", correct: true}
+      - {text: "Écrire `${relance.delai:5m}`, avec une valeur par défaut", correct: false}
+      - {text: "Déclarer le paramètre `delai` en `String` et non en `Duration`", correct: false}
+      - {text: "Annoter la classe `@Lazy`, pour lire la clé plus tard", correct: false}
+    answer: |-
+      ```java
+      public Relances(@Value("${relances.delai}") Duration delai) {
+      ```
+      La clé du code ne correspond pas à celle du fichier. Une valeur par défaut ferait démarrer l'application, mais
+      le réglage du fichier serait ignoré pour toujours : l'erreur deviendrait silencieuse. Mieux encore : un
+      `@ConfigurationProperties("relances")` validé (`@NotNull`), qui réunit toutes les clés de la fonctionnalité.
+  - key: situation-revue-injection-champ
+    format: scenario
+    question: |-
+      En revue de code, un collègue défend l'injection par champ : « C'est plus court, et ça marche. » Que lui
+      réponds-tu ?
+    choices:
+      - {text: "Que le constructeur montre les dépendances, les rend `final`, et permet de tester sans Spring", correct: true}
+      - {text: "Qu'il a raison : les deux se valent, et c'est une simple affaire de goût dans l'équipe", correct: false}
+      - {text: "Que l'injection par champ est interdite depuis Spring Boot 4, et ne compile plus", correct: false}
+      - {text: "Que l'injection par champ crée un nouveau bean pour chaque classe qui l'utilise", correct: false}
+    answer: |-
+      L'injection par champ marche toujours, mais elle cache les dépendances et oblige à démarrer Spring (ou à
+      utiliser la réflexion) pour tester. Le constructeur coûte quelques lignes, et l'IDE ou un `record` les
+      écrivent.
+  - key: situation-role-admin
+    format: scenario
+    question: |-
+      `PUT /utilisateurs/{id}` reçoit l'entité `Utilisateur` en `@RequestBody` et l'enregistre. Un testeur s'est
+      donné le rôle d'administrateur en ajoutant `"admin": true` au JSON. Que proposes-tu ?
+    choices:
+      - {text: "Recevoir un DTO qui n'a que les champs modifiables, puis les copier sur l'entité", correct: true}
+      - {text: "Vérifier côté front que le formulaire n'envoie jamais le champ `admin`", correct: false}
+      - {text: "Passer la méthode en `PATCH`, qui ne modifie que les champs reçus", correct: false}
+      - {text: "Valider le corps reçu avec `@Valid`, sans changer son type", correct: false}
+    answer: |-
+      C'est une affectation de masse : tout champ de l'entité devient modifiable par le client. Un DTO d'entrée
+      (`record ModificationProfil(String nom, String email)`) ne laisse passer que ce qui est prévu. Le front ne
+      protège rien : n'importe qui peut appeler l'API directement.
+  - key: situation-url-partenaire
+    format: scenario
+    question: |-
+      Six classes lisent l'URL d'un service partenaire avec `@Value`, chacune avec sa valeur par défaut. Une faute de
+      frappe a envoyé la production vers l'URL de test. Que recommandes-tu ?
+    choices:
+      - {text: "Une classe `@ConfigurationProperties` validée, sans défaut, injectée là où il faut", correct: true}
+      - {text: "Garder les `@Value`, mais recopier la même valeur par défaut dans les six classes", correct: false}
+      - {text: "Remplacer les `@Value` par une constante `static final` dans une classe commune", correct: false}
+      - {text: "Lire la variable avec `System.getenv` dans chaque classe, au démarrage", correct: false}
+    answer: |-
+      Une seule classe, une seule clé : la faute de frappe ne peut plus se cacher dans un coin. Sans valeur par
+      défaut et avec `@NotNull`, une clé absente arrête le démarrage au lieu de pointer vers le mauvais service. Une
+      constante figerait l'URL dans le jar.
+  - key: situation-trois-pratiques
+    format: scenario
+    question: |-
+      En entretien, on te demande les trois bonnes pratiques Spring Boot que tu appliques sur tout projet. Quelle
+      réponse est la plus solide ?
+    choices:
+      - {text: "Injection par constructeur, DTO aux frontières de l'API, configuration typée et validée", correct: true}
+      - {text: "Injection par champ, entités exposées telles quelles, `@Value` répété dans chaque classe", correct: false}
+      - {text: "Un seul gros service par application, pour limiter le nombre de beans du contexte", correct: false}
+      - {text: "Tout déclarer en `@Bean` dans une seule classe `@Configuration`, sans aucun scan", correct: false}
+    answer: |-
+      Chacune se justifie en une phrase : des dépendances visibles et testables, un contrat d'API indépendant du
+      schéma, une configuration qui échoue tôt. Un exemple vécu pour chacune rend la réponse convaincante.

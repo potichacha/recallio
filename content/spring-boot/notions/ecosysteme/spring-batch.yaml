@@ -1,0 +1,255 @@
+notion: spring-batch
+lesson: |-
+  **Spring Batch** traite de **gros volumes sans utilisateur** : importer un fichier de deux millions de lignes,
+  calculer les factures du mois, archiver les commandes anciennes. Il apporte ce qu'une boucle maison n'a pas : des
+  transactions par paquets, la **reprise après une panne**, les éléments en erreur mis de côté, et l'historique des
+  exécutions.
+
+  **Le vocabulaire.**
+
+  | Terme | Rôle |
+  |---|---|
+  | `Job` | le traitement complet, fait d'une ou plusieurs étapes |
+  | `Step` | une étape : par chunks, ou une `Tasklet` |
+  | `ItemReader` | lit un élément à la fois (une ligne de fichier, une ligne de table) |
+  | `ItemProcessor` | transforme ou filtre un élément ; renvoyer `null` l'écarte |
+  | `ItemWriter` | écrit **ensemble** les éléments d'un chunk |
+  | `JobRepository` | enregistre en base l'état de chaque exécution |
+
+  **L'étape par chunks.** Le lecteur lit les éléments un par un, le processeur les transforme ; quand le paquet
+  (chunk) atteint sa taille, l'écrivain les écrit ensemble et la transaction est validée. **Un chunk, une
+  transaction.**
+
+  ```java
+  @Bean
+  Step importerClients(JobRepository jobRepository, PlatformTransactionManager transactionManager,
+                       FlatFileItemReader<LigneClient> lecteur, ClientWriter ecrivain) {
+      return new StepBuilder("importerClients", jobRepository)
+              .<LigneClient, Client>chunk(500, transactionManager)
+              .reader(lecteur)
+              .processor(ligne -> ligne.estValide() ? ligne.versClient() : null)
+              .writer(ecrivain)
+              .build();
+  }
+
+  @Bean
+  Job importClients(JobRepository jobRepository, Step importerClients) {
+      return new JobBuilder("importClients", jobRepository)
+              .start(importerClients)
+              .build();
+  }
+  ```
+
+  La taille du chunk est un compromis : trop petite, une transaction par élément ralentit tout ; trop grande, un échec
+  annule beaucoup de travail et la mémoire grossit. Quelques centaines d'éléments sont un point de départ courant.
+  Spring Batch fournit des lecteurs et des écrivains prêts : `FlatFileItemReader` (CSV), `JdbcCursorItemReader`,
+  `JpaPagingItemReader`, `JdbcBatchItemWriter`...
+
+  Une **`Tasklet`** est une étape qui fait **une seule chose** : supprimer un fichier temporaire, appeler une
+  procédure stockée.
+
+  **Instance et exécution.** Une **`JobInstance`** est un job **associé à ses paramètres identifiants** :
+  `importClients` pour `date=2026-11-15`. Une **`JobExecution`** est une **tentative** de cette instance. Si elle
+  échoue, on relance **la même instance** : Spring Batch relit l'**`ExecutionContext`**, sauvegardé à chaque chunk
+  validé, et reprend là où il s'était arrêté. Une instance terminée avec succès **ne se relance pas** : Spring Batch
+  refuse (`JobInstanceAlreadyCompleteException`). Pour refaire le même traitement, on change un paramètre identifiant,
+  par exemple un numéro de lancement qui s'incrémente.
+
+  **Les erreurs.** Une étape peut **ignorer** (skip) les éléments en erreur, dans une limite (dix lignes mal formées
+  tolérées, par exemple), et **réessayer** ceux qui échouent pour une raison passagère. Au-delà, l'étape échoue, et la
+  reprise repartira du bon chunk.
+
+  **Passer à l'échelle.** Une étape peut tourner sur plusieurs threads, ou être **partitionnée** : découpée en plages
+  (les clients de A à M, de N à Z), chacune traitée par sa propre étape, sur des threads ou des machines différents.
+
+  **Ce que Spring Batch n'est pas** : un planificateur. Il exécute un job quand on le lui demande ; le déclenchement
+  vient d'ailleurs (`@Scheduled`, une CronJob Kubernetes, un ordonnanceur d'entreprise). Spring Boot peut aussi lancer
+  les jobs au démarrage de l'application.
+
+  **En entretien** : « Un job Spring Batch enchaîne des étapes ; une étape par chunks lit, transforme et écrit les
+  éléments par paquets, une transaction par paquet. Le `JobRepository` garde l'état de chaque exécution : un job en
+  échec reprend au dernier chunk validé, et une instance réussie ne se relance pas avec les mêmes paramètres. Ce n'est
+  pas un planificateur : un cron ou un ordonnanceur le déclenche. »
+cards:
+  - key: un-chunk-une-transaction
+    format: course
+    question: "Dans une étape Spring Batch par chunks de taille 100, qu'est-ce qui forme une transaction ?"
+    choices:
+      - {text: "Le traitement et l'écriture d'un paquet de 100 éléments", correct: true}
+      - {text: "La lecture d'un seul élément, puis son écriture immédiate", correct: false}
+      - {text: "Le job entier, du premier au dernier élément du fichier", correct: false}
+      - {text: "Chaque appel à l'`ItemProcessor`, pris isolément", correct: false}
+    answer: "Les éléments sont lus et transformés un par un, puis écrits ensemble ; la transaction est validée à la fin du paquet. Un échec n'annule que le chunk en cours."
+  - key: role-job-repository
+    format: course
+    question: "À quoi sert le `JobRepository` de Spring Batch ?"
+    choices:
+      - {text: "À enregistrer l'état des exécutions, pour reprendre un job là où il s'est arrêté", correct: true}
+      - {text: "À garder les éléments lus en mémoire, en attendant qu'ils soient écrits", correct: false}
+      - {text: "À déclarer les jobs dans un fichier XML, chargé au démarrage", correct: false}
+      - {text: "À lancer les jobs à heure fixe, d'après une expression cron", correct: false}
+    answer: "Il stocke en base les instances, les exécutions, leurs statuts et leurs contextes. C'est grâce à lui qu'un job en échec reprend, et qu'une instance réussie n'est pas rejouée."
+  - key: quand-une-tasklet
+    format: course
+    question: "Quand préfères-tu une étape `Tasklet` à une étape par chunks ?"
+    choices:
+      - {text: "Pour une action unique, comme supprimer un fichier ou appeler une procédure", correct: true}
+      - {text: "Pour lire un gros fichier CSV ligne par ligne et l'écrire en base", correct: false}
+      - {text: "Pour répartir un traitement sur plusieurs machines, par plages", correct: false}
+      - {text: "Pour lire des millions de lignes sans tout charger en mémoire", correct: false}
+    answer: "Une `Tasklet` exécute une seule action, dans une transaction. Dès qu'il y a une suite d'éléments à lire et à écrire, l'étape par chunks convient mieux."
+  - key: reprise-au-chunk-37
+    format: course
+    question: "Un job Spring Batch s'arrête au chunk 37 sur 50, à cause d'une panne de base. Que se passe-t-il quand tu relances la même instance ?"
+    choices:
+      - {text: "Il reprend au chunk 37, d'après l'état enregistré dans le `JobRepository`", correct: true}
+      - {text: "Il recommence au premier chunk, car rien n'a été validé", correct: false}
+      - {text: "Il refuse : une instance en échec ne se relance jamais", correct: false}
+      - {text: "Il saute le chunk 37 et continue directement au chunk 38", correct: false}
+    answer: "Les 36 premiers chunks ont été validés, et l'`ExecutionContext` a été sauvegardé avec eux. Le lecteur se replace au bon endroit, et seul le travail perdu est refait."
+  - key: vf-instance-deja-terminee
+    format: true-false
+    question: "Relancer un job déjà terminé avec succès, avec les mêmes paramètres identifiants, crée une nouvelle exécution complète."
+    truth: false
+    answer: "Spring Batch refuse avec une `JobInstanceAlreadyCompleteException` : cette instance a déjà réussi. Pour refaire le traitement, on change un paramètre identifiant."
+  - key: vf-processor-null
+    format: true-false
+    question: "Un `ItemProcessor` qui renvoie `null` écarte l'élément : il ne sera pas écrit."
+    truth: true
+    answer: "C'est la façon de filtrer : les éléments `null` ne sont pas transmis à l'`ItemWriter`, et Spring Batch les compte comme filtrés."
+  - key: vf-batch-pas-planificateur
+    format: true-false
+    question: "Spring Batch fournit son propre planificateur, qui lance les jobs selon une expression cron."
+    truth: false
+    answer: "Spring Batch exécute un job quand on le lui demande. Le déclenchement vient d'ailleurs : `@Scheduled`, une CronJob Kubernetes ou un ordonnanceur."
+  - key: vf-writer-recoit-le-paquet
+    format: true-false
+    question: "Un `ItemWriter` reçoit les éléments d'un chunk ensemble, et non un par un."
+    truth: true
+    answer: "Sa méthode `write` reçoit tout le chunk : l'écrivain peut faire une seule insertion par lot, ce qui fait la vitesse du traitement."
+  - key: qcm-trois-roles
+    format: multiple-choice
+    question: "Quels sont les trois rôles d'une étape par chunks, dans l'ordre où ils interviennent ?"
+    choices:
+      - {text: "`ItemReader`, `ItemProcessor`, `ItemWriter`", correct: true}
+      - {text: "`ItemWriter`, `ItemProcessor`, `ItemReader`", correct: false}
+      - {text: "`JobLauncher`, `Job`, `Step`", correct: false}
+      - {text: "`Tasklet`, `Chunk`, `Partition`", correct: false}
+    answer: "Lire, transformer (ou filtrer), écrire. Le processeur est facultatif : sans lui, les éléments lus vont tels quels à l'écrivain."
+  - key: qcm-lire-un-csv
+    format: multiple-choice
+    question: "Quel lecteur fourni par Spring Batch lit un fichier CSV ligne par ligne ?"
+    choices:
+      - {text: "`FlatFileItemReader`", correct: true}
+      - {text: "`JdbcCursorItemReader`", correct: false}
+      - {text: "`StaxEventItemReader`", correct: false}
+      - {text: "`JpaPagingItemReader`", correct: false}
+    answer: "`FlatFileItemReader` lit un fichier plat et découpe chaque ligne en champs. Les lecteurs JDBC et JPA lisent une base, `StaxEventItemReader` du XML."
+  - key: qcm-lignes-mal-formees
+    format: multiple-choice
+    question: "Comment laisses-tu un job Spring Batch continuer quand quelques lignes du fichier sont mal formées ?"
+    choices:
+      - {text: "Par une politique de saut : les lignes en erreur sont ignorées, dans une limite", correct: true}
+      - {text: "Par un `try` et un `catch` autour de l'appel qui lance le job", correct: false}
+      - {text: "Par une taille de chunk de 1, pour que l'erreur ne touche qu'une ligne", correct: false}
+      - {text: "Par un second job, lancé à la main, qui relit tout le fichier", correct: false}
+    answer: "L'étape tolère un nombre limité d'éléments en erreur (skip) et les signale ; au-delà, elle échoue. Un `catch` autour du lancement arrêterait tout dès la première ligne."
+  - key: qcm-partitionnement
+    format: multiple-choice
+    question: "Comment Spring Batch répartit-il un gros traitement sur plusieurs threads ou machines ?"
+    choices:
+      - {text: "Par le partitionnement : l'étape est découpée en plages, traitées à part", correct: true}
+      - {text: "Par la taille du chunk : plus il est grand, plus il y a de threads", correct: false}
+      - {text: "Par `@Async` sur la méthode `write` de l'`ItemWriter` du job", correct: false}
+      - {text: "Par `@Scheduled` : chaque passage du cron traite une partie", correct: false}
+    answer: "Une étape maîtresse découpe les données en plages (par identifiant, par date), et chaque plage est traitée par sa propre étape, sur un thread ou une machine."
+  - key: situation-import-nocturne
+    format: scenario
+    question: |-
+      Chaque nuit, ton équipe importe un fichier de deux millions de lignes par une boucle dans un `@Scheduled`. Une
+      panne au milieu oblige à tout recommencer. Que proposes-tu ?
+    choices:
+      - {text: "Un job Spring Batch par chunks, qui reprend au dernier chunk validé", correct: true}
+      - {text: "Une seule transaction pour tout le fichier, pour annuler proprement", correct: false}
+      - {text: "Un appel `@Async` par ligne, pour finir avant la panne suivante", correct: false}
+      - {text: "Charger tout le fichier en mémoire avant d'écrire quoi que ce soit", correct: false}
+    answer: |-
+      Spring Batch valide le travail par paquets et garde sa position : après une panne, la relance reprend où elle
+      s'était arrêtée. Une transaction de deux millions de lignes tiendrait des verrous des heures, et un échec
+      annulerait tout.
+  - key: situation-relancer-la-meme-date
+    format: scenario
+    question: |-
+      Ton job d'export, lancé avec le paramètre `date=2026-11-15`, a réussi. Le métier veut le relancer pour la même
+      date, et Spring Batch refuse. Que proposes-tu ?
+    choices:
+      - {text: "Ajouter un paramètre identifiant qui change à chaque lancement", correct: true}
+      - {text: "Vider les tables du `JobRepository` avant chaque lancement", correct: false}
+      - {text: "Relancer avec la même date : le refus disparaît au troisième essai", correct: false}
+      - {text: "Passer la taille du chunk à 1, pour forcer une nouvelle instance", correct: false}
+    answer: |-
+      Une instance (le job et ses paramètres identifiants) qui a réussi ne se rejoue pas. Un numéro de lancement qui
+      s'incrémente crée une nouvelle instance, tout en gardant l'historique. Vider le `JobRepository` effacerait aussi
+      ce qui permet les reprises.
+  - key: situation-six-heures
+    format: scenario
+    question: |-
+      Ton job Spring Batch écrit les lignes une par une, avec des chunks de taille 1, et met six heures. Que proposes-tu
+      d'abord ?
+    choices:
+      - {text: "Augmenter la taille du chunk, pour écrire par lots dans moins de transactions", correct: true}
+      - {text: "Passer chaque écriture en `@Async`, sans changer la taille du chunk", correct: false}
+      - {text: "Appeler `save` dans l'`ItemProcessor` au lieu d'avoir un `ItemWriter`", correct: false}
+      - {text: "Retirer le `JobRepository`, qui ralentit chaque écriture en base", correct: false}
+    answer: |-
+      Une transaction par ligne multiplie les allers-retours et les validations. Avec des chunks de quelques
+      centaines, l'écrivain insère par lots, et le temps fond. On mesure, puis on ajuste.
+  - key: situation-un-simple-delete
+    format: scenario
+    question: |-
+      On te demande de supprimer chaque nuit les paniers abandonnés depuis un mois : une seule requête `DELETE`. Ton
+      collègue veut écrire un job Spring Batch. Que réponds-tu ?
+    choices:
+      - {text: "Qu'un `@Scheduled` qui lance la requête suffit : Spring Batch serait trop lourd", correct: true}
+      - {text: "Que Spring Batch est obligatoire dès qu'un traitement tourne la nuit", correct: false}
+      - {text: "Qu'il faut un job par chunks de 1 000 paniers, avec reprise après panne", correct: false}
+      - {text: "Qu'il faut un service à part, déployé seulement pendant la nuit", correct: false}
+    answer: |-
+      Spring Batch se justifie par le volume, la reprise et le suivi des éléments. Une requête unique n'a rien à
+      reprendre : une tâche planifiée suffit, avec un verrou si l'application tourne en plusieurs instances.
+  - key: def-job-instance
+    format: definition
+    question: "Que désigne une `JobInstance` dans Spring Batch ?"
+    choices:
+      - {text: "Un job associé à ses paramètres identifiants : une exécution logique", correct: true}
+      - {text: "Une tentative de lancer un job, avec son heure de début et son statut", correct: false}
+      - {text: "Le bean qui déclare les étapes d'un job dans la configuration", correct: false}
+      - {text: "Un thread de l'exécuteur qui fait tourner une des étapes du job", correct: false}
+    answer: "`importClients` pour `date=2026-11-15` est une instance. Elle peut avoir plusieurs exécutions (des tentatives) tant qu'elle n'a pas réussi."
+  - key: def-job-execution
+    format: definition
+    question: "Que désigne une `JobExecution` dans Spring Batch ?"
+    choices:
+      - {text: "Une tentative de lancer une instance de job, réussie ou non", correct: true}
+      - {text: "L'ensemble des paramètres passés à un job pour le lancer", correct: false}
+      - {text: "Le résultat écrit en base par le dernier `ItemWriter` du job", correct: false}
+      - {text: "La définition d'un job, partagée par toutes ses instances", correct: false}
+    answer: "Chaque lancement crée une exécution, avec son statut (`COMPLETED`, `FAILED`...), ses dates et ses étapes. Une instance en échec peut en avoir plusieurs."
+  - key: def-execution-context
+    format: definition
+    question: "Que désigne l'`ExecutionContext` d'une étape Spring Batch ?"
+    choices:
+      - {text: "Des paires clé-valeur sauvegardées à chaque chunk, pour reprendre où l'on en était", correct: true}
+      - {text: "Le contexte Spring qui contient tous les beans du job et de ses étapes", correct: false}
+      - {text: "La transaction ouverte pendant l'écriture d'un chunk en base", correct: false}
+      - {text: "La liste des éléments lus, mais pas encore écrits par l'`ItemWriter`", correct: false}
+    answer: "Un lecteur y note sa position (le nombre de lignes lues, par exemple). Persisté avec chaque chunk validé, il permet à une relance de repartir au bon endroit."
+  - key: def-tasklet
+    format: definition
+    question: "Que désigne une `Tasklet` dans Spring Batch ?"
+    choices:
+      - {text: "Une étape qui exécute une seule action, sans lecteur ni écrivain", correct: true}
+      - {text: "Un petit job, lancé sans `JobRepository` ni paramètres", correct: false}
+      - {text: "Un élément lu par l'`ItemReader`, avant sa transformation", correct: false}
+      - {text: "Un thread léger de Spring Batch, proche d'un thread virtuel", correct: false}
+    answer: "Sa méthode `execute` fait le travail en une fois : supprimer un fichier, appeler une procédure stockée, envoyer un rapport."

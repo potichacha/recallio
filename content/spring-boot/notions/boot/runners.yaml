@@ -1,0 +1,317 @@
+notion: runners
+lesson: |-
+  Pour exécuter du code **une fois, au démarrage**, quand tous les beans sont prêts, Spring Boot offre deux
+  interfaces : `CommandLineRunner` et `ApplicationRunner`.
+
+  ```java
+  @Component
+  public class ChargementDemo implements CommandLineRunner {
+      private final ProduitRepository produits;
+
+      public ChargementDemo(ProduitRepository produits) { this.produits = produits; }
+
+      @Override
+      public void run(String... args) {
+          produits.save(new Produit("cafe", 10));
+      }
+  }
+  ```
+
+  **Quand ?** Dans `SpringApplication.run`, **après** la création de tous les beans et le démarrage du serveur web,
+  **avant** `ApplicationReadyEvent` (le signal « prêt à recevoir du trafic »). Les runners s'exécutent dans le
+  **thread principal**, l'un après l'autre : un runner qui ne rend pas la main bloque la fin du démarrage.
+
+  **Les deux interfaces.**
+
+  | Interface | Reçoit | Avec `--mode=import clients.csv` |
+  |---|---|---|
+  | `CommandLineRunner` | `String... args`, tels quels | `["--mode=import", "clients.csv"]` |
+  | `ApplicationRunner` | `ApplicationArguments`, analysés | `getOptionValues("mode")` donne `[import]`, `getNonOptionArgs()` donne `[clients.csv]` |
+
+  `ApplicationArguments` offre aussi `containsOption("dry-run")`.
+
+  **Sans écrire de classe** : une méthode `@Bean` qui renvoie une lambda.
+
+  ```java
+  @Bean
+  CommandLineRunner afficherLeNombreDeProduits(ProduitRepository produits) {
+      return args -> log.info("{} produits", produits.count());
+  }
+  ```
+
+  **L'ordre.** Plusieurs runners (des deux types, mêlés) s'exécutent selon **`@Order`** (ou l'interface `Ordered`) ;
+  sans ordre, il n'y a pas de garantie.
+
+  **Les erreurs.** Une exception dans un runner fait **échouer le démarrage** : l'application s'arrête. C'est voulu
+  pour une vérification indispensable ; pour un traitement facultatif, on rattrape l'exception dans le runner.
+
+  **Et dans les tests ?** Un `@SpringBootTest` démarre l'application par `SpringApplication` : il **exécute les
+  runners**. Un import lourd lancé au démarrage se conditionne donc par une propriété ou un profil, désactivé en
+  test. Les tests par tranche (`@WebMvcTest`...) ne créent pas ces beans.
+
+  **Autres moyens.** `@EventListener(ApplicationReadyEvent.class)` réagit une fois l'application prête ;
+  `@PostConstruct` arrive trop tôt (les proxies ne sont pas encore là).
+
+  **En entretien** : « `CommandLineRunner` et `ApplicationRunner` exécutent du code une fois le contexte démarré,
+  avant que l'application soit déclarée prête ; le second reçoit les arguments analysés. Ils s'ordonnent par
+  `@Order`, une exception arrête le démarrage, et un `@SpringBootTest` les exécute aussi. »
+cards:
+  - key: moment-des-runners
+    format: course
+    question: "Quand Spring Boot appelle-t-il les `CommandLineRunner` ?"
+    choices:
+      - {text: "Une fois le contexte démarré, juste avant que l'application soit déclarée prête", correct: true}
+      - {text: "Avant la création des beans, pour préparer le contexte", correct: false}
+      - {text: "À chaque requête HTTP reçue par l'application", correct: false}
+      - {text: "À l'arrêt de l'application, avant la fermeture du contexte", correct: false}
+    answer: "Tous les beans existent, le serveur est démarré ; `ApplicationReadyEvent` est publié après les runners."
+  - key: deux-interfaces
+    format: course
+    question: "Quelle différence entre `CommandLineRunner` et `ApplicationRunner` ?"
+    choices:
+      - {text: "`ApplicationRunner` reçoit les arguments analysés (`--option=valeur`)", correct: true}
+      - {text: "`ApplicationRunner` s'exécute dans un thread à part", correct: false}
+      - {text: "`CommandLineRunner` ne s'exécute pas quand un serveur web démarre", correct: false}
+      - {text: "`CommandLineRunner` s'exécute avant la création des beans", correct: false}
+    answer: "Les deux s'exécutent au même moment, dans le thread principal. Seule la forme des arguments change : chaînes brutes, ou `ApplicationArguments`."
+  - key: ordre-des-runners
+    format: course
+    question: "Comment fixer l'ordre de plusieurs runners ?"
+    choices:
+      - {text: "Avec `@Order` sur chaque runner", correct: true}
+      - {text: "Par l'ordre alphabétique du nom des beans", correct: false}
+      - {text: "Avec `@DependsOn` entre les runners", correct: false}
+      - {text: "Par l'ordre des fichiers dans le package", correct: false}
+    answer: "Les runners des deux types sont triés ensemble par `@Order` (ou `Ordered`). `@DependsOn` ordonne la création des beans, pas leur exécution."
+  - key: exception-dans-un-runner
+    format: course
+    question: "Un `CommandLineRunner` lève une exception. Que se passe-t-il ?"
+    choices:
+      - {text: "Le démarrage échoue, et l'application s'arrête", correct: true}
+      - {text: "Spring Boot journalise l'erreur et continue de démarrer", correct: false}
+      - {text: "Le runner est relancé jusqu'à ce qu'il réussisse", correct: false}
+      - {text: "Les autres runners passent, puis l'erreur est oubliée", correct: false}
+    answer: "L'exception sort de `SpringApplication.run` : le contexte est fermé. Pour un traitement facultatif, on la rattrape dans le runner."
+  - key: vf-thread-principal
+    format: true-false
+    question: "Les runners s'exécutent dans le thread principal, celui qui appelle `SpringApplication.run`."
+    truth: true
+    answer: "Ils sont appelés l'un après l'autre, avant que `run` ne rende la main."
+  - key: vf-springboottest-execute
+    format: true-false
+    question: "Un `@SpringBootTest` exécute les `CommandLineRunner` de l'application."
+    truth: true
+    answer: "Le test démarre l'application par `SpringApplication`, runners compris. Un runner coûteux se conditionne par une propriété désactivée en test."
+  - key: vf-argument-brut
+    format: true-false
+    question: "Un `CommandLineRunner` reçoit l'argument `--mode=import` tel quel, sous forme de chaîne."
+    truth: true
+    answer: "Il reçoit `\"--mode=import\"`. Pour obtenir `import` sous l'option `mode`, il faut `ApplicationRunner`."
+  - key: vf-runner-bloquant
+    format: true-false
+    question: "Un runner qui boucle sans fin empêche `SpringApplication.run` de rendre la main."
+    truth: true
+    answer: "Le démarrage ne se termine jamais : pas d'`ApplicationReadyEvent`. Un traitement continu se lance dans un autre thread, ou se planifie."
+  - key: qcm-valeurs-d-option
+    format: multiple-choice
+    question: "Avec les arguments `--mode=import clients.csv`, que renvoie `args.getOptionValues(\"mode\")` dans un `ApplicationRunner` ?"
+    choices:
+      - {text: "`[import]`", correct: true}
+      - {text: "`[--mode=import]`", correct: false}
+      - {text: "`[clients.csv]`", correct: false}
+      - {text: "`null`", correct: false}
+    answer: "Une liste des valeurs de l'option (une option peut être répétée). `null` serait renvoyé pour une option absente."
+  - key: qcm-arguments-sans-option
+    format: multiple-choice
+    question: "Avec les mêmes arguments `--mode=import clients.csv`, que renvoie `args.getNonOptionArgs()` ?"
+    choices:
+      - {text: "`[clients.csv]`", correct: true}
+      - {text: "`[--mode=import, clients.csv]`", correct: false}
+      - {text: "`[import]`", correct: false}
+      - {text: "`[]`", correct: false}
+    answer: "Les arguments qui ne commencent pas par `--`. `getSourceArgs()` rendrait la liste brute."
+  - key: qcm-runner-en-lambda
+    format: multiple-choice
+    question: "Quelle déclaration crée un runner sans écrire de classe ?"
+    choices:
+      - {text: "`@Bean CommandLineRunner init() { return args -> ...; }`", correct: true}
+      - {text: "`@PostConstruct CommandLineRunner init() { return args -> ...; }`", correct: false}
+      - {text: "`@EventListener CommandLineRunner init() { return args -> ...; }`", correct: false}
+      - {text: "`@Component CommandLineRunner init = args -> ...;`", correct: false}
+    answer: "Un bean de type `CommandLineRunner` suffit : la méthode `@Bean` peut recevoir les beans dont le runner a besoin en paramètres."
+  - key: qcm-bon-usage
+    format: multiple-choice
+    question: "Lequel de ces traitements est un bon usage d'un runner ?"
+    choices:
+      - {text: "Charger un jeu de données de démonstration au démarrage", correct: true}
+      - {text: "Répondre aux requêtes HTTP des clients", correct: false}
+      - {text: "Fermer les connexions à l'arrêt de l'application", correct: false}
+      - {text: "Valider chaque requête entrante", correct: false}
+    answer: "Un runner s'exécute une fois, au démarrage. Les requêtes relèvent des contrôleurs et des filtres ; l'arrêt, de `@PreDestroy`."
+  - key: trous-commandlinerunner
+    format: fill-in
+    question: |-
+      Complète pour exécuter cet import au démarrage :
+      ```java
+      @Component
+      public class Import implements ___ {
+          @Override
+          public void run(String... args) {
+              ...
+          }
+      }
+      ```
+    blanks:
+      - [CommandLineRunner]
+    answer: "`CommandLineRunner.run(String... args)` reçoit les arguments bruts de la ligne de commande."
+  - key: trous-applicationarguments
+    format: fill-in
+    question: |-
+      Complète le type du paramètre d'un `ApplicationRunner` :
+      ```java
+      @Override
+      public void run(___ args) {
+          if (args.containsOption("import")) { ... }
+      }
+      ```
+    blanks:
+      - [ApplicationArguments]
+    answer: "`ApplicationArguments` sépare les options (`--cle=valeur`) des autres arguments."
+  - key: trous-order
+    format: fill-in
+    question: |-
+      Complète pour que ce runner passe avant les autres :
+      ```java
+      @Component
+      @___(1)
+      public class ChargementDonnees implements CommandLineRunner { ... }
+      ```
+    blanks:
+      - [Order]
+    answer: "`@Order(1)` : la plus petite valeur s'exécute en premier."
+  - key: trous-contains-option
+    format: fill-in
+    question: |-
+      Complète pour ne rien faire quand l'option `--dry-run` est passée :
+      ```java
+      public void run(ApplicationArguments args) {
+          if (args.___("dry-run")) {
+              return;
+          }
+          ...
+      }
+      ```
+    blanks:
+      - [containsOption]
+    answer: "`containsOption` est vrai pour `--dry-run`, avec ou sans valeur."
+  - key: bug-runner-sans-component
+    format: bug-fix
+    question: |-
+      Ce runner ne s'exécute jamais : aucune donnée n'est chargée, et aucune erreur n'apparaît. Quelle correction est
+      la bonne ?
+      ```java
+      public class ChargementDemo implements CommandLineRunner {
+          @Override
+          public void run(String... args) {
+              ...
+          }
+      }
+      ```
+    choices:
+      - {text: "Annoter la classe avec `@Component`", correct: true}
+      - {text: "Annoter la méthode `run` avec `@PostConstruct`", correct: false}
+      - {text: "Rendre la méthode `run` `static`", correct: false}
+      - {text: "Appeler `new ChargementDemo()` dans la méthode `main`", correct: false}
+    answer: |-
+      ```java
+      @Component
+      public class ChargementDemo implements CommandLineRunner {
+      ```
+      Spring Boot n'exécute que les runners qui sont des beans. Créé avec `new`, le runner ne serait pas appelé, ni
+      ses dépendances injectées.
+  - key: bug-ordre-des-runners
+    format: bug-fix
+    question: |-
+      L'index de recherche est vide après le démarrage : `Reindexation` s'exécute avant `Chargement`, qui remplit les
+      produits. Quelle correction est la bonne ?
+      ```java
+      @Component
+      public class Chargement implements CommandLineRunner { ... }
+
+      @Component
+      public class Reindexation implements CommandLineRunner { ... }
+      ```
+    choices:
+      - {text: "`@Order(1)` sur `Chargement`, `@Order(2)` sur `Reindexation`", correct: true}
+      - {text: "`@Primary` sur la classe `Chargement`", correct: false}
+      - {text: "`@Lazy` sur la classe `Reindexation`", correct: false}
+      - {text: "Renommer la classe `Chargement` en `AChargement`", correct: false}
+    answer: |-
+      ```java
+      @Component
+      @Order(1)
+      public class Chargement implements CommandLineRunner { ... }
+
+      @Component
+      @Order(2)
+      public class Reindexation implements CommandLineRunner { ... }
+      ```
+      Sans `@Order`, l'ordre des runners n'est pas garanti. Jouer sur les noms de classes ne garantit rien non plus.
+  - key: bug-option-comparee-brute
+    format: bug-fix
+    question: |-
+      L'application est lancée avec `--mode=import`, mais l'import ne démarre jamais. Quelle correction est la bonne ?
+      ```java
+      @Component
+      public class Import implements CommandLineRunner {
+          @Override
+          public void run(String... args) {
+              if (args.length > 0 && args[0].equals("import")) {
+                  importer();
+              }
+          }
+      }
+      ```
+    choices:
+      - {text: "Passer à `ApplicationRunner`, et tester `getOptionValues(\"mode\")`", correct: true}
+      - {text: "Tester `args[1]` au lieu de `args[0]`", correct: false}
+      - {text: "Remplacer `equals` par `==` dans la comparaison", correct: false}
+      - {text: "Lancer l'application avec `-mode=import`", correct: false}
+    answer: |-
+      ```java
+      public void run(ApplicationArguments args) {
+          List<String> mode = args.getOptionValues("mode");
+          if (mode != null && mode.contains("import")) {
+              importer();
+          }
+      }
+      ```
+      `CommandLineRunner` reçoit la chaîne brute `--mode=import`, jamais égale à `import`. `ApplicationArguments`
+      analyse les options.
+  - key: bug-import-dans-les-tests
+    format: bug-fix
+    question: |-
+      Chaque classe de test `@SpringBootTest` met trois minutes à démarrer : ce runner importe tout le catalogue du
+      fournisseur. Quelle correction est la bonne ?
+      ```java
+      @Component
+      public class ImportCatalogue implements CommandLineRunner {
+          @Override
+          public void run(String... args) {
+              fournisseur.toutImporter();
+          }
+      }
+      ```
+    choices:
+      - {text: "Conditionner le runner par une propriété, désactivée en test", correct: true}
+      - {text: "Remplacer `CommandLineRunner` par `ApplicationRunner`", correct: false}
+      - {text: "Ajouter `@Order(Ordered.LOWEST_PRECEDENCE)` sur le runner", correct: false}
+      - {text: "Ajouter `@Lazy` sur le runner", correct: false}
+    answer: |-
+      ```java
+      @Component
+      @ConditionalOnBooleanProperty("boutique.import.enabled")
+      public class ImportCatalogue implements CommandLineRunner { ... }
+      ```
+      Un `@SpringBootTest` exécute les runners, comme l'application. Avec une propriété à `false` en test (ou un
+      profil), l'import ne tourne que là où on le veut. Un runner `@Lazy` est quand même créé et appelé.

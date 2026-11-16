@@ -1,0 +1,327 @@
+notion: cycle-de-vie
+lesson: |-
+  Entre sa création et sa destruction, un bean singleton passe par des étapes fixes. Les connaître évite les
+  `NullPointerException` du constructeur et les transactions qui ne s'appliquent pas.
+
+  **À la création** (au démarrage, pour un singleton) :
+
+  1. **Instanciation** : Spring appelle le constructeur (avec ses paramètres injectés).
+  2. **Injection** des champs et des setters `@Autowired`, `@Value`.
+  3. Les interfaces `*Aware` (`BeanNameAware`, `ApplicationContextAware`...) reçoivent leurs objets.
+  4. Les `BeanPostProcessor` passent une première fois.
+  5. **`@PostConstruct`**, puis `afterPropertiesSet()` (`InitializingBean`), puis l'`initMethod` d'un `@Bean`.
+  6. Les `BeanPostProcessor` passent une seconde fois : c'est là que le bean est **remplacé par son proxy**
+     (`@Transactional`, `@Async`...).
+  7. Le bean est prêt, et injecté là où on l'attend.
+
+  **À la fermeture du contexte** (arrêt de l'application, ou signal `SIGTERM` : Spring Boot installe un hook
+  d'arrêt) : **`@PreDestroy`**, puis `destroy()` (`DisposableBean`), puis la `destroyMethod` d'un `@Bean`.
+
+  ```java
+  @Component
+  public class CacheDesPrix {
+      private final PrixRepository depot;
+      private Map<String, BigDecimal> prix;
+
+      public CacheDesPrix(PrixRepository depot) { this.depot = depot; }
+
+      @PostConstruct
+      void charger() {               // les dépendances sont là
+          prix = depot.tousLesPrix();
+      }
+
+      @PreDestroy
+      void vider() { prix.clear(); }
+  }
+  ```
+
+  Une méthode `@PostConstruct` ou `@PreDestroy` ne prend **aucun paramètre** (sinon : « Lifecycle annotation requires
+  a no-arg method »). Ces annotations viennent de `jakarta.annotation`.
+
+  **Ce qui n'est pas encore prêt dans `@PostConstruct`** : le proxy. Appeler depuis `@PostConstruct` une méthode
+  `@Transactional` du même bean ne crée **aucune transaction** (l'appel ne passe pas par le proxy). Pour un
+  traitement qui a besoin des proxies, on écoute `ApplicationReadyEvent`, dans un autre bean, ou l'on utilise un
+  runner.
+
+  **Le prototype** n'a que la moitié du cycle : Spring le crée, l'initialise, puis l'oublie. Sa méthode `@PreDestroy`
+  n'est **jamais** appelée.
+
+  **`@Lazy`** retarde la création d'un singleton à sa **première utilisation**. Mais si un singleton non paresseux
+  l'injecte, il est créé au démarrage quand même ; `@Lazy` sur le **point d'injection** injecte alors un proxy, et
+  repousse la création au premier appel. `spring.main.lazy-initialization=true` rend tous les beans paresseux :
+  démarrage plus rapide, mais erreurs de configuration découvertes plus tard.
+
+  **En entretien** : « Spring appelle le constructeur, injecte les dépendances, appelle `@PostConstruct`, puis crée
+  les proxies ; à la fermeture du contexte, il appelle `@PreDestroy`. Je n'utilise pas de champ injecté dans le
+  constructeur, et je ne compte pas sur `@Transactional` dans un `@PostConstruct`. »
+cards:
+  - key: ordre-a-la-creation
+    format: course
+    question: "Dans quel ordre Spring traite-t-il un bean à sa création ?"
+    choices:
+      - {text: "Constructeur, injection des champs et setters, puis `@PostConstruct`", correct: true}
+      - {text: "`@PostConstruct`, puis constructeur, puis injection des champs", correct: false}
+      - {text: "Injection des champs, puis constructeur, puis `@PostConstruct`", correct: false}
+      - {text: "Constructeur, puis `@PostConstruct`, puis injection des champs", correct: false}
+    answer: "L'objet doit exister avant qu'on remplisse ses champs ; `@PostConstruct` vient ensuite, quand toutes les dépendances sont là."
+  - key: moment-du-predestroy
+    format: course
+    question: "Quand Spring appelle-t-il la méthode `@PreDestroy` d'un singleton ?"
+    choices:
+      - {text: "À la fermeture du contexte, par exemple à l'arrêt de l'application", correct: true}
+      - {text: "Quand le ramasse-miettes libère l'objet", correct: false}
+      - {text: "Après chaque appel de l'une des méthodes du bean", correct: false}
+      - {text: "Dès que plus aucun autre bean ne dépend de lui", correct: false}
+    answer: "Le contexte détruit ses singletons quand il se ferme : `context.close()`, ou le hook d'arrêt que Spring Boot installe pour `SIGTERM`."
+  - key: effet-de-lazy
+    format: course
+    question: "Que change `@Lazy` sur un bean singleton ?"
+    choices:
+      - {text: "Il est créé à sa première utilisation, et non au démarrage", correct: true}
+      - {text: "Il est recréé à chaque utilisation", correct: false}
+      - {text: "Ses méthodes s'exécutent dans un thread à part", correct: false}
+      - {text: "Il est détruit dès qu'on ne l'utilise plus", correct: false}
+    answer: "Il reste unique ; seule sa création est repoussée. Utile pour un bean coûteux et rarement servi."
+  - key: moment-du-proxy
+    format: course
+    question: "À quelle étape Spring remplace-t-il un bean par son proxy (pour `@Transactional`, par exemple) ?"
+    choices:
+      - {text: "Après l'initialisation, dans un `BeanPostProcessor`", correct: true}
+      - {text: "Avant l'appel du constructeur du bean", correct: false}
+      - {text: "À la compilation, par un processeur d'annotations", correct: false}
+      - {text: "À la fermeture du contexte, avant `@PreDestroy`", correct: false}
+    answer: "Le proxy est créé après `@PostConstruct`. C'est pourquoi un `@PostConstruct` n'a pas encore les transactions du bean."
+  - key: vf-postconstruct-voit-les-champs
+    format: true-false
+    question: "Une méthode `@PostConstruct` peut lire les champs injectés par `@Autowired`."
+    truth: true
+    answer: "Elle s'exécute après toute l'injection : c'est même sa raison d'être."
+  - key: vf-postconstruct-parametres
+    format: true-false
+    question: "Une méthode `@PostConstruct` peut prendre des paramètres, que Spring lui injecte."
+    truth: false
+    answer: "Le démarrage échoue : « Lifecycle annotation requires a no-arg method ». Les dépendances arrivent par le constructeur ou les champs."
+  - key: vf-lazy-injecte-tot
+    format: true-false
+    question: "Un bean `@Lazy` injecté (sans `@Lazy` au point d'injection) dans un singleton créé au démarrage est créé au démarrage lui aussi."
+    truth: true
+    answer: "Le singleton a besoin de lui pour être construit. `@Lazy` sur le point d'injection donne un proxy, et repousse la création au premier appel."
+  - key: vf-sigterm
+    format: true-false
+    question: "Spring Boot ferme le contexte, et appelle les méthodes `@PreDestroy`, quand la JVM reçoit un signal d'arrêt (`SIGTERM`)."
+    truth: true
+    answer: "`SpringApplication` enregistre un hook d'arrêt de la JVM. Un `kill -9`, en revanche, ne laisse rien s'exécuter."
+  - key: qcm-paquet-des-annotations
+    format: multiple-choice
+    question: "De quel paquet viennent `@PostConstruct` et `@PreDestroy` dans une application Spring Boot 4 ?"
+    choices:
+      - {text: "`jakarta.annotation`", correct: true}
+      - {text: "`org.springframework.beans.factory.annotation`", correct: false}
+      - {text: "`org.springframework.context.annotation`", correct: false}
+      - {text: "`java.lang.annotation`", correct: false}
+    answer: "Elles viennent de Jakarta Annotations (`jakarta.annotation-api`), autrefois `javax.annotation`. Spring les reconnaît, mais ne les définit pas."
+  - key: qcm-interface-d-initialisation
+    format: multiple-choice
+    question: "Quelle interface de Spring offre l'équivalent de `@PostConstruct` ?"
+    choices:
+      - {text: "`InitializingBean`", correct: true}
+      - {text: "`DisposableBean`", correct: false}
+      - {text: "`BeanNameAware`", correct: false}
+      - {text: "`FactoryBean`", correct: false}
+    answer: "Sa méthode `afterPropertiesSet()` est appelée après l'injection. `DisposableBean.destroy()` est l'équivalent de `@PreDestroy`. On préfère les annotations, qui ne lient pas la classe à Spring."
+  - key: qcm-traitement-avec-proxies
+    format: multiple-choice
+    question: "Où lancer, au démarrage, un traitement qui a besoin des transactions (`@Transactional`) ?"
+    choices:
+      - {text: "Dans un écouteur de `ApplicationReadyEvent`, dans un autre bean", correct: true}
+      - {text: "Dans le constructeur du bean qui porte les transactions", correct: false}
+      - {text: "Dans une méthode `@PostConstruct` du même bean", correct: false}
+      - {text: "Dans un bloc `static` de la classe principale", correct: false}
+    answer: "Quand `ApplicationReadyEvent` arrive, tous les beans et leurs proxies sont prêts ; appelé depuis un autre bean, le service passe par son proxy."
+  - key: qcm-tout-paresseux
+    format: multiple-choice
+    question: "Quelle propriété rend paresseux tous les beans d'une application Spring Boot ?"
+    choices:
+      - {text: "`spring.main.lazy-initialization=true`", correct: true}
+      - {text: "`spring.beans.lazy=true`", correct: false}
+      - {text: "`spring.main.lazy=true`", correct: false}
+      - {text: "`spring.context.lazy-beans=true`", correct: false}
+    answer: "Le démarrage est plus rapide, mais une erreur de configuration n'apparaît qu'au premier usage du bean. À réserver au développement."
+  - key: trous-postconstruct
+    format: fill-in
+    question: |-
+      Complète pour appeler cette méthode une fois les dépendances injectées :
+      ```java
+      @___
+      void chargerLeCache() {
+          prix = depot.tousLesPrix();
+      }
+      ```
+    blanks:
+      - [PostConstruct]
+    answer: "`@PostConstruct` (de `jakarta.annotation`) s'exécute après l'injection."
+  - key: trous-predestroy
+    format: fill-in
+    question: |-
+      Complète pour fermer la connexion à l'arrêt de l'application :
+      ```java
+      @___
+      void fermer() {
+          connexion.close();
+      }
+      ```
+    blanks:
+      - [PreDestroy]
+    answer: "`@PreDestroy` est appelée à la fermeture du contexte, pour un singleton."
+  - key: trous-lazy-injection
+    format: fill-in
+    question: |-
+      Complète pour ne créer `ExportPdf` qu'au premier appel de l'une de ses méthodes :
+      ```java
+      public Rapport(@___ ExportPdf export) {
+          this.export = export;
+      }
+      ```
+    blanks:
+      - [Lazy]
+    answer: "`@Lazy` sur le paramètre injecte un proxy ; le vrai bean est créé au premier appel."
+  - key: trous-initializingbean
+    format: fill-in
+    question: |-
+      Complète avec l'interface dont Spring appelle la méthode après l'injection :
+      ```java
+      public class Cache implements ___ {
+          @Override
+          public void afterPropertiesSet() {
+              charger();
+          }
+      }
+      ```
+    blanks:
+      - [InitializingBean]
+    answer: "`InitializingBean.afterPropertiesSet()` s'exécute juste après `@PostConstruct`."
+  - key: bug-postconstruct-avec-parametre
+    format: bug-fix
+    question: |-
+      Le démarrage échoue : « Lifecycle annotation requires a no-arg method: void
+      com.boutique.Cache.charger(java.lang.String) ». Quelle correction est la bonne ?
+      ```java
+      @Component
+      public class Cache {
+          @Value("${boutique.region}")
+          private String region;
+
+          @PostConstruct
+          void charger(String region) {
+              ...
+          }
+      }
+      ```
+    choices:
+      - {text: "Retirer le paramètre, et lire le champ `region`", correct: true}
+      - {text: "Annoter le paramètre avec `@Autowired`", correct: false}
+      - {text: "Annoter le paramètre avec `@Value`", correct: false}
+      - {text: "Rendre la méthode `charger` `static`", correct: false}
+    answer: |-
+      ```java
+      @PostConstruct
+      void charger() {
+          ... region ...
+      }
+      ```
+      Une méthode de cycle de vie ne reçoit rien : Spring l'appelle après l'injection, et le champ est déjà rempli.
+  - key: bug-prototype-jamais-ferme
+    format: bug-fix
+    question: |-
+      Chaque export ouvre un fichier temporaire, et ces fichiers ne sont jamais supprimés : `@PreDestroy` n'est
+      jamais appelée. Quelle correction est la bonne ?
+      ```java
+      @Component
+      @Scope("prototype")
+      public class Export {
+          @PreDestroy
+          void nettoyer() { fichier.delete(); }
+      }
+
+      // dans un service
+      Export export = exports.getObject();
+      export.ecrire(commandes);
+      ```
+    choices:
+      - {text: "Appeler `nettoyer()` soi-même, dans un `finally`, après l'export", correct: true}
+      - {text: "Ajouter `@Lazy` sur la classe `Export`", correct: false}
+      - {text: "Remplacer `@PreDestroy` par `@PostConstruct`", correct: false}
+      - {text: "Fermer et rouvrir le contexte après chaque export", correct: false}
+    answer: |-
+      ```java
+      Export export = exports.getObject();
+      try {
+          export.ecrire(commandes);
+      } finally {
+          export.nettoyer();
+      }
+      ```
+      Spring ne suit pas les prototypes après leur création : leur destruction revient à celui qui les demande (un
+      `AutoCloseable` et un try-with-resources conviennent aussi).
+  - key: bug-transaction-dans-postconstruct
+    format: bug-fix
+    question: |-
+      Au démarrage, `initialiser()` insère des données de référence, mais une erreur à mi-parcours laisse des lignes
+      à moitié insérées : aucune transaction n'est ouverte. Quelle correction est la bonne ?
+      ```java
+      @Service
+      public class Referentiel {
+          @PostConstruct
+          void demarrer() {
+              initialiser();
+          }
+
+          @Transactional
+          public void initialiser() { ... }
+      }
+      ```
+    choices:
+      - {text: "L'appeler d'un autre bean, sur `ApplicationReadyEvent`", correct: true}
+      - {text: "Annoter aussi la méthode `demarrer()` avec `@Transactional`", correct: false}
+      - {text: "Rendre la méthode `initialiser()` `private` dans la classe", correct: false}
+      - {text: "Ajouter `@Lazy` sur la déclaration de la classe `Referentiel`", correct: false}
+    answer: |-
+      ```java
+      @Component
+      class Amorcage {
+          private final Referentiel referentiel;
+          Amorcage(Referentiel referentiel) { this.referentiel = referentiel; }
+
+          @EventListener(ApplicationReadyEvent.class)
+          void demarrer() { referentiel.initialiser(); }
+      }
+      ```
+      Dans `@PostConstruct`, l'appel part de l'objet lui-même : il ne traverse pas le proxy transactionnel, qui
+      n'existe d'ailleurs pas encore. Appelée depuis un autre bean, une fois l'application prête, la méthode a sa
+      transaction.
+  - key: bug-lazy-sans-effet
+    format: bug-fix
+    question: |-
+      `ExportPdf` charge des polices pendant trois secondes. Malgré `@Lazy`, il est créé au démarrage, et ralentit
+      chaque lancement. Quelle correction est la bonne ?
+      ```java
+      @Component
+      @Lazy
+      public class ExportPdf { ... }
+
+      @Service
+      public class Rapport {
+          public Rapport(ExportPdf export) { this.export = export; }
+      }
+      ```
+    choices:
+      - {text: "Ajouter `@Lazy` aussi sur le paramètre `export` du constructeur", correct: true}
+      - {text: "Passer `ExportPdf` en portée prototype", correct: false}
+      - {text: "Retirer `@Lazy` de la classe `ExportPdf`", correct: false}
+      - {text: "Ajouter `@Primary` sur la classe `ExportPdf`", correct: false}
+    answer: |-
+      ```java
+      public Rapport(@Lazy ExportPdf export) { this.export = export; }
+      ```
+      `Rapport`, singleton créé au démarrage, a besoin d'`ExportPdf` pour être construit. `@Lazy` sur le paramètre
+      lui injecte un proxy : le vrai bean n'est créé qu'au premier appel.

@@ -1,0 +1,206 @@
+notion: versionnement-api
+lesson: |-
+  Une API publique a des clients qu'on ne met pas à jour soi-même : applications mobiles anciennes, partenaires. Un
+  **changement cassant** (renommer ou retirer une propriété, changer un type, rendre obligatoire un paramètre) les casse.
+  On **versionne** pour publier ce changement sans eux, et garder l'ancienne version le temps qu'ils migrent.
+
+  **D'abord, éviter de versionner.** Ajouter une propriété à une réponse, un point d'entrée ou un paramètre facultatif
+  ne casse personne : c'est une évolution compatible, sans nouvelle version.
+
+  **Où mettre la version ?**
+
+  | Stratégie | Exemple | Pour | Contre |
+  |---|---|---|---|
+  | Chemin | `/api/v2/produits` | visible partout, simple à tester et à mettre en cache | l'adresse d'une ressource change |
+  | En-tête | `API-Version: 2` | URL stables | invisible dans un navigateur |
+  | Paramètre de requête | `?version=2` | simple | se mêle aux filtres |
+  | Type de média | `Accept: application/json;version=2` | fidèle à HTTP | plus difficile à utiliser |
+
+  **Avec Spring Framework 7**, le versionnement est intégré. Chaque méthode déclare sa version par l'attribut `version` :
+
+  ```java
+  @GetMapping(path = "/produits", version = "1.0")
+  public List<ProduitV1> produitsV1() { ... }
+
+  @GetMapping(path = "/produits", version = "2.0")
+  public List<ProduitV2> produitsV2() { ... }
+
+  @GetMapping(path = "/categories", version = "1.1+")   // 1.1 et toutes les suivantes
+  public List<Categorie> categories() { ... }
+  ```
+
+  La stratégie se choisit une fois, par des propriétés de Spring Boot :
+
+  ```properties
+  spring.mvc.apiversion.use.header=API-Version
+  # ou : spring.mvc.apiversion.use.path-segment=1   (chemin /api/{version}/produits)
+  spring.mvc.apiversion.default=1.0
+  ```
+
+  ou en Java, dans `WebMvcConfigurer.configureApiVersioning(ApiVersionConfigurer)` : `useRequestHeader("API-Version")`,
+  `usePathSegment(1)`, `useQueryParam("version")`, `setDefaultVersion("1.0")`.
+
+  **Ce que fait Spring.**
+
+  - Les versions se comparent comme des numéros : `2` vaut `2.0`, et dans le chemin `v1` vaut `1`.
+  - `"1.1+"` sert la version 1.1 et toutes les suivantes connues, tant qu'une méthode plus récente ne la remplace pas.
+  - Une version inconnue (`3.0` quand seules 1.0 et 2.0 existent) répond **400** (`InvalidApiVersionException`).
+  - Sans version par défaut, la version est **obligatoire** : une requête sans version reçoit **400** (« API version is
+    required. »), même vers une méthode qui n'en déclare pas. `spring.mvc.apiversion.default` ou
+    `spring.mvc.apiversion.required=false` l'évitent.
+  - Côté client, `RestClient` envoie la version par `.apiVersion("2.0")`, placée par un `ApiVersionInserter`.
+
+  **Retirer une version.** On prévient dans les réponses, avec les en-têtes `Deprecation` et `Sunset` (que Spring pose
+  par un gestionnaire configuré avec `setDeprecationHandler`), on mesure qui l'utilise encore, puis on la coupe.
+
+  **Avant Spring 7**, on dupliquait les contrôleurs sous `/api/v1` et `/api/v2` : cela reste possible et lisible.
+
+  **En entretien** : « Je versionne seulement pour un changement cassant ; ajouter un champ n'en est pas un. La version
+  va dans le chemin, simple et visible, ou dans un en-tête. Avec Spring 7, j'utilise l'attribut `version` des mappings
+  et `spring.mvc.apiversion.*`, avec une version par défaut, et j'annonce les retraits avec `Deprecation` et `Sunset`. »
+cards:
+  - key: attribut-version
+    format: course
+    question: "Comment Spring Framework 7 associe-t-il une méthode de contrôleur à une version d'API ?"
+    choices:
+      - {text: "Par l'attribut `version` de `@GetMapping`, `@PostMapping`...", correct: true}
+      - {text: "Par une annotation `@ApiVersion` posée sur la classe", correct: false}
+      - {text: "Par le nom du paquet du contrôleur, comme `api.v2`", correct: false}
+      - {text: "Par un suffixe dans le nom de la méthode, comme `listerV2`", correct: false}
+    answer: "`@RequestMapping` et ses variantes ont un attribut `version` depuis Spring Framework 7. La stratégie de lecture (en-tête, chemin...) se configure à part."
+  - key: version-absente-sans-defaut
+    format: course
+    question: "L'API lit la version dans l'en-tête `API-Version`, sans version par défaut. Que répond-elle à une requête sans cet en-tête ?"
+    choices:
+      - {text: "400 Bad Request : « API version is required. »", correct: true}
+      - {text: "200, avec la version la plus récente", correct: false}
+      - {text: "200, avec la version la plus ancienne", correct: false}
+      - {text: "404 Not Found, faute de méthode qui corresponde", correct: false}
+    answer: "Sans version par défaut, la version est obligatoire : `MissingApiVersionException`, donc 400. `spring.mvc.apiversion.default=1.0` sert les clients qui n'en envoient pas."
+  - key: version-plus
+    format: course
+    question: "Que signifie `version = \"1.2+\"` sur un `@GetMapping` ?"
+    choices:
+      - {text: "La méthode sert la version 1.2 et toutes les suivantes", correct: true}
+      - {text: "La méthode sert toutes les versions jusqu'à 1.2", correct: false}
+      - {text: "La méthode ne sert que la version 1.2 exactement", correct: false}
+      - {text: "La méthode sert la 1.2 et la 1.3, mais pas au-delà", correct: false}
+    answer: "Le `+` fixe une version de départ : 1.2, 1.3, 2.0... tant qu'une autre méthode ne déclare pas une version plus récente pour le même chemin. Une requête en 1.0 ne la trouve pas."
+  - key: strategie-absente
+    format: course
+    question: "Lequel de ces emplacements n'est pas une stratégie de version prévue par Spring Framework 7 ?"
+    choices:
+      - {text: "Un cookie de la requête", correct: true}
+      - {text: "Un segment du chemin", correct: false}
+      - {text: "Un en-tête de la requête", correct: false}
+      - {text: "Un paramètre de requête", correct: false}
+    answer: "`ApiVersionConfigurer` propose `usePathSegment`, `useRequestHeader`, `useQueryParam` et `useMediaTypeParameter`. Un résolveur maison reste possible, mais aucun n'est prévu pour les cookies."
+  - key: vf-meme-sans-version-declaree
+    format: true-false
+    question: "Quand la version est obligatoire, une requête sans version est refusée même vers une méthode qui ne déclare aucune version."
+    truth: true
+    answer: "La version se résout avant de chercher la méthode : `GET /ping` sans en-tête reçoit 400. Une version par défaut, ou `spring.mvc.apiversion.required=false`, l'évite."
+  - key: vf-version-par-defaut
+    format: true-false
+    question: "La propriété `spring.mvc.apiversion.default` donne la version à appliquer aux requêtes qui n'en précisent pas."
+    truth: true
+    answer: "Avec `spring.mvc.apiversion.default=1.0`, un client sans en-tête est servi par la version 1.0 : les anciens clients continuent de fonctionner."
+  - key: vf-version-inconnue
+    format: true-false
+    question: "Une version que l'application ne connaît pas, comme `3.0` quand seules 1.0 et 2.0 existent, est servie par la version la plus proche."
+    truth: false
+    answer: "Spring répond 400 : `InvalidApiVersionException` (« Invalid API version: '3.0.0'. »). Il ne devine pas la version voulue."
+  - key: vf-ajout-de-champ
+    format: true-false
+    question: "Ajouter une propriété facultative à une réponse JSON impose de publier une nouvelle version de l'API."
+    truth: false
+    answer: "Un client ignore les propriétés qu'il ne connaît pas : c'est une évolution compatible. Renommer ou retirer une propriété, en revanche, casse les clients."
+  - key: qcm-propriete-en-tete
+    format: multiple-choice
+    question: "Quelle propriété fait lire la version dans l'en-tête `API-Version` ?"
+    choices:
+      - {text: "`spring.mvc.apiversion.use.header=API-Version`", correct: true}
+      - {text: "`spring.mvc.api-version.header=API-Version`", correct: false}
+      - {text: "`server.api.version-header=API-Version`", correct: false}
+      - {text: "`spring.web.versioning.header=API-Version`", correct: false}
+    answer: "Les propriétés `spring.mvc.apiversion.use.*` choisissent la stratégie : `header`, `path-segment`, `query-parameter` ou `media-type-parameter`."
+  - key: qcm-segment-de-chemin
+    format: multiple-choice
+    question: "Avec `spring.mvc.apiversion.use.path-segment=1`, comment s'écrit le chemin d'une méthode de la version 2 ?"
+    choices:
+      - {text: "`@GetMapping(path = \"/api/{version}/produits\", version = \"2\")`", correct: true}
+      - {text: "`@GetMapping(path = \"/api/produits\", version = \"2\")`", correct: false}
+      - {text: "`@GetMapping(path = \"/api/produits/{version}\", version = \"2\")`", correct: false}
+      - {text: "`@GetMapping(path = \"/api/produits\", params = \"version=2\")`", correct: false}
+    answer: "Le segment d'indice 1 (le deuxième, après `api`) porte la version : le chemin doit le déclarer avec `{version}`. `/api/2/produits` et `/api/v2/produits` y mènent tous deux."
+  - key: qcm-changement-cassant
+    format: multiple-choice
+    question: "Lequel de ces changements casse les clients existants, et justifie une nouvelle version ?"
+    choices:
+      - {text: "Renommer la propriété `prix` en `montant` dans la réponse", correct: true}
+      - {text: "Ajouter une propriété `devise` à la réponse", correct: false}
+      - {text: "Ajouter un point d'entrée `GET /api/promotions`", correct: false}
+      - {text: "Accepter un nouveau paramètre facultatif `tri`", correct: false}
+    answer: "Un client qui lit `prix` ne le trouve plus. Les trois autres changements ajoutent sans rien retirer : les clients existants ne voient pas la différence."
+  - key: qcm-version-cote-client
+    format: multiple-choice
+    question: "Avec Spring Framework 7, comment `RestClient` envoie-t-il la version d'API voulue ?"
+    choices:
+      - {text: "Par `.apiVersion(\"2.0\")`, placée par un `ApiVersionInserter`", correct: true}
+      - {text: "Par `.version(\"2.0\")`, appelé sur le `RestClient.Builder`", correct: false}
+      - {text: "Par `@ApiVersion(\"2.0\")`, posée sur l'interface du client", correct: false}
+      - {text: "Par `.uri(\"/v2\")`, qui réécrit toutes les requêtes", correct: false}
+    answer: "La requête porte sa version (`.apiVersion(...)`, ou `defaultApiVersion` sur le builder) ; l'`ApiVersionInserter` configuré sur le builder la place dans un en-tête, le chemin ou un paramètre."
+  - key: situation-renommer-un-champ
+    format: scenario
+    question: |-
+      Ton API publique doit renommer `prix` en `prixTtc`. Des applications mobiles anciennes l'appellent encore, et
+      leurs utilisateurs ne mettent pas tous à jour. Que fais-tu ?
+    choices:
+      - {text: "Publier une version 2, et garder la 1 jusqu'à la migration des clients", correct: true}
+      - {text: "Renommer le champ, et prévenir les équipes mobiles par courriel", correct: false}
+      - {text: "Renommer le champ, et répondre 400 aux anciennes applications", correct: false}
+      - {text: "Couper la version 1 le jour même de la mise en production", correct: false}
+    answer: |-
+      Le renommage casse les anciennes applications : elles ont besoin de la version 1 encore un temps. La version 2
+      porte le nouveau nom ; on mesure l'usage de la 1, on annonce son retrait, puis on la coupe.
+  - key: situation-version-dans-l-uri
+    format: scenario
+    question: |-
+      Une équipe hésite entre la version dans le chemin (`/api/v2/...`) et dans un en-tête. Quel argument plaide
+      pour le chemin ?
+    choices:
+      - {text: "Elle se voit partout : journaux, navigateur, caches, documentation", correct: true}
+      - {text: "Elle garde la même adresse pour une ressource, quelle que soit la version", correct: false}
+      - {text: "Elle évite toute duplication de code entre deux versions", correct: false}
+      - {text: "Elle est la seule que Spring Framework 7 sait lire", correct: false}
+    answer: |-
+      Une URL versionnée se lit, se partage et se teste dans un navigateur. L'adresse stable est l'argument de
+      l'en-tête ; et Spring 7 sait lire les deux.
+  - key: situation-annoncer-un-retrait
+    format: scenario
+    question: |-
+      La version 1 sera retirée dans six mois. Comment préviens-tu les clients dans les réponses elles-mêmes ?
+    choices:
+      - {text: "Avec les en-têtes `Deprecation` et `Sunset`, qui annoncent le retrait", correct: true}
+      - {text: "Avec un statut 410 Gone renvoyé dès aujourd'hui", correct: false}
+      - {text: "Avec un statut 301 qui redirige vers la version 2", correct: false}
+      - {text: "Avec un champ `avertissement` ajouté au corps JSON", correct: false}
+    answer: |-
+      `Deprecation` dit que la version est dépréciée, `Sunset` la date de son retrait : un client ou une passerelle
+      peut les surveiller. Spring 7 les pose avec un gestionnaire configuré par `setDeprecationHandler`. 410 et 301
+      casseraient les clients dès aujourd'hui.
+  - key: situation-ping-en-400
+    format: scenario
+    question: |-
+      Après avoir activé le versionnement par en-tête, ton point d'entrée `GET /ping`, qui n'a pas de version, répond
+      400 aux sondes de supervision. Pourquoi, et que fais-tu ?
+    choices:
+      - {text: "La version est exigée de toute requête : je fixe une version par défaut", correct: true}
+      - {text: "Le chemin `/ping` est réservé par Spring : je le renomme", correct: false}
+      - {text: "L'en-tête de version est interdit sur un GET : je passe en POST", correct: false}
+      - {text: "Le versionnement désactive les méthodes sans version : je les retire", correct: false}
+    answer: |-
+      Sans version par défaut, une requête sans version reçoit 400 (« API version is required. »), quelle que soit la
+      méthode visée. `spring.mvc.apiversion.default=1.0`, ou `spring.mvc.apiversion.required=false`, règle le
+      problème.

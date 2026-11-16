@@ -1,0 +1,332 @@
+notion: scheduled
+lesson: |-
+  Spring sait lancer une méthode **à intervalles réguliers** ou **à heure fixe**, sans outil externe : une purge
+  nocturne, un rapport chaque matin, une relance toutes les cinq minutes.
+
+  **Activer la planification.** `@EnableScheduling` sur une classe de configuration (souvent la classe principale),
+  puis `@Scheduled` sur une méthode d'un **bean**. Sans `@EnableScheduling`, l'annotation est ignorée en silence :
+  l'application démarre, et la tâche ne tourne jamais.
+
+  ```java
+  @SpringBootApplication
+  @EnableScheduling
+  public class BoutiqueApplication { }
+
+  @Component
+  class PurgePaniers {
+      private final PanierRepository paniers;
+      private final Clock clock;
+
+      PurgePaniers(PanierRepository paniers, Clock clock) {
+          this.paniers = paniers;
+          this.clock = clock;
+      }
+
+      @Scheduled(cron = "0 0 3 * * *", zone = "Europe/Paris")
+      void purger() {
+          paniers.supprimerAbandonnesAvant(Instant.now(clock).minus(Duration.ofDays(30)));
+      }
+  }
+  ```
+
+  La méthode **ne prend aucun paramètre** : sinon, le démarrage échoue avec « Only no-arg methods may be annotated
+  with @Scheduled ». Ce qu'elle renvoie est ignoré : on écrit `void`. Ce dont elle a besoin vient des champs du bean.
+
+  **Trois façons de déclencher.**
+
+  | Attribut | L'intervalle se compte... | Exemple |
+  |---|---|---|
+  | `fixedRate` | d'un **début** d'exécution au début suivant | un relevé toutes les 10 s |
+  | `fixedDelay` | de la **fin** d'une exécution au début de la suivante | vider une file, puis souffler |
+  | `cron` | selon le calendrier | chaque nuit à 3 h |
+
+  L'unité de `fixedRate`, `fixedDelay` et `initialDelay` est la **milliseconde**, sauf si `timeUnit` en choisit une
+  autre : `@Scheduled(fixedRate = 10, timeUnit = TimeUnit.SECONDS)`. `initialDelay` retarde la première exécution.
+  `fixedRateString`, `fixedDelayString` et `cron` acceptent un espace réservé : `@Scheduled(cron = "${purge.cron}")`.
+
+  **Le cron de Spring a six champs**, et commence par les **secondes** : `seconde minute heure jour mois
+  jour-de-la-semaine`. Une expression de crontab Unix, à cinq champs, fait échouer le démarrage (« Cron expression
+  must consist of 6 fields »).
+
+  | Expression | Signification |
+  |---|---|
+  | `0 0 2 * * *` | chaque jour à 2 h |
+  | `0 */15 * * * *` | toutes les 15 minutes |
+  | `0 0 2 * * MON-FRI` | à 2 h, du lundi au vendredi |
+  | `@daily` | chaque jour à minuit (`0 0 0 * * *`) |
+
+  `zone` fixe le fuseau dans lequel le cron s'interprète ; sans lui, c'est celui du serveur. `cron = "-"`
+  (`Scheduled.CRON_DISABLED`) désactive la tâche, ce qui se règle par une propriété : `cron = "${purge.cron:-}"`.
+
+  **Les threads.** Spring Boot auto-configure un planificateur, le bean `taskScheduler`, avec **un seul thread**,
+  nommé `scheduling-1`. Une tâche longue retarde donc toutes les autres. On l'agrandit avec
+  `spring.task.scheduling.pool.size=4` ; avec `spring.threads.virtual.enabled=true`, les tâches tournent sur des
+  threads virtuels.
+
+  **Les erreurs.** Une exception dans une tâche périodique est journalisée (« Unexpected error occurred in scheduled
+  task »), et la tâche repart à l'échéance suivante : ni nouvelle tentative, ni alerte. À toi de la surveiller.
+
+  **En cluster**, chaque instance a son planificateur : avec trois instances, la purge tourne trois fois. Pour qu'une
+  seule l'exécute, on prend un verrou partagé en base (la bibliothèque ShedLock le fait), ou l'on confie la tâche à
+  un ordonnanceur externe, comme une CronJob Kubernetes.
+
+  **En entretien** : « `@EnableScheduling` active la planification, `@Scheduled` déclare la tâche : `fixedRate` entre
+  deux débuts, `fixedDelay` après la fin, `cron` à six champs qui commence par les secondes. Le planificateur de
+  Spring Boot n'a qu'un thread par défaut, et chaque instance exécute la tâche : en cluster, il faut un verrou comme
+  ShedLock. »
+cards:
+  - key: fixed-delay-depuis-la-fin
+    format: course
+    question: "Avec `@Scheduled(fixedDelay = 5000)`, à partir de quand se comptent les cinq secondes ?"
+    choices:
+      - {text: "À partir de la fin de l'exécution précédente", correct: true}
+      - {text: "À partir du début de l'exécution précédente", correct: false}
+      - {text: "À partir du démarrage de l'application, à chaque fois", correct: false}
+      - {text: "À partir de la prochaine minute pleine de l'horloge", correct: false}
+    answer: "`fixedDelay` attend la fin d'une exécution, puis le délai, avant la suivante. C'est `fixedRate` qui compte d'un début d'exécution au suivant."
+  - key: activer-la-planification
+    format: course
+    question: "Que faut-il, en plus de `@Scheduled` sur une méthode, pour que Spring lance la tâche ?"
+    choices:
+      - {text: "`@EnableScheduling` sur une configuration, et la méthode sur un bean", correct: true}
+      - {text: "`@EnableAsync` sur la classe principale, et la méthode `public static`", correct: false}
+      - {text: "Rien : Spring Boot active la planification dès qu'il voit l'annotation", correct: false}
+      - {text: "La propriété `spring.scheduling.enabled=true` dans la configuration", correct: false}
+    answer: "Sans `@EnableScheduling`, personne ne cherche les méthodes `@Scheduled` : l'annotation est ignorée en silence. La méthode doit aussi appartenir à un bean, que Spring a créé."
+  - key: champs-du-cron
+    format: course
+    question: "Combien de champs compte l'expression `cron` de `@Scheduled`, et par quoi commence-t-elle ?"
+    choices:
+      - {text: "Six, en commençant par les secondes", correct: true}
+      - {text: "Cinq, en commençant par les minutes, comme crontab", correct: false}
+      - {text: "Sept, en commençant par l'année", correct: false}
+      - {text: "Six, en commençant par le jour de la semaine", correct: false}
+    answer: "`seconde minute heure jour mois jour-de-la-semaine`. Une expression de crontab Unix, à cinq champs, fait échouer le démarrage."
+  - key: un-seul-thread
+    format: course
+    question: |-
+      Dans une application Spring Boot, deux méthodes `@Scheduled` tournent ; l'une dure dix minutes. Pourquoi
+      l'autre prend-elle du retard ?
+    choices:
+      - {text: "Le planificateur auto-configuré n'a qu'un thread par défaut", correct: true}
+      - {text: "Spring interdit deux tâches planifiées dans la même application", correct: false}
+      - {text: "Le cron de la seconde tâche n'est relu que toutes les dix minutes", correct: false}
+      - {text: "La JVM ne réserve qu'un cœur aux threads de planification", correct: false}
+    answer: "Le bean `taskScheduler` de Spring Boot a un seul thread, `scheduling-1` : une tâche longue bloque les autres. `spring.task.scheduling.pool.size` l'agrandit."
+  - key: vf-methode-sans-parametre
+    format: true-false
+    question: "Une méthode annotée `@Scheduled` ne doit prendre aucun paramètre."
+    truth: true
+    answer: "Spring l'appelle sans rien lui passer. Avec un paramètre, le démarrage échoue : « Only no-arg methods may be annotated with @Scheduled »."
+  - key: vf-unite-par-defaut
+    format: true-false
+    question: "Sans attribut `timeUnit`, `@Scheduled(fixedRate = 10)` lance la tâche toutes les dix secondes."
+    truth: false
+    answer: "L'unité par défaut est la milliseconde : la tâche tourne cent fois par seconde. Il faut `timeUnit = TimeUnit.SECONDS`, ou `fixedRate = 10_000`."
+  - key: vf-trois-instances
+    format: true-false
+    question: "Sans verrou partagé, une tâche `@Scheduled` d'une application déployée en trois instances s'exécute trois fois à chaque échéance."
+    truth: true
+    answer: "Chaque instance a son propre planificateur. Un verrou en base (ShedLock) ou un ordonnanceur externe réserve la tâche à une seule instance."
+  - key: vf-cron-tiret
+    format: true-false
+    question: "`@Scheduled(cron = \"-\")` désactive la tâche."
+    truth: true
+    answer: "`\"-\"` est la valeur de `Scheduled.CRON_DISABLED`. Avec une propriété, `cron = \"${purge.cron:-}\"` permet de couper la tâche dans un environnement."
+  - key: qcm-chaque-jour-2h
+    format: multiple-choice
+    question: "Quelle expression `cron` de `@Scheduled` lance une tâche tous les jours à 2 h du matin ?"
+    choices:
+      - {text: "`0 0 2 * * *`", correct: true}
+      - {text: "`0 2 * * *`", correct: false}
+      - {text: "`2 0 0 * * *`", correct: false}
+      - {text: "`0 2 * * * *`", correct: false}
+    answer: "Seconde 0, minute 0, heure 2. `0 2 * * *` est une crontab Unix à cinq champs, refusée ; `0 2 * * * *` tourne à la minute 2 de chaque heure."
+  - key: qcm-jours-ouvres
+    format: multiple-choice
+    question: "Quelle expression `cron` de `@Scheduled` lance une tâche à 2 h, du lundi au vendredi seulement ?"
+    choices:
+      - {text: "`0 0 2 * * MON-FRI`", correct: true}
+      - {text: "`0 0 2 MON-FRI * *`", correct: false}
+      - {text: "`0 2 * * MON-FRI`", correct: false}
+      - {text: "`0 0 2 * MON-FRI *`", correct: false}
+    answer: "Le jour de la semaine est le sixième et dernier champ. Le quatrième est le jour du mois, le cinquième le mois."
+  - key: qcm-premiere-execution
+    format: multiple-choice
+    question: "Quel attribut de `@Scheduled` retarde la première exécution d'une tâche après le démarrage ?"
+    choices:
+      - {text: "`initialDelay`", correct: true}
+      - {text: "`fixedDelay`", correct: false}
+      - {text: "`timeUnit`", correct: false}
+      - {text: "`zone`", correct: false}
+    answer: "`initialDelay` attend avant la première exécution, par exemple pour laisser l'application se chauffer. `fixedDelay` règle l'écart entre deux exécutions."
+  - key: qcm-fuseau
+    format: multiple-choice
+    question: "Quel attribut de `@Scheduled` fixe le fuseau horaire dans lequel s'interprète l'expression `cron` ?"
+    choices:
+      - {text: "`zone`", correct: true}
+      - {text: "`timeZone`", correct: false}
+      - {text: "`locale`", correct: false}
+      - {text: "`timeUnit`", correct: false}
+    answer: "`zone = \"Europe/Paris\"`. Sans lui, c'est le fuseau du serveur, souvent UTC dans un conteneur : la tâche de 2 h tournerait à 3 h ou 4 h, heure de Paris."
+  - key: trous-enable-scheduling
+    format: fill-in
+    question: |-
+      Complète pour que les méthodes `@Scheduled` de l'application soient lancées :
+      ```java
+      @SpringBootApplication
+      @___
+      public class BoutiqueApplication { }
+      ```
+    blanks:
+      - [EnableScheduling]
+    answer: "`@EnableScheduling` enregistre le composant qui cherche les méthodes `@Scheduled` des beans et les confie au planificateur."
+  - key: trous-fixed-delay
+    format: fill-in
+    question: |-
+      Complète pour attendre 30 secondes entre la fin d'une exécution et le début de la suivante :
+      ```java
+      @Scheduled(___ = 30, timeUnit = TimeUnit.SECONDS)
+      void traiterLaFile() { ... }
+      ```
+    blanks:
+      - [fixedDelay]
+    answer: "`fixedDelay` compte depuis la fin de l'exécution précédente ; `fixedRate` compterait depuis son début."
+  - key: trous-cron-et-zone
+    format: fill-in
+    question: |-
+      Complète pour lancer la purge chaque nuit à minuit, à l'heure de Paris :
+      ```java
+      @Scheduled(___ = "0 0 0 * * *", ___ = "Europe/Paris")
+      void purger() { ... }
+      ```
+    blanks:
+      - [cron]
+      - [zone]
+    answer: "`cron` donne le calendrier, à six champs ; `zone` le fuseau dans lequel il s'interprète."
+  - key: trous-taille-du-pool
+    format: fill-in
+    question: |-
+      Complète la propriété qui donne quatre threads au planificateur de Spring Boot :
+      ```properties
+      spring.task.scheduling.pool.___=4
+      ```
+    blanks:
+      - [size]
+    answer: "`spring.task.scheduling.pool.size` : par défaut, un seul thread, et une tâche longue retarde les autres."
+  - key: bug-sans-enable-scheduling
+    format: bug-fix
+    question: |-
+      L'application démarre sans erreur, mais les paniers abandonnés ne sont jamais purgés : la ligne « purge des
+      paniers » n'apparaît jamais dans les journaux. Quelle correction est la bonne ?
+      ```java
+      @SpringBootApplication
+      public class BoutiqueApplication {
+          public static void main(String[] args) {
+              SpringApplication.run(BoutiqueApplication.class, args);
+          }
+      }
+
+      @Component
+      class PurgePaniers {
+          @Scheduled(fixedRate = 60_000)
+          void purger() {
+              log.info("purge des paniers");
+              paniers.supprimerAbandonnes();
+          }
+      }
+      ```
+    choices:
+      - {text: "Ajouter `@EnableScheduling` sur `BoutiqueApplication`", correct: true}
+      - {text: "Ajouter `@EnableAsync` sur `BoutiqueApplication`", correct: false}
+      - {text: "Déclarer la méthode `purger` en `public static`", correct: false}
+      - {text: "Remplacer `fixedRate` par `fixedDelay` dans l'annotation", correct: false}
+    answer: |-
+      ```java
+      @SpringBootApplication
+      @EnableScheduling
+      public class BoutiqueApplication {
+      ```
+      Sans `@EnableScheduling`, aucun composant ne cherche les méthodes `@Scheduled` : l'annotation est ignorée, sans
+      erreur ni avertissement. `@EnableAsync` active `@Async`, pas la planification.
+  - key: bug-parametre-de-tache
+    format: bug-fix
+    question: |-
+      Le démarrage échoue sur une `BeanCreationException` : « Could not create recurring task for @Scheduled method
+      'purger': Only no-arg methods may be annotated with @Scheduled ». Quelle correction est la bonne ?
+      ```java
+      @Component
+      class PurgeCommandes {
+          @Scheduled(cron = "0 0 3 * * *")
+          void purger(Duration retention) {
+              commandes.supprimerPlusVieillesQue(retention);
+          }
+      }
+      ```
+    choices:
+      - {text: "Retirer le paramètre, et lire la rétention dans un champ du bean", correct: true}
+      - {text: "Annoter le paramètre avec `@Value(\"${purge.retention}\")`", correct: false}
+      - {text: "Remplacer `cron` par `fixedRate = 86_400_000` dans l'annotation", correct: false}
+      - {text: "Déclarer la méthode `public`, pour que Spring lui passe l'argument", correct: false}
+    answer: |-
+      ```java
+      @Component
+      class PurgeCommandes {
+          private final Duration retention;
+
+          PurgeCommandes(@Value("${purge.retention}") Duration retention) {
+              this.retention = retention;
+          }
+
+          @Scheduled(cron = "0 0 3 * * *")
+          void purger() {
+              commandes.supprimerPlusVieillesQue(retention);
+          }
+      }
+      ```
+      Spring appelle la tâche sans argument : elle ne peut avoir aucun paramètre, annoté ou non. Ce dont elle a besoin
+      vient des champs du bean, injectés à sa création.
+  - key: bug-cron-a-cinq-champs
+    format: bug-fix
+    question: |-
+      Cette sauvegarde doit tourner chaque jour à 2 h. Le démarrage échoue : « Cron expression must consist of 6
+      fields (found 5 in "0 2 * * *") ». Quelle correction est la bonne ?
+      ```java
+      @Scheduled(cron = "0 2 * * *")
+      void sauvegarder() {
+          sauvegarde.lancer();
+      }
+      ```
+    choices:
+      - {text: "Écrire `cron = \"0 0 2 * * *\"`, les secondes en premier", correct: true}
+      - {text: "Écrire `cron = \"0 2 * * * *\"`, un champ de plus à la fin", correct: false}
+      - {text: "Écrire `cron = \"2 0 * * *\"`, l'heure en premier", correct: false}
+      - {text: "Ajouter `zone = \"UTC\"`, pour fixer l'heure de référence", correct: false}
+    answer: |-
+      ```java
+      @Scheduled(cron = "0 0 2 * * *")
+      ```
+      Le cron de Spring a six champs et commence par les secondes. L'expression `0 2 * * *` vient de crontab, qui
+      commence par les minutes. `0 2 * * * *` serait acceptée, mais tournerait à la minute 2 de chaque heure.
+  - key: bug-milli-et-non-secondes
+    format: bug-fix
+    question: |-
+      Ce rapport doit partir toutes les cinq secondes. Les journaux montrent qu'il part environ deux cents fois par
+      seconde. Quelle correction est la bonne ?
+      ```java
+      @Scheduled(fixedRate = 5)
+      void envoyerRapport() {
+          rapports.envoyer();
+      }
+      ```
+    choices:
+      - {text: "Écrire `@Scheduled(fixedRate = 5, timeUnit = TimeUnit.SECONDS)`", correct: true}
+      - {text: "Écrire `@Scheduled(fixedDelay = 5)` à la place de `fixedRate`", correct: false}
+      - {text: "Écrire `@Scheduled(fixedRate = 5, initialDelay = 5)`", correct: false}
+      - {text: "Écrire `@Scheduled(fixedRateString = \"5\")` à la place", correct: false}
+    answer: |-
+      ```java
+      @Scheduled(fixedRate = 5, timeUnit = TimeUnit.SECONDS)
+      ```
+      Sans `timeUnit`, l'unité est la milliseconde : la tâche part toutes les 5 ms. `fixedDelay` et
+      `fixedRateString` gardent la même unité ; `fixedRate = 5_000` conviendrait aussi.

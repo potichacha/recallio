@@ -1,0 +1,186 @@
+notion: nosql
+lesson: |-
+  **Spring Data** n'est pas seulement JPA : c'est une famille de modules qui offrent le **même modèle de
+  repository** pour d'autres bases : MongoDB, Redis, Elasticsearch, Cassandra... Une interface, des méthodes
+  héritées, des requêtes dérivées du nom ; seuls le mapping et le moteur changent.
+
+  **MongoDB, une base de documents** (`spring-boot-starter-data-mongodb`). Une entité devient un **document** JSON,
+  rangé dans une collection :
+
+  ```java
+  @Document(collection = "produits")
+  public class Produit {
+      @Id private String id;                     // org.springframework.data.annotation.Id
+      private String nom;
+      private int prix;
+      private Map<String, String> caracteristiques;   // varie d'un produit à l'autre
+      private List<Avis> avis;                   // des documents imbriqués, pas une autre table
+  }
+
+  public interface ProduitRepository extends MongoRepository<Produit, String> {
+      List<Produit> findByPrixLessThan(int prix);                 // requête dérivée, traduite pour MongoDB
+      @Query("{ 'caracteristiques.couleur': ?0 }")
+      List<Produit> deCouleur(String couleur);
+  }
+  ```
+
+  On **imbrique** ce qui se lit avec le document (les avis d'un produit) au lieu de faire des jointures. Pour une
+  requête construite au cas par cas, `MongoTemplate` avec `Query` et `Criteria`. Pas de JPA ici : pas de contexte de
+  persistance ni de dirty checking, on appelle `save` pour écrire. Les transactions sur plusieurs documents existent,
+  mais demandent un *replica set* et un `MongoTransactionManager`.
+
+  **Redis, une base clé-valeur en mémoire** (`spring-boot-starter-data-redis`). Très rapide, avec des structures
+  (chaînes, listes, ensembles, ensembles triés) et une durée de vie par clé. On l'utilise surtout par
+  `StringRedisTemplate` ou `RedisTemplate` :
+
+  ```java
+  redis.opsForValue().set("panier:" + id, json, Duration.ofMinutes(30));
+  Long vues = redis.opsForValue().increment("vues:produit:" + id);
+  ```
+
+  Ses usages : un **cache** partagé, des **sessions**, des **compteurs**, une **limite de débit**, un **classement**
+  (ensemble trié). Il existe aussi des repositories Redis, sur des classes `@RedisHash`.
+
+  **Choisir.**
+
+  | Besoin | Choix |
+  |---|---|
+  | Des relations, des contraintes, des transactions, des rapports en SQL | une base relationnelle (PostgreSQL) |
+  | Des agrégats lus d'un bloc, une structure qui varie | MongoDB |
+  | De la vitesse sur des données éphémères (cache, session, compteur) | Redis |
+
+  On ne change pas de base pour « aller plus vite » : on choisit d'après la forme des données et des requêtes.
+
+  **En entretien** : « Spring Data offre le même modèle de repository pour plusieurs bases : `MongoRepository` avec
+  `@Document` pour MongoDB, des templates et `@RedisHash` pour Redis. Je prends MongoDB pour des documents lus d'un
+  bloc à la structure variable, Redis pour le cache, les sessions et les compteurs, et je garde une base
+  relationnelle pour les relations et les transactions. »
+cards:
+  - key: modele-commun
+    format: course
+    question: "Qu'est-ce que Spring Data MongoDB a en commun avec Spring Data JPA ?"
+    choices:
+      - {text: "Le modèle de repository : interface, méthodes héritées, requêtes dérivées", correct: true}
+      - {text: "Le contexte de persistance et le dirty checking d'Hibernate", correct: false}
+      - {text: "Les annotations `@Entity` et `@Table` sur les classes stockées", correct: false}
+      - {text: "Le langage de requête JPQL, traduit pour la base de documents", correct: false}
+    answer: "`MongoRepository<Produit, String>` s'utilise comme `JpaRepository` : `save`, `findById`, `findByPrixLessThan`... Le mapping (`@Document`) et le moteur sont propres à MongoDB."
+  - key: document
+    format: course
+    question: "Avec Spring Data MongoDB, comment déclares-tu qu'une classe est stockée dans la collection `produits` ?"
+    choices:
+      - {text: "`@Document(collection = \"produits\")`", correct: true}
+      - {text: "`@Entity` et `@Table(name = \"produits\")`", correct: false}
+      - {text: "`@Collection(name = \"produits\")`", correct: false}
+      - {text: "`@RedisHash(\"produits\")`", correct: false}
+    answer: "`@Document` vient de Spring Data MongoDB. `@Entity` et `@Table` sont des annotations JPA ; `@RedisHash` sert aux repositories Redis."
+  - key: usages-redis
+    format: course
+    question: "Pour quoi utilise-t-on surtout Redis dans une application Spring Boot ?"
+    choices:
+      - {text: "Un cache partagé, des sessions, des compteurs, une limite de débit", correct: true}
+      - {text: "La base principale des commandes, de leurs lignes et des factures", correct: false}
+      - {text: "Les rapports SQL du mois, avec jointures et fonctions de fenêtrage", correct: false}
+      - {text: "L'historique complet des modifications de chaque entité JPA", correct: false}
+    answer: "Redis garde ses données en mémoire, avec une durée de vie par clé : parfait pour l'éphémère et le très rapide. Les données relationnelles et les rapports restent dans la base SQL."
+  - key: imbriquer
+    format: course
+    question: "Dans MongoDB, les avis d'un produit sont toujours affichés avec lui. Comment les ranges-tu ?"
+    choices:
+      - {text: "Dans le document du produit, comme une liste imbriquée", correct: true}
+      - {text: "Dans une collection à part, jointe à chaque lecture", correct: false}
+      - {text: "Dans une table de jointure entre produits et avis", correct: false}
+      - {text: "Dans Redis, avec l'identifiant du produit pour clé", correct: false}
+    answer: "Un document regroupe ce qui se lit ensemble : une seule lecture ramène le produit et ses avis. On sépare en collections ce qui grossit sans limite ou se lit seul."
+  - key: vf-sans-dirty-checking
+    format: true-false
+    question: "Avec Spring Data MongoDB, un document chargé puis modifié dans une méthode `@Transactional` est écrit tout seul, sans appeler `save`."
+    truth: false
+    answer: "Le dirty checking est une fonction de JPA. Avec MongoDB, on appelle `save` (ou une mise à jour de `MongoTemplate`) pour écrire."
+  - key: vf-requetes-derivees
+    format: true-false
+    question: "Une interface qui hérite de `MongoRepository` accepte des requêtes dérivées comme `findByPrixLessThan`."
+    truth: true
+    answer: "Spring Data analyse le nom de la même façon, puis le traduit en requête MongoDB (`{ prix: { $lt: ? } }`)."
+  - key: vf-id-jakarta
+    format: true-false
+    question: "L'identifiant d'un document MongoDB s'annote avec `jakarta.persistence.Id`."
+    truth: false
+    answer: "On utilise `org.springframework.data.annotation.Id`, commune aux modules Spring Data hors JPA. `jakarta.persistence.Id` appartient à JPA."
+  - key: vf-redis-memoire
+    format: true-false
+    question: "Redis garde ses données en mémoire, et peut donner une durée de vie à chaque clé."
+    truth: true
+    answer: "D'où sa vitesse, et son usage pour les données éphémères. Il peut aussi écrire sur disque, mais n'est pas fait pour être la seule copie de données métier."
+  - key: qcm-mongo-repository
+    format: multiple-choice
+    question: "Quelle interface étend un repository de documents MongoDB ?"
+    choices:
+      - {text: "`MongoRepository<Produit, String>`", correct: true}
+      - {text: "`JpaRepository<Produit, String>`", correct: false}
+      - {text: "`DocumentRepository<Produit>`", correct: false}
+      - {text: "`MongoTemplate<Produit, String>`", correct: false}
+    answer: "`MongoRepository` ajoute aux méthodes de `CrudRepository` ce qui est propre à MongoDB. `MongoTemplate` est une classe, pour les requêtes construites à la main."
+  - key: qcm-string-redis
+    format: multiple-choice
+    question: "Quelle classe utilises-tu pour lire et écrire des valeurs `String` dans Redis ?"
+    choices:
+      - {text: "`StringRedisTemplate`", correct: true}
+      - {text: "`JdbcTemplate`", correct: false}
+      - {text: "`MongoTemplate`", correct: false}
+      - {text: "`RestTemplate`", correct: false}
+    answer: "`StringRedisTemplate` sérialise clés et valeurs en chaînes ; `opsForValue()`, `opsForList()`, `opsForZSet()` donnent accès aux structures de Redis."
+  - key: qcm-redis-hash
+    format: multiple-choice
+    question: "Quelle annotation déclare une classe gérée par un repository Spring Data Redis ?"
+    choices:
+      - {text: "`@RedisHash`", correct: true}
+      - {text: "`@Document`", correct: false}
+      - {text: "`@Entity`", correct: false}
+      - {text: "`@Cacheable`", correct: false}
+    answer: "`@RedisHash(\"sessions\")` range chaque objet comme un hash Redis ; un champ `@TimeToLive` lui donne une durée de vie."
+  - key: qcm-mongo-template
+    format: multiple-choice
+    question: "Les critères d'une recherche MongoDB dépendent des filtres cochés par l'utilisateur. Quel outil choisis-tu ?"
+    choices:
+      - {text: "`MongoTemplate`, avec `Query` et `Criteria` construits au cas par cas", correct: true}
+      - {text: "Une requête dérivée par combinaison possible de filtres", correct: false}
+      - {text: "`StringRedisTemplate`, plus rapide pour ce genre de recherche", correct: false}
+      - {text: "Une requête JPQL dans `@Query`, traduite pour MongoDB", correct: false}
+    answer: "`Criteria.where(\"prix\").lt(max)`, ajouté seulement si le filtre est coché : la requête se construit à l'exécution. Une méthode dérivée par combinaison serait ingérable."
+  - key: situation-catalogue-variable
+    format: scenario
+    question: "Le catalogue mêle des livres, des vêtements et des téléphones, chacun avec ses propres caractéristiques, toujours affichées avec le produit. Que proposes-tu pour les stocker ?"
+    choices:
+      - {text: "Des documents MongoDB, avec les caractéristiques imbriquées", correct: true}
+      - {text: "Une table SQL par caractéristique possible, jointes à la lecture", correct: false}
+      - {text: "Redis seul, une clé par caractéristique de chaque produit", correct: false}
+      - {text: "Une seule table SQL avec deux cents colonnes facultatives", correct: false}
+    answer: "Une structure qui varie d'un produit à l'autre, lue d'un bloc, convient à un document. Une colonne `jsonb` de PostgreSQL serait l'autre bonne réponse, si le reste du modèle est relationnel."
+  - key: situation-limite-debit
+    format: scenario
+    question: "L'API doit limiter chaque client à 100 requêtes par minute, sur quatre instances. Où ranges-tu les compteurs ?"
+    choices:
+      - {text: "Dans Redis : un compteur par client, avec une durée de vie d'une minute", correct: true}
+      - {text: "Dans une `ConcurrentHashMap` de chaque instance de l'application", correct: false}
+      - {text: "Dans PostgreSQL : une ligne mise à jour à chaque requête de l'API", correct: false}
+      - {text: "Dans MongoDB : un document par requête, compté chaque minute", correct: false}
+    answer: "`INCR` est atomique, et la durée de vie remet le compteur à zéro toute seule. Partagé entre les instances, il compte toutes les requêtes du client. Une base SQL subirait une écriture par requête."
+  - key: situation-tout-en-mongo
+    format: scenario
+    question: "Ton équipe propose de tout passer sur MongoDB « pour aller plus vite ». L'application gère des commandes, des factures et des stocks, avec des rapports comptables en SQL. Que réponds-tu ?"
+    choices:
+      - {text: "Garder la base relationnelle : relations, contraintes et transactions y sont centrales", correct: true}
+      - {text: "Accepter : MongoDB est toujours plus rapide qu'une base relationnelle", correct: false}
+      - {text: "Tout passer sur Redis, qui est encore plus rapide que MongoDB", correct: false}
+      - {text: "Accepter, en recodant les jointures en Java dans chaque service", correct: false}
+    answer: "Des données très liées, des contraintes d'intégrité et des transactions sur plusieurs tables sont le terrain des bases relationnelles. On choisit d'après la forme des données et des requêtes ; un ralentissement se mesure et se corrige (index, N+1) avant de changer de base."
+  - key: situation-entretien-nosql
+    format: scenario
+    question: "En entretien : « Qu'apporte Spring Data quand on utilise MongoDB ou Redis ? » Que réponds-tu ?"
+    choices:
+      - {text: "Le même modèle de repository, avec un mapping et des templates propres à chaque base", correct: true}
+      - {text: "Une couche JPA commune, pour écrire du JPQL sur MongoDB comme sur Redis", correct: false}
+      - {text: "Une migration automatique des tables SQL existantes vers des documents", correct: false}
+      - {text: "Un cache Hibernate de second niveau, rangé dans MongoDB ou dans Redis", correct: false}
+    answer: "On retrouve repositories, requêtes dérivées et pagination ; chaque module apporte son mapping (`@Document`, `@RedisHash`) et son template pour ce qui lui est propre. Ce n'est pas JPA : pas de contexte de persistance."

@@ -1,0 +1,242 @@
+notion: tranches
+lesson: |-
+  Démarrer toute l'application pour tester un contrôleur, c'est payer le démarrage de la base, des services et de
+  tout le reste. Une **tranche de test** (*test slice*) ne démarre qu'**une couche** : une liste fixe
+  d'auto-configurations, et un scan des composants **filtré** sur cette couche.
+
+  | Tranche | Ce qu'elle charge | Starter de test (Spring Boot 4) |
+  |---|---|---|
+  | `@WebMvcTest` | contrôleurs, `@ControllerAdvice`, convertisseurs, filtres, Jackson, validation, `MockMvc` | `spring-boot-starter-webmvc-test` |
+  | `@DataJpaTest` | entités, repositories, `EntityManager`, une base en mémoire ; chaque test annulé | `spring-boot-starter-data-jpa-test` |
+  | `@JdbcTest` | la source de données, `JdbcTemplate` et `JdbcClient`, sans JPA | `spring-boot-starter-jdbc-test` |
+  | `@JsonTest` | Jackson et les testeurs JSON (`JacksonTester`) | `spring-boot-starter-jackson-test` |
+  | `@RestClientTest` | `RestClient.Builder` et `MockRestServiceServer`, qui simule l'API appelée | |
+
+  Il en existe d'autres (`@WebFluxTest`, `@DataMongoTest`...). Avec **Spring Boot 4**, chaque tranche vit dans le
+  module de sa technologie (`@WebMvcTest` dans `org.springframework.boot.webmvc.test.autoconfigure`), et l'on
+  ajoute le starter de test de chaque technologie, en portée `test`.
+
+  **Ce qui est hors de la tranche n'existe pas.** Un `@WebMvcTest` ne crée aucun `@Service` : le contrôleur testé
+  reçoit un mock (`@MockitoBean`). On peut aussi ajouter un bean précis avec `@Import`.
+
+  ```java
+  @WebMvcTest(LivreController.class)
+  class LivreControllerTest {
+
+      @Autowired
+      MockMvc mvc;
+
+      @MockitoBean
+      CatalogueService catalogue;       // le service n'est pas dans la tranche
+  }
+  ```
+
+  **Une seule tranche par classe.** Chacune apporte son propre amorçage (`@BootstrapWith`) : `@WebMvcTest` et
+  `@DataJpaTest` sur la même classe échouent avec « Configuration error: found multiple declarations of
+  @BootstrapWith ». Pour plusieurs couches ensemble, c'est `@SpringBootTest`.
+
+  **Le piège de la classe principale.** Toute tranche charge la classe `@SpringBootApplication`, avec les
+  annotations qu'elle porte. Un `@EnableJpaAuditing` posé là s'invite donc dans chaque `@WebMvcTest`, qui n'a pas
+  de JPA, et le fait échouer. Ces annotations vont dans une classe `@Configuration` à part ; de même, un
+  `@ComponentScan` maison sur la classe principale contourne le filtre des tranches.
+
+  **Choisir son test.**
+
+  | Ce qu'on vérifie | Le test |
+  |---|---|
+  | une règle métier, un calcul | test unitaire, sans Spring |
+  | le routage HTTP, le JSON, la validation, les statuts | `@WebMvcTest` |
+  | une requête, un mapping JPA, une contrainte de la base | `@DataJpaTest` (ou `@JdbcTest`) |
+  | l'assemblage complet, un parcours de bout en bout | `@SpringBootTest` |
+
+  Beaucoup de tests unitaires, des tranches pour la colle avec le framework, quelques `@SpringBootTest` : c'est la
+  pyramide des tests d'une application Spring Boot.
+
+  **En entretien** : « Une tranche ne démarre qu'une couche : `@WebMvcTest` le web, `@DataJpaTest` JPA, avec leurs
+  seules auto-configurations. C'est plus rapide et plus ciblé qu'un `@SpringBootTest`, mais ce qui est hors de la
+  tranche doit être remplacé par un mock ou importé. Je garde les annotations de configuration hors de la classe
+  principale, que chaque tranche charge. »
+cards:
+  - key: pourquoi-plus-rapide
+    format: course
+    question: "Pourquoi un test `@WebMvcTest` démarre-t-il plus vite qu'un test `@SpringBootTest` ?"
+    choices:
+      - {text: "Il ne charge que l'auto-configuration et les beans de la couche web", correct: true}
+      - {text: "Il réutilise le contexte de tous les autres tests de la suite", correct: false}
+      - {text: "Il remplace chaque bean de l'application par un mock Mockito", correct: false}
+      - {text: "Il compile les contrôleurs à l'avance, avec le traitement AOT", correct: false}
+    answer: "Ni base, ni services, ni repositories : la tranche n'importe que les auto-configurations du web. Les beans manquants, on les remplace par des mocks."
+  - key: choix-des-auto-configurations
+    format: course
+    question: "Comment une tranche de test choisit-elle les auto-configurations à charger ?"
+    choices:
+      - {text: "Elle importe une liste fixe d'auto-configurations, propre à la tranche", correct: true}
+      - {text: "Elle charge toutes les auto-configurations, puis retire les beans inutiles", correct: false}
+      - {text: "Elle lit la liste à charger dans `application-test.properties`", correct: false}
+      - {text: "Elle n'en charge aucune : le test les déclare une à une avec `@Import`", correct: false}
+    answer: "Chaque tranche déclare la liste de ses auto-configurations (le web pour `@WebMvcTest`, JPA et JDBC pour `@DataJpaTest`). Le reste n'est jamais évalué."
+  - key: starter-de-test-boot-4
+    format: course
+    question: "Avec Spring Boot 4, que faut-il ajouter au build pour écrire des tests `@DataJpaTest` ?"
+    choices:
+      - {text: "Le starter `spring-boot-starter-data-jpa-test`, en portée test", correct: true}
+      - {text: "Rien : `spring-boot-starter-test` contient toutes les tranches", correct: false}
+      - {text: "Le starter `spring-boot-starter-data-jpa`, en portée test", correct: false}
+      - {text: "La seule dépendance `spring-boot-test-autoconfigure`", correct: false}
+    answer: "Spring Boot 4 range chaque tranche dans le module de sa technologie : `spring-boot-starter-webmvc-test` pour `@WebMvcTest`, `spring-boot-starter-data-jpa-test` pour `@DataJpaTest`."
+  - key: scan-filtre
+    format: course
+    question: "Que fait une tranche de test du scan des composants de l'application ?"
+    choices:
+      - {text: "Elle le filtre : seuls les composants de sa couche deviennent des beans", correct: true}
+      - {text: "Elle le désactive : seuls les beans déclarés par le test existent", correct: false}
+      - {text: "Elle le garde entier, puis remplace les autres beans par des mocks", correct: false}
+      - {text: "Elle le limite au seul package de la classe de test", correct: false}
+    answer: "Le scan part bien de la classe principale, mais un filtre écarte ce qui n'est pas de la couche : pour `@WebMvcTest`, les `@Service` et `@Repository` sont ignorés."
+  - key: vf-service-dans-datajpatest
+    format: true-false
+    question: "`@DataJpaTest` crée les beans `@Service` de l'application."
+    truth: false
+    answer: "Il ne crée que la couche JPA : entités, repositories, `EntityManager`. Un service s'ajoute avec `@Import` si le test en a besoin."
+  - key: vf-deux-tranches
+    format: true-false
+    question: "On peut annoter une même classe de test avec `@WebMvcTest` et `@DataJpaTest` pour charger les deux couches."
+    truth: false
+    answer: "Les deux tranches déclarent chacune leur amorçage : Spring refuse avec « Configuration error: found multiple declarations of @BootstrapWith ». Pour plusieurs couches, c'est `@SpringBootTest`."
+  - key: vf-classe-principale-chargee
+    format: true-false
+    question: "Une tranche de test charge la classe `@SpringBootApplication` et les annotations qu'elle porte."
+    truth: true
+    answer: "C'est la configuration de départ de toute tranche. Une annotation comme `@EnableJpaAuditing` posée là s'appliquerait donc à chaque tranche, même sans JPA."
+  - key: vf-import-dans-tranche
+    format: true-false
+    question: "Dans une tranche, `@Import` sur la classe de test ajoute un bean que la tranche ne charge pas."
+    truth: true
+    answer: "`@DataJpaTest` suivi de `@Import(CatalogueService.class)` crée le vrai service, branché sur les vrais repositories de la tranche."
+  - key: qcm-tranche-json
+    format: multiple-choice
+    question: "Quelle tranche choisis-tu pour vérifier qu'un record `Commande` se sérialise en JSON avec les bons noms de champs ?"
+    choices:
+      - {text: "`@JsonTest`", correct: true}
+      - {text: "`@WebMvcTest`", correct: false}
+      - {text: "`@DataJpaTest`", correct: false}
+      - {text: "`@JdbcTest`", correct: false}
+    answer: "`@JsonTest` ne charge que Jackson, configuré comme dans l'application, et des testeurs comme `JacksonTester`. Inutile de passer par un contrôleur."
+  - key: qcm-tranche-jdbc
+    format: multiple-choice
+    question: "Quelle tranche choisis-tu pour tester une requête SQL écrite avec `JdbcClient`, sans démarrer Hibernate ?"
+    choices:
+      - {text: "`@JdbcTest`", correct: true}
+      - {text: "`@DataJpaTest`", correct: false}
+      - {text: "`@JsonTest`", correct: false}
+      - {text: "`@WebMvcTest`", correct: false}
+    answer: "`@JdbcTest` démarre la source de données et les outils JDBC, sans JPA. `@DataJpaTest` fonctionnerait, mais démarre Hibernate pour rien."
+  - key: qcm-prix-tranche
+    format: multiple-choice
+    question: "Quel est le prix d'une tranche, comparée à `@SpringBootTest` ?"
+    choices:
+      - {text: "Ce qui est hors de la tranche doit être remplacé par un mock ou importé", correct: true}
+      - {text: "Elle démarre un serveur HTTP réel, plus long à lancer qu'un contexte", correct: false}
+      - {text: "Elle ne peut pas utiliser l'auto-configuration de Spring Boot", correct: false}
+      - {text: "Elle exige une base de données réelle, démarrée à côté des tests", correct: false}
+    answer: "La tranche est rapide parce qu'elle ignore le reste de l'application. Elle ne prouve donc pas l'assemblage complet : c'est le rôle de quelques `@SpringBootTest`."
+  - key: qcm-pyramide
+    format: multiple-choice
+    question: "Quelle répartition des tests vise-t-on dans une application Spring Boot ?"
+    choices:
+      - {text: "Beaucoup de tests unitaires, des tranches, quelques `@SpringBootTest`", correct: true}
+      - {text: "Beaucoup de `@SpringBootTest`, quelques tranches, peu de tests unitaires", correct: false}
+      - {text: "Uniquement des `@SpringBootTest`, les seuls fidèles à la production", correct: false}
+      - {text: "Uniquement des tests unitaires, puisque Spring est déjà testé", correct: false}
+    answer: "Les tests unitaires sont rapides et précis ; les tranches couvrent la colle avec le framework (HTTP, JSON, SQL) ; quelques tests complets vérifient l'assemblage."
+  - key: situation-choisir-tranche-validation
+    format: scenario
+    question: |-
+      Tu veux vérifier qu'un `POST /api/commandes` au corps invalide reçoit un 400 au format `ProblemDetail`. Quel
+      est le test le plus léger qui le prouve ?
+    choices:
+      - {text: "Un `@WebMvcTest` du contrôleur, avec le service en mock", correct: true}
+      - {text: "Un `@DataJpaTest`, qui vérifie les contraintes de la table", correct: false}
+      - {text: "Un test unitaire qui appelle la méthode du contrôleur avec `new`", correct: false}
+      - {text: "Un `@SpringBootTest` en `RANDOM_PORT`, base comprise", correct: false}
+    answer: |-
+      La validation, la traduction de l'exception et le JSON appartiennent à la couche web : `@WebMvcTest` les
+      charge tous, sans base. Appelée comme une méthode Java, le contrôleur ne serait pas validé ; le test complet
+      marcherait, mais pour un coût inutile.
+  - key: situation-audit-sur-classe-principale
+    format: scenario
+    question: |-
+      Depuis que ta collègue a ajouté `@EnableJpaAuditing` sur la classe `@SpringBootApplication`, tous les tests
+      `@WebMvcTest` échouent au démarrage. Que lui proposes-tu ?
+    choices:
+      - {text: "Déplacer l'annotation dans une classe `@Configuration` dédiée", correct: true}
+      - {text: "Ajouter `@DataJpaTest` à côté de chaque `@WebMvcTest`", correct: false}
+      - {text: "Remplacer tous les `@WebMvcTest` par des `@SpringBootTest`", correct: false}
+      - {text: "Retirer `@SpringBootApplication` et déclarer les beans à la main", correct: false}
+    answer: |-
+      Chaque tranche charge la classe principale et ses annotations : l'audit JPA s'invite dans une tranche web qui
+      n'a pas de JPA. Dans une `@Configuration` à part, le scan filtré des tranches web l'ignore. Ajouter
+      `@DataJpaTest` échouerait : deux tranches ne se combinent pas.
+  - key: situation-repository-requete-native
+    format: scenario
+    question: |-
+      Tu as écrit une requête native complexe dans un repository. Ton collègue propose de la tester dans un
+      `@SpringBootTest`. Que proposes-tu ?
+    choices:
+      - {text: "Un `@DataJpaTest`, qui ne démarre que JPA et annule chaque test", correct: true}
+      - {text: "Un `@WebMvcTest`, qui appelle le repository à travers l'API", correct: false}
+      - {text: "Un test unitaire, avec un mock du repository qui renvoie les lignes", correct: false}
+      - {text: "Un `@JsonTest`, qui vérifie le résultat une fois sérialisé", correct: false}
+    answer: |-
+      La tranche JPA exécute la vraie requête sur une vraie base, sans le reste de l'application. Un mock du
+      repository ne testerait pas la requête du tout. Pour une requête native propre à PostgreSQL, on branche la
+      tranche sur un PostgreSQL de Testcontainers.
+  - key: situation-client-http
+    format: scenario
+    question: |-
+      Ton service appelle une API météo avec `RestClient`. Tu veux tester le décodage de ses réponses, sans réseau.
+      Que choisis-tu ?
+    choices:
+      - {text: "`@RestClientTest`, avec `MockRestServiceServer` qui simule l'API", correct: true}
+      - {text: "`@WebMvcTest`, avec `MockMvc` qui simule l'API météo", correct: false}
+      - {text: "`@SpringBootTest`, branché sur l'API météo réelle", correct: false}
+      - {text: "`@JsonTest`, avec le service remplacé par un mock", correct: false}
+    answer: |-
+      `@RestClientTest` charge le client et `MockRestServiceServer`, qui répond aux requêtes sortantes avec des
+      réponses préparées. `MockMvc` simule les requêtes entrantes, vers tes contrôleurs : l'inverse de ce qu'il faut.
+  - key: definition-tranche
+    format: definition
+    question: "Qu'est-ce qu'une tranche de test (*test slice*) dans Spring Boot ?"
+    choices:
+      - {text: "Un test qui ne démarre qu'une couche de l'application, avec son auto-configuration", correct: true}
+      - {text: "Un test qui démarre toute l'application, découpée en plusieurs threads", correct: false}
+      - {text: "Un sous-ensemble des tests, lancé à part par le plugin Maven", correct: false}
+      - {text: "Un test unitaire d'une seule méthode, sans aucun contexte Spring", correct: false}
+    answer: "`@WebMvcTest`, `@DataJpaTest`, `@JsonTest` sont des tranches : un contexte Spring réduit à une couche, plus rapide qu'un `@SpringBootTest`."
+  - key: definition-jsontest
+    format: definition
+    question: "Qu'est-ce que `@JsonTest` ?"
+    choices:
+      - {text: "Une tranche qui ne charge que Jackson et les testeurs JSON", correct: true}
+      - {text: "Une tranche qui charge les contrôleurs et vérifie leur JSON", correct: false}
+      - {text: "Une annotation qui valide un fichier JSON contre un schéma", correct: false}
+      - {text: "Une tranche qui charge les repositories et leurs documents", correct: false}
+    answer: "Elle vérifie la sérialisation et la désérialisation avec le Jackson de l'application, ses modules et ses réglages, sans couche web."
+  - key: definition-jdbctest
+    format: definition
+    question: "Qu'est-ce que `@JdbcTest` ?"
+    choices:
+      - {text: "Une tranche qui charge la source de données et les outils JDBC, sans JPA", correct: true}
+      - {text: "Une tranche qui charge JPA, Hibernate et les repositories Spring Data", correct: false}
+      - {text: "Un test qui joue les migrations Flyway sans démarrer Spring", correct: false}
+      - {text: "Un pilote JDBC factice, qui ne se connecte à aucune base", correct: false}
+    answer: "Elle donne `JdbcTemplate` et `JdbcClient` sur une base en mémoire, chaque test étant annulé, comme `@DataJpaTest` mais sans Hibernate."
+  - key: definition-autoconfiguremockmvc
+    format: definition
+    question: "Qu'est-ce que `@AutoConfigureMockMvc` ?"
+    choices:
+      - {text: "Une annotation qui ajoute un `MockMvc` prêt à l'emploi au contexte du test", correct: true}
+      - {text: "Une tranche qui ne charge que les contrôleurs et leur `MockMvc`", correct: false}
+      - {text: "Une annotation qui remplace chaque contrôleur par un mock", correct: false}
+      - {text: "Une option qui démarre Tomcat sur un port libre", correct: false}
+    answer: "On l'ajoute surtout à un `@SpringBootTest`, pour appeler toute l'application avec `MockMvc`. `@WebMvcTest` la porte déjà."

@@ -1,0 +1,323 @@
+notion: jwt-resource-server
+lesson: |-
+  Dans une architecture OAuth 2, l'API est un **resource server** : elle ne connaît pas les mots de passe. Un **serveur
+  d'autorisation** (Keycloak, Auth0, Entra ID...) authentifie l'utilisateur et émet un **jeton d'accès**, souvent un
+  **JWT**. Le client l'envoie à chaque requête, et l'API le vérifie.
+
+  ```
+  GET /api/commandes
+  Authorization: Bearer eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJhZGEiLCJzY29wZSI6ImNvbW1hbmRlczpsaXJlIn0.signature
+  ```
+
+  **Un JWT** a trois parties en Base64URL : l'en-tête (l'algorithme), le **payload** (les *claims* : `sub`, `iss`,
+  `aud`, `exp`, `scope`...) et la **signature**. Il est **signé, pas chiffré** : n'importe qui lit son contenu, personne
+  ne peut le modifier sans casser la signature. On n'y met donc aucune donnée sensible.
+
+  **Avec Spring Boot**, le starter OAuth2 Resource Server et une propriété suffisent :
+
+  ```properties
+  spring.security.oauth2.resourceserver.jwt.issuer-uri=https://auth.exemple.fr/realms/boutique
+  spring.security.oauth2.resourceserver.jwt.audiences=api-boutique
+  ```
+
+  Au démarrage, Spring lit la configuration publiée par l'émetteur (`/.well-known/openid-configuration`), y trouve
+  l'adresse de ses **clés publiques** (JWKS), puis vérifie chaque jeton : **signature**, expiration (`exp`), date de
+  début (`nbf`), émetteur (`iss`) et, si on le demande, audience (`aud`).
+
+  ```java
+  @Bean
+  SecurityFilterChain api(HttpSecurity http) throws Exception {
+      http
+          .authorizeHttpRequests(auth -> auth
+              .requestMatchers(HttpMethod.GET, "/api/commandes/**").hasAuthority("SCOPE_commandes:lire")
+              .anyRequest().authenticated())
+          .oauth2ResourceServer(oauth2 -> oauth2.jwt(Customizer.withDefaults()))
+          .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+          .csrf(csrf -> csrf.disable());
+      return http.build();
+  }
+  ```
+
+  Le `BearerTokenAuthenticationFilter` lit l'en-tête `Authorization: Bearer ...`. Un jeton absent, expiré ou invalide
+  reçoit **401**, avec un en-tête `WWW-Authenticate: Bearer error="invalid_token", ...`.
+
+  **Les autorités.** Par défaut, chaque valeur du claim `scope` (ou `scp`) devient une autorité **`SCOPE_`** :
+  `commandes:lire` donne `SCOPE_commandes:lire`, à vérifier avec `hasAuthority`. Des rôles rangés dans un autre claim
+  demandent un **`JwtAuthenticationConverter`**, avec un `JwtGrantedAuthoritiesConverter` réglé sur ce claim et sur le
+  préfixe `ROLE_` (ou un convertisseur maison, pour un claim imbriqué comme `realm_access.roles` de Keycloak).
+
+  **Lire le jeton** dans un contrôleur : `@AuthenticationPrincipal Jwt jwt`, puis `jwt.getSubject()` ou
+  `jwt.getClaimAsString("email")`.
+
+  **Les limites.** Un JWT reste valide jusqu'à son expiration : on le veut **court** (quelques minutes), renouvelé par
+  un jeton de rafraîchissement. Pour une révocation immédiate, il faut des jetons opaques vérifiés par introspection,
+  ou une liste de révocation.
+
+  **En entretien** : « L'API est un resource server : elle valide le JWT reçu dans `Authorization: Bearer`, par la
+  signature et les clés publiques de l'émetteur trouvées grâce à `issuer-uri`, plus `exp`, `iss` et `aud`. Les scopes
+  deviennent des autorités `SCOPE_`, et un `JwtAuthenticationConverter` traduit des rôles. L'API est sans état, avec
+  des jetons courts. »
+cards:
+  - key: role-de-issuer-uri
+    format: course
+    question: "À quoi sert la propriété `spring.security.oauth2.resourceserver.jwt.issuer-uri` ?"
+    choices:
+      - {text: "À trouver les clés publiques de l'émetteur, et à vérifier le `iss` des jetons", correct: true}
+      - {text: "À rediriger l'utilisateur vers la page de connexion de l'émetteur", correct: false}
+      - {text: "À signer les jetons que l'application émet elle-même", correct: false}
+      - {text: "À chiffrer les jetons avant de les renvoyer au client", correct: false}
+    answer: "Spring lit la configuration OpenID publiée par l'émetteur, y trouve l'adresse des clés (JWKS) et vérifie que chaque jeton vient bien de lui."
+  - key: autorite-tiree-du-scope
+    format: course
+    question: "Quelle autorité Spring Security tire-t-il par défaut d'un JWT dont le claim `scope` vaut `commandes:lire` ?"
+    choices:
+      - {text: "`SCOPE_commandes:lire`", correct: true}
+      - {text: "`ROLE_commandes:lire`", correct: false}
+      - {text: "`commandes:lire`", correct: false}
+      - {text: "`AUTHORITY_commandes:lire`", correct: false}
+    answer: "Chaque scope devient une autorité préfixée `SCOPE_`. On la vérifie avec `hasAuthority(\"SCOPE_commandes:lire\")`, pas avec `hasRole`."
+  - key: envoi-du-jeton
+    format: course
+    question: "Comment le client envoie-t-il le JWT à un resource server ?"
+    choices:
+      - {text: "Dans l'en-tête `Authorization: Bearer <jeton>`", correct: true}
+      - {text: "Dans un paramètre d'URL `?token=<jeton>`", correct: false}
+      - {text: "Dans le corps JSON de chaque requête", correct: false}
+      - {text: "Dans l'en-tête `Cookie: JSESSIONID=<jeton>`", correct: false}
+    answer: "C'est le schéma « Bearer » (RFC 6750). Un jeton dans l'URL finirait dans les journaux et l'historique du navigateur."
+  - key: garantie-de-la-signature
+    format: course
+    question: "Qu'est-ce qui garantit qu'un JWT n'a pas été modifié ?"
+    choices:
+      - {text: "Sa signature, vérifiée avec la clé publique de l'émetteur", correct: true}
+      - {text: "Son encodage en Base64, qui empêche toute modification", correct: false}
+      - {text: "Son claim `exp`, qui fixe sa date d'expiration", correct: false}
+      - {text: "Le HTTPS, qui chiffre le jeton pendant le transport", correct: false}
+    answer: "Changer un seul caractère du payload invalide la signature, et seul l'émetteur détient la clé privée. Base64 n'est qu'un encodage."
+  - key: vf-payload-lisible
+    format: true-false
+    question: "Le payload d'un JWT signé se lit sans clé : il n'est qu'encodé en Base64URL."
+    truth: true
+    answer: "La signature protège l'intégrité, pas la confidentialité. Aucune donnée sensible dans un JWT signé."
+  - key: vf-jeton-expire
+    format: true-false
+    question: "Un JWT expiré reçoit 401 Unauthorized de la part du resource server."
+    truth: true
+    answer: "Le décodeur refuse un jeton dont `exp` est passé (avec une petite tolérance d'horloge) ; la réponse 401 porte `WWW-Authenticate: Bearer error=\"invalid_token\"`."
+  - key: vf-besoin-de-session
+    format: true-false
+    question: "Un resource server JWT a besoin d'une session HTTP pour retrouver l'utilisateur d'une requête à l'autre."
+    truth: false
+    answer: "Chaque requête porte son jeton, qui suffit à authentifier : l'API reste sans état, et n'importe quelle instance peut répondre."
+  - key: vf-revocation-facile
+    format: true-false
+    question: "Un JWT déjà émis se révoque facilement avant son expiration, sans infrastructure supplémentaire."
+    truth: false
+    answer: "Le resource server le valide seul, sans demander à l'émetteur. Pour révoquer, il faut des jetons courts, une liste de révocation, ou des jetons opaques vérifiés par introspection."
+  - key: qcm-activer-le-resource-server
+    format: multiple-choice
+    question: "Quelle configuration fait de l'application un resource server qui accepte des JWT ?"
+    choices:
+      - {text: "`http.oauth2ResourceServer(oauth2 -> oauth2.jwt(Customizer.withDefaults()))`", correct: true}
+      - {text: "`http.oauth2Login(Customizer.withDefaults())`", correct: false}
+      - {text: "`http.jwt(jwt -> jwt.issuer(Customizer.withDefaults()))`", correct: false}
+      - {text: "`http.httpBasic(basic -> basic.bearer(Customizer.withDefaults()))`", correct: false}
+    answer: "`oauth2ResourceServer` ajoute le filtre qui lit le jeton `Bearer` ; `jwt(...)` choisit la validation locale des JWT. `oauth2Login` connecte des utilisateurs, c'est un client."
+  - key: qcm-roles-dans-un-claim
+    format: multiple-choice
+    question: "En Java, quel composant transforme le claim `roles` d'un JWT en autorités `ROLE_...` ?"
+    choices:
+      - {text: "`JwtAuthenticationConverter`", correct: true}
+      - {text: "`JwtDecoder`", correct: false}
+      - {text: "`BearerTokenResolver`", correct: false}
+      - {text: "`AuthenticationEntryPoint`", correct: false}
+    answer: "Il convertit le `Jwt` validé en `Authentication`, avec un `JwtGrantedAuthoritiesConverter` qui choisit le claim et le préfixe. Le `JwtDecoder` valide ; le `BearerTokenResolver` extrait le jeton de la requête."
+  - key: qcm-lire-le-sub
+    format: multiple-choice
+    question: "Comment lis-tu le `sub` du JWT dans une méthode de contrôleur ?"
+    choices:
+      - {text: "`@AuthenticationPrincipal Jwt jwt`, puis `jwt.getSubject()`", correct: true}
+      - {text: "`@RequestHeader(\"sub\") String sub`, lu dans les en-têtes", correct: false}
+      - {text: "`@RequestParam(\"sub\") String sub`, lu dans l'URL", correct: false}
+      - {text: "`@PathVariable(\"sub\") String sub`, lu dans le chemin", correct: false}
+    answer: "Le principal d'un resource server est le `Jwt` validé ; ses claims se lisent par `getSubject()`, `getClaimAsString(...)`. Le `sub` n'est pas un en-tête de la requête."
+  - key: qcm-audience
+    format: multiple-choice
+    question: "Un JWT valide, émis pour une autre application du même fournisseur, est accepté par ton API. Que manque-t-il ?"
+    choices:
+      - {text: "La vérification de l'audience (`aud`) du jeton", correct: true}
+      - {text: "La vérification de la signature du jeton", correct: false}
+      - {text: "La vérification du format Base64 du jeton", correct: false}
+      - {text: "La vérification de la longueur du jeton", correct: false}
+    answer: "Le jeton est authentique, mais pas destiné à ton API. `spring.security.oauth2.resourceserver.jwt.audiences` fait refuser les jetons d'une autre audience."
+  - key: trous-oauth2resourceserver
+    format: fill-in
+    question: |-
+      Complète pour accepter des JWT dans la chaîne de sécurité :
+      ```java
+      http.___(oauth2 -> oauth2.jwt(Customizer.withDefaults()));
+      ```
+    blanks:
+      - [oauth2ResourceServer]
+    answer: "`oauth2ResourceServer` ajoute le `BearerTokenAuthenticationFilter`."
+  - key: trous-issuer-uri
+    format: fill-in
+    question: |-
+      Complète la propriété qui désigne l'émetteur des jetons :
+      ```properties
+      spring.security.oauth2.resourceserver.jwt.___=https://auth.exemple.fr/realms/boutique
+      ```
+    blanks:
+      - [issuer-uri]
+    answer: "`issuer-uri` : Spring y découvre les clés publiques et vérifie le claim `iss`."
+  - key: trous-bearer
+    format: fill-in
+    question: |-
+      Complète l'en-tête de la requête :
+      ```
+      Authorization: ___ eyJhbGciOiJSUzI1NiJ9...
+      ```
+    blanks:
+      - [Bearer]
+    answer: "Le schéma `Bearer` : quiconque porte le jeton est authentifié par lui."
+  - key: trous-hasauthority-scope
+    format: fill-in
+    question: |-
+      Complète pour exiger le scope `commandes:ecrire` :
+      ```java
+      .requestMatchers(HttpMethod.POST, "/api/commandes").___("SCOPE_commandes:ecrire")
+      ```
+    blanks:
+      - [hasAuthority]
+    answer: "`hasAuthority` compare l'autorité exacte ; `hasRole` ajouterait `ROLE_`."
+  - key: bug-hasrole-sur-un-scope
+    format: bug-fix
+    question: |-
+      Les jetons des administrateurs portent le scope `admin`, et ils reçoivent 403 sur `/api/admin/**`. Quelle
+      correction est la bonne ?
+      ```java
+      .requestMatchers("/api/admin/**").hasRole("admin")
+      ```
+    choices:
+      - {text: "Écrire `.hasAuthority(\"SCOPE_admin\")`", correct: true}
+      - {text: "Écrire `.hasRole(\"ADMIN\")`", correct: false}
+      - {text: "Écrire `.hasAuthority(\"admin\")`", correct: false}
+      - {text: "Écrire `.hasRole(\"SCOPE_admin\")`", correct: false}
+    answer: |-
+      ```java
+      .requestMatchers("/api/admin/**").hasAuthority("SCOPE_admin")
+      ```
+      Le scope devient l'autorité `SCOPE_admin` ; `hasRole("admin")` cherche `ROLE_admin`. `hasRole("SCOPE_admin")`
+      chercherait `ROLE_SCOPE_admin`.
+  - key: bug-bearer-oublie
+    format: bug-fix
+    question: |-
+      Ce service appelle l'API des commandes et reçoit toujours 401, alors que le jeton est valide. Quelle correction
+      est la bonne ?
+      ```java
+      List<Commande> commandes = client.get()
+              .uri("/api/commandes")
+              .header("Authorization", jeton)
+              .retrieve()
+              .body(new ParameterizedTypeReference<List<Commande>>() {});
+      ```
+    choices:
+      - {text: "Envoyer `\"Bearer \" + jeton` dans l'en-tête `Authorization`", correct: true}
+      - {text: "Envoyer le jeton dans un en-tête `X-Token` à la place", correct: false}
+      - {text: "Envoyer le jeton dans le paramètre d'URL `?access_token=`", correct: false}
+      - {text: "Encoder le jeton en Base64 une seconde fois", correct: false}
+    answer: |-
+      ```java
+      .header("Authorization", "Bearer " + jeton)          // ou .headers(h -> h.setBearerAuth(jeton))
+      ```
+      Le resource server ne lit que le schéma `Bearer` : sans lui, il ne trouve aucun jeton, et la requête est
+      anonyme.
+  - key: bug-emetteur-different
+    format: bug-fix
+    question: |-
+      En local, sous Docker Compose, chaque requête reçoit 401 : le claim `iss` du jeton n'est pas valide. Les jetons
+      sont demandés par le navigateur sur `http://localhost:8180/realms/boutique`. Quelle correction est la bonne ?
+      ```properties
+      spring.security.oauth2.resourceserver.jwt.issuer-uri=http://keycloak:8080/realms/boutique
+      ```
+    choices:
+      - {text: "Faire concorder `issuer-uri` avec le `iss` écrit dans les jetons", correct: true}
+      - {text: "Désactiver la vérification de la signature des jetons", correct: false}
+      - {text: "Allonger la durée de vie des jetons dans Keycloak", correct: false}
+      - {text: "Remplacer `issuer-uri` par `audiences` dans la configuration", correct: false}
+    answer: |-
+      Le jeton annonce l'émetteur `http://localhost:8180/...`, l'API en attend un autre : la vérification de `iss`
+      échoue. On donne à Keycloak une seule adresse publique, vue pareil du navigateur et de l'API ; ou l'on garde
+      `jwk-set-uri` pour les clés et l'on valide `iss` contre l'adresse publique.
+  - key: bug-roles-keycloak
+    format: bug-fix
+    question: |-
+      Les jetons Keycloak rangent les rôles dans `realm_access.roles`. Malgré le rôle `ADMIN`, la règle répond 403 :
+      l'utilisateur n'a que des autorités `SCOPE_...`. Quelle correction est la bonne ?
+      ```java
+      .requestMatchers("/api/admin/**").hasRole("ADMIN")
+      ...
+      .oauth2ResourceServer(oauth2 -> oauth2.jwt(Customizer.withDefaults()))
+      ```
+    choices:
+      - {text: "Un `JwtAuthenticationConverter` qui lit `realm_access.roles` et préfixe `ROLE_`", correct: true}
+      - {text: "La règle `.hasAuthority(\"realm_access.roles\")` à la place de `hasRole`", correct: false}
+      - {text: "Un `PasswordEncoder` déclaré dans la configuration de sécurité", correct: false}
+      - {text: "La règle `.hasRole(\"SCOPE_ADMIN\")` à la place de `hasRole`", correct: false}
+    answer: |-
+      ```java
+      .oauth2ResourceServer(oauth2 -> oauth2.jwt(jwt -> jwt.jwtAuthenticationConverter(convertisseurKeycloak())))
+      ```
+      Par défaut, seuls les scopes deviennent des autorités. Un convertisseur lit le claim imbriqué et crée
+      `ROLE_ADMIN`, que `hasRole("ADMIN")` reconnaît.
+  - key: situation-session-par-requete
+    format: scenario
+    question: |-
+      Ton resource server crée une session HTTP à chaque requête, et sa mémoire grimpe. Que configures-tu ?
+    choices:
+      - {text: "`SessionCreationPolicy.STATELESS` : le jeton suffit à chaque requête", correct: true}
+      - {text: "Une durée de session ramenée à dix secondes, pour libérer la mémoire", correct: false}
+      - {text: "Un stockage des sessions dans Redis, partagé par les instances", correct: false}
+      - {text: "Un ramasse-miettes plus agressif, réglé dans les options de la JVM", correct: false}
+    answer: |-
+      Une API à jetons n'a rien à garder entre deux requêtes. `STATELESS` empêche Spring Security de créer ou
+      d'utiliser une session ; partager des sessions inutiles dans Redis ne ferait que déplacer le problème.
+  - key: situation-jeton-de-trente-jours
+    format: scenario
+    question: |-
+      Les jetons d'accès durent 30 jours, pour ne pas reconnecter les utilisateurs. Qu'en dis-tu ?
+    choices:
+      - {text: "Trop long : un jeton volé reste valide ; un jeton court, renouvelé", correct: true}
+      - {text: "Très bien : un jeton long évite des appels au serveur", correct: false}
+      - {text: "Trop court : il faudrait des jetons sans expiration", correct: false}
+      - {text: "Sans importance : un JWT ne peut pas être volé", correct: false}
+    answer: |-
+      Un jeton d'accès se révoque mal : sa durée borne celle d'un vol. On le garde court (quelques minutes) et l'on
+      confie la durée de la connexion au jeton de rafraîchissement, que le serveur d'autorisation peut révoquer.
+  - key: situation-carte-bancaire-dans-le-jwt
+    format: scenario
+    question: |-
+      Un collègue ajoute le numéro de carte bancaire du client dans les claims du JWT, « pour éviter un appel ». Que
+      lui dis-tu ?
+    choices:
+      - {text: "Le payload se lit sans clé : aucune donnée sensible dans un JWT signé", correct: true}
+      - {text: "C'est sûr : la signature empêche de lire le contenu", correct: false}
+      - {text: "C'est sûr, à condition d'encoder le numéro en Base64", correct: false}
+      - {text: "C'est sûr tant que le jeton expire dans l'heure", correct: false}
+    answer: |-
+      N'importe qui décode un JWT (jwt.io le fait). La signature garantit l'intégrité, pas le secret. Le numéro reste
+      sur le serveur ; un JWE chiffré existe, mais ce n'est pas le besoin ici.
+  - key: situation-coupure-immediate
+    format: scenario
+    question: |-
+      Un employé licencié garde un jeton valide encore 10 minutes. Le métier veut une coupure immédiate. Que
+      proposes-tu ?
+    choices:
+      - {text: "Des jetons opaques vérifiés par introspection, ou une liste de révocation", correct: true}
+      - {text: "Changer la clé de signature à chaque départ d'un employé", correct: false}
+      - {text: "Supprimer le compte : ses jetons deviennent aussitôt invalides", correct: false}
+      - {text: "Rien n'est possible : il faut attendre l'expiration", correct: false}
+    answer: |-
+      Un JWT validé localement reste bon jusqu'à `exp`, même si le compte disparaît. L'introspection (le serveur
+      d'autorisation dit si le jeton vit encore) ou une liste de jetons révoqués donnent la coupure, au prix d'un
+      appel ou d'un état partagé.

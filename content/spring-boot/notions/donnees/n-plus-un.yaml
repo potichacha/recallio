@@ -1,0 +1,325 @@
+notion: n-plus-un
+lesson: |-
+  Le **problème N+1** : une requête charge N entités, puis **une requête de plus par entité** charge une relation.
+
+  ```java
+  @Transactional(readOnly = true)
+  public int totalDesLignes() {
+      return commandes.findAll().stream()          // 1 requête : les commandes
+              .mapToInt(c -> c.getLignes().size()) // + 1 requête par commande
+              .sum();
+  }
+  ```
+
+  Avec 5 commandes : 6 requêtes. Avec 10 000 : 10 001. Aucune erreur, seulement une page qui ralentit à mesure que
+  les données grossissent. Le N+1 vient aussi des relations `EAGER` : `lignes.findAll()`, quand `Ligne.commande` est
+  un `@ManyToOne` immédiat, lit les lignes, puis chaque commande à part.
+
+  **Le voir.** `spring.jpa.show-sql=true` (ou `logging.level.org.hibernate.SQL=debug`) affiche chaque requête. Les
+  statistiques d'Hibernate (`hibernate.generate_statistics`) les comptent, ce qu'un test peut vérifier.
+
+  **Les remèdes.**
+
+  | Remède | Requêtes | Où |
+  |---|---|---|
+  | `join fetch` | 1 | `@Query("select c from Commande c join fetch c.lignes")` |
+  | `@EntityGraph` | 1 | `@EntityGraph(attributePaths = "lignes")` sur une méthode du repository |
+  | chargement par lots | 1 + N/taille du lot | `spring.jpa.properties.hibernate.default_batch_fetch_size=50` |
+  | projection DTO | 1 | une requête qui ne lit que les colonnes utiles |
+
+  - Le **`join fetch`** charge la relation dans la même requête. Depuis Hibernate 6, les doublons du parent sont
+    retirés d'eux-mêmes : plus besoin de `distinct`.
+  - **`@EntityGraph`** fait la même chose sur une requête dérivée ou une `@Query`, sans écrire la jointure.
+  - Le **chargement par lots** garde les relations paresseuses, mais charge celles de plusieurs parents à la fois :
+    `where commande_id in (?, ?, ...)`. C'est un bon réglage global, qui transforme N requêtes en quelques-unes.
+
+  **Deux listes à la fois.** Un `join fetch` sur deux collections de type `List` dans la même requête échoue :
+  `MultipleBagFetchException: cannot simultaneously fetch multiple bags`. Le produit cartésien rendrait les listes
+  fausses. On charge l'une, puis l'autre (deux requêtes), ou l'on fait de l'une un `Set`.
+
+  **Avec une pagination**, préfère `@EntityGraph` ou deux requêtes (les identifiants de la page, puis leurs
+  relations), et regarde le SQL produit.
+
+  **En entretien** : « Le N+1, c'est une requête pour la liste, puis une par élément pour sa relation, à cause du
+  chargement paresseux ou d'un `EAGER`. Je le repère dans les logs SQL ou par un test qui compte les requêtes. Je le
+  corrige par un `join fetch` ou un `@EntityGraph` quand le cas d'usage a besoin de la relation, et je règle
+  `default_batch_fetch_size` pour limiter les autres. »
+cards:
+  - key: definition
+    format: course
+    question: "Qu'est-ce que le problème N+1 ?"
+    choices:
+      - {text: "Une requête pour N entités, puis une requête de plus par entité pour sa relation", correct: true}
+      - {text: "Une requête qui renvoie une ligne de trop à cause d'une jointure mal écrite", correct: false}
+      - {text: "N transactions ouvertes pour une seule requête HTTP, plus celle du contrôleur", correct: false}
+      - {text: "Une boucle qui appelle `save` N fois au lieu d'un seul appel à `saveAll`", correct: false}
+    answer: "Chaque accès à une relation non chargée déclenche sa propre requête. Le coût grandit avec les données, sans aucune erreur visible."
+  - key: eager-cause
+    format: course
+    question: "`Ligne.commande` est un `@ManyToOne` sans précision. Que provoque `ligneRepository.findAll()` sur 10 lignes de 5 commandes ?"
+    choices:
+      - {text: "Une requête pour les lignes, puis une par commande : 6 requêtes", correct: true}
+      - {text: "Une seule requête, avec une jointure sur la table des commandes", correct: false}
+      - {text: "Une requête pour les lignes, puis une par ligne : 11 requêtes", correct: false}
+      - {text: "Une seule requête : la commande n'est lue qu'au premier accès", correct: false}
+    answer: "Un `@ManyToOne` est `EAGER` par défaut. Pour une requête de liste, Hibernate lit d'abord les lignes, puis charge chaque commande distincte à part. `EAGER` n'évite pas le N+1, il le rend systématique."
+  - key: join-fetch-doublons
+    format: course
+    question: "Avec Hibernate 7, combien d'objets renvoie `select c from Commande c join fetch c.lignes` pour 5 commandes de 2 lignes chacune ?"
+    choices:
+      - {text: "5 commandes, chacune avec ses 2 lignes", correct: true}
+      - {text: "10 commandes : une par ligne de résultat SQL", correct: false}
+      - {text: "10 commandes, sauf si l'on ajoute `distinct`", correct: false}
+      - {text: "5 commandes, chacune avec une seule ligne", correct: false}
+    answer: "Le SQL renvoie 10 lignes, mais depuis Hibernate 6, les entités parentes en double sont retirées d'elles-mêmes. Avant, il fallait `select distinct`."
+  - key: batch-fetch
+    format: course
+    question: "Que fait `spring.jpa.properties.hibernate.default_batch_fetch_size=50` ?"
+    choices:
+      - {text: "Il charge les relations paresseuses de 50 parents par une seule requête `in (...)`", correct: true}
+      - {text: "Il limite à 50 le nombre d'entités renvoyées par chaque requête du repository", correct: false}
+      - {text: "Il envoie les INSERT par paquets de 50 pour accélérer les `saveAll`", correct: false}
+      - {text: "Il garde 50 entités de chaque type dans le cache de second niveau", correct: false}
+    answer: "Les relations restent paresseuses, mais au premier accès, Hibernate charge aussi celles des autres entités déjà en mémoire : 1 + N requêtes deviennent 1 + N/50. Les INSERT par lots relèvent d'un autre réglage, `hibernate.jdbc.batch_size`."
+  - key: vf-distinct-inutile
+    format: true-false
+    question: "Avec Hibernate 6 et plus, un `join fetch` sur une collection ne renvoie plus de doublons de l'entité parente."
+    truth: true
+    answer: "Hibernate retire lui-même les doublons du parent. Le mot-clé `distinct` reste permis, mais n'est plus nécessaire pour cela."
+  - key: vf-eager-solution
+    format: true-false
+    question: "Passer un `@OneToMany` en `FetchType.EAGER` supprime le problème N+1 d'un `findAll`."
+    truth: false
+    answer: "`EAGER` dit quand charger, pas comment : pour une liste, Hibernate charge souvent chaque relation par une requête à part. Le N+1 reste, et touche désormais toutes les lectures."
+  - key: vf-sans-erreur
+    format: true-false
+    question: "Le problème N+1 ne lève aucune exception."
+    truth: true
+    answer: "Le résultat est juste, seulement lent. On le voit dans les logs SQL, les statistiques d'Hibernate, ou un test qui compte les requêtes."
+  - key: vf-batch-paresseux
+    format: true-false
+    question: "Avec `default_batch_fetch_size`, les relations restent paresseuses."
+    truth: true
+    answer: "Rien n'est chargé tant qu'on n'y accède pas. Au premier accès, Hibernate charge la relation de plusieurs entités à la fois."
+  - key: qcm-compter
+    format: multiple-choice
+    question: "Dans une transaction, `commandes.findAll()` renvoie 100 commandes, puis tu appelles `getLignes().size()` sur chacune. Combien de requêtes partent ?"
+    choices:
+      - {text: "101", correct: true}
+      - {text: "1", correct: false}
+      - {text: "2", correct: false}
+      - {text: "200", correct: false}
+    answer: "Une pour les commandes, puis une par collection de lignes. Un `join fetch` ou un `@EntityGraph` en ferait une seule ; un chargement par lots de 50, trois."
+  - key: qcm-multiple-bag
+    format: multiple-choice
+    question: "Quelle exception lève une requête qui fait `join fetch` sur deux collections `List` de la même entité ?"
+    choices:
+      - {text: "`MultipleBagFetchException`", correct: true}
+      - {text: "`LazyInitializationException`", correct: false}
+      - {text: "`NonUniqueResultException`", correct: false}
+      - {text: "`QueryTimeoutException`", correct: false}
+    answer: "« cannot simultaneously fetch multiple bags ». Une `List` sans index est un « bag » pour Hibernate, et deux bags dans un produit cartésien donneraient des doublons impossibles à démêler."
+  - key: qcm-une-requete
+    format: multiple-choice
+    question: "Quelle méthode de repository charge toutes les commandes avec leurs lignes en une seule requête ?"
+    choices:
+      - {text: "`@Query(\"select c from Commande c join fetch c.lignes\") List<Commande> toutes();`", correct: true}
+      - {text: "`@Query(\"select c from Commande c join c.lignes\") List<Commande> toutes();`", correct: false}
+      - {text: "`@Query(\"select c from Commande c\") List<Commande> toutes();`", correct: false}
+      - {text: "`@Query(\"select c from Commande c where c.lignes is not empty\") List<Commande> toutes();`", correct: false}
+    answer: "`join fetch` remplit la collection avec la jointure. Un simple `join` filtre ou trie sur les lignes, mais ne les charge pas : leur lecture déclencherait toujours une requête par commande."
+  - key: qcm-voir-requetes
+    format: multiple-choice
+    question: "Quelle propriété affiche dans la console chaque requête SQL envoyée par Hibernate ?"
+    choices:
+      - {text: "`spring.jpa.show-sql=true`", correct: true}
+      - {text: "`spring.jpa.open-in-view=true`", correct: false}
+      - {text: "`spring.sql.init.mode=always`", correct: false}
+      - {text: "`spring.jpa.defer-datasource-initialization=true`", correct: false}
+    answer: "`show-sql` écrit chaque requête sur la sortie standard. Pour passer par le système de journalisation : `logging.level.org.hibernate.SQL=debug`."
+  - key: trous-join-fetch
+    format: fill-in
+    question: |-
+      Complète pour charger les lignes dans la même requête :
+      ```java
+      @Query("select c from Commande c join ___ c.lignes")
+      List<Commande> toutesAvecLignes();
+      ```
+    blanks:
+      - [fetch]
+    answer: "`join fetch` charge la collection avec la jointure : une seule requête."
+  - key: trous-entity-graph
+    format: fill-in
+    question: |-
+      Complète pour charger les lignes avec les commandes, sans écrire de jointure :
+      ```java
+      @___(attributePaths = "lignes")
+      List<Commande> findByStatut(Statut statut);
+      ```
+    blanks:
+      - [EntityGraph]
+    answer: "`@EntityGraph` ajoute le chargement des attributs nommés à la requête dérivée."
+  - key: trous-batch
+    format: fill-in
+    question: |-
+      Complète pour charger les relations paresseuses par lots de 50 :
+      ```properties
+      spring.jpa.properties.hibernate.___=50
+      ```
+    blanks:
+      - [default_batch_fetch_size]
+    answer: "`default_batch_fetch_size` s'applique à toutes les relations paresseuses ; `@BatchSize` le fait pour une seule."
+  - key: trous-show-sql
+    format: fill-in
+    question: |-
+      Complète pour voir les requêtes envoyées par Hibernate :
+      ```properties
+      spring.jpa.___=true
+      ```
+    blanks:
+      - [show-sql]
+    answer: "`spring.jpa.show-sql=true` affiche chaque requête : un N+1 se voit tout de suite."
+  - key: bug-boucle-findall
+    format: bug-fix
+    question: |-
+      Le récapitulatif envoie 1 001 requêtes pour 1 000 commandes : une pour les commandes, puis une par commande pour
+      ses lignes. Quelle correction est la bonne ?
+      ```java
+      @Transactional(readOnly = true)
+      public List<RecapDto> recapitulatif() {
+          return commandes.findAll().stream()
+                  .map(c -> new RecapDto(c.getId(), c.getLignes().size()))
+                  .toList();
+      }
+      ```
+    choices:
+      - {text: "Charger les commandes par une `@Query` avec `join fetch c.lignes`", correct: true}
+      - {text: "Passer le `@OneToMany` des lignes en `fetch = FetchType.EAGER`", correct: false}
+      - {text: "Retirer `readOnly = true` de l'annotation `@Transactional`", correct: false}
+      - {text: "Remplacer `findAll()` par `findAll(Sort.by(\"id\"))`", correct: false}
+    answer: |-
+      ```java
+      @Query("select c from Commande c join fetch c.lignes")
+      List<Commande> toutesAvecLignes();
+      ```
+      Chaque `getLignes()` déclenche sa requête. Le `join fetch` charge tout en une fois. Si seul le nombre de lignes
+      compte, une requête `select c.id, count(l) from Commande c left join c.lignes l group by c.id` est plus légère
+      encore. `EAGER` garderait une requête par commande.
+  - key: bug-many-to-one-eager
+    format: bug-fix
+    question: |-
+      `lignes.findAll()` envoie une requête sur la table `ligne`, puis une requête par commande distincte, alors que
+      l'export n'utilise jamais la commande. Quelle correction est la bonne ?
+      ```java
+      @Entity
+      public class Ligne {
+          @Id @GeneratedValue private Long id;
+          @ManyToOne
+          private Commande commande;
+          private int quantite;
+      }
+      ```
+    choices:
+      - {text: "Écrire `@ManyToOne(fetch = FetchType.LAZY)`", correct: true}
+      - {text: "Écrire `@ManyToOne(cascade = CascadeType.ALL)`", correct: false}
+      - {text: "Écrire `@ManyToOne(optional = true)`", correct: false}
+      - {text: "Ajouter `@JoinColumn(name = \"commande_id\")`", correct: false}
+    answer: |-
+      ```java
+      @ManyToOne(fetch = FetchType.LAZY)
+      private Commande commande;
+      ```
+      Un `@ManyToOne` est `EAGER` par défaut : chaque liste de lignes charge aussi les commandes, une à une. En `LAZY`,
+      la commande n'est lue que si l'on y accède ; quand un cas d'usage en a besoin, il la charge par un `join fetch`.
+  - key: bug-deux-listes
+    format: bug-fix
+    question: |-
+      La requête échoue : `MultipleBagFetchException: cannot simultaneously fetch multiple bags:
+      [boutique.Commande.lignes, boutique.Commande.paiements]`. Quelle correction est la bonne ?
+      ```java
+      @Entity
+      public class Commande {
+          @OneToMany(mappedBy = "commande") private List<Ligne> lignes = new ArrayList<>();
+          @OneToMany(mappedBy = "commande") private List<Paiement> paiements = new ArrayList<>();
+      }
+
+      @Query("select c from Commande c join fetch c.lignes join fetch c.paiements")
+      List<Commande> toutes();
+      ```
+    choices:
+      - {text: "Charger les lignes, puis les paiements, par deux requêtes", correct: true}
+      - {text: "Ajouter `distinct` après le `select` de la requête", correct: false}
+      - {text: "Passer les deux `@OneToMany` en `fetch = FetchType.EAGER`", correct: false}
+      - {text: "Remplacer les deux `join fetch` par des `left join`", correct: false}
+    answer: |-
+      ```java
+      @Query("select c from Commande c join fetch c.lignes")
+      List<Commande> toutesAvecLignes();
+
+      @Query("select c from Commande c join fetch c.paiements where c.id in :ids")
+      List<Commande> avecPaiements(@Param("ids") List<Long> ids);
+      ```
+      Deux `List` chargées ensemble feraient un produit cartésien (lignes × paiements) qu'Hibernate refuse. Deux
+      requêtes, dans la même transaction, remplissent chacune sa collection. Faire de l'une un `Set` marche aussi,
+      mais garde le produit cartésien.
+  - key: bug-client-par-commande
+    format: bug-fix
+    question: |-
+      Le rapport envoie une requête pour les commandes récentes, puis une par commande pour lire son client
+      (`@ManyToOne(fetch = LAZY)`). Quelle correction est la bonne ?
+      ```java
+      List<Commande> findByDateCommandeAfter(LocalDate depuis);
+
+      @Transactional(readOnly = true)
+      public List<String> destinataires(LocalDate depuis) {
+          return commandes.findByDateCommandeAfter(depuis).stream().map(c -> c.getClient().getNom()).toList();
+      }
+      ```
+    choices:
+      - {text: "Annoter `findByDateCommandeAfter` avec `@EntityGraph(attributePaths = \"client\")`", correct: true}
+      - {text: "Annoter `findByDateCommandeAfter` avec `@Transactional(readOnly = true)`", correct: false}
+      - {text: "Passer le `@ManyToOne` du client en `optional = false`", correct: false}
+      - {text: "Lire `c.getClient().getId()` avant `getNom()` dans la boucle", correct: false}
+    answer: |-
+      ```java
+      @EntityGraph(attributePaths = "client")
+      List<Commande> findByDateCommandeAfter(LocalDate depuis);
+      ```
+      Chaque `getNom()` initialise un proxy, donc une requête. L'`@EntityGraph` ajoute la jointure sur le client à
+      la requête dérivée : une seule requête. `getId()` ne lit rien, et ne change rien au problème.
+  - key: situation-page-lente
+    format: scenario
+    question: "La page « Mes commandes » met 4 secondes. Les logs SQL montrent 201 requêtes pour 100 commandes : leurs lignes, puis leurs adresses. Que proposes-tu ?"
+    choices:
+      - {text: "Charger lignes et adresses avec la liste, par `@EntityGraph` ou `join fetch`", correct: true}
+      - {text: "Ajouter un index sur chaque clé étrangère, puis mesurer de nouveau", correct: false}
+      - {text: "Augmenter la taille du pool de connexions pour paralléliser les requêtes", correct: false}
+      - {text: "Mettre le résultat en cache une minute, sans toucher aux requêtes", correct: false}
+    answer: "C'est un N+1 sur deux relations. Les charger avec la liste ramène tout à une ou deux requêtes. Un index ou un cache soulagerait, mais laisserait 201 allers-retours. Si les deux sont des `List`, on les charge par deux requêtes."
+  - key: situation-test-regression
+    format: scenario
+    question: "Le N+1 revient à chaque refonte. Comment l'équipe peut-elle le détecter avant la production ?"
+    choices:
+      - {text: "Un test qui compte les requêtes avec les statistiques d'Hibernate", correct: true}
+      - {text: "Un test de charge chaque nuit, qui mesure le temps de réponse moyen", correct: false}
+      - {text: "Une relecture de code qui interdit tout `@OneToMany` dans le projet", correct: false}
+      - {text: "Un log d'avertissement d'Hibernate, qui signale chaque N+1 détecté", correct: false}
+    answer: "Avec `hibernate.generate_statistics=true`, un test lit `getPrepareStatementCount()` et vérifie qu'un cas d'usage reste à 1 ou 2 requêtes. Hibernate ne signale pas le N+1 de lui-même."
+  - key: situation-deux-collections
+    format: scenario
+    question: "L'écran du dossier client affiche ses commandes et ses factures, deux `List` du client. Un `join fetch` sur les deux échoue. Que proposes-tu ?"
+    choices:
+      - {text: "Deux requêtes dans la même transaction, une par collection", correct: true}
+      - {text: "Passer les deux collections en `EAGER` pour éviter le `join fetch`", correct: false}
+      - {text: "Ajouter `distinct` à la requête qui fait les deux `join fetch`", correct: false}
+      - {text: "Désactiver l'exception par une propriété de configuration d'Hibernate", correct: false}
+    answer: "Hibernate refuse de remplir deux `List` depuis un produit cartésien. Deux requêtes, l'une avec les commandes, l'autre avec les factures, remplissent chacune sa collection dans le même contexte de persistance."
+  - key: situation-entretien-n-plus-un
+    format: scenario
+    question: "En entretien : « Qu'est-ce que le problème N+1 en JPA, et comment le corriges-tu ? » Que réponds-tu ?"
+    choices:
+      - {text: "Une requête par élément pour sa relation ; `join fetch`, `@EntityGraph` ou lots", correct: true}
+      - {text: "Une transaction de trop par requête ; je passe en propagation `REQUIRES_NEW`", correct: false}
+      - {text: "Un doublon dans les résultats d'une jointure ; j'ajoute `distinct` partout", correct: false}
+      - {text: "Un verrou de trop sur chaque ligne ; j'utilise le verrouillage optimiste", correct: false}
+    answer: "La liste coûte une requête, puis chaque relation non chargée en coûte une. Je charge la relation avec la liste quand le cas d'usage en a besoin, et je règle `default_batch_fetch_size` pour limiter le reste. Je le vérifie dans les logs SQL ou par un test."

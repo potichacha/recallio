@@ -1,0 +1,263 @@
+notion: metriques
+lesson: |-
+  **Micrometer** est la **façade de métriques** de Spring Boot, comme SLF4J pour les logs : le code écrit ses
+  mesures dans un `MeterRegistry`, et un **registre** propre à chaque outil les exporte. Avec
+  `micrometer-registry-prometheus`, Actuator sert `/actuator/prometheus` ; d'autres registres poussent vers OTLP,
+  Datadog...
+
+  **Les types de mesures.**
+
+  | Type | Ce qu'il mesure | Exemple |
+  |---|---|---|
+  | `Counter` | un total qui ne fait qu'augmenter | commandes passées |
+  | `Gauge` | une valeur instantanée, lue à la demande | taille d'une file d'attente |
+  | `Timer` | un nombre d'appels, leur durée totale et la plus longue | temps d'un paiement |
+  | `DistributionSummary` | une distribution de valeurs qui ne sont pas des durées | montant des commandes |
+  | `LongTaskTimer` | les tâches en cours, et depuis combien de temps | un import en cours |
+
+  ```java
+  @Service
+  class CommandeService {
+
+      private final Counter commandes;
+      private final Timer paiement;
+
+      CommandeService(MeterRegistry registry) {
+          this.commandes = Counter.builder("boutique.commandes")
+                  .tag("canal", "web")
+                  .register(registry);
+          this.paiement = registry.timer("boutique.paiement");
+      }
+
+      void commander(Panier panier) {
+          paiement.record(() -> payer(panier));
+          commandes.increment();
+      }
+  }
+  ```
+
+  Une jauge lit un objet à chaque collecte. Micrometer n'en garde qu'une **référence faible** : si personne d'autre
+  ne tient l'objet, il est ramassé, et la jauge affiche `NaN`.
+
+  ```java
+  registry.gauge("boutique.file.taille", file, Queue::size);   // file : un champ du bean, pas une variable locale
+  ```
+
+  **Des métriques dimensionnelles.** Une mesure a un nom et des **tags** : `http.server.requests{method=GET,
+  uri=/commandes/{id}, status=200}`. On filtre et on agrège par tag. Chaque combinaison de valeurs crée une **série**
+  : un tag aux valeurs illimitées (identifiant d'utilisateur, adresse e-mail, URL brute) fait exploser la mémoire de
+  l'application et du stockage. C'est pourquoi le tag `uri` contient le **modèle** de la route, pas l'URL réelle.
+
+  **Les mesures intégrées.** Spring Boot instrumente déjà `http.server.requests` (les requêtes reçues),
+  `http.client.requests`, `jvm.memory.used`, `jvm.gc.pause`, `jvm.threads.live`, `process.cpu.usage`,
+  `hikaricp.connections.active`, `logback.events`...
+
+  **Les noms.** Micrometer écrit des noms en minuscules séparés par des points ; chaque registre les traduit. Pour
+  Prometheus, le compteur `boutique.commandes` devient `boutique_commandes_total`, et le timer `boutique.paiement`
+  donne `boutique_paiement_seconds_count`, `_sum` et `_max`.
+
+  **Les percentiles.** Un percentile calculé dans chaque instance (`publishPercentiles(0.95)`) ne se moyenne pas
+  entre instances. Pour un p95 global, on publie un **histogramme**, que Prometheus agrège
+  (`histogram_quantile`) :
+
+  ```properties
+  management.metrics.distribution.percentiles-histogram.http.server.requests=true
+  ```
+
+  **Tirer ou pousser.** Prometheus **vient lire** l'endpoint à intervalle régulier (pull) ; d'autres systèmes
+  reçoivent les mesures que l'application leur **pousse** (push), comme OTLP.
+
+  **L'API Observation.** Micrometer propose aussi `Observation` : une seule instrumentation produit une mesure et une
+  trace. C'est ce qu'utilise Spring pour ses propres instrumentations.
+
+  **En entretien** : « Micrometer est la façade de métriques de Spring Boot : j'écris des `Counter`, `Timer` et
+  `Gauge` dans un `MeterRegistry`, et un registre par outil les exporte, par exemple vers Prometheus sur
+  `/actuator/prometheus`. Les métriques sont dimensionnelles : des tags permettent de filtrer, mais leurs valeurs
+  doivent rester en nombre borné. Pour des percentiles agrégeables entre instances, j'active les histogrammes. »
+cards:
+  - key: role-de-micrometer
+    format: course
+    question: "Quel rôle Micrometer joue-t-il dans une application Spring Boot ?"
+    choices:
+      - {text: "Une façade de métriques, qu'un registre exporte vers l'outil choisi", correct: true}
+      - {text: "Une base de séries temporelles, qui stocke les mesures sur disque", correct: false}
+      - {text: "Un tableau de bord, qui affiche les mesures de l'application", correct: false}
+      - {text: "Un agent Java, qui instrumente le bytecode au chargement", correct: false}
+    answer: "Micrometer est aux métriques ce que SLF4J est aux logs. Le stockage, c'est Prometheus ; l'affichage, Grafana."
+  - key: type-compter-commandes
+    format: course
+    question: "Quel type de mesure Micrometer choisis-tu pour compter les commandes passées ?"
+    choices:
+      - {text: "`Counter`", correct: true}
+      - {text: "`Gauge`", correct: false}
+      - {text: "`Timer`", correct: false}
+      - {text: "`LongTaskTimer`", correct: false}
+    answer: "Un compteur ne fait qu'augmenter ; l'outil en déduit un débit (`rate` dans Prometheus)."
+  - key: type-taille-file
+    format: course
+    question: "Quel type de mesure Micrometer choisis-tu pour suivre la taille actuelle d'une file d'attente ?"
+    choices:
+      - {text: "`Gauge`", correct: true}
+      - {text: "`Counter`", correct: false}
+      - {text: "`Timer`", correct: false}
+      - {text: "`DistributionSummary`", correct: false}
+    answer: "Une jauge lit une valeur qui monte et descend, au moment de la collecte. Un compteur ne peut pas diminuer."
+  - key: contenu-timer
+    format: course
+    question: "Que mesure un `Timer` de Micrometer ?"
+    choices:
+      - {text: "Le nombre d'appels, leur durée totale et la plus longue", correct: true}
+      - {text: "La durée du dernier appel seulement, remplacée à chaque mesure", correct: false}
+      - {text: "Le temps écoulé depuis le démarrage de l'application", correct: false}
+      - {text: "Le temps processeur consommé par le thread de l'appel", correct: false}
+    answer: "Avec le compte et la somme, on calcule une durée moyenne et un débit ; le maximum signale les pics. Les histogrammes ajoutent les percentiles."
+  - key: vf-tag-utilisateur
+    format: true-false
+    question: "Un identifiant d'utilisateur fait un bon tag de métrique, pour suivre chaque client."
+    truth: false
+    answer: "Chaque valeur de tag crée une série : des milliers d'utilisateurs, des milliers de séries. La cardinalité explose ; ce suivi relève des logs ou des traces."
+  - key: vf-tag-uri-modele
+    format: true-false
+    question: "Le tag `uri` de `http.server.requests` contient le modèle de la route, comme `/commandes/{id}`, et non l'URL réelle."
+    truth: true
+    answer: "C'est voulu : avec l'URL réelle, chaque identifiant créerait une nouvelle série."
+  - key: vf-moyenne-percentiles
+    format: true-false
+    question: "Les p95 calculés dans chaque instance avec `publishPercentiles` se moyennent pour donner le p95 de tout le service."
+    truth: false
+    answer: "Une moyenne de percentiles n'est pas un percentile. Pour agréger, on publie des histogrammes, que Prometheus combine."
+  - key: vf-prometheus-tire
+    format: true-false
+    question: "Prometheus vient lire les métriques de l'application, qui ne les lui envoie pas."
+    truth: true
+    answer: "C'est le modèle « pull » : Prometheus interroge `/actuator/prometheus` à intervalle régulier. OTLP, à l'inverse, pousse les mesures."
+  - key: qcm-dependance-prometheus
+    format: multiple-choice
+    question: "Quelle dépendance, ajoutée à Actuator, fournit le endpoint `/actuator/prometheus` ?"
+    choices:
+      - {text: "`micrometer-registry-prometheus`", correct: true}
+      - {text: "`spring-boot-starter-prometheus`", correct: false}
+      - {text: "`micrometer-core`, sans rien d'autre", correct: false}
+      - {text: "`prometheus-client-spring`", correct: false}
+    answer: "Le registre Prometheus de Micrometer ; Actuator crée l'endpoint dès qu'il le trouve. Il reste à l'exposer."
+  - key: qcm-nom-prometheus
+    format: multiple-choice
+    question: "Sous quel nom Prometheus voit-il le compteur Micrometer `boutique.commandes` ?"
+    choices:
+      - {text: "`boutique_commandes_total`", correct: true}
+      - {text: "`boutique.commandes`", correct: false}
+      - {text: "`boutique_commandes_count`", correct: false}
+      - {text: "`boutiqueCommandes`", correct: false}
+    answer: "Le registre remplace les points par des tirets bas, et ajoute `_total` aux compteurs, selon les conventions de Prometheus."
+  - key: qcm-mesure-requetes
+    format: multiple-choice
+    question: "Quelle mesure intégrée donne la durée des requêtes HTTP reçues par Spring MVC ?"
+    choices:
+      - {text: "`http.server.requests`", correct: true}
+      - {text: "`http.client.requests`", correct: false}
+      - {text: "`tomcat.sessions.active.current`", correct: false}
+      - {text: "`jvm.threads.live`", correct: false}
+    answer: "C'est un timer, avec les tags `method`, `uri`, `status`, `outcome` et `exception`. `http.client.requests` mesure les appels sortants."
+  - key: qcm-jauge-nan
+    format: multiple-choice
+    question: "Une `Gauge` enregistrée sur une liste créée dans une méthode affiche `NaN` au bout d'un moment. Pourquoi ?"
+    choices:
+      - {text: "La jauge ne garde qu'une référence faible, et la liste a été ramassée", correct: true}
+      - {text: "La jauge n'est lue qu'une fois, au moment de son enregistrement", correct: false}
+      - {text: "Le registre efface les jauges qui ne changent pas pendant une minute", correct: false}
+      - {text: "La taille dépasse la capacité d'un `double`, qui devient `NaN`", correct: false}
+    answer: "Micrometer ne retient pas l'objet observé. On l'enregistre sur un objet qui vit aussi longtemps que l'application : un champ d'un bean."
+  - key: trous-tag
+    format: fill-in
+    question: |-
+      Complète pour ajouter la dimension « canal » au compteur :
+      ```java
+      Counter commandes = Counter.builder("boutique.commandes")
+              .___("canal", "web")
+              .register(registry);
+      ```
+    blanks:
+      - [tag]
+    answer: "`tag(cle, valeur)` ajoute une dimension. `register` crée le compteur, ou renvoie celui qui existe déjà avec le même nom et les mêmes tags."
+  - key: trous-increment
+    format: fill-in
+    question: |-
+      Complète pour compter une commande de plus :
+      ```java
+      commandes.___();
+      ```
+    blanks:
+      - [increment]
+    answer: "`increment()` ajoute 1 ; `increment(n)` ajoute `n`. Un compteur ne diminue jamais."
+  - key: trous-record
+    format: fill-in
+    question: |-
+      Complète pour chronométrer le paiement :
+      ```java
+      Timer paiement = registry.timer("boutique.paiement");
+      paiement.___(() -> payer(panier));
+      ```
+    blanks:
+      - [record]
+    answer: "`record` exécute le code et mesure sa durée, même s'il lève une exception."
+  - key: trous-gauge
+    format: fill-in
+    question: |-
+      Complète pour publier la taille de la file d'attente, lue à chaque collecte :
+      ```java
+      registry.___("boutique.file.taille", file, Queue::size);
+      ```
+    blanks:
+      - [gauge]
+    answer: "`gauge(nom, objet, fonction)` applique la fonction à l'objet à chaque collecte. `file` doit vivre aussi longtemps que l'application."
+  - key: situation-tag-email
+    format: scenario
+    question: |-
+      Après l'ajout d'un tag `email` à un compteur, la mémoire de l'application et celle de Prometheus grimpent jour
+      après jour. Que fais-tu ?
+    choices:
+      - {text: "Je retire ce tag : chaque adresse crée une série, sans limite", correct: true}
+      - {text: "J'augmente la mémoire de Prometheus et sa durée de rétention", correct: false}
+      - {text: "Je remplace le `Counter` par une `Gauge`, plus légère en mémoire", correct: false}
+      - {text: "Je hache l'adresse, pour raccourcir la valeur du tag", correct: false}
+    answer: |-
+      La cardinalité, c'est le nombre de séries : il doit rester borné. Hacher l'adresse ne change rien au nombre de
+      valeurs. Une donnée personnelle n'a de toute façon rien à faire dans une métrique.
+  - key: situation-p95-instances
+    format: scenario
+    question: |-
+      Tu veux le p95 du temps de réponse de ton API, sur ses six instances, dans Grafana. Que configures-tu ?
+    choices:
+      - {text: "Les histogrammes de `http.server.requests`, agrégés par Prometheus", correct: true}
+      - {text: "Un p95 calculé dans chaque instance, puis moyenné dans Grafana", correct: false}
+      - {text: "Le maximum de chaque instance, additionné puis divisé par six", correct: false}
+      - {text: "Un `Counter` des requêtes de plus d'une seconde, sans autre mesure", correct: false}
+    answer: |-
+      `management.metrics.distribution.percentiles-histogram.http.server.requests=true` publie des seaux ;
+      `histogram_quantile(0.95, ...)` calcule le p95 sur l'ensemble des instances. Une moyenne de percentiles est
+      fausse.
+  - key: situation-paiements-refuses
+    format: scenario
+    question: |-
+      Ton responsable veut suivre le nombre de paiements refusés, par moyen de paiement. Que proposes-tu ?
+    choices:
+      - {text: "Un `Counter` `paiements.refuses`, avec un tag `moyen` aux valeurs bornées", correct: true}
+      - {text: "Un log par refus, compté chaque soir par un script sur le serveur", correct: false}
+      - {text: "Une `Gauge` par client, qui garde son nombre de refus en mémoire", correct: false}
+      - {text: "Un `Timer` par moyen de paiement, dont on lirait la durée totale", correct: false}
+    answer: |-
+      Un compteur avec un tag `moyen` (carte, virement, portefeuille) : quelques séries, un débit par moyen dans
+      Grafana, et une alerte possible. Une jauge par client ferait exploser la cardinalité.
+  - key: situation-chronometrer-job
+    format: scenario
+    question: |-
+      Tu veux mesurer la durée d'un calcul de tarifs, lancé par un job et non par une requête HTTP, et la voir dans
+      Prometheus. Que fais-tu ?
+    choices:
+      - {text: "J'enveloppe le calcul dans un `Timer` du `MeterRegistry`", correct: true}
+      - {text: "J'écris la durée dans un log, avec `System.currentTimeMillis()`", correct: false}
+      - {text: "J'ajoute le nom du job au tag `uri` de `http.server.requests`", correct: false}
+      - {text: "J'expose un endpoint qui renvoie la dernière durée mesurée", correct: false}
+    answer: |-
+      `registry.timer("tarifs.calcul").record(() -> calculer())` publie le nombre d'exécutions, la durée totale et
+      la plus longue. Prometheus les lit avec le reste, sans code d'export.

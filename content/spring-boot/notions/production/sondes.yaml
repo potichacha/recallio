@@ -1,0 +1,218 @@
+notion: sondes
+lesson: |-
+  Kubernetes interroge chaque conteneur avec des **sondes**, et agit selon la réponse :
+
+  | Sonde | Question posée | En cas d'échec |
+  |---|---|---|
+  | **liveness** | le processus est-il en vie, ou bloqué sans espoir ? | Kubernetes **redémarre** le conteneur |
+  | **readiness** | l'instance peut-elle recevoir du trafic maintenant ? | le pod est **retiré du Service**, sans redémarrage |
+  | **startup** | le démarrage est-il fini ? | les deux autres attendent qu'elle réussisse |
+
+  **Ce que fournit Spring Boot.** L'application tient elle-même son **état de disponibilité**, lisible par le bean
+  `ApplicationAvailability` :
+
+  - `LivenessState` : `CORRECT` ou `BROKEN` ;
+  - `ReadinessState` : `ACCEPTING_TRAFFIC` ou `REFUSING_TRAFFIC`.
+
+  Avec Actuator, ces états deviennent deux groupes de santé : **`/actuator/health/liveness`** et
+  **`/actuator/health/readiness`**. Ils sont activés d'office quand l'application tourne dans Kubernetes, et
+  ailleurs avec `management.endpoint.health.probes.enabled=true`.
+
+  ```yaml
+  livenessProbe:
+    httpGet:
+      path: /actuator/health/liveness
+      port: 8080
+  readinessProbe:
+    httpGet:
+      path: /actuator/health/readiness
+      port: 8080
+  ```
+
+  **Le cycle de vie.**
+
+  | Moment | Liveness | Readiness |
+  |---|---|---|
+  | contexte rafraîchi | `CORRECT` | `REFUSING_TRAFFIC` |
+  | `ApplicationRunner` et `CommandLineRunner` exécutés | `CORRECT` | **`ACCEPTING_TRAFFIC`** |
+  | arrêt d'une application web | | **`REFUSING_TRAFFIC`** |
+
+  Un chargement de cache fait dans un runner retarde donc l'arrivée du trafic, sans risquer de redémarrage.
+
+  **Changer l'état depuis le code.** On publie un événement :
+
+  ```java
+  // l'instance se retire du trafic, sans s'arrêter
+  AvailabilityChangeEvent.publish(context, ReadinessState.REFUSING_TRAFFIC);
+
+  // l'instance demande à être redémarrée
+  AvailabilityChangeEvent.publish(context, LivenessState.BROKEN);
+  ```
+
+  **La règle d'or : la liveness ne dépend de rien d'extérieur.** Si elle vérifie la base de données, une panne de
+  PostgreSQL fait redémarrer **tous** les pods en boucle, ce qui ne répare pas la base et ajoute la charge des
+  redémarrages. La liveness dit seulement « mon processus est sain ». Une dépendance sans laquelle l'instance ne
+  peut rien servir peut entrer dans la readiness, avec prudence :
+
+  ```properties
+  management.endpoint.health.group.readiness.include=readinessState,db
+  ```
+
+  **Le port de management.** Si Actuator répond sur un port séparé (`management.server.port`), les sondes passent
+  par un autre serveur que l'API : l'API peut être bloquée pendant que les sondes restent vertes. Spring Boot peut
+  servir aussi `/livez` et `/readyz` sur le port principal
+  (`management.endpoint.health.probes.add-additional-paths=true`).
+
+  **La sonde de démarrage.** Pour une application lente à démarrer, une `startupProbe` généreuse évite d'allonger
+  les délais de la liveness, qui doit rester réactive ensuite.
+
+  **En entretien** : « La liveness dit si le processus doit être redémarré, la readiness s'il peut recevoir du
+  trafic. Spring Boot les expose sous `/actuator/health/liveness` et `/readiness` : la readiness ne passe à
+  `ACCEPTING_TRAFFIC` qu'après les runners, et revient à `REFUSING_TRAFFIC` à l'arrêt. Je ne mets jamais la base de
+  données dans la liveness : sa panne redémarrerait tous les pods sans rien réparer. »
+cards:
+  - key: liveness-en-echec
+    format: course
+    question: "Que fait Kubernetes quand la sonde de liveness d'un pod échoue plusieurs fois de suite ?"
+    choices:
+      - {text: "Il redémarre le conteneur", correct: true}
+      - {text: "Il retire le pod du Service, sans le redémarrer", correct: false}
+      - {text: "Il attend la fin de la sonde de démarrage", correct: false}
+      - {text: "Il note l'échec dans les événements, sans agir", correct: false}
+    answer: "La liveness répond à « faut-il redémarrer ? ». Retirer le pod du trafic sans le redémarrer, c'est l'effet de la readiness."
+  - key: readiness-en-echec
+    format: course
+    question: "Que fait Kubernetes quand la sonde de readiness d'un pod échoue ?"
+    choices:
+      - {text: "Il cesse de lui envoyer du trafic, sans le redémarrer", correct: true}
+      - {text: "Il redémarre le conteneur, puis attend qu'il réponde", correct: false}
+      - {text: "Il supprime le pod, et en crée un autre ailleurs", correct: false}
+      - {text: "Il augmente le nombre de réplicas du déploiement", correct: false}
+    answer: "Le pod sort des endpoints du Service tant que la readiness échoue, puis y revient. C'est fait pour un état passager."
+  - key: moment-accepting-traffic
+    format: course
+    question: "À quel moment la readiness d'une application Spring Boot passe-t-elle à `ACCEPTING_TRAFFIC` ?"
+    choices:
+      - {text: "Après l'exécution des `ApplicationRunner` et `CommandLineRunner`", correct: true}
+      - {text: "Dès que le contexte est créé, avant même les beans", correct: false}
+      - {text: "Dès que le serveur web écoute sur son port HTTP", correct: false}
+      - {text: "Au premier appel reçu sur `/actuator/health`", correct: false}
+    answer: "Le serveur écoute avant, mais la readiness reste `REFUSING_TRAFFIC` tant que les runners tournent. Un préchargement placé dans un runner retarde donc le trafic."
+  - key: chemins-des-sondes
+    format: course
+    question: "Sur quels chemins Actuator expose-t-il les sondes destinées à Kubernetes ?"
+    choices:
+      - {text: "`/actuator/health/liveness` et `/actuator/health/readiness`", correct: true}
+      - {text: "`/actuator/liveness` et `/actuator/readiness`", correct: false}
+      - {text: "`/health/live` et `/health/ready`", correct: false}
+      - {text: "`/actuator/probes/liveness` et `/actuator/probes/readiness`", correct: false}
+    answer: "Ce sont deux groupes du endpoint `health`. Kubernetes lit le statut HTTP : 200 pour réussir, 503 pour échouer."
+  - key: vf-liveness-base
+    format: true-false
+    question: "La sonde de liveness d'une API devrait vérifier la connexion à sa base de données."
+    truth: false
+    answer: "Une panne de la base ferait redémarrer tous les pods en boucle, sans rien réparer. La liveness ne reflète que l'état interne du processus."
+  - key: vf-arret-refusing
+    format: true-false
+    question: "Pendant l'arrêt d'une application web Spring Boot, sa readiness passe à `REFUSING_TRAFFIC`."
+    truth: true
+    answer: "Spring Boot publie cet état au début de la fermeture du contexte, avant l'arrêt gracieux du serveur."
+  - key: vf-readiness-redemarre
+    format: true-false
+    question: "Une sonde de readiness en échec fait redémarrer le conteneur."
+    truth: false
+    answer: "Elle retire seulement le pod du trafic. C'est la liveness, en échec, qui provoque un redémarrage."
+  - key: vf-publier-evenement
+    format: true-false
+    question: "Une application peut se retirer elle-même du trafic en publiant un `AvailabilityChangeEvent`."
+    truth: true
+    answer: "`AvailabilityChangeEvent.publish(context, ReadinessState.REFUSING_TRAFFIC)` : la sonde de readiness échoue alors, et Kubernetes cesse d'envoyer des requêtes."
+  - key: qcm-etats-liveness
+    format: multiple-choice
+    question: "Quelles valeurs prend l'état de liveness d'une application Spring Boot ?"
+    choices:
+      - {text: "`CORRECT` et `BROKEN`", correct: true}
+      - {text: "`UP` et `DOWN`", correct: false}
+      - {text: "`ACCEPTING_TRAFFIC` et `REFUSING_TRAFFIC`", correct: false}
+      - {text: "`ALIVE` et `DEAD`", correct: false}
+    answer: "`LivenessState` vaut `CORRECT` ou `BROKEN` ; `ReadinessState` vaut `ACCEPTING_TRAFFIC` ou `REFUSING_TRAFFIC`. `UP` et `DOWN` sont des statuts de santé."
+  - key: qcm-retirer-du-trafic
+    format: multiple-choice
+    question: "Quelle ligne retire l'instance du trafic, depuis le code, sans provoquer de redémarrage ?"
+    choices:
+      - {text: "`AvailabilityChangeEvent.publish(context, ReadinessState.REFUSING_TRAFFIC);`", correct: true}
+      - {text: "`AvailabilityChangeEvent.publish(context, LivenessState.BROKEN);`", correct: false}
+      - {text: "`context.close();`", correct: false}
+      - {text: "`SpringApplication.exit(context);`", correct: false}
+    answer: "La readiness refusée retire le pod des endpoints. `LivenessState.BROKEN` ferait redémarrer le conteneur ; fermer le contexte arrêterait l'application."
+  - key: qcm-demarrage-lent
+    format: multiple-choice
+    question: "Quelle sonde de Kubernetes protège une application lente à démarrer d'un redémarrage prématuré ?"
+    choices:
+      - {text: "La sonde de démarrage, `startupProbe`", correct: true}
+      - {text: "La sonde de readiness, `readinessProbe`", correct: false}
+      - {text: "La sonde de liveness, avec `periodSeconds: 1`", correct: false}
+      - {text: "Aucune : Kubernetes attend toujours la fin du démarrage", correct: false}
+    answer: "Tant que la `startupProbe` n'a pas réussi, la liveness n'est pas évaluée. On garde ainsi une liveness réactive après le démarrage."
+  - key: qcm-bean-disponibilite
+    format: multiple-choice
+    question: "Quel bean de Spring Boot donne l'état de liveness et de readiness à ton code ?"
+    choices:
+      - {text: "`ApplicationAvailability`", correct: true}
+      - {text: "`HealthEndpoint`", correct: false}
+      - {text: "`ApplicationContext`", correct: false}
+      - {text: "`KubernetesProbe`", correct: false}
+    answer: "`ApplicationAvailability` a `getLivenessState()` et `getReadinessState()`. Il existe même sans Actuator."
+  - key: situation-base-en-panne
+    format: scenario
+    question: |-
+      Pendant une panne de PostgreSQL, Kubernetes redémarre en boucle tous les pods de ton API. Ta liveness inclut
+      l'indicateur `db`. Que changes-tu ?
+    choices:
+      - {text: "Je retire `db` de la liveness, qui ne reflète que l'état interne", correct: true}
+      - {text: "J'augmente le nombre de réplicas, pour absorber les redémarrages", correct: false}
+      - {text: "Je bascule sur une base H2 embarquée tant que PostgreSQL est en panne", correct: false}
+      - {text: "Je supprime la sonde de readiness, qui cause ces redémarrages", correct: false}
+    answer: |-
+      Redémarrer l'API ne répare pas la base. Sans `db` dans la liveness, les pods restent en vie ; la readiness
+      peut, elle, les retirer du trafic pendant la panne.
+  - key: situation-cache-au-demarrage
+    format: scenario
+    question: |-
+      Ton application charge un cache pendant 40 secondes dans un `ApplicationRunner`. Un collègue craint que
+      Kubernetes lui envoie du trafic avant la fin. Que lui réponds-tu ?
+    choices:
+      - {text: "Que la readiness ne passe à `ACCEPTING_TRAFFIC` qu'après les runners", correct: true}
+      - {text: "Qu'il faut ajouter `Thread.sleep(40_000)` au début de la méthode `main`", correct: false}
+      - {text: "Qu'il faut déplacer le chargement dans un `@PostConstruct` de contrôleur", correct: false}
+      - {text: "Que Kubernetes attend toujours une minute avant d'envoyer du trafic", correct: false}
+    answer: |-
+      Tant que les runners tournent, `/actuator/health/readiness` répond 503 : le pod n'est pas dans le Service. La
+      liveness, elle, est déjà `CORRECT`, donc aucun redémarrage.
+  - key: situation-etat-corrompu
+    format: scenario
+    question: |-
+      Ton application détecte qu'un état interne est corrompu, et qu'elle ne s'en remettra pas sans redémarrer. Que
+      fais-tu ?
+    choices:
+      - {text: "Je publie `LivenessState.BROKEN`, pour que Kubernetes la redémarre", correct: true}
+      - {text: "Je publie `ReadinessState.REFUSING_TRAFFIC`, pour qu'elle redémarre", correct: false}
+      - {text: "J'écris une erreur dans les logs, et j'attends l'intervention d'un humain", correct: false}
+      - {text: "Je lève une exception dans un `HealthIndicator` du groupe `readiness`", correct: false}
+    answer: |-
+      Une liveness `BROKEN` fait échouer la sonde, et Kubernetes redémarre le conteneur. La readiness refusée ne
+      redémarre rien : l'instance resterait en vie, inutile.
+  - key: situation-port-management
+    format: scenario
+    question: |-
+      Actuator répond sur le port 9090, l'API sur le port 8080. Le serveur de l'API se bloque, mais les sondes
+      restent vertes. Pourquoi ?
+    choices:
+      - {text: "Les sondes passent par le serveur du port 9090, distinct de celui de l'API", correct: true}
+      - {text: "Kubernetes garde en cache la dernière réponse réussie de chaque sonde", correct: false}
+      - {text: "La readiness ne vérifie le serveur qu'une fois, au démarrage de l'application", correct: false}
+      - {text: "Un serveur bloqué répond toujours 200, faute de pouvoir calculer l'état", correct: false}
+    answer: |-
+      Le port de management a son propre serveur. Spring Boot peut aussi servir les deux sondes sur le port
+      principal (`management.endpoint.health.probes.add-additional-paths=true`) : elles vérifient alors le vrai
+      serveur de l'API.

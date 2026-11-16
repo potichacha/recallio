@@ -1,0 +1,243 @@
+notion: spring-cloud
+lesson: |-
+  **Spring Cloud** rassemble des projets pour les **systèmes distribués** : plusieurs services, déployés à part, qui
+  doivent trouver leur configuration, se trouver entre eux, et présenter une entrée unique. Spring Cloud sort par
+  **trains** de versions, nommés d'après l'année (`2025.0`...) : chaque train est compatible avec une ligne précise de
+  Spring Boot, et s'importe par la BOM `spring-cloud-dependencies`.
+
+  **Spring Cloud Config : une configuration centrale.** Un **Config Server** (`@EnableConfigServer`) sert la
+  configuration de tous les services, le plus souvent depuis un dépôt Git : un fichier par service et par profil
+  (`commandes-prod.yml`), versionné et relu comme du code. Un service la charge au démarrage :
+
+  ```properties
+  spring.application.name=commandes
+  spring.config.import=configserver:http://config:8888
+  ```
+
+  Pour changer une valeur **sans redéployer**, on la modifie dans le dépôt, puis on **rafraîchit** les instances :
+  les beans en `@RefreshScope` sont recréés avec la nouvelle valeur. **Spring Cloud Bus** diffuse ce rafraîchissement
+  à toutes les instances, par un broker de messages.
+
+  **La découverte de services.** Les adresses des instances changent à chaque déploiement. Avec un **registre** comme
+  **Eureka** (`@EnableEurekaServer` côté serveur), chaque instance s'inscrit au démarrage puis renouvelle
+  régulièrement son inscription ; ses clients demandent au registre les instances vivantes. **Spring Cloud
+  LoadBalancer** répartit les appels entre elles : on pose `@LoadBalanced` sur le `RestClient.Builder` déclaré en
+  bean, et l'on appelle `http://commandes/...` par le nom du service.
+
+  **Spring Cloud Gateway : la porte d'entrée.** Une **passerelle** reçoit toutes les requêtes externes et les
+  **route** vers les services. Chaque route a :
+
+  | Élément | Rôle | Exemple |
+  |---|---|---|
+  | un identifiant | nommer la route | `commandes` |
+  | une URI | la destination | `lb://commandes`, résolue par le registre |
+  | des **prédicats** | les conditions sur la requête | `Path=/api/commandes/**` |
+  | des **filtres** | les modifications de la requête ou de la réponse | `StripPrefix=1`, une limite de débit |
+
+  ```java
+  @Bean
+  RouteLocator routes(RouteLocatorBuilder builder) {      // version réactive de la passerelle
+      return builder.routes()
+              .route("commandes", r -> r.path("/api/commandes/**").uri("lb://commandes"))
+              .build();
+  }
+  ```
+
+  La passerelle est l'endroit des traitements communs : l'authentification, la limite de débit, les en-têtes, les
+  journaux d'accès. Spring Cloud Gateway existe en version réactive (sur WebFlux) et en version servlet (sur Spring
+  MVC).
+
+  **Les autres briques.** Spring Cloud Circuit Breaker (une abstraction au-dessus de Resilience4j), Spring Cloud
+  Stream (des messages par Kafka ou RabbitMQ, derrière des « binders »), OpenFeign (des clients HTTP déclarés par
+  interface, aujourd'hui en simple maintenance : les interfaces `@HttpExchange` de Spring Framework le remplacent).
+  Les anciennes briques Netflix (Hystrix, Ribbon, Zuul) ont été retirées.
+
+  **Sur Kubernetes**, la plateforme fournit déjà la découverte (les `Service` et leur DNS) et la configuration
+  (`ConfigMap`, `Secret`) : Eureka et Config Server deviennent souvent inutiles. Et un monolithe n'a besoin d'aucune
+  de ces briques.
+
+  **En entretien** : « Spring Cloud outille les microservices : Config Server pour une configuration centrale et
+  rafraîchissable, Eureka et LoadBalancer pour trouver les instances par leur nom, Gateway comme porte d'entrée qui
+  route et applique les filtres communs. Sur Kubernetes, la plateforme couvre déjà la découverte et la
+  configuration, et un monolithe n'en a pas besoin. »
+cards:
+  - key: role-config-server
+    format: course
+    question: "À quoi sert Spring Cloud Config Server ?"
+    choices:
+      - {text: "À servir la configuration de tous les services depuis un dépôt central, souvent Git", correct: true}
+      - {text: "À générer les fichiers `application.yml` à partir des classes de configuration", correct: false}
+      - {text: "À chiffrer les mots de passe stockés dans la base de chaque service", correct: false}
+      - {text: "À répartir les requêtes HTTP entre les instances d'un même service", correct: false}
+    answer: "Chaque service charge sa configuration au démarrage (`spring.config.import=configserver:...`). Elle est versionnée, relue par pull request, et se rafraîchit sans redéploiement."
+  - key: role-gateway
+    format: course
+    question: "Quel rôle joue Spring Cloud Gateway devant des microservices ?"
+    choices:
+      - {text: "Un point d'entrée unique, qui route les requêtes et applique des filtres communs", correct: true}
+      - {text: "Un registre où chaque service s'inscrit au démarrage, puis se renouvelle", correct: false}
+      - {text: "Un serveur de configuration centralisé, adossé à un dépôt Git", correct: false}
+      - {text: "Une bibliothèque cliente qui génère des appels HTTP à partir d'interfaces", correct: false}
+    answer: "Les clients ne connaissent qu'une adresse. La passerelle choisit le service d'après les prédicats de chaque route, et y applique l'authentification, la limite de débit ou la réécriture des chemins."
+  - key: role-du-registre
+    format: course
+    question: "À quoi sert un registre de services comme Eureka ?"
+    choices:
+      - {text: "À connaître les adresses des instances vivantes d'un service, qui s'y inscrivent", correct: true}
+      - {text: "À stocker les versions successives des contrats d'API de chaque service", correct: false}
+      - {text: "À limiter le nombre de requêtes par seconde vers chaque service", correct: false}
+      - {text: "À suivre une requête d'un service à l'autre, avec un identifiant commun", correct: false}
+    answer: "Chaque instance s'inscrit et renouvelle son inscription ; celle qui ne le fait plus est retirée. Les clients appellent un service par son nom, et un répartiteur choisit l'instance."
+  - key: inutile-sur-kubernetes
+    format: course
+    question: "Sur Kubernetes, quelles briques de Spring Cloud deviennent souvent inutiles ?"
+    choices:
+      - {text: "La découverte de services et le serveur de configuration, que la plateforme fournit", correct: true}
+      - {text: "Le traitement des requêtes HTTP et la sérialisation du JSON", correct: false}
+      - {text: "Les transactions et l'accès aux données avec JPA et Hibernate", correct: false}
+      - {text: "La sécurité des endpoints et le hachage des mots de passe", correct: false}
+    answer: "Un `Service` Kubernetes a un nom DNS stable devant ses pods, et les `ConfigMap` et `Secret` portent la configuration. Eureka et Config Server feraient double emploi."
+  - key: vf-train-et-version-de-boot
+    format: true-false
+    question: "Chaque train de versions de Spring Cloud est compatible avec une ligne précise de Spring Boot, et pas avec toutes."
+    truth: true
+    answer: "Spring Cloud dépend de l'intérieur de Spring Boot. On choisit le train qui correspond à sa version de Boot, et l'on importe sa BOM `spring-cloud-dependencies`."
+  - key: vf-hystrix
+    format: true-false
+    question: "Hystrix reste le disjoncteur recommandé par Spring Cloud pour un nouveau projet."
+    truth: false
+    answer: "Hystrix n'est plus développé, et Spring Cloud l'a retiré. On prend Resilience4j, directement ou par l'abstraction Spring Cloud Circuit Breaker."
+  - key: vf-deux-versions-de-gateway
+    format: true-false
+    question: "Spring Cloud Gateway existe en version réactive, sur WebFlux, et en version servlet, sur Spring MVC."
+    truth: true
+    answer: "La version réactive est historique ; la version servlet permet une passerelle sans programmation réactive, sur la pile Spring MVC habituelle."
+  - key: vf-uri-lb
+    format: true-false
+    question: "Dans une route de Spring Cloud Gateway, l'URI `lb://commandes` fait choisir une instance du service `commandes` connue du registre."
+    truth: true
+    answer: "Le préfixe `lb://` confie le choix de l'instance au répartiteur de charge, qui interroge la découverte de services. `http://` viserait une adresse fixe."
+  - key: qcm-serveur-de-configuration
+    format: multiple-choice
+    question: "Quelle annotation fait d'une application Spring Boot un serveur de configuration Spring Cloud ?"
+    choices:
+      - {text: "`@EnableConfigServer`", correct: true}
+      - {text: "`@EnableEurekaServer`", correct: false}
+      - {text: "`@EnableDiscoveryClient`", correct: false}
+      - {text: "`@EnableConfigurationProperties`", correct: false}
+    answer: "`@EnableConfigServer` vient de Spring Cloud Config. `@EnableEurekaServer` crée un registre, et `@EnableConfigurationProperties` active des classes de configuration typées, sans rapport."
+  - key: qcm-config-import
+    format: multiple-choice
+    question: "Quelle propriété fait lire à un service sa configuration depuis le Config Server ?"
+    choices:
+      - {text: "`spring.config.import=configserver:http://config:8888`", correct: true}
+      - {text: "`spring.cloud.config.enabled=false`", correct: false}
+      - {text: "`spring.profiles.active=configserver`", correct: false}
+      - {text: "`spring.application.name=configserver`", correct: false}
+    answer: "`spring.config.import` ajoute le Config Server aux sources de configuration. `spring.application.name` dit quel fichier lire (`commandes.yml`), et le profil actif choisit la variante."
+  - key: qcm-load-balanced
+    format: multiple-choice
+    question: "Quelle annotation, posée sur un `RestClient.Builder` déclaré en bean, lui fait résoudre `http://commandes` par la découverte de services ?"
+    choices:
+      - {text: "`@LoadBalanced`", correct: true}
+      - {text: "`@Primary`", correct: false}
+      - {text: "`@EnableDiscoveryClient`", correct: false}
+      - {text: "`@FeignClient`", correct: false}
+    answer: "Spring Cloud LoadBalancer intercepte alors les appels : `commandes` est remplacé par l'adresse d'une instance vivante, choisie à chaque requête."
+  - key: qcm-apres-openfeign
+    format: multiple-choice
+    question: "Quelle solution de Spring Framework remplace OpenFeign pour déclarer un client HTTP par une interface ?"
+    choices:
+      - {text: "Les interfaces HTTP annotées `@HttpExchange`, adossées à `RestClient`", correct: true}
+      - {text: "Les interfaces annotées `@RequestMapping`, scannées par Spring MVC", correct: false}
+      - {text: "Les classes annotées `@RestController`, appelées à distance", correct: false}
+      - {text: "Les interfaces `JpaRepository`, qui génèrent les appels HTTP", correct: false}
+    answer: "`@GetExchange`, `@PostExchange`... décrivent l'appel ; Spring génère l'implémentation sur un `RestClient`. OpenFeign, dans Spring Cloud, n'est plus qu'en maintenance."
+  - key: situation-monolithe-et-spring-cloud
+    format: scenario
+    question: |-
+      Ton application est un monolithe déployé en une seule instance. Un collègue veut ajouter Eureka, Config Server
+      et Gateway, « pour faire moderne ». Que réponds-tu ?
+    choices:
+      - {text: "Que ces briques servent aux systèmes distribués, et n'apportent rien ici", correct: true}
+      - {text: "Qu'il faut les trois, car Spring Boot ne démarre pas sans registre", correct: false}
+      - {text: "Qu'il suffit d'ajouter Eureka, qui embarque les deux autres", correct: false}
+      - {text: "Qu'il faut d'abord migrer vers WebFlux pour pouvoir les utiliser", correct: false}
+    answer: |-
+      Un registre pour une instance, un serveur de configuration pour un service : trois composants à exploiter, sans
+      problème à résoudre. Les fichiers de configuration et les variables d'environnement suffisent.
+  - key: situation-vingt-instances
+    format: scenario
+    question: |-
+      Tu veux changer un seuil de configuration sur les vingt instances d'un service, sans les redéployer. Que
+      proposes-tu, avec Spring Cloud ?
+    choices:
+      - {text: "Le modifier dans le dépôt du Config Server, puis rafraîchir les instances", correct: true}
+      - {text: "Le passer en variable d'environnement, et attendre le prochain déploiement", correct: false}
+      - {text: "Le garder dans une constante Java, recompilée à chaud sur chaque instance", correct: false}
+      - {text: "Le modifier dans le `application.properties` du jar de chaque instance", correct: false}
+    answer: |-
+      La valeur change dans Git, avec son historique. Un rafraîchissement, diffusé par Spring Cloud Bus, recrée les
+      beans `@RefreshScope` de chaque instance avec la nouvelle valeur.
+  - key: situation-filtres-copies
+    format: scenario
+    question: |-
+      Chacun de tes huit services limite le débit et journalise les accès, avec du code copié d'un service à l'autre.
+      Que proposes-tu ?
+    choices:
+      - {text: "Une passerelle, qui applique ces filtres à toutes les routes", correct: true}
+      - {text: "Un registre Eureka, qui compte les requêtes de chaque service", correct: false}
+      - {text: "Un Config Server, qui recopie ce code dans chaque service", correct: false}
+      - {text: "Un `@Scheduled` qui purge les journaux de chaque service", correct: false}
+    answer: |-
+      Toutes les requêtes externes passent par la passerelle : la limite de débit et les journaux d'accès s'y
+      écrivent une fois, comme filtres. Les services ne gardent que leur logique.
+  - key: situation-adresse-en-dur
+    format: scenario
+    question: |-
+      Ton service appelle `http://10.0.3.17:8080` en dur. À chaque redéploiement du service `stock`, l'adresse change
+      et les appels échouent. Que proposes-tu ?
+    choices:
+      - {text: "Appeler `stock` par son nom, résolu par la découverte de services ou le DNS", correct: true}
+      - {text: "Mettre à jour l'adresse à la main dans la configuration à chaque déploiement", correct: false}
+      - {text: "Fixer une fois pour toutes l'adresse IP du service `stock`", correct: false}
+      - {text: "Passer par Kafka, qui connaît les adresses de tous les services", correct: false}
+    answer: |-
+      Un nom stable remplace une adresse qui change : Eureka et `@LoadBalanced` hors de Kubernetes, ou le nom DNS
+      d'un `Service` Kubernetes. Le répartiteur choisit en plus une instance vivante.
+  - key: def-predicat
+    format: definition
+    question: "Que désigne un prédicat dans une route de Spring Cloud Gateway ?"
+    choices:
+      - {text: "La condition sur la requête, comme le chemin ou un en-tête, qui choisit la route", correct: true}
+      - {text: "La transformation appliquée à la requête avant son envoi au service", correct: false}
+      - {text: "L'adresse du service vers lequel la requête est transmise", correct: false}
+      - {text: "Le nombre de tentatives faites quand le service échoue", correct: false}
+    answer: "`Path=/api/commandes/**`, `Method=GET`, `Header=...` : la première route dont les prédicats sont vrais reçoit la requête. Les filtres, eux, la transforment."
+  - key: def-filtre
+    format: definition
+    question: "Que désigne un filtre dans une route de Spring Cloud Gateway ?"
+    choices:
+      - {text: "Une modification de la requête ou de la réponse, comme retirer un préfixe", correct: true}
+      - {text: "La condition qui décide si la requête emprunte cette route", correct: false}
+      - {text: "La liste des instances vivantes du service ciblé par la route", correct: false}
+      - {text: "Le certificat TLS présenté par la passerelle aux clients", correct: false}
+    answer: "`StripPrefix=1`, l'ajout d'un en-tête, une limite de débit : le filtre agit avant ou après l'appel au service. Le choix de la route revient aux prédicats."
+  - key: def-refresh-scope
+    format: definition
+    question: "Que désigne `@RefreshScope` dans Spring Cloud ?"
+    choices:
+      - {text: "Une portée de bean, recréé quand la configuration est rafraîchie", correct: true}
+      - {text: "Un intervalle de rafraîchissement de la page dans le navigateur", correct: false}
+      - {text: "Une portée de bean, recréé à chaque requête HTTP", correct: false}
+      - {text: "Un cache de configuration, vidé à chaque redémarrage", correct: false}
+    answer: "Un bean en `@RefreshScope` relit ses propriétés lors d'un rafraîchissement : la nouvelle valeur du Config Server s'applique sans redémarrer l'instance."
+  - key: def-spring-cloud-bus
+    format: definition
+    question: "Que désigne Spring Cloud Bus ?"
+    choices:
+      - {text: "Un canal de messages qui diffuse un événement, comme un rafraîchissement, à toutes les instances", correct: true}
+      - {text: "Un registre de services où les instances s'inscrivent puis se renouvellent", correct: false}
+      - {text: "Une passerelle qui transporte les requêtes HTTP vers les bons services", correct: false}
+      - {text: "Un bus de données qui réplique les tables entre les bases des services", correct: false}
+    answer: "Il relie les instances par un broker (Kafka ou RabbitMQ) : un seul appel de rafraîchissement atteint toutes les instances, au lieu d'un appel par instance."

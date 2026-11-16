@@ -1,0 +1,382 @@
+notion: transactional
+lesson: |-
+  `@Transactional` (de `org.springframework.transaction.annotation`) demande à Spring d'exécuter une méthode **dans
+  une transaction** : tout ce qu'elle écrit en base est validé ensemble à la fin (commit), ou annulé ensemble
+  (rollback) si elle lève une exception non vérifiée.
+
+  ```java
+  @Service
+  public class VirementService {
+      private final CompteRepository comptes;
+
+      public VirementService(CompteRepository comptes) {
+          this.comptes = comptes;
+      }
+
+      @Transactional
+      public void virer(long de, long vers, int montant) {
+          Compte source = comptes.findById(de).orElseThrow();
+          Compte cible = comptes.findById(vers).orElseThrow();
+          source.debiter(montant);   // lève une exception si le solde manque
+          cible.crediter(montant);
+      }   // commit ici : les deux UPDATE, ou aucun
+  }
+  ```
+
+  **Comment ça marche : un proxy.** Spring ne modifie pas ta classe. Il injecte à sa place un **proxy**, une
+  sous-classe générée par CGLIB (`VirementService$$SpringCGLIB$$0`). Le proxy ouvre la transaction, appelle ta
+  méthode, puis valide ou annule. Le gestionnaire de transactions (avec JPA, `JpaTransactionManager`) attache la
+  connexion et l'`EntityManager` au thread courant : les repositories appelés pendant la méthode les partagent.
+
+  **Ce que la transaction apporte avec JPA.**
+  - Un seul **contexte de persistance** pour toute la méthode : une entité chargée y est **gérée**, et un second
+    `findById` du même identifiant ne relit pas la base.
+  - Le **dirty checking** : une entité gérée que tu modifies est écrite au commit, **sans appeler `save`**.
+  - Le chargement paresseux fonctionne tant que la transaction est ouverte.
+
+  **Les pièges du proxy.** Le proxy n'agit que sur un appel qui **passe par lui** :
+
+  | Situation | Transaction ? |
+  |---|---|
+  | Méthode publique appelée depuis un autre bean | oui |
+  | Méthode `protected` ou de package, appelée depuis un autre bean (Spring 6 et plus) | oui |
+  | Appel interne `this.methode()` (auto-invocation) | **non** |
+  | Méthode `private` | **non** : le proxy ne peut pas la redéfinir |
+  | Méthode `final` | **non**, et ses champs lus sur le proxy sont `null` : `NullPointerException` |
+  | Objet créé avec `new` | **non** : ce n'est pas un bean, donc pas de proxy |
+
+  **Où le mettre.** Sur les méthodes de la **couche service**, qui forment un cas d'usage : ce qui doit réussir ou
+  échouer ensemble. Pas sur le contrôleur (la transaction engloberait la sérialisation de la réponse), ni seulement
+  sur les repositories (chaque appel aurait sa propre transaction). Les méthodes de `JpaRepository` (`save`,
+  `findById`...) sont déjà transactionnelles : elles **rejoignent** la transaction du service quand elle existe.
+
+  **La version programmatique.** `TransactionTemplate` fait la même chose sans annotation, utile pour une portion de
+  méthode : `transactionTemplate.executeWithoutResult(status -> { ... })`.
+
+  **Garder la transaction courte.** Elle occupe une connexion du pool jusqu'à la fin : pas d'appel HTTP lent ni
+  d'attente dans une méthode `@Transactional`.
+
+  **En entretien** : « `@Transactional` fait passer les appels par un proxy, qui ouvre une transaction avant la
+  méthode, la valide après, ou l'annule sur une exception non vérifiée. Je le mets sur les méthodes des services, qui
+  forment un cas d'usage, et je garde la transaction courte. Le piège classique est l'auto-invocation : un appel
+  `this.methode()` ne passe pas par le proxy, donc il s'exécute sans transaction. »
+cards:
+  - key: mecanisme-proxy
+    format: course
+    question: "Comment Spring applique-t-il `@Transactional` à une méthode de service ?"
+    choices:
+      - {text: "Il injecte un proxy qui ouvre et ferme la transaction autour de l'appel", correct: true}
+      - {text: "Il réécrit le bytecode de la classe pendant la compilation par Maven", correct: false}
+      - {text: "Le pilote JDBC lit l'annotation et ouvre lui-même la transaction", correct: false}
+      - {text: "Hibernate lit l'annotation au chargement de chaque entité gérée", correct: false}
+    answer: "Le bean injecté est un proxy généré par CGLIB. Il démarre la transaction, appelle ta méthode, puis valide ou annule. C'est pour cela qu'un appel qui ne passe pas par le proxy n'a pas de transaction."
+  - key: ou-placer
+    format: course
+    question: "Où places-tu `@Transactional` dans une application Spring Boot classique ?"
+    choices:
+      - {text: "Sur les méthodes des services, qui forment chacune un cas d'usage", correct: true}
+      - {text: "Sur chaque méthode des repositories, pour qu'elles valident tout de suite", correct: false}
+      - {text: "Sur les méthodes des contrôleurs, pour couvrir toute la requête HTTP", correct: false}
+      - {text: "Sur les classes d'entités, pour que leurs setters soient atomiques", correct: false}
+    answer: "Le service délimite ce qui doit réussir ou échouer ensemble. Sur le contrôleur, la transaction engloberait la sérialisation de la réponse ; sur les seuls repositories, chaque appel aurait sa propre transaction."
+  - key: dirty-checking
+    format: course
+    question: "Dans une méthode `@Transactional`, tu charges une entité avec `findById`, puis tu appelles un setter, sans `save`. Que se passe-t-il au commit ?"
+    choices:
+      - {text: "Hibernate détecte la modification et envoie l'UPDATE", correct: true}
+      - {text: "Rien : sans `save`, la modification reste en mémoire", correct: false}
+      - {text: "Une exception signale qu'il manque un appel à `save`", correct: false}
+      - {text: "L'UPDATE part seulement si tu appelles `flush` à la main", correct: false}
+    answer: "L'entité est gérée par le contexte de persistance. Au commit, Hibernate compare son état à celui du chargement (dirty checking) et écrit les différences. Appeler `save` ne nuit pas, mais n'est pas nécessaire."
+  - key: repository-rejoint
+    format: course
+    question: "Une méthode `@Transactional` de ton service appelle `repository.save(...)`. Dans quelle transaction s'exécute ce `save` ?"
+    choices:
+      - {text: "Dans celle du service, qu'il rejoint", correct: true}
+      - {text: "Dans une nouvelle, validée dès son retour", correct: false}
+      - {text: "Dans aucune : un repository n'en ouvre pas", correct: false}
+      - {text: "Dans une transaction imbriquée, avec un savepoint", correct: false}
+    answer: "Les méthodes de `SimpleJpaRepository` sont annotées `@Transactional`, avec la propagation par défaut `REQUIRED` : elles rejoignent la transaction en cours, ou en ouvrent une s'il n'y en a pas."
+  - key: vf-auto-invocation
+    format: true-false
+    question: "Un appel `this.enregistrer()` vers une méthode `@Transactional` du même bean s'exécute dans une transaction ouverte par cette annotation."
+    truth: false
+    answer: "L'appel interne ne passe pas par le proxy : l'annotation est ignorée. Il faut appeler la méthode depuis un autre bean, ou annoter la méthode appelante."
+  - key: vf-methode-package
+    format: true-false
+    question: "Depuis Spring 6, une méthode `@Transactional` de visibilité package, appelée depuis un autre bean, s'exécute dans une transaction."
+    truth: true
+    answer: "Avec un proxy de classe (CGLIB, le défaut de Spring Boot), Spring 6 applique l'annotation aux méthodes `protected` et de package. Seules les méthodes `private` et `final` restent hors d'atteinte du proxy."
+  - key: vf-methode-privee
+    format: true-false
+    question: "Avec les proxys de Spring, `@Transactional` sur une méthode `private` n'a aucun effet."
+    truth: true
+    answer: "Le proxy est une sous-classe : il ne peut pas redéfinir une méthode privée. Une méthode privée n'est d'ailleurs appelée que de l'intérieur de la classe, donc jamais à travers le proxy."
+  - key: vf-repository-transactionnel
+    format: true-false
+    question: "Les méthodes héritées de `JpaRepository`, comme `save` ou `deleteById`, sont déjà transactionnelles."
+    truth: true
+    answer: "`SimpleJpaRepository` porte `@Transactional(readOnly = true)` sur la classe et `@Transactional` sur ses méthodes d'écriture. Appelées seules, elles ouvrent leur transaction ; appelées depuis un service transactionnel, elles la rejoignent."
+  - key: qcm-classe-du-bean
+    format: multiple-choice
+    question: "`StockService` a une méthode `@Transactional`. Qu'affiche `stockService.getClass().getName()` sur le bean injecté ?"
+    choices:
+      - {text: "`boutique.StockService$$SpringCGLIB$$0`", correct: true}
+      - {text: "`boutique.StockService`", correct: false}
+      - {text: "`jdk.proxy2.$Proxy87`", correct: false}
+      - {text: "`org.springframework.transaction.support.TransactionTemplate`", correct: false}
+    answer: "Spring Boot crée des proxys de classe avec CGLIB : une sous-classe générée, dont le nom porte `$$SpringCGLIB$$`. Un proxy JDK (`$Proxy`) n'implémenterait que des interfaces."
+  - key: qcm-gestionnaire
+    format: multiple-choice
+    question: "Avec Spring Data JPA, quel composant valide ou annule la transaction ouverte par `@Transactional` ?"
+    choices:
+      - {text: "Le `JpaTransactionManager`", correct: true}
+      - {text: "L'`EntityManagerFactory`", correct: false}
+      - {text: "Le `DataSourceInitializer`", correct: false}
+      - {text: "Le `HibernateJpaVendorAdapter`", correct: false}
+    answer: "Le proxy délègue au `PlatformTransactionManager`, que Spring Boot configure en `JpaTransactionManager` quand JPA est présent. Il attache l'`EntityManager` et la connexion au thread, puis fait le commit ou le rollback."
+  - key: qcm-quelle-methode
+    format: multiple-choice
+    question: "Un contrôleur appelle chacune de ces méthodes d'un `@Service` injecté. Laquelle s'exécute dans une transaction ?"
+    choices:
+      - {text: "`@Transactional public void payer()`", correct: true}
+      - {text: "`@Transactional public final void payer()`", correct: false}
+      - {text: "`public void payer()` qui appelle `this.debiter()`, annotée `@Transactional`", correct: false}
+      - {text: "`@Transactional public void payer()` appelée sur `new PaiementService()`", correct: false}
+    answer: "Seul l'appel public qui traverse le proxy est transactionnel. Une méthode `final` n'est pas redéfinie par le proxy, un appel `this.debiter()` le contourne, et un objet créé avec `new` n'a pas de proxy."
+  - key: qcm-appel-lent
+    format: multiple-choice
+    question: "Pourquoi éviter un appel HTTP de deux secondes à l'intérieur d'une méthode `@Transactional` ?"
+    choices:
+      - {text: "La transaction garde une connexion du pool pendant toute l'attente", correct: true}
+      - {text: "Spring interdit les appels réseau pendant une transaction ouverte", correct: false}
+      - {text: "L'appel HTTP rejoindrait la transaction et serait annulé avec elle", correct: false}
+      - {text: "Le délai par défaut d'une transaction Spring est d'une seconde", correct: false}
+    answer: "Une transaction occupe une connexion (et parfois des verrous) jusqu'au commit. Sous charge, le pool s'épuise et les autres requêtes attendent. On fait l'appel lent avant ou après la transaction."
+  - key: trous-annotation
+    format: fill-in
+    question: |-
+      Complète pour que les deux mises à jour soient validées ou annulées ensemble :
+      ```java
+      @___
+      public void virer(long de, long vers, int montant) {
+          comptes.findById(de).orElseThrow().debiter(montant);
+          comptes.findById(vers).orElseThrow().crediter(montant);
+      }
+      ```
+    blanks:
+      - [Transactional]
+    answer: "`@Transactional` ouvre une transaction autour de la méthode. Le dirty checking écrit les deux comptes modifiés au commit."
+  - key: trous-bean
+    format: fill-in
+    question: |-
+      Complète pour que Spring crée un bean, et donc un proxy transactionnel :
+      ```java
+      @___
+      public class VirementService {
+          @Transactional
+          public void virer(long de, long vers, int montant) { ... }
+      }
+      ```
+    blanks:
+      - [Service, Component]
+    answer: "Sans annotation de composant, la classe n'est pas un bean : pas de proxy, et `@Transactional` ne fait rien. `@Service` est un `@Component` qui dit son rôle."
+  - key: trous-template
+    format: fill-in
+    question: |-
+      Complète pour exécuter ce bloc dans une transaction, sans annotation :
+      ```java
+      transactionTemplate.___(status -> {
+          comptes.findById(de).orElseThrow().debiter(montant);
+          comptes.findById(vers).orElseThrow().crediter(montant);
+      });
+      ```
+    blanks:
+      - [executeWithoutResult]
+    answer: "`TransactionTemplate` est la version programmatique : `executeWithoutResult` pour un bloc sans valeur, `execute` pour un bloc qui renvoie un résultat."
+  - key: trous-transaction-active
+    format: fill-in
+    question: |-
+      Complète pour vérifier, dans un test, qu'une transaction est ouverte :
+      ```java
+      boolean active = TransactionSynchronizationManager.___();
+      ```
+    blanks:
+      - [isActualTransactionActive]
+    answer: "`TransactionSynchronizationManager.isActualTransactionActive()` dit si une vraie transaction est liée au thread courant."
+  - key: bug-auto-invocation
+    format: bug-fix
+    question: |-
+      Le troisième élément du lot lève une exception, mais les deux premières commandes restent en base. Quelle
+      correction est la bonne ?
+      ```java
+      @Service
+      public class ImportService {
+          private final CommandeRepository commandes;
+
+          public ImportService(CommandeRepository commandes) {
+              this.commandes = commandes;
+          }
+
+          public void importer(List<Commande> lot) {
+              enregistrer(lot);
+          }
+
+          @Transactional
+          public void enregistrer(List<Commande> lot) {
+              lot.forEach(commandes::save);
+          }
+      }
+      ```
+    choices:
+      - {text: "Annoter `importer` avec `@Transactional`", correct: true}
+      - {text: "Annoter l'entité `Commande` avec `@Transactional`", correct: false}
+      - {text: "Appeler `commandes.flush()` après chaque `save`", correct: false}
+      - {text: "Déclarer `enregistrer` avec le mot-clé `final`", correct: false}
+    answer: |-
+      ```java
+      @Transactional
+      public void importer(List<Commande> lot) {
+          enregistrer(lot);
+      }
+      ```
+      Le contrôleur appelle `importer`, qui n'est pas transactionnelle. Son appel interne à `enregistrer` ne passe pas
+      par le proxy : l'annotation est ignorée, et chaque `save` valide sa propre transaction. Annoter le point d'entrée
+      (ou déplacer `enregistrer` dans un autre bean) met tout le lot dans une seule transaction.
+  - key: bug-methode-privee
+    format: bug-fix
+    question: |-
+      Quand l'enregistrement du profil échoue, le compte reste en base sans profil. Quelle correction est la bonne ?
+      ```java
+      @Service
+      public class InscriptionService {
+          public void inscrire(Inscription inscription) {
+              creerCompte(inscription);
+          }
+
+          @Transactional
+          private void creerCompte(Inscription inscription) {
+              comptes.save(new Compte(inscription.email()));
+              profils.save(new Profil(inscription.pseudo()));   // peut lever une exception
+          }
+      }
+      ```
+    choices:
+      - {text: "Mettre `@Transactional` sur la méthode publique `inscrire`", correct: true}
+      - {text: "Rendre `creerCompte` protégée, en gardant son annotation", correct: false}
+      - {text: "Ajouter `rollbackFor = Exception.class` à l'annotation", correct: false}
+      - {text: "Remplacer les deux `save` par des appels à `saveAndFlush`", correct: false}
+    answer: |-
+      ```java
+      @Transactional
+      public void inscrire(Inscription inscription) {
+          creerCompte(inscription);
+      }
+      ```
+      Une méthode privée ne peut pas être redéfinie par le proxy, et elle n'est appelée que de l'intérieur : son
+      annotation n'a aucun effet. La rendre protégée ne suffit pas, l'appel resterait interne. La transaction se pose
+      sur la méthode publique que les autres beans appellent.
+  - key: bug-new-service
+    format: bug-fix
+    question: |-
+      Quand le crédit échoue, le débit reste en base. `virer` est pourtant annotée `@Transactional`. Quelle
+      correction est la bonne ?
+      ```java
+      @RestController
+      public class VirementController {
+          private final CompteRepository comptes;
+
+          public VirementController(CompteRepository comptes) {
+              this.comptes = comptes;
+          }
+
+          @PostMapping("/virements")
+          public void virer(@RequestBody Virement virement) {
+              new VirementService(comptes).virer(virement);
+          }
+      }
+      ```
+    choices:
+      - {text: "Injecter `VirementService` dans le constructeur du contrôleur", correct: true}
+      - {text: "Annoter le contrôleur entier avec `@Transactional(readOnly = true)`", correct: false}
+      - {text: "Créer le service avec `new` une seule fois, dans un champ `static`", correct: false}
+      - {text: "Ajouter `@Repository` sur le `CompteRepository` pour l'enregistrer", correct: false}
+    answer: |-
+      ```java
+      private final VirementService virements;
+
+      public VirementController(VirementService virements) {
+          this.virements = virements;
+      }
+      ```
+      Un objet créé avec `new` n'est pas un bean : Spring ne l'a pas enveloppé dans un proxy, et `@Transactional` n'y
+      fait rien. Le bean injecté, lui, est le proxy qui ouvre la transaction.
+  - key: bug-methode-final
+    format: bug-fix
+    question: |-
+      L'appel lève `NullPointerException: Cannot invoke "boutique.ProduitRepository.findById(Object)" because
+      "this.produits" is null`. Le constructeur reçoit pourtant le repository. Quelle correction est la bonne ?
+      ```java
+      @Service
+      public class StockService {
+          private final ProduitRepository produits;
+
+          public StockService(ProduitRepository produits) {
+              this.produits = produits;
+          }
+
+          @Transactional
+          public final void reserver(long id, int quantite) {
+              produits.findById(id).orElseThrow().retirer(quantite);
+          }
+      }
+      ```
+    choices:
+      - {text: "Retirer le mot-clé `final` de la méthode `reserver`", correct: true}
+      - {text: "Annoter le champ `produits` avec `@Autowired`", correct: false}
+      - {text: "Déclarer le champ `produits` avec `static`", correct: false}
+      - {text: "Retirer le mot-clé `final` du champ `produits`", correct: false}
+    answer: |-
+      ```java
+      @Transactional
+      public void reserver(long id, int quantite) {
+      ```
+      Le proxy CGLIB est une sous-classe : il ne peut pas redéfinir une méthode `final`. L'appel s'exécute alors sur
+      l'instance du proxy elle-même, dont les champs n'ont jamais été initialisés : `produits` y vaut `null`. Sans
+      `final`, le proxy intercepte l'appel et le délègue au vrai bean.
+  - key: situation-controleur
+    format: scenario
+    question: "Un collègue met `@Transactional` sur toutes les méthodes des contrôleurs, « pour être tranquille ». Que lui réponds-tu ?"
+    choices:
+      - {text: "Je les déplace sur les services : le contrôleur couvrirait aussi la sérialisation", correct: true}
+      - {text: "C'est la bonne pratique : une requête HTTP égale une transaction", correct: false}
+      - {text: "C'est inutile : Spring Boot ouvre déjà une transaction par requête", correct: false}
+      - {text: "Il faut les mettre sur les entités, car elles portent les données", correct: false}
+    answer: "Une transaction au niveau du contrôleur dure pendant la conversion en JSON, garde sa connexion plus longtemps et masque les chargements paresseux. Le service délimite le cas d'usage ; le contrôleur reste mince."
+  - key: situation-pool-epuise
+    format: scenario
+    question: "Sous charge, les requêtes attendent une connexion du pool puis échouent. Le profilage montre un appel de 2 s au prestataire de paiement dans une méthode `@Transactional`. Que proposes-tu ?"
+    choices:
+      - {text: "Sortir l'appel de la transaction, avant ou après l'écriture en base", correct: true}
+      - {text: "Doubler la taille du pool, puis l'augmenter encore si ça revient", correct: false}
+      - {text: "Passer la méthode en `readOnly = true` pour libérer la connexion", correct: false}
+      - {text: "Mettre `timeout = 1` sur l'annotation pour couper l'appel HTTP", correct: false}
+    answer: "La transaction tient sa connexion pendant toute l'attente du prestataire. On appelle le prestataire hors transaction, puis on enregistre le résultat dans une transaction courte. Agrandir le pool ne fait que repousser le problème."
+  - key: situation-pas-de-rollback
+    format: scenario
+    question: "En entretien : « Ma méthode `@Transactional` ne fait pas de rollback quand elle échoue ; elle est appelée par une autre méthode de la même classe. » Que réponds-tu ?"
+    choices:
+      - {text: "L'appel interne contourne le proxy : je passe par un autre bean ou j'annote l'appelante", correct: true}
+      - {text: "Il manque `rollbackFor = RuntimeException.class`, que l'annotation n'a pas par défaut", correct: false}
+      - {text: "Les transactions ne marchent qu'avec une base PostgreSQL, pas avec H2 en mémoire", correct: false}
+      - {text: "Il faut appeler `flush()` avant de lever l'exception, sinon rien n'est annulé", correct: false}
+    answer: "C'est l'auto-invocation : `this.methode()` appelle l'objet réel, pas le proxy, donc aucune transaction n'est ouverte. Solutions : déplacer la méthode dans un autre bean, annoter la méthode publique appelée de l'extérieur, ou utiliser `TransactionTemplate`."
+  - key: situation-save-inutile
+    format: scenario
+    question: "Ton collègue s'étonne : dans sa méthode `@Transactional`, il modifie le prix d'un produit chargé avec `findById`, oublie le `save`, et l'UPDATE part quand même. Que lui expliques-tu ?"
+    choices:
+      - {text: "L'entité est gérée : Hibernate compare son état au commit et écrit l'UPDATE", correct: true}
+      - {text: "Spring Data appelle `save` tout seul à la fin de chaque méthode du service", correct: false}
+      - {text: "Le setter de l'entité envoie l'UPDATE à la base de données dès son appel", correct: false}
+      - {text: "C'est un bug d'Hibernate : sans `save`, aucune écriture ne devrait partir", correct: false}
+    answer: "C'est le dirty checking. Dans une transaction, une entité chargée est gérée par le contexte de persistance ; au flush (avant le commit), Hibernate détecte ses changements et écrit l'UPDATE. Hors transaction, l'entité serait détachée, et la modification perdue."

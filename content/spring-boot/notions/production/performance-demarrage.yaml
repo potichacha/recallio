@@ -1,0 +1,210 @@
+notion: performance-demarrage
+lesson: |-
+  Le temps de démarrage compte quand on **démarre souvent** : mise à l'échelle automatique, plateformes qui éteignent
+  un service inactif, tests d'intégration. La mémoire compte quand on fait tourner **beaucoup d'instances**.
+
+  **Mesurer d'abord.** Le log de démarrage donne le total : `Started BoutiqueApplication in 4.2 seconds`. Pour le
+  détail, Spring enregistre chaque étape (création des beans, auto-configuration...) avec un `ApplicationStartup`,
+  que le endpoint `startup` d'Actuator restitue :
+
+  ```java
+  public static void main(String[] args) {
+      SpringApplication app = new SpringApplication(BoutiqueApplication.class);
+      app.setApplicationStartup(new BufferingApplicationStartup(2048));
+      app.run(args);
+  }
+  ```
+
+  **Les leviers, du plus simple au plus contraignant.**
+
+  | Levier | Ce qu'il gagne | Ce qu'il coûte |
+  |---|---|---|
+  | moins de dépendances | moins d'auto-configuration, moins de classes | rien |
+  | initialisation paresseuse | les beans ne sont créés qu'à leur premier usage | erreurs découvertes tard, premières requêtes plus lentes |
+  | CDS, cache AOT de la JVM | les classes, déjà analysées, sont lues dans une archive | un entraînement au build ; même JVM, même classpath |
+  | AOT de Spring sur la JVM | les définitions de beans sont générées au build | un « monde fermé » : conditions évaluées au build |
+  | image native GraalVM | démarrage en quelques dizaines de ms, peu de mémoire | build long, pas de JIT, réflexion à déclarer |
+
+  **L'initialisation paresseuse.**
+
+  ```properties
+  spring.main.lazy-initialization=true
+  ```
+
+  Un bean mal configuré ne fait plus échouer le démarrage : l'erreur surgit à la première requête qui s'en sert. On
+  exclut les beans critiques avec `@Lazy(false)`. Souvent réservée au développement.
+
+  **CDS (Class Data Sharing).** La JVM enregistre, lors d'un **entraînement**, les classes qu'elle charge, puis les
+  relit d'une archive aux démarrages suivants. Spring Framework sait arrêter l'application juste après le
+  rafraîchissement du contexte, ce qui fait un entraînement rapide :
+
+  ```bash
+  java -Djarmode=tools -jar app.jar extract --destination app        # le jar, extrait
+  java -XX:ArchiveClassesAtExit=app.jsa -Dspring.context.exit=onRefresh -jar app/app.jar
+  java -XX:SharedArchiveFile=app.jsa -jar app/app.jar                # les démarrages suivants
+  ```
+
+  L'archive ne vaut que pour la **même JVM** et le **même classpath** : on l'entraîne pendant la construction de
+  l'image Docker. Depuis Java 24, le **cache AOT** de la JVM (JEP 483, simplifié en Java 25 par l'option
+  `-XX:AOTCacheOutput`) va plus loin : il garde aussi les classes liées.
+
+  **L'AOT de Spring.** Au build, le plugin (`process-aot`) analyse le contexte et **génère le code** qui définit les
+  beans ; au lancement, `-Dspring.aot.enabled=true` l'utilise au lieu de tout recalculer. Le prix : le contexte est
+  figé au build. Une condition comme `@ConditionalOnProperty` est évaluée au build, et les profils qui changent les
+  beans doivent être connus à ce moment-là.
+
+  **L'image native GraalVM.** L'AOT de Spring, puis la compilation de toute l'application en un exécutable : plus
+  de JVM au lancement. Démarrage quasi instantané, mémoire réduite ; mais un build de plusieurs minutes, pas de
+  compilateur JIT (le débit de pointe peut être plus faible), et la réflexion, les proxies et les ressources doivent
+  être déclarés par des indications (`RuntimeHints`).
+
+  **La mémoire.** Dans un conteneur, la JVM dimensionne son tas d'après la mémoire du conteneur
+  (`-XX:MaxRAMPercentage`) ; les threads virtuels évitent la pile d'un thread système par requête.
+
+  **En entretien** : « Je mesure d'abord, avec le log de démarrage et le endpoint `startup`. Ensuite, du moins au plus
+  contraignant : retirer des dépendances, l'initialisation paresseuse, le cache de classes de la JVM (CDS, puis le
+  cache AOT de Java 25), l'AOT de Spring sur la JVM, et enfin l'image native GraalVM, qui démarre en quelques
+  dizaines de millisecondes, au prix d'un build long et d'un monde fermé. »
+cards:
+  - key: lazy-initialization
+    format: course
+    question: "Que fait `spring.main.lazy-initialization=true` ?"
+    choices:
+      - {text: "Il ne crée chaque bean qu'au moment où on en a besoin", correct: true}
+      - {text: "Il charge les classes de l'application dans un thread séparé", correct: false}
+      - {text: "Il démarre le serveur web après l'exécution des runners", correct: false}
+      - {text: "Il désactive l'auto-configuration des starters inutilisés", correct: false}
+    answer: "Le contexte enregistre les définitions, mais ne crée un bean qu'à sa première demande. Le démarrage est plus court, et la mémoire du début plus faible."
+  - key: prix-lazy
+    format: course
+    question: "Quel est le principal prix de l'initialisation paresseuse des beans ?"
+    choices:
+      - {text: "Une erreur de configuration n'apparaît qu'au premier usage du bean", correct: true}
+      - {text: "L'application consomme plus de mémoire dès son démarrage", correct: false}
+      - {text: "Les beans deviennent tous de portée `prototype`", correct: false}
+      - {text: "L'injection par constructeur n'est plus possible", correct: false}
+    answer: "Au lieu d'échouer au démarrage, l'application échoue à la première requête qui touche le bean. Les premières requêtes sont aussi plus lentes."
+  - key: apport-cds
+    format: course
+    question: "Qu'apporte CDS (Class Data Sharing) au démarrage d'une JVM ?"
+    choices:
+      - {text: "Des classes déjà analysées, relues depuis une archive", correct: true}
+      - {text: "Le code de l'application compilé en binaire natif", correct: false}
+      - {text: "Des beans Spring créés en parallèle sur tous les cœurs", correct: false}
+      - {text: "Un ramasse-miettes plus rapide pendant le démarrage", correct: false}
+    answer: "La JVM évite d'ouvrir, d'analyser et de vérifier les classes à chaque démarrage. Elle reste une JVM, avec son JIT."
+  - key: aot-spring-jvm
+    format: course
+    question: "Que fait le traitement AOT de Spring, utilisé sur une JVM classique ?"
+    choices:
+      - {text: "Il génère au build le code qui définit les beans", correct: true}
+      - {text: "Il compile l'application en un exécutable natif", correct: false}
+      - {text: "Il précharge les classes dans une archive CDS", correct: false}
+      - {text: "Il supprime les beans qui ne sont jamais injectés", correct: false}
+    answer: "Le contexte est analysé une fois, au build ; au lancement, `-Dspring.aot.enabled=true` utilise ce code au lieu de tout recalculer. L'image native s'appuie sur ce même travail."
+  - key: vf-native-sans-jit
+    format: true-false
+    question: "Une image native GraalVM démarre plus vite qu'une JVM, mais n'a pas de compilateur JIT à l'exécution."
+    truth: true
+    answer: "Tout est compilé à l'avance. Le démarrage est quasi instantané ; le débit de pointe peut être plus faible qu'avec le JIT, qui optimise d'après l'exécution réelle."
+  - key: vf-conditional-au-build
+    format: true-false
+    question: "Avec l'AOT de Spring, une condition `@ConditionalOnProperty` est évaluée au build, et non au démarrage."
+    truth: true
+    answer: "Les beans sont figés au build : changer la propriété au lancement ne crée ni ne retire de bean. C'est le « monde fermé »."
+  - key: vf-cds-autre-jvm
+    format: true-false
+    question: "Une archive CDS reste valable quand on change de version de JVM."
+    truth: false
+    answer: "L'archive dépend de la JVM et du classpath exacts. On l'entraîne au build de l'image, avec la JVM qui servira."
+  - key: vf-lazy-premieres-requetes
+    format: true-false
+    question: "L'initialisation paresseuse peut ralentir les premières requêtes, qui créent les beans à la demande."
+    truth: true
+    answer: "Le travail n'est pas supprimé, seulement déplacé : les premières requêtes paient la création des beans qu'elles touchent."
+  - key: qcm-trouver-beans-lents
+    format: multiple-choice
+    question: "Comment trouves-tu les étapes qui ralentissent le démarrage de l'application ?"
+    choices:
+      - {text: "Avec `BufferingApplicationStartup` et le endpoint `startup` d'Actuator", correct: true}
+      - {text: "Avec le endpoint `beans`, qui donne la durée de création de chaque bean", correct: false}
+      - {text: "Avec l'option `--debug`, qui chronomètre chaque bean créé", correct: false}
+      - {text: "Avec le endpoint `metrics`, à la mesure `spring.beans.created`", correct: false}
+    answer: "`BufferingApplicationStartup` enregistre chaque étape avec sa durée ; `/actuator/startup` les rend. `--debug` affiche le rapport des conditions, pas des durées."
+  - key: qcm-option-archive
+    format: multiple-choice
+    question: "Quelle option de la JVM utilise une archive CDS existante au démarrage ?"
+    choices:
+      - {text: "`-XX:SharedArchiveFile=app.jsa`", correct: true}
+      - {text: "`-XX:ArchiveClassesAtExit=app.jsa`", correct: false}
+      - {text: "`-Dspring.aot.enabled=true`", correct: false}
+      - {text: "`-XX:TieredStopAtLevel=1`", correct: false}
+    answer: "`ArchiveClassesAtExit` crée l'archive pendant l'entraînement ; `SharedArchiveFile` la relit ensuite."
+  - key: qcm-entrainement-cds
+    format: multiple-choice
+    question: "Quelle propriété arrête l'application juste après le rafraîchissement du contexte, pour un entraînement CDS ?"
+    choices:
+      - {text: "`-Dspring.context.exit=onRefresh`", correct: true}
+      - {text: "`-Dspring.main.lazy-initialization=true`", correct: false}
+      - {text: "`-Dspring.aot.enabled=true`", correct: false}
+      - {text: "`-Dspring.main.web-application-type=none`", correct: false}
+    answer: "L'application charge toutes ses classes en créant le contexte, puis s'arrête : la JVM écrit l'archive à la sortie, sans attendre de requête."
+  - key: qcm-inconvenient-natif
+    format: multiple-choice
+    question: "Quel est le principal inconvénient d'une image native GraalVM ?"
+    choices:
+      - {text: "Un build long, et la réflexion à déclarer par des indications", correct: true}
+      - {text: "Un démarrage plus lent qu'avec une JVM classique", correct: false}
+      - {text: "Une consommation de mémoire plus forte au repos", correct: false}
+      - {text: "L'impossibilité de servir une API REST avec Spring MVC", correct: false}
+    answer: "La compilation native prend des minutes et beaucoup de mémoire ; tout ce qui est dynamique (réflexion, proxies, ressources) doit être connu au build."
+  - key: situation-demarrage-une-seconde
+    format: scenario
+    question: |-
+      Ton service doit démarrer en moins d'une seconde, car la plateforme l'éteint dès qu'il ne reçoit plus de
+      requêtes. Que proposes-tu ?
+    choices:
+      - {text: "Une image native GraalVM, qui démarre en quelques dizaines de ms", correct: true}
+      - {text: "L'initialisation paresseuse seule, qui divise le démarrage par dix", correct: false}
+      - {text: "Plus de processeurs, puisque Spring crée ses beans en parallèle", correct: false}
+      - {text: "Un `ApplicationRunner` qui précharge tout avant la première requête", correct: false}
+    answer: |-
+      Pour un démarrage sous la seconde, à chaque réveil, l'image native est l'outil adapté ; on accepte le build
+      long et le monde fermé. L'initialisation paresseuse aide, mais ne suffit pas.
+  - key: situation-erreur-apres-lazy
+    format: scenario
+    question: |-
+      Depuis l'activation de l'initialisation paresseuse, une erreur de configuration du client de paiement n'est
+      apparue qu'en production, à la première commande. Que fais-tu ?
+    choices:
+      - {text: "Je crée ce bean critique au démarrage, avec `@Lazy(false)`", correct: true}
+      - {text: "Je passe tous les beans de l'application en portée `prototype`", correct: false}
+      - {text: "J'entoure l'injection du client d'un `try/catch` silencieux", correct: false}
+      - {text: "Je retire les sondes de Kubernetes, qui ont masqué l'erreur", correct: false}
+    answer: |-
+      `@Lazy(false)` soustrait le bean à l'initialisation paresseuse : une erreur de configuration refait échouer
+      le démarrage, avant tout trafic. Pour un service en production, on peut aussi renoncer à la paresse.
+  - key: situation-vingt-cinq-secondes
+    format: scenario
+    question: |-
+      Ton application met 25 secondes à démarrer, et personne ne sait pourquoi. Par quoi commences-tu ?
+    choices:
+      - {text: "Par mesurer : le endpoint `startup` dit quelles étapes sont lentes", correct: true}
+      - {text: "Par compiler l'application en image native, sans chercher plus loin", correct: false}
+      - {text: "Par activer l'initialisation paresseuse sur tous les beans", correct: false}
+      - {text: "Par doubler la mémoire allouée à la JVM dans le conteneur", correct: false}
+    answer: |-
+      Un seul bean (une connexion qui attend un délai, un gros cache, Hibernate qui valide un schéma) explique
+      souvent l'essentiel. On le trouve avec `BufferingApplicationStartup`, puis on choisit le levier.
+  - key: situation-cds-docker
+    format: scenario
+    question: |-
+      Tu veux que ton image Docker démarre avec une archive CDS valable. Comment la produis-tu ?
+    choices:
+      - {text: "En l'entraînant pendant le build de l'image, avec la même JVM et le même jar", correct: true}
+      - {text: "En copiant dans l'image une archive générée sur ton poste de développement", correct: false}
+      - {text: "En la générant une fois, puis en la gardant pour les versions suivantes du JDK", correct: false}
+      - {text: "En la téléchargeant depuis le site de Spring, qui en publie une par version", correct: false}
+    answer: |-
+      Une étape du `Dockerfile` lance l'application avec `-XX:ArchiveClassesAtExit` et
+      `-Dspring.context.exit=onRefresh`. L'archive correspond ainsi exactement à la JVM et au classpath de l'image.

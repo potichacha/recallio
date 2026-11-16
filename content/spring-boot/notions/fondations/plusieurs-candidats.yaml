@@ -1,0 +1,379 @@
+notion: plusieurs-candidats
+lesson: |-
+  Quand **plusieurs beans** ont le type demandé, Spring ne sait pas lequel injecter :
+
+  ```java
+  @Component class EmailNotificateur implements Notificateur { ... }
+  @Component class SmsNotificateur implements Notificateur { ... }
+
+  @Service
+  public class Alerte {
+      public Alerte(Notificateur notificateur) { ... }   // lequel ?
+  }
+  ```
+
+  Le démarrage échoue sur une `NoUniqueBeanDefinitionException`. Spring Boot l'explique : « Parameter 0 of
+  constructor in com.boutique.Alerte required a single bean, but 2 were found », et propose `@Primary`, `@Qualifier`
+  ou d'accepter plusieurs beans.
+
+  **`@Primary` : un choix par défaut.**
+
+  ```java
+  @Component
+  @Primary
+  class EmailNotificateur implements Notificateur { ... }
+  ```
+
+  Partout où l'on demande un seul `Notificateur`, c'est lui qui est injecté. Deux `@Primary` du même type, et
+  l'ambiguïté revient (« more than one 'primary' bean found »).
+
+  **`@Qualifier` : choisir au point d'injection.**
+
+  ```java
+  public Alerte(@Qualifier("smsNotificateur") Notificateur notificateur) { ... }
+  ```
+
+  Le qualificatif désigne le bean par son nom (ou par une valeur posée avec `@Qualifier` sur le bean). Il l'emporte
+  sur `@Primary`. Pour ne pas répéter des chaînes, on crée une annotation maison méta-annotée `@Qualifier`
+  (`@Sms`).
+
+  **Tous les beans : `List` et `Map`.**
+
+  ```java
+  public Diffusion(List<Notificateur> tous) { ... }            // rangés selon @Order
+  public Routage(Map<String, Notificateur> parNom) { ... }     // clé : le nom du bean
+  ```
+
+  `@Order(1)`, `@Order(2)` sur les beans fixent leur ordre dans la liste. `ObjectProvider<T>` offre aussi
+  `orderedStream()`.
+
+  **Le nom du paramètre.** En dernier recours, Spring compare le **nom du paramètre** aux noms des beans :
+  `Alerte(Notificateur smsNotificateur)` reçoit le bean `smsNotificateur`. Cela demande que le code soit compilé avec
+  `-parameters` (ce que font les plugins Maven et Gradle de Spring Boot), et casse au premier renommage : on lui
+  préfère un `@Qualifier` explicite.
+
+  **`@Fallback` (Spring 6.2)** marque un bean de **repli** : il n'est retenu que s'il n'y a pas d'autre candidat.
+  Pratique pour une valeur par défaut qu'une application peut remplacer.
+
+  | Besoin | Outil |
+  |---|---|
+  | un défaut, valable presque partout | `@Primary` |
+  | un choix précis à un endroit | `@Qualifier` |
+  | tous les beans, dans l'ordre | `List<T>` et `@Order` |
+  | choisir à l'exécution, par nom | `Map<String, T>` |
+  | un bean remplaçable | `@Fallback` |
+
+  **En entretien** : « Deux beans du même type rendent l'injection ambiguë. `@Primary` donne un défaut,
+  `@Qualifier` choisit au point d'injection et l'emporte sur `@Primary`, et une `List` ou une `Map` reçoit tous les
+  candidats, rangés par `@Order`. »
+cards:
+  - key: role-de-primary
+    format: course
+    question: "Que fait `@Primary` sur un bean ?"
+    choices:
+      - {text: "Il en fait le choix par défaut quand plusieurs beans du type conviennent", correct: true}
+      - {text: "Il le fait créer avant tous les autres beans du contexte", correct: false}
+      - {text: "Il rend invisibles les autres beans du même type, partout", correct: false}
+      - {text: "Il le place en tête de toute liste injectée de ce type", correct: false}
+    answer: "`@Primary` ne règle que l'injection d'un bean unique. Les autres beans restent injectables par `@Qualifier`, et l'ordre d'une liste dépend de `@Order`."
+  - key: qualifier-contre-primary
+    format: course
+    question: "Un point d'injection porte `@Qualifier(\"sms\")`, et un autre bean du même type est `@Primary`. Lequel est injecté ?"
+    choices:
+      - {text: "Le bean `sms` : le qualificatif l'emporte sur `@Primary`", correct: true}
+      - {text: "Le bean `@Primary`, qui l'emporte dans tous les cas", correct: false}
+      - {text: "Aucun : le démarrage échoue sur le conflit", correct: false}
+      - {text: "Les deux, rangés dans une liste", correct: false}
+    answer: "Le qualificatif restreint les candidats au point d'injection ; `@Primary` ne sert qu'à départager ceux qui restent."
+  - key: injection-d-une-liste
+    format: course
+    question: "Que reçoit un constructeur qui déclare un paramètre `List<Notificateur>` ?"
+    choices:
+      - {text: "Tous les beans de type `Notificateur`, rangés selon `@Order`", correct: true}
+      - {text: "Le seul bean `@Primary` de type `Notificateur`, dans une liste", correct: false}
+      - {text: "Une liste vide, que le constructeur remplit avec `add`", correct: false}
+      - {text: "Une erreur, puisque plusieurs beans conviennent", correct: false}
+    answer: "Une collection accepte tous les candidats : pas d'ambiguïté. Sans `@Order`, l'ordre suit l'enregistrement des beans."
+  - key: injection-d-une-map
+    format: course
+    question: "Que contient un paramètre `Map<String, Notificateur>` injecté par Spring ?"
+    choices:
+      - {text: "Les beans `Notificateur`, rangés sous leur nom de bean", correct: true}
+      - {text: "Les beans `Notificateur`, rangés sous leur nom de classe complet", correct: false}
+      - {text: "Les propriétés de configuration qui commencent par `notificateur`", correct: false}
+      - {text: "Un seul bean, rangé sous la clé `primary`", correct: false}
+    answer: "La clé est le nom du bean (`emailNotificateur`, `smsNotificateur`). Pratique pour choisir une stratégie à l'exécution."
+  - key: vf-nom-du-parametre
+    format: true-false
+    question: "Sans `@Primary` ni `@Qualifier`, Spring peut départager deux candidats si le nom du paramètre est celui de l'un des beans."
+    truth: true
+    answer: "C'est le dernier recours de Spring, qui demande la compilation avec `-parameters`. Fragile au renommage : un `@Qualifier` est plus explicite."
+  - key: vf-deux-primary
+    format: true-false
+    question: "Marquer `@Primary` deux beans du même type règle l'ambiguïté d'une injection de ce type."
+    truth: false
+    answer: "Le démarrage échoue : « more than one 'primary' bean found among candidates ». Un seul bean par type peut être `@Primary`."
+  - key: vf-order-dans-liste
+    format: true-false
+    question: "`@Order` change l'ordre des beans dans une `List` injectée."
+    truth: true
+    answer: "La valeur la plus petite passe en premier : `@Order(1)` avant `@Order(2)`."
+  - key: vf-liste-et-plusieurs-beans
+    format: true-false
+    question: "Injecter une `List<Notificateur>` échoue quand il existe plusieurs beans `Notificateur`."
+    truth: false
+    answer: "Au contraire : la liste les reçoit tous. L'ambiguïté ne concerne que l'injection d'un bean unique."
+  - key: qcm-exception-ambiguite
+    format: multiple-choice
+    question: "Quelle exception signale qu'un point d'injection a plusieurs candidats ?"
+    choices:
+      - {text: "`NoUniqueBeanDefinitionException`", correct: true}
+      - {text: "`NoSuchBeanDefinitionException`", correct: false}
+      - {text: "`BeanCurrentlyInCreationException`", correct: false}
+      - {text: "`BeanDefinitionOverrideException`", correct: false}
+    answer: "`NoSuchBeanDefinitionException` signale l'absence de bean ; `BeanCurrentlyInCreationException`, un cycle."
+  - key: qcm-qualificatif-maison
+    format: multiple-choice
+    question: "Comment éviter de répéter la chaîne `\"sms\"` dans tous les `@Qualifier` de l'application ?"
+    choices:
+      - {text: "Créer une annotation `@Sms`, elle-même annotée `@Qualifier`", correct: true}
+      - {text: "Déclarer une constante `static final` dans chaque classe", correct: false}
+      - {text: "Remplacer chaque `@Qualifier` par `@Primary(\"sms\")`", correct: false}
+      - {text: "Mettre `@Qualifier` sur l'interface `Notificateur`", correct: false}
+    answer: "Une annotation qualificative maison se pose sur le bean et sur les points d'injection : le compilateur vérifie le nom, et une faute de frappe devient impossible."
+  - key: qcm-role-fallback
+    format: multiple-choice
+    question: "Que fait `@Fallback` (Spring 6.2) sur un bean ?"
+    choices:
+      - {text: "Il n'est retenu que si aucun autre candidat du type n'existe", correct: true}
+      - {text: "Il est appelé quand le bean principal lève une exception", correct: false}
+      - {text: "Il n'est créé que si le contexte n'arrive pas à démarrer", correct: false}
+      - {text: "Il remplace le bean `@Primary` pendant les tests", correct: false}
+    answer: "C'est l'inverse de `@Primary` : le bean s'efface devant tout autre candidat. Idéal pour une implémentation par défaut, remplaçable."
+  - key: qcm-par-nom-de-parametre
+    format: multiple-choice
+    question: "Les beans `emailNotificateur` et `smsNotificateur` existent, sans `@Primary`. Lequel reçoit `Alerte(Notificateur smsNotificateur)` ?"
+    choices:
+      - {text: "`smsNotificateur`, par le nom du paramètre", correct: true}
+      - {text: "`emailNotificateur`, premier dans l'ordre alphabétique", correct: false}
+      - {text: "Aucun : le démarrage échoue sur l'ambiguïté", correct: false}
+      - {text: "Le dernier bean enregistré dans le contexte", correct: false}
+    answer: "Spring compare le nom du paramètre aux noms des beans, à condition que le code soit compilé avec `-parameters` (le défaut avec les plugins Spring Boot)."
+  - key: trous-primary
+    format: fill-in
+    question: |-
+      Complète pour faire de ce bean le choix par défaut :
+      ```java
+      @Component
+      @___
+      public class EmailNotificateur implements Notificateur {
+      }
+      ```
+    blanks:
+      - [Primary]
+    answer: "`@Primary` : choisi quand on demande un seul `Notificateur` sans autre précision."
+  - key: trous-qualifier
+    format: fill-in
+    question: |-
+      Complète pour injecter le bean nommé `smsNotificateur` :
+      ```java
+      public Alerte(@___("smsNotificateur") Notificateur notificateur) {
+          this.notificateur = notificateur;
+      }
+      ```
+    blanks:
+      - [Qualifier]
+    answer: "`@Qualifier` choisit le bean au point d'injection."
+  - key: trous-order
+    format: fill-in
+    question: |-
+      Complète pour que cette règle passe en premier dans la `List<Regle>` injectée :
+      ```java
+      @Component
+      @___(1)
+      public class RegleStock implements Regle {
+      }
+      ```
+    blanks:
+      - [Order]
+    answer: "`@Order(1)` : la valeur la plus petite vient en tête de liste."
+  - key: trous-liste
+    format: fill-in
+    question: |-
+      Complète pour recevoir toutes les règles, dans l'ordre de `@Order` :
+      ```java
+      public Validation(___<Regle> regles) {
+          this.regles = regles;
+      }
+      ```
+    blanks:
+      - [List]
+    answer: "Une `List<Regle>` reçoit tous les beans `Regle`, triés. Un `Set` ne garantirait pas l'ordre."
+  - key: bug-deux-notificateurs
+    format: bug-fix
+    question: |-
+      Le démarrage échoue : « Parameter 0 of constructor in com.boutique.Alerte required a single bean, but 2 were
+      found ». Les alertes doivent partir par SMS. Quelle correction est la bonne ?
+      ```java
+      @Component
+      public class EmailNotificateur implements Notificateur { ... }
+
+      @Component
+      public class SmsNotificateur implements Notificateur { ... }
+
+      @Service
+      public class Alerte {
+          public Alerte(Notificateur notificateur) { ... }
+      }
+      ```
+    choices:
+      - {text: "`@Qualifier(\"smsNotificateur\")` sur le paramètre", correct: true}
+      - {text: "`@Lazy` sur le paramètre `notificateur`", correct: false}
+      - {text: "`@Order(1)` sur la classe `SmsNotificateur`", correct: false}
+      - {text: "`@Primary` sur la classe `EmailNotificateur`", correct: false}
+    answer: |-
+      ```java
+      public Alerte(@Qualifier("smsNotificateur") Notificateur notificateur) { ... }
+      ```
+      Le qualificatif désigne le bean voulu. `@Primary` sur l'e-mail lèverait l'ambiguïté, mais enverrait les alertes
+      par e-mail ; `@Order` ne joue que dans les listes.
+  - key: bug-qualificatif-mal-nomme
+    format: bug-fix
+    question: |-
+      Le démarrage échoue : « No qualifying bean of type 'com.boutique.Notificateur' available: expected at least 1
+      bean which qualifies as autowire candidate. Dependency annotations:
+      {@org.springframework.beans.factory.annotation.Qualifier("sms")} ». Quelle correction est la bonne ?
+      ```java
+      @Component
+      public class SmsNotificateur implements Notificateur { ... }
+
+      @Service
+      public class Alerte {
+          public Alerte(@Qualifier("sms") Notificateur notificateur) { ... }
+      }
+      ```
+    choices:
+      - {text: "Écrire `@Qualifier(\"smsNotificateur\")`, le nom du bean", correct: true}
+      - {text: "Ajouter `@Primary` sur la classe `SmsNotificateur`", correct: false}
+      - {text: "Remplacer `@Qualifier(\"sms\")` par `@Named` sans valeur", correct: false}
+      - {text: "Ajouter `@Lazy` sur le paramètre `notificateur`", correct: false}
+    answer: |-
+      ```java
+      public Alerte(@Qualifier("smsNotificateur") Notificateur notificateur) { ... }
+      ```
+      Aucun bean ne s'appelle `sms` : le qualificatif ne trouve rien. On vise le nom réel du bean, ou l'on pose
+      `@Qualifier("sms")` aussi sur la classe. `@Primary` ne change pas le nom que cherche le qualificatif.
+  - key: bug-deux-primary
+    format: bug-fix
+    question: |-
+      Le démarrage échoue : « more than one 'primary' bean found among candidates: [emailNotificateur,
+      smsNotificateur] ». L'e-mail est le canal par défaut. Quelle correction est la bonne ?
+      ```java
+      @Component
+      @Primary
+      public class EmailNotificateur implements Notificateur { ... }
+
+      @Component
+      @Primary
+      public class SmsNotificateur implements Notificateur { ... }
+      ```
+    choices:
+      - {text: "Retirer `@Primary` de `SmsNotificateur`", correct: true}
+      - {text: "Ajouter `@Order(1)` sur `EmailNotificateur`", correct: false}
+      - {text: "Ajouter `@Lazy` sur `SmsNotificateur`", correct: false}
+      - {text: "Retirer `@Component` des deux classes", correct: false}
+    answer: |-
+      ```java
+      @Component
+      public class SmsNotificateur implements Notificateur { ... }
+      ```
+      Un seul bean par type peut être le défaut. Le SMS reste injectable par `@Qualifier("smsNotificateur")`.
+  - key: bug-ordre-des-regles
+    format: bug-fix
+    question: |-
+      La remise est calculée avant la vérification du stock, alors que le stock doit être vérifié d'abord. Quelle
+      correction est la bonne ?
+      ```java
+      @Component
+      public class RegleRemise implements Regle { ... }
+
+      @Component
+      public class RegleStock implements Regle { ... }
+
+      @Service
+      public class Validation {
+          public Validation(List<Regle> regles) { this.regles = regles; }
+      }
+      ```
+    choices:
+      - {text: "`@Order(1)` sur `RegleStock`, `@Order(2)` sur `RegleRemise`", correct: true}
+      - {text: "`@Primary` sur `RegleStock`, pour la mettre en premier", correct: false}
+      - {text: "Remplacer `List<Regle>` par `Set<Regle>`", correct: false}
+      - {text: "`@DependsOn(\"regleStock\")` sur la classe `Validation`", correct: false}
+    answer: |-
+      ```java
+      @Component
+      @Order(1)
+      public class RegleStock implements Regle { ... }
+
+      @Component
+      @Order(2)
+      public class RegleRemise implements Regle { ... }
+      ```
+      Sans `@Order`, la liste suit l'ordre d'enregistrement des beans, qui n'est pas un contrat. `@Primary` ne joue
+      aucun rôle dans une liste ; un `Set` perdrait l'ordre.
+  - key: situation-moyens-de-paiement
+    format: scenario
+    question: |-
+      Tu as trois moyens de paiement (`carte`, `virement`, `paypal`), et le client choisit le sien à chaque commande.
+      Comment les injectes-tu ?
+    choices:
+      - {text: "Une `Map<String, Paiement>`, et l'on choisit par le nom du bean", correct: true}
+      - {text: "Trois `@Primary`, un pour chaque moyen de paiement", correct: false}
+      - {text: "Un seul bean `Paiement`, modifié à chaque commande", correct: false}
+      - {text: "Un `@Qualifier` sur chaque méthode du contrôleur", correct: false}
+    answer: |-
+      ```java
+      public Caisse(Map<String, Paiement> paiements) { this.paiements = paiements; }
+      paiements.get(choixDuClient).payer(montant);
+      ```
+      Le choix se fait à l'exécution, pas à l'injection. Ajouter un moyen de paiement ne demande qu'un nouveau bean.
+  - key: situation-remplacer-en-test
+    format: scenario
+    question: |-
+      Dans un test d'intégration, tu veux remplacer le vrai `Paiement` par un faux, sans modifier le code de
+      production. Quelle option est la plus simple ?
+    choices:
+      - {text: "`@MockitoBean Paiement paiement;` dans la classe de test", correct: true}
+      - {text: "Ajouter `@Primary` au vrai `Paiement`, en production", correct: false}
+      - {text: "Supprimer la vraie classe `Paiement` pendant les tests", correct: false}
+      - {text: "Ajouter `@Qualifier(\"test\")` à tous les points d'injection", correct: false}
+    answer: |-
+      `@MockitoBean` (qui remplace `@MockBean` depuis Spring Boot 4) substitue une doublure Mockito au bean du
+      contexte, pour ce test seulement.
+  - key: situation-defaut-remplacable
+    format: scenario
+    question: |-
+      Ta bibliothèque interne fournit un `Horodateur` par défaut, que chaque application doit pouvoir remplacer par le
+      sien, sans conflit. Comment le déclares-tu ?
+    choices:
+      - {text: "Avec `@Fallback`, ou `@ConditionalOnMissingBean` en auto-configuration", correct: true}
+      - {text: "Avec `@Primary`, pour que le défaut gagne toujours", correct: false}
+      - {text: "Avec `@Order(Ordered.LOWEST_PRECEDENCE)` sur le défaut", correct: false}
+      - {text: "Sans rien : Spring garde toujours le dernier bean défini", correct: false}
+    answer: |-
+      Le défaut doit s'effacer devant le bean de l'application. `@Primary` ferait l'inverse ; `@Order` ne joue que
+      dans les listes ; deux beans de noms différents rendraient l'injection ambiguë.
+  - key: situation-repondre-ambiguite
+    format: scenario
+    question: |-
+      En entretien : « Spring trouve deux beans pour un même type. Comment t'en sors-tu ? » Quelle réponse est la plus
+      complète ?
+    choices:
+      - {text: "`@Primary` pour un défaut, `@Qualifier` pour choisir, une `List` pour tous", correct: true}
+      - {text: "Renommer l'une des classes, car Spring compare les noms de classe", correct: false}
+      - {text: "Passer le bean en portée prototype, pour en avoir plusieurs", correct: false}
+      - {text: "Retirer `@Component` de l'un des deux, et le créer avec `new`", correct: false}
+    answer: |-
+      La réponse donne les trois outils et leur usage. On peut ajouter que `@Qualifier` l'emporte sur `@Primary`, et
+      que `@Order` range les beans d'une liste.

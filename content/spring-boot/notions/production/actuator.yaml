@@ -1,0 +1,285 @@
+notion: actuator
+lesson: |-
+  **Actuator** ajoute à une application Spring Boot des **endpoints de production** : son état de santé, ses
+  métriques, sa configuration, ses niveaux de log. Une dépendance suffit :
+
+  ```xml
+  <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-actuator</artifactId>
+  </dependency>
+  ```
+
+  Les endpoints répondent sous **`/actuator`** : `/actuator/health`, `/actuator/metrics`...
+
+  **Les principaux endpoints.**
+
+  | Endpoint | Ce qu'il donne |
+  |---|---|
+  | `health` | l'état de santé agrégé : `UP`, `DOWN`, `OUT_OF_SERVICE`, `UNKNOWN` |
+  | `info` | des informations sur l'application : version, build, commit Git |
+  | `metrics` | les mesures de Micrometer : mémoire, requêtes HTTP, pool de connexions |
+  | `prometheus` | les mêmes mesures, au format de Prometheus (avec `micrometer-registry-prometheus`) |
+  | `env`, `configprops` | la configuration, valeurs masquées par défaut |
+  | `beans`, `conditions`, `mappings` | les beans, le rapport d'auto-configuration, les routes HTTP |
+  | `loggers` | lire **et changer** les niveaux de log, sans redémarrer |
+  | `threaddump`, `heapdump` | l'état des threads, une image de la mémoire |
+  | `shutdown` | arrêter l'application (désactivé par défaut) |
+
+  **Exposé ou pas.** Un endpoint ne répond en HTTP que s'il est **exposé**. Par défaut, **seul `health`** l'est. On
+  choisit la liste :
+
+  ```properties
+  management.endpoints.web.exposure.include=health,info,metrics,prometheus
+  management.endpoints.web.exposure.exclude=env
+  ```
+
+  En YAML, l'étoile (« tout exposer », réservée au développement) se met entre guillemets, sinon le fichier ne se
+  lit pas : `include: "*"`.
+
+  **La santé.** `/actuator/health` agrège des **indicateurs** : `db` (la base répond-elle ?), `diskSpace`, `ping`...
+  L'état global est le **pire** des composants, et un état `DOWN` ou `OUT_OF_SERVICE` renvoie le statut HTTP
+  **503**, que lisent les répartiteurs de charge. Par défaut, la réponse ne montre que l'état global ; le détail se
+  règle :
+
+  ```properties
+  management.endpoint.health.show-details=always   # never (défaut), when-authorized, always
+  ```
+
+  On ajoute sa propre vérification avec un **`HealthIndicator`**. Le composant prend le nom du bean, sans le suffixe
+  `HealthIndicator` : ici, `stockage`.
+
+  ```java
+  @Component
+  class StockageHealthIndicator implements HealthIndicator {
+
+      private final Stockage stockage;
+
+      StockageHealthIndicator(Stockage stockage) {
+          this.stockage = stockage;
+      }
+
+      @Override
+      public Health health() {
+          return stockage.disponible()
+                  ? Health.up().withDetail("espaceLibre", stockage.espaceLibre()).build()
+                  : Health.down().withDetail("raison", "volume plein").build();
+      }
+  }
+  ```
+
+  Une vérification qui ne doit pas faire tomber tout le service (une API partenaire secondaire) se range dans un
+  **groupe** à part : `management.endpoint.health.group.partenaires.include=partenaire`, servi sous
+  `/actuator/health/partenaires`.
+
+  **Les infos.** `info` est vide tant qu'on n'y met rien. Le but `build-info` du plugin Maven de Spring Boot y ajoute
+  la version et la date du build ; le plugin `git-commit-id-maven-plugin`, le commit.
+
+  **Les métriques et les logs.** `/actuator/metrics` liste les noms de mesures ; `/actuator/metrics/jvm.memory.used`
+  donne une valeur. Un `POST` sur `/actuator/loggers/com.boutique` avec `{"configuredLevel": "DEBUG"}` change un
+  niveau de log à chaud.
+
+  **Le port de management.** `management.server.port=9090` sert Actuator sur un autre port que l'API : pratique pour
+  le garder hors d'atteinte du public.
+
+  **En entretien** : « Actuator ajoute des endpoints de production sous `/actuator` : `health` pour l'état, `metrics`
+  et `prometheus` pour les mesures, `info`, `loggers`, `env`... Par défaut, seul `health` est exposé en HTTP ; je
+  choisis les autres avec `management.endpoints.web.exposure.include`, et je les protège. Un `HealthIndicator`
+  ajoute mes propres vérifications à l'état global, qui renvoie 503 quand il est `DOWN`. »
+cards:
+  - key: starter-actuator
+    format: course
+    question: "Quelle dépendance ajoute les endpoints `/actuator` à une application Spring Boot ?"
+    choices:
+      - {text: "`spring-boot-starter-actuator`", correct: true}
+      - {text: "`spring-boot-starter-monitoring`", correct: false}
+      - {text: "`spring-boot-starter-metrics`", correct: false}
+      - {text: "`micrometer-registry-prometheus`", correct: false}
+    answer: "Le starter Actuator apporte les endpoints et Micrometer. `micrometer-registry-prometheus` ne fait qu'ajouter le format de Prometheus, par-dessus Actuator."
+  - key: exposition-par-defaut
+    format: course
+    question: "Sans configuration, quels endpoints d'Actuator répondent en HTTP ?"
+    choices:
+      - {text: "Seulement `health`", correct: true}
+      - {text: "`health` et `info`", correct: false}
+      - {text: "Tous, sous `/actuator`", correct: false}
+      - {text: "Aucun : il faut tous les lister", correct: false}
+    answer: "Seul `health` est exposé par défaut. Les autres s'ajoutent avec `management.endpoints.web.exposure.include`. `info` a fait partie de la liste par défaut dans les anciennes versions de Spring Boot 2."
+  - key: statut-http-down
+    format: course
+    question: "Quel statut HTTP renvoie `/actuator/health` quand l'état agrégé est `DOWN` ?"
+    choices:
+      - {text: "503 Service Unavailable", correct: true}
+      - {text: "500 Internal Server Error", correct: false}
+      - {text: "200 OK, avec `DOWN` dans le corps", correct: false}
+      - {text: "404 Not Found", correct: false}
+    answer: "`DOWN` et `OUT_OF_SERVICE` donnent 503 : un répartiteur de charge qui ne lit que le statut retire l'instance. `UP` donne 200."
+  - key: nom-du-composant
+    format: course
+    question: "Sous quel nom le bean `stockageHealthIndicator` apparaît-il parmi les composants de `/actuator/health` ?"
+    choices:
+      - {text: "`stockage`", correct: true}
+      - {text: "`stockageHealthIndicator`", correct: false}
+      - {text: "`StockageHealthIndicator`", correct: false}
+      - {text: "`custom`", correct: false}
+    answer: "Spring Boot retire le suffixe `HealthIndicator` du nom du bean. Le composant s'appelle `stockage`, à côté de `db` ou `diskSpace`."
+  - key: vf-exposer-pour-repondre
+    format: true-false
+    question: "Un endpoint d'Actuator comme `metrics` doit être exposé, par exemple avec `management.endpoints.web.exposure.include`, pour répondre en HTTP."
+    truth: true
+    answer: "Sans exposition, l'appel HTTP renvoie 404. Seul `health` est exposé d'office."
+  - key: vf-details-par-defaut
+    format: true-false
+    question: "Par défaut, `/actuator/health` détaille l'état de chaque composant, comme la base de données."
+    truth: false
+    answer: "`show-details` vaut `never` par défaut : la réponse ne montre que l'état global, `{\"status\":\"UP\"}`. On choisit `when-authorized` ou `always`."
+  - key: vf-loggers-a-chaud
+    format: true-false
+    question: "Le endpoint `loggers` permet de changer le niveau de log d'un package sans redémarrer l'application."
+    truth: true
+    answer: "Un `POST` sur `/actuator/loggers/<package>` avec `{\"configuredLevel\": \"DEBUG\"}` suffit. C'est puissant, donc à protéger."
+  - key: vf-etat-agrege
+    format: true-false
+    question: "L'état global de `/actuator/health` est `UP` dès qu'un de ses composants est `UP`."
+    truth: false
+    answer: "C'est l'inverse : l'état global est le pire des états. Un seul composant `DOWN` rend l'application `DOWN`."
+  - key: qcm-propriete-exposition
+    format: multiple-choice
+    question: "Quelle propriété expose en HTTP les endpoints `health`, `info` et `metrics` ?"
+    choices:
+      - {text: "`management.endpoints.web.exposure.include=health,info,metrics`", correct: true}
+      - {text: "`management.endpoints.enabled=health,info,metrics`", correct: false}
+      - {text: "`spring.actuator.expose=health,info,metrics`", correct: false}
+      - {text: "`management.endpoint.web.include=health,info,metrics`", correct: false}
+    answer: "Les réglages d'exposition sont sous `management.endpoints.web.exposure`, avec `include` et `exclude`."
+  - key: qcm-valeur-metrique
+    format: multiple-choice
+    question: "Quelle adresse donne la valeur de la mesure `jvm.memory.used` ?"
+    choices:
+      - {text: "`/actuator/metrics/jvm.memory.used`", correct: true}
+      - {text: "`/actuator/health/jvm.memory.used`", correct: false}
+      - {text: "`/actuator/info/jvm.memory.used`", correct: false}
+      - {text: "`/actuator/env/jvm.memory.used`", correct: false}
+    answer: "`/actuator/metrics` liste les noms ; `/actuator/metrics/<nom>` donne la valeur, et `?tag=area:heap` filtre par tag."
+  - key: qcm-retour-health-indicator
+    format: multiple-choice
+    question: "Que renvoie la méthode `health()` d'un `HealthIndicator` personnalisé ?"
+    choices:
+      - {text: "Un objet `Health`, construit par `Health.up()` ou `Health.down()`", correct: true}
+      - {text: "Un booléen, vrai quand le composant fonctionne bien", correct: false}
+      - {text: "Une `ResponseEntity` avec le statut HTTP voulu", correct: false}
+      - {text: "Une chaîne de caractères, `UP` ou `DOWN`", correct: false}
+    answer: "`Health` porte un statut et des détails (`withDetail`). Actuator agrège ensuite tous les indicateurs et choisit lui-même le statut HTTP."
+  - key: qcm-version-dans-info
+    format: multiple-choice
+    question: "Comment fais-tu apparaître la version de l'application dans `/actuator/info` ?"
+    choices:
+      - {text: "En générant `build-info` avec le plugin Maven de Spring Boot", correct: true}
+      - {text: "En annotant la classe principale de `@Version(\"1.4.0\")`", correct: false}
+      - {text: "En exposant `env`, qui recopie la version dans `info`", correct: false}
+      - {text: "En ajoutant `spring.application.version` au fichier `pom.xml`", correct: false}
+    answer: "Le but `build-info` écrit `META-INF/build-info.properties`, avec la version du `pom.xml` ; Actuator l'affiche dans `info`. Le commit Git vient de même d'un fichier `git.properties`."
+  - key: trous-exposition
+    format: fill-in
+    question: |-
+      Complète pour exposer la santé, les infos et les métriques Prometheus :
+      ```properties
+      management.endpoints.web.exposure.___=health,info,prometheus
+      ```
+    blanks:
+      - [include]
+    answer: "`include` liste les endpoints exposés ; `exclude` en retire, et l'emporte sur `include`."
+  - key: trous-show-details
+    format: fill-in
+    question: |-
+      Complète pour afficher toujours le détail des composants dans `/actuator/health` :
+      ```properties
+      management.endpoint.health.show-details=___
+      ```
+    blanks:
+      - [always]
+    answer: "Les valeurs sont `never` (le défaut), `when-authorized` et `always`. En production, `when-authorized` est le plus sûr."
+  - key: trous-indicateur
+    format: fill-in
+    question: |-
+      Complète cet indicateur de santé, qui signale le composant en bon état :
+      ```java
+      @Component
+      class FileAttenteHealthIndicator implements ___ {
+          @Override
+          public Health health() {
+              return Health.___().withDetail("enAttente", file.taille()).build();
+          }
+      }
+      ```
+    blanks:
+      - [HealthIndicator]
+      - [up]
+    answer: "Un bean qui implémente `HealthIndicator` rejoint l'état global sous le nom `fileAttente`. `Health.up()` et `Health.down()` démarrent la construction."
+  - key: trous-etoile-yaml
+    format: fill-in
+    question: |-
+      Complète pour exposer tous les endpoints, en développement seulement, dans un fichier YAML :
+      ```yaml
+      management:
+        endpoints:
+          web:
+            exposure:
+              include: ___
+      ```
+    blanks:
+      - ['"*"', "'*'"]
+    answer: "L'étoile seule est un alias en YAML : sans guillemets, le fichier ne se lit plus et l'application ne démarre pas."
+  - key: situation-prometheus-404
+    format: scenario
+    question: |-
+      Tu as ajouté `micrometer-registry-prometheus`, mais Prometheus reçoit un 404 sur `/actuator/prometheus`. Que
+      fais-tu ?
+    choices:
+      - {text: "J'ajoute `prometheus` à `management.endpoints.web.exposure.include`", correct: true}
+      - {text: "J'écris un contrôleur avec `@GetMapping(\"/actuator/prometheus\")`", correct: false}
+      - {text: "Je redémarre Prometheus, qui garde l'ancienne liste en cache", correct: false}
+      - {text: "Je remplace le registre Prometheus par `micrometer-core` seul", correct: false}
+    answer: |-
+      L'endpoint existe, mais il n'est pas exposé : seul `health` l'est par défaut. Un contrôleur maison doublerait
+      ce qu'Actuator fait déjà.
+  - key: situation-partenaire-down
+    format: scenario
+    question: |-
+      Ton `HealthIndicator` appelle une API partenaire, utile à une fonction secondaire. Elle tombe, et le
+      répartiteur de charge retire toutes tes instances. Que changes-tu ?
+    choices:
+      - {text: "Je sors cette vérification de l'état global, dans un groupe à part", correct: true}
+      - {text: "J'allonge le délai de l'appel dans l'indicateur, à 30 secondes", correct: false}
+      - {text: "Je fais renvoyer `UP` à l'indicateur, quel que soit le résultat", correct: false}
+      - {text: "Je retire Actuator de l'application, en production seulement", correct: false}
+    answer: |-
+      L'état global ne doit dire que ce qui empêche l'instance de servir. Un groupe
+      (`management.endpoint.health.group.partenaires.include=partenaire`) garde l'information visible sans
+      retirer les instances. Mentir dans l'indicateur ferait perdre l'information.
+  - key: situation-debug-production
+    format: scenario
+    question: |-
+      Un bug n'apparaît qu'en production, et tu voudrais les logs `DEBUG` du package `com.boutique.paiement` pendant
+      dix minutes, sans redémarrer. Que fais-tu ?
+    choices:
+      - {text: "J'envoie un `POST` à `/actuator/loggers/com.boutique.paiement`, niveau `DEBUG`", correct: true}
+      - {text: "Je modifie `application.properties` dans le jar, puis j'attends qu'il soit relu", correct: false}
+      - {text: "Je relance l'application avec l'option `--debug`, puis je l'arrête après", correct: false}
+      - {text: "J'appelle `/actuator/env` en `GET`, avec `logging.level` en paramètre", correct: false}
+    answer: |-
+      Le endpoint `loggers` change le niveau à chaud, et un second `POST` le remet ensuite. `--debug` demanderait
+      un redémarrage ; un fichier dans le jar n'est pas relu.
+  - key: situation-datasource-absente
+    format: scenario
+    question: |-
+      Un collègue ne comprend pas pourquoi une auto-configuration ne s'est pas appliquée en production. Quel endpoint
+      lui conseilles-tu de consulter ?
+    choices:
+      - {text: "`conditions`, le rapport des conditions d'auto-configuration", correct: true}
+      - {text: "`beans`, la liste des beans présents dans le contexte", correct: false}
+      - {text: "`mappings`, la liste des routes HTTP de l'application", correct: false}
+      - {text: "`health`, l'état de santé de chacun des composants", correct: false}
+    answer: |-
+      `conditions` dit, pour chaque auto-configuration, quelles conditions ont réussi ou échoué, et pourquoi.
+      `beans` montre ce qui existe, pas ce qui manque ni la raison.

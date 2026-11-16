@@ -1,0 +1,347 @@
+notion: cors
+lesson: |-
+  Un navigateur applique la **politique de même origine** : le JavaScript d'une page ne lit pas les réponses d'une
+  autre **origine**, c'est-à-dire d'un autre triplet **schéma, hôte, port**. `http://localhost:5173` (le front) et
+  `http://localhost:8080` (l'API) sont deux origines différentes.
+
+  **CORS** (Cross-Origin Resource Sharing) permet au serveur d'autoriser des origines précises, par des en-têtes de
+  réponse que **le navigateur** lit et applique. `curl`, Postman ou un autre serveur ignorent CORS : ce n'est pas une
+  protection de l'API, c'est une protection des utilisateurs d'un navigateur.
+
+  **La pré-vérification.** Pour une requête « non simple » (`PUT`, `DELETE`, un `Content-Type: application/json`, un
+  en-tête maison), le navigateur envoie d'abord un `OPTIONS` :
+
+  ```
+  OPTIONS /api/produits/42
+  Origin: https://app.exemple.fr
+  Access-Control-Request-Method: PUT
+  ```
+
+  Le serveur répond par les en-têtes `Access-Control-Allow-Origin`, `-Allow-Methods`, `-Allow-Headers`, `-Max-Age`.
+  Si l'origine ou la méthode n'est pas permise, Spring répond **403 « Invalid CORS request »**, et le navigateur
+  n'envoie pas la vraie requête.
+
+  **Dans Spring MVC**, deux façons :
+
+  ```java
+  @CrossOrigin(origins = "https://app.exemple.fr")      // sur un contrôleur ou une méthode
+  @RestController
+  public class ProduitController { ... }
+  ```
+
+  ```java
+  @Configuration
+  public class CorsConfig implements WebMvcConfigurer {
+      @Override
+      public void addCorsMappings(CorsRegistry registry) {
+          registry.addMapping("/api/**")
+                  .allowedOrigins("https://app.exemple.fr")
+                  .allowedMethods("GET", "POST", "PUT", "DELETE")
+                  .exposedHeaders("Location", "X-Total-Count")
+                  .maxAge(3600);
+      }
+  }
+  ```
+
+  | Réglage | Par défaut avec `addMapping` | Rôle |
+  |---|---|---|
+  | `allowedOrigins` | toutes (`*`) | les origines permises, exactes |
+  | `allowedOriginPatterns` | aucun | des motifs : `https://*.exemple.fr` |
+  | `allowedMethods` | **`GET`, `HEAD`, `POST`** | les verbes permis : `PUT` et `DELETE` sont refusés sans réglage |
+  | `allowedHeaders` | tous | les en-têtes que le front peut envoyer |
+  | `exposedHeaders` | aucun | les en-têtes de réponse que le JavaScript peut lire (`Location`, `X-Total-Count`) |
+  | `allowCredentials` | `false` | envoyer cookies et authentification HTTP |
+
+  **Les cookies.** `allowCredentials(true)` est incompatible avec l'origine `*` : chaque requête vers ces chemins échoue
+  alors en 500, avec une `IllegalArgumentException` (« When allowCredentials is true, allowedOrigins cannot contain the
+  special value "*" ... »). On liste les origines, ou l'on prend `allowedOriginPatterns`.
+
+  **Avec Spring Security**, la chaîne de sécurité passe avant Spring MVC : sans `http.cors(Customizer.withDefaults())`,
+  une pré-vérification, qui ne porte jamais d'authentification, peut être refusée en 401.
+
+  **En développement**, un proxy du serveur du front (celui de Vite, par exemple) sert l'API depuis la même origine et
+  évite toute configuration CORS.
+
+  **En entretien** : « CORS laisse le navigateur appeler une API d'une autre origine, si le serveur l'autorise par des
+  en-têtes `Access-Control-*` ; la pré-vérification `OPTIONS` le demande avant un `PUT` ou un JSON. Dans Spring, je
+  configure `addCorsMappings` avec des origines précises et les méthodes voulues, car seuls `GET`, `HEAD` et `POST` sont
+  permis par défaut. Ce n'est pas une sécurité de l'API : `curl` l'ignore. »
+cards:
+  - key: definition-origine
+    format: course
+    question: "Qu'est-ce qui définit l'origine d'une URL, au sens de CORS ?"
+    choices:
+      - {text: "Le schéma, l'hôte et le port", correct: true}
+      - {text: "Le nom de domaine seul, quel que soit le port", correct: false}
+      - {text: "L'adresse IP du serveur qui répond", correct: false}
+      - {text: "Le chemin, jusqu'au premier `/`", correct: false}
+    answer: "Deux URL sont de même origine si elles partagent les trois. `http` et `https`, ou deux ports différents, font deux origines."
+  - key: qui-applique-cors
+    format: course
+    question: "Qui applique les règles CORS ?"
+    choices:
+      - {text: "Le navigateur, qui lit les en-têtes `Access-Control-*` du serveur", correct: true}
+      - {text: "Le pare-feu, qui bloque les requêtes des autres domaines", correct: false}
+      - {text: "Le serveur DNS, qui vérifie le domaine d'origine", correct: false}
+      - {text: "Tout client HTTP, `curl` et Postman compris", correct: false}
+    answer: "Le serveur dit ce qu'il permet ; le navigateur décide de laisser, ou non, le JavaScript lire la réponse. Un client hors navigateur n'applique pas CORS."
+  - key: role-de-la-preverification
+    format: course
+    question: "Qu'est-ce qu'une requête de pré-vérification (preflight) ?"
+    choices:
+      - {text: "Un `OPTIONS` du navigateur, qui demande si la vraie requête est permise", correct: true}
+      - {text: "Un `HEAD` du serveur, qui vérifie l'identité du client", correct: false}
+      - {text: "Un `GET` du front, envoyé au chargement de la page", correct: false}
+      - {text: "Un `TRACE` du proxy, qui mesure la latence du réseau", correct: false}
+    answer: "Avant une requête non simple, le navigateur envoie `OPTIONS` avec `Origin` et `Access-Control-Request-Method`. Sans accord du serveur, la vraie requête ne part pas."
+  - key: methodes-par-defaut
+    format: course
+    question: "Quels verbes `registry.addMapping(\"/api/**\").allowedOrigins(...)` autorise-t-il, sans `allowedMethods` ?"
+    choices:
+      - {text: "`GET`, `HEAD` et `POST`", correct: true}
+      - {text: "Tous les verbes HTTP", correct: false}
+      - {text: "`GET` seulement", correct: false}
+      - {text: "`GET`, `POST`, `PUT` et `DELETE`", correct: false}
+    answer: "Les verbes « simples » seulement : une pré-vérification pour `PUT` ou `DELETE` reçoit 403. `@CrossOrigin`, lui, permet par défaut les verbes de la méthode annotée."
+  - key: vf-curl-et-cors
+    format: true-false
+    question: "Une requête envoyée avec `curl` est bloquée par la configuration CORS du serveur, comme celle d'un navigateur."
+    truth: false
+    answer: "`curl` n'envoie pas d'en-tête `Origin` et ne lit pas les en-têtes CORS : il reçoit la réponse. CORS ne protège pas l'API contre un client qui n'est pas un navigateur."
+  - key: vf-credentials-et-etoile
+    format: true-false
+    question: "`allowCredentials(true)` avec `allowedOrigins(\"*\")` fait échouer les requêtes vers ces chemins avec une `IllegalArgumentException`."
+    truth: true
+    answer: "Le navigateur refuse l'origine `*` avec des cookies ; Spring refuse donc cette configuration, en 500 à chaque requête. On liste les origines, ou l'on utilise `allowedOriginPatterns`."
+  - key: vf-origine-refusee
+    format: true-false
+    question: "Spring répond 403 « Invalid CORS request » à une requête dont l'en-tête `Origin` n'est pas autorisé."
+    truth: true
+    answer: "Le processeur CORS de Spring rejette la requête avant le contrôleur, qu'il s'agisse d'une pré-vérification ou de la vraie requête."
+  - key: vf-ports-differents
+    format: true-false
+    question: "`http://localhost:5173` et `http://localhost:8080` ont la même origine, puisqu'ils partagent l'hôte."
+    truth: false
+    answer: "Le port fait partie de l'origine : ce sont deux origines différentes, et le front doit être autorisé par l'API."
+  - key: qcm-crossorigin
+    format: multiple-choice
+    question: "Quelle annotation autorise l'origine `https://app.exemple.fr` sur un seul contrôleur ?"
+    choices:
+      - {text: "`@CrossOrigin(origins = \"https://app.exemple.fr\")`", correct: true}
+      - {text: "`@AllowOrigin(\"https://app.exemple.fr\")`", correct: false}
+      - {text: "`@Cors(origins = \"https://app.exemple.fr\")`", correct: false}
+      - {text: "`@RequestMapping(origins = \"https://app.exemple.fr\")`", correct: false}
+    answer: "`@CrossOrigin` se pose sur une classe ou une méthode. Pour toute l'API, on préfère `addCorsMappings` d'un `WebMvcConfigurer`."
+  - key: qcm-sous-domaines-et-cookies
+    format: multiple-choice
+    question: "Comment autorises-tu tous les sous-domaines de `exemple.fr`, cookies compris ?"
+    choices:
+      - {text: "`allowedOriginPatterns(\"https://*.exemple.fr\")` et `allowCredentials(true)`", correct: true}
+      - {text: "`allowedOrigins(\"*\")` et `allowCredentials(true)`", correct: false}
+      - {text: "`allowedOrigins(\"https://*.exemple.fr\")` seul", correct: false}
+      - {text: "`allowedHeaders(\"*.exemple.fr\")` et `allowCredentials(true)`", correct: false}
+    answer: "`allowedOriginPatterns` accepte des motifs, et renvoie l'origine exacte de la requête : compatible avec les cookies. `allowedOrigins` ne compare que des origines exactes."
+  - key: qcm-entete-illisible
+    format: multiple-choice
+    question: "Le front ne peut pas lire l'en-tête `X-Total-Count`, pourtant présent dans la réponse. Que manque-t-il ?"
+    choices:
+      - {text: "`exposedHeaders(\"X-Total-Count\")` dans la configuration CORS", correct: true}
+      - {text: "`allowedHeaders(\"X-Total-Count\")` dans la configuration CORS", correct: false}
+      - {text: "`allowedMethods(\"GET\")` dans la configuration CORS", correct: false}
+      - {text: "`allowCredentials(true)` dans la configuration CORS", correct: false}
+    answer: "Le navigateur ne livre au JavaScript qu'une poignée d'en-têtes de réponse ; les autres doivent être exposés. `allowedHeaders` concerne les en-têtes de la requête."
+  - key: qcm-statut-du-refus
+    format: multiple-choice
+    question: "Quel statut Spring renvoie-t-il à une pré-vérification dont la méthode demandée n'est pas autorisée ?"
+    choices:
+      - {text: "403 Forbidden", correct: true}
+      - {text: "405 Method Not Allowed", correct: false}
+      - {text: "401 Unauthorized", correct: false}
+      - {text: "400 Bad Request", correct: false}
+    answer: "Spring répond 403 avec le corps « Invalid CORS request ». Le navigateur affiche ensuite une erreur CORS dans la console."
+  - key: trous-addcorsmappings
+    format: fill-in
+    question: |-
+      Complète la méthode de configuration globale de CORS :
+      ```java
+      @Override
+      public void ___(CorsRegistry registry) {
+          registry.addMapping("/api/**").allowedOrigins("https://app.exemple.fr");
+      }
+      ```
+    blanks:
+      - [addCorsMappings]
+    answer: "`addCorsMappings` d'un `WebMvcConfigurer` configure CORS pour des chemins entiers."
+  - key: trous-allowedmethods
+    format: fill-in
+    question: |-
+      Complète pour autoriser aussi `PUT` et `DELETE` :
+      ```java
+      registry.addMapping("/api/**")
+              .allowedOrigins("https://app.exemple.fr")
+              .___("GET", "POST", "PUT", "DELETE");
+      ```
+    blanks:
+      - [allowedMethods]
+    answer: "Sans `allowedMethods`, seuls `GET`, `HEAD` et `POST` sont permis."
+  - key: trous-crossorigin
+    format: fill-in
+    question: |-
+      Complète pour autoriser cette origine sur le seul contrôleur :
+      ```java
+      @___(origins = "https://app.exemple.fr")
+      @RestController
+      public class CatalogueController {
+      ```
+    blanks:
+      - [CrossOrigin]
+    answer: "`@CrossOrigin` configure CORS pour une classe ou une méthode."
+  - key: trous-addmapping
+    format: fill-in
+    question: |-
+      Complète pour appliquer la configuration aux chemins de l'API :
+      ```java
+      registry.___("/api/**").allowedOrigins("https://app.exemple.fr");
+      ```
+    blanks:
+      - [addMapping]
+    answer: "`addMapping` choisit les chemins, puis l'on règle origines, méthodes et en-têtes."
+  - key: bug-put-refuse
+    format: bug-fix
+    question: |-
+      Le front modifie un produit avec `PUT` : la pré-vérification reçoit 403 « Invalid CORS request ». Les `GET` et
+      les `POST` marchent. Quelle correction est la bonne ?
+      ```java
+      @Override
+      public void addCorsMappings(CorsRegistry registry) {
+          registry.addMapping("/api/**").allowedOrigins("https://app.exemple.fr");
+      }
+      ```
+    choices:
+      - {text: "Ajouter `.allowedMethods(\"GET\", \"POST\", \"PUT\", \"DELETE\")`", correct: true}
+      - {text: "Ajouter `.allowedHeaders(\"PUT\")` à la configuration", correct: false}
+      - {text: "Ajouter `.allowCredentials(true)` à la configuration", correct: false}
+      - {text: "Remplacer `/api/**` par `/**` dans `addMapping`", correct: false}
+    answer: |-
+      ```java
+      registry.addMapping("/api/**")
+              .allowedOrigins("https://app.exemple.fr")
+              .allowedMethods("GET", "POST", "PUT", "DELETE");
+      ```
+      Sans `allowedMethods`, seuls `GET`, `HEAD` et `POST` sont permis : la pré-vérification d'un `PUT` est refusée.
+  - key: bug-credentials-et-etoile
+    format: bug-fix
+    question: |-
+      Toutes les requêtes vers `/api/**` répondent 500 : « When allowCredentials is true, allowedOrigins cannot
+      contain the special value "*" ... ». Le front est servi depuis `https://app.exemple.fr` et envoie des cookies.
+      Quelle correction est la bonne ?
+      ```java
+      registry.addMapping("/api/**").allowedOrigins("*").allowCredentials(true);
+      ```
+    choices:
+      - {text: "Remplacer `\"*\"` par l'origine exacte `\"https://app.exemple.fr\"`", correct: true}
+      - {text: "Retirer `allowCredentials(true)`, sans rien changer d'autre", correct: false}
+      - {text: "Ajouter `.allowedHeaders(\"*\")` après `allowedOrigins`", correct: false}
+      - {text: "Remplacer `allowCredentials(true)` par `maxAge(3600)`", correct: false}
+    answer: |-
+      ```java
+      registry.addMapping("/api/**").allowedOrigins("https://app.exemple.fr").allowCredentials(true);
+      ```
+      Avec des cookies, le navigateur exige l'origine exacte dans la réponse. Retirer `allowCredentials` ferait
+      disparaître l'erreur, mais les cookies ne seraient plus envoyés.
+  - key: bug-mauvais-hote
+    format: bug-fix
+    question: |-
+      Le front de développement est ouvert sur `http://127.0.0.1:5173`. Toutes ses requêtes reçoivent 403 « Invalid
+      CORS request ». Quelle correction est la bonne ?
+      ```java
+      registry.addMapping("/api/**")
+              .allowedOrigins("http://localhost:5173")
+              .allowedMethods("GET", "POST", "PUT", "DELETE");
+      ```
+    choices:
+      - {text: "Autoriser aussi l'origine `http://127.0.0.1:5173`", correct: true}
+      - {text: "Autoriser l'origine `http://localhost` sans le port", correct: false}
+      - {text: "Ajouter `OPTIONS` à la liste de `allowedMethods`", correct: false}
+      - {text: "Ajouter `.exposedHeaders(\"Origin\")` à la configuration", correct: false}
+    answer: |-
+      ```java
+      .allowedOrigins("http://localhost:5173", "http://127.0.0.1:5173")
+      ```
+      `localhost` et `127.0.0.1` désignent la même machine, mais pas la même origine : la comparaison porte sur le
+      texte de l'hôte. Sans le port, l'origine ne correspondrait plus du tout.
+  - key: bug-location-illisible
+    format: bug-fix
+    question: |-
+      Après une création, le front lit `reponse.headers.get("Location")` et obtient `null`, alors que l'API renvoie
+      bien l'en-tête. Quelle correction est la bonne ?
+      ```java
+      registry.addMapping("/api/**")
+              .allowedOrigins("https://app.exemple.fr")
+              .allowedMethods("GET", "POST", "PUT", "DELETE");
+      ```
+    choices:
+      - {text: "Ajouter `.exposedHeaders(\"Location\")` à la configuration", correct: true}
+      - {text: "Ajouter `.allowedHeaders(\"Location\")` à la configuration", correct: false}
+      - {text: "Renvoyer l'adresse dans un en-tête `Content-Location`", correct: false}
+      - {text: "Ajouter `.allowCredentials(true)` à la configuration", correct: false}
+    answer: |-
+      ```java
+      registry.addMapping("/api/**")
+              .allowedOrigins("https://app.exemple.fr")
+              .allowedMethods("GET", "POST", "PUT", "DELETE")
+              .exposedHeaders("Location");
+      ```
+      Hors d'une courte liste (`Content-Type`, `Cache-Control`...), un en-tête de réponse n'est lisible par le
+      JavaScript que s'il est exposé par `Access-Control-Expose-Headers`.
+  - key: situation-postman-ok
+    format: scenario
+    question: |-
+      L'API répond bien dans Postman, mais le front React, servi sur `http://localhost:5173`, reçoit une erreur dans
+      la console du navigateur. Que soupçonnes-tu d'abord ?
+    choices:
+      - {text: "Une configuration CORS qui n'autorise pas cette origine", correct: true}
+      - {text: "Un bogue de Postman qui masque l'erreur", correct: false}
+      - {text: "Une base de données inaccessible depuis le navigateur", correct: false}
+      - {text: "Un certificat TLS invalide sur `localhost`", correct: false}
+    answer: |-
+      Postman ignore CORS, le navigateur l'applique. Le front et l'API ont deux origines : l'API doit autoriser celle
+      du front, ou un proxy de développement doit les réunir.
+  - key: situation-cors-comme-securite
+    format: scenario
+    question: |-
+      Un collègue veut « sécuriser l'API » en restreignant CORS à l'origine du front. Que lui réponds-tu ?
+    choices:
+      - {text: "CORS protège les utilisateurs d'un navigateur, pas l'API : `curl` l'ignore", correct: true}
+      - {text: "C'est suffisant : CORS bloque tout client d'une autre origine", correct: false}
+      - {text: "C'est inutile : CORS ne s'applique qu'aux requêtes `GET`", correct: false}
+      - {text: "Il faut plutôt désactiver CORS pour fermer l'API", correct: false}
+    answer: |-
+      Restreindre CORS est utile : un site tiers ne peut pas lire les réponses via le navigateur de l'utilisateur.
+      Mais l'API doit toujours authentifier et autoriser chaque requête.
+  - key: situation-proxy-de-dev
+    format: scenario
+    question: |-
+      En développement, le front Vite tourne sur le port 5173 et l'API sur le port 8080. Quelle solution évite toute
+      configuration CORS ?
+    choices:
+      - {text: "Un proxy du serveur de Vite, qui sert l'API depuis la même origine", correct: true}
+      - {text: "Lancer le navigateur avec sa sécurité web désactivée", correct: false}
+      - {text: "Servir le front et l'API sur deux ports de plus", correct: false}
+      - {text: "Appeler l'API par son adresse IP plutôt que par `localhost`", correct: false}
+    answer: |-
+      Le front appelle `/api/...` sur son propre port, et Vite relaie vers 8080 : pour le navigateur, tout vient de la
+      même origine. En production, un serveur web ou une passerelle joue le même rôle.
+  - key: situation-preflight-en-401
+    format: scenario
+    question: |-
+      Avec Spring Security, les pré-vérifications `OPTIONS` du front reçoivent 401, alors que la configuration CORS de
+      Spring MVC est juste. Que manque-t-il ?
+    choices:
+      - {text: "`http.cors(...)` dans la chaîne de sécurité, avant l'authentification", correct: true}
+      - {text: "Un utilisateur et un mot de passe dans chaque pré-vérification", correct: false}
+      - {text: "L'annotation `@CrossOrigin` sur la classe de configuration", correct: false}
+      - {text: "La désactivation de CSRF dans la chaîne de sécurité", correct: false}
+    answer: |-
+      La chaîne de sécurité passe avant Spring MVC, et une pré-vérification n'est jamais authentifiée.
+      `http.cors(Customizer.withDefaults())` traite CORS dans la chaîne, avec la configuration de l'application.

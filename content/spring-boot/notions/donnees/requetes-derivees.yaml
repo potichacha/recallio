@@ -1,0 +1,285 @@
+notion: requetes-derivees
+lesson: |-
+  Spring Data sait écrire une requête **à partir du nom d'une méthode** déclarée dans le repository :
+
+  ```java
+  public interface ProduitRepository extends JpaRepository<Produit, Long> {
+      List<Produit> findByCategorie(Categorie categorie);
+      List<Produit> findByPrixLessThanOrderByPrixDesc(int prix);
+      Optional<Produit> findByReference(String reference);
+      boolean existsByReference(String reference);
+      long countByCategorie(Categorie categorie);
+  }
+  ```
+
+  **La grammaire d'un nom.**
+  1. Un **sujet** : `find...By` (ou `read`, `get`, `query`, `search`, `stream`), `count...By`, `exists...By`,
+     `delete...By`. Il peut porter `Distinct` ou une limite : `findFirstBy`, `findTop3By`.
+  2. Des **critères** sur les propriétés de l'entité, joints par `And` et `Or`, chacun avec un mot-clé.
+  3. Un **tri** facultatif : `OrderByPrixDesc`, `OrderByNomAscPrixDesc`.
+
+  Les paramètres de la méthode remplissent les critères, **dans l'ordre**.
+
+  | Mot-clé | Exemple | SQL produit |
+  |---|---|---|
+  | (rien), `Is`, `Equals` | `findByNom(n)` | `nom = ?` |
+  | `Not` | `findByNomNot(n)` | `nom <> ?` |
+  | `LessThan`, `GreaterThanEqual` | `findByPrixLessThan(p)` | `prix < ?` |
+  | `Between` | `findByPrixBetween(min, max)` | `prix between ? and ?` (bornes comprises) |
+  | `Before`, `After` | `findByCreeLeAfter(date)` | `cree_le > ?` |
+  | `IsNull`, `IsNotNull` | `findByDescriptionIsNull()` | `description is null` |
+  | `Like` | `findByNomLike(motif)` | `nom like ?` (à toi de mettre les `%`) |
+  | `StartingWith`, `EndingWith`, `Containing` | `findByNomContaining(t)` | `nom like ?` avec les `%` ajoutés |
+  | `In` | `findByCategorieIn(liste)` | `categorie in (...)` |
+  | `True`, `False` | `findByActifTrue()` | `actif = true` |
+  | `IgnoreCase` | `findByNomIgnoreCase(n)` | `upper(nom) = upper(?)` |
+
+  Un critère peut traverser une relation : `findByClientVille(ville)` filtre sur `client.ville`.
+
+  **Ce qu'elle renvoie.** `List<T>` ; `Optional<T>` ou `T` pour au plus un résultat (`T` vaut `null` si rien ne
+  correspond, et **deux résultats** lèvent `IncorrectResultSizeDataAccessException`) ; `Stream<T>`, `Page<T>` et
+  `Slice<T>` ; `long` pour `count`, `boolean` pour `exists`. Un paramètre `Limit` borne le nombre de résultats :
+  `findByCategorie(c, Limit.of(10))`.
+
+  **Vérifiée au démarrage.** Spring Data analyse chaque nom quand il crée le repository : une propriété mal écrite
+  fait échouer le démarrage avec « No property 'nomm' found for type 'Produit'; Did you mean 'nom' ». C'est un
+  avantage : l'erreur ne part pas en production.
+
+  **Les suppressions dérivées.** `deleteByNom` charge les entités puis les supprime une à une ; elle doit
+  s'exécuter dans une transaction, ouverte par un service `@Transactional`.
+
+  **Quand s'arrêter.** Au-delà de deux ou trois critères, le nom devient illisible
+  (`findByCategorieAndPrixLessThanAndStockGreaterThanOrderByNomAsc`) : on passe à `@Query`.
+
+  **En entretien** : « Spring Data dérive la requête du nom de la méthode : un sujet comme `findBy` ou `countBy`, des
+  critères sur les propriétés avec des mots-clés comme `LessThan` ou `Containing`, puis un tri. Le nom est vérifié au
+  démarrage, donc une faute de frappe ne passe pas. Quand le nom devient trop long, je passe à `@Query`. »
+cards:
+  - key: grammaire
+    format: course
+    question: "Comment Spring Data comprend-il la méthode `findByCategorieAndPrixLessThan(Categorie c, int prix)` ?"
+    choices:
+      - {text: "Il découpe le nom en propriétés et mots-clés, et en écrit la requête", correct: true}
+      - {text: "Il cherche une requête nommée `findByCategorieAndPrixLessThan` dans un fichier", correct: false}
+      - {text: "Il charge toutes les entités, puis filtre en Java d'après le nom de la méthode", correct: false}
+      - {text: "Il attend une implémentation de la méthode dans une classe `...Impl` voisine", correct: false}
+    answer: "`categorie = ? and prix < ?` : le sujet `findBy`, deux critères joints par `And`, et les paramètres dans l'ordre. La base filtre, rien n'est chargé en trop."
+  - key: verification-demarrage
+    format: course
+    question: "Quand une faute de frappe dans le nom d'une requête dérivée est-elle détectée ?"
+    choices:
+      - {text: "Au démarrage de l'application, à la création du repository", correct: true}
+      - {text: "À la compilation, par un processeur d'annotations de Spring", correct: false}
+      - {text: "Au premier appel de la méthode, par une exception à l'exécution", correct: false}
+      - {text: "Jamais : la méthode renvoie une liste vide à chaque appel", correct: false}
+    answer: "Spring Data analyse chaque nom en créant le bean : une propriété inconnue fait échouer le démarrage, avec une suggestion (« Did you mean 'nom' »)."
+  - key: un-resultat-deux-lignes
+    format: course
+    question: "`Produit findByNom(String nom)` est appelée, et deux produits portent ce nom. Que se passe-t-il ?"
+    choices:
+      - {text: "Une `IncorrectResultSizeDataAccessException` est levée", correct: true}
+      - {text: "La méthode renvoie le premier produit trouvé, au hasard", correct: false}
+      - {text: "La méthode renvoie `null`, faute de résultat unique", correct: false}
+      - {text: "La méthode renvoie le produit qui a le plus petit identifiant", correct: false}
+    answer: "« Query did not return a unique result: 2 results were returned ». Un type de retour unique (`T` ou `Optional<T>`) promet au plus un résultat. Sinon : une `List`, ou `findFirstBy` avec un tri."
+  - key: like-sans-joker
+    format: course
+    question: "Que renvoie `findByNomLike(\"pom\")` quand la table contient « pomme » ?"
+    choices:
+      - {text: "Rien : sans `%`, `like 'pom'` ne trouve que « pom » exactement", correct: true}
+      - {text: "« pomme » : `Like` ajoute de lui-même les `%` autour du paramètre", correct: false}
+      - {text: "« pomme » : `Like` compare toujours en ignorant la casse et la fin", correct: false}
+      - {text: "Une exception : `Like` attend un motif qui contient au moins un `%`", correct: false}
+    answer: "`Like` passe le paramètre tel quel : c'est à l'appelant de mettre `%pom%`. `Containing`, `StartingWith` et `EndingWith` ajoutent les `%` eux-mêmes."
+  - key: vf-between-bornes
+    format: true-false
+    question: "`findByPrixBetween(10, 20)` renvoie aussi les produits à 10 et à 20."
+    truth: true
+    answer: "Elle produit un `between ? and ?` SQL, qui inclut ses deux bornes."
+  - key: vf-type-unique-null
+    format: true-false
+    question: "Une requête dérivée qui renvoie `Produit` (et non un `Optional`) renvoie `null` quand aucune ligne ne correspond."
+    truth: true
+    answer: "Le type `Optional<Produit>` rend ce cas visible, et évite d'oublier le test de `null`."
+  - key: vf-propriete-imbriquee
+    format: true-false
+    question: "Une requête dérivée peut filtrer sur la propriété d'une entité liée, comme `findByClientVille(String ville)`."
+    truth: true
+    answer: "Spring Data suit la relation `client`, puis sa propriété `ville`, et ajoute la jointure. En cas d'ambiguïté, `findByClient_Ville` marque la séparation."
+  - key: vf-delete-sans-transaction
+    format: true-false
+    question: "Une méthode dérivée `deleteByNom`, appelée hors de toute transaction, supprime bien les lignes."
+    truth: false
+    answer: "Les méthodes que tu déclares n'héritent pas des transactions de `SimpleJpaRepository`. `deleteByNom` doit supprimer des entités chargées : sans transaction, elle lève « No EntityManager with actual transaction available for current thread »."
+  - key: qcm-containing
+    format: multiple-choice
+    question: "Quelle méthode trouve les produits dont le nom contient « pom », sans que l'appelant ajoute de `%` ?"
+    choices:
+      - {text: "`findByNomContaining(String texte)`", correct: true}
+      - {text: "`findByNomLike(String texte)`", correct: false}
+      - {text: "`findByNomIn(String texte)`", correct: false}
+      - {text: "`findByNomEquals(String texte)`", correct: false}
+    answer: "`Containing` produit `like '%pom%'`. `Like` demande d'écrire les `%` soi-même, `In` attend une collection, `Equals` compare exactement."
+  - key: qcm-top
+    format: multiple-choice
+    question: "Quelle méthode renvoie les trois produits les plus chers ?"
+    choices:
+      - {text: "`findTop3ByOrderByPrixDesc()`", correct: true}
+      - {text: "`findTop3ByOrderByPrixAsc()`", correct: false}
+      - {text: "`findByPrixTop3Desc()`", correct: false}
+      - {text: "`findAllOrderByPrixDescLimit3()`", correct: false}
+    answer: "`Top3` (ou `First3`) se place dans le sujet, avant `By`, et `OrderByPrixDesc` trie du plus cher au moins cher. Les deux derniers noms ne suivent pas la grammaire : le démarrage échouerait."
+  - key: qcm-exists
+    format: multiple-choice
+    question: "Quelle signature vérifie qu'une référence existe déjà, sans charger d'entité ?"
+    choices:
+      - {text: "`boolean existsByReference(String reference)`", correct: true}
+      - {text: "`Produit findByReference(String reference)`", correct: false}
+      - {text: "`List<Produit> findAllByReference(String reference)`", correct: false}
+      - {text: "`boolean hasReference(String reference)`", correct: false}
+    answer: "`existsBy` demande à la base une seule ligne et renvoie un booléen. `hasReference` ne suit pas la grammaire des requêtes dérivées."
+  - key: qcm-ignore-case
+    format: multiple-choice
+    question: "La base contient « Pomme » et « pomme ». Que renvoie `findByNomIgnoreCase(\"POMME\")` ?"
+    choices:
+      - {text: "Les deux produits", correct: true}
+      - {text: "Aucun produit", correct: false}
+      - {text: "Seulement « Pomme »", correct: false}
+      - {text: "Seulement « pomme »", correct: false}
+    answer: "`IgnoreCase` met les deux côtés en majuscules : `upper(nom) = upper(?)`. Sans lui, la comparaison dépend de la base ; sur H2 et PostgreSQL, elle respecte la casse."
+  - key: trous-less-than
+    format: fill-in
+    question: |-
+      Complète pour trouver les produits dont le prix est strictement inférieur au paramètre :
+      ```java
+      List<Produit> findByPrix___(int prix);
+      ```
+    blanks:
+      - [LessThan]
+    answer: "`LessThan` produit `prix < ?` ; `LessThanEqual` inclurait la borne."
+  - key: trous-order-by
+    format: fill-in
+    question: |-
+      Complète pour trier les produits d'une catégorie du plus cher au moins cher :
+      ```java
+      List<Produit> findByCategorie___PrixDesc(Categorie categorie);
+      ```
+    blanks:
+      - [OrderBy]
+    answer: "`OrderBy` suivi de la propriété et du sens : `findByCategorieOrderByPrixDesc`."
+  - key: trous-count
+    format: fill-in
+    question: |-
+      Complète pour compter les produits d'une catégorie :
+      ```java
+      long ___ByCategorie(Categorie categorie);
+      ```
+    blanks:
+      - [count]
+    answer: "`countBy` envoie un `select count(...)` et renvoie un nombre, sans charger d'entité."
+  - key: trous-optional
+    format: fill-in
+    question: |-
+      Complète pour qu'une référence absente donne un résultat vide plutôt que `null` :
+      ```java
+      ___<Produit> findByReference(String reference);
+      ```
+    blanks:
+      - [Optional]
+    answer: "`Optional<Produit>` : vide quand rien ne correspond, ce que le type rend visible à l'appelant."
+  - key: bug-faute-de-frappe
+    format: bug-fix
+    question: |-
+      L'application refuse de démarrer : `No property 'nomm' found for type 'Produit'; Did you mean 'nom'`. Quelle
+      correction est la bonne ?
+      ```java
+      public interface ProduitRepository extends JpaRepository<Produit, Long> {
+          List<Produit> findByNomm(String nom);
+      }
+      ```
+    choices:
+      - {text: "Renommer la méthode en `findByNom`", correct: true}
+      - {text: "Renommer le paramètre `nom` en `nomm`", correct: false}
+      - {text: "Annoter le paramètre avec `@Param(\"nomm\")`", correct: false}
+      - {text: "Ajouter un champ `nomm` à l'entité `Produit`", correct: false}
+    answer: |-
+      ```java
+      List<Produit> findByNom(String nom);
+      ```
+      Spring Data lit la propriété dans le **nom de la méthode**, pas dans celui du paramètre. Ajouter un champ
+      `nomm` ferait démarrer l'application, mais filtrerait sur une colonne vide.
+  - key: bug-resultat-non-unique
+    format: bug-fix
+    question: |-
+      La recherche par ville échoue dès que deux magasins sont dans la même ville :
+      `IncorrectResultSizeDataAccessException: Query did not return a unique result: 2 results were returned`. On veut
+      tous les magasins de la ville. Quelle correction est la bonne ?
+      ```java
+      public interface MagasinRepository extends JpaRepository<Magasin, Long> {
+          Magasin findByVille(String ville);
+      }
+      ```
+    choices:
+      - {text: "Déclarer `List<Magasin> findByVille(String ville)`", correct: true}
+      - {text: "Déclarer `Optional<Magasin> findByVille(String ville)`", correct: false}
+      - {text: "Déclarer `Magasin findDistinctByVille(String ville)`", correct: false}
+      - {text: "Déclarer `Magasin findByVilleIgnoreCase(String ville)`", correct: false}
+    answer: |-
+      ```java
+      List<Magasin> findByVille(String ville);
+      ```
+      Un type de retour unique, `Magasin` comme `Optional<Magasin>`, promet au plus un résultat : deux lignes lèvent
+      l'exception. `Distinct` retire les doublons d'une même ligne, pas deux magasins différents.
+  - key: bug-like-sans-joker
+    format: bug-fix
+    question: |-
+      La recherche « pom » ne trouve pas le produit « pomme », alors qu'elle devrait trouver tout produit dont le nom
+      contient le texte. Quelle correction est la bonne ?
+      ```java
+      public interface ProduitRepository extends JpaRepository<Produit, Long> {
+          List<Produit> findByNomLike(String texte);
+      }
+      ```
+    choices:
+      - {text: "Déclarer `findByNomContaining(String texte)` à la place", correct: true}
+      - {text: "Déclarer `findByNomIgnoreCase(String texte)` à la place", correct: false}
+      - {text: "Déclarer `findByNomIn(String texte)` à la place", correct: false}
+      - {text: "Déclarer `findByNomLikeIgnoreCase(String texte)` à la place", correct: false}
+    answer: |-
+      ```java
+      List<Produit> findByNomContaining(String texte);
+      ```
+      `Like` passe le texte tel quel : `like 'pom'` ne trouve que « pom ». `Containing` l'entoure de `%`. On pourrait
+      aussi garder `Like` et passer `"%" + texte + "%"`, mais l'appelant n'a pas à connaître le SQL.
+  - key: bug-delete-sans-transaction
+    format: bug-fix
+    question: |-
+      L'appel lève `InvalidDataAccessApiUsageException: No EntityManager with actual transaction available for
+      current thread - cannot reliably process 'remove' call`. Quelle correction est la bonne ?
+      ```java
+      public interface PanierRepository extends JpaRepository<Panier, Long> {
+          long deleteByClientId(Long clientId);
+      }
+
+      @Service
+      public class PanierService {
+          public void vider(Long clientId) {
+              paniers.deleteByClientId(clientId);
+          }
+      }
+      ```
+    choices:
+      - {text: "Annoter la méthode `vider` avec `@Transactional`", correct: true}
+      - {text: "Annoter la méthode `vider` avec `@Transactional(readOnly = true)`", correct: false}
+      - {text: "Changer le type de retour de `deleteByClientId` en `void`", correct: false}
+      - {text: "Renommer la méthode en `removeByClientId` dans le repository", correct: false}
+    answer: |-
+      ```java
+      @Transactional
+      public void vider(Long clientId) {
+          paniers.deleteByClientId(clientId);
+      }
+      ```
+      Une suppression dérivée charge les entités puis appelle `remove` sur chacune : il faut une transaction, et les
+      méthodes que tu déclares n'en ouvrent pas d'elles-mêmes. `removeBy` est un synonyme de `deleteBy`, et en
+      lecture seule rien ne serait supprimé.

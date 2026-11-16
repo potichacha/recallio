@@ -1,0 +1,366 @@
+notion: gestion-erreurs
+lesson: |-
+  Un service signale un problème métier par une exception : produit introuvable, stock épuisé. Il reste à la
+  **traduire en réponse HTTP** : un statut juste et un corps utile au client. Spring MVC offre trois outils.
+
+  **1. `@ResponseStatus` sur la classe d'exception.** Le plus simple, pour un statut fixe :
+
+  ```java
+  @ResponseStatus(HttpStatus.NOT_FOUND)
+  public class ProduitIntrouvableException extends RuntimeException { ... }
+  ```
+
+  Levée par un contrôleur, elle répond 404 sans autre code. Avec `reason = "Produit introuvable"`, ce texte remplace le
+  message de l'exception dans l'erreur.
+
+  **2. `ResponseStatusException`.** Levée sur place, avec son statut : `throw new
+  ResponseStatusException(HttpStatus.NOT_FOUND, "Produit 42 introuvable")`. Commode dans un contrôleur ; à éviter dans
+  un service, qui n'a pas à connaître HTTP.
+
+  **3. `@ExceptionHandler` dans un `@RestControllerAdvice`.** La solution centrale : un seul endroit traduit les
+  exceptions de tous les contrôleurs, avec un corps commun.
+
+  ```java
+  @RestControllerAdvice
+  public class GestionnaireErreurs {
+
+      @ExceptionHandler(ProduitIntrouvableException.class)
+      @ResponseStatus(HttpStatus.NOT_FOUND)
+      public Erreur introuvable(ProduitIntrouvableException e) {
+          return new Erreur("PRODUIT_INTROUVABLE", e.getMessage());
+      }
+
+      @ExceptionHandler(StockEpuiseException.class)
+      public ResponseEntity<Erreur> stockEpuise(StockEpuiseException e) {
+          return ResponseEntity.status(HttpStatus.CONFLICT).body(new Erreur("STOCK_EPUISE", e.getMessage()));
+      }
+  }
+  ```
+
+  `@RestControllerAdvice` = `@ControllerAdvice` + `@ResponseBody` : la valeur renvoyée devient le corps, en JSON.
+
+  **Quel gestionnaire est choisi ?**
+
+  - Un `@ExceptionHandler` déclaré **dans un contrôleur** ne vaut que pour ce contrôleur, et passe avant ceux des advices.
+  - Entre plusieurs, Spring prend **le plus spécifique** : pour `StockEpuiseException extends MetierException`, le
+    gestionnaire de `StockEpuiseException` l'emporte sur celui de `MetierException`.
+  - Spring regarde aussi **la cause** de l'exception : un gestionnaire de `IllegalArgumentException` attrape une
+    exception causée par une `NumberFormatException`.
+  - Deux gestionnaires pour la même exception dans le même advice empêchent le démarrage : « Ambiguous
+    @ExceptionHandler method mapped for ... ».
+
+  **Les pièges.**
+
+  - Un `@ControllerAdvice` sans `@ResponseBody` qui renvoie un objet : Spring le prend pour un modèle de vue, échoue,
+    et le client reçoit une 500, comme si le gestionnaire n'existait pas.
+  - Un `@ExceptionHandler(Exception.class)` qui répond 500 attrape aussi les exceptions de Spring MVC : un chemin
+    inconnu (404) ou un mauvais verbe (405) deviennent des 500. On le réserve aux vraies erreurs inattendues, dans un
+    advice qui hérite de `ResponseEntityExceptionHandler`, lequel traite d'abord les exceptions de Spring.
+  - Une exception sans traduction répond 500. On ne renvoie jamais la trace ni le message d'une erreur interne au
+    client : on la journalise, et l'on répond un message générique.
+
+  **Le corps d'erreur.** Un **code stable** (`STOCK_EPUISE`) que le client peut tester, un message lisible, et rien
+  d'interne. Le format standard est `ProblemDetail` (RFC 9457).
+
+  **En entretien** : « Le service lève des exceptions métier, sans rien savoir de HTTP. Un `@RestControllerAdvice` les
+  traduit en statut et en corps, avec un code d'erreur stable ; Spring choisit le gestionnaire le plus spécifique. Je
+  ne laisse pas un `catch (Exception)` transformer les 404 en 500, et je ne renvoie jamais de trace au client. »
+cards:
+  - key: apport-de-restcontrolleradvice
+    format: course
+    question: "Qu'apporte `@RestControllerAdvice` par rapport à `@ControllerAdvice` ?"
+    choices:
+      - {text: "`@ResponseBody` : la valeur de chaque gestionnaire devient le corps", correct: true}
+      - {text: "La limitation aux contrôleurs d'un seul paquet", correct: false}
+      - {text: "La journalisation automatique de chaque exception", correct: false}
+      - {text: "La traduction automatique des exceptions en ProblemDetail", correct: false}
+    answer: "`@RestControllerAdvice` = `@ControllerAdvice` + `@ResponseBody`, comme `@RestController` pour les contrôleurs. Sans `@ResponseBody`, un objet renvoyé serait pris pour un modèle de vue."
+  - key: gestionnaire-le-plus-specifique
+    format: course
+    question: "Un advice gère `MetierException` et `StockEpuiseException`, qui en hérite. Quel gestionnaire traite une `StockEpuiseException` ?"
+    choices:
+      - {text: "Celui de `StockEpuiseException`, le plus spécifique", correct: true}
+      - {text: "Celui de `MetierException`, déclaré le premier", correct: false}
+      - {text: "Les deux, l'un après l'autre, dans l'ordre", correct: false}
+      - {text: "Aucun : l'application refuse de démarrer", correct: false}
+    answer: "Spring choisit le gestionnaire dont le type est le plus proche de l'exception levée, quel que soit l'ordre de déclaration. Celui de `MetierException` reste pour ses autres sous-classes."
+  - key: effet-de-responsestatusexception
+    format: course
+    question: "Que fait `throw new ResponseStatusException(HttpStatus.NOT_FOUND, \"Produit introuvable\")` dans un contrôleur ?"
+    choices:
+      - {text: "Il répond 404, avec ce message comme motif de l'erreur", correct: true}
+      - {text: "Il répond 500, puisque personne ne rattrape l'exception", correct: false}
+      - {text: "Il redirige le client vers une page d'erreur 404 en HTML", correct: false}
+      - {text: "Il répond 200, avec le message dans le corps", correct: false}
+    answer: "Spring MVC sait traduire `ResponseStatusException` : le statut et le motif viennent de l'exception, sans gestionnaire à écrire."
+  - key: portee-handler-local
+    format: course
+    question: "Où s'applique un `@ExceptionHandler` déclaré dans une classe `@RestController` ?"
+    choices:
+      - {text: "Seulement aux méthodes de ce contrôleur", correct: true}
+      - {text: "À tous les contrôleurs de l'application", correct: false}
+      - {text: "À tous les contrôleurs du même paquet", correct: false}
+      - {text: "À aucun : il doit être dans un advice", correct: false}
+    answer: "Un gestionnaire local ne voit que les exceptions de son contrôleur, et passe avant ceux des advices. Pour toute l'application, on le met dans un `@RestControllerAdvice`."
+  - key: vf-responsestatus-sur-exception
+    format: true-false
+    question: "Une exception annotée `@ResponseStatus(HttpStatus.NOT_FOUND)`, levée par un contrôleur, répond 404 sans aucun gestionnaire."
+    truth: true
+    answer: "Spring MVC lit l'annotation sur la classe de l'exception et fixe le statut. Sans l'annotation ni gestionnaire, la même exception répondrait 500."
+  - key: vf-cause-de-l-exception
+    format: true-false
+    question: "Un `@ExceptionHandler(IllegalArgumentException.class)` peut aussi traiter une exception dont la cause est une `IllegalArgumentException`."
+    truth: true
+    answer: "Spring compare aussi les causes de l'exception levée. Un gestionnaire trop large peut donc attraper des erreurs de conversion de Spring, causées par une `NumberFormatException`."
+  - key: vf-deux-gestionnaires-meme-exception
+    format: true-false
+    question: "Avec deux méthodes `@ExceptionHandler` pour la même exception dans le même advice, Spring choisit la première déclarée."
+    truth: false
+    answer: "L'application refuse de démarrer : « Ambiguous @ExceptionHandler method mapped for ... ». On garde une seule méthode par exception."
+  - key: vf-exception-generique-et-404
+    format: true-false
+    question: "Un `@ExceptionHandler(Exception.class)` qui répond 500 transforme aussi en 500 les requêtes vers un chemin inconnu."
+    truth: true
+    answer: "Un chemin inconnu lève `NoResourceFoundException`, qu'il attrape comme les autres. Hériter de `ResponseEntityExceptionHandler` rend aux exceptions de Spring MVC leur statut."
+  - key: qcm-corps-commun
+    format: multiple-choice
+    question: "Quel outil choisis-tu pour donner un corps JSON commun à toutes les erreurs métier de l'application ?"
+    choices:
+      - {text: "Un `@RestControllerAdvice` avec des méthodes `@ExceptionHandler`", correct: true}
+      - {text: "`@ResponseStatus` sur chaque classe d'exception métier", correct: false}
+      - {text: "Un `try`/`catch` dans chaque méthode de contrôleur", correct: false}
+      - {text: "Une `ResponseStatusException` levée par chaque service", correct: false}
+    answer: "L'advice centralise la traduction et le format du corps. `@ResponseStatus` ne fixe qu'un statut ; les `try`/`catch` dupliquent le code ; un service n'a pas à connaître HTTP."
+  - key: qcm-controlleradvice-qui-renvoie-un-objet
+    format: multiple-choice
+    question: "Un `@ControllerAdvice` (sans `@ResponseBody`) renvoie une `Map` depuis son `@ExceptionHandler`. Que reçoit le client ?"
+    choices:
+      - {text: "Une 500 : la `Map` est prise pour un modèle de vue", correct: true}
+      - {text: "La `Map` en JSON, comme avec `@RestControllerAdvice`", correct: false}
+      - {text: "Une réponse 200 avec un corps vide", correct: false}
+      - {text: "Une page HTML qui affiche le contenu de la `Map`", correct: false}
+    answer: "Sans `@ResponseBody`, la valeur sert de modèle à une vue nommée d'après la requête. Le rendu échoue, et l'exception d'origine repart : 500."
+  - key: qcm-reason
+    format: multiple-choice
+    question: "Quel message porte l'erreur d'une exception annotée `@ResponseStatus(value = HttpStatus.NOT_FOUND, reason = \"Produit introuvable\")` ?"
+    choices:
+      - {text: "Le texte de `reason`, à la place du message de l'exception", correct: true}
+      - {text: "Le message passé au constructeur de l'exception", correct: false}
+      - {text: "Les deux, séparés par deux-points", correct: false}
+      - {text: "Aucun : `reason` ne sert qu'aux pages HTML", correct: false}
+    answer: "`reason` fixe le motif de l'erreur ; le message de l'exception n'est plus repris. Sans `reason`, c'est lui qui sert."
+  - key: qcm-statut-stock-epuise
+    format: multiple-choice
+    question: "Une commande est refusée parce que le stock est épuisé. Quel statut l'advice doit-il renvoyer ?"
+    choices:
+      - {text: "409 Conflict", correct: true}
+      - {text: "500 Internal Server Error", correct: false}
+      - {text: "404 Not Found", correct: false}
+      - {text: "401 Unauthorized", correct: false}
+    answer: "La requête est correcte mais contredit l'état actuel des données : 409. 500 signale une panne du serveur, 404 une ressource absente, 401 un client non authentifié."
+  - key: trous-restcontrolleradvice
+    format: fill-in
+    question: |-
+      Complète pour que les gestionnaires s'appliquent à tous les contrôleurs et écrivent du JSON :
+      ```java
+      @___
+      public class GestionnaireErreurs {
+      ```
+    blanks:
+      - [RestControllerAdvice]
+    answer: "`@RestControllerAdvice` = `@ControllerAdvice` + `@ResponseBody`."
+  - key: trous-exceptionhandler
+    format: fill-in
+    question: |-
+      Complète pour traiter `ProduitIntrouvableException` :
+      ```java
+      @___(ProduitIntrouvableException.class)
+      @ResponseStatus(HttpStatus.NOT_FOUND)
+      public Erreur introuvable(ProduitIntrouvableException e) {
+      ```
+    blanks:
+      - [ExceptionHandler]
+    answer: "`@ExceptionHandler` dit quelle exception la méthode traite."
+  - key: trous-responsestatusexception
+    format: fill-in
+    question: |-
+      Complète pour répondre 404 depuis le contrôleur :
+      ```java
+      throw new ___(HttpStatus.NOT_FOUND, "Commande introuvable");
+      ```
+    blanks:
+      - [ResponseStatusException]
+    answer: "`ResponseStatusException` porte son statut et son motif, que Spring MVC applique."
+  - key: trous-responsestatus-sur-classe
+    format: fill-in
+    question: |-
+      Complète pour que cette exception réponde 409 sans gestionnaire :
+      ```java
+      @___(HttpStatus.CONFLICT)
+      public class StockEpuiseException extends RuntimeException {
+      ```
+    blanks:
+      - [ResponseStatus]
+    answer: "`@ResponseStatus` sur la classe fixe le statut de toute réponse causée par cette exception."
+  - key: bug-advice-sans-responsebody
+    format: bug-fix
+    question: |-
+      Le client reçoit 500 pour un produit introuvable, comme si ce gestionnaire n'existait pas. Quelle correction
+      est la bonne ?
+      ```java
+      @ControllerAdvice
+      public class GestionnaireErreurs {
+
+          @ExceptionHandler(ProduitIntrouvableException.class)
+          @ResponseStatus(HttpStatus.NOT_FOUND)
+          public Erreur introuvable(ProduitIntrouvableException e) {
+              return new Erreur("PRODUIT_INTROUVABLE", e.getMessage());
+          }
+      }
+      ```
+    choices:
+      - {text: "Remplacer `@ControllerAdvice` par `@RestControllerAdvice`", correct: true}
+      - {text: "Remplacer `@ResponseStatus` par `@ResponseBody` sur la méthode", correct: false}
+      - {text: "Rendre la méthode `introuvable` statique", correct: false}
+      - {text: "Faire hériter `Erreur` de `RuntimeException`", correct: false}
+    answer: |-
+      ```java
+      @RestControllerAdvice
+      public class GestionnaireErreurs {
+      ```
+      Sans `@ResponseBody`, l'objet `Erreur` est pris pour un modèle de vue ; le rendu échoue et l'exception d'origine
+      répond 500. Remplacer `@ResponseStatus` par `@ResponseBody` écrirait le corps, mais avec le statut 200.
+  - key: bug-exception-generique
+    format: bug-fix
+    question: |-
+      Depuis l'ajout de cet advice, un chemin inconnu répond 500 au lieu de 404, et un mauvais verbe 500 au lieu de
+      405. Les erreurs inattendues doivent toujours répondre 500. Quelle correction est la bonne ?
+      ```java
+      @RestControllerAdvice
+      public class GestionnaireErreurs {
+
+          @ExceptionHandler(Exception.class)
+          public ResponseEntity<String> tout(Exception e) {
+              return ResponseEntity.internalServerError().body("Erreur interne");
+          }
+      }
+      ```
+    choices:
+      - {text: "Faire hériter l'advice de `ResponseEntityExceptionHandler`", correct: true}
+      - {text: "Annoter la méthode `tout` avec `@Order(Ordered.LOWEST_PRECEDENCE)`", correct: false}
+      - {text: "Remplacer `Exception.class` par `Throwable.class`", correct: false}
+      - {text: "Répondre `HttpStatus.NOT_FOUND` à toutes les exceptions", correct: false}
+    answer: |-
+      ```java
+      @RestControllerAdvice
+      public class GestionnaireErreurs extends ResponseEntityExceptionHandler {
+      ```
+      `ResponseEntityExceptionHandler` déclare des gestionnaires pour les exceptions de Spring MVC
+      (`NoResourceFoundException`, `HttpRequestMethodNotSupportedException`...). Plus spécifiques, ils passent avant
+      celui d'`Exception`, qui ne garde que les vraies erreurs inattendues.
+  - key: bug-gestionnaires-ambigus
+    format: bug-fix
+    question: |-
+      L'application refuse de démarrer : « Ambiguous @ExceptionHandler method mapped for
+      [ExceptionHandler{exceptionType=java.lang.IllegalStateException, ...}] ». Quelle correction est la bonne ?
+      ```java
+      @RestControllerAdvice
+      public class GestionnaireErreurs {
+
+          @ExceptionHandler(IllegalStateException.class)
+          public Erreur etat(IllegalStateException e) { ... }
+
+          @ExceptionHandler(IllegalStateException.class)
+          public Erreur etatJournalise(IllegalStateException e) { ... }
+      }
+      ```
+    choices:
+      - {text: "Fusionner les deux en une seule méthode pour cette exception", correct: true}
+      - {text: "Annoter l'une des deux méthodes avec `@Primary`", correct: false}
+      - {text: "Renommer la seconde méthode en `etat2`", correct: false}
+      - {text: "Déclarer la seconde méthode en `private`", correct: false}
+    answer: |-
+      ```java
+      @ExceptionHandler(IllegalStateException.class)
+      public Erreur etat(IllegalStateException e) {
+          journal.warn("État invalide", e);
+          return new Erreur("ETAT_INVALIDE", "Opération impossible");
+      }
+      ```
+      Spring doit savoir quelle méthode appeler : une seule par exception dans un advice. Le nom de la méthode n'y
+      change rien.
+  - key: bug-exception-sans-statut
+    format: bug-fix
+    question: |-
+      `GET /api/produits/999` répond 500 au lieu de 404 quand le produit n'existe pas. L'application n'a aucun
+      advice. Quelle correction est la bonne ?
+      ```java
+      public class ProduitIntrouvableException extends RuntimeException {
+          public ProduitIntrouvableException(long id) {
+              super("Produit " + id + " introuvable");
+          }
+      }
+      ```
+    choices:
+      - {text: "Annoter la classe avec `@ResponseStatus(HttpStatus.NOT_FOUND)`", correct: true}
+      - {text: "Faire hériter la classe de `Exception` plutôt que de `RuntimeException`", correct: false}
+      - {text: "Annoter la classe avec `@RestControllerAdvice`", correct: false}
+      - {text: "Annoter la classe avec `@ResponseBody`", correct: false}
+    answer: |-
+      ```java
+      @ResponseStatus(HttpStatus.NOT_FOUND)
+      public class ProduitIntrouvableException extends RuntimeException {
+      ```
+      Une exception que rien ne traduit répond 500. L'annotation suffit pour un statut fixe ; un advice ferait aussi
+      l'affaire, avec un corps sur mesure.
+  - key: situation-trace-au-client
+    format: scenario
+    question: |-
+      En production, une erreur 500 renvoie au client la trace complète de l'exception. Que fais-tu ?
+    choices:
+      - {text: "Je renvoie un message générique, et je journalise la trace côté serveur", correct: true}
+      - {text: "Je garde la trace : elle aide le client à corriger sa requête", correct: false}
+      - {text: "Je renvoie 200 avec un corps vide, pour ne rien révéler", correct: false}
+      - {text: "Je chiffre la trace avant de l'envoyer au client", correct: false}
+    answer: |-
+      Une trace révèle les bibliothèques, les classes, parfois des requêtes SQL : de quoi préparer une attaque. Le
+      client reçoit un message générique et un identifiant de corrélation ; la trace reste dans les journaux.
+  - key: situation-try-catch-partout
+    format: scenario
+    question: |-
+      Chaque méthode de contrôleur a son `try`/`catch`, qui construit la même réponse d'erreur. Que proposes-tu en
+      revue ?
+    choices:
+      - {text: "Centraliser la traduction dans un `@RestControllerAdvice`", correct: true}
+      - {text: "Garder les `try`/`catch`, plus explicites, dans chaque méthode", correct: false}
+      - {text: "Remplacer chaque `catch` par un bloc `finally`", correct: false}
+      - {text: "Déclarer `throws Exception` sur chaque méthode", correct: false}
+    answer: |-
+      Les contrôleurs redeviennent lisibles, écrits pour le cas nominal, et le format des erreurs est défini une
+      seule fois. Ajouter une exception métier ne demande qu'un gestionnaire.
+  - key: situation-code-d-erreur-stable
+    format: scenario
+    question: |-
+      Le front choisit son message d'après le texte de l'erreur reçue, et casse dès qu'on reformule ce texte. Que
+      fais-tu ?
+    choices:
+      - {text: "J'ajoute un code d'erreur stable, comme `STOCK_EPUISE`, dans le corps", correct: true}
+      - {text: "J'interdis toute modification future des messages", correct: false}
+      - {text: "Je traduis les messages dans la langue du navigateur", correct: false}
+      - {text: "Je remplace les messages par le nom de la classe d'exception", correct: false}
+    answer: |-
+      Le client teste un code qui ne change pas ; le message reste libre, pour un humain. Le nom de la classe
+      exposerait l'implémentation et changerait au premier refactoring.
+  - key: situation-statut-dans-le-service
+    format: scenario
+    question: |-
+      Ton service métier lève `ResponseStatusException` pour signaler un produit introuvable. Que réponds-tu en
+      revue ?
+    choices:
+      - {text: "Le service ignore HTTP : il lève une exception métier, que l'advice traduit", correct: true}
+      - {text: "C'est la bonne pratique : le service décide du statut HTTP", correct: false}
+      - {text: "Il faut lever `RuntimeException`, plus simple à rattraper", correct: false}
+      - {text: "Il faut renvoyer `null`, et laisser le contrôleur tester", correct: false}
+    answer: |-
+      Le service sert aussi à un traitement par lots ou à un consommateur de messages, où HTTP n'a pas de sens.
+      `ProduitIntrouvableException` dit ce qui se passe ; la couche web décide du 404.

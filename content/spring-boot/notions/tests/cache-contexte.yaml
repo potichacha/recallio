@@ -1,0 +1,205 @@
+notion: cache-contexte
+lesson: |-
+  Démarrer un contexte Spring coûte des secondes. Le module de test de Spring (le *TestContext framework*) garde donc
+  chaque contexte dans un **cache statique** et le réutilise pour toute classe de test qui demande **exactement la
+  même configuration**. Une suite bien rangée démarre trois ou quatre contextes ; une suite mal rangée, un par
+  classe.
+
+  **La clé du cache** est la configuration fusionnée du test :
+
+  - les classes de configuration et l'éventuel contexte parent ;
+  - les profils actifs (`@ActiveProfiles`) ;
+  - les propriétés (`@SpringBootTest(properties = ...)`, `@TestPropertySource`) ;
+  - les personnalisations : beans remplacés (`@MockitoBean`, `@MockitoSpyBean`), méthodes
+    `@DynamicPropertySource`, `@Import` et `@TestConfiguration` propres au test ;
+  - le type de test (`@SpringBootTest`, chaque tranche).
+
+  Ajouter une méthode `@Test` ne change rien ; changer un seul de ces éléments crée **un contexte de plus**.
+
+  **Ce qui casse le cache.**
+
+  | Cause | Remède |
+  |---|---|
+  | chaque classe déclare ses propres `@MockitoBean` | une classe de base commune qui les déclare tous |
+  | une propriété ou un profil propre à une classe | les réglages communs dans `application-test.properties` |
+  | `@DirtiesContext`, qui ferme le contexte après la classe | remettre l'état à zéro dans un `@AfterEach` |
+  | une `@TestConfiguration` imbriquée par classe | une configuration de test partagée, importée partout |
+
+  **Les limites.** Le cache garde au plus **32 contextes** (`spring.test.context.cache.maxSize`) et ferme le moins
+  récemment utilisé au-delà. Il vit dans **une JVM** : des forks parallèles de Maven Surefire ont chacun le leur.
+  Depuis Spring Framework 7, un contexte en cache qui ne sert pas est **mis en pause** (ses composants qui ont un
+  cycle de vie, comme les planificateurs, sont arrêtés), puis redémarré quand un test le reprend ; la propriété
+  `spring.test.context.cache.pause` règle ce comportement (`always`, `on_context_switch` par défaut, `never`).
+
+  **Mesurer.** Au niveau `DEBUG`, la catégorie de logs `org.springframework.test.context.cache` affiche les
+  statistiques du cache : sa taille, les réutilisations (*hit*) et les créations (*miss*).
+
+  ```properties
+  # src/test/resources/application.properties, ou la configuration de Logback des tests
+  logging.level.org.springframework.test.context.cache=DEBUG
+  ```
+
+  ```java
+  // Une base commune : toutes les classes d'intégration partagent un seul contexte.
+  @SpringBootTest
+  @ActiveProfiles("test")
+  abstract class TestIntegration {
+
+      @MockitoBean
+      PaiementClient paiement;      // déclaré une fois, pour tous
+  }
+
+  class CommandeServiceTest extends TestIntegration { }
+  class FactureServiceTest extends TestIntegration { }
+  ```
+
+  **En entretien** : « Spring garde les contextes de test en cache, indexés par leur configuration : profils,
+  propriétés, beans remplacés. Chaque variante coûte un démarrage, et `@DirtiesContext` en force un. Je regroupe les
+  mocks et les réglages dans une base commune, et je regarde les statistiques du cache dans les logs `DEBUG` quand
+  la suite ralentit. »
+cards:
+  - key: ou-vit-le-cache
+    format: course
+    question: "Où Spring garde-t-il les contextes de test d'une classe de test à la suivante ?"
+    choices:
+      - {text: "Dans un cache statique, partagé par toute la JVM qui lance les tests", correct: true}
+      - {text: "Dans un fichier du dossier `target`, relu au lancement suivant", correct: false}
+      - {text: "Dans la classe de test, qui le détruit à la fin de ses tests", correct: false}
+      - {text: "Dans un cache partagé par toutes les JVM du build Maven", correct: false}
+    answer: "Le cache est une structure statique du module de test de Spring. Il disparaît avec la JVM ; deux forks de Surefire ont chacun le leur."
+  - key: cle-du-cache
+    format: course
+    question: "Qu'est-ce qui forme la clé du cache des contextes de test ?"
+    choices:
+      - {text: "La configuration fusionnée : classes, profils, propriétés, beans remplacés", correct: true}
+      - {text: "Le nom de la classe de test, et celui de son package", correct: false}
+      - {text: "Le nombre de méthodes `@Test` que contient la classe", correct: false}
+      - {text: "L'ordre dans lequel JUnit lance les classes de test", correct: false}
+    answer: "Deux classes à la configuration identique partagent un contexte, quels que soient leurs noms. Un `@MockitoBean` ou une propriété de plus suffit à en créer un autre."
+  - key: taille-du-cache
+    format: course
+    question: "Combien de contextes le cache des tests garde-t-il au plus, par défaut ?"
+    choices:
+      - {text: "32, en fermant le moins récemment utilisé au-delà", correct: true}
+      - {text: "1 : chaque classe ferme le contexte de la précédente", correct: false}
+      - {text: "Aucune limite : tous restent ouverts jusqu'à la fin", correct: false}
+      - {text: "8, soit un par cœur de processeur disponible", correct: false}
+    answer: "`spring.test.context.cache.maxSize` règle cette taille. Au-delà, le contexte le moins récemment utilisé est fermé, et devra être recréé s'il resert."
+  - key: effet-dirtiescontext
+    format: course
+    question: "Que fait `@DirtiesContext` posé sur une classe de test ?"
+    choices:
+      - {text: "Il ferme le contexte et le retire du cache, après la classe", correct: true}
+      - {text: "Il vide la base de données à la fin de chaque test", correct: false}
+      - {text: "Il remet à zéro les mocks `@MockitoBean` de la classe", correct: false}
+      - {text: "Il force JUnit à lancer cette classe avant les autres", correct: false}
+    answer: "Son mode par défaut est `AFTER_CLASS`. La classe suivante qui voulait ce contexte le redémarre : c'est un outil de dernier recours."
+  - key: vf-pause-spring-7
+    format: true-false
+    question: "Spring Framework 7 met en pause les contextes du cache qui ne servent pas, en arrêtant leurs composants qui ont un cycle de vie."
+    truth: true
+    answer: "Un planificateur ou un écouteur de messages d'un contexte inactif ne tourne plus pendant les autres tests. `spring.test.context.cache.pause` règle ce comportement."
+  - key: vf-methodes-test
+    format: true-false
+    question: "Deux classes de test qui ne diffèrent que par leurs méthodes `@Test` ont chacune leur propre contexte."
+    truth: false
+    answer: "Les méthodes ne font pas partie de la clé. Même configuration, même contexte, réutilisé par la seconde classe."
+  - key: vf-forks-surefire
+    format: true-false
+    question: "Le cache des contextes est partagé par les JVM que Maven Surefire lance en parallèle."
+    truth: false
+    answer: "Chaque JVM a son cache statique. Avec plusieurs forks, un même contexte peut donc démarrer une fois par fork."
+  - key: vf-mockitobean-isole
+    format: true-false
+    question: "Un `@MockitoBean` déclaré dans une seule classe de test empêche cette classe de partager le contexte des autres."
+    truth: true
+    answer: "Les beans remplacés entrent dans la clé du cache : la classe a sa propre configuration, donc son propre contexte."
+  - key: qcm-propriete-pause
+    format: multiple-choice
+    question: "Quelle propriété règle la mise en pause des contextes inutilisés du cache, depuis Spring Framework 7 ?"
+    choices:
+      - {text: "`spring.test.context.cache.pause`", correct: true}
+      - {text: "`spring.test.context.cache.maxSize`", correct: false}
+      - {text: "`spring.main.lazy-initialization`", correct: false}
+      - {text: "`spring.lifecycle.timeout-per-shutdown-phase`", correct: false}
+    answer: "Elle accepte `always`, `on_context_switch` (par défaut) et `never`. `maxSize` règle le nombre de contextes gardés, pas leur pause."
+  - key: qcm-pas-de-nouveau-contexte
+    format: multiple-choice
+    question: "Lequel de ces changements ne crée pas de nouveau contexte de test ?"
+    choices:
+      - {text: "Ajouter une méthode `@Test` dans une classe existante", correct: true}
+      - {text: "Ajouter `@ActiveProfiles(\"lent\")` sur une classe", correct: false}
+      - {text: "Ajouter un `@MockitoBean` dans une classe", correct: false}
+      - {text: "Ajouter `properties = \"x=1\"` à son `@SpringBootTest`", correct: false}
+    answer: "Profils, mocks et propriétés font partie de la clé du cache. Les méthodes de test, non."
+  - key: qcm-classe-de-base
+    format: multiple-choice
+    question: "Pourquoi une classe de base abstraite commune aux tests d'intégration aide-t-elle le cache ?"
+    choices:
+      - {text: "Les classes qui en héritent ont la même configuration, donc un seul contexte", correct: true}
+      - {text: "Elle oblige JUnit à lancer toutes les classes dans le même thread", correct: false}
+      - {text: "Elle désactive `@DirtiesContext` dans les classes qui en héritent", correct: false}
+      - {text: "Elle réduit le nombre de beans créés dans chaque contexte", correct: false}
+    answer: "Annotations, profils et mocks sont déclarés une fois. Tant qu'une classe fille n'en ajoute pas, elle reprend le contexte déjà démarré."
+  - key: qcm-mesurer-le-cache
+    format: multiple-choice
+    question: "Comment vois-tu combien de contextes ta suite de tests a créés, et combien de fois elle les a réutilisés ?"
+    choices:
+      - {text: "Avec les logs `DEBUG` de `org.springframework.test.context.cache`", correct: true}
+      - {text: "Avec l'endpoint Actuator `/actuator/caches` pendant les tests", correct: false}
+      - {text: "Avec l'option `-verbose:class` passée à la JVM des tests", correct: false}
+      - {text: "Avec le rapport de couverture de code de JaCoCo", correct: false}
+    answer: "Cette catégorie de logs affiche la taille du cache, les réutilisations et les créations. L'endpoint `caches` décrit les caches applicatifs, pas celui des tests."
+  - key: situation-mocks-par-classe
+    format: scenario
+    question: |-
+      Ta suite de 300 tests d'intégration crée 45 contextes et dure douze minutes. Chaque classe déclare ses propres
+      `@MockitoBean`. Que fais-tu ?
+    choices:
+      - {text: "Je regroupe les mocks dans une classe de base commune, pour partager les contextes", correct: true}
+      - {text: "J'ajoute `@DirtiesContext` partout, pour libérer la mémoire au fur et à mesure", correct: false}
+      - {text: "Je règle `spring.test.context.cache.maxSize` à 1, pour un contexte à la fois", correct: false}
+      - {text: "Je passe tous les tests en `RANDOM_PORT`, pour qu'ils se ressemblent", correct: false}
+    answer: |-
+      Chaque combinaison de mocks est une clé de cache, donc un démarrage. Déclarés une fois dans une base commune,
+      les mocks donnent une seule configuration ; les tests qui n'en ont pas besoin ne les programment simplement
+      pas. `@DirtiesContext` et un cache d'un seul contexte multiplieraient les démarrages.
+  - key: situation-dirtiescontext-lent
+    format: scenario
+    question: |-
+      Un test laisse des données dans un cache applicatif, et ton collègue ajoute `@DirtiesContext` à sa classe. La
+      suite ralentit de deux minutes. Que proposes-tu ?
+    choices:
+      - {text: "Remettre l'état à zéro dans un `@AfterEach`, sans fermer le contexte", correct: true}
+      - {text: "Ajouter aussi `@DirtiesContext` aux classes qui la suivent", correct: false}
+      - {text: "Lancer cette classe dans une JVM à part, avec un fork de Surefire", correct: false}
+      - {text: "Augmenter la mémoire de la JVM qui lance les tests", correct: false}
+    answer: |-
+      Le problème est un état partagé, pas le contexte. Vider le cache applicatif (par exemple avec le
+      `CacheManager`) après chaque test garde le contexte en cache, et les classes suivantes ne le redémarrent pas.
+  - key: situation-memoire-en-ci
+    format: scenario
+    question: |-
+      Ta suite manque de mémoire en CI : de nombreux contextes restent ouverts dans le cache, chacun avec son pool
+      de connexions. Que fais-tu en premier ?
+    choices:
+      - {text: "Je réduis le nombre de configurations distinctes, puis j'abaisse `maxSize`", correct: true}
+      - {text: "J'ajoute `@Lazy` sur toutes les classes de test de la suite", correct: false}
+      - {text: "Je mets `@DirtiesContext` sur chaque méthode de test", correct: false}
+      - {text: "Je supprime les tranches, qui créent trop de contextes", correct: false}
+    answer: |-
+      Moins de variantes, c'est moins de contextes à garder et à démarrer. Abaisser `spring.test.context.cache.maxSize`
+      limite ensuite la mémoire, au prix de redémarrages si les contextes alternent.
+  - key: situation-contexte-recree
+    format: scenario
+    question: |-
+      Les logs du cache montrent un nouveau contexte pour presque chaque classe de test, alors qu'elles ont toutes
+      l'air identiques. Que cherches-tu d'abord ?
+    choices:
+      - {text: "Ce qui diffère dans leur configuration : mocks, propriétés, profils, imports", correct: true}
+      - {text: "Un défaut de JUnit, qui viderait le cache entre deux classes", correct: false}
+      - {text: "Une base de données trop lente à démarrer pour le cache", correct: false}
+      - {text: "Une version trop ancienne du plugin Maven Surefire", correct: false}
+    answer: |-
+      Un `@MockitoBean`, une propriété ou une `@TestConfiguration` imbriquée propre à une classe suffit à changer
+      la clé. On les repère, puis on les rassemble dans une configuration commune.

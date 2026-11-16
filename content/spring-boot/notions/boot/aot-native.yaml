@@ -1,0 +1,237 @@
+notion: aot-native
+lesson: |-
+  Une application Spring Boot sur la JVM démarre en quelques secondes : la JVM charge les classes, le JIT compile le
+  code chaud, Spring lit la configuration et évalue des conditions. Pour un service lancé à la demande (serverless,
+  montée en charge rapide), c'est trop long.
+
+  **Les images natives GraalVM.** GraalVM compile l'application **avant l'exécution** (AOT, *ahead-of-time*) en un
+  **exécutable natif**, sans JVM : démarrage en quelques dizaines de millisecondes, mémoire réduite.
+
+  Le prix : l'**hypothèse du monde fermé**. Tout le code atteignable doit être connu à la compilation. Ce qui se
+  découvre à l'exécution (réflexion, proxies dynamiques, ressources chargées par leur nom, classes chargées
+  dynamiquement) doit être **déclaré à l'avance**.
+
+  **Le moteur AOT de Spring.** Au build, Spring démarre l'application « à blanc », évalue sa configuration, et
+  **génère du code Java** qui enregistre directement les beans, ainsi que des **indications** (`RuntimeHints`) pour
+  la réflexion, les ressources et les proxies.
+
+  Conséquence : le **classpath et les conditions sont figés au build**. Un `@Profile` ou un
+  `@ConditionalOnProperty` est évalué à ce moment : changer un profil au lancement ne change pas l'ensemble des
+  beans. Les **valeurs** des propriétés, elles, restent lues au démarrage.
+
+  ```bash
+  ./mvnw -Pnative native:compile           # un exécutable natif (GraalVM installé)
+  ./mvnw -Pnative spring-boot:build-image  # une image de conteneur native, par buildpacks
+  ./gradlew nativeCompile                  # avec Gradle
+  ```
+
+  **Déclarer ce qui manque.**
+
+  ```java
+  @Configuration
+  @ImportRuntimeHints(BoutiqueHints.class)
+  class NativeConfig {}
+
+  class BoutiqueHints implements RuntimeHintsRegistrar {
+      public void registerHints(RuntimeHints hints, ClassLoader classLoader) {
+          hints.resources().registerPattern("tarifs/*.csv");
+      }
+  }
+  ```
+
+  `@RegisterReflectionForBinding(Facture.class)` déclare une classe lue par réflexion (par Jackson, par exemple).
+
+  | | JVM | Image native |
+  |---|---|---|
+  | démarrage | secondes | dizaines de millisecondes |
+  | mémoire | plus | moins |
+  | build | rapide | long, gourmand |
+  | débit de pointe | JIT, optimisé à l'exécution | souvent un peu plus faible |
+  | dynamisme | total | monde fermé |
+
+  **Des voies intermédiaires.** Le code généré par AOT peut aussi servir sur la JVM (`-Dspring.aot.enabled=true`),
+  pour démarrer plus vite. Et la JVM a désormais son propre **cache AOT** (projet Leyden, depuis Java 24), qui garde
+  des classes chargées et liées d'une exécution d'entraînement.
+
+  **En entretien** : « Une image native GraalVM démarre en millisecondes et consomme peu, mais suppose un monde
+  fermé : Spring génère au build l'enregistrement des beans et les indications de réflexion, et fige les conditions.
+  C'est un compromis, utile quand le démarrage compte plus que le temps de build. »
+cards:
+  - key: hypothese-du-monde-ferme
+    format: course
+    question: "Quelle hypothèse impose la compilation en image native GraalVM ?"
+    choices:
+      - {text: "Le monde fermé : tout le code atteignable est connu à la compilation", correct: true}
+      - {text: "Le monde ouvert : des classes peuvent arriver à tout moment", correct: false}
+      - {text: "Le tout thread-safe : chaque classe doit être sûre entre threads", correct: false}
+      - {text: "Le sans état : aucun bean ne doit garder de champ", correct: false}
+    answer: "La compilation analyse tout le code atteignable et laisse le reste de côté. Ce qui n'est découvert qu'à l'exécution doit être déclaré."
+  - key: production-du-moteur-aot
+    format: course
+    question: "Que produit le moteur AOT de Spring au moment du build ?"
+    choices:
+      - {text: "Du code Java qui enregistre les beans, et des indications de réflexion", correct: true}
+      - {text: "Un exécutable natif, directement, sans avoir besoin de GraalVM", correct: false}
+      - {text: "Une image Docker prête à être déployée en production", correct: false}
+      - {text: "Un rapport des tests qui ont échoué pendant le build", correct: false}
+    answer: "Le code généré remplace la lecture des annotations à l'exécution ; GraalVM compile ensuite le tout en natif."
+  - key: profil-avec-aot
+    format: course
+    question: "Avec AOT, que devient `@Profile(\"dev\")` sur un bean ?"
+    choices:
+      - {text: "Il est évalué au build : l'ensemble des beans est figé dans l'image", correct: true}
+      - {text: "Il reste évalué à chaque démarrage, comme sur la JVM", correct: false}
+      - {text: "Il est ignoré : tous les beans sont créés", correct: false}
+      - {text: "Il provoque une erreur de compilation", correct: false}
+    answer: "Les profils actifs au build décident des beans présents. Les valeurs des propriétés, elles, se lisent toujours au démarrage."
+  - key: apport-d-une-image-native
+    format: course
+    question: "Qu'apporte principalement une image native par rapport à la JVM ?"
+    choices:
+      - {text: "Un démarrage en dizaines de millisecondes, et moins de mémoire", correct: true}
+      - {text: "Une compilation plus rapide de l'application", correct: false}
+      - {text: "Un meilleur débit de pointe, grâce au JIT", correct: false}
+      - {text: "Un débogage plus simple en production", correct: false}
+    answer: "Le build est plus long, le débogage plus délicat, et il n'y a plus de JIT : c'est le démarrage et la mémoire qu'on gagne."
+  - key: vf-demarrage-natif
+    format: true-false
+    question: "Une image native GraalVM démarre beaucoup plus vite que la même application sur la JVM."
+    truth: true
+    answer: "Il n'y a ni chargement de classes ni compilation à faire : le code est déjà compilé et initialisé en partie."
+  - key: vf-reflexion-sans-indication
+    format: true-false
+    question: "Dans une image native, une classe utilisée seulement par réflexion, sans indication, peut manquer à l'exécution."
+    truth: true
+    answer: "L'analyse statique ne la voit pas atteinte : ses métadonnées ne sont pas incluses. Une indication (`RuntimeHints`) la déclare."
+  - key: vf-build-natif-rapide
+    format: true-false
+    question: "Compiler une image native est plus rapide que construire un jar exécutable."
+    truth: false
+    answer: "La compilation native analyse tout le programme : plusieurs minutes, et beaucoup de mémoire. Le jar se construit en quelques secondes."
+  - key: vf-aot-sur-la-jvm
+    format: true-false
+    question: "Le code généré par AOT peut aussi servir sur la JVM, pour démarrer plus vite."
+    truth: true
+    answer: "Avec `-Dspring.aot.enabled=true`, le jar utilise le code généré au lieu d'évaluer la configuration au démarrage."
+  - key: qcm-commande-native
+    format: multiple-choice
+    question: "Avec le parent Spring Boot, quelle commande Maven compile l'application en exécutable natif ?"
+    choices:
+      - {text: "`./mvnw -Pnative native:compile`", correct: true}
+      - {text: "`./mvnw spring-boot:native`", correct: false}
+      - {text: "`./mvnw package -Dnative=true`", correct: false}
+      - {text: "`./mvnw graalvm:build`", correct: false}
+    answer: "Le profil `native` du parent active le traitement AOT et le plugin Native Build Tools de GraalVM."
+  - key: qcm-declarer-la-reflexion
+    format: multiple-choice
+    question: "Comment déclarer qu'une classe sera lue par réflexion dans une image native ?"
+    choices:
+      - {text: "Par un `RuntimeHintsRegistrar`, ou `@RegisterReflectionForBinding`", correct: true}
+      - {text: "Par un `@PostConstruct` qui lit la classe au démarrage", correct: false}
+      - {text: "Rien à faire : GraalVM détecte toute forme de réflexion", correct: false}
+      - {text: "Par `@Lazy` sur la classe lue par réflexion", correct: false}
+    answer: "Les indications sont écrites dans les métadonnées de GraalVM au build. Un `@PostConstruct` s'exécuterait trop tard."
+  - key: qcm-cas-favorable
+    format: multiple-choice
+    question: "Pour quel cas une image native est-elle la plus intéressante ?"
+    choices:
+      - {text: "Des fonctions lancées à la demande, qui doivent répondre tout de suite", correct: true}
+      - {text: "Un calcul qui tourne pendant des jours, au débit maximal", correct: false}
+      - {text: "Une application qui charge des plugins inconnus à l'exécution", correct: false}
+      - {text: "Un projet dont le build doit durer moins de dix secondes", correct: false}
+    answer: "Serverless, montée en charge rapide, outils en ligne de commande : là où le démarrage compte. Les plugins dynamiques contredisent le monde fermé."
+  - key: qcm-limite-du-natif
+    format: multiple-choice
+    question: "Quelle limite a une application Spring Boot compilée en image native ?"
+    choices:
+      - {text: "Le classpath et les conditions des beans sont figés au build", correct: true}
+      - {text: "Elle ne peut pas lire de propriétés de configuration", correct: false}
+      - {text: "Elle ne peut pas ouvrir de connexion à une base", correct: false}
+      - {text: "Elle ne peut pas répondre à des requêtes HTTP", correct: false}
+    answer: "Les propriétés, la base et le web fonctionnent. Ce qui change, c'est qu'on ne peut plus ajouter ou retirer de beans au démarrage."
+  - key: situation-serverless
+    format: scenario
+    question: |-
+      Ton service est lancé à la demande par une plateforme serverless, et le client attend la réponse du premier
+      appel. Que proposes-tu d'évaluer ?
+    choices:
+      - {text: "Une image native GraalVM, ou le cache AOT de la JVM", correct: true}
+      - {text: "Plus de mémoire, pour que le JIT chauffe plus vite", correct: false}
+      - {text: "Un pool de threads plus grand dans Tomcat", correct: false}
+      - {text: "Passer de Maven à Gradle pour démarrer plus vite", correct: false}
+    answer: |-
+      Le temps perdu est celui du démarrage. L'image native le réduit le plus ; le cache AOT de la JVM est un
+      compromis plus simple, sans monde fermé.
+  - key: situation-dto-en-natif
+    format: scenario
+    question: |-
+      En natif, la désérialisation JSON d'un DTO échoue, alors que tout fonctionne sur la JVM. Que soupçonnes-tu ?
+    choices:
+      - {text: "Une indication de réflexion manquante pour ce DTO", correct: true}
+      - {text: "Une version de Jackson différente entre la JVM et le natif", correct: false}
+      - {text: "Un profil Spring qui n'est pas activé en natif", correct: false}
+      - {text: "Un défaut de Tomcat dans les images natives", correct: false}
+    answer: |-
+      Jackson construit l'objet par réflexion. Si le DTO n'est atteint par aucun chemin que Spring connaît, on le
+      déclare avec `@RegisterReflectionForBinding`.
+  - key: situation-condition-figee
+    format: scenario
+    question: |-
+      En natif, passer `boutique.cache.enabled=true` au lancement ne crée pas le bean conditionné par
+      `@ConditionalOnProperty`. Pourquoi ?
+    choices:
+      - {text: "Les conditions ont été évaluées au build : l'ensemble des beans est figé", correct: true}
+      - {text: "Une image native ne lit aucune propriété au démarrage", correct: false}
+      - {text: "Il faut redémarrer la machine pour changer une propriété", correct: false}
+      - {text: "`@ConditionalOnProperty` n'existe pas dans une image native", correct: false}
+    answer: |-
+      La propriété est bien lue, mais trop tard : la décision de créer le bean a été prise au build. Il faut activer
+      le cache au moment de la compilation, ou ne pas en faire une condition.
+  - key: situation-tout-en-natif
+    format: scenario
+    question: |-
+      En entretien : « Faut-il compiler toutes nos applications Spring Boot en natif ? » Que réponds-tu ?
+    choices:
+      - {text: "Non : c'est un compromis, utile quand démarrage et mémoire comptent", correct: true}
+      - {text: "Oui : le natif est plus rapide en tout point", correct: false}
+      - {text: "Non : Spring Boot ne sait pas produire d'image native", correct: false}
+      - {text: "Oui, car la JVM ne sera plus maintenue après Java 25", correct: false}
+    answer: |-
+      On gagne le démarrage et la mémoire ; on paie un build long, un monde fermé, un débogage plus délicat et souvent
+      un débit de pointe un peu plus bas. Pour un service qui tourne longtemps, la JVM reste un bon choix.
+  - key: def-compilation-aot
+    format: definition
+    question: "Quel terme désigne la compilation faite au moment du build, avant l'exécution, par opposition au JIT ?"
+    choices:
+      - {text: "La compilation anticipée (AOT, ahead-of-time)", correct: true}
+      - {text: "La compilation à la volée (JIT)", correct: false}
+      - {text: "L'interprétation du bytecode", correct: false}
+      - {text: "Le tissage AspectJ", correct: false}
+    answer: "AOT compile avant ; le JIT compile pendant l'exécution, le code le plus utilisé."
+  - key: def-image-native
+    format: definition
+    question: "Quel terme désigne l'exécutable autonome, sans JVM, produit par GraalVM à partir d'une application Java ?"
+    choices:
+      - {text: "Une image native", correct: true}
+      - {text: "Un jar exécutable", correct: false}
+      - {text: "Une image jlink", correct: false}
+      - {text: "Une image OCI", correct: false}
+    answer: "Une image native contient le code compilé et un petit runtime. `jlink` produit un JRE réduit, qui reste une JVM."
+  - key: def-runtime-hints
+    format: definition
+    question: "Quel terme désigne, dans Spring, les indications sur la réflexion, les ressources et les proxies à inclure dans une image native ?"
+    choices:
+      - {text: "Les `RuntimeHints`", correct: true}
+      - {text: "Les `BeanDefinition`", correct: false}
+      - {text: "Les `ApplicationArguments`", correct: false}
+      - {text: "Les `PropertySource`", correct: false}
+    answer: "Spring en produit beaucoup lui-même ; on complète avec un `RuntimeHintsRegistrar` pour ce qu'il ne peut pas deviner."
+  - key: def-cache-aot-jvm
+    format: definition
+    question: "Quel terme désigne le cache, apparu avec le projet Leyden (Java 24), qui garde des classes déjà chargées et liées pour accélérer le démarrage sur la JVM ?"
+    choices:
+      - {text: "Le cache AOT de la JVM", correct: true}
+      - {text: "Le cache de second niveau d'Hibernate", correct: false}
+      - {text: "Le cache local de Maven", correct: false}
+      - {text: "Le cache des buildpacks", correct: false}
+    answer: "Une exécution d'entraînement remplit le cache (`-XX:AOTCache`) ; les démarrages suivants le réutilisent, sans monde fermé."

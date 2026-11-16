@@ -1,0 +1,278 @@
+notion: chargement-paresseux
+lesson: |-
+  Une relation se charge de deux façons, réglées par `fetch` :
+
+  | `fetch` | Quand l'entité liée est lue | Défaut pour |
+  |---|---|---|
+  | `FetchType.EAGER` | tout de suite, avec l'entité | `@ManyToOne`, `@OneToOne` |
+  | `FetchType.LAZY` | au premier accès | `@OneToMany`, `@ManyToMany` |
+
+  **Comment marche le paresseux.** Hibernate place à la place de la relation un **substitut** : une collection
+  spéciale pour un `@OneToMany`, un **proxy** (une sous-classe générée de l'entité) pour un `@ManyToOne`. Au premier
+  accès (`commande.getLignes().size()`, `ligne.getProduit().getNom()`), le substitut lance la requête. Seul
+  `getId()` sur un proxy répond sans requête : l'identifiant est déjà connu.
+
+  **Il lui faut une session ouverte.** Le substitut passe par le contexte de persistance qui l'a créé. Une fois la
+  transaction terminée, ce contexte est fermé, et le premier accès lève une `LazyInitializationException` :
+
+  ```
+  Cannot lazily initialize collection of role 'boutique.Commande.lignes' with key '1' (no session)
+  Could not initialize proxy [boutique.Client#1] - no session
+  ```
+
+  Le cas typique : un service sans transaction, ou un contrôleur qui lit une relation d'une entité renvoyée par un
+  service, après la fin de sa transaction.
+
+  **Open-in-view.** Dans une application web, Spring Boot active par défaut `spring.jpa.open-in-view` : l'`EntityManager`
+  reste ouvert jusqu'à la fin de la requête HTTP, et le chargement paresseux marche même dans le contrôleur ou
+  pendant la sérialisation JSON. Spring Boot prévient au démarrage : « spring.jpa.open-in-view is enabled by default.
+  Therefore, database queries may be performed during view rendering ». Le prix : des requêtes lancées hors du
+  service, hors transaction, souvent en N+1, et cachées. On le désactive (`spring.jpa.open-in-view=false`) et l'on
+  charge ce qu'il faut dans le service.
+
+  **Les bonnes corrections.**
+  - Lire dans une transaction : la méthode de service porte `@Transactional(readOnly = true)` ;
+  - construire le **DTO dans le service**, pendant que la transaction est ouverte ;
+  - charger d'avance ce dont on a besoin : `join fetch` en JPQL, ou `@EntityGraph(attributePaths = "lignes")` ;
+  - ou une projection qui ne lit que les colonnes utiles.
+
+  **Les mauvaises.** Passer la relation en `EAGER` : elle sera chargée partout, même quand personne ne s'en sert, et
+  souvent par une requête de plus pour chaque entité. Activer `hibernate.enable_lazy_load_no_trans` : chaque accès
+  ouvre une session temporaire, hors de toute transaction.
+
+  **En entretien** : « Une relation paresseuse est un substitut qui se charge au premier accès, à condition que le
+  contexte de persistance soit encore ouvert ; sinon, `LazyInitializationException`. Je désactive open-in-view, et je
+  charge ce dont j'ai besoin dans le service : transaction, `join fetch` ou `@EntityGraph`, puis un DTO. Je ne passe
+  pas les relations en `EAGER` pour faire taire l'erreur. »
+cards:
+  - key: defauts
+    format: course
+    question: "Quels sont les modes de chargement par défaut de `@ManyToOne` et de `@OneToMany` ?"
+    choices:
+      - {text: "`@ManyToOne` immédiat, `@OneToMany` paresseux", correct: true}
+      - {text: "`@ManyToOne` paresseux, `@OneToMany` immédiat", correct: false}
+      - {text: "Paresseux pour les deux, comme toute relation", correct: false}
+      - {text: "Immédiat pour les deux, comme toute relation", correct: false}
+    answer: "JPA charge immédiatement les relations vers une seule entité, et en différé les collections. On passe souvent les `@ManyToOne` en `LAZY` à la main."
+  - key: substitut
+    format: course
+    question: "Que contient le champ `client` d'une commande chargée, quand ce `@ManyToOne` est en `FetchType.LAZY` ?"
+    choices:
+      - {text: "Un proxy Hibernate, une sous-classe de `Client` qui lit la ligne au premier accès", correct: true}
+      - {text: "La valeur `null`, jusqu'à ce qu'on appelle `clients.findById` soi-même", correct: false}
+      - {text: "Un `Optional<Client>` vide, rempli par Hibernate au premier accès au champ", correct: false}
+      - {text: "Le seul identifiant du client, rangé dans un champ de type `Long`", correct: false}
+    answer: "Le proxy connaît l'identifiant ; au premier appel d'une autre méthode (`getNom()`), il demande la ligne au contexte de persistance. C'est pour cela que les entités ne doivent pas être `final`."
+  - key: cause-lazy-init
+    format: course
+    question: "Quand une `LazyInitializationException` survient-elle ?"
+    choices:
+      - {text: "Au premier accès à une relation paresseuse, une fois sa session fermée", correct: true}
+      - {text: "Au chargement d'une entité dont une relation est en `FetchType.EAGER`", correct: false}
+      - {text: "Quand deux transactions chargent la même entité au même moment", correct: false}
+      - {text: "Quand une entité est enregistrée sans son constructeur sans argument", correct: false}
+    answer: "Le substitut a besoin du contexte de persistance qui l'a créé. Après la transaction (et sans open-in-view), ce contexte est fermé : « no session »."
+  - key: open-in-view
+    format: course
+    question: "Que fait `spring.jpa.open-in-view`, activé par défaut dans une application web Spring Boot ?"
+    choices:
+      - {text: "Il garde l'`EntityManager` ouvert jusqu'à la fin de la requête HTTP", correct: true}
+      - {text: "Il ouvre une transaction d'écriture pour chaque requête HTTP reçue", correct: false}
+      - {text: "Il charge toutes les relations en `EAGER` avant d'appeler le contrôleur", correct: false}
+      - {text: "Il expose les entités JPA dans les vues, à la place des DTO", correct: false}
+    answer: "Le chargement paresseux marche alors dans le contrôleur et pendant la sérialisation, mais hors transaction, et souvent en N+1. Spring Boot le signale par un avertissement au démarrage."
+  - key: vf-get-id-proxy
+    format: true-false
+    question: "Appeler `getId()` sur le proxy paresseux d'un `@ManyToOne` ne déclenche aucune requête, même après la fin de la transaction."
+    truth: true
+    answer: "Le proxy connaît déjà son identifiant (c'était la clé étrangère). Toute autre méthode, comme `getNom()`, a besoin de la ligne."
+  - key: vf-osiv-defaut
+    format: true-false
+    question: "Dans une application web, Spring Boot active `spring.jpa.open-in-view` par défaut."
+    truth: true
+    answer: "Et il le signale au démarrage : « spring.jpa.open-in-view is enabled by default ». Le fixer explicitement à `false` fait taire l'avertissement et rend les chargements visibles."
+  - key: vf-eager-correction
+    format: true-false
+    question: "Passer une relation en `FetchType.EAGER` est la bonne façon de corriger une `LazyInitializationException`."
+    truth: false
+    answer: "La relation serait chargée partout, même quand personne ne s'en sert, souvent par une requête de plus par entité. On charge ce qu'il faut là où il le faut : transaction, `join fetch`, `@EntityGraph`."
+  - key: vf-objet-en-memoire
+    format: true-false
+    question: "Une collection paresseuse peut être lue après la fin de la transaction, tant que l'entité qui la porte est encore en mémoire."
+    truth: false
+    answer: "L'entité est en mémoire, mais pas sa collection : elle n'a jamais été lue. Sans session ouverte pour la charger, l'accès lève une `LazyInitializationException`."
+  - key: qcm-exception
+    format: multiple-choice
+    question: "Quelle exception lève `commande.getLignes().size()` après la fin de la transaction, open-in-view désactivé ?"
+    choices:
+      - {text: "`LazyInitializationException`", correct: true}
+      - {text: "`EntityNotFoundException`", correct: false}
+      - {text: "`TransactionRequiredException`", correct: false}
+      - {text: "`NullPointerException`", correct: false}
+    answer: "« Cannot lazily initialize collection of role 'boutique.Commande.lignes' with key '1' (no session) ». La collection existe, mais ne peut plus se charger."
+  - key: qcm-desactiver-osiv
+    format: multiple-choice
+    question: "Quelle propriété désactive open-in-view ?"
+    choices:
+      - {text: "`spring.jpa.open-in-view=false`", correct: true}
+      - {text: "`spring.jpa.lazy-loading=false`", correct: false}
+      - {text: "`spring.jpa.hibernate.ddl-auto=none`", correct: false}
+      - {text: "`spring.mvc.open-session=false`", correct: false}
+    answer: "Une fois désactivé, toute relation paresseuse lue hors du service lève une exception : c'est voulu, cela montre où charger les données."
+  - key: qcm-entity-graph
+    format: multiple-choice
+    question: "Quelle déclaration charge une commande avec ses lignes, dans la même requête ?"
+    choices:
+      - {text: "`@EntityGraph(attributePaths = \"lignes\") Optional<Commande> findWithLignesById(Long id);`", correct: true}
+      - {text: "`@Lock(LockModeType.READ) Optional<Commande> findWithLignesById(Long id);`", correct: false}
+      - {text: "`@Transactional(readOnly = true) Optional<Commande> findWithLignesById(Long id);`", correct: false}
+      - {text: "`@Modifying(clearAutomatically = true) Optional<Commande> findWithLignesById(Long id);`", correct: false}
+    answer: "`@EntityGraph` ajoute la jointure et charge la collection d'un coup. Spring Data ignore les mots entre `find` et `By` : `findWithLignesById` reste une recherche par identifiant."
+  - key: qcm-mauvaise-correction
+    format: multiple-choice
+    question: "Laquelle de ces corrections d'une `LazyInitializationException` est un anti-motif ?"
+    choices:
+      - {text: "Activer `hibernate.enable_lazy_load_no_trans`", correct: true}
+      - {text: "Construire le DTO dans le service transactionnel", correct: false}
+      - {text: "Charger la relation avec un `join fetch`", correct: false}
+      - {text: "Annoter le service `@Transactional(readOnly = true)`", correct: false}
+    answer: "Ce réglage ouvre une session temporaire à chaque accès paresseux, hors de toute transaction : des requêtes cachées et incohérentes. Les trois autres chargent les données au bon endroit."
+  - key: bug-service-sans-transaction
+    format: bug-fix
+    question: |-
+      L'appel lève `LazyInitializationException: Cannot lazily initialize collection of role
+      'boutique.Commande.lignes' with key '1' (no session)`. Quelle correction est la bonne ?
+      ```java
+      @Service
+      public class FacturationService {
+          public int nombreDeLignes(long commandeId) {
+              Commande commande = commandes.findById(commandeId).orElseThrow();
+              return commande.getLignes().size();
+          }
+      }
+      ```
+    choices:
+      - {text: "Annoter la méthode avec `@Transactional(readOnly = true)`", correct: true}
+      - {text: "Appeler `commandes.flush()` avant de lire les lignes", correct: false}
+      - {text: "Remplacer `findById` par `getReferenceById`", correct: false}
+      - {text: "Copier la liste des lignes avec `List.copyOf`", correct: false}
+    answer: |-
+      ```java
+      @Transactional(readOnly = true)
+      public int nombreDeLignes(long commandeId) {
+      ```
+      Sans transaction, `findById` ouvre et ferme sa propre session : la commande revient détachée, sa collection non
+      chargée. Avec une transaction autour de la méthode, la session reste ouverte jusqu'à `size()`. Une requête
+      `count` serait encore mieux, si seul le nombre compte.
+  - key: bug-dto-dans-le-controleur
+    format: bug-fix
+    question: |-
+      Avec `spring.jpa.open-in-view=false`, `GET /commandes/1` échoue : `LazyInitializationException: Cannot lazily
+      initialize collection of role 'boutique.Commande.lignes' with key '1' (no session)`. `trouver` est
+      `@Transactional(readOnly = true)`. Quelle correction est la bonne ?
+      ```java
+      @GetMapping("/commandes/{id}")
+      public CommandeDto lire(@PathVariable long id) {
+          Commande commande = commandeService.trouver(id);
+          return new CommandeDto(commande.getId(), commande.getLignes().stream().map(LigneDto::de).toList());
+      }
+      ```
+    choices:
+      - {text: "Construire le `CommandeDto` dans le service, et le renvoyer", correct: true}
+      - {text: "Remettre `spring.jpa.open-in-view=true` dans la configuration", correct: false}
+      - {text: "Passer le `@OneToMany` des lignes en `fetch = FetchType.EAGER`", correct: false}
+      - {text: "Annoter le contrôleur avec `@Transactional(readOnly = true)`", correct: false}
+    answer: |-
+      ```java
+      @Transactional(readOnly = true)
+      public CommandeDto lire(long id) {
+          Commande commande = commandes.findById(id).orElseThrow();
+          return new CommandeDto(commande.getId(), commande.getLignes().stream().map(LigneDto::de).toList());
+      }
+      ```
+      La transaction de `trouver` est finie quand le contrôleur lit les lignes. Le service, qui connaît le cas
+      d'usage, construit le DTO pendant que la session est ouverte (au besoin avec un `join fetch`). Remettre
+      open-in-view ou passer en `EAGER` masquerait le problème au lieu de le régler.
+  - key: bug-get-reference
+    format: bug-fix
+    question: |-
+      L'affichage du nom échoue : `LazyInitializationException: Could not initialize proxy [boutique.Client#1] - no
+      session`. La méthode n'est pas transactionnelle. Quelle correction est la bonne ?
+      ```java
+      public String nomDuClient(long id) {
+          Client client = clients.getReferenceById(id);
+          return client.getNom();
+      }
+      ```
+    choices:
+      - {text: "Lire le client avec `clients.findById(id).orElseThrow()`", correct: true}
+      - {text: "Lire l'identifiant avec `client.getId()` avant le nom", correct: false}
+      - {text: "Passer les relations de `Client` en `FetchType.EAGER`", correct: false}
+      - {text: "Appeler `clients.flush()` avant de lire le nom du client", correct: false}
+    answer: |-
+      ```java
+      Client client = clients.findById(id).orElseThrow();
+      return client.getNom();
+      ```
+      `getReferenceById` renvoie un proxy sans lire la ligne ; sa session est déjà fermée quand on lui demande le
+      nom. `findById` lit la ligne tout de suite. `getId()` répondrait sans requête, mais n'initialise pas le proxy.
+  - key: bug-many-to-one-paresseux
+    format: bug-fix
+    question: |-
+      L'export échoue : `LazyInitializationException: Could not initialize proxy [boutique.Client#7] - no session`.
+      `Commande.client` est un `@ManyToOne(fetch = FetchType.LAZY)`, et la méthode n'est pas transactionnelle.
+      Quelle correction est la bonne ?
+      ```java
+      public String destinataire(long commandeId) {
+          Commande commande = commandes.findById(commandeId).orElseThrow();
+          return commande.getClient().getNom();
+      }
+      ```
+    choices:
+      - {text: "Charger la commande avec son client : `join fetch c.client` dans une `@Query`", correct: true}
+      - {text: "Lire `commande.getClient().getId()` puis `getNom()` sur le même proxy", correct: false}
+      - {text: "Appeler `commandes.saveAndFlush(commande)` avant de lire le client", correct: false}
+      - {text: "Déclarer la classe `Client` avec le mot-clé `final` pour éviter le proxy", correct: false}
+    answer: |-
+      ```java
+      @Query("select c from Commande c join fetch c.client where c.id = :id")
+      Optional<Commande> trouverAvecClient(@Param("id") Long id);
+      ```
+      Le client n'est qu'un proxy, et la session de `findById` est fermée. Le `join fetch` le charge dans la même
+      requête que la commande. Une classe `final` empêcherait Hibernate de créer ses proxys, sans charger le client.
+  - key: situation-eager-partout
+    format: scenario
+    question: "Pour faire taire des `LazyInitializationException`, un collègue propose de passer toutes les relations en `EAGER`. Que lui réponds-tu ?"
+    choices:
+      - {text: "Non : je charge ce que chaque cas d'usage lit, par `join fetch` ou `@EntityGraph`", correct: true}
+      - {text: "Oui : c'est la configuration recommandée par Hibernate pour les relations", correct: false}
+      - {text: "Oui, à condition de garder `open-in-view` activé dans toute l'application", correct: false}
+      - {text: "Non : il faut plutôt passer tous les services en propagation `REQUIRES_NEW`", correct: false}
+    answer: "`EAGER` charge tout, partout : chaque lecture d'une commande tirerait clients, lignes, produits..., souvent en N+1. Chaque cas d'usage charge plutôt ce qu'il lit, et les relations restent paresseuses par défaut."
+  - key: situation-avertissement-osiv
+    format: scenario
+    question: "Au démarrage, Spring Boot affiche « spring.jpa.open-in-view is enabled by default ». Ton équipe demande ce qu'il faut en faire. Que proposes-tu ?"
+    choices:
+      - {text: "Le désactiver, puis charger dans les services ce que lisent les contrôleurs", correct: true}
+      - {text: "L'ignorer : c'est un message d'information sans aucune conséquence", correct: false}
+      - {text: "Passer les journaux de Spring Boot au niveau `ERROR` pour le masquer", correct: false}
+      - {text: "Le garder, et passer les collections en `EAGER` pour aller plus vite", correct: false}
+    answer: "Open-in-view laisse des requêtes partir depuis les contrôleurs et la sérialisation, hors transaction, souvent en N+1. En le désactivant, chaque chargement oublié lève une exception claire, que l'on corrige dans le service."
+  - key: situation-lazy-no-trans
+    format: scenario
+    question: "Un collègue a trouvé sur un forum la propriété `hibernate.enable_lazy_load_no_trans=true`, qui « supprime toutes les LazyInitializationException ». Que lui dis-tu ?"
+    choices:
+      - {text: "C'est un anti-motif : une session cachée par accès, hors transaction", correct: true}
+      - {text: "C'est la bonne solution : Spring Boot l'active d'ailleurs par défaut", correct: false}
+      - {text: "C'est sans risque, à condition de l'activer seulement en production", correct: false}
+      - {text: "C'est équivalent à `@Transactional(readOnly = true)` sur chaque service", correct: false}
+    answer: "Chaque accès paresseux ouvrirait une session et une connexion à part, hors de la transaction : des requêtes cachées, un N+1 garanti, et des lectures incohérentes entre elles."
+  - key: situation-entretien-lazy
+    format: scenario
+    question: "En entretien : « D'où vient une `LazyInitializationException`, et comment la corriges-tu ? » Que réponds-tu ?"
+    choices:
+      - {text: "Une relation paresseuse lue sans session ; je la charge dans le service", correct: true}
+      - {text: "Une relation déclarée en `EAGER` ; je la repasse en `LAZY` partout", correct: false}
+      - {text: "Un conflit entre deux transactions ; j'ajoute un `@Version` à l'entité", correct: false}
+      - {text: "Une entité sans identifiant ; j'ajoute `@Id` sur la clé primaire", correct: false}
+    answer: "Le substitut paresseux a besoin de la session qui l'a créé. Je charge les données dans une méthode transactionnelle, avec `join fetch` ou `@EntityGraph`, et je renvoie un DTO, plutôt que de compter sur open-in-view ou `EAGER`."

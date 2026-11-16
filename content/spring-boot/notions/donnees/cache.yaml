@@ -1,0 +1,345 @@
+notion: cache
+lesson: |-
+  Quand une méthode coûteuse renvoie souvent la même chose pour les mêmes arguments, Spring peut garder son résultat
+  en **cache** et ne plus l'exécuter.
+
+  ```java
+  @SpringBootApplication
+  @EnableCaching                                   // sans elle, les annotations de cache ne font rien
+  public class BoutiqueApplication {}
+
+  @Service
+  public class CatalogueService {
+
+      @Cacheable(value = "produits", key = "#id")
+      public ProduitDto trouver(long id) { ... }   // exécutée au premier appel, puis lue dans le cache
+
+      @CachePut(value = "produits", key = "#result.id()")
+      public ProduitDto renommer(long id, String nom) { ... }   // toujours exécutée ; met le cache à jour
+
+      @CacheEvict(value = "produits", key = "#id")
+      public void supprimer(long id) { ... }       // retire l'entrée
+
+      @CacheEvict(value = "produits", allEntries = true)
+      public void reimporterCatalogue() { ... }    // vide tout le cache
+  }
+  ```
+
+  **La clé.** Par défaut, elle est faite des arguments : l'argument lui-même s'il n'y en a qu'un, une combinaison
+  s'il y en a plusieurs, une clé vide s'il n'y en a aucun. Le **nom de la méthode n'en fait pas partie** : deux
+  méthodes qui partagent un cache et reçoivent le même argument lisent la même entrée. `key = "#id"` choisit la clé
+  en SpEL ; `condition` dit quand utiliser le cache, `unless = "#result == null"` quand ne pas garder le résultat.
+
+  **Un proxy, encore.** Comme `@Transactional`, le cache passe par un proxy : un appel interne
+  (`this.trouver(id)`) l'ignore, et il faut `@EnableCaching` pour que le proxy existe.
+
+  **Le fournisseur.** Sans bibliothèque de cache, Spring Boot utilise une `ConcurrentHashMap` : ni taille maximale
+  ni expiration, et un cache par instance de l'application. En production, on choisit :
+
+  | Fournisseur | Pour |
+  |---|---|
+  | Caffeine | un cache local, avec taille maximale et durée de vie (`spring.cache.caffeine.spec=maximumSize=1000,expireAfterWrite=10m`) |
+  | Redis | un cache partagé entre les instances, avec durée de vie |
+
+  **Les pièges.**
+  - **L'invalidation** : chaque écriture doit mettre à jour (`@CachePut`) ou retirer (`@CacheEvict`) l'entrée, sinon
+    le cache sert des données périmées.
+  - **Les objets modifiables** : un cache local renvoie la même instance à tous ; si un appelant la modifie, tous la
+    voient modifiée. On met en cache des objets immuables : des records, des DTO.
+  - **Les entités JPA** : détachées, avec des relations paresseuses qui échoueront plus tard. On met en cache des DTO.
+  - **Plusieurs instances** : chaque cache local diverge des autres après une écriture. Redis, ou une durée de vie
+    courte.
+
+  **En entretien** : « J'active le cache avec `@EnableCaching`, puis `@Cacheable` sur les lectures coûteuses,
+  `@CachePut` ou `@CacheEvict` sur les écritures. La clé vient des arguments, pas du nom de la méthode. C'est un
+  proxy : pas d'auto-invocation. Le plus dur est l'invalidation : je cache des DTO immuables, avec une durée de vie,
+  dans Caffeine ou dans Redis quand il y a plusieurs instances. »
+cards:
+  - key: cacheable
+    format: course
+    question: "Que fait `@Cacheable(\"produits\")` sur une méthode `trouver(long id)` ?"
+    choices:
+      - {text: "Au premier appel pour un `id`, elle s'exécute ; ensuite, le résultat est lu dans le cache", correct: true}
+      - {text: "Elle s'exécute à chaque appel, puis enregistre son résultat dans le cache `produits`", correct: false}
+      - {text: "Elle remplit le cache au démarrage, en appelant la méthode pour chaque identifiant", correct: false}
+      - {text: "Elle garde le résultat le temps de la transaction en cours, puis le cache est vidé", correct: false}
+    answer: "Le proxy cherche d'abord la clé (ici l'`id`) dans le cache `produits`. S'il la trouve, la méthode n'est pas appelée. Exécuter à chaque appel puis mettre à jour, c'est `@CachePut`."
+  - key: cle-par-defaut
+    format: course
+    question: "De quoi est faite la clé de cache par défaut d'une méthode `@Cacheable` ?"
+    choices:
+      - {text: "De ses arguments, sans le nom de la méthode", correct: true}
+      - {text: "Du nom de la méthode et de ses arguments", correct: false}
+      - {text: "Du nom de la classe et de la méthode, sans arguments", correct: false}
+      - {text: "D'un compteur, incrémenté à chaque nouvel appel", correct: false}
+    answer: "Un seul argument devient la clé ; plusieurs forment une clé composée ; aucun donne une clé vide. Deux méthodes qui partagent un cache et le même argument se marchent donc dessus."
+  - key: put-ou-evict
+    format: course
+    question: "Une méthode modifie un produit et renvoie le nouveau `ProduitDto`. Quelle annotation garde le cache `produits` à jour ?"
+    choices:
+      - {text: "`@CachePut`, qui exécute toujours la méthode et stocke son résultat", correct: true}
+      - {text: "`@Cacheable`, qui stocke le résultat au premier appel seulement", correct: false}
+      - {text: "`@EnableCaching`, posée sur la méthode qui fait la modification", correct: false}
+      - {text: "Aucune : Spring détecte la modification et met le cache à jour", correct: false}
+    answer: "`@CachePut` remplace l'entrée par le nouveau résultat. `@CacheEvict` conviendrait aussi : il retire l'entrée, et le prochain appel la recalcule."
+  - key: fournisseur-defaut
+    format: course
+    question: "Sans bibliothèque de cache dans le projet, quel cache Spring Boot utilise-t-il ?"
+    choices:
+      - {text: "Une `ConcurrentHashMap` en mémoire, sans taille maximale ni expiration", correct: true}
+      - {text: "Redis, sur `localhost`, avec une durée de vie de dix minutes", correct: false}
+      - {text: "Caffeine, avec une taille maximale de mille entrées par cache", correct: false}
+      - {text: "Aucun : il refuse de démarrer tant qu'un fournisseur manque", correct: false}
+    answer: "Le cache « simple » grossit sans limite et ne vieillit jamais. Il dépanne en développement ; en production, Caffeine (local) ou Redis (partagé) ajoutent taille et durée de vie."
+  - key: vf-enable-caching
+    format: true-false
+    question: "Sans `@EnableCaching`, une méthode annotée `@Cacheable` s'exécute à chaque appel."
+    truth: true
+    answer: "L'annotation est là, mais aucun proxy ne l'interprète. Spring ne signale rien : on le voit à ce que la méthode est appelée à chaque fois."
+  - key: vf-auto-invocation
+    format: true-false
+    question: "Un appel `this.trouver(id)` vers une méthode `@Cacheable` du même bean utilise le cache."
+    truth: false
+    answer: "Comme pour `@Transactional`, l'appel interne contourne le proxy : la méthode s'exécute, et le cache n'est ni lu ni rempli."
+  - key: vf-cacheput-execute
+    format: true-false
+    question: "Une méthode `@CachePut` est exécutée à chaque appel."
+    truth: true
+    answer: "Son rôle est de mettre le cache à jour avec le nouveau résultat : elle ne lit jamais le cache pour s'éviter l'exécution."
+  - key: vf-meme-instance
+    format: true-false
+    question: "Avec le cache en mémoire par défaut, deux appels qui touchent le cache reçoivent la même instance d'objet."
+    truth: true
+    answer: "La `ConcurrentHashMap` garde une référence, pas une copie. Si un appelant modifie l'objet, tous le voient modifié : on met en cache des objets immuables."
+  - key: qcm-evict
+    format: multiple-choice
+    question: "Quelle annotation retire une entrée du cache quand on supprime un produit ?"
+    choices:
+      - {text: "`@CacheEvict(value = \"produits\", key = \"#id\")`", correct: true}
+      - {text: "`@Cacheable(value = \"produits\", key = \"#id\")`", correct: false}
+      - {text: "`@CachePut(value = \"produits\", key = \"#id\")`", correct: false}
+      - {text: "`@CacheConfig(value = \"produits\", key = \"#id\")`", correct: false}
+    answer: "`@CacheEvict` retire l'entrée de la clé donnée. `@CacheConfig` se pose sur la classe pour partager le nom du cache entre ses méthodes."
+  - key: qcm-unless
+    format: multiple-choice
+    question: "Comment éviter de garder en cache un résultat `null` ?"
+    choices:
+      - {text: "`@Cacheable(value = \"produits\", unless = \"#result == null\")`", correct: true}
+      - {text: "`@Cacheable(value = \"produits\", condition = \"#result != null\")`", correct: false}
+      - {text: "`@Cacheable(value = \"produits\", key = \"#result\")`", correct: false}
+      - {text: "`@Cacheable(value = \"produits\", sync = true)`", correct: false}
+    answer: "`unless` est évalué après l'exécution, et peut lire `#result`. `condition` est évalué avant, sur les arguments seulement : `#result` n'y existe pas encore."
+  - key: qcm-tout-vider
+    format: multiple-choice
+    question: "Après un réimport complet du catalogue, comment vides-tu tout le cache `produits` ?"
+    choices:
+      - {text: "`@CacheEvict(value = \"produits\", allEntries = true)`", correct: true}
+      - {text: "`@CacheEvict(value = \"produits\", key = \"*\")`", correct: false}
+      - {text: "`@CachePut(value = \"produits\", allEntries = true)`", correct: false}
+      - {text: "`@Cacheable(value = \"produits\", sync = true)`", correct: false}
+    answer: "`allEntries = true` vide le cache entier. Une clé `\"*\"` serait une chaîne comme une autre, pas un joker."
+  - key: qcm-plusieurs-instances
+    format: multiple-choice
+    question: "L'application tourne sur trois instances, et chaque écriture doit être visible des trois caches. Quel fournisseur choisis-tu ?"
+    choices:
+      - {text: "Redis, partagé par les trois instances", correct: true}
+      - {text: "Caffeine, un cache local par instance", correct: false}
+      - {text: "Le cache simple de Spring Boot", correct: false}
+      - {text: "Une `HashMap` statique dans le service", correct: false}
+    answer: "Un cache local par instance diverge dès qu'une instance écrit : les deux autres gardent l'ancienne valeur. Redis est un seul cache pour toutes."
+  - key: trous-key
+    format: fill-in
+    question: |-
+      Complète pour que la clé soit l'identifiant :
+      ```java
+      @Cacheable(value = "produits", key = "___")
+      public ProduitDto trouver(long id, Locale langue) { ... }
+      ```
+    blanks:
+      - ["#id", "#p0", "#a0", "#root.args[0]"]
+    answer: "`#id` désigne le paramètre `id` en SpEL. Sans `key`, la clé combinerait `id` et `langue`."
+  - key: trous-enable
+    format: fill-in
+    question: |-
+      Complète pour que les annotations de cache prennent effet :
+      ```java
+      @SpringBootApplication
+      @Enable___
+      public class BoutiqueApplication {}
+      ```
+    blanks:
+      - [Caching]
+    answer: "`@EnableCaching` crée les proxys qui lisent et remplissent les caches."
+  - key: trous-all-entries
+    format: fill-in
+    question: |-
+      Complète pour vider tout le cache :
+      ```java
+      @CacheEvict(value = "produits", ___ = true)
+      public void reimporterCatalogue() { ... }
+      ```
+    blanks:
+      - [allEntries]
+    answer: "`allEntries = true` retire toutes les entrées du cache `produits`."
+  - key: trous-put
+    format: fill-in
+    question: |-
+      Complète pour que la méthode s'exécute toujours et remplace l'entrée du cache :
+      ```java
+      @Cache___(value = "produits", key = "#id")
+      public ProduitDto renommer(long id, String nom) { ... }
+      ```
+    blanks:
+      - [Put]
+    answer: "`@CachePut` exécute la méthode à chaque appel, puis stocke le résultat sous la clé donnée."
+  - key: bug-sans-enable
+    format: bug-fix
+    question: |-
+      Les journaux montrent que `tauxDeChange` interroge le service distant à chaque appel, alors que la méthode est
+      annotée `@Cacheable`. Quelle correction est la bonne ?
+      ```java
+      @SpringBootApplication
+      public class BoutiqueApplication {}
+
+      @Service
+      public class Devises {
+          @Cacheable("taux")
+          public BigDecimal tauxDeChange(String devise) { ... }
+      }
+      ```
+    choices:
+      - {text: "Ajouter `@EnableCaching` sur `BoutiqueApplication`", correct: true}
+      - {text: "Ajouter `key = \"#devise\"` dans `@Cacheable`", correct: false}
+      - {text: "Ajouter `sync = true` dans `@Cacheable`", correct: false}
+      - {text: "Annoter `tauxDeChange` avec `@Transactional`", correct: false}
+    answer: |-
+      ```java
+      @SpringBootApplication
+      @EnableCaching
+      public class BoutiqueApplication {}
+      ```
+      Sans `@EnableCaching`, aucun proxy de cache n'est créé : `@Cacheable` reste une annotation sans effet. La clé
+      par défaut est déjà `devise`, seul argument.
+  - key: bug-auto-invocation
+    format: bug-fix
+    question: |-
+      `prixTTC` recalcule le prix hors taxes à chaque appel, alors que `prixHT` est en cache. Quelle correction est
+      la bonne ?
+      ```java
+      @Service
+      public class Tarifs {
+          @Cacheable("prixHT")
+          public int prixHT(long produitId) { ... }       // lent
+
+          public int prixTTC(long produitId) {
+              return prixHT(produitId) * 120 / 100;
+          }
+      }
+      ```
+    choices:
+      - {text: "Déplacer `prixHT` dans un autre bean, injecté dans `Tarifs`", correct: true}
+      - {text: "Annoter aussi `prixTTC` avec `@CacheEvict(\"prixHT\")`", correct: false}
+      - {text: "Déclarer la méthode `prixHT` avec le mot-clé `final`", correct: false}
+      - {text: "Appeler `this.prixHT(produitId)` plutôt que `prixHT(produitId)`", correct: false}
+    answer: |-
+      ```java
+      @Service
+      public class Tarifs {
+          private final PrixHorsTaxes prixHorsTaxes;   // le bean qui porte @Cacheable
+
+          public int prixTTC(long produitId) {
+              return prixHorsTaxes.prixHT(produitId) * 120 / 100;
+          }
+      }
+      ```
+      L'appel interne ne passe pas par le proxy : le cache n'est ni lu ni rempli. Écrire `this.` ne change rien,
+      c'est déjà un appel interne. Depuis un autre bean, l'appel traverse le proxy.
+  - key: bug-donnee-perimee
+    format: bug-fix
+    question: |-
+      Après un changement de prix, la fiche produit affiche l'ancien prix pendant des heures. Quelle correction est la
+      bonne ?
+      ```java
+      @Cacheable(value = "produits", key = "#id")
+      public ProduitDto trouver(long id) { ... }
+
+      @Transactional
+      public void changerPrix(long id, int prix) {
+          produits.findById(id).orElseThrow().setPrix(prix);
+      }
+      ```
+    choices:
+      - {text: "Annoter `changerPrix` avec `@CacheEvict(value = \"produits\", key = \"#id\")`", correct: true}
+      - {text: "Annoter `changerPrix` avec `@Cacheable(value = \"produits\", key = \"#id\")`", correct: false}
+      - {text: "Annoter `trouver` avec `@Transactional(readOnly = true)` en plus du cache", correct: false}
+      - {text: "Appeler `produits.save` à la fin de `changerPrix`, après le setter", correct: false}
+    answer: |-
+      ```java
+      @Transactional
+      @CacheEvict(value = "produits", key = "#id")
+      public void changerPrix(long id, int prix) {
+      ```
+      La base est à jour, mais le cache garde l'ancien DTO tant que rien ne le retire. Chaque écriture invalide (ou
+      met à jour) l'entrée qu'elle rend fausse. `save` ne touche pas au cache.
+  - key: bug-collision-de-cles
+    format: bug-fix
+    question: |-
+      `prixTTC(42)` renvoie parfois le prix hors taxes. Quelle correction est la bonne ?
+      ```java
+      @Cacheable("prix")
+      public int prixHT(long produitId) { ... }
+
+      @Cacheable("prix")
+      public int prixTTC(long produitId) { ... }
+      ```
+    choices:
+      - {text: "Donner à chaque méthode son propre cache : `\"prixHT\"` et `\"prixTTC\"`", correct: true}
+      - {text: "Ajouter `key = \"#produitId\"` aux deux annotations `@Cacheable`", correct: false}
+      - {text: "Ajouter `sync = true` aux deux annotations `@Cacheable`", correct: false}
+      - {text: "Ajouter `unless = \"#result == 0\"` aux deux annotations", correct: false}
+    answer: |-
+      ```java
+      @Cacheable("prixHT")
+      public int prixHT(long produitId) { ... }
+
+      @Cacheable("prixTTC")
+      public int prixTTC(long produitId) { ... }
+      ```
+      La clé par défaut est l'argument seul, sans le nom de la méthode : dans le même cache `prix`, les deux méthodes
+      lisent l'entrée `42`, remplie par la première appelée. `key = "#produitId"` est déjà la clé par défaut.
+  - key: situation-cache-qui-grossit
+    format: scenario
+    question: "En production, la mémoire de l'application grimpe chaque jour jusqu'au redémarrage. Le cache des fiches produits utilise le fournisseur par défaut. Que proposes-tu ?"
+    choices:
+      - {text: "Caffeine, avec une taille maximale et une durée de vie", correct: true}
+      - {text: "Redémarrer l'application chaque nuit pour vider le cache", correct: false}
+      - {text: "Augmenter la mémoire de la JVM pour que le cache y tienne", correct: false}
+      - {text: "Retirer `@EnableCaching` et garder les `@Cacheable`", correct: false}
+    answer: "Le cache simple garde tout, pour toujours. Caffeine borne le nombre d'entrées et les fait expirer (`spring.cache.caffeine.spec=maximumSize=10000,expireAfterWrite=10m`)."
+  - key: situation-instances-divergent
+    format: scenario
+    question: "Avec trois instances derrière un répartiteur, un prix modifié apparaît tantôt à jour, tantôt ancien, selon l'instance qui répond. Que proposes-tu ?"
+    choices:
+      - {text: "Un cache partagé comme Redis, ou une durée de vie courte", correct: true}
+      - {text: "Un `@CacheEvict` sur la méthode de lecture du prix", correct: false}
+      - {text: "Des sessions collantes : toujours la même instance", correct: false}
+      - {text: "Un cache plus grand sur chaque instance, avec Caffeine", correct: false}
+    answer: "Le `@CacheEvict` n'agit que sur l'instance qui a traité l'écriture ; les deux autres gardent l'ancien prix. Un cache partagé règle le problème ; à défaut, une durée de vie courte borne l'écart."
+  - key: situation-entite-en-cache
+    format: scenario
+    question: "Ton collègue met en cache des entités `Commande`. Plus tard, l'accès à `commande.getLignes()` lève une `LazyInitializationException`. Que proposes-tu ?"
+    choices:
+      - {text: "Mettre en cache un DTO immuable, construit dans la transaction", correct: true}
+      - {text: "Passer les lignes en `EAGER` pour qu'elles soient en cache", correct: false}
+      - {text: "Garder l'`EntityManager` ouvert le temps de vie du cache", correct: false}
+      - {text: "Ajouter `sync = true` à `@Cacheable` sur la méthode", correct: false}
+    answer: "Une entité en cache est détachée : ses relations paresseuses ne peuvent plus se charger, et elle peut être modifiée par un appelant. Un DTO immuable contient tout ce qu'il faut, et ne change pas."
+  - key: situation-entretien-cache
+    format: scenario
+    question: "En entretien : « Qu'est-ce qui est difficile avec un cache ? » Quelle réponse donnes-tu ?"
+    choices:
+      - {text: "L'invalidation : chaque écriture doit retirer ou mettre à jour ce qu'elle rend faux", correct: true}
+      - {text: "La configuration : il faut une classe par cache, avec sa propre `HashMap`", correct: false}
+      - {text: "La lecture : `@Cacheable` relit toujours la base pour vérifier la valeur", correct: false}
+      - {text: "Rien : Spring détecte les changements en base et met le cache à jour", correct: false}
+    answer: "Un cache rend vite les lectures ; il faut ensuite garantir qu'il ne ment pas : `@CacheEvict` ou `@CachePut` sur chaque écriture, une durée de vie, un cache partagé quand il y a plusieurs instances, et des objets immuables."

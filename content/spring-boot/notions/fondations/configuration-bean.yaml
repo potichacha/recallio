@@ -1,0 +1,366 @@
+notion: configuration-bean
+lesson: |-
+  Annoter une classe avec `@Component` ne marche que pour **tes** classes. Pour une classe d'une bibliothèque (un
+  `Clock`, un client HTTP), ou dont la création demande du code, on déclare le bean **à la main**, par une méthode
+  `@Bean` dans une classe `@Configuration`.
+
+  ```java
+  @Configuration
+  public class HorlogeConfig {
+
+      @Bean
+      Clock horloge() {                       // le bean s'appelle « horloge », comme la méthode
+          return Clock.system(ZoneId.of("Europe/Paris"));
+      }
+
+      @Bean
+      Facturation facturation(Clock horloge) {   // les paramètres sont injectés
+          return new Facturation(horloge);
+      }
+  }
+  ```
+
+  - Le **type** du bean est le type de retour ; son **nom** est le nom de la méthode (`@Bean("autreNom")` le change).
+  - Les **paramètres** de la méthode sont des dépendances : Spring les injecte, comme ceux d'un constructeur.
+  - `@Bean(initMethod = "demarrer", destroyMethod = "fermer")` fait appeler des méthodes du bean après sa création et
+    à la fermeture du contexte. Sans réglage, une méthode publique `close()` ou `shutdown()` est appelée d'office à la
+    fermeture.
+
+  **Les appels entre méthodes `@Bean`.** Dans une classe `@Configuration`, Spring crée un **proxy CGLIB** de la
+  classe : si `facturation()` appelait `horloge()` directement, le proxy renverrait **le bean existant**, pas un
+  nouvel objet.
+
+  | Classe | `facturation()` appelle `horloge()` |
+  |---|---|
+  | `@Configuration` | le même bean `horloge`, toujours |
+  | `@Configuration(proxyBeanMethods = false)` | un **nouvel** `Clock` à chaque appel |
+  | `@Component` avec des méthodes `@Bean` (mode « lite ») | un **nouvel** `Clock` à chaque appel |
+
+  La façon la plus sûre, valable partout : **recevoir l'autre bean en paramètre**, au lieu d'appeler sa méthode.
+  `proxyBeanMethods = false` évite alors le proxy, et démarre un peu plus vite ; Spring Boot l'utilise dans ses
+  propres auto-configurations.
+
+  **Les contraintes du proxy.** Une méthode `@Bean` ne doit être ni `private` ni `final`, et une classe
+  `@Configuration` (avec son proxy) ne doit pas être `final` : le démarrage échoue sinon, avec un message explicite.
+
+  **Assembler des configurations.** `@Import(PaiementConfig.class)` ajoute les beans d'une autre classe de
+  configuration, même hors du scan.
+
+  **`@Bean` ou `@Component` ?** Pour ta propre classe sans réglage particulier, `@Component` (ou `@Service`) suffit.
+  `@Bean` sert aux classes que tu ne peux pas annoter, et aux créations qui demandent du code ou des réglages.
+
+  **En entretien** : « `@Bean` déclare un bean par une méthode d'une classe `@Configuration` : c'est l'outil pour les
+  classes de bibliothèques ou les créations qui demandent du code. Ses paramètres sont injectés. Dans une classe
+  `@Configuration`, un proxy fait qu'appeler une autre méthode `@Bean` renvoie le singleton existant. »
+cards:
+  - key: quand-utiliser-bean
+    format: course
+    question: "Quand déclarer un bean avec `@Bean` plutôt qu'en annotant sa classe ?"
+    choices:
+      - {text: "Quand la classe vient d'une bibliothèque, ou que sa création demande du code", correct: true}
+      - {text: "Quand la classe a plus de trois dépendances à recevoir par injection", correct: false}
+      - {text: "Quand le bean doit être de portée singleton plutôt que prototype", correct: false}
+      - {text: "Quand la classe se trouve dans le package de l'application", correct: false}
+    answer: "On ne peut pas annoter `java.time.Clock` ni un client d'une bibliothèque. `@Bean` permet aussi de régler l'objet avant de le confier au conteneur."
+  - key: nom-du-bean-methode
+    format: course
+    question: "Quel est le nom du bean déclaré par la méthode `@Bean Clock horlogeParis()` ?"
+    choices:
+      - {text: "`horlogeParis`", correct: true}
+      - {text: "`clock`", correct: false}
+      - {text: "`Clock`", correct: false}
+      - {text: "`horlogeParisBean`", correct: false}
+    answer: "Le nom d'un bean `@Bean` est celui de la méthode. `@Bean(\"autre\")` le change."
+  - key: appel-entre-methodes-bean
+    format: course
+    question: "Dans une classe `@Configuration`, la méthode `@Bean facturation()` appelle `horloge()`, une autre méthode `@Bean`. Que reçoit-elle ?"
+    choices:
+      - {text: "Le bean `horloge` du conteneur, toujours le même", correct: true}
+      - {text: "Un nouvel objet à chaque appel de `horloge()`", correct: false}
+      - {text: "`null`, car le bean n'est pas encore créé", correct: false}
+      - {text: "Une erreur : une méthode `@Bean` n'en appelle pas d'autre", correct: false}
+    answer: "Le proxy CGLIB de la classe `@Configuration` intercepte l'appel et renvoie le singleton existant. Sans ce proxy, l'appel créerait un nouvel objet."
+  - key: effet-proxybeanmethods
+    format: course
+    question: "Que change `@Configuration(proxyBeanMethods = false)` ?"
+    choices:
+      - {text: "Les appels entre méthodes `@Bean` ne passent plus par le conteneur", correct: true}
+      - {text: "Les beans de la classe deviennent tous de portée prototype", correct: false}
+      - {text: "La classe n'est plus détectée par le scan des composants", correct: false}
+      - {text: "Les méthodes `@Bean` ne sont plus appelées au démarrage", correct: false}
+    answer: "Sans proxy, appeler `horloge()` exécute la méthode et crée un nouvel objet. On reçoit alors les beans en paramètre, ce qui est plus clair de toute façon."
+  - key: vf-parametres-injectes
+    format: true-false
+    question: "Les paramètres d'une méthode `@Bean` sont injectés par Spring, comme ceux d'un constructeur."
+    truth: true
+    answer: "C'est la façon recommandée de relier deux beans déclarés par `@Bean`."
+  - key: vf-bean-prive
+    format: true-false
+    question: "Une méthode `@Bean` peut être `private` dans une classe `@Configuration`."
+    truth: false
+    answer: "Le proxy CGLIB doit pouvoir la redéfinir : le démarrage échoue, « @Bean method ... must not be private or final »."
+  - key: vf-configuration-finale
+    format: true-false
+    question: "Une classe `@Configuration`, avec ses réglages par défaut, peut être déclarée `final`."
+    truth: false
+    answer: "Le proxy CGLIB est une sous-classe : « @Configuration class ... may not be final ». Avec `proxyBeanMethods = false`, il n'y a plus de proxy, et `final` est permis."
+  - key: vf-close-inferee
+    format: true-false
+    question: "Quand un bean déclaré par `@Bean` a une méthode publique `close()`, Spring l'appelle à la fermeture du contexte."
+    truth: true
+    answer: "La méthode de destruction est déduite par défaut : `close()` ou `shutdown()`. `@Bean(destroyMethod = \"\")` désactive cette déduction."
+  - key: qcm-obtenir-autre-bean
+    format: multiple-choice
+    question: "Quelle est la meilleure façon, pour une méthode `@Bean`, d'obtenir un autre bean ?"
+    choices:
+      - {text: "Le recevoir en paramètre de la méthode", correct: true}
+      - {text: "L'injecter dans un champ `static` de la classe", correct: false}
+      - {text: "Le créer avec `new` dans la méthode", correct: false}
+      - {text: "Appeler `getBean` sur le contexte, dans la méthode", correct: false}
+    answer: "Le paramètre fonctionne avec ou sans proxy, et montre la dépendance. Un `new` créerait un objet hors du conteneur."
+  - key: qcm-ajouter-configuration
+    format: multiple-choice
+    question: "Comment ajouter au contexte les beans d'une autre classe `@Configuration`, située hors du scan ?"
+    choices:
+      - {text: "`@Import(PaiementConfig.class)`", correct: true}
+      - {text: "`@Include(PaiementConfig.class)`", correct: false}
+      - {text: "`@DependsOn(PaiementConfig.class)`", correct: false}
+      - {text: "`@Bean(PaiementConfig.class)`", correct: false}
+    answer: "`@Import` enregistre la classe de configuration et ses beans. `@DependsOn` fixe un ordre de création, entre noms de beans."
+  - key: qcm-mode-lite
+    format: multiple-choice
+    question: "Une classe annotée `@Component` (et non `@Configuration`) contient des méthodes `@Bean`. Qu'est-ce qui change ?"
+    choices:
+      - {text: "Les appels entre ses méthodes `@Bean` créent de nouveaux objets", correct: true}
+      - {text: "Ses méthodes `@Bean` sont ignorées par Spring", correct: false}
+      - {text: "Ses beans ne sont créés qu'à leur première utilisation", correct: false}
+      - {text: "Ses beans deviennent de portée prototype", correct: false}
+    answer: "Les méthodes `@Bean` fonctionnent (mode « lite »), mais sans proxy : un appel direct entre elles exécute la méthode de nouveau."
+  - key: qcm-init-method
+    format: multiple-choice
+    question: "Comment faire appeler `demarrer()` après la création d'un bean déclaré par `@Bean`, sans toucher à sa classe ?"
+    choices:
+      - {text: "`@Bean(initMethod = \"demarrer\")`", correct: true}
+      - {text: "`@Bean(start = \"demarrer\")`", correct: false}
+      - {text: "`@PostConstruct` sur la méthode `@Bean`", correct: false}
+      - {text: "`@Bean(autowire = \"demarrer\")`", correct: false}
+    answer: "`initMethod` et `destroyMethod` nomment des méthodes du bean. Utile quand la classe vient d'une bibliothèque et ne porte pas `@PostConstruct`."
+  - key: trous-configuration-et-bean
+    format: fill-in
+    question: |-
+      Complète pour déclarer un bean `Clock` :
+      ```java
+      @___
+      public class HorlogeConfig {
+          @___
+          Clock horloge() {
+              return Clock.systemUTC();
+          }
+      }
+      ```
+    blanks:
+      - [Configuration]
+      - [Bean]
+    answer: "`@Configuration` marque la classe, `@Bean` chaque méthode qui produit un bean."
+  - key: trous-destroy-method
+    format: fill-in
+    question: |-
+      Complète pour que Spring appelle `fermer()` à l'arrêt de l'application :
+      ```java
+      @Bean(___ = "fermer")
+      Connexion connexion() {
+          return new Connexion("boutique");
+      }
+      ```
+    blanks:
+      - [destroyMethod]
+    answer: "`destroyMethod` nomme la méthode appelée à la fermeture du contexte."
+  - key: trous-proxy-desactive
+    format: fill-in
+    question: |-
+      Complète pour désactiver le proxy qui intercepte les appels entre méthodes `@Bean` :
+      ```java
+      @Configuration(___ = false)
+      public class ClientsConfig {
+          ...
+      }
+      ```
+    blanks:
+      - [proxyBeanMethods]
+    answer: "Sans proxy, le démarrage est un peu plus léger ; on reçoit alors les autres beans en paramètre."
+  - key: trous-import
+    format: fill-in
+    question: |-
+      Complète pour ajouter les beans de `PaiementConfig` à cette configuration :
+      ```java
+      @Configuration
+      @___(PaiementConfig.class)
+      public class BoutiqueConfig {
+      }
+      ```
+    blanks:
+      - [Import]
+    answer: "`@Import` enregistre d'autres classes de configuration, même hors du scan."
+  - key: bug-methode-bean-privee
+    format: bug-fix
+    question: |-
+      Le démarrage échoue : « Configuration problem: @Bean method 'horloge' must not be private or final; change the
+      method's modifiers to continue. » Quelle correction est la bonne ?
+      ```java
+      @Configuration
+      public class HorlogeConfig {
+          @Bean
+          private Clock horloge() {
+              return Clock.systemUTC();
+          }
+      }
+      ```
+    choices:
+      - {text: "Retirer `private` : la méthode devient visible du package", correct: true}
+      - {text: "Ajouter `static` à la méthode, en gardant `private`", correct: false}
+      - {text: "Ajouter `final` à la méthode, en gardant `private`", correct: false}
+      - {text: "Remplacer `@Configuration` par `@Service`", correct: false}
+    answer: |-
+      ```java
+      @Bean
+      Clock horloge() {
+      ```
+      Le proxy CGLIB de la classe redéfinit chaque méthode `@Bean` : elle ne peut être ni `private` ni `final`.
+  - key: bug-configuration-finale
+    format: bug-fix
+    question: |-
+      Le démarrage échoue : « Configuration problem: @Configuration class 'HorlogeConfig' may not be final. Remove the
+      final modifier to continue. » Quelle correction est la bonne ?
+      ```java
+      @Configuration
+      public final class HorlogeConfig {
+          @Bean
+          Clock horloge() {
+              return Clock.systemUTC();
+          }
+      }
+      ```
+    choices:
+      - {text: "Retirer `final` de la déclaration de la classe", correct: true}
+      - {text: "Rendre la méthode `horloge()` `final` elle aussi", correct: false}
+      - {text: "Rendre la méthode `horloge()` `private`", correct: false}
+      - {text: "Ajouter `@Lazy` sur la classe `HorlogeConfig`", correct: false}
+    answer: |-
+      ```java
+      @Configuration
+      public class HorlogeConfig {
+      ```
+      Spring crée une sous-classe CGLIB de chaque classe `@Configuration`. On peut aussi garder `final` avec
+      `@Configuration(proxyBeanMethods = false)`, qui supprime ce proxy.
+  - key: bug-mode-lite-deux-compteurs
+    format: bug-fix
+    question: |-
+      Le bean `rapport` affiche toujours 0 commande, alors que le bean `compteur` en a compté dix. Quelle correction
+      est la bonne ?
+      ```java
+      @Component
+      public class Statistiques {
+          @Bean
+          Compteur compteur() {
+              return new Compteur();
+          }
+
+          @Bean
+          Rapport rapport() {
+              return new Rapport(compteur());
+          }
+      }
+      ```
+    choices:
+      - {text: "Recevoir le compteur en paramètre de la méthode `rapport`", correct: true}
+      - {text: "Rendre la méthode `compteur()` `private` dans la classe", correct: false}
+      - {text: "Ajouter `@Lazy` sur la méthode `rapport()` de la classe", correct: false}
+      - {text: "Ajouter `@Primary` sur la méthode `compteur()` de la classe", correct: false}
+    answer: |-
+      ```java
+      @Bean
+      Rapport rapport(Compteur compteur) {
+          return new Rapport(compteur);
+      }
+      ```
+      Dans une classe `@Component`, aucun proxy n'intercepte `compteur()` : le rapport reçoit un second compteur, que
+      personne n'incrémente. En paramètre, il reçoit le bean partagé.
+  - key: bug-classe-sans-configuration
+    format: bug-fix
+    question: |-
+      Le démarrage échoue : « Parameter 0 of constructor in com.boutique.Facturation required a bean of type
+      'java.time.Clock' that could not be found. » Quelle correction est la bonne ?
+      ```java
+      package com.boutique;
+
+      public class HorlogeConfig {
+          @Bean
+          Clock horloge() {
+              return Clock.systemUTC();
+          }
+      }
+      ```
+    choices:
+      - {text: "Annoter `HorlogeConfig` avec `@Configuration`", correct: true}
+      - {text: "Rendre la méthode `horloge()` `public static`", correct: false}
+      - {text: "Renommer la méthode `horloge()` en `clock()`", correct: false}
+      - {text: "Annoter la méthode `horloge()` avec `@Primary`", correct: false}
+    answer: |-
+      ```java
+      @Configuration
+      public class HorlogeConfig {
+      ```
+      Une classe sans annotation n'est pas scannée : ses méthodes `@Bean` ne sont jamais lues. Le nom de la méthode,
+      lui, n'a pas à correspondre au type.
+  - key: situation-clock-injectable
+    format: scenario
+    question: |-
+      Tu veux injecter un `Clock` (une classe du JDK) dans tes services, pour pouvoir figer l'heure dans les tests.
+      Comment le rends-tu disponible ?
+    choices:
+      - {text: "Une méthode `@Bean Clock horloge()` dans une classe `@Configuration`", correct: true}
+      - {text: "Annoter la classe `java.time.Clock` avec `@Component`", correct: false}
+      - {text: "Appeler `Clock.systemUTC()` dans chacun des services", correct: false}
+      - {text: "Ajouter `java.time` à `scanBasePackages`", correct: false}
+    answer: |-
+      On ne peut pas annoter une classe du JDK, et scanner `java.time` ne trouverait rien. Le bean `Clock` déclaré
+      par `@Bean` s'injecte partout ; un test le remplace par un `Clock.fixed(...)`.
+  - key: situation-une-seule-horloge
+    format: scenario
+    question: |-
+      Un collègue s'étonne : dans une classe `@Configuration`, `facturation()` appelle `horloge()`, et pourtant il n'y
+      a qu'une horloge dans l'application. Que lui expliques-tu ?
+    choices:
+      - {text: "Spring entoure la classe d'un proxy CGLIB, qui renvoie le bean existant", correct: true}
+      - {text: "Java met en cache le résultat de toute méthode sans paramètre", correct: false}
+      - {text: "Le compilateur remplace l'appel par la valeur déjà calculée", correct: false}
+      - {text: "Spring appelle `horloge()` une seule fois, puis la retire de la classe", correct: false}
+    answer: |-
+      Le proxy intercepte l'appel : si le bean existe déjà, il le renvoie au lieu d'exécuter la méthode. Ce n'est
+      vrai que dans une classe `@Configuration` avec son proxy, d'où le conseil de recevoir les beans en paramètre.
+  - key: situation-bean-ou-component
+    format: scenario
+    question: |-
+      Ta propre classe `CalculRemise` n'a besoin d'aucun réglage particulier pour être créée. `@Bean` ou
+      `@Component` ?
+    choices:
+      - {text: "`@Component` (ou `@Service`) : le scan suffit, et la classe dit son rôle", correct: true}
+      - {text: "`@Bean` : c'est la seule façon d'obtenir un bean singleton", correct: false}
+      - {text: "`@Bean` : le scan des composants est déprécié depuis Spring 6", correct: false}
+      - {text: "Les deux à la fois, pour être sûr que le bean existe", correct: false}
+    answer: |-
+      L'annotation sur la classe est la façon la plus directe. Déclarer les deux créerait deux beans du même type, et
+      une injection ambiguë.
+  - key: situation-client-configure
+    format: scenario
+    question: |-
+      Tu dois créer un client HTTP avec une URL et un délai qui viennent de la configuration. Où écris-tu ce code de
+      création ?
+    choices:
+      - {text: "Dans une méthode `@Bean`, qui reçoit les réglages en paramètre", correct: true}
+      - {text: "Dans le constructeur de chaque service qui utilise le client", correct: false}
+      - {text: "Dans un bloc `static` de la classe principale", correct: false}
+      - {text: "Dans un `CommandLineRunner`, qui enregistre le client au démarrage", correct: false}
+    answer: |-
+      La méthode `@Bean` construit le client une fois, avec ses réglages, et le confie au conteneur. Les services le
+      reçoivent tout prêt, et un test peut le remplacer.

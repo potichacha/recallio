@@ -1,0 +1,439 @@
+notion: spring-boot-test
+lesson: |-
+  `@SpringBootTest` démarre **toute l'application** dans le test, comme le ferait `SpringApplication.run` : le scan
+  des composants, l'auto-configuration, les propriétés, la base de données. C'est le test d'intégration de Spring
+  Boot : il vérifie que les beans s'assemblent et collaborent vraiment.
+
+  ```java
+  import org.springframework.boot.test.context.SpringBootTest;
+
+  @SpringBootTest
+  class PanierServiceTest {
+
+      @Autowired
+      PanierService panier;          // le vrai bean, avec ses vraies dépendances
+
+      @Test
+      void appliqueLaRemiseDuJour() {
+          assertThat(panier.total("livre", 2)).isEqualTo(18);
+      }
+  }
+  ```
+
+  L'annotation porte déjà l'extension JUnit de Spring : avec JUnit 6, il n'y a rien à ajouter. Dans un test,
+  l'injection par champ (`@Autowired`) est d'usage.
+
+  **Où il trouve la configuration.** Sans attribut `classes`, il **remonte les packages** du test jusqu'à une
+  classe `@SpringBootConfiguration`, c'est-à-dire la classe `@SpringBootApplication`. Un test rangé hors du package
+  de l'application échoue avec « Unable to find a @SpringBootConfiguration by searching packages upwards from the
+  test ». On le range donc dans le même package, ou un sous-package.
+
+  **L'environnement web**, choisi par `webEnvironment` :
+
+  | Valeur | Ce qui démarre |
+  |---|---|
+  | `MOCK` (par défaut) | un environnement de servlet simulé, sans serveur ; on l'appelle avec `MockMvc` (`@AutoConfigureMockMvc`) |
+  | `RANDOM_PORT` | un vrai serveur sur un port libre, que donne `@LocalServerPort` |
+  | `DEFINED_PORT` | un vrai serveur sur `server.port` |
+  | `NONE` | aucun environnement web |
+
+  **Régler le test.** `@SpringBootTest(properties = "boutique.remise=10")` fixe des propriétés, `@ActiveProfiles("test")`
+  active un profil (et donc `application-test.properties`).
+
+  **Ajouter ou remplacer des beans.** Une classe **imbriquée** `@TestConfiguration` s'ajoute à la configuration de
+  l'application ; une classe imbriquée `@Configuration` la remplacerait entièrement. Une `@TestConfiguration` dans
+  son propre fichier n'est pas vue par le scan : on l'importe avec `@Import`. Spring Boot interdit de redéfinir un
+  bean : un bean de test du même nom fait échouer le démarrage (`BeanDefinitionOverrideException`). On lui donne
+  un autre nom et `@Primary`, ou l'on passe par `@MockitoBean`.
+
+  ```java
+  @SpringBootTest(properties = "bibliotheque.duree-emprunt=14d")
+  class EmpruntServiceTest {
+
+      @TestConfiguration
+      static class HorlogeDeTest {
+
+          @Bean
+          @Primary
+          Clock horlogeDeTest() {
+              return Clock.fixed(Instant.parse("2026-03-02T09:00:00Z"), ZoneOffset.UTC);
+          }
+      }
+  }
+  ```
+
+  **Les données.** Avec l'environnement `MOCK`, `@Transactional` sur la classe de test **annule** les écritures de
+  chaque test à sa fin : les tests ne se polluent pas. Avec `RANDOM_PORT`, la requête est servie par un autre
+  thread, dans sa propre transaction : rien n'est annulé, il faut nettoyer soi-même.
+
+  **Le prix.** Démarrer un contexte coûte des secondes. Spring le **garde en cache** et le réutilise pour les classes
+  de test de même configuration ; chaque variante (propriétés, profils, mocks) en crée un autre. On réserve donc
+  `@SpringBootTest` à quelques parcours complets, et l'on teste le reste sans Spring ou avec une tranche
+  (`@WebMvcTest`, `@DataJpaTest`).
+
+  **En entretien** : « `@SpringBootTest` démarre toute l'application, trouvée en remontant les packages jusqu'à la
+  classe `@SpringBootApplication`, sans serveur par défaut. Je m'en sers pour quelques tests d'intégration de bout
+  en bout, avec `@Transactional` pour annuler les données et `@TestConfiguration` pour ajuster un bean. Le reste,
+  je le teste sans Spring ou avec une tranche, bien plus rapide. »
+cards:
+  - key: ce-que-charge-springboottest
+    format: course
+    question: "Que démarre `@SpringBootTest` dans un test ?"
+    choices:
+      - {text: "Toute l'application, auto-configuration et base comprises", correct: true}
+      - {text: "Seulement la classe testée et ses dépendances directes", correct: false}
+      - {text: "Seulement les contrôleurs et la couche web de l'application", correct: false}
+      - {text: "Seulement les beans déclarés dans la classe de test elle-même", correct: false}
+    answer: "Il démarre le contexte comme `SpringApplication.run` : scan des composants, auto-configuration, propriétés. C'est un test d'intégration, plus lent qu'une tranche."
+  - key: environnement-web-par-defaut
+    format: course
+    question: "Quel environnement web obtient un test annoté `@SpringBootTest`, sans attribut ?"
+    choices:
+      - {text: "Un environnement de servlet simulé, sans serveur HTTP", correct: true}
+      - {text: "Un Tomcat démarré sur un port libre, choisi au hasard", correct: false}
+      - {text: "Un Tomcat démarré sur le port 8080, comme en production", correct: false}
+      - {text: "Aucun environnement web, même avec Spring MVC présent", correct: false}
+    answer: "`webEnvironment` vaut `MOCK` par défaut : pas de serveur, on appelle les contrôleurs avec `MockMvc`. `RANDOM_PORT` démarre un vrai serveur."
+  - key: trouver-la-configuration
+    format: course
+    question: "Sans attribut `classes`, comment `@SpringBootTest` trouve-t-il la configuration à charger ?"
+    choices:
+      - {text: "Il remonte les packages du test jusqu'à une classe `@SpringBootConfiguration`", correct: true}
+      - {text: "Il scanne tout le classpath à la recherche de classes `@Configuration`", correct: false}
+      - {text: "Il lit le nom de la classe principale dans `application.properties`", correct: false}
+      - {text: "Il charge la classe qui porte le nom du test, sans le suffixe `Test`", correct: false}
+    answer: "Il part du package du test et remonte jusqu'à trouver la classe `@SpringBootApplication` (qui porte `@SpringBootConfiguration`). D'où la règle : le test vit dans le package de l'application ou en dessous."
+  - key: extension-junit
+    format: course
+    question: "Avec JUnit 6, que faut-il ajouter à `@SpringBootTest` pour que Spring injecte les champs `@Autowired` du test ?"
+    choices:
+      - {text: "Rien : l'annotation porte déjà l'extension de Spring", correct: true}
+      - {text: "`@ExtendWith(SpringExtension.class)` sur la classe", correct: false}
+      - {text: "`@RunWith(SpringRunner.class)` sur la classe", correct: false}
+      - {text: "`@EnableAutoConfiguration` sur la classe", correct: false}
+    answer: "`@SpringBootTest` est méta-annotée `@ExtendWith(SpringExtension.class)`. `@RunWith` appartient à JUnit 4, qui n'est plus utilisé."
+  - key: vf-serveur-par-defaut
+    format: true-false
+    question: "`@SpringBootTest` démarre un vrai serveur HTTP quand on ne lui précise rien."
+    truth: false
+    answer: "Par défaut, l'environnement est simulé (`MOCK`) : aucun port n'est ouvert. Il faut `webEnvironment = RANDOM_PORT` ou `DEFINED_PORT` pour un vrai serveur."
+  - key: vf-contexte-partage
+    format: true-false
+    question: "Deux classes de test `@SpringBootTest` qui ont exactement la même configuration réutilisent le même contexte."
+    truth: true
+    answer: "Spring garde les contextes en cache, indexés par leur configuration. La seconde classe démarre donc sans recréer l'application."
+  - key: vf-transactional-annule
+    format: true-false
+    question: "Dans un test `@SpringBootTest` à l'environnement simulé, `@Transactional` sur la classe de test annule les écritures de chaque test à sa fin."
+    truth: true
+    answer: "Le test s'exécute dans une transaction que Spring annule (rollback) après lui. Les tests ne voient pas les données des autres."
+  - key: vf-test-configuration-fichier
+    format: true-false
+    question: "Une classe `@TestConfiguration` écrite dans son propre fichier, sous `src/test/java`, est ajoutée au contexte par le scan des composants."
+    truth: false
+    answer: "Le scan l'ignore exprès : on l'ajoute avec `@Import(MaConfigurationDeTest.class)`. Seule une classe imbriquée dans le test est prise automatiquement."
+  - key: qcm-port-aleatoire
+    format: multiple-choice
+    question: "Ton test `@SpringBootTest(webEnvironment = RANDOM_PORT)` doit connaître le port du serveur démarré. Comment l'obtient-il ?"
+    choices:
+      - {text: "`@LocalServerPort` sur un champ `int`", correct: true}
+      - {text: "`@Value(\"${server.port}\")` sur un champ `int`", correct: false}
+      - {text: "`@Autowired` sur un champ `int port`", correct: false}
+      - {text: "`@ServerPort` sur un champ `int`", correct: false}
+    answer: "`@LocalServerPort` injecte le port réellement ouvert. `server.port` vaut 0 dans ce cas : c'est la consigne « un port libre », pas le port choisi."
+  - key: qcm-configuration-imbriquee
+    format: multiple-choice
+    question: "Dans un test `@SpringBootTest`, quelle différence entre une classe imbriquée `@TestConfiguration` et une classe imbriquée `@Configuration` ?"
+    choices:
+      - {text: "La première s'ajoute à la configuration de l'application, la seconde la remplace", correct: true}
+      - {text: "La première remplace la configuration de l'application, la seconde s'y ajoute", correct: false}
+      - {text: "Aucune : Spring les traite de la même façon dans un test", correct: false}
+      - {text: "La première n'est lue qu'avec `RANDOM_PORT`, la seconde dans tous les cas", correct: false}
+    answer: "Une `@Configuration` imbriquée est prise pour la configuration du test : la classe `@SpringBootApplication` n'est plus cherchée. `@TestConfiguration` complète l'application sans la remplacer."
+  - key: qcm-sans-web
+    format: multiple-choice
+    question: "Quel `webEnvironment` choisis-tu pour tester un traitement de nuit qui n'expose aucune API, alors que Spring MVC est sur le classpath ?"
+    choices:
+      - {text: "`NONE`", correct: true}
+      - {text: "`MOCK`", correct: false}
+      - {text: "`RANDOM_PORT`", correct: false}
+      - {text: "`DEFINED_PORT`", correct: false}
+    answer: "`NONE` crée un contexte ordinaire, sans environnement de servlet. `MOCK` fonctionnerait, mais prépare une couche web inutile."
+  - key: qcm-mockmvc-contexte-complet
+    format: multiple-choice
+    question: "Tu veux envoyer des requêtes avec `MockMvc` à travers toute l'application, base comprise, sans démarrer de serveur. Quelle combinaison choisis-tu ?"
+    choices:
+      - {text: "`@SpringBootTest` et `@AutoConfigureMockMvc`", correct: true}
+      - {text: "`@WebMvcTest` et `@AutoConfigureMockMvc`", correct: false}
+      - {text: "`@DataJpaTest` et `@AutoConfigureMockMvc`", correct: false}
+      - {text: "`@SpringBootTest(webEnvironment = NONE)` et `MockMvc`", correct: false}
+    answer: "`@SpringBootTest` charge tout, `@AutoConfigureMockMvc` ajoute un `MockMvc` prêt à l'emploi. `@WebMvcTest` ne charge pas la base, et `NONE` n'a pas de couche web à appeler."
+  - key: trous-random-port
+    format: fill-in
+    question: |-
+      Complète pour démarrer un vrai serveur sur un port libre :
+      ```java
+      @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.___)
+      class CommandeApiTest {
+
+          @LocalServerPort
+          int port;
+      }
+      ```
+    blanks:
+      - [RANDOM_PORT]
+    answer: "`RANDOM_PORT` ouvre un port libre, que `@LocalServerPort` injecte. `DEFINED_PORT` prendrait `server.port`, au risque d'un conflit."
+  - key: trous-proprietes
+    format: fill-in
+    question: |-
+      Complète pour lancer cette classe de test avec la propriété `boutique.remise` à 10 :
+      ```java
+      @SpringBootTest(___ = "boutique.remise=10")
+      class RemiseTest {
+      }
+      ```
+    blanks:
+      - [properties]
+    answer: "`properties` ajoute des propriétés prioritaires sur `application.properties`, pour ce test seulement. Une configuration différente crée un autre contexte."
+  - key: trous-test-configuration
+    format: fill-in
+    question: |-
+      Complète pour ajouter une horloge fixe aux beans de l'application, le temps de ce test :
+      ```java
+      @SpringBootTest
+      class FactureServiceTest {
+
+          @___
+          static class HorlogeFixe {
+
+              @Bean
+              @Primary
+              Clock horlogeDeTest() {
+                  return Clock.fixed(Instant.parse("2026-03-02T09:00:00Z"), ZoneOffset.UTC);
+              }
+          }
+      }
+      ```
+    blanks:
+      - [TestConfiguration]
+    answer: "Une classe imbriquée `@TestConfiguration` s'ajoute à la configuration de l'application. `@Primary` fait gagner l'horloge du test face à celle de l'application."
+  - key: trous-profil
+    format: fill-in
+    question: |-
+      Complète pour activer le profil `test`, et donc `application-test.properties`, pendant ce test :
+      ```java
+      @SpringBootTest
+      @___("test")
+      class ImportCatalogueTest {
+      }
+      ```
+    blanks:
+      - [ActiveProfiles]
+    answer: "`@ActiveProfiles` active des profils pour le contexte du test : leurs fichiers de propriétés et leurs beans `@Profile` sont chargés."
+  - key: bug-test-hors-paquet
+    format: bug-fix
+    question: |-
+      L'application est `boutique.BoutiqueApplication`. Ce test échoue avant de s'exécuter : « Unable to find a
+      @SpringBootConfiguration by searching packages upwards from the test ». Quelle correction est la bonne ?
+      ```java
+      package tests;
+
+      @SpringBootTest
+      class PanierServiceTest {
+
+          @Autowired
+          PanierService panier;
+
+          @Test
+          void calculeLeTotal() {
+              assertThat(panier.total("livre", 2)).isEqualTo(20);
+          }
+      }
+      ```
+    choices:
+      - {text: "Déclarer le test dans le package `boutique`, ou l'un de ses sous-packages", correct: true}
+      - {text: "Ajouter `@ComponentScan(\"boutique\")` sur la classe de test elle-même", correct: false}
+      - {text: "Ajouter `@ExtendWith(SpringExtension.class)` sur la classe de test", correct: false}
+      - {text: "Renommer la classe de test en `BoutiqueApplicationTest`", correct: false}
+    answer: |-
+      ```java
+      package boutique;
+
+      @SpringBootTest
+      class PanierServiceTest {
+      ```
+      `@SpringBootTest` cherche la classe `@SpringBootConfiguration` en remontant les packages du test : depuis
+      `tests`, il ne la trouve jamais. Rangé dans `boutique`, le test charge l'application comme en production.
+      `@SpringBootTest(classes = BoutiqueApplication.class)` marcherait aussi.
+  - key: bug-meme-nom-de-bean
+    format: bug-fix
+    question: |-
+      L'application déclare `@Bean Clock horloge()` dans `HorlogeConfiguration`. Ce test ne démarre pas :
+      « BeanDefinitionOverrideException: Invalid bean definition with name 'horloge' ». Quelle correction est la
+      bonne ?
+      ```java
+      @SpringBootTest
+      class FactureServiceTest {
+
+          @TestConfiguration
+          static class HorlogeFixe {
+
+              @Bean
+              Clock horloge() {
+                  return Clock.fixed(Instant.parse("2026-03-02T09:00:00Z"), ZoneOffset.UTC);
+              }
+          }
+      }
+      ```
+    choices:
+      - {text: "Renommer la méthode du test en `horlogeDeTest`, et l'annoter `@Primary`", correct: true}
+      - {text: "Annoter la classe de test `@DirtiesContext`, pour repartir d'un contexte neuf", correct: false}
+      - {text: "Déclarer `static` la méthode `horloge` de la configuration du test", correct: false}
+      - {text: "Remplacer `@TestConfiguration` par `@Configuration` sur la classe imbriquée", correct: false}
+    answer: |-
+      ```java
+      @Bean
+      @Primary
+      Clock horlogeDeTest() {
+          return Clock.fixed(Instant.parse("2026-03-02T09:00:00Z"), ZoneOffset.UTC);
+      }
+      ```
+      Spring Boot interdit de redéfinir un bean : deux définitions nommées `horloge` arrêtent le démarrage. Sous
+      un autre nom, les deux horloges coexistent, et `@Primary` fait injecter celle du test. Une `@Configuration`
+      imbriquée remplacerait toute la configuration de l'application.
+  - key: bug-donnees-entre-tests
+    format: bug-fix
+    question: |-
+      Chaque test passe seul. Lancés ensemble, le second échoue : « expected: 1L but was: 2L ». Quelle correction
+      est la bonne ?
+      ```java
+      @SpringBootTest
+      class ClientRepositoryTest {
+
+          @Autowired
+          ClientRepository clients;
+
+          @Test
+          void enregistreAda() {
+              clients.save(new Client("Ada"));
+              assertThat(clients.count()).isEqualTo(1);
+          }
+
+          @Test
+          void enregistreLinus() {
+              clients.save(new Client("Linus"));
+              assertThat(clients.count()).isEqualTo(1);
+          }
+      }
+      ```
+    choices:
+      - {text: "Annoter la classe de test `@Transactional`, pour annuler chaque test à sa fin", correct: true}
+      - {text: "Appeler `clients.flush()` à la fin de chaque méthode de test", correct: false}
+      - {text: "Passer à `@SpringBootTest(webEnvironment = RANDOM_PORT)`", correct: false}
+      - {text: "Ajouter `@Autowired` sur un constructeur de la classe de test", correct: false}
+    answer: |-
+      ```java
+      @SpringBootTest
+      @Transactional
+      class ClientRepositoryTest {
+      ```
+      Le contexte, donc la base, est partagé par les tests de la classe : le client du premier test est encore là.
+      `@Transactional` sur le test ouvre une transaction que Spring annule après chaque méthode. `flush()` écrirait
+      plus tôt, sans rien effacer.
+  - key: bug-new-dans-le-test
+    format: bug-fix
+    question: |-
+      Ce test démarre bien le contexte, puis lève : « Cannot invoke "boutique.TarifService.prix(String)" because
+      "this.tarifs" is null ». Quelle correction est la bonne ?
+      ```java
+      @Service
+      class PanierService {
+          @Autowired
+          private TarifService tarifs;
+
+          int total(String article, int quantite) {
+              return tarifs.prix(article) * quantite;
+          }
+      }
+
+      @SpringBootTest
+      class PanierServiceTest {
+
+          @Test
+          void calculeLeTotal() {
+              assertThat(new PanierService().total("livre", 2)).isEqualTo(20);
+          }
+      }
+      ```
+    choices:
+      - {text: "Injecter le `PanierService` du contexte avec `@Autowired`, au lieu d'un `new`", correct: true}
+      - {text: "Annoter la classe `PanierService` avec `@Component` en plus de `@Service`", correct: false}
+      - {text: "Ajouter `@Transactional` sur la méthode de test, pour ouvrir une session", correct: false}
+      - {text: "Déclarer `public` le champ `tarifs` de la classe `PanierService`", correct: false}
+    answer: |-
+      ```java
+      @Autowired
+      PanierService panier;
+
+      @Test
+      void calculeLeTotal() {
+          assertThat(panier.total("livre", 2)).isEqualTo(20);
+      }
+      ```
+      Un objet créé avec `new` n'est pas un bean : Spring n'y injecte rien, et `tarifs` reste `null`. Avec
+      l'injection par constructeur, ce `new PanierService()` n'aurait même pas compilé.
+  - key: situation-suite-trop-lente
+    format: scenario
+    question: |-
+      Toute la suite de tests de ton équipe utilise `@SpringBootTest`, même pour vérifier un calcul de remise. Elle
+      prend vingt minutes. Que proposes-tu ?
+    choices:
+      - {text: "Tester les calculs sans Spring, et garder `@SpringBootTest` pour quelques parcours", correct: true}
+      - {text: "Passer tous les tests en `RANDOM_PORT`, plus fidèle à la production", correct: false}
+      - {text: "Ajouter `@DirtiesContext` sur chaque classe, pour repartir de zéro", correct: false}
+      - {text: "Ne lancer la suite qu'une fois par semaine, pendant la nuit", correct: false}
+    answer: |-
+      Un calcul se teste en millisecondes avec `new`. Les tranches couvrent le web et la persistance ; quelques
+      `@SpringBootTest` suffisent à vérifier l'assemblage. `@DirtiesContext` ralentirait encore : il détruit le
+      contexte que le cache aurait réutilisé.
+  - key: situation-rollback-port-aleatoire
+    format: scenario
+    question: |-
+      Ton collègue a mis `@Transactional` sur un test `RANDOM_PORT` qui crée une commande par un vrai appel HTTP. La
+      commande reste en base après le test. Que lui expliques-tu ?
+    choices:
+      - {text: "La requête est traitée dans un autre thread, hors de la transaction du test", correct: true}
+      - {text: "`@Transactional` n'annule que les exceptions vérifiées levées par le test", correct: false}
+      - {text: "Il faut ajouter `@Rollback(false)` pour que l'annulation ait bien lieu", correct: false}
+      - {text: "Le serveur embarqué valide toute transaction ouverte depuis un test", correct: false}
+    answer: |-
+      Le serveur sert la requête dans son propre thread, avec sa propre transaction, validée. Il faut nettoyer
+      explicitement (`deleteAll()` dans un `@AfterEach`), ou tester avec `MockMvc` en environnement `MOCK`, où la
+      requête s'exécute dans le thread du test.
+  - key: situation-propriete-differente
+    format: scenario
+    question: |-
+      Un seul de tes tests a besoin de la propriété `boutique.remise` à 50 ; les autres gardent la valeur par
+      défaut. Que fais-tu ?
+    choices:
+      - {text: "Je la fixe dans `@SpringBootTest(properties = ...)` de sa classe, au prix d'un contexte", correct: true}
+      - {text: "Je la change dans `application.properties`, puisque les tests la lisent aussi", correct: false}
+      - {text: "Je la modifie avec `System.setProperty` au début de la méthode de test", correct: false}
+      - {text: "Je crée une seconde classe `@SpringBootApplication`, réservée à ce test", correct: false}
+    answer: |-
+      `properties` règle la valeur pour cette classe seulement. Le contexte étant déjà démarré quand la méthode
+      s'exécute, `System.setProperty` arriverait trop tard. Cette configuration différente crée un contexte de plus
+      dans le cache : à réserver aux vrais besoins.
+  - key: situation-un-test-de-bout-en-bout
+    format: scenario
+    question: |-
+      Tu dois prouver qu'une commande envoyée à l'API arrive bien en base, avec les vraies règles de validation et de
+      transaction. Quel test écris-tu ?
+    choices:
+      - {text: "Un `@SpringBootTest` avec `@AutoConfigureMockMvc`, qui appelle l'API puis relit la base", correct: true}
+      - {text: "Un `@WebMvcTest` du contrôleur, avec le service remplacé par un mock", correct: false}
+      - {text: "Un `@DataJpaTest` du repository, qui enregistre lui-même la commande", correct: false}
+      - {text: "Un test unitaire du service, avec le repository remplacé par un mock", correct: false}
+    answer: |-
+      Seul un contexte complet fait traverser toutes les couches : contrôleur, validation, service transactionnel,
+      repository. Les autres tests ne voient qu'une couche ; ils restent utiles, mais ne prouvent pas l'assemblage.

@@ -1,0 +1,380 @@
+notion: rest-client
+lesson: |-
+  Pour appeler une autre API en HTTP, Spring Framework propose **`RestClient`** (depuis la version 6.1) : un client
+  **synchrone**, à l'API fluide. Il succède à `RestTemplate`, qui existe toujours mais n'évolue plus ; `WebClient` reste
+  le client réactif.
+
+  ```java
+  RestClient client = RestClient.builder()
+          .baseUrl("https://catalogue.exemple.fr/api")
+          .defaultHeader("X-Api-Key", cle)
+          .build();
+
+  Produit produit = client.get()
+          .uri("/produits/{id}", id)
+          .retrieve()
+          .body(Produit.class);
+  ```
+
+  Avec Spring Boot, on injecte plutôt un `RestClient.Builder` préconfiguré (convertisseurs JSON, observabilité), qu'on
+  complète puis qu'on construit dans un bean.
+
+  **Les fins de chaîne.** `retrieve()` prépare la lecture de la réponse ; **la requête ne part qu'avec une méthode
+  terminale** :
+
+  | Méthode | Renvoie |
+  |---|---|
+  | `.body(Produit.class)` | le corps converti |
+  | `.body(new ParameterizedTypeReference<List<Produit>>() {})` | un type générique |
+  | `.toEntity(Produit.class)` | un `ResponseEntity` : statut, en-têtes et corps |
+  | `.toBodilessEntity()` | le statut et les en-têtes, sans corps (un `DELETE`, un `POST` sans retour) |
+
+  `client.post().uri("/notifications").body(n).retrieve();` sans fin de chaîne **n'envoie rien**, sans erreur.
+
+  **Les erreurs.** Un 4xx lève `HttpClientErrorException` (des sous-classes : `NotFound`, `Conflict`...), un 5xx
+  `HttpServerErrorException`. `onStatus` les remplace par ses propres exceptions :
+
+  ```java
+  client.get().uri("/produits/{id}", id)
+          .retrieve()
+          .onStatus(statut -> statut.value() == 404, (requete, reponse) -> {
+              throw new ProduitIntrouvableException(id);
+          })
+          .body(Produit.class);
+  ```
+
+  `defaultStatusHandler` fait de même pour toutes les requêtes du client.
+
+  **Les génériques.** `.body(List.class)` donne une liste de `LinkedHashMap`, et le premier `Produit` lu lève une
+  `ClassCastException`. Pour un type générique : `ParameterizedTypeReference`.
+
+  **Les délais.** Un service lent bloque le thread qui l'attend. On fixe des délais par la fabrique de requêtes :
+
+  ```java
+  JdkClientHttpRequestFactory fabrique = new JdkClientHttpRequestFactory();
+  fabrique.setReadTimeout(Duration.ofSeconds(2));
+  RestClient client = RestClient.builder().requestFactory(fabrique).baseUrl(url).build();
+  ```
+
+  **Les interfaces HTTP.** On décrit les appels par une interface, et Spring en génère l'implémentation :
+
+  ```java
+  @HttpExchange("/produits")
+  public interface CatalogueClient {
+      @GetExchange("/{id}")
+      Produit trouver(@PathVariable long id);
+
+      @PostExchange
+      Produit creer(@RequestBody NouveauProduit produit);
+  }
+
+  CatalogueClient catalogue = HttpServiceProxyFactory
+          .builderFor(RestClientAdapter.create(client))
+          .build()
+          .createClient(CatalogueClient.class);
+  ```
+
+  Spring Framework 7 ajoute `@ImportHttpServices`, qui enregistre ces clients comme des beans.
+
+  **Tester.** `MockRestServiceServer` simule le service distant ; le test vérifie les requêtes envoyées et fournit les
+  réponses.
+
+  **En entretien** : « Pour un appel synchrone, je prends `RestClient` : `get().uri(...).retrieve().body(...)`, et
+  `onStatus` pour traduire les erreurs. Je fixe toujours des délais. Quand un partenaire a beaucoup de points
+  d'entrée, je les décris dans une interface `@HttpExchange`, dont Spring génère le client. »
+cards:
+  - key: client-synchrone-recommande
+    format: course
+    question: "Quel client HTTP synchrone Spring Framework recommande-t-il pour du nouveau code ?"
+    choices:
+      - {text: "`RestClient`", correct: true}
+      - {text: "`RestTemplate`", correct: false}
+      - {text: "`WebClient`", correct: false}
+      - {text: "`HttpURLConnection`", correct: false}
+    answer: "`RestClient` (Spring 6.1) reprend les convertisseurs de `RestTemplate` avec une API fluide. `RestTemplate` n'évolue plus ; `WebClient` est le client réactif."
+  - key: retrieve-puis-body
+    format: course
+    question: "Que fait `.retrieve().body(Produit.class)` à la fin d'une requête `RestClient` ?"
+    choices:
+      - {text: "Il envoie la requête et convertit le corps JSON reçu en `Produit`", correct: true}
+      - {text: "Il envoie un `Produit` dans le corps de la requête", correct: false}
+      - {text: "Il vérifie que la réponse contient bien le type `Produit`", correct: false}
+      - {text: "Il met la réponse en cache sous la clé `Produit`", correct: false}
+    answer: "`body` est une méthode terminale : la requête part, puis le convertisseur JSON lit la réponse. Pour envoyer un corps, on appelle `.body(...)` avant `retrieve()`."
+  - key: reponse-404
+    format: course
+    question: "Que fait `RestClient` quand le serveur répond 404 à un `.retrieve().body(...)` ?"
+    choices:
+      - {text: "Il lève `HttpClientErrorException.NotFound`", correct: true}
+      - {text: "Il renvoie `null`, sans lever d'exception", correct: false}
+      - {text: "Il renvoie un `Produit` aux champs vides", correct: false}
+      - {text: "Il recommence la requête trois fois", correct: false}
+    answer: "Tout 4xx lève une `HttpClientErrorException`, avec une sous-classe par statut ; son message reprend le statut et le corps reçus. `onStatus` permet de lever ta propre exception."
+  - key: interface-httpexchange
+    format: course
+    question: "Que permet une interface dont les méthodes portent `@GetExchange` ?"
+    choices:
+      - {text: "De déclarer les appels HTTP, dont Spring génère l'implémentation", correct: true}
+      - {text: "D'exposer une API REST sans écrire de contrôleur", correct: false}
+      - {text: "De tester un contrôleur sans démarrer de serveur", correct: false}
+      - {text: "De mettre en cache les réponses d'un service distant", correct: false}
+    answer: "`HttpServiceProxyFactory` crée un proxy de l'interface, qui traduit chaque appel en requête par le `RestClient` fourni. C'est un client, pas un contrôleur."
+  - key: vf-retrieve-seul
+    format: true-false
+    question: "`client.post().uri(\"/commandes\").body(commande).retrieve();`, sans autre appel, envoie la requête."
+    truth: false
+    answer: "`retrieve()` ne fait que préparer la lecture de la réponse ; rien ne part sans méthode terminale (`body`, `toEntity`, `toBodilessEntity`). Aucune erreur ne le signale."
+  - key: vf-list-class
+    format: true-false
+    question: "`.body(List.class)` sur la réponse `[{\"nom\": \"stylo\"}]` donne une liste de `LinkedHashMap`, pas de `Produit`."
+    truth: true
+    answer: "Sans le type des éléments, Jackson lit des objets JSON génériques. `ParameterizedTypeReference<List<Produit>>` lui donne le type complet."
+  - key: vf-5xx
+    format: true-false
+    question: "Une réponse 503 fait lever une `HttpServerErrorException` par `.retrieve().body(...)`."
+    truth: true
+    answer: "Les 5xx lèvent `HttpServerErrorException` (ici `ServiceUnavailable`), les 4xx `HttpClientErrorException`. Les deux héritent de `RestClientResponseException`."
+  - key: vf-resttemplate-supprime
+    format: true-false
+    question: "`RestTemplate` n'existe plus dans Spring Framework 7."
+    truth: false
+    answer: "Il existe toujours et fonctionne : on n'est pas obligé de réécrire l'existant. Mais il n'évolue plus, et le nouveau code prend `RestClient`."
+  - key: qcm-liste-de-produits
+    format: multiple-choice
+    question: "Comment lis-tu une réponse JSON en `List<Produit>` ?"
+    choices:
+      - {text: "`.body(new ParameterizedTypeReference<List<Produit>>() {})`", correct: true}
+      - {text: "`.body(List.class)`, puis un transtypage en `List<Produit>`", correct: false}
+      - {text: "`.body(List<Produit>.class)`, qui précise le type des éléments", correct: false}
+      - {text: "`.body(Produit.class)`, que Jackson range dans une liste", correct: false}
+    answer: "La classe anonyme garde le type générique complet, que l'effacement des types retire à `List.class` : celui-ci donne des `LinkedHashMap`. `List<Produit>.class` ne compile pas ; `Produit.class` attend un objet, pas un tableau."
+  - key: qcm-statut-et-en-tetes
+    format: multiple-choice
+    question: "Quelle méthode terminale donne le statut, les en-têtes et le corps de la réponse ?"
+    choices:
+      - {text: "`.toEntity(Produit.class)`", correct: true}
+      - {text: "`.body(Produit.class)`", correct: false}
+      - {text: "`.toBodilessEntity()`", correct: false}
+      - {text: "`.headers(Produit.class)`", correct: false}
+    answer: "`toEntity` renvoie un `ResponseEntity<Produit>`. `body` ne garde que le corps ; `toBodilessEntity` ne garde que le statut et les en-têtes."
+  - key: qcm-traduire-un-404
+    format: multiple-choice
+    question: "Comment transformes-tu les 404 d'un service distant en ton exception `ProduitIntrouvableException` ?"
+    choices:
+      - {text: "Avec `.onStatus(...)` après `retrieve()`, qui lève ton exception", correct: true}
+      - {text: "Avec `.defaultHeader(...)` sur le builder, qui filtre les 404", correct: false}
+      - {text: "Avec un `try`/`catch` de `NullPointerException` autour de l'appel", correct: false}
+      - {text: "Avec `.accept(MediaType.APPLICATION_JSON)`, qui ignore les erreurs", correct: false}
+    answer: "`onStatus(prédicat, gestionnaire)` choisit les statuts à traiter et lève l'exception voulue. Sur le builder, `defaultStatusHandler` vaut pour toutes les requêtes."
+  - key: qcm-delai-de-lecture
+    format: multiple-choice
+    question: "Comment fixes-tu un délai de lecture de 2 secondes sur un `RestClient` ?"
+    choices:
+      - {text: "Avec une `requestFactory` configurée par `setReadTimeout`", correct: true}
+      - {text: "Avec `.timeout(Duration.ofSeconds(2))` sur chaque `retrieve()`", correct: false}
+      - {text: "Avec un en-tête `Timeout: 2` ajouté par `defaultHeader`", correct: false}
+      - {text: "Avec `Thread.sleep(2000)` placé juste avant l'appel", correct: false}
+    answer: "Les délais sont ceux du client HTTP sous-jacent : `JdkClientHttpRequestFactory.setReadTimeout(Duration.ofSeconds(2))`, passée par `requestFactory(...)`. `retrieve()` n'a pas de délai."
+  - key: trous-retrieve
+    format: fill-in
+    question: |-
+      Complète l'appel :
+      ```java
+      Produit produit = client.get()
+              .uri("/produits/{id}", id)
+              .___()
+              .body(Produit.class);
+      ```
+    blanks:
+      - [retrieve]
+    answer: "`retrieve()` prépare la lecture de la réponse ; `body` envoie la requête et convertit le corps."
+  - key: trous-baseurl
+    format: fill-in
+    question: |-
+      Complète pour que toutes les requêtes partent de cette adresse :
+      ```java
+      RestClient client = RestClient.builder()
+              .___("https://catalogue.exemple.fr/api")
+              .build();
+      ```
+    blanks:
+      - [baseUrl]
+    answer: "`baseUrl` préfixe les URI relatives passées à `uri(...)`."
+  - key: trous-getexchange
+    format: fill-in
+    question: |-
+      Complète l'interface du client :
+      ```java
+      public interface CatalogueClient {
+          @___("/produits/{id}")
+          Produit trouver(@PathVariable long id);
+      }
+      ```
+    blanks:
+      - [GetExchange]
+    answer: "`@GetExchange` déclare un appel `GET` ; `@PostExchange`, `@PutExchange` et `@DeleteExchange` existent aussi."
+  - key: trous-tobodilessentity
+    format: fill-in
+    question: |-
+      Complète pour envoyer la suppression, sans attendre de corps :
+      ```java
+      client.delete()
+              .uri("/paniers/{id}", id)
+              .retrieve()
+              .___();
+      ```
+    blanks:
+      - [toBodilessEntity]
+    answer: "`toBodilessEntity()` envoie la requête et renvoie le statut et les en-têtes."
+  - key: bug-retrieve-sans-fin
+    format: bug-fix
+    question: |-
+      Les notifications n'arrivent jamais au service distant, et aucune erreur n'apparaît. Quelle correction est la
+      bonne ?
+      ```java
+      public void notifier(Notification notification) {
+          client.post()
+                  .uri("/notifications")
+                  .body(notification)
+                  .retrieve();
+      }
+      ```
+    choices:
+      - {text: "Terminer la chaîne par `.toBodilessEntity()`", correct: true}
+      - {text: "Ajouter `.accept(MediaType.APPLICATION_JSON)` avant `retrieve()`", correct: false}
+      - {text: "Remplacer `post()` par `put()` au début de la chaîne", correct: false}
+      - {text: "Appeler `client.build()` avant la requête", correct: false}
+    answer: |-
+      ```java
+      client.post()
+              .uri("/notifications")
+              .body(notification)
+              .retrieve()
+              .toBodilessEntity();
+      ```
+      `retrieve()` ne déclenche rien : sans méthode terminale, la requête ne part pas.
+  - key: bug-list-class
+    format: bug-fix
+    question: |-
+      La ligne `produits.get(0).nom()` lève : « class java.util.LinkedHashMap cannot be cast to class Produit ».
+      Quelle correction est la bonne ?
+      ```java
+      List<Produit> produits = client.get()
+              .uri("/produits")
+              .retrieve()
+              .body(List.class);
+      ```
+    choices:
+      - {text: "Écrire `.body(new ParameterizedTypeReference<List<Produit>>() {})`", correct: true}
+      - {text: "Écrire `.body(ArrayList.class)` à la place de `List.class`", correct: false}
+      - {text: "Écrire `(Produit) produits.get(0)` à l'endroit de la lecture", correct: false}
+      - {text: "Ajouter `.accept(MediaType.APPLICATION_JSON)` avant `retrieve()`", correct: false}
+    answer: |-
+      ```java
+      List<Produit> produits = client.get()
+              .uri("/produits")
+              .retrieve()
+              .body(new ParameterizedTypeReference<List<Produit>>() {});
+      ```
+      `List.class` ne dit pas le type des éléments : Jackson crée des `LinkedHashMap`. Le transtypage échouerait de la
+      même façon.
+  - key: bug-404-non-traite
+    format: bug-fix
+    question: |-
+      Pour un produit inconnu du catalogue, l'API répond 500 au lieu de renvoyer « pas trouvé » : une
+      `HttpClientErrorException$NotFound` remonte. Quelle correction est la bonne ?
+      ```java
+      public Optional<Produit> trouver(long id) {
+          Produit produit = client.get().uri("/produits/{id}", id).retrieve().body(Produit.class);
+          return Optional.ofNullable(produit);
+      }
+      ```
+    choices:
+      - {text: "Rattraper `HttpClientErrorException.NotFound`, et renvoyer `Optional.empty()`", correct: true}
+      - {text: "Remplacer `Optional.ofNullable` par `Optional.of` dans le `return`", correct: false}
+      - {text: "Remplacer `body(Produit.class)` par `body(Optional.class)`", correct: false}
+      - {text: "Ajouter `.accept(MediaType.APPLICATION_JSON)` avant `retrieve()`", correct: false}
+    answer: |-
+      ```java
+      try {
+          return Optional.of(client.get().uri("/produits/{id}", id).retrieve().body(Produit.class));
+      } catch (HttpClientErrorException.NotFound e) {
+          return Optional.empty();
+      }
+      ```
+      Un 404 ne donne pas `null` : il lève une exception. Le test de `null` ne sert à rien ; il faut traiter le 404,
+      par un `catch` ou par `onStatus`.
+  - key: bug-sans-delai
+    format: bug-fix
+    question: |-
+      Quand le service de stock ralentit, toutes les requêtes de l'API finissent par attendre, et Tomcat n'a plus de
+      thread libre. Quelle correction est la bonne ?
+      ```java
+      @Bean
+      RestClient stockClient() {
+          return RestClient.create("https://stock.exemple.fr");
+      }
+      ```
+    choices:
+      - {text: "Configurer une `requestFactory` avec un délai de lecture", correct: true}
+      - {text: "Créer un nouveau `RestClient` à chaque appel du service", correct: false}
+      - {text: "Déclarer le bean avec la portée `prototype`", correct: false}
+      - {text: "Remplacer `RestClient` par `RestTemplate`", correct: false}
+    answer: |-
+      ```java
+      JdkClientHttpRequestFactory fabrique = new JdkClientHttpRequestFactory();
+      fabrique.setReadTimeout(Duration.ofSeconds(2));
+      return RestClient.builder().requestFactory(fabrique).baseUrl("https://stock.exemple.fr").build();
+      ```
+      Sans délai, chaque appel peut attendre indéfiniment, et chaque requête entrante garde son thread. Avec un délai,
+      l'appel échoue vite, et l'on peut répondre par une valeur de repli.
+  - key: situation-resttemplate-existant
+    format: scenario
+    question: |-
+      Un projet utilise `RestTemplate` partout. Une nouvelle fonctionnalité doit appeler un service de paiement. Que
+      choisis-tu ?
+    choices:
+      - {text: "`RestClient` pour le nouveau code, sans réécrire l'existant d'un coup", correct: true}
+      - {text: "`RestTemplate`, puisqu'il est le seul client synchrone", correct: false}
+      - {text: "`WebClient` avec `.block()`, le client recommandé partout", correct: false}
+      - {text: "`HttpURLConnection`, pour éviter toute dépendance", correct: false}
+    answer: |-
+      Les deux cohabitent, et `RestClient.create(restTemplate)` peut même reprendre la configuration existante. On
+      migre le reste au fil de l'eau. `WebClient` n'a de sens que dans un code réactif.
+  - key: situation-dix-points-d-entree
+    format: scenario
+    question: |-
+      Ton service appelle dix points d'entrée du même partenaire, avec beaucoup de code répété. Que proposes-tu ?
+    choices:
+      - {text: "Une interface `@HttpExchange`, dont Spring génère le client", correct: true}
+      - {text: "Copier le code d'appel dans une classe utilitaire statique", correct: false}
+      - {text: "Un `RestClient` créé à neuf dans chaque méthode", correct: false}
+      - {text: "Un contrôleur qui relaie les appels vers le partenaire", correct: false}
+    answer: |-
+      L'interface décrit chaque appel en une méthode annotée ; `HttpServiceProxyFactory` en fait un client, construit
+      sur un seul `RestClient` configuré (adresse, délais, erreurs).
+  - key: situation-service-lent
+    format: scenario
+    question: |-
+      Le service de recommandations met parfois 30 secondes à répondre, et ton API ralentit avec lui. Que fais-tu
+      d'abord ?
+    choices:
+      - {text: "Fixer des délais de connexion et de lecture, et prévoir un repli", correct: true}
+      - {text: "Porter le nombre de threads de Tomcat à 10 000", correct: false}
+      - {text: "Appeler le service deux fois en parallèle, au cas où", correct: false}
+      - {text: "Entourer l'appel d'un `try`/`catch` vide", correct: false}
+    answer: |-
+      Un délai court borne l'attente ; sans réponse, on affiche des recommandations par défaut. Un disjoncteur
+      (circuit breaker) évite ensuite d'appeler un service qu'on sait en panne.
+  - key: situation-tester-le-client
+    format: scenario
+    question: |-
+      Comment testes-tu ton client `RestClient` sans dépendre du vrai service distant ?
+    choices:
+      - {text: "Avec `MockRestServiceServer`, qui simule les réponses attendues", correct: true}
+      - {text: "En appelant le vrai service depuis la CI", correct: false}
+      - {text: "En remplaçant `RestClient` par `RestTemplate` dans les tests", correct: false}
+      - {text: "En désactivant les tests du client avec `@Disabled`", correct: false}
+    answer: |-
+      `MockRestServiceServer` se branche sur le `RestClient.Builder`, vérifie les requêtes envoyées (chemin, en-têtes,
+      corps) et renvoie les réponses prévues, erreurs comprises.
