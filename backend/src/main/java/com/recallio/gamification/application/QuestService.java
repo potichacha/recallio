@@ -30,7 +30,9 @@ public class QuestService {
 
     public Board board(UserRef user) {
         LocalDate today = LocalDate.now(clock.withZone(user.timezone()));
-        Map<QuestKey, QuestState> states = quests.states(user.id(), Set.of(today, QuestPeriod.WEEK.start(today)));
+        // Le lundi, la semaine commence le jour même : Set.copyOf garde une seule fois la date, là où Set.of la refuse.
+        Map<QuestKey, QuestState> states =
+                quests.states(user.id(), Set.copyOf(List.of(today, QuestPeriod.WEEK.start(today))));
         return new Board(
                 views(user, QuestPeriod.DAY, today, states),
                 QuestPeriod.DAY.end(today),
