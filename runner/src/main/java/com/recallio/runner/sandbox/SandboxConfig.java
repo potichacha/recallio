@@ -21,6 +21,10 @@ public interface SandboxConfig {
     @WithDefault("recallio-sandbox-cpp")
     String cppImage();
 
+    /** L'image du bac à sable Python ({@code sandbox/python}, ADR 0062). */
+    @WithDefault("recallio-sandbox-python")
+    String pythonImage();
+
     /**
      * Le délai d'une exécution, compilation comprise ; au-delà, le conteneur est tué. Un exercice Quarkus démarre son
      * application dans ce délai (ADR 0061).
@@ -51,6 +55,7 @@ public interface SandboxConfig {
             case JAVA -> javaImage();
             case GO -> goImage();
             case CPP -> cppImage();
+            case PYTHON -> pythonImage();
         };
     }
 }

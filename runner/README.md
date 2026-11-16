@@ -1,8 +1,9 @@
 # Runner
 
-Le service qui exécute du code dans un conteneur jetable de l'image de son langage ([`sandbox/java`](../sandbox/java/)
-ou [`sandbox/go`](../sandbox/go/)). Il juge un exercice par ses tests et renvoie le résultat de chacun (ADR 0030,
-0033), ou lance un programme du Tour et renvoie ce qu'il a écrit (ADR 0037). Seul le backend l'appelle.
+Le service qui exécute du code dans un conteneur jetable de l'image de son langage ([`sandbox/java`](../sandbox/java/),
+[`sandbox/go`](../sandbox/go/), [`sandbox/cpp`](../sandbox/cpp/) ou [`sandbox/python`](../sandbox/python/)). Il juge un
+exercice par ses tests et renvoie le résultat de chacun (ADR 0030, 0033, 0053, 0062), ou lance un programme du Tour et
+renvoie ce qu'il a écrit (ADR 0037). Seul le backend l'appelle.
 
 ## Lancer et tester
 
@@ -57,6 +58,8 @@ programmes partagent les exécutions simultanées.
 | `RECALLIO_RUNNER_TOKEN` | aucun en production | Le jeton que présente le backend, 32 caractères au moins (`openssl rand -hex 32`) |
 | `RECALLIO_SANDBOX_JAVA_IMAGE` | `recallio-sandbox-java` | L'image du bac à sable Java |
 | `RECALLIO_SANDBOX_GO_IMAGE` | `recallio-sandbox-go` | L'image du bac à sable Go |
+| `RECALLIO_SANDBOX_CPP_IMAGE` | `recallio-sandbox-cpp` | L'image du bac à sable C++ |
+| `RECALLIO_SANDBOX_PYTHON_IMAGE` | `recallio-sandbox-python` | L'image du bac à sable Python |
 | `RECALLIO_SANDBOX_TIMEOUT` | `30s` | Le délai d'une exécution, compilation comprise |
 | `RECALLIO_SANDBOX_PROGRAM_TIMEOUT` | `10s` | Le délai d'un programme une fois compilé, en secondes entières, plus court que le précédent |
 | `RECALLIO_SANDBOX_MAX_CONCURRENT_RUNS` | `4` | Les exécutions simultanées, soumissions et programmes confondus |

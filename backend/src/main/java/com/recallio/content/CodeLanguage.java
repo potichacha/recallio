@@ -5,7 +5,7 @@ import java.util.Optional;
 import java.util.regex.Pattern;
 
 /**
- * Le langage des fichiers d'un exercice de code (ADR 0033, 0053), déduit de leur extension. Il choisit le bac à sable
+ * Le langage des fichiers d'un exercice de code (ADR 0033, 0053, 0062), déduit de leur extension. Il choisit le bac à sable
  * qui les exécute, et impose ses règles de chemin ; le runner les vérifie de nouveau, sans faire confiance au backend.
  */
 public enum CodeLanguage {
@@ -19,7 +19,13 @@ public enum CodeLanguage {
      * Des fichiers {@code .cpp} et {@code .hpp} à plat ; les tests doctest, et eux seuls, s'appellent
      * {@code *_test.cpp} (ADR 0053).
      */
-    CPP(List.of(".cpp", ".hpp"), "[A-Za-z0-9_-]+\\.(cpp|hpp)", "_test.cpp");
+    CPP(List.of(".cpp", ".hpp"), "[A-Za-z0-9_-]+\\.(cpp|hpp)", "_test.cpp"),
+
+    /**
+     * Des modules {@code .py} à plat, au nom d'identifiant Python (on les importe par leur nom) ; les tests pytest, et
+     * eux seuls, s'appellent {@code *_test.py} (ADR 0062).
+     */
+    PYTHON(List.of(".py"), "[A-Za-z_][A-Za-z0-9_]*\\.py", "_test.py");
 
     private final List<String> extensions;
     private final Pattern path;

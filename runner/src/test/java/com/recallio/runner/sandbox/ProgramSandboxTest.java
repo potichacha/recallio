@@ -265,8 +265,65 @@ class ProgramSandboxTest {
         assertThat(result.stderr()).isEmpty();
     }
 
+    @Test
+    void shouldRunAPythonProgramOfSeveralModules() {
+        ProgramResult result = run(
+                Language.PYTHON,
+                new SourceFile(
+                        Program.PYTHON_ENTRY_POINT,
+                        "from panier import total\n\nprint(f\"Total : {total([12, 30])} €\")\n"),
+                new SourceFile("panier.py", "def total(prix):\n    return sum(prix)\n"));
+
+        assertThat(result).isEqualTo(new ProgramResult(Status.COMPLETED, 0, "Total : 42 €\n", "", false, ""));
+    }
+
+    @Test
+    void shouldReportAPythonSyntaxErrorLikeACompilationError() {
+        ProgramResult result = python("def total(prix:\n    return sum(prix)\n");
+
+        assertThat(result.status()).isEqualTo(Status.COMPILATION_ERROR);
+        assertThat(result.message())
+                .contains("File \"main.py\", line 1")
+                .contains("SyntaxError: '(' was never closed")
+                .doesNotContain("./main.py");
+    }
+
+    @Test
+    void shouldReturnTheTracebackOfAnUncaughtPythonException() {
+        ProgramResult result = python("""
+                prix = {"stylo": 2}
+                print("avant")
+                print(prix["gomme"])
+                """);
+
+        assertThat(result.status()).isEqualTo(Status.COMPLETED);
+        assertThat(result.exitCode()).isEqualTo(1);
+        assertThat(result.stdout()).isEqualTo("avant\n");
+        assertThat(result.stderr())
+                .startsWith("Traceback (most recent call last):\n  File \"main.py\", line 3, in <module>")
+                .endsWith("KeyError: 'gomme'\n")
+                .doesNotContain("/work");
+    }
+
+    @Test
+    void shouldStopAPythonProgramThatNeverEndsAndKeepWhatItWrote() {
+        DockerSandbox sandbox = SandboxImage.sandbox(TIMEOUT, Duration.ofSeconds(2));
+
+        ProgramResult result = sandbox.run(program(
+                Language.PYTHON,
+                new SourceFile(Program.PYTHON_ENTRY_POINT, "print(\"début\")\nwhile True:\n    pass\n")));
+
+        assertThat(result.status()).isEqualTo(Status.TIMEOUT);
+        assertThat(result.stdout()).isEqualTo("début\n");
+        assertThat(result.stderr()).isEmpty();
+    }
+
     private static ProgramResult cpp(String main) {
         return run(Language.CPP, new SourceFile("main.cpp", main));
+    }
+
+    private static ProgramResult python(String main) {
+        return run(Language.PYTHON, new SourceFile(Program.PYTHON_ENTRY_POINT, main));
     }
 
     private static ProgramResult java(String main) {

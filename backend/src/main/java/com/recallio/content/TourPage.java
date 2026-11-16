@@ -26,6 +26,9 @@ public record TourPage(
     /** Le fichier d'un programme Java qui contient {@code main} : le runner le lance (ADR 0037). */
     public static final String JAVA_ENTRY_POINT = "Main.java";
 
+    /** Le script d'un programme Python que le runner lance (ADR 0062). */
+    public static final String PYTHON_ENTRY_POINT = "main.py";
+
     public TourPage {
         if (title != null && (title.isBlank() || title.length() > MAX_TITLE_LENGTH)) {
             throw new IllegalArgumentException(
@@ -106,7 +109,7 @@ public record TourPage(
 
     /**
      * De 1 à {@value #MAX_FILES} fichiers d'un même langage, aux chemins distincts, sans fichier de tests ; en Java, un
-     * {@value #JAVA_ENTRY_POINT} à la racine.
+     * {@value #JAVA_ENTRY_POINT} à la racine ; en Python, un {@value #PYTHON_ENTRY_POINT}.
      */
     private static void requireProgram(String part, List<SourceFile> files) {
         if (files.isEmpty() || files.size() > MAX_FILES) {
@@ -128,6 +131,10 @@ public record TourPage(
         }
         if (language == CodeLanguage.JAVA && !paths(files).contains(JAVA_ENTRY_POINT)) {
             throw new IllegalArgumentException(part + " Java a un fichier " + JAVA_ENTRY_POINT + ", qui contient main");
+        }
+        if (language == CodeLanguage.PYTHON && !paths(files).contains(PYTHON_ENTRY_POINT)) {
+            throw new IllegalArgumentException(
+                    part + " Python a un fichier " + PYTHON_ENTRY_POINT + ", le script lancé");
         }
     }
 

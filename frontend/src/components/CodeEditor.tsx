@@ -1,6 +1,7 @@
 import { cpp } from '@codemirror/lang-cpp'
 import { go } from '@codemirror/lang-go'
 import { java } from '@codemirror/lang-java'
+import { python } from '@codemirror/lang-python'
 import { HighlightStyle, syntaxHighlighting } from '@codemirror/language'
 import { Compartment, EditorState } from '@codemirror/state'
 import { EditorView } from '@codemirror/view'
@@ -67,15 +68,16 @@ const highlight = syntaxHighlighting(
   ]),
 )
 
-/** La coloration d'un fichier, d'après son extension (ADR 0033, 0053) : Go, C++, ou Java. */
+/** La coloration d'un fichier, d'après son extension (ADR 0033, 0053, 0062) : Go, C++, Python, ou Java. */
 function language(path: string) {
   if (path.endsWith('.go')) return go()
   if (path.endsWith('.cpp') || path.endsWith('.hpp')) return cpp()
+  if (path.endsWith('.py')) return python()
   return java()
 }
 
 /**
- * Un éditeur de code Java, Go ou C++ (CodeMirror 6, ADR 0030, 0033, 0053) : coloration, numéros de ligne, indentation, annulation.
+ * Un éditeur de code Java, Go, C++ ou Python (CodeMirror 6, ADR 0030, 0033, 0053, 0062) : coloration, numéros de ligne, indentation, annulation.
  * Chargé à la demande (export par défaut, pour `React.lazy`) : seules les pages d'exercice en paient le poids.
  *
  * Le contenu n'est lu qu'à la création : l'éditeur reste maître du texte (curseur, historique d'annulation), et passer

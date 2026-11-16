@@ -30,7 +30,7 @@ Application web (PWA) de révision des entretiens techniques par répétition es
 | [`backend/`](backend/) | API Quarkus (Java 25), monolithe modulaire |
 | [`frontend/`](frontend/) | PWA React + TypeScript + Vite |
 | [`runner/`](runner/) | Service Quarkus qui exécute le code des exercices dans des conteneurs jetables (ADR 0030) |
-| [`sandbox/java/`](sandbox/java/), [`sandbox/go/`](sandbox/go/), [`sandbox/cpp/`](sandbox/cpp/) | Images du bac à sable, une par langage (JDK 25 et JUnit ; Go 1.27 ; GCC 14 et doctest), lancées par le runner |
+| [`sandbox/java/`](sandbox/java/), [`sandbox/go/`](sandbox/go/), [`sandbox/cpp/`](sandbox/cpp/), [`sandbox/python/`](sandbox/python/) | Images du bac à sable, une par langage (JDK 25, JUnit, Spring Boot et Quarkus ; Go 1.27 ; GCC 14 et doctest ; Python 3.14 et pytest), lancées par le runner |
 | [`content/`](content/) | Contenu : documents Markdown (`source/`) et dossiers de sujet (`java/` : référentiel, notions, exercices) |
 | [`infra/`](infra/) | `compose.yaml` et royaume Keycloak pour lancer l'ensemble avec Docker |
 | [`e2e/`](e2e/) | Parcours de bout en bout (Playwright) contre la pile Docker |
@@ -74,6 +74,7 @@ essayer en dev (sans lui, les essayer ou les rendre répond 503) :
 docker build -t recallio-sandbox-java sandbox/java   # les images du bac à sable, une fois
 docker build -t recallio-sandbox-go sandbox/go
 docker build -t recallio-sandbox-cpp sandbox/cpp
+docker build -t recallio-sandbox-python sandbox/python
 cd runner
 ./mvnw quarkus:dev
 ```
