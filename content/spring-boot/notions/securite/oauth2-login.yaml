@@ -1,0 +1,234 @@
+notion: oauth2-login
+lesson: |-
+  **OAuth 2** est un protocole de **délégation** : un utilisateur autorise une application à agir pour lui, dans des
+  limites (les *scopes*), sans lui donner son mot de passe. **OpenID Connect** (OIDC) ajoute par-dessus une couche
+  d'**identité** : l'application apprend qui s'est connecté, par un **ID token** (un JWT) et le point d'entrée
+  `userinfo`, quand le scope `openid` est demandé.
+
+  **Les acteurs.** Le *resource owner* (l'utilisateur), le **client** (ton application), le **serveur d'autorisation**
+  (Google, Keycloak...) qui authentifie et émet les jetons, et le **resource server** (une API qui accepte les jetons).
+
+  **Le flux « authorization code ».**
+
+  1. L'application redirige le navigateur vers le serveur d'autorisation (`/oauth2/authorization/google` chez Spring).
+  2. L'utilisateur s'y connecte et accepte les scopes.
+  3. Le serveur renvoie le navigateur vers l'**URI de redirection** de l'application, avec un **code** à usage unique.
+  4. L'application échange ce code contre les jetons (ID token, jeton d'accès, jeton de rafraîchissement), de serveur
+     à serveur, avec son secret.
+  5. Elle ouvre une session pour l'utilisateur.
+
+  **PKCE** (Proof Key for Code Exchange) lie le code à un secret éphémère tiré par le client : un code intercepté ne
+  sert à rien. Il est indispensable aux clients publics (SPA, mobile) et recommandé partout. Le flux « implicit », qui
+  renvoyait le jeton dans l'URL, est abandonné.
+
+  **Avec Spring Boot**, le starter OAuth2 Client et des propriétés :
+
+  ```properties
+  spring.security.oauth2.client.registration.google.client-id=${GOOGLE_CLIENT_ID}
+  spring.security.oauth2.client.registration.google.client-secret=${GOOGLE_CLIENT_SECRET}
+  spring.security.oauth2.client.registration.google.scope=openid,profile,email
+
+  # un fournisseur que Spring ne connaît pas d'avance
+  spring.security.oauth2.client.registration.keycloak.client-id=boutique
+  spring.security.oauth2.client.provider.keycloak.issuer-uri=https://auth.exemple.fr/realms/boutique
+  ```
+
+  ```java
+  http.authorizeHttpRequests(auth -> auth.anyRequest().authenticated())
+      .oauth2Login(Customizer.withDefaults());
+  ```
+
+  L'URI de redirection par défaut est **`{baseUrl}/login/oauth2/code/{registrationId}`** : elle doit être déclarée à
+  l'identique chez le fournisseur. Après la connexion, le principal est un **`OidcUser`** (`@AuthenticationPrincipal
+  OidcUser utilisateur`, puis `getEmail()`). Pour appeler une API au nom de l'utilisateur, le jeton d'accès est dans
+  l'`OAuth2AuthorizedClient`.
+
+  **`oauth2Login` ou `oauth2ResourceServer` ?** Le premier fait de l'application un **client** qui connecte des
+  utilisateurs, avec une session ; le second fait d'une **API** un resource server qui accepte des jetons.
+
+  **Le modèle BFF** (Backend for Frontend) : pour une SPA, le serveur fait le flux OAuth et garde les jetons ; le
+  navigateur n'a qu'un cookie de session `HttpOnly`. Aucun jeton ne traîne dans le `localStorage`.
+
+  **En entretien** : « OAuth 2 délègue un accès, OpenID Connect y ajoute l'identité avec l'ID token. J'utilise le flux
+  authorization code avec PKCE : redirection, code, échange de serveur à serveur. Avec Spring, `oauth2Login` et les
+  propriétés `spring.security.oauth2.client.*` suffisent ; pour une SPA, je préfère un BFF qui garde les jetons côté
+  serveur. »
+cards:
+  - key: apport-d-openid-connect
+    format: course
+    question: "Qu'ajoute OpenID Connect à OAuth 2 ?"
+    choices:
+      - {text: "L'identité de l'utilisateur, avec un ID token", correct: true}
+      - {text: "Le chiffrement des jetons d'accès", correct: false}
+      - {text: "La gestion des rôles et des permissions", correct: false}
+      - {text: "Le transport des jetons sur HTTPS", correct: false}
+    answer: "OAuth 2 seul dit ce que l'application peut faire, pas qui est l'utilisateur. OIDC standardise l'identité : ID token, claims, `userinfo`."
+  - key: retour-du-flux-code
+    format: course
+    question: "Dans le flux « authorization code », que reçoit l'application au retour de l'utilisateur ?"
+    choices:
+      - {text: "Un code à usage unique, échangé ensuite contre des jetons", correct: true}
+      - {text: "Le mot de passe de l'utilisateur, à vérifier", correct: false}
+      - {text: "Directement le jeton d'accès, dans l'URL", correct: false}
+      - {text: "Un cookie de session émis par le fournisseur", correct: false}
+    answer: "Le code passe par le navigateur ; les jetons, eux, s'obtiennent de serveur à serveur, avec le secret du client et la preuve PKCE. Le jeton dans l'URL, c'était le flux implicite, abandonné."
+  - key: uri-de-redirection
+    format: course
+    question: "Quelle est l'URI de redirection par défaut de Spring Security pour l'enregistrement `google` ?"
+    choices:
+      - {text: "`{baseUrl}/login/oauth2/code/google`", correct: true}
+      - {text: "`{baseUrl}/oauth2/callback/google`", correct: false}
+      - {text: "`{baseUrl}/login/google/redirect`", correct: false}
+      - {text: "`{baseUrl}/auth/google/code`", correct: false}
+    answer: "C'est l'adresse où le fournisseur renvoie le code. Elle doit être déclarée à l'identique chez lui ; la connexion démarre, elle, sur `/oauth2/authorization/google`."
+  - key: login-ou-resource-server
+    format: course
+    question: "Quelle différence entre `oauth2Login` et `oauth2ResourceServer` ?"
+    choices:
+      - {text: "Le premier connecte des utilisateurs, le second accepte des jetons sur une API", correct: true}
+      - {text: "Le premier sert aux API mobiles, le second aux applications web", correct: false}
+      - {text: "Le premier signe des jetons, le second les chiffre", correct: false}
+      - {text: "Aucune : ce sont deux noms de la même configuration", correct: false}
+    answer: "`oauth2Login` fait de l'application un client OAuth, avec redirections et session. `oauth2ResourceServer` valide des jetons reçus, sans état."
+  - key: vf-pkce
+    format: true-false
+    question: "PKCE protège le flux « authorization code » contre l'interception du code, y compris pour un client public comme une SPA."
+    truth: true
+    answer: "Le client tire un secret éphémère et n'envoie d'abord que son empreinte ; l'échange du code exige le secret lui-même. Un code volé ne vaut rien."
+  - key: vf-flux-implicite
+    format: true-false
+    question: "Le flux « implicit » reste recommandé pour les applications monopages."
+    truth: false
+    answer: "Il exposait le jeton dans l'URL. Les recommandations actuelles (OAuth 2.1) l'abandonnent au profit du flux authorization code avec PKCE."
+  - key: vf-id-token-pour-les-api
+    format: true-false
+    question: "L'ID token d'OpenID Connect est fait pour appeler les API, à la place du jeton d'accès."
+    truth: false
+    answer: "L'ID token renseigne l'application cliente sur l'utilisateur. Les API reçoivent le jeton d'accès, émis pour elles."
+  - key: vf-client-secret
+    format: true-false
+    question: "Le `client-secret` d'une application web se range dans une variable d'environnement, pas dans le dépôt."
+    truth: true
+    answer: "Un secret commité est un secret publié. La propriété le lit dans l'environnement : `client-secret=${GOOGLE_CLIENT_SECRET}`."
+  - key: qcm-propriete-client-id
+    format: multiple-choice
+    question: "Quelle propriété déclare l'identifiant client de l'enregistrement `google` ?"
+    choices:
+      - {text: "`spring.security.oauth2.client.registration.google.client-id`", correct: true}
+      - {text: "`spring.security.oauth2.client.provider.google.client-id`", correct: false}
+      - {text: "`spring.security.oauth2.google.client-id`", correct: false}
+      - {text: "`spring.security.oauth2.resourceserver.google.client-id`", correct: false}
+    answer: "`registration` décrit ton application chez le fournisseur (identifiant, secret, scopes) ; `provider` décrit le fournisseur (adresses, `issuer-uri`)."
+  - key: qcm-principal-oidc
+    format: multiple-choice
+    question: "Quel type de principal obtiens-tu après une connexion OpenID Connect ?"
+    choices:
+      - {text: "`OidcUser`", correct: true}
+      - {text: "`UserDetails`", correct: false}
+      - {text: "`Jwt`", correct: false}
+      - {text: "`OAuth2AccessToken`", correct: false}
+    answer: "`OidcUser` donne les claims de l'ID token (`getEmail()`, `getSubject()`) et l'ID token lui-même. `Jwt` est le principal d'un resource server."
+  - key: qcm-scope-openid
+    format: multiple-choice
+    question: "Quel scope déclenche OpenID Connect dans une demande d'autorisation ?"
+    choices:
+      - {text: "`openid`", correct: true}
+      - {text: "`profile`", correct: false}
+      - {text: "`oidc`", correct: false}
+      - {text: "`identity`", correct: false}
+    answer: "Sans `openid`, c'est de l'OAuth 2 pur, sans ID token. `profile` et `email` demandent des claims en plus."
+  - key: qcm-jetons-dans-un-bff
+    format: multiple-choice
+    question: "Dans le modèle « Backend for Frontend », où restent les jetons OAuth 2 d'une application monopage ?"
+    choices:
+      - {text: "Sur le serveur : la SPA n'a qu'un cookie de session", correct: true}
+      - {text: "Dans le `localStorage` du navigateur", correct: false}
+      - {text: "Dans l'URL de chaque page de la SPA", correct: false}
+      - {text: "Dans un fichier téléchargé par l'utilisateur", correct: false}
+    answer: "Le BFF fait le flux OAuth, garde les jetons et relaie les appels aux API. Un script injecté dans la page n'a aucun jeton à voler."
+  - key: situation-mot-de-passe-google
+    format: scenario
+    question: |-
+      Une application veut lire l'agenda Google de l'utilisateur, en lui demandant son mot de passe Google. Que
+      proposes-tu ?
+    choices:
+      - {text: "OAuth 2 : l'utilisateur accorde un accès limité, sans donner son mot de passe", correct: true}
+      - {text: "Stocker le mot de passe chiffré avec AES dans la base", correct: false}
+      - {text: "Demander le mot de passe à chaque lecture de l'agenda", correct: false}
+      - {text: "Copier l'agenda à la main une fois par semaine", correct: false}
+    answer: |-
+      C'est le cas d'usage d'OAuth : un jeton limité au scope de l'agenda, révocable par l'utilisateur, au lieu d'un
+      mot de passe qui ouvrirait tout son compte.
+  - key: situation-jetons-dans-le-localstorage
+    format: scenario
+    question: |-
+      Ta SPA garde ses jetons d'accès dans le `localStorage`. L'audit s'inquiète. Que proposes-tu ?
+    choices:
+      - {text: "Un BFF : le serveur garde les jetons, la SPA n'a qu'un cookie `HttpOnly`", correct: true}
+      - {text: "Encoder les jetons en Base64 avant de les ranger", correct: false}
+      - {text: "Déplacer les jetons dans le `sessionStorage`", correct: false}
+      - {text: "Allonger la durée de vie des jetons, pour moins les manipuler", correct: false}
+    answer: |-
+      Tout script exécuté dans la page lit le `localStorage` : une faille XSS livre les jetons. Avec un BFF, le
+      navigateur ne voit plus aucun jeton ; on garde alors la protection CSRF du cookie.
+  - key: situation-redirect-uri-invalide
+    format: scenario
+    question: |-
+      Au moment de la connexion, Keycloak affiche « Invalid parameter: redirect_uri ». Que vérifies-tu ?
+    choices:
+      - {text: "Que l'URI de redirection de l'application est déclarée à l'identique chez Keycloak", correct: true}
+      - {text: "Que le mot de passe de l'utilisateur respecte la politique de Keycloak", correct: false}
+      - {text: "Que le jeton d'accès n'a pas expiré avant la connexion", correct: false}
+      - {text: "Que la protection CSRF de l'application est désactivée", correct: false}
+    answer: |-
+      Le fournisseur n'accepte que les adresses de retour enregistrées pour ce client : schéma, hôte, port et chemin
+      (`/login/oauth2/code/keycloak`). Un `http` au lieu de `https`, derrière un proxy, suffit à l'erreur.
+  - key: situation-keycloak-maison
+    format: scenario
+    question: |-
+      Tu ajoutes ton propre Keycloak comme fournisseur de connexion. Que déclares-tu au minimum, en plus de
+      l'enregistrement du client ?
+    choices:
+      - {text: "Le fournisseur avec son `issuer-uri`, où Spring découvre le reste", correct: true}
+      - {text: "La clé privée de Keycloak, pour vérifier les jetons", correct: false}
+      - {text: "La liste des utilisateurs de Keycloak, recopiée dans l'application", correct: false}
+      - {text: "Rien : Spring connaît d'avance toutes les adresses de Keycloak", correct: false}
+    answer: |-
+      Spring connaît Google, GitHub ou Facebook ; pour les autres, `provider.keycloak.issuer-uri` suffit : la
+      configuration OpenID publiée donne les adresses d'autorisation, de jetons et de clés.
+  - key: def-serveur-d-autorisation
+    format: definition
+    question: "Qu'est-ce qu'un serveur d'autorisation, en OAuth 2 ?"
+    choices:
+      - {text: "Le service qui authentifie l'utilisateur et émet les jetons", correct: true}
+      - {text: "L'API qui renvoie les données protégées par les jetons", correct: false}
+      - {text: "L'application qui demande l'accès au nom de l'utilisateur", correct: false}
+      - {text: "Le pare-feu qui filtre les requêtes non authentifiées", correct: false}
+    answer: "Keycloak, Auth0 ou Google jouent ce rôle. L'API protégée est le resource server ; l'application qui demande l'accès est le client."
+  - key: def-id-token
+    format: definition
+    question: "Qu'est-ce que l'ID token d'OpenID Connect ?"
+    choices:
+      - {text: "Un JWT qui dit qui s'est connecté, destiné à l'application cliente", correct: true}
+      - {text: "Un jeton qui donne accès à toutes les API du fournisseur", correct: false}
+      - {text: "Le numéro de session attribué par le navigateur", correct: false}
+      - {text: "Un identifiant unique de l'application chez le fournisseur", correct: false}
+    answer: "Il porte `sub`, `iss`, `aud` (l'identifiant du client), `exp` et des claims comme `email`. L'application le vérifie et en tire l'identité de l'utilisateur."
+  - key: def-pkce
+    format: definition
+    question: "Que désigne PKCE, dans le flux authorization code ?"
+    choices:
+      - {text: "Une preuve, par un secret éphémère, que l'échange du code vient du bon client", correct: true}
+      - {text: "Un chiffrement de la page de connexion du fournisseur", correct: false}
+      - {text: "Une liste des clés publiques du serveur d'autorisation", correct: false}
+      - {text: "Un format de jeton plus compact que le JWT", correct: false}
+    answer: "Proof Key for Code Exchange : le client envoie l'empreinte d'un secret avec la demande, puis le secret avec l'échange du code. Seul celui qui a lancé le flux peut le finir."
+  - key: def-scope
+    format: definition
+    question: "Qu'est-ce qu'un scope, en OAuth 2 ?"
+    choices:
+      - {text: "Une permission demandée par le client, que l'utilisateur accepte", correct: true}
+      - {text: "La durée de validité d'un jeton d'accès, fixée par l'émetteur", correct: false}
+      - {text: "Le domaine de l'URI de redirection déclarée chez le fournisseur", correct: false}
+      - {text: "Le nom du serveur d'autorisation qui émet les jetons", correct: false}
+    answer: "`calendar.readonly`, `commandes:lire` : le jeton n'ouvre que ce qui a été accordé. Un resource server Spring en fait des autorités `SCOPE_...`."

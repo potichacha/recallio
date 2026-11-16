@@ -1,0 +1,234 @@
+notion: spring-modulith
+lesson: |-
+  Un **monolithe modulaire** est une seule application, déployée d'un bloc, mais découpée en **modules** aux
+  frontières nettes : chaque module cache ses détails et n'expose qu'une petite API. On garde la simplicité du
+  monolithe (un déploiement, des appels en mémoire, une base, des transactions locales) sans son défaut : le plat de
+  spaghettis où tout dépend de tout. **Spring Modulith** outille ce style.
+
+  **Les conventions.** Chaque **sous-package direct** du package de la classe `@SpringBootApplication` est un
+  **module applicatif** :
+
+  ```
+  com.boutique                       <- BoutiqueApplication
+  ├── commande                       <- module « commande » : son API publique
+  │   ├── Commandes.java
+  │   ├── CommandePassee.java        <- un événement publié
+  │   └── internal                   <- interne : invisible des autres modules
+  │       └── CommandeMapper.java
+  ├── stock                          <- module « stock »
+  └── facturation                    <- module « facturation »
+  ```
+
+  Les classes du **package racine** d'un module forment son API ; ses **sous-packages sont internes**. Un
+  sous-package peut être exposé explicitement par `@NamedInterface` (sur son `package-info.java`), et un module peut
+  restreindre ses propres dépendances avec `@ApplicationModule(allowedDependencies = ...)`.
+
+  **Vérifier.** Java ne sait pas interdire à `facturation` d'utiliser une classe publique de `commande.internal`.
+  Spring Modulith le vérifie par un test :
+
+  ```java
+  class ModularityTest {
+      @Test
+      void lesModulesRespectentLeursFrontieres() {
+          ApplicationModules.of(BoutiqueApplication.class).verify();
+      }
+  }
+  ```
+
+  `verify()` échoue sur un **cycle** entre modules, ou sur un accès à un **type interne** d'un autre module.
+
+  **Communiquer par événements.** Plutôt que d'appeler `stock`, `facturation` et `fidelite`, le module `commande`
+  publie `CommandePassee`, et chaque module intéressé l'écoute :
+
+  ```java
+  @Service
+  class PasserCommande {
+      private final ApplicationEventPublisher evenements;
+
+      @Transactional
+      public void executer(NouvelleCommande demande) {
+          Commande commande = commandes.enregistrer(demande);
+          evenements.publishEvent(new CommandePassee(commande.id()));
+      }
+  }
+
+  @Component
+  class ReservationStock {
+      @ApplicationModuleListener
+      void surCommandePassee(CommandePassee evenement) { ... }
+  }
+  ```
+
+  `@ApplicationModuleListener` réunit trois annotations : `@TransactionalEventListener` (après le commit), `@Async`
+  (dans un autre thread) et `@Transactional(propagation = REQUIRES_NEW)` (dans sa propre transaction). L'écouteur ne
+  retarde pas la commande, et ne peut pas la faire échouer.
+
+  **Ne pas perdre d'événement.** Et si l'écouteur échoue, ou si l'application s'arrête entre le commit et l'écoute ?
+  Le **registre des publications d'événements** (Event Publication Registry) enregistre chaque publication **en
+  base**, dans la transaction d'origine, et la marque terminée quand l'écouteur a réussi. Les publications
+  inachevées peuvent être relancées, au redémarrage par exemple. Spring Modulith sait aussi **externaliser** des
+  événements vers Kafka ou RabbitMQ.
+
+  **Tester un module seul.** `@ApplicationModuleTest` ne démarre **que** le module de la classe de test (et, sur
+  demande, ses dépendances) : un test d'intégration plus rapide et plus ciblé. Les beans des autres modules dont il
+  a besoin se simulent avec `@MockitoBean`.
+
+  **Documenter.** `Documenter` génère à partir du code des diagrammes des modules et de leurs dépendances (C4,
+  PlantUML), et une fiche par module : une documentation qui ne ment pas.
+
+  **Et après ?** Un module aux frontières vérifiées, qui ne communique que par événements, s'extrait en service à part
+  le jour où l'on en a vraiment besoin. Commencer par un monolithe modulaire est souvent plus sûr que commencer par
+  des microservices.
+
+  **En entretien** : « Spring Modulith fait de chaque sous-package de l'application un module, dont seul le package
+  racine est public, et un test `ApplicationModules.verify()` refuse les cycles et les accès aux classes internes.
+  Les modules communiquent par événements, avec `@ApplicationModuleListener` et un registre qui les garde en base
+  jusqu'au succès. C'est un monolithe modulaire : un déploiement, des frontières nettes, et des modules prêts à être
+  extraits. »
+cards:
+  - key: module-par-defaut
+    format: course
+    question: "Pour Spring Modulith, qu'est-ce qu'un module applicatif, par défaut ?"
+    choices:
+      - {text: "Un sous-package direct du package de la classe `@SpringBootApplication`", correct: true}
+      - {text: "Un module Maven séparé, avec son propre `pom.xml` et son propre jar", correct: false}
+      - {text: "Chaque classe annotée `@Service`, avec toutes ses dépendances", correct: false}
+      - {text: "Un jar chargé à part au démarrage, comme un plugin", correct: false}
+    answer: "`com.boutique.commande`, `com.boutique.stock`... : le découpage suit les packages, dans un seul projet. Aucun module Maven n'est nécessaire."
+  - key: api-d-un-module
+    format: course
+    question: "Dans un module Spring Modulith `commande`, quelles classes les autres modules peuvent-ils utiliser, par défaut ?"
+    choices:
+      - {text: "Celles du package racine `commande`, pas celles de ses sous-packages", correct: true}
+      - {text: "Toutes, à condition qu'elles soient déclarées `public`", correct: false}
+      - {text: "Seulement les interfaces annotées `@Service`", correct: false}
+      - {text: "Celles du sous-package `internal`, prévu pour être partagé", correct: false}
+    answer: "Le package racine est l'API du module ; ses sous-packages sont internes, même si leurs classes sont publiques. `@NamedInterface` expose un sous-package explicitement."
+  - key: verifier-les-frontieres
+    format: course
+    question: "Comment Spring Modulith vérifie-t-il que les modules respectent leurs frontières ?"
+    choices:
+      - {text: "Par un test qui appelle `ApplicationModules.of(Application.class).verify()`", correct: true}
+      - {text: "Par le compilateur, qui refuse tout import vers un autre module", correct: false}
+      - {text: "Au démarrage, en refusant de créer un bean venu d'un autre module", correct: false}
+      - {text: "Par une règle Checkstyle, ajoutée automatiquement au build", correct: false}
+    answer: "Java ne connaît que `public` et la visibilité de package. `verify()` analyse les dépendances entre modules, et échoue sur un cycle ou un accès à un type interne."
+  - key: application-module-listener
+    format: course
+    question: "Que réunit l'annotation `@ApplicationModuleListener` de Spring Modulith ?"
+    choices:
+      - {text: "Un écouteur asynchrone, après le commit, dans sa propre transaction", correct: true}
+      - {text: "Un écouteur synchrone, dans la transaction de celui qui publie", correct: false}
+      - {text: "Un consommateur Kafka, abonné au topic qui porte le nom du module", correct: false}
+      - {text: "Un `@Scheduled` qui relit les événements toutes les secondes", correct: false}
+    answer: "`@TransactionalEventListener`, `@Async` et `@Transactional(propagation = REQUIRES_NEW)`. L'écouteur ne voit que des commandes validées, et son échec n'annule pas la commande."
+  - key: vf-registre-des-publications
+    format: true-false
+    question: "Le registre des publications d'événements de Spring Modulith garde en base les événements dont l'écouteur n'a pas encore réussi."
+    truth: true
+    answer: "La publication est enregistrée dans la transaction d'origine, puis marquée terminée quand l'écouteur a réussi. Les inachevées peuvent être relancées."
+  - key: vf-verify-et-cycle
+    format: true-false
+    question: "`ApplicationModules.verify()` signale un cycle de dépendances entre deux modules."
+    truth: true
+    answer: "Si `commande` dépend de `stock` et `stock` de `commande`, le test échoue. On casse le cycle par un événement, ou en déplaçant ce qui est partagé."
+  - key: vf-modulith-pas-microservices
+    format: true-false
+    question: "Spring Modulith découpe l'application en plusieurs processus, déployés séparément."
+    truth: false
+    answer: "Les modules vivent dans un seul processus, déployé d'un bloc. Spring Modulith structure et vérifie le monolithe ; extraire un module en service reste un choix ultérieur."
+  - key: vf-test-d-un-module
+    format: true-false
+    question: "`@ApplicationModuleTest` ne démarre que le module testé, et non toute l'application."
+    truth: true
+    answer: "Le contexte ne contient que les beans du module (et, sur demande, ceux de ses dépendances). Le test est plus rapide, et révèle les dépendances cachées."
+  - key: qcm-exposer-un-sous-package
+    format: multiple-choice
+    question: "Comment un module Spring Modulith expose-t-il un de ses sous-packages aux autres modules ?"
+    choices:
+      - {text: "Avec `@NamedInterface` sur ce sous-package", correct: true}
+      - {text: "En déclarant ses classes `public static`", correct: false}
+      - {text: "Avec `@ComponentScan` dans l'autre module", correct: false}
+      - {text: "Avec `@Import` sur la classe principale", correct: false}
+    answer: "On l'annote dans son `package-info.java` : le sous-package devient une interface nommée du module, que les autres modules ont le droit d'utiliser."
+  - key: qcm-prevenir-le-stock
+    format: multiple-choice
+    question: "Comment Spring Modulith recommande-t-il que le module `commande` prévienne le module `stock` qu'une commande est passée ?"
+    choices:
+      - {text: "En publiant un événement, que `stock` écoute", correct: true}
+      - {text: "En injectant les repositories de `stock`", correct: false}
+      - {text: "En écrivant directement dans les tables de `stock`", correct: false}
+      - {text: "En appelant une classe interne du module `stock`", correct: false}
+    answer: "`commande` publie `CommandePassee` sans connaître ses lecteurs : il ne dépend plus de `stock`, et d'autres modules peuvent s'abonner sans le modifier."
+  - key: qcm-documenter
+    format: multiple-choice
+    question: "Que produit le `Documenter` de Spring Modulith ?"
+    choices:
+      - {text: "Des diagrammes des modules et de leurs dépendances, et une fiche par module", correct: true}
+      - {text: "La documentation OpenAPI des contrôleurs REST de chaque module", correct: false}
+      - {text: "La Javadoc de chaque classe publique de l'application", correct: false}
+      - {text: "Un rapport de couverture des tests, module par module", correct: false}
+    answer: "Il lit la structure réelle du code et génère des diagrammes C4 ou PlantUML : la documentation d'architecture suit le code au lieu de vieillir à côté."
+  - key: qcm-atout-du-monolithe-modulaire
+    format: multiple-choice
+    question: "Quel avantage un monolithe modulaire a-t-il sur des microservices, pour une petite équipe ?"
+    choices:
+      - {text: "Un seul déploiement et des appels en mémoire, avec des frontières vérifiées", correct: true}
+      - {text: "Une montée en charge indépendante de chaque module en production", correct: false}
+      - {text: "Le choix d'un langage de programmation différent pour chaque module", correct: false}
+      - {text: "Une panne d'un module qui n'arrête jamais les autres modules", correct: false}
+    answer: "Pas de réseau entre modules, pas de transactions distribuées, un seul pipeline. Les autres choix sont des atouts des microservices, qu'un monolithe n'a pas."
+  - key: situation-acces-a-un-interne
+    format: scenario
+    question: |-
+      Le test de structure Spring Modulith échoue : le module `facturation` utilise `commande.internal.CommandeMapper`.
+      Que proposes-tu ?
+    choices:
+      - {text: "Exposer ce dont `facturation` a besoin dans l'API de `commande`, ou par un événement", correct: true}
+      - {text: "Copier `CommandeMapper` dans le module `facturation`, et garder les deux", correct: false}
+      - {text: "Supprimer le test de structure, qui ralentit le développement", correct: false}
+      - {text: "Rendre la classe `CommandeMapper` `public`, pour que l'accès soit permis", correct: false}
+    answer: |-
+      `internal` est le détail de `commande` : s'en servir couple `facturation` à son implémentation. Le module expose
+      ce qu'il veut partager dans son package racine, ou publie les données utiles dans un événement. Être `public` ne
+      suffit pas : c'est le package qui compte.
+  - key: situation-ecouteur-tombe
+    format: scenario
+    question: |-
+      Un écouteur du module `stock` a planté pendant un redémarrage, et l'événement `CommandePassee` semble perdu : le
+      stock n'a pas été réservé. Que proposes-tu ?
+    choices:
+      - {text: "Le registre des publications, qui garde l'événement et permet de le relancer", correct: true}
+      - {text: "Republier à la main tous les événements de la journée, chaque soir", correct: false}
+      - {text: "Augmenter le nombre de threads de l'exécuteur des écouteurs `@Async`", correct: false}
+      - {text: "Écrire l'événement dans un fichier local, relu à chaque démarrage", correct: false}
+    answer: |-
+      Le registre enregistre la publication en base avec la commande, et ne la marque terminée qu'une fois l'écouteur
+      réussi. Au redémarrage, les publications inachevées sont relancées. Un fichier local se perd avec le conteneur.
+  - key: situation-avant-les-microservices
+    format: scenario
+    question: |-
+      Ton équipe veut passer d'un monolithe confus, où tout dépend de tout, à des microservices. Que proposes-tu
+      d'abord ?
+    choices:
+      - {text: "Délimiter des modules dans le monolithe, et faire vérifier leurs frontières", correct: true}
+      - {text: "Créer un service par table de la base de données", correct: false}
+      - {text: "Réécrire toute l'application dans un nouveau dépôt, d'un seul coup", correct: false}
+      - {text: "Déployer plusieurs copies du monolithe, une par équipe", correct: false}
+    answer: |-
+      Découper un monolithe confus en services donne des services confus, reliés par le réseau. Des modules aux
+      frontières vérifiées, qui communiquent par événements, montrent où couper ; on n'extrait ensuite que ce qui le
+      justifie.
+  - key: situation-test-de-facturation
+    format: scenario
+    question: |-
+      Chaque test d'intégration du module `facturation` démarre toute l'application et prend une minute. Que
+      proposes-tu ?
+    choices:
+      - {text: "`@ApplicationModuleTest`, qui ne démarre que ce module, et ses dépendances simulées", correct: true}
+      - {text: "Un `@SpringBootTest` par module, chacun démarrant toute l'application", correct: false}
+      - {text: "Supprimer les tests des modules, et ne garder que ceux de bout en bout", correct: false}
+      - {text: "Lancer les tests sur huit threads, sans rien changer d'autre", correct: false}
+    answer: |-
+      Le contexte ne contient que les beans de `facturation` ; ce qu'il attend des autres modules se simule avec
+      `@MockitoBean`. Le test démarre vite, et montre à quoi le module est vraiment couplé.

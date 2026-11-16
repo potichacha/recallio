@@ -1,0 +1,320 @@
+notion: webmvctest
+lesson: |-
+  `@WebMvcTest` est la **tranche web** : elle démarre Spring MVC et les contrôleurs, sans serveur, sans services ni
+  base. On y vérifie ce que le contrôleur ajoute au métier : le **routage**, la **conversion JSON**, la
+  **validation**, les **statuts** et les **en-têtes**.
+
+  ```java
+  import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+  import org.springframework.test.context.bean.override.mockito.MockitoBean;
+
+  @WebMvcTest(LivreController.class)
+  class LivreControllerTest {
+
+      @Autowired
+      MockMvc mvc;
+
+      @MockitoBean
+      CatalogueService catalogue;
+
+      @Test
+      void renvoieLeLivreQuandIlExiste() throws Exception {
+          given(catalogue.trouver("9782070360024"))
+                  .willReturn(Optional.of(new Livre("9782070360024", "L'Étranger", "Albert Camus")));
+
+          mvc.perform(get("/api/livres/9782070360024"))
+                  .andExpect(status().isOk())
+                  .andExpect(jsonPath("$.titre").value("L'Étranger"));
+      }
+  }
+  ```
+
+  **Ce que charge la tranche.** Les contrôleurs (seulement ceux listés, ou tous si on n'en liste aucun), les
+  `@ControllerAdvice`, les convertisseurs, les filtres, les `WebMvcConfigurer`, Jackson et la validation. **Pas**
+  les `@Service`, `@Component` ou `@Repository` : chaque dépendance du contrôleur est un `@MockitoBean`, sinon le
+  contexte échoue (« No qualifying bean of type ... »).
+
+  **`MockMvc`** envoie la requête au `DispatcherServlet`, dans le thread du test, sans réseau :
+
+  | Étape | Exemple |
+  |---|---|
+  | construire la requête | `post("/api/livres").contentType(MediaType.APPLICATION_JSON).content(json)` |
+  | l'exécuter | `mvc.perform(...)` |
+  | vérifier le statut | `.andExpect(status().isCreated())` |
+  | vérifier le JSON | `.andExpect(jsonPath("$.titre").value("La Peste"))` |
+  | vérifier un en-tête | `.andExpect(header().string("Location", "/api/livres/9782070360536"))` |
+  | vérifier le mock | `verify(catalogue, never()).ajouter(any())` |
+
+  Une requête qui envoie un corps à un `@RequestBody` doit dire son type : sans
+  `contentType(MediaType.APPLICATION_JSON)`, la réponse est **415** (Unsupported Media Type).
+
+  **`MockMvcTester`**, depuis Spring Framework 6.2, écrit les mêmes vérifications avec AssertJ :
+
+  ```java
+  @Autowired
+  MockMvcTester mvc;
+
+  assertThat(mvc.get().uri("/api/livres/{isbn}", "9782070360024"))
+          .hasStatusOk()
+          .bodyJson().extractingPath("$.titre").isEqualTo("L'Étranger");
+  ```
+
+  **Ce que ces tests attrapent.** Un contrôleur qui renvoie `null` répond `200` au corps vide, pas `404` :
+  `ResponseEntity.of(optional)` choisit entre les deux. Sans `@Valid` devant `@RequestBody`, les contraintes du DTO
+  ne sont jamais vérifiées, et le corps invalide passe. Avec Spring Security sur le classpath, la tranche applique
+  aussi la sécurité : une requête anonyme est refusée, d'où `@WithMockUser`.
+
+  Avec Spring Boot 4, la tranche est dans le module `spring-boot-webmvc-test`, qu'apporte le starter
+  `spring-boot-starter-webmvc-test`.
+
+  **En entretien** : « `@WebMvcTest` ne démarre que la couche web : le contrôleur, Jackson, la validation, les
+  conseils d'erreur. Ses dépendances sont des `@MockitoBean`, et `MockMvc` envoie les requêtes sans serveur. J'y
+  vérifie les statuts, le JSON, la validation et les en-têtes, pas la logique métier, que je teste à part. »
+cards:
+  - key: beans-de-la-tranche-web
+    format: course
+    question: "Quels beans de l'application `@WebMvcTest(LivreController.class)` crée-t-il ?"
+    choices:
+      - {text: "Ce contrôleur et l'infrastructure web : conseils, convertisseurs, Jackson", correct: true}
+      - {text: "Ce contrôleur et tous les services dont il dépend, de proche en proche", correct: false}
+      - {text: "Tous les beans de l'application, à l'exception des repositories", correct: false}
+      - {text: "Ce contrôleur seul, sans Jackson ni validation des requêtes", correct: false}
+    answer: "La tranche web charge le contrôleur demandé, les `@ControllerAdvice`, les filtres, Jackson et la validation. Les services sont absents : on les remplace par des `@MockitoBean`."
+  - key: role-mockmvc
+    format: course
+    question: "Que fait `MockMvc` dans un test `@WebMvcTest` ?"
+    choices:
+      - {text: "Il envoie des requêtes au `DispatcherServlet`, sans démarrer de serveur", correct: true}
+      - {text: "Il démarre Tomcat sur un port libre, puis l'appelle en HTTP", correct: false}
+      - {text: "Il remplace chaque contrôleur de la tranche par un mock Mockito", correct: false}
+      - {text: "Il rejoue des requêtes enregistrées sur l'application en production", correct: false}
+    answer: "La requête traverse toute la mécanique de Spring MVC (filtres, conversion, validation, conseils d'erreur) dans le thread du test, sans réseau."
+  - key: pourquoi-mockitobean-service
+    format: course
+    question: "Pourquoi déclarer le service du contrôleur avec `@MockitoBean` dans un `@WebMvcTest` ?"
+    choices:
+      - {text: "La tranche ne crée pas les services : sans mock, le contrôleur n'a pas sa dépendance", correct: true}
+      - {text: "Pour aller plus vite : le vrai service serait bien créé, mais plus lent à démarrer", correct: false}
+      - {text: "Pour que Jackson sache sérialiser les objets que renvoie le vrai service", correct: false}
+      - {text: "Parce que `MockMvc` refuse d'appeler un service qui n'est pas un mock", correct: false}
+    answer: "Le filtre de la tranche écarte les `@Service`. Le mock comble ce trou, et laisse le test choisir ce que le service renvoie."
+  - key: securite-dans-la-tranche
+    format: course
+    question: "Avec Spring Security sur le classpath, que devient un test `@WebMvcTest` ?"
+    choices:
+      - {text: "Il applique la sécurité : une requête anonyme est refusée par défaut", correct: true}
+      - {text: "Il ignore Spring Security, qui n'est chargé que par `@SpringBootTest`", correct: false}
+      - {text: "Il désactive l'authentification et CSRF, pour simplifier les tests", correct: false}
+      - {text: "Il refuse de démarrer tant que la sécurité n'est pas exclue", correct: false}
+    answer: "La sécurité fait partie de la couche web. On simule un utilisateur avec `@WithMockUser`, ou un jeton avec `jwt()`, et l'on vérifie aussi les refus (401, 403)."
+  - key: vf-pas-de-tomcat
+    format: true-false
+    question: "`@WebMvcTest` démarre un serveur Tomcat pour exécuter les requêtes de `MockMvc`."
+    truth: false
+    answer: "Aucun serveur : `MockMvc` appelle le `DispatcherServlet` directement, avec des requêtes et réponses simulées."
+  - key: vf-415-sans-type
+    format: true-false
+    question: "Sans `contentType(MediaType.APPLICATION_JSON)`, un `POST` vers une méthode `@RequestBody` reçoit un 415."
+    truth: true
+    answer: "415 Unsupported Media Type : Spring ne sait pas quel convertisseur lire. `accept(...)` ne suffit pas, il concerne la réponse."
+  - key: vf-tous-les-controleurs
+    format: true-false
+    question: "Un `@WebMvcTest` qui ne liste aucun contrôleur charge tous les contrôleurs de l'application."
+    truth: true
+    answer: "Sans `controllers`, la tranche prend tous les `@Controller` : leurs dépendances doivent alors toutes être des mocks. Lister le contrôleur testé garde le test ciblé."
+  - key: vf-null-donne-404
+    format: true-false
+    question: "Une méthode `@GetMapping` d'un `@RestController` qui renvoie `null` répond 404."
+    truth: false
+    answer: "Elle répond 200 avec un corps vide. Pour un 404, on renvoie `ResponseEntity.of(optional)` ou `ResponseEntity.notFound().build()`, ou l'on lève une exception traduite en 404."
+  - key: qcm-verifier-champ-json
+    format: multiple-choice
+    question: "Quelle ligne vérifie que le champ `titre` du JSON de la réponse vaut « Dune » ?"
+    choices:
+      - {text: "`.andExpect(jsonPath(\"$.titre\").value(\"Dune\"))`", correct: true}
+      - {text: "`.andExpect(header().string(\"titre\", \"Dune\"))`", correct: false}
+      - {text: "`.andExpect(model().attribute(\"titre\", \"Dune\"))`", correct: false}
+      - {text: "`.andExpect(content().contentType(\"Dune\"))`", correct: false}
+    answer: "`jsonPath` lit le corps JSON avec une expression JsonPath. `header` lit un en-tête, `model` le modèle d'une vue, sans rapport avec une API REST."
+  - key: qcm-jamais-appele
+    format: multiple-choice
+    question: "Comment vérifies-tu, dans un `@WebMvcTest`, qu'une requête invalide n'a jamais atteint le service ?"
+    choices:
+      - {text: "`verify(catalogue, never()).ajouter(any())`", correct: true}
+      - {text: "`verify(catalogue).ajouter(null)`", correct: false}
+      - {text: "`assertThat(catalogue).isNull()`", correct: false}
+      - {text: "`verifyNoInteractions(mvc)`", correct: false}
+    answer: "Le mock enregistre ses appels : `never()` exige qu'il n'y en ait eu aucun. La validation a rejeté le corps avant la méthode du contrôleur."
+  - key: qcm-corps-json
+    format: multiple-choice
+    question: "Quel appel ajoute un corps JSON à la requête `post(\"/api/livres\")` ?"
+    choices:
+      - {text: "`.contentType(MediaType.APPLICATION_JSON).content(json)`", correct: true}
+      - {text: "`.accept(MediaType.APPLICATION_JSON).param(\"body\", json)`", correct: false}
+      - {text: "`.header(\"body\", json).accept(MediaType.ALL)`", correct: false}
+      - {text: "`.characterEncoding(json).contentType(\"text\")`", correct: false}
+    answer: "`content` donne le corps, `contentType` dit son format : Spring choisit alors Jackson pour le lire. `accept` décrit seulement la réponse attendue."
+  - key: qcm-mockmvctester
+    format: multiple-choice
+    question: "Quel outil de Spring Framework écrit les vérifications d'une requête simulée avec AssertJ, à la place de `andExpect` ?"
+    choices:
+      - {text: "`MockMvcTester`", correct: true}
+      - {text: "`TestRestTemplate`", correct: false}
+      - {text: "`MockRestServiceServer`", correct: false}
+      - {text: "`JacksonTester`", correct: false}
+    answer: "`assertThat(mvc.get().uri(\"/api/livres/7\")).hasStatusOk()`. `TestRestTemplate` exige un vrai serveur, `MockRestServiceServer` simule une API appelée, `JacksonTester` teste le JSON seul."
+  - key: trous-tranche-web
+    format: fill-in
+    question: |-
+      Complète pour ne démarrer que la couche web, avec ce seul contrôleur :
+      ```java
+      @___(LivreController.class)
+      class LivreControllerTest {
+      }
+      ```
+    blanks:
+      - [WebMvcTest]
+    answer: "`@WebMvcTest(LivreController.class)` charge ce contrôleur et l'infrastructure de Spring MVC, sans services ni base."
+  - key: trous-statut-404
+    format: fill-in
+    question: |-
+      Complète pour vérifier que la réponse est un 404 :
+      ```java
+      mvc.perform(get("/api/livres/9780000000000"))
+              .andExpect(status().___());
+      ```
+    blanks:
+      - [isNotFound]
+    answer: "`status()` offre une méthode par statut : `isOk()`, `isCreated()`, `isBadRequest()`, `isNotFound()`... ou `is(404)`."
+  - key: trous-location
+    format: fill-in
+    question: |-
+      Complète pour vérifier l'adresse de la ressource créée :
+      ```java
+      mvc.perform(post("/api/livres").contentType(MediaType.APPLICATION_JSON).content(json))
+              .andExpect(status().isCreated())
+              .andExpect(header().string("___", "/api/livres/9782070360536"));
+      ```
+    blanks:
+      - [Location]
+    answer: "Un `201 Created` indique l'adresse de la nouvelle ressource dans l'en-tête `Location`, que pose `ResponseEntity.created(uri)`."
+  - key: trous-perform
+    format: fill-in
+    question: |-
+      Complète pour exécuter la requête simulée :
+      ```java
+      mvc.___(get("/api/livres/9782070360024"))
+              .andExpect(status().isOk());
+      ```
+    blanks:
+      - [perform]
+    answer: "`perform` envoie la requête au `DispatcherServlet` et renvoie un résultat sur lequel on enchaîne les `andExpect`."
+  - key: bug-415-sans-content-type
+    format: bug-fix
+    question: |-
+      Ce test échoue : « Status expected:<201> but was:<415> ». Le contrôleur reçoit le livre par `@RequestBody`.
+      Quelle correction est la bonne ?
+      ```java
+      @Test
+      void ajouteUnLivre() throws Exception {
+          mvc.perform(post("/api/livres")
+                          .content("""
+                                  {"isbn": "9782070360536", "titre": "La Peste", "auteur": "Albert Camus"}
+                                  """))
+                  .andExpect(status().isCreated());
+      }
+      ```
+    choices:
+      - {text: "Ajouter `.contentType(MediaType.APPLICATION_JSON)` à la requête", correct: true}
+      - {text: "Ajouter `.accept(MediaType.APPLICATION_JSON)` à la requête", correct: false}
+      - {text: "Remplacer `@RequestBody` par `@RequestParam` dans le contrôleur", correct: false}
+      - {text: "Annoter la méthode du contrôleur `@ResponseStatus(HttpStatus.CREATED)`", correct: false}
+    answer: |-
+      ```java
+      mvc.perform(post("/api/livres")
+                      .contentType(MediaType.APPLICATION_JSON)
+                      .content(json))
+      ```
+      415 veut dire Unsupported Media Type : sans `Content-Type`, Spring ne sait pas quel convertisseur doit lire
+      le corps. `accept` ne règle que le format de la réponse.
+  - key: bug-validation-ignoree
+    format: bug-fix
+    question: |-
+      Le record `Livre` porte `@NotBlank` sur son titre. Ce test, qui envoie un titre vide, échoue : « Status
+      expected:<400> but was:<200> ». Quelle correction du contrôleur est la bonne ?
+      ```java
+      @PostMapping
+      public ResponseEntity<Livre> ajouter(@RequestBody Livre livre) {
+          catalogue.ajouter(livre);
+          return ResponseEntity.ok(livre);
+      }
+      ```
+    choices:
+      - {text: "Ajouter `@Valid` devant `@RequestBody`", correct: true}
+      - {text: "Ajouter `@Validated` sur le record `Livre`", correct: false}
+      - {text: "Ajouter `@NotNull` devant `@RequestBody`", correct: false}
+      - {text: "Ajouter `@Valid` sur la classe du contrôleur", correct: false}
+    answer: |-
+      ```java
+      public ResponseEntity<Livre> ajouter(@Valid @RequestBody Livre livre) {
+      ```
+      Les contraintes du record ne s'appliquent que si l'on demande la validation du paramètre. Avec `@Valid`, un
+      corps invalide lève une `MethodArgumentNotValidException`, traduite en 400 avant d'entrer dans la méthode.
+  - key: bug-null-au-lieu-de-404
+    format: bug-fix
+    question: |-
+      Ce test demande un ISBN inconnu et attend un 404. Il échoue : « Status expected:<404> but was:<200> ».
+      Quelle correction du contrôleur est la bonne ?
+      ```java
+      @GetMapping("/{isbn}")
+      public Livre lire(@PathVariable String isbn) {
+          return catalogue.trouver(isbn).orElse(null);
+      }
+      ```
+    choices:
+      - {text: "Renvoyer `ResponseEntity.of(catalogue.trouver(isbn))`", correct: true}
+      - {text: "Renvoyer `catalogue.trouver(isbn).orElseThrow()`", correct: false}
+      - {text: "Écrire `@PathVariable(required = true) String isbn`", correct: false}
+      - {text: "Annoter la méthode `@ResponseStatus(HttpStatus.NOT_FOUND)`", correct: false}
+    answer: |-
+      ```java
+      @GetMapping("/{isbn}")
+      public ResponseEntity<Livre> lire(@PathVariable String isbn) {
+          return ResponseEntity.of(catalogue.trouver(isbn));
+      }
+      ```
+      `null` donne un 200 au corps vide. `ResponseEntity.of` répond 200 avec le livre, ou 404 si l'`Optional` est
+      vide. `orElseThrow()` lèverait une `NoSuchElementException`, soit une erreur 500 ; `@ResponseStatus`
+      changerait aussi le statut des livres trouvés.
+  - key: bug-dependance-sans-mock
+    format: bug-fix
+    question: |-
+      Ce test ne démarre pas : « Failed to load ApplicationContext », causé par « No qualifying bean of type
+      'librairie.CatalogueService' available ». Le contrôleur reçoit `CatalogueService` par son constructeur.
+      Quelle correction est la bonne ?
+      ```java
+      @WebMvcTest(LivreController.class)
+      class LivreControllerTest {
+
+          @Autowired
+          MockMvc mvc;
+
+          @Test
+          void repond404QuandLeLivreEstInconnu() throws Exception {
+              mvc.perform(get("/api/livres/9780000000000")).andExpect(status().isNotFound());
+          }
+      }
+      ```
+    choices:
+      - {text: "Déclarer `@MockitoBean CatalogueService catalogue;` dans le test", correct: true}
+      - {text: "Annoter `CatalogueService` avec `@Controller` au lieu de `@Service`", correct: false}
+      - {text: "Écrire `@WebMvcTest` sans préciser le contrôleur à charger", correct: false}
+      - {text: "Ajouter `@AutoConfigureMockMvc` sur la classe de test", correct: false}
+    answer: |-
+      ```java
+      @MockitoBean
+      CatalogueService catalogue;
+      ```
+      La tranche web ne crée pas les `@Service` : le contrôleur n'a pas sa dépendance. Le mock la fournit, et
+      renvoie par défaut un `Optional` vide, d'où le 404 attendu. Changer le stéréotype du service mélangerait les
+      couches pour contourner le test.

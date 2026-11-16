@@ -1,0 +1,354 @@
+notion: relations
+lesson: |-
+  Une commande a plusieurs lignes ; chaque ligne appartient à une commande. En base, c'est **une clé étrangère**
+  `commande_id` dans la table `ligne`. En JPA, deux annotations décrivent les deux sens de ce lien :
+
+  ```java
+  @Entity
+  public class Ligne {
+      @Id @GeneratedValue private Long id;
+
+      @ManyToOne(fetch = FetchType.LAZY)
+      @JoinColumn(name = "commande_id", nullable = false)
+      private Commande commande;            // le côté propriétaire : il porte la clé étrangère
+  }
+
+  @Entity
+  public class Commande {
+      @Id @GeneratedValue private Long id;
+
+      @OneToMany(mappedBy = "commande", cascade = CascadeType.ALL, orphanRemoval = true)
+      private List<Ligne> lignes = new ArrayList<>();   // le côté inverse : un simple reflet
+
+      public void ajouter(Ligne ligne) {    // garde les deux côtés cohérents
+          lignes.add(ligne);
+          ligne.setCommande(this);
+      }
+  }
+  ```
+
+  **Le côté propriétaire.** C'est le côté qui a la clé étrangère : le `@ManyToOne`. Hibernate ne lit que lui pour
+  écrire `commande_id`. Le `@OneToMany(mappedBy = "commande")` dit seulement « la relation est décrite par le champ
+  `commande` de `Ligne` ». Conséquence : ajouter une ligne à `commande.getLignes()` sans appeler
+  `ligne.setCommande(commande)` laisse `commande_id` à `null`. D'où les méthodes comme `ajouter`, qui mettent à jour
+  les deux côtés.
+
+  **Sans `mappedBy`**, Hibernate croit à deux relations distinctes : il crée une table de jointure
+  `commande_lignes` en plus de la colonne `commande_id`.
+
+  **Les cascades.** `cascade = CascadeType.ALL` propage `persist`, `merge` et `remove` du parent aux enfants :
+  enregistrer la commande enregistre ses nouvelles lignes. Sans cascade, enregistrer une ligne qui pointe vers une
+  commande pas encore enregistrée échoue au flush : « references an unsaved transient instance ». La cascade va du
+  parent vers les enfants qu'il possède, jamais d'une ligne vers sa commande.
+
+  **`orphanRemoval = true`.** Retirer une ligne de la collection la supprime en base. Sans lui, la retirer de la
+  liste ne change rien : sa clé étrangère pointe toujours vers la commande.
+
+  **Les autres relations.**
+  - `@OneToOne` : un utilisateur et son profil ; la clé étrangère est d'un côté, `mappedBy` de l'autre.
+  - `@ManyToMany` : des étudiants et des cours, par une table de jointure. Dès que le lien porte une donnée (une
+    note, une date d'inscription), on crée une entité intermédiaire (`Inscription`) avec deux `@ManyToOne`.
+
+  **Les pièges des relations bidirectionnelles.** Un `toString` qui affiche les deux côtés, ou une entité sérialisée
+  en JSON, tourne en boucle : `StackOverflowError`, ou pour Jackson « Document nesting depth (501) exceeds the
+  maximum allowed ». On renvoie des **DTO**, pas des entités. Et une relation qui ne sert que dans un sens reste
+  unidirectionnelle : un `@ManyToOne` seul suffit souvent.
+
+  **En entretien** : « En base, une relation un-à-plusieurs est une clé étrangère du côté « plusieurs » ; en JPA,
+  c'est le `@ManyToOne`, le côté propriétaire, que Hibernate lit pour l'écrire. Le `@OneToMany` porte `mappedBy` et
+  n'est qu'un reflet : je mets à jour les deux côtés avec une méthode du parent. J'ajoute les cascades et
+  `orphanRemoval` quand le parent possède vraiment ses enfants. »
+cards:
+  - key: cote-proprietaire
+    format: course
+    question: "Dans une relation `Commande` 1-N `Ligne`, quel côté est le propriétaire de la relation ?"
+    choices:
+      - {text: "Le `@ManyToOne` de `Ligne`, qui porte la clé étrangère", correct: true}
+      - {text: "Le `@OneToMany` de `Commande`, qui contient la liste", correct: false}
+      - {text: "Le côté de l'entité enregistrée en premier par `save`", correct: false}
+      - {text: "Les deux côtés : Hibernate lit l'un et l'autre", correct: false}
+    answer: "Le propriétaire est le côté qui a la colonne `commande_id`. Hibernate ne lit que lui pour écrire la clé étrangère ; le `@OneToMany(mappedBy = ...)` n'en est que le reflet."
+  - key: mapped-by
+    format: course
+    question: "Que signifie `@OneToMany(mappedBy = \"commande\")` dans l'entité `Commande` ?"
+    choices:
+      - {text: "La relation est décrite par le champ `commande` de `Ligne`", correct: true}
+      - {text: "La colonne de clé étrangère s'appelle `commande` dans la table", correct: false}
+      - {text: "La liste est triée selon l'attribut `commande` des lignes", correct: false}
+      - {text: "Les lignes sont rangées dans une table de jointure `commande`", correct: false}
+    answer: "`mappedBy` désigne l'attribut du côté propriétaire. Sans lui, Hibernate croirait à une seconde relation, et créerait une table de jointure."
+  - key: cascade
+    format: course
+    question: "Que fait `cascade = CascadeType.ALL` sur le `@OneToMany` de `Commande` ?"
+    choices:
+      - {text: "Enregistrer, fusionner ou supprimer la commande fait de même pour ses lignes", correct: true}
+      - {text: "Charger la commande charge aussi toutes ses lignes dans la même requête", correct: false}
+      - {text: "Modifier une ligne recalcule automatiquement le total de la commande", correct: false}
+      - {text: "Supprimer une ligne supprime aussi la commande à laquelle elle appartient", correct: false}
+    answer: "La cascade propage les opérations de l'`EntityManager` (`persist`, `merge`, `remove`...) du parent aux enfants. Elle ne dit rien du chargement, que règle `fetch`."
+  - key: orphan-removal
+    format: course
+    question: "Que change `orphanRemoval = true` sur le `@OneToMany` des lignes d'une commande ?"
+    choices:
+      - {text: "Retirer une ligne de la liste la supprime de la base", correct: true}
+      - {text: "Supprimer la commande garde ses lignes, sans clé étrangère", correct: false}
+      - {text: "Une ligne sans commande est refusée à l'enregistrement", correct: false}
+      - {text: "Les lignes sont rangées par identifiant dans la liste", correct: false}
+    answer: "Une ligne retirée de la collection devient orpheline, et Hibernate la supprime au flush. Sans l'option, la retirer de la liste ne change rien en base : sa clé étrangère pointe toujours vers la commande."
+  - key: vf-many-to-one-eager
+    format: true-false
+    question: "Sans précision, un `@ManyToOne` est chargé immédiatement (`EAGER`)."
+    truth: true
+    answer: "C'est le défaut de JPA pour `@ManyToOne` et `@OneToOne`. On le passe souvent en `fetch = FetchType.LAZY`, pour ne pas charger l'entité liée à chaque lecture."
+  - key: vf-one-to-many-lazy
+    format: true-false
+    question: "Sans précision, un `@OneToMany` est chargé en différé (`LAZY`)."
+    truth: true
+    answer: "Les collections (`@OneToMany`, `@ManyToMany`) sont paresseuses par défaut : elles ne sont lues qu'au premier accès."
+  - key: vf-cote-inverse-suffit
+    format: true-false
+    question: "Ajouter une ligne à `commande.getLignes()` suffit pour que sa colonne `commande_id` soit remplie, quand la liste porte `mappedBy`."
+    truth: false
+    answer: "Hibernate ne lit que le côté propriétaire, `ligne.commande`. Sans `ligne.setCommande(commande)`, la ligne est enregistrée avec `commande_id` à `null`."
+  - key: vf-many-to-many-donnee
+    format: true-false
+    question: "Quand le lien entre un étudiant et un cours porte une note, un `@ManyToMany` reste la bonne modélisation."
+    truth: false
+    answer: "La table de jointure d'un `@ManyToMany` n'a que les deux clés étrangères. Une note demande une entité intermédiaire, `Inscription`, avec deux `@ManyToOne` et son attribut."
+  - key: qcm-colonne
+    format: multiple-choice
+    question: "Où se trouve la clé étrangère d'une relation `@ManyToOne` de `Ligne` vers `Commande` ?"
+    choices:
+      - {text: "Dans la table `ligne`, colonne `commande_id`", correct: true}
+      - {text: "Dans la table `commande`, colonne `ligne_id`", correct: false}
+      - {text: "Dans une table de jointure `commande_lignes`", correct: false}
+      - {text: "Dans les deux tables, l'une pointant vers l'autre", correct: false}
+    answer: "Le côté « plusieurs » porte la clé étrangère. `@JoinColumn` en fixe le nom ; par défaut, c'est le nom de l'attribut suivi de `_id`."
+  - key: qcm-sans-mapped-by
+    format: multiple-choice
+    question: "`Commande` a `@OneToMany List<Ligne> lignes` sans `mappedBy`, et `Ligne` a `@ManyToOne Commande commande`. Quelles tables Hibernate crée-t-il ?"
+    choices:
+      - {text: "`commande`, `ligne` et une table de jointure `commande_lignes`", correct: true}
+      - {text: "`commande` et `ligne` seulement, avec `commande_id` dans `ligne`", correct: false}
+      - {text: "`commande` et `ligne` seulement, avec `ligne_id` dans `commande`", correct: false}
+      - {text: "Aucune : Hibernate refuse la relation déclarée deux fois", correct: false}
+    answer: "Sans `mappedBy`, Hibernate voit deux relations : le `@ManyToOne` (colonne `commande_id`) et un `@OneToMany` unidirectionnel, qu'il range dans une table de jointure. La même information est stockée deux fois."
+  - key: qcm-json-boucle
+    format: multiple-choice
+    question: "Un contrôleur renvoie une entité `Commande` dont les lignes pointent vers la commande. Que se passe-t-il à la sérialisation en JSON ?"
+    choices:
+      - {text: "Jackson tourne en boucle et échoue sur une profondeur trop grande", correct: true}
+      - {text: "Jackson détecte le cycle et n'écrit qu'une fois la commande", correct: false}
+      - {text: "Jackson ignore les relations JPA et n'écrit que les colonnes", correct: false}
+      - {text: "Jackson écrit l'identifiant de la commande à la place du cycle", correct: false}
+    answer: "Commande, lignes, commande, lignes... jusqu'à la limite : « Document nesting depth (501) exceeds the maximum allowed ». On renvoie un DTO, qui ne contient que ce que le client doit voir."
+  - key: qcm-entite-intermediaire
+    format: multiple-choice
+    question: "Comment modélises-tu l'inscription d'étudiants à des cours, avec la date d'inscription ?"
+    choices:
+      - {text: "Une entité `Inscription` avec deux `@ManyToOne` et la date", correct: true}
+      - {text: "Un `@ManyToMany` avec la date dans la table de jointure", correct: false}
+      - {text: "Un `@OneToOne` entre `Etudiant` et `Cours`, avec la date", correct: false}
+      - {text: "Une liste d'identifiants de cours dans l'entité `Etudiant`", correct: false}
+    answer: "La table de jointure d'un `@ManyToMany` ne porte que les deux clés. Dès que le lien a ses propres données, il devient une entité : `Inscription(etudiant, cours, date)`."
+  - key: trous-mapped-by
+    format: fill-in
+    question: |-
+      Complète pour que la liste soit le reflet du champ `commande` de `Ligne` :
+      ```java
+      @OneToMany(___ = "commande")
+      private List<Ligne> lignes = new ArrayList<>();
+      ```
+    blanks:
+      - [mappedBy]
+    answer: "`mappedBy` désigne l'attribut propriétaire de la relation, du côté `Ligne`."
+  - key: trous-many-to-one
+    format: fill-in
+    question: |-
+      Complète le côté propriétaire de la relation :
+      ```java
+      @Entity
+      public class Ligne {
+          @___(fetch = FetchType.LAZY)
+          @JoinColumn(name = "commande_id")
+          private Commande commande;
+      }
+      ```
+    blanks:
+      - [ManyToOne]
+    answer: "Plusieurs lignes pour une commande : `@ManyToOne`, avec la clé étrangère `commande_id`."
+  - key: trous-synchroniser
+    format: fill-in
+    question: |-
+      Complète pour garder les deux côtés cohérents :
+      ```java
+      public void ajouter(Ligne ligne) {
+          lignes.add(ligne);
+          ligne.___(this);
+      }
+      ```
+    blanks:
+      - [setCommande]
+    answer: "Le côté propriétaire doit pointer vers la commande : c'est lui qu'Hibernate lit pour écrire `commande_id`."
+  - key: trous-orphan
+    format: fill-in
+    question: |-
+      Complète pour qu'une ligne retirée de la liste soit supprimée en base :
+      ```java
+      @OneToMany(mappedBy = "commande", cascade = CascadeType.ALL, ___ = true)
+      private List<Ligne> lignes = new ArrayList<>();
+      ```
+    blanks:
+      - [orphanRemoval]
+    answer: "`orphanRemoval = true` supprime les lignes retirées de la collection."
+  - key: bug-cote-inverse
+    format: bug-fix
+    question: |-
+      Après l'enregistrement, la commande relue n'a aucune ligne, et la table `ligne` contient une ligne dont
+      `commande_id` est `null`. Quelle correction est la bonne ?
+      ```java
+      @Transactional
+      public Long creer(int quantite) {
+          Commande commande = new Commande();
+          commande.getLignes().add(new Ligne(quantite));   // @OneToMany(mappedBy = "commande", cascade = ALL)
+          return commandes.save(commande).getId();
+      }
+      ```
+    choices:
+      - {text: "Appeler aussi `ligne.setCommande(commande)` avant l'enregistrement", correct: true}
+      - {text: "Retirer `mappedBy` du `@OneToMany` de la classe `Commande`", correct: false}
+      - {text: "Enregistrer la ligne avec `lignes.save` avant la commande", correct: false}
+      - {text: "Passer le `@OneToMany` des lignes en `fetch = FetchType.EAGER`", correct: false}
+    answer: |-
+      ```java
+      Ligne ligne = new Ligne(quantite);
+      commande.getLignes().add(ligne);
+      ligne.setCommande(commande);
+      ```
+      La cascade enregistre bien la ligne, mais Hibernate lit la clé étrangère sur le côté propriétaire,
+      `ligne.commande`, resté `null`. Une méthode `commande.ajouter(ligne)` qui fait les deux évite l'oubli. Retirer
+      `mappedBy` créerait une table de jointure en plus.
+  - key: bug-table-de-jointure
+    format: bug-fix
+    question: |-
+      Le schéma généré contient une table `commande_lignes` (colonnes `commande_id`, `lignes_id`), en plus de la
+      colonne `commande_id` de `ligne`. Quelle correction est la bonne ?
+      ```java
+      @Entity
+      public class Commande {
+          @OneToMany
+          private List<Ligne> lignes = new ArrayList<>();
+      }
+
+      @Entity
+      public class Ligne {
+          @ManyToOne
+          private Commande commande;
+      }
+      ```
+    choices:
+      - {text: "Écrire `@OneToMany(mappedBy = \"commande\")` dans `Commande`", correct: true}
+      - {text: "Écrire `@ManyToOne(mappedBy = \"lignes\")` dans la classe `Ligne`", correct: false}
+      - {text: "Ajouter `@JoinTable(name = \"ligne\")` sur la liste de `Commande`", correct: false}
+      - {text: "Remplacer la `List` de lignes par un `Set` dans `Commande`", correct: false}
+    answer: |-
+      ```java
+      @OneToMany(mappedBy = "commande")
+      private List<Ligne> lignes = new ArrayList<>();
+      ```
+      Sans `mappedBy`, le `@OneToMany` est une seconde relation, unidirectionnelle, rangée dans une table de jointure.
+      `mappedBy` en fait le reflet du `@ManyToOne`. `@ManyToOne` n'a pas d'attribut `mappedBy` : c'est toujours le
+      côté propriétaire.
+  - key: bug-parent-transitoire
+    format: bug-fix
+    question: |-
+      Le commit échoue : `TransientPropertyValueException: Persistent instance of 'boutique.Ligne' references an
+      unsaved transient instance of 'boutique.Commande' (persist the transient instance before flushing)`. Quelle
+      correction est la bonne ?
+      ```java
+      @Transactional
+      public void creer(Client client) {
+          Commande commande = new Commande(client);
+          Ligne ligne = new Ligne(2);
+          ligne.setCommande(commande);
+          lignes.save(ligne);
+      }
+      ```
+    choices:
+      - {text: "Enregistrer la commande avec `commandes.save(commande)` avant la ligne", correct: true}
+      - {text: "Ajouter `cascade = CascadeType.ALL` au `@ManyToOne` de `Ligne`", correct: false}
+      - {text: "Passer le `@ManyToOne` de `Ligne` en `fetch = FetchType.LAZY`", correct: false}
+      - {text: "Appeler `lignes.flush()` juste avant le `save` de la ligne", correct: false}
+    answer: |-
+      ```java
+      commandes.save(commande);
+      lignes.save(ligne);
+      ```
+      La ligne pointe vers une commande qui n'existe pas encore en base : Hibernate ne peut pas écrire sa clé
+      étrangère. On enregistre le parent d'abord, ou l'on enregistre la commande avec une cascade vers ses lignes.
+      Une cascade d'une ligne vers sa commande ferait qu'en supprimant une ligne, on supprimerait la commande.
+  - key: bug-json-recursion
+    format: bug-fix
+    question: |-
+      `GET /commandes/1` échoue : `Document nesting depth (501) exceeds the maximum allowed (500, from
+      StreamWriteConstraints.getMaxNestingDepth())`. Quelle correction est la bonne ?
+      ```java
+      @GetMapping("/commandes/{id}")
+      public Commande lire(@PathVariable long id) {
+          return commandeService.trouver(id);   // Commande → lignes → commande → ...
+      }
+      ```
+    choices:
+      - {text: "Renvoyer un DTO qui contient les lignes sans leur commande", correct: true}
+      - {text: "Passer les lignes de la commande en `fetch = FetchType.EAGER`", correct: false}
+      - {text: "Augmenter la profondeur maximale de Jackson à 10 000 niveaux", correct: false}
+      - {text: "Retirer `mappedBy` du `@OneToMany` des lignes de la commande", correct: false}
+    answer: |-
+      ```java
+      record LigneDto(String produit, int quantite) {}
+      record CommandeDto(Long id, List<LigneDto> lignes) {}
+
+      @GetMapping("/commandes/{id}")
+      public CommandeDto lire(@PathVariable long id) {
+          return CommandeDto.de(commandeService.trouver(id));
+      }
+      ```
+      L'entité est bidirectionnelle : Jackson suit la commande, ses lignes, leur commande... jusqu'à la limite. Un DTO
+      choisit ce qui sort, sans cycle, et découple l'API du schéma. Augmenter la limite ne ferait que repousser
+      l'échec.
+  - key: situation-modeliser
+    format: scenario
+    question: "Tu modélises une facture et ses lignes. Tu dois souvent parcourir les lignes d'une facture, et chaque ligne connaît sa facture. Que proposes-tu ?"
+    choices:
+      - {text: "Un `@ManyToOne` sur `LigneFacture` et un `@OneToMany(mappedBy)` sur `Facture`", correct: true}
+      - {text: "Un `@OneToMany` sans `mappedBy` sur `Facture`, et rien sur `LigneFacture`", correct: false}
+      - {text: "Un `@ManyToMany` entre `Facture` et `LigneFacture`, pour couvrir les deux sens", correct: false}
+      - {text: "Un `@OneToOne` de `Facture` vers une entité qui contient la liste des lignes", correct: false}
+    answer: "La clé étrangère vit dans la table des lignes : le `@ManyToOne` en est le propriétaire. Le `@OneToMany(mappedBy = \"facture\")` permet de parcourir les lignes, avec une méthode `ajouter` qui met à jour les deux côtés."
+  - key: situation-orphelin
+    format: scenario
+    question: "Dans l'écran du panier, retirer un article de `panier.getArticles()` puis enregistrer ne supprime rien en base. Que proposes-tu ?"
+    choices:
+      - {text: "`orphanRemoval = true` sur le `@OneToMany` des articles du panier", correct: true}
+      - {text: "`cascade = CascadeType.PERSIST` sur le `@OneToMany` des articles", correct: false}
+      - {text: "`fetch = FetchType.EAGER` sur le `@OneToMany` des articles", correct: false}
+      - {text: "Enregistrer le panier deux fois de suite, avec `saveAndFlush`", correct: false}
+    answer: "Retirer l'article de la liste ne touche pas sa clé étrangère : il reste lié au panier en base. Avec `orphanRemoval`, Hibernate supprime les articles retirés de la collection."
+  - key: situation-note
+    format: scenario
+    question: "Les étudiants et les cours sont liés par un `@ManyToMany`. On te demande d'enregistrer la note de chaque étudiant à chaque cours. Que proposes-tu ?"
+    choices:
+      - {text: "Remplacer le lien par une entité `Inscription` qui porte la note", correct: true}
+      - {text: "Ajouter une colonne `note` à la table de jointure, par une migration", correct: false}
+      - {text: "Ajouter une `Map<Cours, Integer>` des notes dans l'entité `Etudiant`", correct: false}
+      - {text: "Ajouter un champ `note` dans l'entité `Cours`, pour chaque étudiant", correct: false}
+    answer: "Une colonne ajoutée à la table de jointure ne serait visible par aucune entité. L'entité `Inscription`, avec un `@ManyToOne` vers chacun et la note, rend le lien manipulable et extensible."
+  - key: situation-entretien-proprietaire
+    format: scenario
+    question: "En entretien : « Qu'est-ce que le côté propriétaire d'une relation JPA, et pourquoi s'en soucier ? » Que réponds-tu ?"
+    choices:
+      - {text: "Le côté qui porte la clé étrangère : seul lui est lu pour l'écrire", correct: true}
+      - {text: "L'entité créée en premier : elle doit être enregistrée avant l'autre", correct: false}
+      - {text: "Le côté qui porte la cascade : lui seul peut supprimer l'autre", correct: false}
+      - {text: "Le côté chargé en `EAGER` : lui seul est lu depuis la base", correct: false}
+    answer: "Hibernate écrit la clé étrangère d'après le côté propriétaire, le `@ManyToOne`. Modifier seulement le côté `mappedBy` ne change rien en base : il faut mettre à jour les deux côtés, idéalement par une méthode du parent."

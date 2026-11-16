@@ -1,0 +1,322 @@
+notion: securiser-actuator
+lesson: |-
+  Actuator montre **l'intérieur** de l'application. Plusieurs de ses endpoints sont dangereux s'ils sont publics :
+
+  | Endpoint | Ce qu'il livre à un attaquant |
+  |---|---|
+  | `heapdump` | une image de la mémoire : mots de passe, jetons, données des clients |
+  | `env`, `configprops` | la configuration ; les valeurs sont masquées par défaut depuis Spring Boot 3 (`******`) |
+  | `threaddump`, `beans`, `mappings` | la structure interne et toutes les routes, une carte de la surface d'attaque |
+  | `loggers` | le droit de passer tout en `TRACE` : disques saturés, données sensibles dans les logs |
+  | `shutdown` | le droit d'arrêter l'application (désactivé par défaut) |
+
+  **1. N'exposer que le nécessaire.** En production, la liste est courte, jamais `*` :
+
+  ```properties
+  management.endpoints.web.exposure.include=health,info,prometheus
+  ```
+
+  **2. Un port de management.** `management.server.port=9090` sert Actuator sur un port que l'entrée publique (le
+  répartiteur de charge, l'ingress) ne route pas ; Prometheus, dans le réseau interne, y accède.
+
+  **3. Spring Security.** Dès qu'on écrit sa propre `SecurityFilterChain`, c'est à elle de protéger Actuator. On
+  désigne ses endpoints par **`EndpointRequest`**, qui suit le chemin de base (`management.endpoints.web.base-path`)
+  et le port de management, au lieu d'un chemin écrit à la main :
+
+  ```java
+  @Bean
+  @Order(1)
+  SecurityFilterChain actuator(HttpSecurity http) throws Exception {
+      http.securityMatcher(EndpointRequest.toAnyEndpoint())
+          .authorizeHttpRequests(auth -> auth
+              .requestMatchers(EndpointRequest.to("health", "info")).permitAll()
+              .anyRequest().hasRole("OPS"))
+          .httpBasic(Customizer.withDefaults());
+      return http.build();
+  }
+  ```
+
+  Pas de `web.ignoring()` sur `/actuator/**` : les requêtes ignorées échappent à toute la chaîne de filtres, sans
+  aucun contrôle.
+
+  **4. Le détail de la santé aux seuls autorisés.** Le public voit `UP` ou `DOWN` ; l'exploitation voit chaque
+  composant :
+
+  ```properties
+  management.endpoint.health.show-details=when-authorized
+  management.endpoint.health.roles=OPS
+  ```
+
+  Un `HealthIndicator` ne met jamais de secret dans ses détails (clé d'API, URL avec mot de passe).
+
+  **5. Les valeurs de la configuration.** `env` et `configprops` masquent toutes les valeurs par défaut ; on peut
+  les montrer aux seuls autorisés (`management.endpoint.env.show-values=when-authorized`), jamais à tous.
+
+  **Si un endpoint a fuité.** On le ferme, puis on **change les secrets** qu'il a pu livrer : un `heapdump`
+  téléchargé contient ceux qui étaient en mémoire, et le cacher ensuite ne les rend pas secrets.
+
+  **En entretien** : « Actuator expose l'intérieur de l'application : `heapdump`, `env` ou `loggers` ne doivent
+  jamais être publics. Je n'expose que `health`, `info` et `prometheus`, je protège le reste par Spring Security
+  avec `EndpointRequest` et un rôle d'exploitation, et je sers souvent Actuator sur un port de management que
+  l'extérieur n'atteint pas. Les détails de `health` ne s'affichent qu'aux utilisateurs autorisés. »
+cards:
+  - key: danger-heapdump
+    format: course
+    question: "Pourquoi `/actuator/heapdump` ne doit-il jamais être accessible depuis internet ?"
+    choices:
+      - {text: "Il livre la mémoire de la JVM, avec ses mots de passe et ses jetons", correct: true}
+      - {text: "Il permet d'écrire dans le tas de la JVM depuis l'extérieur", correct: false}
+      - {text: "Il arrête l'application dès qu'on l'appelle en `GET`", correct: false}
+      - {text: "Il expose le code source Java des classes chargées", correct: false}
+    answer: "Un heap dump contient tout ce qui est en mémoire : secrets de configuration, jetons de session, données des clients. Il se lit avec un simple analyseur de dumps."
+  - key: env-masque
+    format: course
+    question: "Comment `/actuator/env` affiche-t-il les valeurs des propriétés, par défaut, depuis Spring Boot 3 ?"
+    choices:
+      - {text: "Masquées par des étoiles : `******`", correct: true}
+      - {text: "En clair, sauf celles nommées `password`", correct: false}
+      - {text: "En clair, pour toutes les propriétés", correct: false}
+      - {text: "Chiffrées avec la clé de l'application", correct: false}
+    answer: "Spring Boot 2 ne masquait que les clés aux noms sensibles (`password`, `secret`...). Spring Boot 3 masque tout, et `show-values` règle qui voit les valeurs."
+  - key: interet-port-management
+    format: course
+    question: "Quel intérêt `management.server.port` a-t-il pour la sécurité d'Actuator ?"
+    choices:
+      - {text: "Servir Actuator sur un port que l'accès public ne route pas", correct: true}
+      - {text: "Chiffrer les échanges d'Actuator avec un certificat dédié", correct: false}
+      - {text: "Demander un mot de passe sur tous les endpoints d'Actuator", correct: false}
+      - {text: "Limiter le nombre de requêtes par seconde sur Actuator", correct: false}
+    answer: "L'ingress ou le répartiteur de charge ne publie que le port de l'API ; Prometheus et l'exploitation passent par le réseau interne. Ce n'est pas une authentification : elle reste utile en plus."
+  - key: danger-loggers
+    format: course
+    question: "Pourquoi le endpoint `loggers`, ouvert en écriture, est-il sensible ?"
+    choices:
+      - {text: "Tout passer en `TRACE` peut saturer les disques et révéler des données", correct: true}
+      - {text: "Il permet de lire le contenu des fichiers de log du serveur", correct: false}
+      - {text: "Il supprime les fichiers de log quand on change un niveau", correct: false}
+      - {text: "Il redémarre l'application à chaque changement de niveau", correct: false}
+    answer: "Un `POST` change un niveau à chaud. Au niveau `TRACE`, certaines bibliothèques écrivent les en-têtes et les corps des requêtes : jetons et données personnelles finissent dans les logs."
+  - key: vf-when-authorized-anonyme
+    format: true-false
+    question: "Avec `management.endpoint.health.show-details=when-authorized`, un appel anonyme à `/actuator/health` ne voit que l'état global."
+    truth: true
+    answer: "Les détails sont réservés aux utilisateurs authentifiés, et à ceux qui ont les rôles de `management.endpoint.health.roles` s'il est renseigné."
+  - key: vf-etoile-derriere-repartiteur
+    format: true-false
+    question: "Exposer tous les endpoints avec `\"*\"` est sans risque quand l'application tourne derrière un répartiteur de charge."
+    truth: false
+    answer: "Le répartiteur transmet `/actuator/heapdump` comme le reste. Seuls un port non publié, une règle de sécurité ou une liste courte protègent."
+  - key: vf-endpointrequest-base-path
+    format: true-false
+    question: "`EndpointRequest.toAnyEndpoint()` reconnaît les endpoints d'Actuator même quand leur chemin de base n'est plus `/actuator`."
+    truth: true
+    answer: "Il lit la configuration d'Actuator : chemin de base et port de management. Un `\"/actuator/**\"` écrit à la main, lui, ne suit pas."
+  - key: vf-shutdown-desactive
+    format: true-false
+    question: "Le endpoint `shutdown` est désactivé par défaut : l'ajouter à la liste d'exposition ne suffit pas à l'utiliser."
+    truth: true
+    answer: "Il faut l'activer explicitement en plus de l'exposer. Exposé ou non, c'est un endpoint à réserver à l'exploitation."
+  - key: qcm-exposition-minimale
+    format: multiple-choice
+    question: "Quelle configuration n'expose en HTTP que la santé et les métriques pour Prometheus ?"
+    choices:
+      - {text: "`management.endpoints.web.exposure.include=health,prometheus`", correct: true}
+      - {text: "`management.endpoints.web.exposure.exclude=health,prometheus`", correct: false}
+      - {text: "`management.endpoints.web.exposure.include=*`", correct: false}
+      - {text: "`management.endpoint.health.show-details=never`", correct: false}
+    answer: "`include` dresse la liste blanche. `exclude` retire des endpoints de la liste ; `show-details` ne règle que le contenu de `health`."
+  - key: qcm-classe-endpointrequest
+    format: multiple-choice
+    question: "Quelle classe désigne les endpoints d'Actuator dans une règle de Spring Security, quel que soit leur chemin ?"
+    choices:
+      - {text: "`EndpointRequest`", correct: true}
+      - {text: "`PathRequest`", correct: false}
+      - {text: "`ActuatorMatcher`", correct: false}
+      - {text: "`ManagementRequest`", correct: false}
+    answer: "`EndpointRequest.toAnyEndpoint()` et `EndpointRequest.to(\"health\")` donnent des `RequestMatcher`. `PathRequest` existe aussi, mais désigne les ressources statiques ou la console H2."
+  - key: qcm-surface-attaque
+    format: multiple-choice
+    question: "Quel endpoint d'Actuator dresse la liste de toutes les routes HTTP de l'application ?"
+    choices:
+      - {text: "`mappings`", correct: true}
+      - {text: "`beans`", correct: false}
+      - {text: "`conditions`", correct: false}
+      - {text: "`info`", correct: false}
+    answer: "`mappings` liste chaque route avec son contrôleur : une carte complète de la surface d'attaque, utile en interne, dangereuse en public."
+  - key: qcm-details-autorises
+    format: multiple-choice
+    question: "Quelle propriété réserve le détail des composants de `/actuator/health` aux utilisateurs autorisés ?"
+    choices:
+      - {text: "`management.endpoint.health.show-details=when-authorized`", correct: true}
+      - {text: "`management.endpoint.health.show-details=never`", correct: false}
+      - {text: "`management.endpoint.health.show-details=always`", correct: false}
+      - {text: "`management.endpoint.health.secured=true`", correct: false}
+    answer: "`never` cache les détails à tout le monde, `always` les montre à tout le monde. `when-authorized` les montre aux utilisateurs authentifiés, et aux rôles de `management.endpoint.health.roles`."
+  - key: bug-permit-all-actuator
+    format: bug-fix
+    question: |-
+      L'application expose `health`, `info`, `env` et `heapdump`. Un audit télécharge `/actuator/heapdump` sans
+      s'authentifier. Quelle correction est la bonne ?
+      ```java
+      @Bean
+      SecurityFilterChain securite(HttpSecurity http) throws Exception {
+          http.authorizeHttpRequests(auth -> auth
+                  .requestMatchers("/actuator/**").permitAll()
+                  .anyRequest().authenticated())
+              .httpBasic(Customizer.withDefaults());
+          return http.build();
+      }
+      ```
+    choices:
+      - {text: "Laisser publics `EndpointRequest.to(\"health\", \"info\")`, et un rôle pour le reste", correct: true}
+      - {text: "Remplacer `permitAll()` par `anonymous()` sur la règle `/actuator/**`", correct: false}
+      - {text: "Déplacer la règle `/actuator/**` après celle de `anyRequest()`", correct: false}
+      - {text: "Ajouter `.csrf(csrf -> csrf.disable())` à la chaîne de filtres", correct: false}
+    answer: |-
+      ```java
+      http.authorizeHttpRequests(auth -> auth
+              .requestMatchers(EndpointRequest.to("health", "info")).permitAll()
+              .requestMatchers(EndpointRequest.toAnyEndpoint()).hasRole("OPS")
+              .anyRequest().authenticated())
+      ```
+      `permitAll()` sur `/actuator/**` ouvre tous les endpoints exposés, `heapdump` compris. `anonymous()` les
+      laisserait aux anonymes. Spring Security refuse une règle placée après `anyRequest()`.
+  - key: bug-chemin-de-base
+    format: bug-fix
+    question: |-
+      Avec `management.endpoints.web.base-path=/gestion`, n'importe quel client connecté lit `/gestion/env` et
+      change les niveaux de `/gestion/loggers`. Quelle correction est la bonne ?
+      ```java
+      @Bean
+      SecurityFilterChain securite(HttpSecurity http) throws Exception {
+          http.authorizeHttpRequests(auth -> auth
+                  .requestMatchers("/actuator/**").hasRole("OPS")
+                  .anyRequest().authenticated())
+              .httpBasic(Customizer.withDefaults());
+          return http.build();
+      }
+      ```
+    choices:
+      - {text: "Remplacer `\"/actuator/**\"` par `EndpointRequest.toAnyEndpoint()`", correct: true}
+      - {text: "Remplacer `hasRole(\"OPS\")` par `hasAuthority(\"OPS\")`", correct: false}
+      - {text: "Remplacer `authenticated()` par `permitAll()` sur `anyRequest()`", correct: false}
+      - {text: "Ajouter `@PreAuthorize(\"hasRole('OPS')\")` sur la classe principale", correct: false}
+    answer: |-
+      ```java
+      .requestMatchers(EndpointRequest.toAnyEndpoint()).hasRole("OPS")
+      ```
+      Les endpoints répondent sous `/gestion` : la règle `/actuator/**` ne les vise plus, et ils tombent dans
+      `anyRequest().authenticated()`, ouverte à tout client connecté. `EndpointRequest` suit le chemin de base.
+  - key: bug-web-ignoring
+    format: bug-fix
+    question: |-
+      Tous les endpoints exposés d'Actuator répondent sans authentification, et sans les en-têtes de sécurité de
+      l'application. Quelle correction est la bonne ?
+      ```java
+      @Bean
+      WebSecurityCustomizer ignorerActuator() {
+          return web -> web.ignoring().requestMatchers("/actuator/**");
+      }
+      ```
+    choices:
+      - {text: "Supprimer ce `ignoring()`, et régler Actuator dans la `SecurityFilterChain`", correct: true}
+      - {text: "Remplacer `\"/actuator/**\"` par `\"/actuator/*\"`, qui ignore moins de chemins", correct: false}
+      - {text: "Annoter le bean `@Order(1)`, pour qu'il passe avant les autres règles", correct: false}
+      - {text: "Ajouter `httpBasic()` à la suite de `ignoring()` dans le même bean", correct: false}
+    answer: |-
+      ```java
+      http.authorizeHttpRequests(auth -> auth
+              .requestMatchers(EndpointRequest.to("health")).permitAll()
+              .requestMatchers(EndpointRequest.toAnyEndpoint()).hasRole("OPS")
+              .anyRequest().authenticated())
+      ```
+      Une requête ignorée ne traverse aucun filtre de Spring Security : ni authentification, ni en-têtes. Même
+      pour un endpoint public, on préfère `permitAll()` dans la chaîne.
+  - key: bug-secret-dans-sante
+    format: bug-fix
+    question: |-
+      Avec `show-details=always`, n'importe qui lit la clé d'API du prestataire de paiement dans `/actuator/health`.
+      Quelle correction est la bonne ?
+      ```java
+      @Component
+      class PaiementHealthIndicator implements HealthIndicator {
+
+          private final PaiementProperties proprietes;
+
+          PaiementHealthIndicator(PaiementProperties proprietes) {
+              this.proprietes = proprietes;
+          }
+
+          @Override
+          public Health health() {
+              return Health.up()
+                      .withDetail("url", proprietes.url())
+                      .withDetail("cle", proprietes.cleApi())
+                      .build();
+          }
+      }
+      ```
+    choices:
+      - {text: "Retirer la clé des détails, et passer à `show-details=when-authorized`", correct: true}
+      - {text: "Renvoyer `Health.down()`, dont les détails ne sont jamais affichés", correct: false}
+      - {text: "Encoder la clé en Base64 avant de l'ajouter aux détails de santé", correct: false}
+      - {text: "Annoter l'indicateur `@Lazy`, pour qu'il ne s'exécute qu'à la demande", correct: false}
+    answer: |-
+      ```java
+      return Health.up()
+              .withDetail("url", proprietes.url())
+              .build();
+      ```
+      Un détail de santé ne contient jamais de secret, et les détails ne vont qu'aux autorisés. Base64 n'est pas un
+      chiffrement. La clé a fuité : il faut aussi la changer chez le prestataire.
+  - key: situation-heapdump-ouvert
+    format: scenario
+    question: |-
+      Un test d'intrusion trouve `/actuator/heapdump` ouvert sur internet depuis des mois. Que fais-tu ?
+    choices:
+      - {text: "Je ferme l'endpoint, puis je change tous les secrets qu'il a pu livrer", correct: true}
+      - {text: "Je renomme le chemin de base d'Actuator en `/x9`, pour le cacher", correct: false}
+      - {text: "Je bloque l'adresse IP de l'auditeur au pare-feu de l'entreprise", correct: false}
+      - {text: "Je passe `env` en `show-values=never`, ce qui masque aussi le dump", correct: false}
+    answer: |-
+      Fermer arrête la fuite ; changer les mots de passe, clés et jetons répare ce qui a pu sortir. Un chemin
+      obscur n'est pas une protection, et `show-values` ne concerne pas le dump de la mémoire.
+  - key: situation-prometheus-interne
+    format: scenario
+    question: |-
+      Prometheus, dans le cluster, doit lire `/actuator/prometheus`, mais cette adresse ne doit pas être joignable
+      depuis internet. Que proposes-tu ?
+    choices:
+      - {text: "Un port de management, que seul le réseau interne du cluster atteint", correct: true}
+      - {text: "Une adresse publique, que l'on ne communique qu'à l'équipe Prometheus", correct: false}
+      - {text: "Une adresse publique, protégée par un paramètre `?token=` dans l'URL", correct: false}
+      - {text: "Une copie des métriques dans les logs, que Prometheus irait relire", correct: false}
+    answer: |-
+      `management.server.port=9090`, que l'ingress ne publie pas : Prometheus y accède par le réseau du cluster.
+      Une adresse « secrète » finit toujours par être trouvée, et un jeton dans l'URL fuit dans les logs.
+  - key: situation-details-exploitation
+    format: scenario
+    question: |-
+      L'équipe d'exploitation veut voir l'état de la base dans `/actuator/health`, mais le public ne doit voir que
+      `UP` ou `DOWN`. Que configures-tu ?
+    choices:
+      - {text: "`show-details=when-authorized`, avec le rôle de l'exploitation", correct: true}
+      - {text: "`show-details=always`, en comptant sur la discrétion de l'adresse", correct: false}
+      - {text: "Deux déploiements de l'application : l'un avec Actuator, l'autre sans", correct: false}
+      - {text: "`show-details=never`, et un accès SSH aux serveurs pour l'équipe", correct: false}
+    answer: |-
+      `management.endpoint.health.show-details=when-authorized` et `management.endpoint.health.roles=OPS` : un
+      anonyme reçoit `{"status":"UP"}`, l'exploitation le détail de chaque composant.
+  - key: situation-etoile-en-dev
+    format: scenario
+    question: |-
+      En développement, un collègue expose tous les endpoints d'Actuator. Comment éviter que ce réglage parte en
+      production ?
+    choices:
+      - {text: "Le mettre dans `application-dev.properties`, lu avec le profil `dev`", correct: true}
+      - {text: "Le mettre dans `application.properties`, avec un commentaire « à retirer »", correct: false}
+      - {text: "Le mettre dans `application-prod.properties`, que la production ignore", correct: false}
+      - {text: "Le mettre dans une variable d'environnement de tous les serveurs", correct: false}
+    answer: |-
+      Un fichier de profil n'est lu que si le profil est actif : la production garde la liste courte de
+      `application.properties`. Un commentaire n'a jamais arrêté un déploiement.

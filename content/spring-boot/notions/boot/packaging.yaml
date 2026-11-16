@@ -1,0 +1,239 @@
+notion: packaging
+lesson: |-
+  `./mvnw package` produit, grâce au `spring-boot-maven-plugin`, un **jar exécutable** (aussi appelé *fat jar* ou
+  *uber jar*) : l'application **et toutes ses dépendances**, serveur web compris, dans un seul fichier.
+
+  ```
+  boutique.jar
+  ├── META-INF/MANIFEST.MF        Main-Class: le lanceur de Spring Boot (JarLauncher)
+  │                               Start-Class: com.boutique.BoutiqueApplication
+  ├── org/springframework/boot/loader/...   le lanceur
+  └── BOOT-INF/
+      ├── classes/                tes classes et application.properties
+      ├── lib/                    les dépendances, sous forme de jars imbriqués
+      ├── classpath.idx           l'ordre du classpath
+      └── layers.idx              la répartition en couches
+  ```
+
+  `java -jar boutique.jar` démarre le **lanceur** désigné par `Main-Class` : Java ne sait pas lire des jars dans un
+  jar, le lanceur s'en charge, puis appelle le `main` de `Start-Class`.
+
+  Conséquence : ce jar n'est **pas une bibliothèque**. Ses classes sont rangées sous `BOOT-INF/classes` ; un autre
+  projet ne peut pas en dépendre. Le code à partager va dans un module à part.
+
+  **Les couches, pour les images de conteneur.** Une image Docker est faite de couches, mises en cache. Les
+  dépendances changent rarement, ton code souvent : Boot répartit le contenu du jar en couches, de la plus stable à
+  la plus changeante.
+
+  | Couche | Contenu |
+  |---|---|
+  | `dependencies` | les dépendances publiées (versions fixes) |
+  | `spring-boot-loader` | le lanceur |
+  | `snapshot-dependencies` | les dépendances `-SNAPSHOT` |
+  | `application` | tes classes et ressources |
+
+  ```dockerfile
+  FROM eclipse-temurin:25-jre AS extraction
+  WORKDIR /app
+  COPY target/boutique.jar app.jar
+  RUN java -Djarmode=tools -jar app.jar extract --layers --launcher --destination extrait
+
+  FROM eclipse-temurin:25-jre
+  WORKDIR /app
+  COPY --from=extraction /app/extrait/dependencies/ ./
+  COPY --from=extraction /app/extrait/spring-boot-loader/ ./
+  COPY --from=extraction /app/extrait/snapshot-dependencies/ ./
+  COPY --from=extraction /app/extrait/application/ ./
+  ENTRYPOINT ["java", "org.springframework.boot.loader.launch.JarLauncher"]
+  ```
+
+  Une modification du code ne reconstruit et ne renvoie que la dernière couche.
+
+  **Sans Dockerfile.** `./mvnw spring-boot:build-image` (ou `./gradlew bootBuildImage`) construit une **image OCI**
+  avec les **Cloud Native Buildpacks** (Paketo) : JRE choisi, couches, utilisateur non root, mises à jour de sécurité
+  de l'image de base, sans écrire de Dockerfile.
+
+  **Le WAR reste possible** : packaging `war`, et une classe qui étend `SpringBootServletInitializer`, pour un
+  serveur d'applications existant.
+
+  **En entretien** : « Le plugin Spring Boot produit un jar exécutable : l'application et ses dépendances en jars
+  imbriqués, lancés par le lanceur de Boot. Pour Docker, j'extrais les couches pour profiter du cache, ou j'utilise
+  `spring-boot:build-image`, qui construit l'image avec des buildpacks. »
+cards:
+  - key: place-des-dependances
+    format: course
+    question: "Où se trouvent les dépendances dans le jar exécutable de Spring Boot ?"
+    choices:
+      - {text: "Dans `BOOT-INF/lib`, sous forme de jars imbriqués", correct: true}
+      - {text: "Décompressées à la racine du jar, avec les classes", correct: false}
+      - {text: "Dans un dossier `lib/` à côté du jar, à copier aussi", correct: false}
+      - {text: "Téléchargées depuis Maven Central au premier démarrage", correct: false}
+    answer: "Les jars des dépendances restent entiers, imbriqués dans le jar ; le lanceur de Boot sait les lire."
+  - key: main-class-du-manifeste
+    format: course
+    question: "Quelle classe le manifeste du jar exécutable désigne-t-il comme `Main-Class` ?"
+    choices:
+      - {text: "Le lanceur de Spring Boot (`JarLauncher`), qui lit ensuite `Start-Class`", correct: true}
+      - {text: "La classe annotée `@SpringBootApplication`, directement", correct: false}
+      - {text: "La classe `org.springframework.boot.SpringApplication`", correct: false}
+      - {text: "La classe `java.lang.Runtime`, qui lance la JVM", correct: false}
+    answer: "Le lanceur prépare un chargeur de classes capable de lire les jars imbriqués, puis appelle le `main` de ta classe, nommée dans `Start-Class`."
+  - key: interet-des-couches
+    format: course
+    question: "Pourquoi découper le jar en couches pour une image Docker ?"
+    choices:
+      - {text: "Les dépendances changent rarement : leur couche reste en cache", correct: true}
+      - {text: "Les couches réduisent la mémoire utilisée par la JVM", correct: false}
+      - {text: "Docker refuse les fichiers de plus de 100 Mo", correct: false}
+      - {text: "Les couches chiffrent le code de l'application", correct: false}
+    answer: "Une modification du code ne change que la couche `application` : le build et l'envoi au registre sont bien plus rapides."
+  - key: role-de-build-image
+    format: course
+    question: "Que fait `./mvnw spring-boot:build-image` ?"
+    choices:
+      - {text: "Il construit une image OCI avec des buildpacks, sans Dockerfile", correct: true}
+      - {text: "Il construit le jar, puis le copie sur le serveur de production", correct: false}
+      - {text: "Il compile toujours l'application en exécutable natif", correct: false}
+      - {text: "Il démarre l'application dans un conteneur de test", correct: false}
+    answer: "Les buildpacks Paketo choisissent le JRE, rangent les couches et règlent la JVM. Une image native n'est produite que si on le demande."
+  - key: vf-java-jar-suffit
+    format: true-false
+    question: "Un jar exécutable Spring Boot se lance avec `java -jar`, sans classpath à préciser."
+    truth: true
+    answer: "Tout est dans le jar ; le lanceur construit le classpath à partir de `BOOT-INF`."
+  - key: vf-pas-une-bibliotheque
+    format: true-false
+    question: "Le jar exécutable construit par le plugin Spring Boot peut servir de simple dépendance à un autre projet Maven."
+    truth: false
+    answer: "Les classes sont sous `BOOT-INF/classes`, que le compilateur ne voit pas. Le code partagé va dans un module bibliothèque."
+  - key: vf-war-possible
+    format: true-false
+    question: "Spring Boot permet encore de produire un WAR, à déployer dans un serveur externe."
+    truth: true
+    answer: "Packaging `war`, et une classe qui étend `SpringBootServletInitializer`. Le jar exécutable reste le choix courant."
+  - key: vf-ordre-des-couches
+    format: true-false
+    question: "Les couches d'un jar Spring Boot vont de la plus stable (les dépendances) à la plus changeante (l'application)."
+    truth: true
+    answer: "Docker réutilise les couches du début tant qu'elles ne changent pas : le code de l'application vient donc en dernier."
+  - key: qcm-plugin
+    format: multiple-choice
+    question: "Quel plugin Maven transforme le jar en jar exécutable Spring Boot ?"
+    choices:
+      - {text: "`spring-boot-maven-plugin`", correct: true}
+      - {text: "`maven-shade-plugin`", correct: false}
+      - {text: "`maven-jar-plugin`", correct: false}
+      - {text: "`maven-assembly-plugin`", correct: false}
+    answer: "Son but `repackage` réorganise le jar et ajoute le lanceur. Le plugin shade fusionne les classes, sans le lanceur de Boot."
+  - key: qcm-extraire-les-couches
+    format: multiple-choice
+    question: "Quelle commande extrait les couches d'un jar Spring Boot, pour écrire un Dockerfile ?"
+    choices:
+      - {text: "`java -Djarmode=tools -jar app.jar extract --layers --launcher`", correct: true}
+      - {text: "`java -Djarmode=layers -jar app.jar unpack --all-layers`", correct: false}
+      - {text: "`jar --extract --file app.jar BOOT-INF/lib`", correct: false}
+      - {text: "`./mvnw spring-boot:extract -Dlayers=true`", correct: false}
+    answer: "Le mode `tools` du jar (Boot 3.3 et suivants) écrit un dossier par couche ; `--launcher` garde le lanceur pour démarrer l'application extraite."
+  - key: qcm-couches-par-defaut
+    format: multiple-choice
+    question: "Quelles sont les couches par défaut d'un jar Spring Boot ?"
+    choices:
+      - {text: "`dependencies`, `spring-boot-loader`, `snapshot-dependencies`, `application`", correct: true}
+      - {text: "`jdk`, `spring-framework`, `third-party-dependencies`, `classes`", correct: false}
+      - {text: "`base-image`, `runtime-libraries`, `configuration`, `application`", correct: false}
+      - {text: "`bin`, `lib`, `config`, `resources`, `logs`, `application`", correct: false}
+    answer: "Elles sont décrites dans `BOOT-INF/layers.idx`, de la plus stable à la plus changeante."
+  - key: qcm-deployer-en-war
+    format: multiple-choice
+    question: "Que faut-il pour déployer une application Spring Boot en WAR dans un Tomcat externe ?"
+    choices:
+      - {text: "Un packaging `war`, et une classe qui étend `SpringBootServletInitializer`", correct: true}
+      - {text: "Rien : le jar exécutable se dépose tel quel dans Tomcat", correct: false}
+      - {text: "Une annotation `@EnableWar` sur la classe principale", correct: false}
+      - {text: "Un fichier `web.xml` qui liste chaque bean", correct: false}
+    answer: "`SpringBootServletInitializer` démarre l'application depuis le conteneur de servlets, à la place du `main`."
+  - key: situation-image-trop-lourde
+    format: scenario
+    question: |-
+      Ton Dockerfile copie le jar entier : chaque petite modification du code renvoie 80 Mo au registre. Que
+      proposes-tu ?
+    choices:
+      - {text: "Extraire les couches et les copier dans l'ordre, dépendances d'abord", correct: true}
+      - {text: "Compresser le jar en zip avant de le copier dans l'image", correct: false}
+      - {text: "Copier le dossier `.m2` du poste dans l'image", correct: false}
+      - {text: "Construire une image séparée pour chaque dépendance", correct: false}
+    answer: |-
+      Avec une instruction `COPY` par couche, Docker garde en cache les dépendances : seule la couche `application`,
+      de quelques centaines de kilo-octets, change.
+  - key: situation-equipe-sans-docker
+    format: scenario
+    question: |-
+      L'équipe n'a pas d'expert Docker, et veut une image correcte, facile à tenir à jour. Que proposes-tu ?
+    choices:
+      - {text: "`spring-boot:build-image`, qui s'appuie sur des buildpacks maintenus", correct: true}
+      - {text: "Un Dockerfile basé sur `ubuntu`, avec Java installé à la main", correct: false}
+      - {text: "Copier le jar sur le serveur et le lancer avec `nohup`", correct: false}
+      - {text: "Une image native, obligatoire pour aller dans Docker", correct: false}
+    answer: |-
+      Les buildpacks appliquent les bonnes pratiques (couches, utilisateur non root, réglage de la mémoire) ; une
+      reconstruction suffit pour profiter des correctifs de l'image de base.
+  - key: situation-lancement-en-entretien
+    format: scenario
+    question: |-
+      En entretien : « Comment une application Spring Boot se lance-t-elle avec `java -jar` ? » Que réponds-tu ?
+    choices:
+      - {text: "Le lanceur de Boot, nommé dans le manifeste, charge les jars imbriqués", correct: true}
+      - {text: "Java sait lire nativement les jars imbriqués depuis Java 9", correct: false}
+      - {text: "Maven décompresse toutes les dépendances dans le jar", correct: false}
+      - {text: "Le jar contient un Tomcat, qui démarre la JVM", correct: false}
+    answer: |-
+      Le manifeste désigne le lanceur (`Main-Class`), qui construit le classpath depuis `BOOT-INF/lib` et
+      `BOOT-INF/classes`, puis appelle le `main` de `Start-Class`.
+  - key: situation-reutiliser-les-classes
+    format: scenario
+    question: |-
+      Un autre projet doit réutiliser les classes métier de ton application Spring Boot. Que fais-tu ?
+    choices:
+      - {text: "Extraire ces classes dans un module bibliothèque, partagé par les deux", correct: true}
+      - {text: "Ajouter le jar exécutable comme dépendance de l'autre projet", correct: false}
+      - {text: "Copier le dossier `BOOT-INF/classes` dans l'autre projet", correct: false}
+      - {text: "Lancer l'application, et appeler ses classes par réflexion", correct: false}
+    answer: |-
+      Le jar exécutable n'est pas fait pour être une dépendance. Un module Maven séparé, construit comme un jar
+      ordinaire, sert aux deux projets.
+  - key: def-jar-executable
+    format: definition
+    question: "Quel terme désigne un jar qui contient l'application et toutes ses dépendances, et qui se lance seul ?"
+    choices:
+      - {text: "Un jar exécutable (fat jar)", correct: true}
+      - {text: "Un jar modulaire", correct: false}
+      - {text: "Un jar de sources", correct: false}
+      - {text: "Une archive WAR", correct: false}
+    answer: "On dit aussi uber jar. Un WAR se dépose dans un serveur ; un jar modulaire déclare un module Java."
+  - key: def-buildpack
+    format: definition
+    question: "Quel terme désigne l'outil qui transforme du code ou un jar en image de conteneur, sans Dockerfile ?"
+    choices:
+      - {text: "Un buildpack (Cloud Native Buildpacks)", correct: true}
+      - {text: "Un registre d'images", correct: false}
+      - {text: "Un orchestrateur", correct: false}
+      - {text: "Un Dockerfile multi-étapes", correct: false}
+    answer: "Les buildpacks (Paketo pour Spring Boot) détectent le type d'application et construisent l'image."
+  - key: def-layers-idx
+    format: definition
+    question: "Quel fichier du jar Spring Boot décrit la répartition de son contenu en couches ?"
+    choices:
+      - {text: "`BOOT-INF/layers.idx`", correct: true}
+      - {text: "`BOOT-INF/classpath.idx`", correct: false}
+      - {text: "`META-INF/MANIFEST.MF`", correct: false}
+      - {text: "`META-INF/layers.xml`", correct: false}
+    answer: "`layers.idx` range chaque entrée dans une couche. `classpath.idx` donne l'ordre des jars du classpath."
+  - key: def-image-oci
+    format: definition
+    question: "Quel terme désigne le format standard d'image de conteneur, produit par `spring-boot:build-image` ?"
+    choices:
+      - {text: "Une image OCI (Open Container Initiative)", correct: true}
+      - {text: "Une archive JAR signée", correct: false}
+      - {text: "Une image disque ISO", correct: false}
+      - {text: "Un paquet Debian", correct: false}
+    answer: "Le format OCI est lu par Docker, Podman et Kubernetes."

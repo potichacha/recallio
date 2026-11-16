@@ -1,0 +1,191 @@
+notion: threads-virtuels
+lesson: |-
+  Un serveur web classique traite chaque requête dans un **thread de plateforme** (un thread du système). Tomcat en a
+  200 par défaut. Quand chaque requête passe son temps à **attendre** (la base, un autre service HTTP), ces threads
+  sont occupés à ne rien faire, et la 201e requête attend son tour.
+
+  Les **threads virtuels** (Java 21) sont des threads très légers, gérés par la JVM : on peut en créer des millions.
+  Quand l'un attend une entrée-sortie, il **libère son thread porteur**, qui en fait avancer un autre. On garde un
+  code bloquant, simple à lire, avec la capacité d'un serveur non bloquant.
+
+  **Dans Spring Boot (depuis 3.2), une propriété :**
+
+  ```properties
+  spring.threads.virtual.enabled=true
+  ```
+
+  Elle fait passer aux threads virtuels, entre autres :
+  - le traitement des requêtes par Tomcat (ou Jetty) ;
+  - l'exécuteur de tâches de Boot (`applicationTaskExecutor`), utilisé par `@Async` : il devient un
+    `SimpleAsyncTaskExecutor` qui crée **un thread virtuel par tâche** ;
+  - l'ordonnanceur de `@Scheduled`, et les écouteurs de messages (Kafka, RabbitMQ).
+
+  ```java
+  @Async
+  public void envoyer() {
+      log.info("virtuel ? {}", Thread.currentThread().isVirtual());   // true
+  }
+  ```
+
+  **Ce qu'il faut savoir.**
+
+  | Point | Explication |
+  |---|---|
+  | utile pour les entrées-sorties | beaucoup de requêtes qui attendent ; **aucun gain** pour un calcul qui occupe le processeur |
+  | le goulot se déplace | les threads ne limitent plus la concurrence : c'est le **pool de connexions** à la base (10 par défaut avec HikariCP) qui devient la limite |
+  | pas de pool de threads virtuels | ils ne coûtent presque rien : on en crée un par tâche |
+  | `ThreadLocal` | chaque thread a sa copie : avec des millions de threads, de gros `ThreadLocal` coûtent cher |
+  | `synchronized` | depuis Java 24, attendre dans un bloc `synchronized` ne bloque plus le thread porteur (JEP 491) |
+  | threads démons | une application qui n'a que des tâches planifiées peut s'arrêter seule : `spring.main.keep-alive=true` |
+
+  **Et le réactif ?** WebFlux reste utile pour le streaming et la contre-pression ; pour une API classique qui
+  attend des entrées-sorties, les threads virtuels donnent l'essentiel du gain, sans changer de modèle de
+  programmation.
+
+  **En entretien** : « Avec `spring.threads.virtual.enabled=true`, Tomcat et `@Async` utilisent des threads virtuels :
+  beaucoup de requêtes bloquantes servies par peu de threads porteurs, sans passer au réactif. Ça n'aide que les
+  traitements qui attendent ; la limite devient alors le pool de connexions. »
+cards:
+  - key: propriete-d-activation
+    format: course
+    question: "Quelle propriété active les threads virtuels dans Spring Boot ?"
+    choices:
+      - {text: "`spring.threads.virtual.enabled=true`", correct: true}
+      - {text: "`server.tomcat.threads.virtual=true`", correct: false}
+      - {text: "`spring.main.virtual-threads=true`", correct: false}
+      - {text: "`spring.task.virtual=true`", correct: false}
+    answer: "Une seule propriété, depuis Spring Boot 3.2, sur Java 21 ou plus."
+  - key: executeur-de-async
+    format: course
+    question: "Avec les threads virtuels activés, quel exécuteur Spring Boot fournit-il pour `@Async` ?"
+    choices:
+      - {text: "Un `SimpleAsyncTaskExecutor`, qui crée un thread virtuel par tâche", correct: true}
+      - {text: "Un `ThreadPoolTaskExecutor` de huit threads virtuels", correct: false}
+      - {text: "Le `ForkJoinPool` commun du JDK, sans changement", correct: false}
+      - {text: "Aucun : `@Async` est désactivé avec les threads virtuels", correct: false}
+    answer: "Sans threads virtuels, Boot fournit un `ThreadPoolTaskExecutor`. Avec eux, plus de pool : un thread virtuel neuf pour chaque tâche."
+  - key: charge-adaptee
+    format: course
+    question: "Pour quel type de charge les threads virtuels sont-ils le plus utiles ?"
+    choices:
+      - {text: "Beaucoup de requêtes qui attendent des entrées-sorties (base, HTTP)", correct: true}
+      - {text: "Des calculs longs, qui occupent le processeur", correct: false}
+      - {text: "Une seule requête très lourde à la fois", correct: false}
+      - {text: "Des traitements qui tiennent tout entiers en mémoire", correct: false}
+    answer: "Un thread virtuel libère son porteur pendant qu'il attend. Pour du calcul, il n'y a rien à libérer : le nombre de cœurs reste la limite."
+  - key: nouvelle-limite
+    format: course
+    question: "Avec les threads virtuels, 10 000 requêtes simultanées lisent la base, qui a un pool de 10 connexions. Où est la limite ?"
+    choices:
+      - {text: "Le pool : les requêtes attendent l'une des 10 connexions", correct: true}
+      - {text: "Le nombre de threads de Tomcat, fixé à 200", correct: false}
+      - {text: "La mémoire, chaque thread virtuel réservant 1 Mo", correct: false}
+      - {text: "Aucune : les threads virtuels multiplient les connexions", correct: false}
+    answer: "Les threads ne limitent plus la concurrence ; la ressource la plus rare le fait. On dimensionne le pool, et l'on protège la base."
+  - key: vf-calcul-plus-rapide
+    format: true-false
+    question: "Les threads virtuels rendent plus rapide un calcul qui occupe le processeur."
+    truth: false
+    answer: "Ils ne créent pas de puissance de calcul : ils évitent seulement de bloquer un thread du système pendant une attente."
+  - key: vf-pas-de-pool
+    format: true-false
+    question: "On ne met pas les threads virtuels dans un pool : on en crée un par tâche."
+    truth: true
+    answer: "Un thread virtuel coûte presque rien. Pour limiter la concurrence, on utilise un sémaphore, pas un pool de taille fixe."
+  - key: vf-keep-alive
+    format: true-false
+    question: "Les threads virtuels sont des threads démons : une application qui n'a que des tâches planifiées peut s'arrêter seule, d'où `spring.main.keep-alive=true`."
+    truth: true
+    answer: "La JVM s'arrête quand il ne reste que des threads démons. `spring.main.keep-alive` garde un thread non démon en vie."
+  - key: vf-synchronized-java-24
+    format: true-false
+    question: "Depuis Java 24, un thread virtuel qui attend dans un bloc `synchronized` peut libérer son thread porteur."
+    truth: true
+    answer: "C'est la JEP 491. Avant, un `synchronized` « épinglait » le thread virtuel à son porteur, et l'on lui préférait `ReentrantLock`."
+  - key: qcm-version-de-java
+    format: multiple-choice
+    question: "Depuis quelle version de Java les threads virtuels sont-ils définitifs ?"
+    choices:
+      - {text: "Java 21", correct: true}
+      - {text: "Java 17", correct: false}
+      - {text: "Java 19", correct: false}
+      - {text: "Java 25", correct: false}
+    answer: "Ils sont apparus en aperçu dans Java 19 et 20, puis sont devenus définitifs dans Java 21 (JEP 444)."
+  - key: qcm-composants-concernes
+    format: multiple-choice
+    question: "Lesquels de ces composants Spring Boot passe-t-il, entre autres, aux threads virtuels quand on les active ?"
+    choices:
+      - {text: "Le traitement des requêtes par Tomcat, et l'exécuteur de `@Async`", correct: true}
+      - {text: "Les seules requêtes SQL envoyées par Hibernate", correct: false}
+      - {text: "Le seul thread principal, celui de la méthode `main`", correct: false}
+      - {text: "Les threads du ramasse-miettes de la JVM", correct: false}
+    answer: "Le serveur web, `@Async`, `@Scheduled` et les écouteurs de messages. Le thread `main` et ceux de la JVM ne changent pas."
+  - key: qcm-savoir-si-virtuel
+    format: multiple-choice
+    question: "Comment savoir, dans le code, si l'on s'exécute sur un thread virtuel ?"
+    choices:
+      - {text: "`Thread.currentThread().isVirtual()`", correct: true}
+      - {text: "`Thread.currentThread().isDaemon()`", correct: false}
+      - {text: "`Thread.currentThread().getPriority() == 0`", correct: false}
+      - {text: "`Thread.isVirtualEnabled()`", correct: false}
+    answer: "`isVirtual()` existe depuis Java 21. Un thread virtuel est aussi démon, mais l'inverse n'est pas vrai."
+  - key: qcm-gros-threadlocal
+    format: multiple-choice
+    question: "Pourquoi se méfier des gros `ThreadLocal` avec les threads virtuels ?"
+    choices:
+      - {text: "Chaque thread a sa copie : avec des millions de threads, la mémoire explose", correct: true}
+      - {text: "Les `ThreadLocal` sont interdits sur un thread virtuel", correct: false}
+      - {text: "Les `ThreadLocal` sont partagés entre tous les threads virtuels", correct: false}
+      - {text: "Un `ThreadLocal` transforme le thread en thread de plateforme", correct: false}
+    answer: "Les `ThreadLocal` fonctionnent, mais un cache par thread devient un cache par tâche. Les `ScopedValue` sont conçues pour ce modèle."
+  - key: situation-api-qui-attend
+    format: scenario
+    question: |-
+      Ton API passe l'essentiel de son temps à attendre d'autres services HTTP, et sature ses 200 threads Tomcat. Que
+      proposes-tu d'essayer d'abord ?
+    choices:
+      - {text: "Activer les threads virtuels, puis mesurer sous charge", correct: true}
+      - {text: "Passer Tomcat à 2 000 threads de plateforme", correct: false}
+      - {text: "Réécrire toute l'API en programmation réactive", correct: false}
+      - {text: "Ajouter des processeurs au serveur", correct: false}
+    answer: |-
+      C'est le cas idéal : des requêtes qui attendent. Une propriété suffit, sans réécriture. On mesure ensuite, et
+      l'on surveille les nouvelles limites (pools de connexions, services appelés).
+  - key: situation-calcul-d-images
+    format: scenario
+    question: |-
+      Un service redimensionne des images en plein processeur, et l'équipe espère l'accélérer avec les threads
+      virtuels. Que lui dis-tu ?
+    choices:
+      - {text: "Ça n'aidera pas : ils servent quand on attend, pas quand on calcule", correct: true}
+      - {text: "Ça le rendra dix fois plus rapide, sans autre changement", correct: false}
+      - {text: "Il faut d'abord revenir à Java 8 pour en profiter", correct: false}
+      - {text: "Il faut mettre les threads virtuels dans un pool de taille fixe", correct: false}
+    answer: |-
+      Le calcul est limité par le nombre de cœurs. Un pool de threads de plateforme dimensionné sur les cœurs reste le
+      bon outil.
+  - key: situation-attente-de-connexion
+    format: scenario
+    question: |-
+      Après l'activation des threads virtuels, beaucoup de requêtes attendent longtemps une connexion à la base. Que
+      se passe-t-il ?
+    choices:
+      - {text: "Les threads ne limitent plus la concurrence : le pool devient le goulot", correct: true}
+      - {text: "Les threads virtuels ne savent pas utiliser JDBC", correct: false}
+      - {text: "Hibernate désactive son pool avec les threads virtuels", correct: false}
+      - {text: "La base refuse les connexions qui viennent de threads virtuels", correct: false}
+    answer: |-
+      Avant, les 200 threads de Tomcat limitaient d'eux-mêmes la charge. On dimensionne le pool selon ce que la base
+      supporte, et l'on accepte que les requêtes y attendent.
+  - key: situation-threads-virtuels-en-entretien
+    format: scenario
+    question: |-
+      En entretien : « Qu'apportent les threads virtuels à une application Spring Boot ? » Que réponds-tu ?
+    choices:
+      - {text: "Beaucoup de requêtes bloquantes, servies par peu de threads porteurs, sans réactif", correct: true}
+      - {text: "Des calculs plus rapides, car chaque thread a son propre cœur", correct: false}
+      - {text: "Une mémoire réduite, car il n'y a plus de pile par thread", correct: false}
+      - {text: "Une sécurité accrue, car chaque thread est isolé des autres", correct: false}
+    answer: |-
+      On ajoute la propriété `spring.threads.virtual.enabled`, la limite (n'aide que les entrées-sorties) et le
+      goulot qui se déplace vers les pools de ressources.

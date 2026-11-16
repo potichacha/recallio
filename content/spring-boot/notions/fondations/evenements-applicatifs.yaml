@@ -1,0 +1,366 @@
+notion: evenements-applicatifs
+lesson: |-
+  Les **événements applicatifs** permettent à un bean d'annoncer qu'il s'est passé quelque chose, sans savoir qui va
+  réagir. L'éditeur et les écouteurs ne dépendent que de l'événement : on ajoute un écouteur sans toucher à
+  l'éditeur, et l'on casse des dépendances entre modules.
+
+  ```java
+  public record CommandePassee(long commandeId, String email) {}   // n'importe quel objet
+
+  @Service
+  public class CommandeService {
+      private final ApplicationEventPublisher evenements;
+      ...
+      @Transactional
+      public void commander(Commande commande) {
+          depot.save(commande);
+          evenements.publishEvent(new CommandePassee(commande.id(), commande.email()));
+      }
+  }
+
+  @Component
+  public class Fidelite {
+      @EventListener
+      void crediter(CommandePassee evenement) { ... }   // le type du paramètre choisit l'événement
+  }
+  ```
+
+  **Synchrone par défaut.** `publishEvent` appelle les écouteurs **dans le même thread**, l'un après l'autre, avant
+  de rendre la main ; ils participent à la **même transaction**. Une exception d'un écouteur remonte jusqu'à
+  l'éditeur, et annule sa transaction. Pour un écouteur asynchrone : `@Async` sur la méthode, avec `@EnableAsync`
+  dans la configuration.
+
+  **Après la validation de la transaction : `@TransactionalEventListener`.**
+
+  ```java
+  @TransactionalEventListener                     // phase = AFTER_COMMIT par défaut
+  void envoyerConfirmation(CommandePassee evenement) { ... }
+  ```
+
+  | Phase | L'écouteur est appelé |
+  |---|---|
+  | `AFTER_COMMIT` (défaut) | si la transaction est validée |
+  | `AFTER_ROLLBACK` | si elle est annulée |
+  | `AFTER_COMPLETION` | dans les deux cas |
+  | `BEFORE_COMMIT` | juste avant la validation, encore dans la transaction |
+
+  Deux pièges :
+  - Publié **hors de toute transaction**, l'événement n'atteint **pas** un `@TransactionalEventListener` ; sauf avec
+    `fallbackExecution = true`.
+  - Après la validation, la transaction est terminée : un écouteur qui écrit en base doit ouvrir **sa propre**
+    transaction. `@Transactional` sur un tel écouteur doit être `REQUIRES_NEW` (ou `NOT_SUPPORTED`) ; sinon,
+    Spring refuse de démarrer.
+
+  **Filtrer et ordonner.** `@EventListener(condition = "#evenement.montant > 100")` filtre par une expression SpEL ;
+  `@Order` range les écouteurs d'un même événement.
+
+  **Les événements de Spring Boot** suivent le démarrage : `ApplicationStartedEvent`, `ApplicationReadyEvent`
+  (l'application est prête à recevoir du trafic), `ContextClosedEvent` à l'arrêt.
+
+  **Fiabilité.** Un écouteur `@Async` après commit peut se perdre si l'application s'arrête juste après. Quand
+  l'événement ne doit jamais se perdre, on l'enregistre en base dans la même transaction (le patron « boîte
+  d'envoi », que Spring Modulith outille), puis on le traite.
+
+  **En entretien** : « Un bean publie un événement avec `ApplicationEventPublisher`, et les écouteurs `@EventListener`
+  le reçoivent, de façon synchrone et dans la même transaction. Pour réagir seulement après la validation, j'utilise
+  `@TransactionalEventListener` ; pour ne pas faire attendre l'éditeur, `@Async`. »
+cards:
+  - key: ecouteur-synchrone
+    format: course
+    question: "Par défaut, comment un `@EventListener` est-il appelé ?"
+    choices:
+      - {text: "Dans le thread de l'éditeur, avant que `publishEvent` ne rende la main", correct: true}
+      - {text: "Dans un thread à part, après le retour de `publishEvent`", correct: false}
+      - {text: "À la fin de la requête HTTP en cours de traitement", correct: false}
+      - {text: "Au prochain démarrage de l'application", correct: false}
+    answer: "La publication est un simple appel de méthode, propagé à chaque écouteur. Il faut `@Async` (et `@EnableAsync`) pour changer de thread."
+  - key: moment-du-transactional-listener
+    format: course
+    question: "Quand s'exécute un `@TransactionalEventListener`, sans autre réglage ?"
+    choices:
+      - {text: "Après la validation (commit) de la transaction qui a publié", correct: true}
+      - {text: "Avant la validation, dans la même transaction", correct: false}
+      - {text: "Dès la publication, comme un `@EventListener`", correct: false}
+      - {text: "Après chaque requête SQL de la transaction", correct: false}
+    answer: "La phase par défaut est `AFTER_COMMIT` : l'écouteur ne réagit qu'à ce qui est vraiment enregistré."
+  - key: type-d-un-evenement
+    format: course
+    question: "Quel type peut avoir un événement publié par `publishEvent` ?"
+    choices:
+      - {text: "N'importe quel objet, par exemple un record", correct: true}
+      - {text: "Une sous-classe d'`ApplicationEvent`, obligatoirement", correct: false}
+      - {text: "Une `String`, qui donne le nom de l'événement", correct: false}
+      - {text: "Une classe annotée `@Event`", correct: false}
+    answer: "Depuis Spring 4.2, tout objet peut être publié ; Spring l'enveloppe dans un `PayloadApplicationEvent`. Un record immuable est idéal."
+  - key: exception-d-un-ecouteur
+    format: course
+    question: "Un `@EventListener` synchrone lève une exception. Qu'arrive-t-il à l'éditeur ?"
+    choices:
+      - {text: "L'exception lui remonte, et peut annuler sa transaction", correct: true}
+      - {text: "Rien : Spring journalise l'erreur et continue", correct: false}
+      - {text: "Spring rejoue l'écouteur jusqu'à trois fois", correct: false}
+      - {text: "Les autres écouteurs passent, puis l'erreur est ignorée", correct: false}
+    answer: "`publishEvent` est un appel de méthode ordinaire : l'exception le traverse. Dans une méthode `@Transactional`, elle annule tout ce que l'éditeur a fait."
+  - key: vf-publie-hors-transaction
+    format: true-false
+    question: "Un `@TransactionalEventListener` est appelé même si l'événement est publié hors de toute transaction."
+    truth: false
+    answer: "Sans transaction, il n'y a pas de commit à attendre : l'événement est ignoré par cet écouteur, sauf avec `fallbackExecution = true`."
+  - key: vf-fallback-execution
+    format: true-false
+    question: "Avec `fallbackExecution = true`, un `@TransactionalEventListener` s'exécute aussi quand il n'y a pas de transaction."
+    truth: true
+    answer: "Il est alors appelé tout de suite, comme un écouteur ordinaire."
+  - key: vf-async-sans-enable
+    format: true-false
+    question: "`@Async` sur un écouteur le rend asynchrone, même sans `@EnableAsync`."
+    truth: false
+    answer: "Sans `@EnableAsync`, aucun proxy ne traite `@Async` : l'écouteur s'exécute dans le thread de l'éditeur."
+  - key: vf-condition-spel
+    format: true-false
+    question: "Un écouteur peut filtrer les événements avec l'attribut `condition` et une expression SpEL."
+    truth: true
+    answer: "`@EventListener(condition = \"#evenement.montant > 100\")` : l'écouteur n'est appelé que si l'expression est vraie."
+  - key: qcm-phase-annulation
+    format: multiple-choice
+    question: "Quelle phase choisir pour réagir à l'annulation d'une transaction ?"
+    choices:
+      - {text: "`TransactionPhase.AFTER_ROLLBACK`", correct: true}
+      - {text: "`TransactionPhase.AFTER_COMMIT`", correct: false}
+      - {text: "`TransactionPhase.BEFORE_COMMIT`", correct: false}
+      - {text: "`TransactionPhase.ON_ERROR`", correct: false}
+    answer: "`AFTER_ROLLBACK` : par exemple, libérer une réservation de stock. `ON_ERROR` n'existe pas."
+  - key: qcm-bean-pour-publier
+    format: multiple-choice
+    question: "Quel bean injecter pour publier un événement ?"
+    choices:
+      - {text: "`ApplicationEventPublisher`", correct: true}
+      - {text: "`ApplicationListener`", correct: false}
+      - {text: "`MessageSource`", correct: false}
+      - {text: "`EventPublisherFactory`", correct: false}
+    answer: "`ApplicationEventPublisher.publishEvent(objet)`. `ApplicationListener` est l'interface d'un écouteur ; `MessageSource` sert aux messages traduits."
+  - key: qcm-application-prete
+    format: multiple-choice
+    question: "Quel événement de Spring Boot signale que l'application est prête à recevoir du trafic ?"
+    choices:
+      - {text: "`ApplicationReadyEvent`", correct: true}
+      - {text: "`ApplicationStartingEvent`", correct: false}
+      - {text: "`ContextClosedEvent`", correct: false}
+      - {text: "`ApplicationEnvironmentPreparedEvent`", correct: false}
+    answer: "Il arrive après les runners. `ApplicationStartingEvent` est le tout premier, avant même la création du contexte."
+  - key: qcm-interet-des-evenements
+    format: multiple-choice
+    question: "Quel est l'intérêt principal d'un événement entre deux modules ?"
+    choices:
+      - {text: "L'éditeur ignore ses écouteurs : on en ajoute sans le modifier", correct: true}
+      - {text: "L'appel devient plus rapide qu'un appel de méthode", correct: false}
+      - {text: "Les données de l'événement sont enregistrées en base", correct: false}
+      - {text: "Les erreurs des écouteurs ne peuvent plus atteindre l'éditeur", correct: false}
+    answer: "C'est un découplage : le module `commande` n'a pas à connaître `fidelite`. Les erreurs, elles, remontent tant que l'écouteur est synchrone."
+  - key: trous-publish-event
+    format: fill-in
+    question: |-
+      Complète pour publier l'événement :
+      ```java
+      evenements.___(new CommandePassee(commande.id(), commande.email()));
+      ```
+    blanks:
+      - [publishEvent]
+    answer: "`publishEvent` transmet l'objet à tous les écouteurs de son type."
+  - key: trous-event-listener
+    format: fill-in
+    question: |-
+      Complète pour que cette méthode reçoive chaque `CommandePassee` :
+      ```java
+      @___
+      void crediterLesPoints(CommandePassee evenement) {
+          ...
+      }
+      ```
+    blanks:
+      - [EventListener]
+    answer: "`@EventListener` : le type du paramètre dit quels événements la méthode reçoit."
+  - key: trous-after-rollback
+    format: fill-in
+    question: |-
+      Complète pour ne réagir que si la transaction est annulée :
+      ```java
+      @TransactionalEventListener(phase = TransactionPhase.___)
+      void libererLaReservation(CommandePassee evenement) { ... }
+      ```
+    blanks:
+      - [AFTER_ROLLBACK]
+    answer: "`AFTER_ROLLBACK` : l'écouteur n'est appelé qu'après une annulation."
+  - key: trous-fallback-execution
+    format: fill-in
+    question: |-
+      Complète pour exécuter l'écouteur même quand l'événement est publié hors transaction :
+      ```java
+      @TransactionalEventListener(___ = true)
+      void envoyerConfirmation(CommandePassee evenement) { ... }
+      ```
+    blanks:
+      - [fallbackExecution]
+    answer: "`fallbackExecution = true` : sans transaction, l'écouteur est appelé tout de suite."
+  - key: bug-publie-sans-transaction
+    format: bug-fix
+    question: |-
+      L'e-mail de confirmation ne part jamais, et aucune erreur n'apparaît. Quelle correction est la bonne ?
+      ```java
+      @Service
+      public class CommandeService {
+          public void commander(Commande commande) {
+              depot.save(commande);
+              evenements.publishEvent(new CommandePassee(commande.id(), commande.email()));
+          }
+      }
+
+      @Component
+      public class Confirmations {
+          @TransactionalEventListener
+          void envoyer(CommandePassee evenement) { ... }
+      }
+      ```
+    choices:
+      - {text: "Annoter `commander` avec `@Transactional`", correct: true}
+      - {text: "Annoter `envoyer` avec `@Async`", correct: false}
+      - {text: "Ajouter `@Order(1)` sur la méthode `envoyer`", correct: false}
+      - {text: "Publier l'événement avant `depot.save`", correct: false}
+    answer: |-
+      ```java
+      @Transactional
+      public void commander(Commande commande) {
+      ```
+      `commander` publie hors de toute transaction : il n'y a pas de commit, et le `@TransactionalEventListener`
+      n'est pas appelé. Dans une transaction, il l'est après la validation. (`fallbackExecution = true` serait l'autre
+      voie.)
+  - key: bug-transactional-sur-ecouteur
+    format: bug-fix
+    question: |-
+      Le démarrage échoue : « @TransactionalEventListener method must not be annotated with @Transactional unless when
+      declared as REQUIRES_NEW or NOT_SUPPORTED ». L'écouteur doit écrire en base. Quelle correction est la bonne ?
+      ```java
+      @TransactionalEventListener
+      @Transactional
+      void crediterLesPoints(CommandePassee evenement) {
+          points.save(new Points(evenement.commandeId(), 10));
+      }
+      ```
+    choices:
+      - {text: "`@Transactional(propagation = Propagation.REQUIRES_NEW)`", correct: true}
+      - {text: "`@Transactional(readOnly = true)`", correct: false}
+      - {text: "`@Transactional(propagation = Propagation.MANDATORY)`", correct: false}
+      - {text: "`@Transactional(propagation = Propagation.REQUIRED)`", correct: false}
+    answer: |-
+      ```java
+      @TransactionalEventListener
+      @Transactional(propagation = Propagation.REQUIRES_NEW)
+      void crediterLesPoints(CommandePassee evenement) { ... }
+      ```
+      Après le commit, la transaction de l'éditeur est terminée : rejoindre celle-ci n'enregistrerait rien. Il faut
+      une nouvelle transaction, que Spring exige d'écrire explicitement.
+  - key: bug-mail-annule-la-commande
+    format: bug-fix
+    question: |-
+      Quand le serveur de mail est en panne, la commande n'est pas enregistrée : l'exception de l'envoi annule tout.
+      Quelle correction est la bonne ?
+      ```java
+      @Component
+      public class Confirmations {
+          @EventListener
+          void envoyer(CommandePassee evenement) {
+              mail.envoyer(evenement.email(), "Merci !");
+          }
+      }
+      ```
+    choices:
+      - {text: "Remplacer `@EventListener` par `@TransactionalEventListener`", correct: true}
+      - {text: "Ajouter `@Order(1)` sur la méthode `envoyer`", correct: false}
+      - {text: "Ajouter `@Transactional` sur la méthode `envoyer`", correct: false}
+      - {text: "Publier l'événement avant d'ouvrir la transaction", correct: false}
+    answer: |-
+      ```java
+      @TransactionalEventListener
+      void envoyer(CommandePassee evenement) { ... }
+      ```
+      Un `@EventListener` s'exécute dans la transaction de l'éditeur : son exception l'annule. Après le commit, la
+      commande est déjà enregistrée ; un échec de l'envoi ne la touche plus (`@Async` évite en plus d'attendre le
+      mail).
+  - key: bug-async-sans-enableasync
+    format: bug-fix
+    question: |-
+      Chaque commande attend cinq secondes la fin de l'envoi de la facture, alors que l'écouteur est `@Async`. Aucune
+      classe de l'application ne porte `@EnableAsync`. Quelle correction est la bonne ?
+      ```java
+      @Component
+      public class Factures {
+          @Async
+          @TransactionalEventListener
+          void envoyer(CommandePassee evenement) { ... }
+      }
+      ```
+    choices:
+      - {text: "Ajouter `@EnableAsync` sur une classe de configuration", correct: true}
+      - {text: "Remplacer `@TransactionalEventListener` par `@EventListener`", correct: false}
+      - {text: "Ajouter `@Order(1)` sur la méthode `envoyer`", correct: false}
+      - {text: "Rendre la méthode `envoyer` `public static`", correct: false}
+    answer: |-
+      ```java
+      @Configuration
+      @EnableAsync
+      public class AsyncConfig {
+      }
+      ```
+      Sans `@EnableAsync`, aucun proxy ne traite `@Async` : la méthode s'exécute dans le thread de la requête. Avec
+      lui, elle part sur l'exécuteur de tâches de Spring Boot.
+  - key: situation-mail-apres-commit
+    format: scenario
+    question: |-
+      Après une commande, il faut envoyer un e-mail de confirmation, mais seulement si la commande est bien
+      enregistrée. Que proposes-tu ?
+    choices:
+      - {text: "Publier un événement, écouté par un `@TransactionalEventListener`", correct: true}
+      - {text: "Envoyer l'e-mail au début de la méthode transactionnelle", correct: false}
+      - {text: "Un `@EventListener` synchrone, appelé dans la transaction", correct: false}
+      - {text: "Un `@PostConstruct` dans le service d'envoi des e-mails", correct: false}
+    answer: |-
+      En phase `AFTER_COMMIT`, l'écouteur ne part que si la commande est validée. Envoyer avant ou pendant la
+      transaction risque d'annoncer une commande qui sera finalement annulée.
+  - key: situation-evenement-perdu
+    format: scenario
+    question: |-
+      Ton écouteur `@Async`, après commit, envoie des e-mails. Si l'application s'arrête juste après le commit, un
+      e-mail est perdu. Comment fiabiliser ?
+    choices:
+      - {text: "Enregistrer l'événement en base dans la transaction, puis le traiter", correct: true}
+      - {text: "Augmenter le nombre de threads de l'exécuteur de tâches", correct: false}
+      - {text: "Passer l'écouteur en phase `BEFORE_COMMIT`", correct: false}
+      - {text: "Publier deux fois chaque événement", correct: false}
+    answer: |-
+      C'est le patron « boîte d'envoi » (outbox) : l'événement est validé avec la commande, puis traité et marqué
+      comme fait, même après un redémarrage. Spring Modulith offre ce registre de publications.
+  - key: situation-decoupler-les-modules
+    format: scenario
+    question: |-
+      Le module `commande` appelle directement `FideliteService` pour créditer des points : les deux modules sont
+      liés. Que proposes-tu ?
+    choices:
+      - {text: "Publier `CommandePassee`, que le module `fidelite` écoute", correct: true}
+      - {text: "Déplacer `FideliteService` dans le module `commande`", correct: false}
+      - {text: "Appeler `FideliteService` par réflexion", correct: false}
+      - {text: "Faire hériter `CommandeService` de `FideliteService`", correct: false}
+    answer: |-
+      Le module `commande` annonce un fait, sans savoir qui réagit. La dépendance s'inverse : c'est `fidelite` qui
+      dépend de l'événement de `commande`.
+  - key: situation-ecouteur-asynchrone
+    format: scenario
+    question: |-
+      En entretien : « Un `@EventListener` est-il asynchrone ? » Que réponds-tu ?
+    choices:
+      - {text: "Non, il tourne dans le thread de l'éditeur ; `@Async` le rend asynchrone", correct: true}
+      - {text: "Oui, Spring l'exécute toujours dans un autre thread", correct: false}
+      - {text: "Oui, sauf s'il est dans le même package que l'éditeur", correct: false}
+      - {text: "Non, et il ne peut jamais le devenir", correct: false}
+    answer: |-
+      Par défaut, synchrone et dans la même transaction. `@Async` (avec `@EnableAsync`) le fait passer sur un autre
+      thread ; `@TransactionalEventListener` le repousse après le commit.

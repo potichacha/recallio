@@ -1,0 +1,253 @@
+notion: tracing
+lesson: |-
+  Les logs disent **ce qui** s'est passé, les métriques **combien** ; les **traces distribuées** disent **où passe
+  le temps** d'une requête qui traverse plusieurs services.
+
+  **Le vocabulaire.**
+
+  | Terme | Définition |
+  |---|---|
+  | **trace** | le parcours d'une requête, de bout en bout : l'arbre de tous ses spans, sous un même identifiant de trace |
+  | **span** | une opération chronométrée : la requête reçue, un appel SQL, un appel HTTP sortant ; il a un identifiant, un parent, des attributs |
+  | **propagation** | l'identifiant de trace voyage d'un service à l'autre dans un en-tête |
+  | **échantillonnage** | on ne garde qu'une partie des traces, pour en limiter le coût |
+  | **baggage** | des paires clé-valeur propagées avec le contexte de trace |
+
+  La propagation suit le standard du W3C, l'en-tête **`traceparent`** :
+
+  ```
+  traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01
+               version-identifiant de trace-identifiant du span parent-options
+  ```
+
+  Zipkin a son propre format, B3 (`b3`, `X-B3-TraceId`).
+
+  **Dans Spring Boot.** Depuis Spring Boot 3, **Micrometer Tracing** remplace Spring Cloud Sleuth. C'est une
+  façade, reliée par un **pont** à une vraie bibliothèque de traçage : OpenTelemetry
+  (`micrometer-tracing-bridge-otel`) ou Brave (`micrometer-tracing-bridge-brave`). Un **exportateur** envoie les
+  spans à un backend : Zipkin, Jaeger, Grafana Tempo, souvent par le protocole **OTLP** et un collecteur
+  OpenTelemetry.
+
+  Spring instrumente déjà les requêtes reçues par Spring MVC, les appels de `RestClient` et `WebClient`, et bien
+  d'autres. **À une condition** : utiliser les objets que Spring Boot configure. Un client construit avec
+  `RestClient.create()` n'est pas instrumenté ; celui construit à partir du `RestClient.Builder` injecté l'est.
+
+  ```java
+  @Service
+  class CatalogueClient {
+
+      private final RestClient client;
+
+      CatalogueClient(RestClient.Builder builder) {   // le builder de Spring Boot, instrumenté
+          this.client = builder.baseUrl("http://catalogue").build();
+      }
+  }
+  ```
+
+  **L'API Observation.** Pour instrumenter son propre code, une `Observation` produit **à la fois** une mesure et
+  un span :
+
+  ```java
+  Observation.createNotStarted("boutique.tarifs", observationRegistry)
+          .lowCardinalityKeyValue("canal", "web")      // tag de la mesure et du span
+          .highCardinalityKeyValue("panier", panierId) // seulement sur le span
+          .observe(() -> calculer(panier));
+  ```
+
+  **Les logs corrélés.** L'identifiant de trace et celui du span sont placés dans le MDC : chaque ligne de log les
+  affiche, et l'on passe d'une erreur dans les logs à la trace complète.
+
+  **Les pièges.**
+
+  - **Les threads** : le contexte de trace vit dans le thread courant. Une tâche confiée à un exécuteur créé à la
+    main le perd ; on décore l'exécuteur avec `ContextPropagatingTaskDecorator`.
+  - **L'échantillonnage** : Spring Boot ne garde par défaut qu'une partie des traces (le taux se règle dans la
+    configuration de `management.tracing`) ; en développement, on garde tout.
+  - **Le baggage** part dans chaque requête : jamais de donnée personnelle ni de secret.
+
+  **En entretien** : « Une trace suit une requête à travers les services : c'est un arbre de spans, chacun
+  chronométré, reliés par un identifiant propagé dans l'en-tête `traceparent`. Dans Spring Boot, Micrometer Tracing
+  fait le lien avec OpenTelemetry ou Brave, et les composants configurés par Spring Boot sont instrumentés
+  d'office. Je corrèle les logs avec l'identifiant de trace, et je veille aux clients créés à la main et aux
+  threads, qui cassent la propagation. »
+cards:
+  - key: remplace-sleuth
+    format: course
+    question: "Que remplace Micrometer Tracing depuis Spring Boot 3 ?"
+    choices:
+      - {text: "Spring Cloud Sleuth", correct: true}
+      - {text: "Spring Cloud Gateway", correct: false}
+      - {text: "Spring Boot Admin", correct: false}
+      - {text: "Zipkin", correct: false}
+    answer: "Sleuth n'a pas suivi Spring Boot 3. Micrometer Tracing reprend son rôle, comme façade ; Zipkin reste un backend qui stocke les traces."
+  - key: propagation-entre-services
+    format: course
+    question: "Comment l'identifiant de trace passe-t-il d'un service à l'autre, lors d'un appel HTTP ?"
+    choices:
+      - {text: "Dans un en-tête de la requête, comme `traceparent`", correct: true}
+      - {text: "Dans un paramètre `traceId` ajouté à l'URL", correct: false}
+      - {text: "Dans une table partagée entre les deux services", correct: false}
+      - {text: "Dans le corps JSON, sous une clé `trace`", correct: false}
+    answer: "Le client instrumenté ajoute l'en-tête ; le serveur instrumenté le lit et rattache ses spans à la même trace."
+  - key: role-du-pont
+    format: course
+    question: "Que fait un pont (bridge) de Micrometer Tracing, comme celui pour OpenTelemetry ?"
+    choices:
+      - {text: "Il relie la façade de Micrometer à une bibliothèque de traçage", correct: true}
+      - {text: "Il envoie les traces d'un service vers le service suivant", correct: false}
+      - {text: "Il convertit les métriques de Prometheus en traces", correct: false}
+      - {text: "Il relie deux clusters Kubernetes entre eux", correct: false}
+    answer: "Micrometer Tracing est une façade ; le pont choisit l'implémentation, OpenTelemetry ou Brave. L'envoi des spans au backend est le rôle de l'exportateur."
+  - key: client-non-instrumente
+    format: course
+    question: "Pourquoi un client HTTP construit par `RestClient.create()` casse-t-il la trace ?"
+    choices:
+      - {text: "Il n'est pas instrumenté, et n'ajoute pas l'en-tête de trace", correct: true}
+      - {text: "Il remplace l'en-tête de trace par un identifiant aléatoire", correct: false}
+      - {text: "Il place la trace dans le corps, que le serveur ignore", correct: false}
+      - {text: "Il n'utilise pas HTTP/2, que le traçage exige", correct: false}
+    answer: "Le service appelé ne reçoit pas de contexte, et ouvre une nouvelle trace. Le `RestClient.Builder` injecté par Spring Boot porte l'instrumentation."
+  - key: vf-span-parent
+    format: true-false
+    question: "Dans une trace, un span peut avoir un span parent."
+    truth: true
+    answer: "Les spans forment un arbre : le span de la requête reçue est le parent des appels SQL et HTTP qu'elle déclenche."
+  - key: vf-traces-remplacent-metriques
+    format: true-false
+    question: "Une fois les traces en place, les métriques deviennent inutiles."
+    truth: false
+    answer: "Elles se complètent : les métriques, peu coûteuses, servent aux tableaux de bord et aux alertes ; les traces, échantillonnées, expliquent une requête lente."
+  - key: vf-executeur-maison
+    format: true-false
+    question: "Le contexte de trace suit tout seul une tâche confiée à un `ExecutorService` créé à la main."
+    truth: false
+    answer: "Le contexte est attaché au thread. Il faut le propager, par exemple avec `ContextPropagatingTaskDecorator` sur l'exécuteur."
+  - key: vf-trace-dans-les-logs
+    format: true-false
+    question: "L'identifiant de trace peut figurer dans chaque ligne de log, pour retrouver la trace d'une erreur."
+    truth: true
+    answer: "Micrometer Tracing le place dans le MDC, avec l'identifiant du span. On copie l'identifiant du log dans l'outil de traces."
+  - key: qcm-en-tete-w3c
+    format: multiple-choice
+    question: "Quel en-tête standard du W3C porte le contexte de trace ?"
+    choices:
+      - {text: "`traceparent`", correct: true}
+      - {text: "`X-Request-Id`", correct: false}
+      - {text: "`X-Forwarded-For`", correct: false}
+      - {text: "`Correlation-Context`", correct: false}
+    answer: "`traceparent` contient la version, l'identifiant de trace, celui du span parent et des options. `X-Forwarded-For` donne l'adresse du client derrière un proxy."
+  - key: qcm-backend-traces
+    format: multiple-choice
+    question: "Quel outil stocke et affiche des traces distribuées ?"
+    choices:
+      - {text: "Zipkin", correct: true}
+      - {text: "Prometheus", correct: false}
+      - {text: "Logback", correct: false}
+      - {text: "Flyway", correct: false}
+    answer: "Zipkin, comme Jaeger ou Grafana Tempo, reçoit les spans et dessine les traces. Prometheus stocke des métriques ; Logback écrit des logs."
+  - key: qcm-api-observation
+    format: multiple-choice
+    question: "Quelle API de Micrometer produit, d'une seule instrumentation, une mesure et un span ?"
+    choices:
+      - {text: "L'API `Observation`", correct: true}
+      - {text: "L'API `Counter`", correct: false}
+      - {text: "L'API `Gauge`", correct: false}
+      - {text: "L'API `MeterFilter`", correct: false}
+    answer: "`Observation.createNotStarted(...).observe(...)` alimente les métriques et les traces. Spring s'en sert pour ses propres instrumentations."
+  - key: qcm-pourquoi-echantillonner
+    format: multiple-choice
+    question: "Pourquoi n'envoie-t-on souvent qu'une partie des traces au backend ?"
+    choices:
+      - {text: "Garder chaque trace coûte cher en réseau et en stockage", correct: true}
+      - {text: "L'en-tête `traceparent` limite le nombre de traces par minute", correct: false}
+      - {text: "Un service ne peut appartenir qu'à dix traces à la fois", correct: false}
+      - {text: "OTLP refuse les spans qui durent plus de cent millisecondes", correct: false}
+    answer: "À fort trafic, chaque requête produit des dizaines de spans. Un échantillon suffit à repérer les lenteurs ; en développement, on garde tout."
+  - key: situation-requete-lente
+    format: scenario
+    question: |-
+      Une requête met 3 secondes, et elle traverse quatre services. Les métriques de chacun semblent normales. Que
+      regardes-tu ?
+    choices:
+      - {text: "La trace de la requête, pour voir quel span prend le temps", correct: true}
+      - {text: "Les logs de chaque service, en comparant les heures à la main", correct: false}
+      - {text: "La moyenne de `http.server.requests` de chacun des services", correct: false}
+      - {text: "Le endpoint `health` de chacun des quatre services", correct: false}
+    answer: |-
+      La trace montre l'arbre des appels et la durée de chacun : une requête SQL lente, un appel en série qui
+      pourrait être parallèle. Une moyenne cache les cas particuliers.
+  - key: situation-trace-coupee
+    format: scenario
+    question: |-
+      Dans Zipkin, l'appel du service B vers le service C apparaît comme une trace à part. B crée son client avec
+      `RestClient.create()`. Que changes-tu ?
+    choices:
+      - {text: "Je construis le client à partir du `RestClient.Builder` injecté", correct: true}
+      - {text: "J'ajoute l'identifiant de trace en paramètre de chaque URL vers C", correct: false}
+      - {text: "J'augmente le taux d'échantillonnage du service C à 100 %", correct: false}
+      - {text: "Je fusionne B et C, pour que leurs appels partagent le contexte", correct: false}
+    answer: |-
+      Le builder de Spring Boot porte l'instrumentation : le client ouvre un span et ajoute `traceparent`. C ne lit
+      pas un paramètre d'URL ; échantillonner plus ne relie rien.
+  - key: situation-executeur-perd-trace
+    format: scenario
+    question: |-
+      Dans un service, les logs d'un traitement confié à un exécuteur n'ont plus d'identifiant de trace. Que
+      proposes-tu ?
+    choices:
+      - {text: "Décorer l'exécuteur avec `ContextPropagatingTaskDecorator`", correct: true}
+      - {text: "Réduire l'exécuteur à un seul thread, pour garder le contexte", correct: false}
+      - {text: "Ouvrir une nouvelle trace dans la tâche, avec le même nom", correct: false}
+      - {text: "Écrire l'identifiant dans une variable statique partagée", correct: false}
+    answer: |-
+      Le décorateur capture le contexte au moment de la soumission et le restaure dans le thread de la tâche. Une
+      variable statique mélangerait les requêtes concurrentes.
+  - key: situation-baggage-email
+    format: scenario
+    question: |-
+      Un collègue veut propager l'adresse e-mail du client en baggage, dans tous les appels entre services. Qu'en
+      penses-tu ?
+    choices:
+      - {text: "Une donnée personnelle n'a rien à faire dans un en-tête propagé partout", correct: true}
+      - {text: "Une bonne idée : le baggage est chiffré de bout en bout par OpenTelemetry", correct: false}
+      - {text: "Une bonne idée, à condition de l'ajouter aussi comme tag de métrique", correct: false}
+      - {text: "Une idée impossible : le baggage n'accepte que des valeurs numériques", correct: false}
+    answer: |-
+      Le baggage voyage en clair dans chaque requête, jusqu'aux services tiers, et finit dans les logs. On y met des
+      identifiants techniques, jamais de donnée personnelle ni de secret.
+  - key: definition-span
+    format: definition
+    question: "Qu'est-ce qu'un span, en traçage distribué ?"
+    choices:
+      - {text: "Une opération chronométrée, avec un identifiant et un parent", correct: true}
+      - {text: "L'ensemble des appels déclenchés par une même requête", correct: false}
+      - {text: "Un en-tête HTTP qui transporte l'identifiant de trace", correct: false}
+      - {text: "Un échantillon de traces conservé par le backend", correct: false}
+    answer: "Une requête reçue, un appel SQL, un appel HTTP sortant : chacun est un span. L'ensemble forme la trace."
+  - key: definition-trace
+    format: definition
+    question: "Qu'est-ce qu'une trace, en traçage distribué ?"
+    choices:
+      - {text: "L'arbre des spans déclenchés par une même requête", correct: true}
+      - {text: "Une ligne de log qui contient un identifiant de requête", correct: false}
+      - {text: "Une métrique qui mesure la durée d'une requête", correct: false}
+      - {text: "Une pile d'appels Java, capturée lors d'une exception", correct: false}
+    answer: "Tous ses spans partagent l'identifiant de trace, et chacun connaît son parent : l'outil reconstruit l'arbre et sa chronologie."
+  - key: definition-echantillonnage
+    format: definition
+    question: "Qu'est-ce que l'échantillonnage (sampling), en traçage distribué ?"
+    choices:
+      - {text: "Ne garder qu'une partie des traces, pour en limiter le coût", correct: true}
+      - {text: "Mesurer la durée d'un span à intervalles réguliers", correct: false}
+      - {text: "Regrouper les spans de plusieurs traces en une seule", correct: false}
+      - {text: "Copier chaque trace vers plusieurs backends à la fois", correct: false}
+    answer: "La décision se prend souvent à l'entrée de la requête et se propage avec le contexte : une trace est gardée en entier ou pas du tout."
+  - key: definition-baggage
+    format: definition
+    question: "Qu'est-ce que le baggage, en traçage distribué ?"
+    choices:
+      - {text: "Des paires clé-valeur propagées avec le contexte de trace", correct: true}
+      - {text: "Les spans en attente d'envoi vers le backend de traces", correct: false}
+      - {text: "La mémoire tampon où le traceur garde les traces finies", correct: false}
+      - {text: "Les attributs d'un span, visibles seulement dans Zipkin", correct: false}
+    answer: "Le baggage traverse les services avec la trace : un identifiant de locataire, par exemple. Il voyage en clair, dans chaque requête."

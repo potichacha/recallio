@@ -1,0 +1,50 @@
+statement: |-
+  La bibliothèque prête ses livres pour une durée réglable. Les tests chargent **toute l'application** avec
+  `@SpringBootTest`, de deux façons :
+
+  - `EmpruntServiceTest` fixe la propriété `bibliotheque.duree-emprunt=14d`, et ajoute une horloge arrêtée au
+    lundi 2 mars 2026 (une `@TestConfiguration` dont le bean `@Primary` passe devant celui de l'application) ;
+  - `DureeParDefautTest` démarre l'application comme en production : sans propriété, avec sa propre horloge.
+
+  Fais-les passer :
+
+  1. `HorlogeConfiguration` déclare l'horloge de l'application : un bean `Clock` en UTC ;
+  2. `EmpruntService` devient un bean, que Spring injecte dans les tests ;
+  3. la durée d'emprunt vaut **21 jours** quand la propriété est absente ;
+  4. `emprunter(isbn, lecteur)` renvoie l'emprunt, dont la date de retour est la date du jour (lue sur l'horloge
+     reçue) plus la durée d'emprunt ;
+  5. emprunter un livre déjà emprunté lève une `LivreIndisponibleException` ;
+  6. `rendre(isbn)` rend le livre, qui peut être emprunté de nouveau.
+explanation: |-
+  ```java
+  @Service
+  public class EmpruntService {
+
+      private final Clock horloge;
+      private final Duration duree;
+      private final Map<String, Emprunt> enCours = new ConcurrentHashMap<>();
+
+      public EmpruntService(Clock horloge, @Value("${bibliotheque.duree-emprunt:21d}") Duration duree) { ... }
+
+      public Emprunt emprunter(String isbn, String lecteur) {
+          Emprunt emprunt = new Emprunt(isbn, lecteur, LocalDate.now(horloge).plusDays(duree.toDays()));
+          if (enCours.putIfAbsent(isbn, emprunt) != null) {
+              throw new LivreIndisponibleException(isbn);
+          }
+          return emprunt;
+      }
+  }
+  ```
+  Sans `@Service`, le scan des composants ignore la classe : aucun contexte ne démarre, et l'erreur « Failed to
+  load ApplicationContext » cache une `NoSuchBeanDefinitionException`. Sans bean `Clock` dans
+  `HorlogeConfiguration`, le premier test passerait grâce à l'horloge du test, mais l'application réelle ne
+  démarrerait pas : c'est ce que vérifie `DureeParDefautTest`.
+
+  `${bibliotheque.duree-emprunt:21d}` donne la valeur par défaut après les deux-points ; Spring Boot convertit
+  `14d` et `21d` en `Duration`. Une `LocalDate` n'accepte pas une `Duration` (elle compte en secondes) : on ajoute
+  `duree.toDays()` jours.
+
+  Les deux classes de test ont des configurations différentes (une propriété, une `@TestConfiguration`) : Spring
+  crée donc deux contextes. Dans une même classe, le contexte et le service sont partagés : c'est pourquoi chaque
+  test emprunte un livre différent. `putIfAbsent` d'une `ConcurrentHashMap` teste et réserve en une seule
+  opération, même si deux requêtes arrivent en même temps.

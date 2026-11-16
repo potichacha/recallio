@@ -1,0 +1,327 @@
+notion: datajpatest
+lesson: |-
+  `@DataJpaTest` est la **tranche JPA** : elle démarre les entités, les repositories Spring Data, l'`EntityManager`,
+  une source de données et les migrations (Flyway ou Liquibase, s'il y en a). Ni contrôleurs ni services. On y
+  vérifie ce que seule la base peut dire : les **requêtes**, le **mapping** des entités, les **contraintes**.
+
+  ```java
+  import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
+  import org.springframework.boot.jpa.test.autoconfigure.TestEntityManager;
+
+  @DataJpaTest
+  class LivreRepositoryTest {
+
+      @Autowired
+      TestEntityManager em;
+
+      @Autowired
+      LivreRepository livres;
+
+      @Test
+      void rangeLesLivresDUnAuteurDuPlusAncienAuPlusRecent() {
+          em.persist(new Livre("9782070360536", "La Peste", "Camus", 1947, false));
+          em.persist(new Livre("9782070360024", "L'Étranger", "Camus", 1942, true));
+          em.flush();
+          em.clear();
+
+          assertThat(livres.findByAuteurOrderByAnneeAsc("Camus"))
+                  .extracting(Livre::getTitre)
+                  .containsExactly("L'Étranger", "La Peste");
+      }
+  }
+  ```
+
+  **Chaque test est transactionnel** : ses écritures sont annulées à la fin. Les tests restent indépendants sans
+  nettoyage. Par défaut, la tranche affiche aussi le SQL exécuté (`showSql`).
+
+  **La base.** `@AutoConfigureTestDatabase`, que porte la tranche, remplace la source de données par une **base en
+  mémoire** (H2, HSQLDB ou Derby, selon le classpath). Avec Spring Boot 4, son mode par défaut, `NON_TEST`, garde
+  pourtant une source déclarée par le test lui-même : une méthode `@DynamicPropertySource`, ou un conteneur
+  Testcontainers annoté `@ServiceConnection`. Une simple propriété `spring.datasource.url` dans
+  `@DataJpaTest(properties = ...)` est, elle, remplacée. `@AutoConfigureTestDatabase(replace = Replace.NONE)` garde
+  la source configurée, quelle qu'elle soit.
+
+  **`TestEntityManager`** prépare les données sans passer par le repository testé :
+
+  | Méthode | Rôle |
+  |---|---|
+  | `persist(entite)` | rend l'entité persistante (l'`INSERT` attend le prochain flush) |
+  | `persistAndFlush(entite)` | persiste et envoie l'`INSERT` tout de suite |
+  | `persistFlushFind(entite)` | persiste, envoie, puis relit la ligne en base |
+  | `flush()`, `clear()` | envoie les écritures en attente ; vide le cache de premier niveau |
+
+  **Les pièges du cache de premier niveau.** Dans une même transaction, Hibernate rend l'objet qu'il a déjà en
+  mémoire :
+
+  - un `persist` suivi d'un `findById` relit **l'objet**, pas la ligne : un champ mal mappé (oublié, `@Transient`)
+    passe inaperçu. On appelle `flush()` puis `clear()` avant de relire ;
+  - un `INSERT` n'est envoyé qu'au flush : une violation de contrainte d'unicité n'apparaît pas sur un simple
+    `save`, mais sur `saveAndFlush` (une `DataIntegrityViolationException`) ;
+  - une requête `@Modifying` écrit en base sans toucher aux objets déjà chargés : `clearAutomatically = true` les
+    oublie après la mise à jour.
+
+  **Ce que la tranche cache.** Comme tout se passe dans une transaction, la session reste ouverte : une relation
+  paresseuse se charge sans `LazyInitializationException`, et rien n'est jamais validé (un écouteur
+  `AFTER_COMMIT` ne se déclenche pas). Un service s'ajoute avec `@Import(CatalogueService.class)` ; pour tester
+  ces comportements de bout en bout, c'est `@SpringBootTest`.
+
+  **En entretien** : « `@DataJpaTest` ne démarre que JPA, sur une base en mémoire ou un PostgreSQL de
+  Testcontainers, et annule chaque test. J'y teste les requêtes dérivées, les `@Query` et les contraintes. Je fais
+  `flush()` et `clear()` avant de relire, sinon Hibernate me rend l'objet en mémoire et le test ne prouve rien. »
+cards:
+  - key: beans-de-la-tranche-jpa
+    format: course
+    question: "Quels beans `@DataJpaTest` crée-t-il ?"
+    choices:
+      - {text: "Les entités, les repositories, l'`EntityManager` et une source de données", correct: true}
+      - {text: "Les repositories, et les services qui les utilisent dans l'application", correct: false}
+      - {text: "Les repositories seulement, sans `EntityManager` ni source de données", correct: false}
+      - {text: "Toute l'application, branchée sur une base de données en mémoire", correct: false}
+    answer: "C'est la tranche JPA : tout ce qu'il faut pour exécuter les requêtes, rien au-dessus. Un service s'ajoute avec `@Import`."
+  - key: donnees-annulees
+    format: course
+    question: "Que deviennent les données écrites par un test `@DataJpaTest` ?"
+    choices:
+      - {text: "Elles sont annulées à la fin du test : chaque test est transactionnel", correct: true}
+      - {text: "Elles restent en base jusqu'à la fin de la classe de test", correct: false}
+      - {text: "Elles sont validées, puis effacées par un `DELETE` automatique", correct: false}
+      - {text: "Elles ne sont jamais écrites : la tranche simule la base de données", correct: false}
+    answer: "`@DataJpaTest` est méta-annotée `@Transactional` : Spring annule la transaction après chaque test. Les tests restent indépendants."
+  - key: base-par-defaut
+    format: course
+    question: "Avec Spring Boot 4, sur quelle base un test `@DataJpaTest` s'exécute-t-il par défaut ?"
+    choices:
+      - {text: "Une base en mémoire, sauf si la source de données vient du test lui-même", correct: true}
+      - {text: "La base décrite dans `application.properties`, telle quelle", correct: false}
+      - {text: "Toujours une base H2, même avec un conteneur Testcontainers", correct: false}
+      - {text: "Aucune base : les repositories y sont remplacés par des mocks", correct: false}
+    answer: "Le mode `NON_TEST` de `@AutoConfigureTestDatabase` remplace la source par une base en mémoire, sauf celle déclarée par `@DynamicPropertySource` ou `@ServiceConnection`."
+  - key: flush-et-clear
+    format: course
+    question: "Pourquoi appeler `flush()` puis `clear()` sur `TestEntityManager` avant de relire une entité ?"
+    choices:
+      - {text: "Pour relire la ligne en base, et non l'objet gardé en mémoire par Hibernate", correct: true}
+      - {text: "Pour valider la transaction du test, qui sinon serait annulée", correct: false}
+      - {text: "Pour vider la table, et repartir d'une base propre avant la lecture", correct: false}
+      - {text: "Pour fermer la connexion à la base, que le test garde sinon ouverte", correct: false}
+    answer: "`flush()` envoie les `INSERT` en attente, `clear()` vide le cache de premier niveau. La lecture suivante passe alors vraiment par le mapping et la base."
+  - key: vf-findbyid-relit
+    format: true-false
+    question: "Dans un test `@DataJpaTest`, un `save` suivi d'un `findById` dans la même transaction relit la ligne en base."
+    truth: false
+    answer: "Hibernate rend l'objet qu'il garde déjà en mémoire, sans requête. Un champ mal mappé passe donc inaperçu, sauf avec `flush()` et `clear()` avant la lecture."
+  - key: vf-show-sql
+    format: true-false
+    question: "`@DataJpaTest` affiche par défaut les requêtes SQL exécutées."
+    truth: true
+    answer: "Son attribut `showSql` vaut `true` : le SQL apparaît dans la sortie du test. `@DataJpaTest(showSql = false)` le fait taire."
+  - key: vf-dynamic-property-source
+    format: true-false
+    question: "Avec Spring Boot 4, `@DataJpaTest` garde une source de données déclarée par une méthode `@DynamicPropertySource` du test."
+    truth: true
+    answer: "Le mode par défaut, `NON_TEST`, ne remplace pas une source fournie par le test lui-même. Une propriété passée par `@DataJpaTest(properties = ...)` est, elle, remplacée par une base en mémoire."
+  - key: vf-doublon-des-save
+    format: true-false
+    question: "Dans un test `@DataJpaTest`, un doublon sur une colonne `unique` est refusé dès l'appel à `save`."
+    truth: false
+    answer: "Avec un identifiant tiré d'une séquence, l'`INSERT` attend le flush. `saveAndFlush` l'envoie tout de suite, et la base le refuse."
+  - key: qcm-persist-flush-find
+    format: multiple-choice
+    question: "Quelle méthode de `TestEntityManager` enregistre une entité, envoie l'`INSERT`, puis relit la ligne en base ?"
+    choices:
+      - {text: "`persistFlushFind`", correct: true}
+      - {text: "`persist`", correct: false}
+      - {text: "`merge`", correct: false}
+      - {text: "`find`", correct: false}
+    answer: "`persistFlushFind` enchaîne persist, flush, clear et find : l'objet rendu vient de la base. `persist` seul n'envoie rien tout de suite."
+  - key: qcm-tranche-sur-postgresql
+    format: multiple-choice
+    question: "Comment fais-tu tourner un `@DataJpaTest` sur le PostgreSQL d'un conteneur Testcontainers, plutôt que sur H2 ?"
+    choices:
+      - {text: "Je déclare le conteneur avec `@ServiceConnection` : la tranche garde sa source", correct: true}
+      - {text: "Je passe `spring.datasource.url` dans `@DataJpaTest(properties = ...)`", correct: false}
+      - {text: "Je retire H2 du classpath, sans rien changer d'autre au test", correct: false}
+      - {text: "J'ajoute `@SpringBootTest` sur la classe, à côté de `@DataJpaTest`", correct: false}
+    answer: "Une source fournie par le test (`@ServiceConnection`, `@DynamicPropertySource`) n'est pas remplacée. Une propriété ordinaire l'est, et deux tranches ne se combinent pas."
+  - key: qcm-exception-doublon
+    format: multiple-choice
+    question: "Quelle exception reçois-tu en enregistrant, avec `saveAndFlush`, un doublon sur une colonne `unique` ?"
+    choices:
+      - {text: "`DataIntegrityViolationException`", correct: true}
+      - {text: "`EntityNotFoundException`", correct: false}
+      - {text: "`OptimisticLockingFailureException`", correct: false}
+      - {text: "`NoSuchElementException`", correct: false}
+    answer: "Spring traduit l'erreur de la base en `DataIntegrityViolationException`, la même quelle que soit la base. Le verrou optimiste concerne `@Version`."
+  - key: qcm-pas-de-lazy-exception
+    format: multiple-choice
+    question: "Pourquoi un test `@DataJpaTest` ne déclenche-t-il pas la `LazyInitializationException` que rencontre la production ?"
+    choices:
+      - {text: "Le test tourne dans une transaction : la session reste ouverte", correct: true}
+      - {text: "H2 charge toutes les relations d'avance, contrairement à PostgreSQL", correct: false}
+      - {text: "La tranche désactive le chargement paresseux d'Hibernate", correct: false}
+      - {text: "`TestEntityManager` initialise toutes les collections lues", correct: false}
+    answer: "Tant que la transaction du test est ouverte, une relation paresseuse se charge à la demande. En production, hors transaction, elle échoue."
+  - key: trous-annotation-tranche-jpa
+    format: fill-in
+    question: |-
+      Complète pour ne démarrer que la couche JPA :
+      ```java
+      @___
+      class LivreRepositoryTest {
+
+          @Autowired
+          LivreRepository livres;
+      }
+      ```
+    blanks:
+      - [DataJpaTest]
+    answer: "`@DataJpaTest` démarre les entités, les repositories et une base, et annule chaque test."
+  - key: trous-save-and-flush
+    format: fill-in
+    question: |-
+      Complète pour que la base refuse le doublon pendant l'appel :
+      ```java
+      assertThatThrownBy(() -> livres.___(new Livre("9782070360024", "Copie", "Camus", 1942, true)))
+              .isInstanceOf(DataIntegrityViolationException.class);
+      ```
+    blanks:
+      - [saveAndFlush]
+    answer: "`saveAndFlush` envoie l'`INSERT` aussitôt. Avec `save`, il attendrait la fin de la transaction, annulée : le doublon ne serait jamais vu."
+  - key: trous-clear
+    format: fill-in
+    question: |-
+      Complète pour que la lecture passe par la base, et non par le cache d'Hibernate :
+      ```java
+      em.persist(livre);
+      em.flush();
+      em.___();
+      Livre relu = livres.findById(livre.getId()).orElseThrow();
+      ```
+    blanks:
+      - [clear]
+    answer: "`clear()` détache les entités en mémoire : `findById` exécute alors un `SELECT`, et le mapping est vraiment vérifié."
+  - key: trous-replace-none
+    format: fill-in
+    question: |-
+      Complète pour garder la source de données configurée, sans la remplacer par une base en mémoire :
+      ```java
+      @DataJpaTest
+      @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.___)
+      class LivreRepositoryTest {
+      }
+      ```
+    blanks:
+      - [NONE]
+    answer: "`Replace.NONE` ne remplace rien. Les autres valeurs sont `NON_TEST` (par défaut), `ANY` et `AUTO_CONFIGURED`."
+  - key: bug-doublon-sans-flush
+    format: bug-fix
+    question: |-
+      L'ISBN est `@Column(unique = true)`. Ce test échoue : « Expecting code to raise a throwable. » Quelle
+      correction est la bonne ?
+      ```java
+      @Test
+      void refuseDeuxLivresAvecLeMemeIsbn() {
+          livres.save(new Livre("9782070360024", "L'Étranger", "Camus", 1942, true));
+
+          assertThatThrownBy(() -> livres.save(new Livre("9782070360024", "Copie", "Camus", 1942, true)))
+                  .isInstanceOf(DataIntegrityViolationException.class);
+      }
+      ```
+    choices:
+      - {text: "Appeler `saveAndFlush` pour le second livre, à la place de `save`", correct: true}
+      - {text: "Annoter la méthode de test `@Rollback(false)`, pour valider la transaction", correct: false}
+      - {text: "Attendre une `ConstraintViolationException` de Jakarta Validation", correct: false}
+      - {text: "Remplacer `@Column(unique = true)` par `@NotBlank` sur l'ISBN", correct: false}
+    answer: |-
+      ```java
+      assertThatThrownBy(() -> livres.saveAndFlush(new Livre("9782070360024", "Copie", "Camus", 1942, true)))
+              .isInstanceOf(DataIntegrityViolationException.class);
+      ```
+      `save` rend l'entité persistante, mais l'`INSERT` attend le flush. Le test se termine avant, et la transaction
+      est annulée : la base n'a jamais vu le doublon.
+  - key: bug-modifying-perime
+    format: bug-fix
+    question: |-
+      Ce test échoue : « expected: 15 but was: 10 ». La mise à jour a pourtant bien eu lieu en base. Quelle
+      correction est la bonne ?
+      ```java
+      interface LivreRepository extends JpaRepository<Livre, Long> {
+          @Modifying
+          @Query("update Livre l set l.prix = l.prix + :hausse")
+          int augmenterPrix(int hausse);
+      }
+
+      @Test
+      void augmenteLesPrix() {
+          Livre livre = livres.save(new Livre("9782070360024", "L'Étranger", 10));
+          livres.augmenterPrix(5);
+          assertThat(livres.findById(livre.getId()).orElseThrow().getPrix()).isEqualTo(15);
+      }
+      ```
+    choices:
+      - {text: "Écrire `@Modifying(clearAutomatically = true)` sur la requête", correct: true}
+      - {text: "Ajouter `@Transactional(readOnly = true)` sur la méthode de test", correct: false}
+      - {text: "Remplacer `findById` par `getReferenceById` dans le test", correct: false}
+      - {text: "Appeler `livres.flush()` avant d'appeler `augmenterPrix`", correct: false}
+    answer: |-
+      ```java
+      @Modifying(clearAutomatically = true)
+      @Query("update Livre l set l.prix = l.prix + :hausse")
+      int augmenterPrix(int hausse);
+      ```
+      La requête écrit directement en base, sans toucher à l'objet déjà en mémoire : `findById` rend cet objet
+      périmé. `clearAutomatically` vide le contexte de persistance après la mise à jour, et la lecture suivante
+      repasse par la base.
+  - key: bug-service-hors-tranche
+    format: bug-fix
+    question: |-
+      Ce test ne démarre pas : « No qualifying bean of type 'librairie.CatalogueService' available ». Le test veut
+      exercer le vrai service sur les vrais repositories. Quelle correction est la bonne ?
+      ```java
+      @DataJpaTest
+      class CatalogueServiceTest {
+
+          @Autowired
+          CatalogueService catalogue;
+      }
+      ```
+    choices:
+      - {text: "Ajouter `@Import(CatalogueService.class)` sur la classe de test", correct: true}
+      - {text: "Ajouter `@EnableJpaRepositories` sur la classe de test", correct: false}
+      - {text: "Déclarer le champ avec `@MockitoBean` au lieu de `@Autowired`", correct: false}
+      - {text: "Remplacer `@Autowired` par `@Resource` sur le champ du service", correct: false}
+    answer: |-
+      ```java
+      @DataJpaTest
+      @Import(CatalogueService.class)
+      class CatalogueServiceTest {
+      ```
+      La tranche JPA ne crée pas les `@Service`. `@Import` ajoute ce bean précis, branché sur les repositories de
+      la tranche. Un `@MockitoBean` démarrerait, mais ne testerait plus le service.
+  - key: bug-transient-faux-positif
+    format: bug-fix
+    question: |-
+      Ce test passe, alors qu'en production le résumé revient toujours vide : le champ est `@Transient` par
+      erreur. Quelle correction du test le fait échouer, comme il le devrait ?
+      ```java
+      @Test
+      void enregistreLeResume() {
+          Fiche fiche = em.persist(new Fiche("Un roman de l'absurde", 10));
+
+          assertThat(fiches.findById(fiche.getId()).orElseThrow().getResume())
+                  .isEqualTo("Un roman de l'absurde");
+      }
+      ```
+    choices:
+      - {text: "Appeler `em.flush()` puis `em.clear()` avant le `findById`", correct: true}
+      - {text: "Remplacer `em.persist` par `fiches.save` dans le test", correct: false}
+      - {text: "Annoter la méthode de test `@Rollback(false)`", correct: false}
+      - {text: "Remplacer `findById` par `getReferenceById`", correct: false}
+    answer: |-
+      ```java
+      Fiche fiche = em.persist(new Fiche("Un roman de l'absurde", 10));
+      em.flush();
+      em.clear();
+      ```
+      Sans `clear()`, `findById` rend l'objet en mémoire, qui a encore son résumé : la base n'est jamais lue. Après
+      `clear()`, le `SELECT` revient sans le champ transitoire, le test échoue, et l'on peut retirer `@Transient`.

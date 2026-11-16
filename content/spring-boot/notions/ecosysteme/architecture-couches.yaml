@@ -1,0 +1,228 @@
+notion: architecture-couches
+lesson: |-
+  Une application Spring Boot s'organise d'abord en **trois couches**, chacune avec son rôle :
+
+  | Couche | Rôle | Exemples |
+  |---|---|---|
+  | Web | traduire HTTP : routes, DTO, validation, statuts | `@RestController` |
+  | Service | porter les règles métier et les transactions | `@Service`, `@Transactional` |
+  | Persistance | lire et écrire les données | `JpaRepository` |
+
+  Les dépendances **descendent** : le contrôleur appelle le service, le service appelle le repository, jamais
+  l'inverse. Le contrôleur ne connaît pas JPA ; le repository ne connaît pas HTTP.
+
+  ```java
+  @RestController
+  @RequestMapping("/api/commandes")
+  class CommandeController {
+      private final PasserCommande passerCommande;
+
+      CommandeController(PasserCommande passerCommande) {
+          this.passerCommande = passerCommande;
+      }
+
+      @PostMapping
+      ResponseEntity<CommandeDto> passer(@Valid @RequestBody NouvelleCommande requete) {
+          Commande commande = passerCommande.executer(requete.clientId(), requete.lignes());
+          return ResponseEntity.status(HttpStatus.CREATED).body(CommandeDto.depuis(commande));
+      }
+  }
+  ```
+
+  **Les règles qui tiennent l'ensemble.**
+
+  - **Des DTO aux frontières** : l'API expose des records faits pour elle, jamais les entités JPA. On fait évoluer la
+    base sans casser les clients, et l'on n'expose ni champs internes, ni relations paresseuses.
+  - **Les transactions sur le service** : un cas d'usage, une transaction.
+  - **Des services découpés par cas d'usage**, plutôt qu'un `CommandeService` de 2 000 lignes : chacun a ses seules
+    dépendances, et se teste seul.
+  - **Un découpage par fonctionnalité** (`commande/`, `client/`, `catalogue/`) plutôt que par couche technique
+    (`controllers/`, `services/`) : ce qui change ensemble vit ensemble, et la visibilité de package cache ce qui est
+    interne.
+
+  **L'architecture hexagonale** (ports et adaptateurs) va plus loin : le **domaine** est au centre, en Java pur, sans
+  Spring ni JPA. Il définit des **ports**, des interfaces :
+
+  - les ports **entrants** : ce que l'application offre, ses cas d'usage ;
+  - les ports **sortants** : ce dont elle a besoin, comme enregistrer une commande ou débiter un paiement.
+
+  Les **adaptateurs** branchent le monde extérieur sur ces ports : un contrôleur REST ou un écouteur Kafka **pilote**
+  le domaine ; un repository JPA ou un client HTTP **implémente** un port sortant.
+
+  ```java
+  // domaine : du Java pur
+  public interface Commandes {                      // port sortant
+      void enregistrer(Commande commande);
+      Optional<Commande> trouver(CommandeId id);
+  }
+
+  // infrastructure : l'adaptateur
+  @Repository
+  class CommandesJpa implements Commandes {
+      private final CommandeJpaRepository jpa;
+      // convertit Commande <-> CommandeEntity, puis délègue à Spring Data
+  }
+  ```
+
+  **Les dépendances pointent vers le domaine.** Le domaine ne connaît pas ses adaptateurs : on teste ses règles avec
+  une implémentation en mémoire des ports, sans base ni Spring, et l'on change de base ou de fournisseur en écrivant
+  un autre adaptateur. Le prix : plus de classes, et des conversions entre le modèle du domaine, les entités JPA et les
+  DTO.
+
+  **Choisir.** Un CRUD sans règle métier se contente des trois couches. Un domaine riche (des règles qui évoluent,
+  des calculs, des états) gagne à l'hexagonal. Dans les deux cas, ces règles se **vérifient** : ArchUnit écrit des
+  tests qui échouent si une classe du domaine importe JPA, ou si un contrôleur appelle un repository.
+
+  **En entretien** : « En couches, le contrôleur traduit HTTP, le service porte les règles et les transactions, le
+  repository les données, et l'API expose des DTO. L'hexagonal place un domaine pur au centre : il définit des ports,
+  que des adaptateurs implémentent, et les dépendances pointent vers lui. C'est plus de classes : je le réserve aux
+  domaines riches, et je fais vérifier les règles par ArchUnit. »
+cards:
+  - key: place-des-regles-metier
+    format: course
+    question: "Dans l'organisation contrôleur, service, repository, où places-tu les règles métier et les transactions ?"
+    choices:
+      - {text: "Dans le service, que le contrôleur appelle", correct: true}
+      - {text: "Dans le contrôleur, au plus près de la requête HTTP", correct: false}
+      - {text: "Dans le repository, au plus près de la base", correct: false}
+      - {text: "Dans l'entité JPA, annotée `@Transactional`", correct: false}
+    answer: "Le contrôleur traduit HTTP, le repository accède aux données ; le service porte les règles, et sa méthode publique délimite la transaction d'un cas d'usage."
+  - key: sens-des-dependances
+    format: course
+    question: "Dans une architecture hexagonale, dans quel sens vont les dépendances ?"
+    choices:
+      - {text: "Vers le domaine : les adaptateurs dépendent de lui, jamais l'inverse", correct: true}
+      - {text: "Vers l'infrastructure : le domaine dépend des adaptateurs JPA et REST", correct: false}
+      - {text: "Dans les deux sens, tant qu'aucun cycle n'apparaît entre deux classes", correct: false}
+      - {text: "Du contrôleur vers la base, en traversant chaque couche une fois", correct: false}
+    answer: "Le domaine définit les ports ; les adaptateurs les implémentent ou les appellent. Ainsi le domaine se teste sans infrastructure, et l'infrastructure se remplace sans le toucher."
+  - key: port-de-sortie
+    format: course
+    question: "Dans une architecture hexagonale, qu'est-ce qu'un port de sortie comme `Commandes` ?"
+    choices:
+      - {text: "Une interface définie par le domaine, implémentée par un adaptateur", correct: true}
+      - {text: "Une interface du domaine qui hérite de `JpaRepository`", correct: false}
+      - {text: "Un contrôleur REST qui reçoit les requêtes entrantes", correct: false}
+      - {text: "Un numéro de port TCP réservé à la base de données", correct: false}
+    answer: "Le domaine dit ce dont il a besoin (« enregistrer une commande ») sans dire comment. Un adaptateur JPA, ou une version en mémoire pour les tests, l'implémente."
+  - key: decoupage-par-fonctionnalite
+    format: course
+    question: "Quel avantage a un découpage en packages par fonctionnalité (`commande/`, `client/`) sur un découpage par couche (`controllers/`, `services/`) ?"
+    choices:
+      - {text: "Une fonctionnalité tient dans un package, et peut cacher ses classes internes", correct: true}
+      - {text: "Spring ne scanne que les packages qui portent le nom d'une fonctionnalité", correct: false}
+      - {text: "Il supprime le besoin de services, les contrôleurs appelant la base", correct: false}
+      - {text: "Il permet de compiler chaque package dans un jar séparé, sans Maven", correct: false}
+    answer: "Ce qui change ensemble vit ensemble. Les classes internes restent en visibilité de package : un autre package ne peut pas s'en servir par mégarde."
+  - key: vf-domaine-pur
+    format: true-false
+    question: "Dans une architecture hexagonale stricte, les classes du domaine n'importent ni JPA ni Spring."
+    truth: true
+    answer: "Le domaine est du Java pur : il se teste unitairement, sans contexte Spring ni base. JPA et Spring vivent dans les adaptateurs."
+  - key: vf-entites-dans-l-api
+    format: true-false
+    question: "Renvoyer directement les entités JPA depuis les contrôleurs est la pratique recommandée, pour éviter du code de conversion."
+    truth: false
+    answer: "L'API se figerait sur le schéma de la base, exposerait des champs internes, et risquerait des chargements paresseux à la sérialisation. On renvoie des DTO."
+  - key: vf-controleur-et-repository
+    format: true-false
+    question: "Spring refuse au démarrage un contrôleur qui injecte directement un repository."
+    truth: false
+    answer: "Spring injecte n'importe quel bean. Que le contrôleur passe par un service est une règle de conception, qu'un test ArchUnit peut faire respecter."
+  - key: vf-port-en-memoire
+    format: true-false
+    question: "Un port de sortie permet de tester le domaine avec une implémentation en mémoire, sans base de données."
+    truth: true
+    answer: "Le domaine ne dépend que de l'interface. Un test lui donne une version en mémoire, rapide et sans Spring ; l'adaptateur JPA se teste à part."
+  - key: qcm-adaptateur-entrant
+    format: multiple-choice
+    question: "Dans une architecture hexagonale, lequel est un adaptateur entrant, qui pilote le domaine ?"
+    choices:
+      - {text: "Un `@RestController` qui reçoit une requête et appelle un cas d'usage", correct: true}
+      - {text: "Un repository JPA qui enregistre les commandes en base", correct: false}
+      - {text: "Un client `RestClient` qui appelle le service de paiement", correct: false}
+      - {text: "Un producteur Kafka qui publie les événements du domaine", correct: false}
+    answer: "Les adaptateurs entrants (REST, écouteur de messages, tâche planifiée) déclenchent les cas d'usage. Les autres choix implémentent des ports sortants."
+  - key: qcm-verifier-les-regles
+    format: multiple-choice
+    question: "Quel outil vérifie, dans un test, qu'aucune classe du domaine ne dépend de l'infrastructure ?"
+    choices:
+      - {text: "ArchUnit", correct: true}
+      - {text: "Mockito", correct: false}
+      - {text: "Testcontainers", correct: false}
+      - {text: "JaCoCo", correct: false}
+    answer: "ArchUnit analyse le bytecode et fait échouer un test JUnit quand une règle de dépendance est enfreinte. Mockito simule des objets, Testcontainers lance des conteneurs, JaCoCo mesure la couverture."
+  - key: qcm-conversion-de-la-requete
+    format: multiple-choice
+    question: "Dans une architecture en couches, où convertis-tu le corps de la requête HTTP en objets du domaine ?"
+    choices:
+      - {text: "Dans la couche web, à l'entrée du contrôleur", correct: true}
+      - {text: "Dans le repository, juste avant l'enregistrement", correct: false}
+      - {text: "Dans l'entité JPA, par un constructeur dédié", correct: false}
+      - {text: "Dans la base, par une vue SQL", correct: false}
+    answer: "Le DTO de requête appartient à la couche web : le contrôleur le valide et le traduit, puis le service ne manipule que des objets du domaine."
+  - key: qcm-cout-de-l-hexagonal
+    format: multiple-choice
+    question: "Quel est le principal coût d'une architecture hexagonale ?"
+    choices:
+      - {text: "Plus de classes et de conversions entre modèles, lourdes pour un domaine simple", correct: true}
+      - {text: "Un démarrage de l'application nettement plus lent, à cause des interfaces", correct: false}
+      - {text: "L'impossibilité d'utiliser Spring Data JPA dans les adaptateurs", correct: false}
+      - {text: "L'obligation de découper l'application en microservices", correct: false}
+    answer: "Ports, adaptateurs, modèle du domaine, entités et DTO : chaque frontière demande une conversion. Pour un CRUD, ce coût dépasse le gain."
+  - key: situation-crud-de-categories
+    format: scenario
+    question: |-
+      Ton application expose un CRUD de catégories, sans aucune règle métier. Un collègue propose une architecture
+      hexagonale complète, avec ports et adaptateurs. Que réponds-tu ?
+    choices:
+      - {text: "Que trois couches simples suffisent : l'hexagonal se justifie par un domaine riche", correct: true}
+      - {text: "Que l'hexagonal est obligatoire dès que l'on utilise Spring Data JPA", correct: false}
+      - {text: "Qu'il faut un microservice par entité pour respecter l'hexagonal", correct: false}
+      - {text: "Qu'un CRUD doit écrire son SQL dans le contrôleur, sans service", correct: false}
+    answer: |-
+      Sans règle à protéger, les ports et les conversions n'apportent que des classes. On garde contrôleur, service et
+      repository, avec des DTO ; on passera à l'hexagonal si un vrai domaine apparaît.
+  - key: situation-service-geant
+    format: scenario
+    question: |-
+      Ton `CommandeService` fait 2 000 lignes et dépend de quinze beans ; chaque test doit en simuler la moitié. Que
+      proposes-tu ?
+    choices:
+      - {text: "Le découper par cas d'usage, chacun avec ses seules dépendances", correct: true}
+      - {text: "Le rendre `@Lazy`, pour ne créer ses dépendances qu'à l'usage", correct: false}
+      - {text: "Déplacer sa logique dans le contrôleur, qui est plus court", correct: false}
+      - {text: "Passer ses dépendances en injection par champ, plus lisible", correct: false}
+    answer: |-
+      `PasserCommande`, `AnnulerCommande`, `ExpedierCommande` : chaque classe a une raison de changer et deux ou
+      trois dépendances, et ses tests restent courts. `@Lazy` ou l'injection par champ cacheraient le problème sans le
+      régler.
+  - key: situation-clients-externes
+    format: scenario
+    question: |-
+      Le métier veut stocker les clients dans un service externe au lieu de PostgreSQL. Ton code métier appelle
+      directement `ClientJpaRepository` partout. Que proposes-tu ?
+    choices:
+      - {text: "Un port `Clients` dans le domaine, avec un adaptateur JPA puis un adaptateur HTTP", correct: true}
+      - {text: "Garder `ClientJpaRepository` et changer l'URL de la source de données", correct: false}
+      - {text: "Copier chaque minute les clients du service externe dans PostgreSQL", correct: false}
+      - {text: "Appeler le service externe depuis le constructeur de l'entité `Client`", correct: false}
+    answer: |-
+      Le domaine dépend d'une interface qu'il définit. On écrit d'abord l'adaptateur JPA (rien ne change), puis
+      l'adaptateur HTTP ; le basculement ne touche plus au code métier. Une source de données JDBC ne peut pas
+      pointer vers une API REST.
+  - key: situation-entite-serialisee
+    format: scenario
+    question: |-
+      Ton API, configurée avec `spring.jpa.open-in-view=false`, renvoie l'entité `Commande`. Une
+      `LazyInitializationException` survient à la sérialisation, et des champs internes apparaissent dans le JSON. Que
+      proposes-tu ?
+    choices:
+      - {text: "Un DTO construit dans la transaction du service, avec les seuls champs utiles", correct: true}
+      - {text: "Réactiver `open-in-view`, et annoter les champs internes avec `@JsonIgnore`", correct: false}
+      - {text: "Passer toutes les relations de l'entité en `FetchType.EAGER`", correct: false}
+      - {text: "Attraper l'exception dans le contrôleur et renvoyer un corps vide", correct: false}
+    answer: |-
+      Le DTO est rempli pendant que la session est ouverte, et ne contient que ce que l'API promet : plus de
+      chargement paresseux à la sérialisation, plus de fuite. `EAGER` ou `open-in-view` déplacent le problème vers des
+      requêtes en trop.

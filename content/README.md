@@ -17,7 +17,7 @@ attendu, les règles d'une bonne question, et la procédure de publication.
 
 ## 1. Le fichier
 
-`source/<slug>-entretien-reference.md`, par exemple `source/spring-boot-entretien-reference.md`.
+`source/<slug>-entretien-reference.md`, par exemple `source/docker-entretien-reference.md`.
 
 Le nom du fichier doit correspondre au `subject` de l'en-tête : la CI le vérifie.
 
@@ -191,7 +191,7 @@ signale une renumérotation.
    curl -X POST "$API/api/v1/admin/content-imports" \
      -H "Authorization: Bearer $ADMIN_TOKEN" \
      -H "Content-Type: text/markdown; charset=UTF-8" \
-     --data-binary @content/source/spring-boot-entretien-reference.md
+     --data-binary @content/source/docker-entretien-reference.md
    ```
 
    La réponse est le rapport d'import (cartes ajoutées, modifiées, retirées, anomalies).

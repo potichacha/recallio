@@ -1,0 +1,413 @@
+notion: async
+lesson: |-
+  `@Async` exécute une méthode **dans un autre thread** : l'appelant rend la main aussitôt, sans attendre la fin. On
+  s'en sert pour un travail qui n'a pas à retarder la réponse : envoyer un e-mail, générer un PDF, prévenir un
+  partenaire.
+
+  **Activer.** `@EnableAsync` sur une classe de configuration, puis `@Async` sur une méthode **publique** d'un
+  **bean** :
+
+  ```java
+  @SpringBootApplication
+  @EnableAsync
+  public class BoutiqueApplication { }
+
+  @Service
+  public class Mailer {
+      @Async
+      public void envoyerBienvenue(Client client) {
+          smtp.envoyer(client.email(), "Bienvenue");
+      }
+  }
+  ```
+
+  **Comment ça marche.** Spring enveloppe le bean dans un **proxy**. Quand un autre bean appelle
+  `mailer.envoyerBienvenue(...)`, le proxy confie l'appel à un **exécuteur** (un pool de threads) et rend la main.
+  D'où les pièges de tout proxy :
+
+  | Cas | Résultat |
+  |---|---|
+  | sans `@EnableAsync` | la méthode s'exécute dans le thread de l'appelant |
+  | appel par `this` (auto-invocation) | aucun proxy traversé : exécution synchrone |
+  | méthode `private` | le proxy ne peut pas l'intercepter : exécution synchrone |
+  | objet créé par `new` | pas un bean, donc pas de proxy : exécution synchrone |
+
+  Aucun de ces cas ne lève d'erreur : le code marche, simplement sans asynchronisme.
+
+  **Ce qu'elle renvoie.** `void`, ou un `Future`, en pratique un `CompletableFuture` :
+
+  ```java
+  @Async
+  public CompletableFuture<Facture> generer(long commandeId) {
+      return CompletableFuture.completedFuture(fabrique.pour(commandeId));
+  }
+  ```
+
+  L'appelant reçoit le `CompletableFuture` tout de suite, puis le compose (`thenApply`, `allOf`) ou l'attend
+  (`join`). Avec Spring Framework 7, un autre type de retour lève une `IllegalArgumentException` à l'appel :
+  « Invalid return type for async method (only Future and void supported) ».
+
+  **Les exceptions.** Avec un `CompletableFuture`, l'exception le termine en échec : l'appelant la voit avec
+  `exceptionally` ou `join`. Avec `void`, **l'appelant n'en sait rien** : elle est confiée à un
+  `AsyncUncaughtExceptionHandler`, qui par défaut se contente de la journaliser (« Unexpected exception occurred
+  invoking async method »). On en fournit un autre en implémentant `AsyncConfigurer`.
+
+  **L'exécuteur.** Spring Boot auto-configure `applicationTaskExecutor`, un `ThreadPoolTaskExecutor` de **8 threads**
+  nommés `task-1`, `task-2`..., avec une **file d'attente sans limite**. On le règle par des propriétés :
+
+  ```properties
+  spring.task.execution.pool.core-size=8
+  spring.task.execution.pool.max-size=16
+  spring.task.execution.pool.queue-capacity=500
+  spring.task.execution.thread-name-prefix=envoi-
+  ```
+
+  `max-size` ne sert que si la file est bornée : le pool ne grandit qu'une fois la file pleine. Quand la file et le
+  pool sont pleins, la tâche est refusée (`TaskRejectedException`). Avec `spring.threads.virtual.enabled=true`, Boot
+  prend un `SimpleAsyncTaskExecutor` sur des **threads virtuels**. Sans Spring Boot ni exécuteur déclaré, Spring crée
+  un thread par appel. `@Async("rapportsExecutor")` choisit un exécuteur précis, par son nom de bean.
+
+  **Ce qui ne suit pas le thread.** Ce qui vit dans un `ThreadLocal` reste dans le thread de l'appelant : la
+  **transaction** (la méthode `@Async` n'y participe pas), le `SecurityContext`, le MDC des journaux. Un
+  `TaskDecorator` recopie ce qu'il faut dans le thread de l'exécuteur.
+
+  **En entretien** : « `@Async` passe par un proxy qui confie l'appel à un exécuteur : il faut `@EnableAsync`, une
+  méthode publique appelée depuis un autre bean, et un retour `void` ou `CompletableFuture`. L'exécuteur de Spring
+  Boot a 8 threads et une file sans limite, à borner en production. La transaction, le contexte de sécurité et le MDC
+  ne suivent pas dans le nouveau thread. »
+cards:
+  - key: role-du-proxy-async
+    format: course
+    question: "Que fait le proxy de Spring quand un bean appelle la méthode `@Async` d'un autre bean ?"
+    choices:
+      - {text: "Il confie l'appel à un exécuteur, et rend la main aussitôt à l'appelant", correct: true}
+      - {text: "Il exécute l'appel dans le même thread, mais après la fin de la requête", correct: false}
+      - {text: "Il range l'appel en base, pour le rejouer au prochain démarrage", correct: false}
+      - {text: "Il découpe l'appel pour l'exécuter sur tous les cœurs disponibles", correct: false}
+    answer: "Le proxy soumet l'appel à un pool de threads, puis rend `null` ou un `CompletableFuture` pas encore terminé. La méthode s'exécute plus tard, dans un thread de l'exécuteur."
+  - key: retours-acceptes
+    format: course
+    question: "Quels types de retour une méthode `@Async` accepte-t-elle avec Spring Framework 7 ?"
+    choices:
+      - {text: "`void`, ou un `Future` comme `CompletableFuture`", correct: true}
+      - {text: "N'importe quel type, rendu à l'appelant une fois prêt", correct: false}
+      - {text: "`void` seulement : toute valeur de retour est refusée", correct: false}
+      - {text: "Un `Optional`, vide tant que le calcul n'est pas fini", correct: false}
+    answer: "Un autre type lève une `IllegalArgumentException` à l'appel : « Invalid return type for async method (only Future and void supported) ». Le résultat ne peut pas exister au moment où la méthode rend la main."
+  - key: executeur-de-boot
+    format: course
+    question: "Sur quel exécuteur Spring Boot fait-il tourner les méthodes `@Async`, sans configuration ?"
+    choices:
+      - {text: "Un `ThreadPoolTaskExecutor` de 8 threads, nommés `task-1`, `task-2`...", correct: true}
+      - {text: "Le `ForkJoinPool.commonPool()` de la JVM, partagé avec les flux parallèles", correct: false}
+      - {text: "Un thread neuf pour chaque appel, détruit à la fin de la méthode", correct: false}
+      - {text: "Le thread de Tomcat qui a reçu la requête HTTP en cours de traitement", correct: false}
+    answer: "Le bean `applicationTaskExecutor` : 8 threads et une file d'attente sans limite. Avec les threads virtuels activés, Boot prend un `SimpleAsyncTaskExecutor` sur des threads virtuels."
+  - key: exception-dans-un-void
+    format: course
+    question: "Que devient une exception levée dans une méthode `@Async` qui renvoie `void` ?"
+    choices:
+      - {text: "Elle est journalisée par un `AsyncUncaughtExceptionHandler`, sans que l'appelant le sache", correct: true}
+      - {text: "Elle remonte chez l'appelant, à la ligne qui a fait l'appel", correct: false}
+      - {text: "Elle arrête l'application, comme une exception non rattrapée dans `main`", correct: false}
+      - {text: "Elle est gardée en mémoire, puis relevée au prochain appel de la méthode", correct: false}
+    answer: "L'appelant a déjà repris son chemin. Pour réagir à l'échec, la méthode renvoie un `CompletableFuture`, que l'appelant traite avec `exceptionally`."
+  - key: vf-sans-enable-async
+    format: true-false
+    question: "Sans `@EnableAsync`, une méthode annotée `@Async` s'exécute dans le thread de l'appelant."
+    truth: true
+    answer: "Aucun proxy n'est créé : l'annotation est ignorée, sans erreur. L'appel est synchrone."
+  - key: vf-methode-privee-async
+    format: true-false
+    question: "Une méthode `private` annotée `@Async` s'exécute dans un autre thread, comme une méthode publique."
+    truth: false
+    answer: "Le proxy ne peut pas intercepter une méthode privée : elle s'exécute dans le thread de l'appelant. Elle n'est d'ailleurs appelable que par `this`, ce qui contourne le proxy de toute façon."
+  - key: vf-transaction-non-partagee
+    format: true-false
+    question: "Une méthode `@Async` appelée depuis une méthode `@Transactional` participe à la transaction de l'appelant."
+    truth: false
+    answer: "La transaction est liée au thread qui l'a ouverte. La méthode `@Async` tourne dans un autre thread : elle n'a pas de transaction, ou ouvre la sienne si elle est elle-même `@Transactional`."
+  - key: vf-threads-virtuels-async
+    format: true-false
+    question: "Avec `spring.threads.virtual.enabled=true`, Spring Boot exécute les méthodes `@Async` sur des threads virtuels."
+    truth: true
+    answer: "Boot remplace alors `applicationTaskExecutor` par un `SimpleAsyncTaskExecutor` qui crée un thread virtuel par tâche."
+  - key: qcm-executeur-nomme
+    format: multiple-choice
+    question: "Comment fais-tu tourner une méthode `@Async` sur l'exécuteur déclaré sous le nom `mailExecutor` ?"
+    choices:
+      - {text: "`@Async(\"mailExecutor\")`", correct: true}
+      - {text: "`@Async(executor = MailExecutor.class)`", correct: false}
+      - {text: "`@Qualifier(\"mailExecutor\")` sur la méthode", correct: false}
+      - {text: "`@EnableAsync(\"mailExecutor\")` sur la configuration", correct: false}
+    answer: "La valeur de `@Async` est le nom (le qualificatif) du bean exécuteur. Isoler les mails dans leur pool évite qu'ils occupent les threads des autres tâches."
+  - key: qcm-propriete-core-size
+    format: multiple-choice
+    question: "Quelle propriété fixe le nombre de threads permanents de l'exécuteur `@Async` de Spring Boot ?"
+    choices:
+      - {text: "`spring.task.execution.pool.core-size`", correct: true}
+      - {text: "`spring.task.scheduling.pool.size`", correct: false}
+      - {text: "`spring.threads.virtual.enabled`", correct: false}
+      - {text: "`server.tomcat.threads.max`", correct: false}
+    answer: "`spring.task.execution.*` règle l'exécuteur de `@Async` ; `spring.task.scheduling.*` celui de `@Scheduled`, et `server.tomcat.threads.max` les threads qui servent les requêtes."
+  - key: qcm-attendre-deux-futurs
+    format: multiple-choice
+    question: "Un contrôleur lance deux appels `@Async` qui renvoient chacun un `CompletableFuture<Prix>`, `a` et `b`. Comment attend-il les deux avant de répondre ?"
+    choices:
+      - {text: "`CompletableFuture.allOf(a, b).join()`", correct: true}
+      - {text: "`CompletableFuture.anyOf(a, b).join()`", correct: false}
+      - {text: "`a.thenRun(() -> b.cancel(true))`", correct: false}
+      - {text: "`a.complete(null); b.complete(null);`", correct: false}
+    answer: "`allOf` se termine quand les deux sont terminés ; `join` attend. `anyOf` n'attendrait que le premier, et `complete` forcerait un résultat sans attendre le calcul."
+  - key: qcm-mdc-absent
+    format: multiple-choice
+    question: "Pourquoi le `SecurityContext` et le MDC des journaux manquent-ils dans une méthode `@Async` ?"
+    choices:
+      - {text: "Ils vivent dans des `ThreadLocal`, que le thread de l'exécuteur n'a pas", correct: true}
+      - {text: "Spring les efface avant chaque appel, pour des raisons de sécurité", correct: false}
+      - {text: "Ils ne sont remplis que dans les méthodes annotées `@Transactional`", correct: false}
+      - {text: "Le proxy les sérialise, et la désérialisation échoue en silence", correct: false}
+    answer: "Un `ThreadLocal` appartient à un thread. Un `TaskDecorator` sur l'exécuteur recopie ces valeurs du thread appelant vers celui qui exécute la tâche."
+  - key: trous-enable-async
+    format: fill-in
+    question: |-
+      Complète pour que les méthodes `@Async` de l'application s'exécutent dans un autre thread :
+      ```java
+      @Configuration
+      @___
+      class AsyncConfig { }
+      ```
+    blanks:
+      - [EnableAsync]
+    answer: "`@EnableAsync` crée les proxys qui confient les appels `@Async` à l'exécuteur."
+  - key: trous-type-futur
+    format: fill-in
+    question: |-
+      Complète le type de retour, pour que l'appelant puisse attendre la facture :
+      ```java
+      @Async
+      public ___<Facture> generer(long commandeId) {
+          return CompletableFuture.completedFuture(fabrique.pour(commandeId));
+      }
+      ```
+    blanks:
+      - [CompletableFuture, Future]
+    answer: "`CompletableFuture<Facture>` : l'appelant le reçoit aussitôt, puis le compose ou l'attend avec `join`."
+  - key: trous-completed-future
+    format: fill-in
+    question: |-
+      Complète pour renvoyer le chemin du rapport depuis une méthode `@Async` :
+      ```java
+      @Async
+      public CompletableFuture<Path> exporter(Periode periode) {
+          Path rapport = exporteur.ecrire(periode);
+          return CompletableFuture.___(rapport);
+      }
+      ```
+    blanks:
+      - [completedFuture]
+    answer: "`completedFuture` emballe la valeur ; le proxy de Spring la transmet au `CompletableFuture` que l'appelant a reçu."
+  - key: trous-prefixe-threads
+    format: fill-in
+    question: |-
+      Complète pour que les threads de l'exécuteur `@Async` de Spring Boot s'appellent `envoi-1`, `envoi-2`... :
+      ```properties
+      spring.task.execution.___=envoi-
+      ```
+    blanks:
+      - [thread-name-prefix]
+    answer: "`spring.task.execution.thread-name-prefix` : par défaut `task-`. Un nom parlant aide à lire les journaux et les vidages de threads."
+  - key: bug-appel-par-this
+    format: bug-fix
+    question: |-
+      L'inscription attend la fin de l'envoi du mail : les journaux montrent que le mail part dans le thread de la
+      requête HTTP, alors que `@EnableAsync` est présent. Quelle correction est la bonne ?
+      ```java
+      @Service
+      public class InscriptionService {
+          public void inscrire(Client client) {
+              clients.save(client);
+              envoyerBienvenue(client);
+          }
+
+          @Async
+          public void envoyerBienvenue(Client client) {
+              mailer.envoyer(client.email(), "Bienvenue");
+          }
+      }
+      ```
+    choices:
+      - {text: "Déplacer `envoyerBienvenue` dans un autre bean, injecté dans le service", correct: true}
+      - {text: "Rendre `envoyerBienvenue` `private`, pour que le proxy la remarque", correct: false}
+      - {text: "Ajouter `@Transactional` sur la méthode `inscrire` du service", correct: false}
+      - {text: "Écrire `@Async(\"applicationTaskExecutor\")` sur `envoyerBienvenue`", correct: false}
+    answer: |-
+      ```java
+      @Service
+      public class InscriptionService {
+          private final MailBienvenue mailBienvenue;   // un autre bean, qui porte la méthode @Async
+
+          public void inscrire(Client client) {
+              clients.save(client);
+              mailBienvenue.envoyer(client);
+          }
+      }
+      ```
+      `envoyerBienvenue(client)` est un appel par `this` : il ne traverse pas le proxy, et `@Async` est ignoré. Appelée
+      depuis un autre bean, la méthode passe par le proxy, qui la confie à l'exécuteur.
+  - key: bug-retour-string
+    format: bug-fix
+    question: |-
+      L'appel lève `IllegalArgumentException: Invalid return type for async method (only Future and void supported):
+      class java.lang.String`. Quelle correction est la bonne ?
+      ```java
+      @Async
+      public String genererRapport(long id) {
+          return exporteur.ecrire(id);
+      }
+
+      // dans le contrôleur
+      String chemin = rapports.genererRapport(42);
+      ```
+    choices:
+      - {text: "Renvoyer `CompletableFuture<String>`, construit par `completedFuture`", correct: true}
+      - {text: "Renvoyer `Optional<String>`, construit par `Optional.of(chemin)`", correct: false}
+      - {text: "Retirer le mot-clé `public` de la méthode `genererRapport`", correct: false}
+      - {text: "Déclarer la méthode `synchronized`, pour attendre son résultat", correct: false}
+    answer: |-
+      ```java
+      @Async
+      public CompletableFuture<String> genererRapport(long id) {
+          return CompletableFuture.completedFuture(exporteur.ecrire(id));
+      }
+
+      // dans le contrôleur
+      String chemin = rapports.genererRapport(42).join();
+      ```
+      Quand le proxy rend la main, le rapport n'est pas encore écrit : il ne peut rendre qu'une promesse. Spring
+      Framework 7 refuse donc tout autre type que `void` et `Future`.
+  - key: bug-exception-perdue
+    format: bug-fix
+    question: |-
+      Quand le serveur SMTP est en panne, `alertes.signaler` n'est jamais appelé. Les journaux montrent seulement
+      « Unexpected exception occurred invoking async method ». Quelle correction est la bonne ?
+      ```java
+      // dans MailService
+      @Async
+      public void envoyerBienvenue(Client client) {
+          smtp.envoyer(client.email(), "Bienvenue");   // lève MailException
+      }
+
+      // dans InscriptionService
+      try {
+          mails.envoyerBienvenue(client);
+      } catch (MailException e) {
+          alertes.signaler(client, e);
+      }
+      ```
+    choices:
+      - {text: "Renvoyer `CompletableFuture<Void>`, et réagir à l'échec avec `exceptionally`", correct: true}
+      - {text: "Déclarer `throws MailException` sur la méthode `envoyerBienvenue`", correct: false}
+      - {text: "Remplacer `catch (MailException e)` par `catch (Exception e)`", correct: false}
+      - {text: "Annoter la méthode `envoyerBienvenue` avec `@Transactional`", correct: false}
+    answer: |-
+      ```java
+      @Async
+      public CompletableFuture<Void> envoyerBienvenue(Client client) {
+          smtp.envoyer(client.email(), "Bienvenue");
+          return CompletableFuture.completedFuture(null);
+      }
+
+      mails.envoyerBienvenue(client)
+              .exceptionally(e -> { alertes.signaler(client, e); return null; });
+      ```
+      L'appel rend la main avant l'envoi : le `try` est déjà terminé quand l'exception survient. Avec `void`, elle va
+      à l'`AsyncUncaughtExceptionHandler`, qui la journalise. Un `CompletableFuture` porte l'échec jusqu'à l'appelant.
+  - key: bug-mailer-cree-par-new
+    format: bug-fix
+    question: |-
+      `@EnableAsync` est présent, mais l'inscription attend la fin de l'envoi : le mail part dans le thread de la
+      requête. Quelle correction est la bonne ?
+      ```java
+      @RestController
+      class InscriptionController {
+          private final Mailer mailer = new Mailer();
+
+          @PostMapping("/inscriptions")
+          void inscrire(@RequestBody Client client) {
+              mailer.envoyerBienvenue(client);   // méthode @Async
+          }
+      }
+      ```
+    choices:
+      - {text: "Injecter le bean `Mailer` par le constructeur, au lieu de `new Mailer()`", correct: true}
+      - {text: "Déclarer le champ `mailer` en `static`, pour qu'il soit partagé", correct: false}
+      - {text: "Ajouter `@EnableAsync` sur la classe `InscriptionController`", correct: false}
+      - {text: "Rendre la méthode `envoyerBienvenue` de `Mailer` `synchronized`", correct: false}
+    answer: |-
+      ```java
+      @RestController
+      class InscriptionController {
+          private final Mailer mailer;
+
+          InscriptionController(Mailer mailer) {
+              this.mailer = mailer;
+          }
+      ```
+      Un objet créé par `new` n'est pas un bean : Spring ne l'a pas enveloppé dans un proxy, et `@Async` reste une
+      annotation sans effet. Le bean injecté, lui, est le proxy qui confie l'appel à l'exécuteur.
+  - key: situation-file-qui-gonfle
+    format: scenario
+    question: |-
+      Pendant les pics de trafic, la mémoire de ton service grimpe : des dizaines de milliers d'envois `@Async`
+      attendent dans l'exécuteur par défaut de Spring Boot. Que proposes-tu ?
+    choices:
+      - {text: "Borner la file avec `queue-capacity`, et décider du sort des tâches refusées", correct: true}
+      - {text: "Passer `core-size` à 10 000, pour vider la file d'attente plus vite", correct: false}
+      - {text: "Remplacer `@Async` par `@Scheduled(fixedRate = 1)` sur la méthode", correct: false}
+      - {text: "Ajouter `@Transactional` sur les méthodes `@Async`, pour les grouper", correct: false}
+    answer: |-
+      La file de l'exécuteur de Boot est sans limite : elle absorbe tout, jusqu'à saturer la mémoire. Bornée, elle
+      refuse les tâches en trop (`TaskRejectedException`) : à toi de les rejeter proprement, de ralentir l'appelant,
+      ou de passer par un vrai système de messages. Dix mille threads épuiseraient la machine autrement.
+  - key: situation-deux-appels-lents
+    format: scenario
+    question: |-
+      Ton endpoint appelle deux services externes lents, 300 ms chacun, l'un après l'autre. Un collègue propose
+      `@Async` pour accélérer. Comment t'y prends-tu ?
+    choices:
+      - {text: "Deux méthodes `@Async` qui renvoient un `CompletableFuture`, attendues avec `allOf`", correct: true}
+      - {text: "Deux méthodes `@Async void`, dont les résultats arrivent dans un champ partagé", correct: false}
+      - {text: "`@Async` sur la méthode du contrôleur, pour libérer le thread de Tomcat", correct: false}
+      - {text: "Un `@Async` sur chaque service, appelés depuis la même classe par `this`", correct: false}
+    answer: |-
+      Les deux appels partent en parallèle, et l'endpoint attend les deux résultats : 300 ms au lieu de 600. Un champ
+      partagé crée une course aux données, et l'appel par `this` contourne le proxy.
+  - key: situation-mail-avant-commit
+    format: scenario
+    question: |-
+      Une méthode `@Transactional` enregistre une commande, puis appelle un envoi de mail `@Async`. Parfois, le mail
+      de confirmation part alors que la transaction échoue ensuite. Que proposes-tu ?
+    choices:
+      - {text: "Publier un événement, traité par `@TransactionalEventListener` après le commit", correct: true}
+      - {text: "Annoter l'envoi avec `@Transactional(propagation = REQUIRES_NEW)`", correct: false}
+      - {text: "Appeler `Thread.sleep` dans l'envoi, le temps que la transaction finisse", correct: false}
+      - {text: "Retirer `@Async`, pour que le mail parte dans la même transaction", correct: false}
+    answer: |-
+      Un écouteur `@TransactionalEventListener` (phase `AFTER_COMMIT` par défaut) ne s'exécute que si la transaction
+      a réussi ; avec `@Async` en plus, l'envoi ne retarde pas la réponse. Un mail ne se « rollback » pas : le retirer
+      de `@Async` l'enverrait toujours avant le commit.
+  - key: situation-mdc-perdu
+    format: scenario
+    question: |-
+      Dans les journaux, les lignes écrites par tes méthodes `@Async` n'ont plus l'identifiant de requête que le MDC
+      ajoute partout ailleurs. Que proposes-tu ?
+    choices:
+      - {text: "Un `TaskDecorator` qui recopie le MDC dans le thread de l'exécuteur", correct: true}
+      - {text: "Réduire l'exécuteur à un seul thread, pour garder le même contexte", correct: false}
+      - {text: "Déclarer le MDC `static`, pour qu'il soit partagé par tous les threads", correct: false}
+      - {text: "Remplacer `@Async` par `@EventListener` sur la même méthode", correct: false}
+    answer: |-
+      Le MDC est un `ThreadLocal` : le thread de l'exécuteur ne l'a pas. Un `TaskDecorator` lit le MDC dans le thread
+      appelant, le pose dans le thread de la tâche, puis le nettoie à la fin. Un seul thread ne partagerait toujours
+      pas le `ThreadLocal` de l'appelant.

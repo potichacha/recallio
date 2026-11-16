@@ -1,0 +1,188 @@
+notion: csrf
+lesson: |-
+  **CSRF** (Cross-Site Request Forgery) exploite un réflexe du navigateur : il **joint d'office les cookies** d'un site
+  à toute requête vers ce site, même lancée depuis un autre. Une victime connectée à sa banque visite une page piégée,
+  qui soumet en secret un formulaire `POST https://banque.exemple.fr/virements` : le navigateur ajoute le cookie de
+  session, et le virement part au nom de la victime. L'attaquant ne lit jamais la réponse ; il lui suffit que la
+  requête soit exécutée.
+
+  **La parade : un jeton.** Le serveur remet à la page un **jeton imprévisible**, que chaque requête qui modifie doit
+  renvoyer (champ caché ou en-tête). Un site tiers ne peut pas le lire, donc pas le fournir. Les cookies
+  **`SameSite=Lax`** ou `Strict` ajoutent une seconde barrière : le cookie ne part plus avec un `POST` venu d'un autre
+  site.
+
+  **Dans Spring Security**, la protection est **active par défaut**. Le `CsrfFilter` vérifie le jeton des requêtes qui
+  modifient (`POST`, `PUT`, `PATCH`, `DELETE`) et ignore `GET`, `HEAD`, `OPTIONS` et `TRACE`, qui ne doivent rien
+  modifier. Sans jeton valide : **403**.
+
+  - Un formulaire Thymeleaf reçoit d'office un champ caché `_csrf`.
+  - Une application monopage authentifiée par cookie de session lit le jeton dans le cookie `XSRF-TOKEN`, posé par
+    `CookieCsrfTokenRepository.withHttpOnlyFalse()`, et le renvoie dans l'en-tête `X-XSRF-TOKEN`.
+
+  **Quand le désactiver ?** Le risque naît de l'envoi automatique d'un justificatif. Une API **sans état**, appelée
+  avec un jeton dans l'en-tête `Authorization` (que le navigateur n'ajoute jamais de lui-même), n'y est pas exposée :
+
+  ```java
+  http.csrf(csrf -> csrf.disable());
+  ```
+
+  On le **garde** dès que l'authentification repose sur un **cookie** : session `JSESSIONID`, ou JWT rangé dans un
+  cookie.
+
+  | Authentification | CSRF |
+  |---|---|
+  | cookie de session, formulaire | à garder |
+  | JWT dans un cookie | à garder (ou cookie `SameSite=Strict`) |
+  | jeton dans l'en-tête `Authorization` | désactivable |
+
+  **Ce que CSRF ne couvre pas.** Une requête `GET` qui modifie (`GET /comptes/42/supprimer`) échappe au filtre : une
+  simple balise image sur un autre site la déclenche. Les `GET` ne modifient rien. Et le CSRF n'a rien à voir avec le
+  XSS : un script injecté dans la page lit le jeton lui-même.
+
+  **En entretien** : « Le CSRF fait exécuter une requête par le navigateur d'une victime, qui joint ses cookies. Spring
+  Security l'empêche par un jeton exigé sur les requêtes qui modifient, actif par défaut. Je le désactive seulement pour
+  une API sans état authentifiée par un en-tête `Authorization` ; avec un cookie, je le garde, avec `SameSite`. »
+cards:
+  - key: ressort-de-l-attaque
+    format: course
+    question: "Sur quoi repose une attaque CSRF ?"
+    choices:
+      - {text: "Le navigateur joint d'office les cookies à une requête forgée ailleurs", correct: true}
+      - {text: "L'attaquant vole le mot de passe de la victime dans la base", correct: false}
+      - {text: "L'attaquant injecte du JavaScript dans une page du site", correct: false}
+      - {text: "L'attaquant intercepte le trafic entre le client et le serveur", correct: false}
+    answer: "La requête vient d'un autre site, mais porte la session de la victime. Injecter du JavaScript, c'est le XSS ; intercepter le trafic, une attaque de l'homme du milieu."
+  - key: verbes-verifies
+    format: course
+    question: "Quelles requêtes le filtre CSRF de Spring Security vérifie-t-il par défaut ?"
+    choices:
+      - {text: "Celles qui modifient : `POST`, `PUT`, `PATCH`, `DELETE`", correct: true}
+      - {text: "Toutes, `GET` et `OPTIONS` compris", correct: false}
+      - {text: "Seulement les `GET` qui ont des paramètres", correct: false}
+      - {text: "Seulement les requêtes venues d'une autre origine", correct: false}
+    answer: "`GET`, `HEAD`, `OPTIONS` et `TRACE` sont censées ne rien modifier : le filtre les laisse passer. D'où la règle : jamais de modification par un `GET`."
+  - key: quand-desactiver
+    format: course
+    question: "Quand peut-on désactiver la protection CSRF sans risque ?"
+    choices:
+      - {text: "Quand l'API s'authentifie par un jeton dans l'en-tête `Authorization`, sans cookie", correct: true}
+      - {text: "Quand l'application utilise une session et un formulaire de connexion", correct: false}
+      - {text: "Quand le site est servi en HTTPS", correct: false}
+      - {text: "Quand le front et l'API partagent la même origine", correct: false}
+    answer: "Le navigateur n'ajoute jamais un en-tête `Authorization` de lui-même : une requête forgée arrive sans justificatif. HTTPS et la même origine n'y changent rien."
+  - key: symptome-du-jeton-absent
+    format: course
+    question: "Que reçoit un `POST` sans jeton CSRF quand la protection est active ?"
+    choices:
+      - {text: "403 Forbidden", correct: true}
+      - {text: "401 Unauthorized", correct: false}
+      - {text: "400 Bad Request", correct: false}
+      - {text: "419 Page Expired", correct: false}
+    answer: "Le `CsrfFilter` refuse la requête par une `AccessDeniedException`, donc 403, même pour un utilisateur authentifié."
+  - key: vf-https
+    format: true-false
+    question: "HTTPS protège à lui seul contre les attaques CSRF."
+    truth: false
+    answer: "HTTPS protège le transport. La requête forgée part du navigateur de la victime, chiffrée elle aussi, avec ses cookies."
+  - key: vf-samesite-lax
+    format: true-false
+    question: "Un cookie de session `SameSite=Lax` n'est pas envoyé avec un `POST` déclenché depuis un autre site."
+    truth: true
+    answer: "`Lax` ne laisse partir le cookie qu'avec une navigation de premier niveau en `GET`. C'est une bonne défense en profondeur, à côté du jeton."
+  - key: vf-get-verifie
+    format: true-false
+    question: "Le filtre CSRF de Spring Security vérifie aussi les requêtes `GET`."
+    truth: false
+    answer: "Il les ignore, comme `HEAD`, `OPTIONS` et `TRACE`. Un `GET` qui modifie des données n'est donc pas protégé."
+  - key: vf-jwt-dans-un-cookie
+    format: true-false
+    question: "Une API qui range son JWT dans un cookie reste exposée au CSRF."
+    truth: true
+    answer: "Ce qui compte est l'envoi automatique : un cookie part avec la requête forgée, qu'il contienne une session ou un JWT."
+  - key: qcm-desactiver-par-lambda
+    format: multiple-choice
+    question: "Quelle ligne désactive la protection CSRF avec la configuration par lambdas ?"
+    choices:
+      - {text: "`http.csrf(csrf -> csrf.disable())`", correct: true}
+      - {text: "`http.csrf(Customizer.withDefaults())`", correct: false}
+      - {text: "`http.csrf(csrf -> csrf.ignore())`", correct: false}
+      - {text: "`http.csrf(csrf -> csrf.enable(false))`", correct: false}
+    answer: "`disable()` retire le filtre ; on écrit aussi `http.csrf(CsrfConfigurer::disable)`. `Customizer.withDefaults()` laisse la protection active."
+  - key: qcm-jeton-pour-une-spa
+    format: multiple-choice
+    question: "Une application monopage authentifiée par cookie de session doit lire le jeton CSRF. Quel dépôt de jetons convient ?"
+    choices:
+      - {text: "`CookieCsrfTokenRepository.withHttpOnlyFalse()`", correct: true}
+      - {text: "`HttpSessionCsrfTokenRepository`, le dépôt par défaut", correct: false}
+      - {text: "`InMemoryTokenRepositoryImpl`, de la connexion persistante", correct: false}
+      - {text: "`JdbcTokenRepositoryImpl`, de la connexion persistante", correct: false}
+    answer: "Il pose le jeton dans un cookie `XSRF-TOKEN` lisible par le JavaScript, qui le renvoie dans l'en-tête `X-XSRF-TOKEN`. Les dépôts « remember-me » n'ont rien à voir avec CSRF."
+  - key: qcm-formulaire-thymeleaf
+    format: multiple-choice
+    question: "Comment un formulaire Thymeleaf envoie-t-il le jeton CSRF ?"
+    choices:
+      - {text: "Par un champ caché `_csrf`, ajouté d'office au formulaire", correct: true}
+      - {text: "Par un paramètre `?csrf=` ajouté à l'adresse du formulaire", correct: false}
+      - {text: "Par un cookie que le développeur doit poser à la main", correct: false}
+      - {text: "Par l'en-tête `Authorization` de la soumission", correct: false}
+    answer: "Thymeleaf, intégré à Spring Security, insère le champ caché dans chaque formulaire `POST` : rien à écrire."
+  - key: qcm-defense-anti-csrf
+    format: multiple-choice
+    question: "Laquelle de ces mesures protège contre le CSRF ?"
+    choices:
+      - {text: "Un jeton imprévisible, vérifié à chaque requête qui modifie", correct: true}
+      - {text: "Un mot de passe plus long pour chaque utilisateur", correct: false}
+      - {text: "Un pare-feu qui bloque les adresses IP étrangères", correct: false}
+      - {text: "Une validation des champs avec Bean Validation", correct: false}
+    answer: "Le site tiers ne peut pas lire le jeton, donc pas le joindre à sa requête forgée. Les autres mesures ne changent rien à l'envoi automatique des cookies."
+  - key: situation-api-mobile-et-jwt
+    format: scenario
+    question: |-
+      Ton collègue demande s'il faut garder CSRF actif sur une API sans état, appelée par une application mobile avec
+      un JWT dans l'en-tête `Authorization`. Que réponds-tu ?
+    choices:
+      - {text: "Non : rien n'y est joint d'office, le CSRF n'a pas de prise", correct: true}
+      - {text: "Oui : toute API doit garder CSRF, quel que soit le client", correct: false}
+      - {text: "Oui, mais seulement pour les requêtes `GET`", correct: false}
+      - {text: "Non, mais il faut alors désactiver HTTPS", correct: false}
+    answer: |-
+      Sans cookie ni authentification automatique, une requête forgée arrive sans justificatif. On désactive CSRF
+      pour cette chaîne, sans état.
+  - key: situation-session-et-formulaire
+    format: scenario
+    question: |-
+      Une application à formulaire de connexion et session veut désactiver CSRF « pour simplifier les appels du
+      front ». Que réponds-tu ?
+    choices:
+      - {text: "Non : avec un cookie de session, CSRF doit rester actif", correct: true}
+      - {text: "Oui : la session suffit à prouver l'identité de l'utilisateur", correct: false}
+      - {text: "Oui, si le site est servi en HTTPS", correct: false}
+      - {text: "Oui, si les mots de passe sont hachés avec BCrypt", correct: false}
+    answer: |-
+      Le cookie de session part avec toute requête, même forgée ailleurs : c'est le cas exact que CSRF protège. Le
+      front lit le jeton (cookie `XSRF-TOKEN`) et le renvoie ; c'est une ligne de code.
+  - key: situation-get-qui-supprime
+    format: scenario
+    question: |-
+      Un lien `GET /api/comptes/42/supprimer` supprime un compte. Pourquoi est-ce dangereux, même avec CSRF actif ?
+    choices:
+      - {text: "Le filtre ignore les `GET` : une image d'un autre site suffit", correct: true}
+      - {text: "Les `GET` ne portent jamais le cookie de session de l'utilisateur", correct: false}
+      - {text: "Les `GET` sont mis en cache par le navigateur, puis rejoués", correct: false}
+      - {text: "Il n'y a aucun danger tant que la protection CSRF est active", correct: false}
+    answer: |-
+      `<img src="https://site.exemple.fr/api/comptes/42/supprimer">` suffit. Une suppression passe par `DELETE` (ou
+      `POST`), que le filtre protège.
+  - key: situation-jwt-range-en-cookie
+    format: scenario
+    question: |-
+      Pour éviter le vol par XSS, ton équipe range désormais le JWT dans un cookie `HttpOnly`. Que dois-tu revoir
+      côté CSRF ?
+    choices:
+      - {text: "Réactiver la protection CSRF (ou `SameSite=Strict`) : le cookie part d'office", correct: true}
+      - {text: "Rien : un cookie `HttpOnly` est invisible pour un autre site", correct: false}
+      - {text: "Désactiver CSRF : un JWT rend toute requête sûre", correct: false}
+      - {text: "Passer toutes les requêtes en `GET`", correct: false}
+    answer: |-
+      `HttpOnly` empêche le JavaScript de lire le cookie, pas le navigateur de l'envoyer. Le jeton devient un
+      justificatif automatique : le CSRF redevient possible.

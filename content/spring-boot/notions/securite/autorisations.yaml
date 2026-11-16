@@ -1,0 +1,356 @@
+notion: autorisations
+lesson: |-
+  Une fois l'utilisateur authentifié, il reste à décider **ce qu'il a le droit de faire**. Spring Security autorise à
+  deux niveaux : par **URL**, dans la `SecurityFilterChain`, et par **méthode**, avec des annotations.
+
+  **Rôles et autorités.** Une autorité (`GrantedAuthority`) est une chaîne qui nomme un droit. Un **rôle** est une
+  autorité préfixée par `ROLE_` :
+
+  | Écriture | Vérifie l'autorité |
+  |---|---|
+  | `hasRole("ADMIN")` | `ROLE_ADMIN` |
+  | `hasAnyRole("ADMIN", "SUPPORT")` | `ROLE_ADMIN` ou `ROLE_SUPPORT` |
+  | `hasAuthority("SCOPE_commandes:lire")` | `SCOPE_commandes:lire`, telle quelle |
+
+  Côté utilisateur, `User.withUsername(...).roles("ADMIN")` crée l'autorité `ROLE_ADMIN` (et refuse un rôle qui
+  commence déjà par `ROLE_`), alors que `.authorities("ADMIN")` crée l'autorité `ADMIN`, sans préfixe.
+
+  **Par URL.**
+
+  ```java
+  http.authorizeHttpRequests(auth -> auth
+          .requestMatchers(HttpMethod.GET, "/api/produits/**").permitAll()
+          .requestMatchers("/api/admin/**").hasRole("ADMIN")
+          .anyRequest().authenticated());
+  ```
+
+  **Par méthode.** `@EnableMethodSecurity` (qui remplace `@EnableGlobalMethodSecurity`) active les annotations :
+
+  ```java
+  @Configuration
+  @EnableMethodSecurity
+  public class SecuriteMethodes {}
+
+  @Service
+  public class CommandeService {
+
+      @PreAuthorize("hasRole('ADMIN')")
+      public void annuler(long id) { ... }
+
+      @PreAuthorize("#client == authentication.name")
+      public List<Commande> commandesDe(String client) { ... }
+
+      @PostAuthorize("returnObject.client() == authentication.name")
+      public Commande commande(long id) { ... }
+  }
+  ```
+
+  - `@PreAuthorize` évalue son expression **avant** l'appel : refusée, la méthode ne s'exécute pas
+    (`AccessDeniedException`, 403).
+  - Les expressions lisent les arguments (`#client`), l'utilisateur (`authentication`, `principal`) et, pour
+    `@PostAuthorize`, la valeur renvoyée (`returnObject`).
+  - `@Secured("ROLE_ADMIN")` (avec `securedEnabled = true`) et `@RolesAllowed` (avec `jsr250Enabled = true`) sont des
+    formes plus simples, sans expression.
+
+  **Le piège du proxy.** Les annotations sont vérifiées par un **proxy** autour du bean. Une méthode qui en appelle
+  une autre **de la même classe** contourne le proxy : l'annotation de la méthode appelée est ignorée.
+
+  **Vérifier la propriété des données.** Une règle « authentifié » ne dit pas que la commande 42 appartient à
+  l'utilisateur. Changer l'identifiant dans l'URL pour lire les données d'un autre (IDOR) est une faille courante : le
+  serveur vérifie l'appartenance, par une expression ou dans la requête (`findByIdAndClient`).
+
+  **Le front ne protège rien.** Masquer un bouton améliore l'affichage ; le serveur refuse lui-même.
+
+  **En entretien** : « J'autorise par URL dans la `SecurityFilterChain`, et par méthode avec `@EnableMethodSecurity` et
+  `@PreAuthorize`, au plus près du métier. `hasRole` ajoute le préfixe `ROLE_`, `hasAuthority` non. Je vérifie que la
+  ressource appartient à l'utilisateur, et je me souviens qu'un appel interne contourne le proxy. »
+cards:
+  - key: prefixe-de-hasrole
+    format: course
+    question: "Quelle autorité `hasRole(\"ADMIN\")` vérifie-t-il ?"
+    choices:
+      - {text: "`ROLE_ADMIN`", correct: true}
+      - {text: "`ADMIN`", correct: false}
+      - {text: "`ROLE_admin`", correct: false}
+      - {text: "`SCOPE_ADMIN`", correct: false}
+    answer: "`hasRole` ajoute le préfixe `ROLE_` ; `hasAuthority(\"ADMIN\")` comparerait la chaîne telle quelle. La casse compte."
+  - key: activer-preauthorize
+    format: course
+    question: "Que faut-il pour que `@PreAuthorize` soit pris en compte ?"
+    choices:
+      - {text: "`@EnableMethodSecurity` sur une classe de configuration", correct: true}
+      - {text: "`@EnableWebSecurity` seul, sur une classe de configuration", correct: false}
+      - {text: "`@EnableAspectJAutoProxy` sur une classe de configuration", correct: false}
+      - {text: "Rien : il est actif dès qu'on ajoute le starter", correct: false}
+    answer: "Sans `@EnableMethodSecurity`, l'annotation est ignorée, en silence : la méthode reste ouverte à tous. Elle remplace `@EnableGlobalMethodSecurity`."
+  - key: moment-de-preauthorize
+    format: course
+    question: "Quand `@PreAuthorize` évalue-t-il son expression ?"
+    choices:
+      - {text: "Avant l'appel, et la méthode ne s'exécute pas si l'accès est refusé", correct: true}
+      - {text: "Après l'appel, en lisant la valeur renvoyée", correct: false}
+      - {text: "Au démarrage, une seule fois pour toute l'application", correct: false}
+      - {text: "À la compilation, par un processeur d'annotations", correct: false}
+    answer: "Le proxy évalue l'expression, puis appelle la méthode ou lève `AccessDeniedException`. Lire la valeur renvoyée, c'est le rôle de `@PostAuthorize`."
+  - key: appel-interne
+    format: course
+    question: "Pourquoi un `@PreAuthorize` est-il ignoré quand une méthode l'appelle depuis la même classe ?"
+    choices:
+      - {text: "La vérification passe par un proxy, que l'appel interne contourne", correct: true}
+      - {text: "Spring Security ne vérifie que les méthodes privées", correct: false}
+      - {text: "L'expression n'est évaluée qu'une fois par requête HTTP", correct: false}
+      - {text: "Les méthodes d'une même classe partagent les mêmes droits", correct: false}
+    answer: "`this.annuler(id)` appelle l'objet lui-même, pas le proxy qui l'entoure. On annote la méthode d'entrée, ou l'on déplace la méthode protégée dans un autre bean."
+  - key: vf-hasauthority-sans-prefixe
+    format: true-false
+    question: "`hasAuthority(\"SCOPE_lecture\")` compare l'autorité telle quelle, sans ajouter de préfixe."
+    truth: true
+    answer: "Seul `hasRole` ajoute `ROLE_`. Les autorités tirées d'un JWT (`SCOPE_...`) se vérifient donc avec `hasAuthority`."
+  - key: vf-refus-en-403
+    format: true-false
+    question: "Un `@PreAuthorize` refusé lève `AccessDeniedException`, que Spring Security traduit en 403 pour un utilisateur authentifié."
+    truth: true
+    answer: "L'exception remonte jusqu'à l'`ExceptionTranslationFilter`, qui appelle l'`AccessDeniedHandler`. Pour un anonyme, ce serait l'invitation à s'authentifier (401)."
+  - key: vf-url-et-propriete
+    format: true-false
+    question: "La règle `.requestMatchers(\"/api/commandes/**\").authenticated()` garantit qu'un client ne lit que ses propres commandes."
+    truth: false
+    answer: "Elle exige seulement d'être connecté. L'appartenance de la commande se vérifie à part : expression `@PreAuthorize`, `@PostAuthorize`, ou requête filtrée par l'utilisateur."
+  - key: vf-returnobject
+    format: true-false
+    question: "`@PostAuthorize` peut lire la valeur renvoyée par la méthode avec `returnObject`."
+    truth: true
+    answer: "La méthode s'exécute, puis l'expression décide si sa valeur peut être renvoyée. Elle ne doit donc rien modifier qu'on regretterait."
+  - key: qcm-son-propre-profil
+    format: multiple-choice
+    question: "Quelle annotation n'autorise un client qu'à lire son propre profil, d'après l'argument `email` ?"
+    choices:
+      - {text: "`@PreAuthorize(\"#email == authentication.name\")`", correct: true}
+      - {text: "`@PreAuthorize(\"email == principal\")`", correct: false}
+      - {text: "`@Secured(\"#email\")`", correct: false}
+      - {text: "`@PreAuthorize(\"hasRole(#email)\")`", correct: false}
+    answer: "`#email` désigne l'argument ; `authentication.name` le nom de l'utilisateur connecté. `@Secured` n'évalue pas d'expression."
+  - key: qcm-deux-roles
+    format: multiple-choice
+    question: "Quelle règle autorise à la fois les rôles `ADMIN` et `SUPPORT` ?"
+    choices:
+      - {text: "`.hasAnyRole(\"ADMIN\", \"SUPPORT\")`", correct: true}
+      - {text: "`.hasRole(\"ADMIN\", \"SUPPORT\")`", correct: false}
+      - {text: "`.hasRole(\"ADMIN\").hasRole(\"SUPPORT\")`", correct: false}
+      - {text: "`.hasAuthority(\"ADMIN, SUPPORT\")`", correct: false}
+    answer: "`hasAnyRole` accepte plusieurs rôles. `hasRole` n'en prend qu'un ; `hasAuthority` comparerait la chaîne entière `\"ADMIN, SUPPORT\"`."
+  - key: qcm-identifiant-modifie
+    format: multiple-choice
+    question: "`GET /api/commandes/{id}` vérifie seulement que l'utilisateur est authentifié. Quel risque court-on ?"
+    choices:
+      - {text: "Un client lit les commandes des autres en changeant l'identifiant", correct: true}
+      - {text: "Un anonyme lit toutes les commandes sans se connecter", correct: false}
+      - {text: "Un client modifie le prix d'une commande déjà payée", correct: false}
+      - {text: "Aucun : l'authentification suffit à protéger la ressource", correct: false}
+    answer: "C'est l'IDOR (référence directe non contrôlée). Le serveur doit vérifier que la commande appartient à l'utilisateur, par exemple avec `findByIdAndClient`."
+  - key: qcm-secured
+    format: multiple-choice
+    question: "Quelle annotation, activée par `@EnableMethodSecurity(securedEnabled = true)`, liste simplement les rôles permis ?"
+    choices:
+      - {text: "`@Secured(\"ROLE_ADMIN\")`", correct: true}
+      - {text: "`@RolesAllowed(\"ADMIN\")`", correct: false}
+      - {text: "`@PreAuthorize(\"ROLE_ADMIN\")`", correct: false}
+      - {text: "`@Authorized(\"ADMIN\")`", correct: false}
+    answer: "`@Secured` prend des autorités, sans expression. `@RolesAllowed` vient de Jakarta et demande `jsr250Enabled = true` ; `@PreAuthorize` attend une expression comme `hasRole('ADMIN')`."
+  - key: trous-hasrole
+    format: fill-in
+    question: |-
+      Complète pour réserver ces chemins aux administrateurs :
+      ```java
+      .requestMatchers("/admin/**").___("ADMIN")
+      ```
+    blanks:
+      - [hasRole]
+    answer: "`hasRole(\"ADMIN\")` vérifie l'autorité `ROLE_ADMIN`."
+  - key: trous-preauthorize
+    format: fill-in
+    question: |-
+      Complète pour vérifier le rôle avant l'appel de la méthode :
+      ```java
+      @___("hasRole('ADMIN')")
+      public void supprimer(long id) {
+      ```
+    blanks:
+      - [PreAuthorize]
+    answer: "`@PreAuthorize` évalue l'expression avant l'appel."
+  - key: trous-enablemethodsecurity
+    format: fill-in
+    question: |-
+      Complète pour activer les annotations de sécurité sur les méthodes :
+      ```java
+      @Configuration
+      @___
+      public class SecuriteMethodes {
+      }
+      ```
+    blanks:
+      - [EnableMethodSecurity]
+    answer: "`@EnableMethodSecurity` active `@PreAuthorize` et `@PostAuthorize`."
+  - key: trous-authentication-name
+    format: fill-in
+    question: |-
+      Complète pour que seul l'auteur puisse modifier son article :
+      ```java
+      @PreAuthorize("#auteur == authentication.___")
+      public void modifier(String auteur, Article article) {
+      ```
+    blanks:
+      - [name]
+    answer: "`authentication.name` est le nom de l'utilisateur connecté."
+  - key: bug-autorite-sans-prefixe
+    format: bug-fix
+    question: |-
+      Les administrateurs reçoivent 403 sur `/admin/**`. Leurs utilisateurs sont construits ainsi. Quelle correction
+      est la bonne ?
+      ```java
+      User.withUsername(compte.email())
+              .password(compte.hash())
+              .authorities("ADMIN")
+              .build();
+
+      // dans la chaîne de sécurité
+      .requestMatchers("/admin/**").hasRole("ADMIN")
+      ```
+    choices:
+      - {text: "Construire l'utilisateur avec `.roles(\"ADMIN\")`", correct: true}
+      - {text: "Écrire la règle `.hasRole(\"ROLE_ADMIN\")`", correct: false}
+      - {text: "Construire l'utilisateur avec `.authorities(\"admin\")`", correct: false}
+      - {text: "Écrire la règle `.hasAnyAuthority(\"ROLE_ADMIN\")`", correct: false}
+    answer: |-
+      ```java
+      .roles("ADMIN")      // donne l'autorité ROLE_ADMIN
+      ```
+      `authorities("ADMIN")` donne l'autorité `ADMIN`, alors que `hasRole("ADMIN")` attend `ROLE_ADMIN`. L'autre
+      correction possible est `.hasAuthority("ADMIN")` dans la règle.
+  - key: bug-enablemethodsecurity-oublie
+    format: bug-fix
+    question: |-
+      Un simple client a pu annuler la commande d'un autre, malgré l'annotation. Quelle correction est la bonne ?
+      ```java
+      @Service
+      public class CommandeService {
+          @PreAuthorize("hasRole('ADMIN')")
+          public void annuler(long id) { ... }
+      }
+      ```
+    choices:
+      - {text: "Ajouter `@EnableMethodSecurity` sur une classe de configuration", correct: true}
+      - {text: "Remplacer `hasRole('ADMIN')` par `hasRole('ROLE_ADMIN')`", correct: false}
+      - {text: "Rendre la méthode `annuler` finale", correct: false}
+      - {text: "Ajouter `@Transactional` sur la méthode `annuler`", correct: false}
+    answer: |-
+      ```java
+      @Configuration
+      @EnableMethodSecurity
+      public class SecuriteMethodes {}
+      ```
+      Sans elle, aucun proxy ne vérifie `@PreAuthorize` : l'annotation n'a aucun effet, et rien ne le signale. Un
+      test de sécurité (un rôle `CLIENT` doit recevoir 403) l'aurait révélé.
+  - key: bug-appel-interne
+    format: bug-fix
+    question: |-
+      Un utilisateur sans le rôle `ADMIN` réussit à appeler `purgerAnciennes`, qui supprime des commandes. Quelle
+      correction est la bonne ?
+      ```java
+      @Service
+      public class CommandeService {
+
+          public void purgerAnciennes() {
+              anciennes().forEach(c -> supprimer(c.id()));
+          }
+
+          @PreAuthorize("hasRole('ADMIN')")
+          public void supprimer(long id) { ... }
+      }
+      ```
+    choices:
+      - {text: "Annoter aussi `purgerAnciennes` avec `@PreAuthorize(\"hasRole('ADMIN')\")`", correct: true}
+      - {text: "Rendre la méthode `supprimer` privée", correct: false}
+      - {text: "Appeler `this.supprimer(c.id())` au lieu de `supprimer(c.id())`", correct: false}
+      - {text: "Remplacer `@PreAuthorize` par `@PostAuthorize` sur `supprimer`", correct: false}
+    answer: |-
+      ```java
+      @PreAuthorize("hasRole('ADMIN')")
+      public void purgerAnciennes() {
+      ```
+      L'appel à `supprimer` reste interne à l'objet et ne passe pas par le proxy : son annotation n'est pas vérifiée.
+      La méthode d'entrée doit porter sa propre règle. `this.` ne change rien.
+  - key: bug-role-deja-prefixe
+    format: bug-fix
+    question: |-
+      Le démarrage échoue en créant les utilisateurs : « ROLE_ADMIN cannot start with ROLE_ (it is automatically
+      added) ». Quelle correction est la bonne ?
+      ```java
+      User.withUsername("ana")
+              .password(hache)
+              .roles("ROLE_ADMIN")
+              .build();
+      ```
+    choices:
+      - {text: "Écrire `.roles(\"ADMIN\")`", correct: true}
+      - {text: "Écrire `.roles(\"admin\")`", correct: false}
+      - {text: "Écrire `.roles(\"_ADMIN\")`", correct: false}
+      - {text: "Écrire `.roles(\"ADMIN_ROLE\")`", correct: false}
+    answer: |-
+      ```java
+      .roles("ADMIN")              // ou .authorities("ROLE_ADMIN")
+      ```
+      `roles` ajoute lui-même le préfixe `ROLE_`. La casse compte : `admin` donnerait `ROLE_admin`, que
+      `hasRole("ADMIN")` ne reconnaît pas.
+  - key: situation-facture-d-un-autre
+    format: scenario
+    question: |-
+      Un audit montre qu'un client lit la facture d'un autre en changeant l'identifiant dans l'URL. Que corriges-tu ?
+    choices:
+      - {text: "Vérifier côté serveur que la facture appartient à l'utilisateur connecté", correct: true}
+      - {text: "Remplacer les identifiants numériques par des UUID, et s'arrêter là", correct: false}
+      - {text: "Masquer l'identifiant dans l'URL avec un encodage Base64", correct: false}
+      - {text: "Réserver la lecture des factures au rôle `ADMIN`", correct: false}
+    answer: |-
+      La faille est un contrôle d'accès absent, pas un identifiant trop lisible : des UUID la rendent plus difficile à
+      exploiter, sans la corriger. On cherche la facture par identifiant et par client, ou l'on vérifie l'appartenance
+      avec `@PostAuthorize`.
+  - key: situation-deux-points-d-entree
+    format: scenario
+    question: |-
+      Une règle métier (seul un responsable valide un remboursement) est appelée depuis deux contrôleurs différents.
+      Où places-tu la vérification ?
+    choices:
+      - {text: "Sur la méthode du service, avec `@PreAuthorize`, commune aux deux chemins", correct: true}
+      - {text: "Dans chacun des deux contrôleurs, avec un `if` sur le rôle", correct: false}
+      - {text: "Dans le front, qui n'affiche le bouton qu'aux responsables", correct: false}
+      - {text: "Dans un filtre de servlet qui lit le corps de la requête", correct: false}
+    answer: |-
+      Au plus près du métier, la règle protège tous les chemins, présents et futurs : un troisième contrôleur ne peut
+      pas l'oublier.
+  - key: situation-bouton-masque
+    format: scenario
+    question: |-
+      Le front masque le bouton « Supprimer » aux non-administrateurs. Un collègue juge que cela suffit. Que
+      réponds-tu ?
+    choices:
+      - {text: "Non : le serveur refuse lui-même, le front ne fait qu'adapter l'affichage", correct: true}
+      - {text: "Oui : un utilisateur ne peut pas cliquer sur un bouton absent", correct: false}
+      - {text: "Oui, à condition de minifier le code JavaScript", correct: false}
+      - {text: "Non : il faut aussi masquer l'URL dans la barre d'adresse", correct: false}
+    answer: |-
+      N'importe qui peut envoyer `DELETE /api/produits/42` avec `curl`. L'autorisation est une règle du serveur ; le
+      front en reflète seulement le résultat.
+  - key: situation-hierarchie-de-roles
+    format: scenario
+    question: |-
+      Un `ADMIN` doit pouvoir tout ce que peut un `USER`, sans écrire les deux rôles dans chaque règle. Que
+      proposes-tu ?
+    choices:
+      - {text: "Une hiérarchie de rôles, où `ROLE_ADMIN` inclut `ROLE_USER`", correct: true}
+      - {text: "Donner les deux rôles à chaque administrateur, à la main", correct: false}
+      - {text: "Remplacer partout `hasRole(\"USER\")` par `authenticated()`", correct: false}
+      - {text: "Supprimer le rôle `USER`, devenu inutile", correct: false}
+    answer: |-
+      Un bean `RoleHierarchy` (`ROLE_ADMIN > ROLE_USER`) fait hériter les droits. Les règles restent courtes, et un
+      nouveau rôle intermédiaire s'insère sans tout réécrire.

@@ -1,0 +1,344 @@
+notion: authentification
+lesson: |-
+  S'authentifier, c'est prouver qui l'on est. Avec un identifiant et un mot de passe, Spring Security confie la
+  vérification au `DaoAuthenticationProvider`, qui s'appuie sur deux beans : un **`UserDetailsService`** pour charger
+  l'utilisateur, et un **`PasswordEncoder`** pour comparer le mot de passe.
+
+  **Charger l'utilisateur.**
+
+  ```java
+  @Service
+  public class ClientDetailsService implements UserDetailsService {
+
+      private final ClientRepository clients;
+
+      public ClientDetailsService(ClientRepository clients) {
+          this.clients = clients;
+      }
+
+      @Override
+      public UserDetails loadUserByUsername(String email) {
+          return clients.findByEmail(email)
+                  .map(client -> User.withUsername(client.email())
+                          .password(client.motDePasseHache())     // le hachage stocké, tel quel
+                          .roles(client.role())                   // "CLIENT" donne ROLE_CLIENT
+                          .build())
+                  .orElseThrow(() -> new UsernameNotFoundException(email));
+      }
+  }
+  ```
+
+  `loadUserByUsername` **charge**, il ne vérifie rien : la comparaison est faite ensuite par le fournisseur. Un
+  utilisateur absent lève `UsernameNotFoundException` (renvoyer `null` viole le contrat). Par défaut, le client reçoit la
+  même erreur pour un compte inconnu et pour un mauvais mot de passe : on ne laisse pas deviner quels comptes existent.
+
+  **Hacher le mot de passe.** On ne stocke **jamais** un mot de passe en clair, ni un hachage rapide (MD5, SHA-256) :
+  une base volée se casserait par dictionnaire. On prend un algorithme **lent et salé** :
+
+  ```java
+  @Bean
+  PasswordEncoder encodeur() {
+      return new BCryptPasswordEncoder();          // facteur de coût 10 par défaut
+  }
+
+  String hache = encodeur.encode("secret");        // $2a$10$... (60 caractères, sel compris)
+  boolean ok = encodeur.matches("secret", hache);  // true
+  ```
+
+  - BCrypt tire un **sel** aléatoire à chaque hachage : `encode` ne donne jamais deux fois le même résultat, d'où
+    `matches` pour comparer (et jamais `encode(saisi).equals(hache)`).
+  - Le **facteur de coût** règle la lenteur : on vise quelques centaines de millisecondes par vérification. Argon2,
+    scrypt ou PBKDF2 conviennent aussi.
+
+  **Changer d'algorithme.** `PasswordEncoderFactories.createDelegatingPasswordEncoder()` crée un
+  **`DelegatingPasswordEncoder`** : chaque hachage stocké porte son algorithme en préfixe (`{bcrypt}$2a$10$...`,
+  `{argon2}...`). Les anciens hachages restent lisibles, les nouveaux prennent l'algorithme courant. C'est aussi
+  l'encodeur utilisé quand l'application n'en déclare aucun : un mot de passe stocké **sans préfixe** fait alors échouer
+  la connexion, aucun encodeur n'étant associé à l'identifiant `null`.
+
+  **Les raccourcis à éviter.** `NoOpPasswordEncoder` (mots de passe en clair) et `User.withDefaultPasswordEncoder()`
+  servent aux démonstrations, jamais en production. `InMemoryUserDetailsManager` convient aux tests.
+
+  **En entretien** : « Un `UserDetailsService` charge l'utilisateur et son hachage ; le `PasswordEncoder` compare avec
+  `matches`. Je hache avec BCrypt ou Argon2, lents et salés, jamais avec un SHA rapide ; un `DelegatingPasswordEncoder`
+  permet de changer d'algorithme sans forcer tout le monde à changer de mot de passe. Et je réponds la même erreur
+  pour un compte inconnu et un mauvais mot de passe. »
+cards:
+  - key: role-de-loaduserbyusername
+    format: course
+    question: "Que doit faire `loadUserByUsername` d'un `UserDetailsService` ?"
+    choices:
+      - {text: "Charger l'utilisateur et son mot de passe haché, sans rien vérifier", correct: true}
+      - {text: "Comparer le mot de passe saisi à celui de la base", correct: false}
+      - {text: "Créer la session HTTP de l'utilisateur connecté", correct: false}
+      - {text: "Générer un jeton JWT pour l'utilisateur trouvé", correct: false}
+    answer: "Le `DaoAuthenticationProvider` appelle `loadUserByUsername`, puis compare lui-même le mot de passe saisi au hachage reçu, avec le `PasswordEncoder`."
+  - key: sel-de-bcrypt
+    format: course
+    question: "Pourquoi `encodeur.encode(\"secret\")` donne-t-il un résultat différent à chaque appel avec BCrypt ?"
+    choices:
+      - {text: "Chaque hachage tire un sel aléatoire, rangé dans le résultat", correct: true}
+      - {text: "BCrypt chiffre avec une clé qui change à chaque démarrage", correct: false}
+      - {text: "BCrypt ajoute l'heure courante au mot de passe", correct: false}
+      - {text: "C'est un défaut : BCrypt devrait toujours donner le même résultat", correct: false}
+    answer: "Le sel empêche les tables précalculées et rend différents deux comptes au même mot de passe. Il est stocké dans le hachage, où `matches` le relit."
+  - key: verifier-un-mot-de-passe
+    format: course
+    question: "Comment vérifies-tu un mot de passe saisi contre son hachage BCrypt ?"
+    choices:
+      - {text: "`encodeur.matches(saisi, hache)`", correct: true}
+      - {text: "`encodeur.encode(saisi).equals(hache)`", correct: false}
+      - {text: "`encodeur.decode(hache).equals(saisi)`", correct: false}
+      - {text: "`hache.equals(saisi)`", correct: false}
+    answer: "`matches` rehache le mot de passe saisi avec le sel du hachage stocké, puis compare. `encode` tire un nouveau sel ; un hachage ne se décode pas."
+  - key: prefixe-bcrypt
+    format: course
+    question: "Que signifie le préfixe `{bcrypt}` devant un mot de passe stocké ?"
+    choices:
+      - {text: "Il dit au `DelegatingPasswordEncoder` quel algorithme a produit le hachage", correct: true}
+      - {text: "Il marque un mot de passe chiffré avec une clé réversible", correct: false}
+      - {text: "Il signale un mot de passe expiré, qu'il faut changer", correct: false}
+      - {text: "Il fait partie du mot de passe choisi par l'utilisateur", correct: false}
+    answer: "Le `DelegatingPasswordEncoder` lit le préfixe et confie la vérification au bon encodeur. On change d'algorithme sans rendre illisibles les anciens hachages."
+  - key: vf-lenteur-voulue
+    format: true-false
+    question: "BCrypt est volontairement lent, pour freiner les attaques par force brute."
+    truth: true
+    answer: "Une vérification de quelques centaines de millisecondes ne gêne pas un utilisateur, mais rend très coûteux d'essayer des milliards de mots de passe sur une base volée."
+  - key: vf-sha256-suffit
+    format: true-false
+    question: "Un SHA-256 du mot de passe suffit à le stocker en sécurité, puisqu'il n'est pas réversible."
+    truth: false
+    answer: "SHA-256 est conçu pour être rapide : une carte graphique en calcule des milliards par seconde. Il faut un algorithme lent et salé, comme BCrypt ou Argon2."
+  - key: vf-meme-erreur
+    format: true-false
+    question: "Par défaut, un nom d'utilisateur inconnu et un mauvais mot de passe donnent la même erreur au client."
+    truth: true
+    answer: "Spring Security transforme `UsernameNotFoundException` en `BadCredentialsException` : un attaquant ne peut pas savoir quels comptes existent."
+  - key: vf-withdefaultpasswordencoder
+    format: true-false
+    question: "`User.withDefaultPasswordEncoder()` convient à une application en production."
+    truth: false
+    answer: "Il est déprécié dès sa création : le mot de passe en clair figure dans le code. Il ne sert qu'aux exemples et aux démonstrations."
+  - key: qcm-bean-bcrypt
+    format: multiple-choice
+    question: "Quel bean déclares-tu pour hacher les mots de passe avec BCrypt ?"
+    choices:
+      - {text: "`@Bean PasswordEncoder e() { return new BCryptPasswordEncoder(); }`", correct: true}
+      - {text: "`@Bean PasswordEncoder e() { return NoOpPasswordEncoder.getInstance(); }`", correct: false}
+      - {text: "`@Bean MessageDigest e() { return MessageDigest.getInstance(\"MD5\"); }`", correct: false}
+      - {text: "`@Bean Cipher e() { return Cipher.getInstance(\"AES\"); }`", correct: false}
+    answer: "Un bean `PasswordEncoder` est repris par le `DaoAuthenticationProvider`. `NoOpPasswordEncoder` stocke en clair ; MD5 est rapide ; AES chiffre, donc se déchiffre."
+  - key: qcm-construire-userdetails
+    format: multiple-choice
+    question: "Comment construis-tu un `UserDetails` à partir de ton entité `Client` ?"
+    choices:
+      - {text: "`User.withUsername(c.email()).password(c.hash()).roles(\"CLIENT\").build()`", correct: true}
+      - {text: "`User.of(c.email()).secret(c.hash()).role(\"CLIENT\").create()`", correct: false}
+      - {text: "`new UserDetails(c.email(), c.hash(), \"CLIENT\")`", correct: false}
+      - {text: "`User.builder(c.email(), c.hash()).roles(\"CLIENT\")`", correct: false}
+    answer: "`User.withUsername` ouvre un constructeur pas à pas, que `build()` termine. `UserDetails` est une interface ; on peut aussi l'implémenter dans sa propre classe."
+  - key: qcm-utilisateur-introuvable
+    format: multiple-choice
+    question: "Que doit faire `loadUserByUsername` quand l'utilisateur n'existe pas ?"
+    choices:
+      - {text: "Lever `UsernameNotFoundException`", correct: true}
+      - {text: "Renvoyer `null`", correct: false}
+      - {text: "Renvoyer un utilisateur sans mot de passe", correct: false}
+      - {text: "Lever `AccessDeniedException`", correct: false}
+    answer: "C'est le contrat de l'interface ; Spring Security en fait un refus d'authentification ordinaire. `null` est une violation du contrat, signalée comme une erreur interne."
+  - key: qcm-algorithme-de-hachage
+    format: multiple-choice
+    question: "Lequel de ces algorithmes convient au stockage des mots de passe ?"
+    choices:
+      - {text: "Argon2", correct: true}
+      - {text: "MD5", correct: false}
+      - {text: "SHA-1", correct: false}
+      - {text: "Base64", correct: false}
+    answer: "Argon2 est lent, salé et coûteux en mémoire : il résiste aux cartes graphiques. MD5 et SHA-1 sont rapides ; Base64 n'est qu'un encodage, réversible."
+  - key: trous-bcrypt
+    format: fill-in
+    question: |-
+      Complète pour hacher les mots de passe avec BCrypt :
+      ```java
+      @Bean
+      PasswordEncoder encodeur() {
+          return new ___();
+      }
+      ```
+    blanks:
+      - [BCryptPasswordEncoder]
+    answer: "`BCryptPasswordEncoder` hache avec un sel aléatoire et un facteur de coût (10 par défaut)."
+  - key: trous-userdetailsservice
+    format: fill-in
+    question: |-
+      Complète pour que ce service charge les utilisateurs de l'application :
+      ```java
+      @Service
+      public class ClientDetailsService implements ___ {
+      ```
+    blanks:
+      - [UserDetailsService]
+    answer: "`UserDetailsService` n'a qu'une méthode, `loadUserByUsername`."
+  - key: trous-encode
+    format: fill-in
+    question: |-
+      Complète pour hacher le mot de passe à l'inscription :
+      ```java
+      String hache = encodeur.___(inscription.motDePasse());
+      ```
+    blanks:
+      - [encode]
+    answer: "`encode` hache le mot de passe ; on stocke le résultat, jamais le mot de passe."
+  - key: trous-usernamenotfound
+    format: fill-in
+    question: |-
+      Complète pour signaler un utilisateur inconnu :
+      ```java
+      return clients.findByEmail(email)
+              .map(this::versUserDetails)
+              .orElseThrow(() -> new ___(email));
+      ```
+    blanks:
+      - [UsernameNotFoundException]
+    answer: "`UsernameNotFoundException` est l'exception prévue par le contrat de `UserDetailsService`."
+  - key: bug-mot-de-passe-en-clair
+    format: bug-fix
+    question: |-
+      L'application ne déclare pas de `PasswordEncoder`. Les comptes ont été créés avec leur mot de passe en clair,
+      et chaque connexion échoue : aucun encodeur n'est associé à l'identifiant `null`. Quelle correction est la
+      bonne, en production ?
+      ```java
+      clients.save(new Client(inscription.email(), inscription.motDePasse()));
+      ```
+    choices:
+      - {text: "Enregistrer le mot de passe haché par le `PasswordEncoder`", correct: true}
+      - {text: "Déclarer un bean `NoOpPasswordEncoder` pour comparer en clair", correct: false}
+      - {text: "Comparer les mots de passe dans le contrôleur de connexion", correct: false}
+      - {text: "Ajouter `@Transactional` sur `loadUserByUsername`", correct: false}
+    answer: |-
+      ```java
+      clients.save(new Client(inscription.email(), encodeur.encode(inscription.motDePasse())));
+      ```
+      L'encodeur par défaut est un `DelegatingPasswordEncoder`, qui attend un préfixe comme `{bcrypt}` : il le
+      produit lui-même à l'encodage. `NoOpPasswordEncoder` ferait marcher la connexion, en gardant les mots de passe en
+      clair.
+  - key: bug-encode-et-equals
+    format: bug-fix
+    question: |-
+      Cette vérification maison refuse toujours le bon mot de passe. Quelle correction est la bonne ?
+      ```java
+      boolean valide = encodeur.encode(saisi).equals(client.motDePasseHache());
+      ```
+    choices:
+      - {text: "Écrire `encodeur.matches(saisi, client.motDePasseHache())`", correct: true}
+      - {text: "Écrire `encodeur.encode(client.motDePasseHache()).equals(saisi)`", correct: false}
+      - {text: "Comparer avec `equalsIgnoreCase` plutôt qu'avec `equals`", correct: false}
+      - {text: "Fixer le sel de BCrypt pour obtenir toujours le même hachage", correct: false}
+    answer: |-
+      ```java
+      boolean valide = encodeur.matches(saisi, client.motDePasseHache());
+      ```
+      `encode` tire un nouveau sel : le résultat diffère du hachage stocké. `matches` reprend le sel stocké, rehache
+      et compare.
+  - key: bug-userdetails-null
+    format: bug-fix
+    question: |-
+      Un email inconnu provoque une `InternalAuthenticationServiceException` : le `UserDetailsService` a renvoyé
+      `null`, ce qui viole son contrat. Quelle correction est la bonne ?
+      ```java
+      @Override
+      public UserDetails loadUserByUsername(String email) {
+          return clients.findByEmail(email).map(this::versUserDetails).orElse(null);
+      }
+      ```
+    choices:
+      - {text: "Remplacer `orElse(null)` par `orElseThrow(() -> new UsernameNotFoundException(email))`", correct: true}
+      - {text: "Remplacer `orElse(null)` par `orElseThrow(() -> new AccessDeniedException(email))`", correct: false}
+      - {text: "Renvoyer un `UserDetails` sans mot de passe à la place de `null`", correct: false}
+      - {text: "Annoter la méthode avec `@Nullable` pour autoriser `null`", correct: false}
+    answer: |-
+      ```java
+      return clients.findByEmail(email)
+              .map(this::versUserDetails)
+              .orElseThrow(() -> new UsernameNotFoundException(email));
+      ```
+      `UsernameNotFoundException` donne un refus ordinaire (401), avec le même message qu'un mauvais mot de passe.
+      `AccessDeniedException` concerne l'autorisation, pas l'authentification.
+  - key: bug-hachage-rehache
+    format: bug-fix
+    question: |-
+      Plus personne ne peut se connecter, alors que les hachages stockés sont justes. Quelle correction est la
+      bonne ?
+      ```java
+      private UserDetails versUserDetails(Client client) {
+          return User.withUsername(client.email())
+                  .password(encodeur.encode(client.motDePasseHache()))
+                  .roles("CLIENT")
+                  .build();
+      }
+      ```
+    choices:
+      - {text: "Passer `client.motDePasseHache()` tel quel à `password`", correct: true}
+      - {text: "Appeler `encodeur.encode` deux fois, pour retrouver le hachage", correct: false}
+      - {text: "Remplacer `roles(\"CLIENT\")` par `authorities(\"CLIENT\")`", correct: false}
+      - {text: "Remplacer `withUsername` par `withDefaultPasswordEncoder`", correct: false}
+    answer: |-
+      ```java
+      .password(client.motDePasseHache())
+      ```
+      `UserDetails` porte le hachage stocké, que le fournisseur compare au mot de passe saisi. Rehacher le hachage
+      produit une valeur qu'aucun mot de passe ne peut plus atteindre.
+  - key: situation-base-volee
+    format: scenario
+    question: |-
+      La base des utilisateurs a fuité. Les mots de passe y sont hachés en SHA-256, sans sel. Que risques-tu, et que
+      fais-tu ?
+    choices:
+      - {text: "Ils tombent vite par dictionnaire : passer à BCrypt, et faire changer les mots de passe", correct: true}
+      - {text: "Rien : un SHA-256 ne se renverse pas, et les comptes restent donc à l'abri", correct: false}
+      - {text: "Chiffrer après coup la base volée avec AES, pour la rendre illisible", correct: false}
+      - {text: "Renforcer les hachages SHA-256 existants en les calculant deux fois", correct: false}
+    answer: |-
+      Sans sel ni lenteur, les mots de passe courants se retrouvent en quelques minutes. On migre vers un algorithme
+      lent, et l'on demande aux utilisateurs touchés de changer leur mot de passe, ici comme ailleurs.
+  - key: situation-changer-d-algorithme
+    format: scenario
+    question: |-
+      Tes hachages sont en SHA-256 et tu veux passer à BCrypt, sans forcer tout le monde à changer de mot de passe.
+      Comment fais-tu ?
+    choices:
+      - {text: "`DelegatingPasswordEncoder` et ses préfixes, en rehachant à la connexion suivante", correct: true}
+      - {text: "Recalculer tous les hachages BCrypt en une nuit, depuis les SHA-256", correct: false}
+      - {text: "Garder SHA-256 pour les anciens comptes, pour toujours", correct: false}
+      - {text: "Déchiffrer les SHA-256 pour les rehacher en BCrypt", correct: false}
+    answer: |-
+      Les anciens hachages, préfixés `{sha256}`, restent vérifiables ; à la connexion réussie, le mot de passe saisi
+      est rehaché en BCrypt (`UserDetailsPasswordService`). Un SHA-256 ne se renverse pas : on ne peut pas tout
+      convertir d'avance.
+  - key: situation-messages-distincts
+    format: scenario
+    question: |-
+      Ton formulaire de connexion répond « Utilisateur inconnu » ou « Mot de passe incorrect » selon le cas. Que dit
+      l'audit ?
+    choices:
+      - {text: "Il permet d'énumérer les comptes existants : un message unique suffit", correct: true}
+      - {text: "Il est exemplaire : l'utilisateur sait exactement quoi corriger", correct: false}
+      - {text: "Il faut ajouter le mot de passe attendu dans le message", correct: false}
+      - {text: "Il faut répondre 404 pour un utilisateur inconnu", correct: false}
+    answer: |-
+      Un attaquant teste des emails et apprend lesquels ont un compte, avant de s'acharner sur eux. « Identifiants
+      incorrects » couvre les deux cas, comme le fait Spring Security par défaut.
+  - key: situation-cout-trop-eleve
+    format: scenario
+    question: |-
+      Chaque connexion prend une seconde et demie de calcul sur ton serveur. Le facteur de coût de BCrypt est à 14.
+      Que fais-tu ?
+    choices:
+      - {text: "Le baisser vers 10 à 12, pour viser quelques centaines de millisecondes", correct: true}
+      - {text: "Passer à MD5, bien plus rapide à calculer", correct: false}
+      - {text: "Mettre en cache les mots de passe en clair des utilisateurs connectés", correct: false}
+      - {text: "Supprimer le sel, qui ralentit le calcul", correct: false}
+    answer: |-
+      Chaque point du facteur double le travail. Trop haut, il épuise le processeur et ouvre la porte à un déni de
+      service par connexions répétées ; on mesure sur le serveur réel pour choisir.

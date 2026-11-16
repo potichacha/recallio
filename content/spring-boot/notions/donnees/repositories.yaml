@@ -1,0 +1,283 @@
+notion: repositories
+lesson: |-
+  Avec Spring Data JPA, l'accès aux données d'une entité tient en **une interface** :
+
+  ```java
+  public interface ProduitRepository extends JpaRepository<Produit, Long> {}
+  ```
+
+  Pas de classe à écrire : au démarrage, Spring Data crée un bean qui implémente l'interface (un proxy devant
+  `SimpleJpaRepository`). Les deux types génériques sont **l'entité** et **le type de son identifiant**. Spring Boot
+  cherche ces interfaces dans le package de la classe `@SpringBootApplication` et ses sous-packages ; une interface
+  rangée ailleurs n'a pas de bean. L'annotation `@Repository` est inutile sur elles.
+
+  **La hiérarchie.** `Repository` (vide, un marqueur) → `CrudRepository` et `ListCrudRepository` (le CRUD) →
+  `PagingAndSortingRepository` (tri et pagination) → `JpaRepository` (tout cela, avec des `List`, plus ce qui est
+  propre à JPA). On hérite de `JpaRepository` dans la plupart des cas.
+
+  **Ce que tu reçois.**
+
+  | Méthode | Ce qu'elle fait |
+  |---|---|
+  | `save(entite)` | INSERT si l'entité est nouvelle, sinon fusion ; **renvoie** l'entité à utiliser ensuite |
+  | `saveAll(entites)` | `save` sur chacune |
+  | `findById(id)` | un `Optional` : vide si l'identifiant n'existe pas |
+  | `findAll()`, `findAll(Sort)`, `findAll(Pageable)` | toutes, triées, ou une page |
+  | `findAllById(ids)` | celles de ces identifiants |
+  | `existsById(id)`, `count()` | un booléen, un nombre, sans charger d'entité |
+  | `deleteById(id)`, `delete(entite)` | supprime ; un identifiant absent est **ignoré sans erreur** |
+  | `deleteAll()` | charge chaque entité puis la supprime une à une |
+  | `deleteAllInBatch()` | un seul `delete from produit` |
+  | `getReferenceById(id)` | un proxy, sans requête ; la lecture se fait au premier accès |
+  | `flush()`, `saveAndFlush(entite)` | envoie tout de suite les écritures en attente |
+
+  **Nouvelle ou existante ?** `save` appelle `persist` si l'entité est nouvelle (identifiant `null`, ou version `null`
+  quand elle a un `@Version`), et `merge` sinon. `merge` renvoie une **autre instance**, la seule gérée : on prend
+  toujours la valeur de retour de `save`.
+
+  **Une absence est un cas métier.** `findById(id).get()` lève `NoSuchElementException`, une erreur 500. On écrit
+  `findById(id).orElseThrow(() -> new ProduitIntrouvableException(id))`, traduite en 404.
+
+  **Transactions.** Les méthodes de `SimpleJpaRepository` sont transactionnelles (lecture seule pour les lectures) :
+  appelées seules, elles ouvrent leur transaction ; appelées depuis un service `@Transactional`, elles la rejoignent.
+
+  **En entretien** : « J'écris une interface qui hérite de `JpaRepository<Entite, Id>`, et Spring Data en génère
+  l'implémentation au démarrage. J'ai le CRUD, le tri et la pagination : `save` dont je garde le retour, `findById`
+  qui renvoie un `Optional` que je transforme en exception métier, `count`, `deleteById`. Pour un gros volume, je
+  préfère `deleteAllInBatch` à `deleteAll`, qui supprime ligne par ligne. »
+cards:
+  - key: implementation-generee
+    format: course
+    question: "Qui écrit l'implémentation d'une interface `ProduitRepository extends JpaRepository<Produit, Long>` ?"
+    choices:
+      - {text: "Spring Data, qui crée au démarrage un proxy devant `SimpleJpaRepository`", correct: true}
+      - {text: "Le développeur, dans une classe `ProduitRepositoryImpl` du même package", correct: false}
+      - {text: "Un processeur d'annotations, qui génère une classe pendant la compilation", correct: false}
+      - {text: "Hibernate, qui lit l'interface quand il crée la table `produit`", correct: false}
+    answer: "Spring Data détecte l'interface, crée un bean qui l'implémente, et délègue les méthodes héritées à `SimpleJpaRepository`. Les méthodes que tu déclares en plus sont traduites en requêtes."
+  - key: generiques
+    format: course
+    question: "Que désignent les deux types de `JpaRepository<Produit, Long>` ?"
+    choices:
+      - {text: "L'entité gérée et le type de son identifiant", correct: true}
+      - {text: "L'entité gérée et le type de sa version", correct: false}
+      - {text: "La table SQL et le nombre maximal de lignes", correct: false}
+      - {text: "Le DTO renvoyé et le type de la clé de cache", correct: false}
+    answer: "`Produit` est l'entité, `Long` le type de son champ `@Id` : c'est lui que reçoivent `findById`, `existsById` et `deleteById`."
+  - key: retour-de-save
+    format: course
+    question: "Pourquoi faut-il utiliser la valeur renvoyée par `repository.save(entite)` ?"
+    choices:
+      - {text: "Pour une entité existante, `save` fait un `merge`, qui renvoie une autre instance gérée", correct: true}
+      - {text: "Parce que `save` renvoie une copie de l'entité qui porte la date de l'enregistrement", correct: false}
+      - {text: "Parce que l'entité passée à `save` est supprimée de la mémoire après l'enregistrement", correct: false}
+      - {text: "Parce que `save` renvoie `null` quand l'enregistrement a échoué, ce qu'il faut tester", correct: false}
+    answer: "Pour une nouvelle entité, `persist` rend l'objet passé lui-même géré. Pour une entité existante, `merge` copie son état dans une instance gérée et la renvoie : continuer avec l'ancienne ferait perdre les modifications suivantes."
+  - key: delete-all
+    format: course
+    question: "Que fait `deleteAll()` sur une table de 10 000 lignes ?"
+    choices:
+      - {text: "Il charge les 10 000 entités, puis envoie un DELETE pour chacune", correct: true}
+      - {text: "Il envoie un seul `delete from` sur toute la table, sans rien charger", correct: false}
+      - {text: "Il vide la table avec `truncate`, puis remet la séquence à zéro", correct: false}
+      - {text: "Il marque les lignes comme supprimées, sans les retirer de la table", correct: false}
+    answer: "`deleteAll` passe par chaque entité, pour respecter les cascades et les callbacks JPA : un SELECT puis autant de DELETE que de lignes. `deleteAllInBatch()` envoie une seule requête."
+  - key: vf-find-by-id-optional
+    format: true-false
+    question: "`findById` renvoie `null` quand l'identifiant n'existe pas."
+    truth: false
+    answer: "Il renvoie un `Optional` vide. On le transforme en exception métier avec `orElseThrow`, ou en valeur par défaut avec `orElse`."
+  - key: vf-delete-by-id-absent
+    format: true-false
+    question: "Avec Spring Data JPA 4, `deleteById` sur un identifiant absent ne lève aucune exception."
+    truth: true
+    answer: "Depuis Spring Data 3, l'absence est ignorée. Si elle doit donner un 404, on teste `existsById` (ou `findById`) avant de supprimer."
+  - key: vf-annotation-repository
+    format: true-false
+    question: "Une interface qui hérite de `JpaRepository` doit porter `@Repository` pour devenir un bean."
+    truth: false
+    answer: "Spring Data détecte les interfaces qui héritent de `Repository` dans le package de l'application. `@Repository` n'y ajoute rien."
+  - key: vf-package-scanne
+    format: true-false
+    question: "Une interface de repository rangée hors du package de la classe `@SpringBootApplication` n'a pas de bean, sans configuration en plus."
+    truth: true
+    answer: "Spring Boot ne cherche les repositories que dans ce package et ses sous-packages. L'injection échoue alors au démarrage : « required a bean of type ... that could not be found »."
+  - key: qcm-delete-batch
+    format: multiple-choice
+    question: "Quelle méthode vide la table `produit` en une seule requête SQL ?"
+    choices:
+      - {text: "`deleteAllInBatch()`", correct: true}
+      - {text: "`deleteAll()`", correct: false}
+      - {text: "`deleteAllById(ids)`", correct: false}
+      - {text: "`saveAll(List.of())`", correct: false}
+    answer: "`deleteAllInBatch` envoie un `delete from produit`, sans charger les entités, donc sans cascades ni callbacks. `deleteAll` et `deleteAllById` suppriment une entité à la fois."
+  - key: qcm-get-reference
+    format: multiple-choice
+    question: "Que fait `getReferenceById(id)` ?"
+    choices:
+      - {text: "Il renvoie un proxy, sans requête ; la ligne est lue au premier accès", correct: true}
+      - {text: "Il lit la ligne tout de suite et renvoie un `Optional` de l'entité", correct: false}
+      - {text: "Il renvoie l'identifiant de l'entité, sans jamais lire la ligne", correct: false}
+      - {text: "Il renvoie une copie détachée, lue dans le cache de second niveau", correct: false}
+    answer: "Pratique pour poser une relation (`ligne.setProduit(produits.getReferenceById(id))`) sans lire le produit. Si la ligne n'existe pas, l'exception arrive au premier accès : `EntityNotFoundException`."
+  - key: qcm-count
+    format: multiple-choice
+    question: "Quelle méthode donne le nombre de produits sans charger aucune entité ?"
+    choices:
+      - {text: "`count()`", correct: true}
+      - {text: "`findAll().size()`", correct: false}
+      - {text: "`findAll().stream().count()`", correct: false}
+      - {text: "`saveAll(findAll()).size()`", correct: false}
+    answer: "`count()` envoie un `select count(*)`. Les autres chargent toutes les entités en mémoire pour les compter."
+  - key: qcm-hierarchie
+    format: multiple-choice
+    question: "Quelle interface de Spring Data ajoute la pagination et le tri au CRUD, sans ce qui est propre à JPA ?"
+    choices:
+      - {text: "`PagingAndSortingRepository`", correct: true}
+      - {text: "`CrudRepository`", correct: false}
+      - {text: "`Repository`", correct: false}
+      - {text: "`QueryByExampleExecutor`", correct: false}
+    answer: "`Repository` est un marqueur vide, `CrudRepository` donne le CRUD, `PagingAndSortingRepository` le tri et la pagination. `JpaRepository` réunit le tout, avec des `List` et `flush`, `saveAndFlush`, `deleteAllInBatch`."
+  - key: trous-extends
+    format: fill-in
+    question: |-
+      Complète pour obtenir un repository de `Produit`, dont l'identifiant est un `Long` :
+      ```java
+      public interface ProduitRepository extends ___<Produit, ___> {}
+      ```
+    blanks:
+      - [JpaRepository, CrudRepository, ListCrudRepository]
+      - [Long]
+    answer: "`JpaRepository<Produit, Long>` : l'entité, puis le type de son identifiant."
+  - key: trous-or-else-throw
+    format: fill-in
+    question: |-
+      Complète pour transformer l'absence en exception métier :
+      ```java
+      public Produit trouver(long id) {
+          return produits.findById(id).___(() -> new ProduitIntrouvableException(id));
+      }
+      ```
+    blanks:
+      - [orElseThrow]
+    answer: "`orElseThrow` renvoie la valeur, ou lève l'exception fournie quand l'`Optional` est vide."
+  - key: trous-exists
+    format: fill-in
+    question: |-
+      Complète pour répondre 404 quand le produit à supprimer n'existe pas :
+      ```java
+      if (!produits.___(id)) {
+          throw new ProduitIntrouvableException(id);
+      }
+      produits.deleteById(id);
+      ```
+    blanks:
+      - [existsById]
+    answer: "`existsById` interroge la base sans charger l'entité. `deleteById`, lui, ignorerait l'absence."
+  - key: trous-save-retour
+    format: fill-in
+    question: |-
+      Complète pour récupérer l'identifiant généré à l'enregistrement :
+      ```java
+      Long id = produits.___(new Produit("stylo", 3)).getId();
+      ```
+    blanks:
+      - [save, saveAndFlush]
+    answer: "`save` renvoie l'entité enregistrée, avec son identifiant généré."
+  - key: bug-sans-heritage
+    format: bug-fix
+    question: |-
+      L'application refuse de démarrer : `Parameter 0 of constructor in boutique.Catalogue required a bean of type
+      'boutique.ProduitRepository' that could not be found.` Quelle correction est la bonne ?
+      ```java
+      public interface ProduitRepository {
+          List<Produit> findAll();
+      }
+
+      @Service
+      public class Catalogue {
+          public Catalogue(ProduitRepository produits) { ... }
+      }
+      ```
+    choices:
+      - {text: "Faire hériter l'interface de `JpaRepository<Produit, Long>`", correct: true}
+      - {text: "Annoter l'interface `ProduitRepository` avec `@Service`", correct: false}
+      - {text: "Injecter le repository par un champ `@Autowired` plutôt", correct: false}
+      - {text: "Déclarer `findAll` avec le mot-clé `default` dans l'interface", correct: false}
+    answer: |-
+      ```java
+      public interface ProduitRepository extends JpaRepository<Produit, Long> {}
+      ```
+      Spring Data ne crée un bean que pour les interfaces qui héritent de `Repository`. Une interface ordinaire n'a
+      pas d'implémentation : rien à injecter, quelle que soit la forme de l'injection.
+  - key: bug-optional-get
+    format: bug-fix
+    question: |-
+      `GET /produits/999` répond 500 avec `NoSuchElementException: No value present`. Le comportement attendu est un
+      404. Le gestionnaire d'erreurs traduit déjà `ProduitIntrouvableException` en 404. Quelle correction est la
+      bonne ?
+      ```java
+      public Produit trouver(long id) {
+          return produits.findById(id).get();
+      }
+      ```
+    choices:
+      - {text: "`return produits.findById(id).orElseThrow(() -> new ProduitIntrouvableException(id));`", correct: true}
+      - {text: "`return produits.findById(id).orElse(null);`, puis tester `null` dans le contrôleur", correct: false}
+      - {text: "`return produits.getReferenceById(id);`, qui ne lit pas la base tout de suite", correct: false}
+      - {text: "`return produits.findById(id).get();` dans un `try` qui renvoie un produit vide", correct: false}
+    answer: |-
+      ```java
+      return produits.findById(id).orElseThrow(() -> new ProduitIntrouvableException(id));
+      ```
+      `Optional.get()` sur un `Optional` vide lève `NoSuchElementException`, que personne ne traduit. L'exception
+      métier dit ce qui manque. `getReferenceById` ne ferait que repousser l'erreur au premier accès.
+  - key: bug-delete-all-lent
+    format: bug-fix
+    question: |-
+      La purge nocturne de 200 000 lignes d'historique prend une heure : les journaux montrent un SELECT, puis un
+      DELETE par ligne. L'historique n'a ni relation ni callback. Quelle correction est la bonne ?
+      ```java
+      @Transactional
+      public void purger() {
+          historique.deleteAll();
+      }
+      ```
+    choices:
+      - {text: "Appeler `historique.deleteAllInBatch()`", correct: true}
+      - {text: "Appeler `historique.deleteAll(historique.findAll())`", correct: false}
+      - {text: "Appeler `historique.deleteAll()` dans une boucle de 1 000", correct: false}
+      - {text: "Retirer `@Transactional` pour valider chaque suppression", correct: false}
+    answer: |-
+      ```java
+      historique.deleteAllInBatch();
+      ```
+      `deleteAll()` charge chaque entité puis la supprime, pour gérer cascades et callbacks : 200 001 requêtes.
+      `deleteAllInBatch()` envoie un seul `delete from historique`. Il ne déclenche ni cascade ni callback, ce qui
+      convient ici.
+  - key: bug-delete-silencieux
+    format: bug-fix
+    question: |-
+      `DELETE /produits/999` répond 204 alors que le produit n'existe pas. Le contrat de l'API demande un 404. Quelle
+      correction est la bonne ?
+      ```java
+      @DeleteMapping("/produits/{id}")
+      @ResponseStatus(HttpStatus.NO_CONTENT)
+      public void supprimer(@PathVariable long id) {
+          produits.deleteById(id);
+      }
+      ```
+    choices:
+      - {text: "Tester `existsById(id)` et lever `ProduitIntrouvableException` si absent", correct: true}
+      - {text: "Attraper `EmptyResultDataAccessException` autour de `deleteById`", correct: false}
+      - {text: "Remplacer `deleteById(id)` par `delete(getReferenceById(id))`", correct: false}
+      - {text: "Remplacer `@ResponseStatus(NO_CONTENT)` par `@ResponseStatus(NOT_FOUND)`", correct: false}
+    answer: |-
+      ```java
+      if (!produits.existsById(id)) {
+          throw new ProduitIntrouvableException(id);
+      }
+      produits.deleteById(id);
+      ```
+      Depuis Spring Data 3, `deleteById` ignore un identifiant absent : plus d'`EmptyResultDataAccessException` à
+      attraper. La vérification explicite rend l'absence visible, et le gestionnaire d'erreurs la traduit en 404.

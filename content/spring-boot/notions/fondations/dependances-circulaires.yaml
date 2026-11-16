@@ -1,0 +1,298 @@
+notion: dependances-circulaires
+lesson: |-
+  Il y a **dépendance circulaire** quand des beans dépendent les uns des autres en boucle : `Commandes` a besoin de
+  `Factures`, qui a besoin de `Commandes` (ou A → B → C → A).
+
+  **Par constructeur, le cycle est impossible à résoudre.** Pour construire `Commandes`, il faut `Factures` ; pour
+  construire `Factures`, il faut `Commandes`. Spring s'arrête :
+
+  ```
+  BeanCurrentlyInCreationException: Error creating bean with name 'commandes':
+  Requested bean is currently in creation: Is there an unresolvable circular reference ...?
+  ```
+
+  **Par champ ou par setter, Spring Framework sait le résoudre** : il crée `Commandes` vide, l'expose tôt
+  (référence anticipée), crée `Factures` en lui injectant cette référence, puis termine `Commandes`. Mais
+  **Spring Boot l'interdit depuis la version 2.6** (`spring.main.allow-circular-references=false` par défaut) :
+
+  ```
+  The dependencies of some of the beans in the application context form a cycle:
+  ┌─────┐
+  |  commandes (field com.boutique.Factures com.boutique.Commandes.factures)
+  ↑     ↓
+  |  factures (field com.boutique.Commandes com.boutique.Factures.commandes)
+  └─────┘
+  ```
+
+  **Pourquoi l'interdire ?** Un cycle trahit souvent deux classes mal découpées, qui se partagent une
+  responsabilité. Il expose des beans **à moitié initialisés**, et se marie mal avec les proxies (la référence
+  anticipée peut ne pas être le proxy final).
+
+  **Les remèdes, du meilleur au pire.**
+
+  | Remède | Idée |
+  |---|---|
+  | extraire un troisième bean | la logique que les deux se partagent part dans `CalculTotal`, dont tous deux dépendent |
+  | publier un événement | `Commandes` publie `CommandePassee` ; `Factures` l'écoute, sans dépendance directe |
+  | passer la donnée en paramètre | au lieu d'injecter l'autre service, on lui donne ce dont il a besoin à l'appel |
+  | `@Lazy` sur un point d'injection | Spring injecte un proxy, et le cycle ne bloque plus la construction |
+  | `spring.main.allow-circular-references=true` | réautorise les cycles par champ ou setter, jamais par constructeur |
+
+  Les deux derniers démarrent l'application, mais **le cycle reste** dans la conception : ce sont des pansements.
+
+  **Le repérer tôt** : un test qui démarre le contexte complet (`@SpringBootTest`) le détecte dans la CI ; un test
+  ArchUnit peut interdire les cycles entre packages.
+
+  **En entretien** : « Un cycle par constructeur ne peut pas se résoudre ; par champ, Spring sait le faire, mais
+  Spring Boot les refuse par défaut depuis la 2.6. Je casse le cycle en extrayant la logique commune dans un
+  troisième bean, ou par un événement ; `@Lazy` et la propriété ne sont que des contournements. »
+cards:
+  - key: boot-face-a-un-cycle
+    format: course
+    question: "Que fait Spring Boot, par défaut, face à deux beans qui s'injectent l'un l'autre par champ ?"
+    choices:
+      - {text: "Il refuse de démarrer, et dessine le cycle dans le rapport d'échec", correct: true}
+      - {text: "Il démarre, en injectant `null` dans l'un des deux champs", correct: false}
+      - {text: "Il démarre, et crée deux instances de chacun des beans", correct: false}
+      - {text: "Il démarre, et n'injecte les deux beans qu'au premier appel", correct: false}
+    answer: "Depuis Spring Boot 2.6, `spring.main.allow-circular-references` vaut `false` : le démarrage s'arrête, avec le schéma du cycle."
+  - key: cycle-de-constructeurs
+    format: course
+    question: "Pourquoi un cycle entre deux constructeurs ne peut-il jamais être résolu par Spring ?"
+    choices:
+      - {text: "Chaque objet doit exister avant que l'autre puisse être construit", correct: true}
+      - {text: "Spring interdit d'injecter un bean dans un constructeur public", correct: false}
+      - {text: "Les constructeurs sont appelés dans un ordre aléatoire", correct: false}
+      - {text: "Les champs `final` ne peuvent pas recevoir de proxy", correct: false}
+    answer: "Il n'existe pas d'objet « à moitié construit » à passer à l'autre : le constructeur doit recevoir un objet complet. Seul un proxy (`@Lazy`) contourne le problème."
+  - key: propriete-des-cycles
+    format: course
+    question: "Quelle propriété autorise de nouveau les cycles (par champ ou par setter) dans Spring Boot ?"
+    choices:
+      - {text: "`spring.main.allow-circular-references=true`", correct: true}
+      - {text: "`spring.main.allow-bean-definition-overriding=true`", correct: false}
+      - {text: "`spring.main.lazy-initialization=true`", correct: false}
+      - {text: "`spring.beans.circular-references=true`", correct: false}
+    answer: "C'est un dernier recours : le cycle reste, et un cycle de constructeurs échoue toujours. L'autre propriété permet de redéfinir un bean du même nom, rien à voir."
+  - key: meilleur-remede
+    format: course
+    question: "Quel est le remède le plus sain à un cycle entre `CommandeService` et `FactureService` ?"
+    choices:
+      - {text: "Extraire la logique partagée dans un troisième bean, dont tous deux dépendent", correct: true}
+      - {text: "Autoriser les cycles avec `spring.main.allow-circular-references`", correct: false}
+      - {text: "Passer les deux beans en portée prototype", correct: false}
+      - {text: "Remplacer les deux injections par des appels à `getBean`", correct: false}
+    answer: "Le cycle disparaît de la conception, pas seulement du démarrage. Deux prototypes en cycle échoueraient aussi ; `getBean` cache le cycle sans le supprimer."
+  - key: vf-interdits-depuis-26
+    format: true-false
+    question: "Depuis Spring Boot 2.6, les dépendances circulaires sont interdites par défaut."
+    truth: true
+    answer: "`spring.main.allow-circular-references` vaut `false` depuis la 2.6. Le rapport d'échec dessine le cycle."
+  - key: vf-propriete-et-constructeurs
+    format: true-false
+    question: "Avec `spring.main.allow-circular-references=true`, un cycle entre deux constructeurs démarre sans erreur."
+    truth: false
+    answer: "Spring Boot répond : « Despite circular references being allowed, the dependency cycle between beans could not be broken. » Seuls les cycles par champ ou setter se résolvent."
+  - key: vf-framework-seul
+    format: true-false
+    question: "Spring Framework seul, sans Boot, résout par défaut un cycle entre deux injections par champ."
+    truth: true
+    answer: "Le conteneur expose une référence anticipée du premier bean. C'est Spring Boot qui désactive ce mécanisme par défaut."
+  - key: vf-lazy-casse-le-cycle
+    format: true-false
+    question: "`@Lazy` sur l'un des paramètres du cycle permet de démarrer, car Spring injecte un proxy à la place du bean."
+    truth: true
+    answer: "Le proxy ne demande le vrai bean qu'au premier appel, quand les deux sont construits. Le cycle reste dans la conception."
+  - key: qcm-exception-du-cycle
+    format: multiple-choice
+    question: "Quelle exception est à la racine d'un cycle de dépendances non résolu ?"
+    choices:
+      - {text: "`BeanCurrentlyInCreationException`", correct: true}
+      - {text: "`NoUniqueBeanDefinitionException`", correct: false}
+      - {text: "`BeanDefinitionOverrideException`", correct: false}
+      - {text: "`StackOverflowError`", correct: false}
+    answer: "Spring détecte qu'on redemande un bean encore en création : « Requested bean is currently in creation ». Il n'y a pas de récursion infinie."
+  - key: qcm-reconnaitre-un-cycle
+    format: multiple-choice
+    question: "Laquelle de ces chaînes de dépendances forme un cycle ?"
+    choices:
+      - {text: "A dépend de B, B dépend de C, C dépend de A", correct: true}
+      - {text: "A dépend de B et de C, B dépend de C", correct: false}
+      - {text: "A et B dépendent tous deux de C", correct: false}
+      - {text: "A dépend de B, B dépend de C", correct: false}
+    answer: "Un cycle revient à son point de départ. Les autres graphes ont une feuille (C) qui ne dépend de personne : Spring la crée en premier."
+  - key: qcm-prevenir-sans-dependre
+    format: multiple-choice
+    question: "Comment `CommandeService` peut-il prévenir `FactureService` sans dépendre de lui ?"
+    choices:
+      - {text: "En publiant un événement que `FactureService` écoute", correct: true}
+      - {text: "En recevant `FactureService` par setter plutôt que par constructeur", correct: false}
+      - {text: "En rendant `FactureService` entièrement statique", correct: false}
+      - {text: "En plaçant les deux classes dans le même package", correct: false}
+    answer: "L'éditeur ne connaît que l'événement ; l'écouteur dépend de l'événement. La flèche de retour disparaît. Un setter garderait le cycle."
+  - key: qcm-pourquoi-interdire
+    format: multiple-choice
+    question: "Pourquoi Spring Boot a-t-il choisi d'interdire les cycles par défaut ?"
+    choices:
+      - {text: "Ils trahissent un mauvais découpage et exposent des beans à moitié prêts", correct: true}
+      - {text: "Ils ralentissent chaque appel de méthode entre les deux beans", correct: false}
+      - {text: "Ils sont incompatibles avec les threads virtuels de Java 21", correct: false}
+      - {text: "Ils empêchent la compilation avec l'option `-parameters`", correct: false}
+    answer: "Un bean injecté par référence anticipée n'est pas encore initialisé (ni toujours enveloppé de son proxy). Et le cycle signale presque toujours une responsabilité mal placée."
+  - key: bug-cycle-par-champs
+    format: bug-fix
+    question: |-
+      Le démarrage échoue : « The dependencies of some of the beans in the application context form a cycle »,
+      entre `commandes` et `factures`. Les deux calculent le total d'une commande. Quelle correction est la bonne ?
+      ```java
+      @Service
+      public class Commandes {
+          @Autowired private Factures factures;
+          BigDecimal total(Commande c) { ... }
+      }
+
+      @Service
+      public class Factures {
+          @Autowired private Commandes commandes;
+          Facture facturer(Commande c) { return new Facture(commandes.total(c)); }
+      }
+      ```
+    choices:
+      - {text: "Extraire `total` dans un bean `CalculTotal`, injecté dans les deux", correct: true}
+      - {text: "Passer les deux injections par champ en injections par constructeur", correct: false}
+      - {text: "Ajouter `@Primary` sur la classe `Commandes`", correct: false}
+      - {text: "Passer `Factures` en portée prototype", correct: false}
+    answer: |-
+      ```java
+      @Component
+      public class CalculTotal {
+          BigDecimal total(Commande c) { ... }
+      }
+      // Commandes et Factures reçoivent CalculTotal, et plus l'un l'autre
+      ```
+      Le calcul partagé appartient à un troisième bean : le cycle disparaît. Par constructeur, le cycle serait le
+      même, et cette fois impossible à résoudre.
+  - key: bug-cycle-constructeurs-autorises
+    format: bug-fix
+    question: |-
+      Malgré `spring.main.allow-circular-references=true`, le démarrage échoue : « Despite circular references being
+      allowed, the dependency cycle between beans could not be broken. » Il faut démarrer aujourd'hui, sans refonte.
+      Quelle correction minimale est la bonne ?
+      ```java
+      @Service
+      public class Commandes {
+          public Commandes(Factures factures) { ... }
+      }
+
+      @Service
+      public class Factures {
+          public Factures(Commandes commandes) { ... }
+      }
+      ```
+    choices:
+      - {text: "`@Lazy` sur le paramètre `factures` du constructeur de `Commandes`", correct: true}
+      - {text: "`@Primary` sur les deux classes `Commandes` et `Factures`", correct: false}
+      - {text: "`spring.main.lazy-initialization=true` dans la configuration", correct: false}
+      - {text: "`@Order(1)` sur `Commandes` et `@Order(2)` sur `Factures`", correct: false}
+    answer: |-
+      ```java
+      public Commandes(@Lazy Factures factures) { ... }
+      ```
+      La propriété ne concerne que les cycles par champ ou setter. `@Lazy` injecte un proxy de `Factures` : la
+      construction de `Commandes` n'attend plus le vrai bean. Le cycle reste, et la refonte aussi.
+  - key: bug-cycle-a-trois
+    format: bug-fix
+    question: |-
+      Le démarrage échoue sur un cycle entre `stock`, `commandes` et `alertes` : le stock prévient les alertes, les
+      alertes relancent les commandes, les commandes mettent à jour le stock. Quelle correction est la bonne ?
+      ```java
+      @Service
+      public class Stock {
+          public Stock(Alertes alertes) { ... }
+          void retirer(String produit, int n) { ...; alertes.stockBas(produit); }
+      }
+      ```
+    choices:
+      - {text: "`Stock` publie un événement `StockBas`, qu'`Alertes` écoute", correct: true}
+      - {text: "`Stock` reçoit `Alertes` par un champ `@Autowired`", correct: false}
+      - {text: "`Stock` crée son propre `Alertes` avec `new`", correct: false}
+      - {text: "`Stock` passe en portée prototype", correct: false}
+    answer: |-
+      ```java
+      @Service
+      public class Stock {
+          private final ApplicationEventPublisher evenements;
+          ...
+          void retirer(String produit, int n) { ...; evenements.publishEvent(new StockBas(produit)); }
+      }
+      ```
+      `Stock` ne dépend plus d'`Alertes` : la boucle est coupée. Un champ `@Autowired` garderait le cycle, refusé
+      par Spring Boot ; un `new` créerait des alertes hors du conteneur.
+  - key: bug-mauvaise-propriete
+    format: bug-fix
+    question: |-
+      Pour démarrer malgré un cycle entre deux injections par champ, un collègue a ajouté cette ligne ; le démarrage
+      échoue toujours sur le même cycle. Quelle correction de la configuration est la bonne ?
+      ```properties
+      spring.main.allow-bean-definition-overriding=true
+      ```
+    choices:
+      - {text: "`spring.main.allow-circular-references=true`", correct: true}
+      - {text: "`spring.main.lazy-initialization=false`", correct: false}
+      - {text: "`spring.main.allow-bean-definition-overriding=false`", correct: false}
+      - {text: "`spring.main.web-application-type=none`", correct: false}
+    answer: |-
+      ```properties
+      spring.main.allow-circular-references=true
+      ```
+      La propriété ajoutée permet de redéfinir un bean du même nom, sans rapport avec les cycles. La bonne propriété
+      fait démarrer un cycle par champ ; mais la vraie correction reste de casser le cycle.
+  - key: situation-montee-de-version
+    format: scenario
+    question: |-
+      Après la montée de version d'une application de Spring Boot 2.5 vers Spring Boot 4, elle refuse de démarrer et
+      affiche un cycle entre deux services. Que proposes-tu ?
+    choices:
+      - {text: "Casser le cycle en extrayant la logique commune, plutôt que le réautoriser", correct: true}
+      - {text: "Revenir à Spring Boot 2.5, la seule version qui accepte ce code", correct: false}
+      - {text: "Passer les deux services en portée prototype", correct: false}
+      - {text: "Annoter les deux services avec `@Primary`", correct: false}
+    answer: |-
+      Le cycle existait déjà ; Boot 2.6 a seulement cessé de le tolérer. La propriété permet de migrer vite, mais la
+      montée de version est une bonne occasion de corriger la conception.
+  - key: situation-gestion-des-cycles
+    format: scenario
+    question: |-
+      En entretien : « Comment Spring gère-t-il les dépendances circulaires ? » Que réponds-tu ?
+    choices:
+      - {text: "Il en résout par champ, jamais par constructeur ; Boot les refuse par défaut", correct: true}
+      - {text: "Il les résout toutes, quel que soit le type d'injection", correct: false}
+      - {text: "Il n'en résout aucune, même sans Spring Boot", correct: false}
+      - {text: "Il ne les résout qu'entre beans de portée prototype", correct: false}
+    answer: |-
+      La réponse complète : la référence anticipée pour les champs et setters, l'impossibilité pour les
+      constructeurs, le refus par défaut depuis Boot 2.6, et le vrai remède (repenser le découpage).
+  - key: situation-lazy-partout
+    format: scenario
+    question: |-
+      Un collègue met `@Lazy` sur chaque paramètre qui forme un cycle, « comme ça, plus de problème ». Que lui dis-tu ?
+    choices:
+      - {text: "Ça démarre, mais le cycle reste : c'est un dernier recours", correct: true}
+      - {text: "C'est la solution recommandée par l'équipe Spring", correct: false}
+      - {text: "Ça ne change rien : `@Lazy` est ignoré sur un paramètre", correct: false}
+      - {text: "Ça crée un nouvel objet à chaque appel de méthode", correct: false}
+    answer: |-
+      Le proxy masque le cycle sans le supprimer : les deux classes restent liées l'une à l'autre. Mieux vaut un
+      troisième bean ou un événement.
+  - key: situation-detecter-en-ci
+    format: scenario
+    question: |-
+      Comment t'assures-tu qu'un nouveau cycle de beans n'arrive jamais jusqu'à la production ?
+    choices:
+      - {text: "Un test qui démarre le contexte complet (`@SpringBootTest`) dans la CI", correct: true}
+      - {text: "Un test unitaire de chaque service, avec des doublures Mockito", correct: false}
+      - {text: "La compilation du projet avec l'option `-Xlint:all`", correct: false}
+      - {text: "Une relecture manuelle du schéma d'architecture", correct: false}
+    answer: |-
+      Le cycle n'apparaît qu'à la création du contexte : un test d'intégration qui le démarre échoue aussitôt. Les
+      tests unitaires construisent chaque classe seule et ne voient rien.

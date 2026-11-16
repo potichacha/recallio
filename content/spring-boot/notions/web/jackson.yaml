@@ -1,0 +1,303 @@
+notion: jackson
+lesson: |-
+  Spring Boot 4 lit et écrit le JSON avec **Jackson 3**. Ses classes ont changé de paquet : le bean configuré est un
+  `JsonMapper` (`tools.jackson.databind.json`), et non plus un `ObjectMapper` de `com.fasterxml.jackson.databind`. Les
+  **annotations**, elles, restent dans `com.fasterxml.jackson.annotation`. Les exceptions de Jackson 3
+  (`JacksonException`) sont non vérifiées : plus de `throws JsonProcessingException` partout.
+
+  **Ce que Jackson écrit par défaut.** Les composants d'un record, ou les getters d'une classe (`getNom()` donne `nom`).
+  Une classe aux champs privés **sans getter** est écrite `{}` : Jackson ne voit rien à écrire.
+
+  **Personnaliser une classe.**
+
+  ```java
+  @JsonInclude(JsonInclude.Include.NON_NULL)          // n'écrit pas les propriétés nulles
+  public record ProduitDto(
+          String nom,
+          @JsonProperty("prix_ttc") BigDecimal prixTtc,   // nom dans le JSON
+          @JsonFormat(pattern = "dd/MM/yyyy") LocalDate dateAjout,
+          @JsonIgnore String noteInterne) {}              // jamais écrit, jamais lu
+  ```
+
+  | Annotation | Effet |
+  |---|---|
+  | `@JsonProperty("prix_ttc")` | nom de la propriété JSON, en lecture comme en écriture |
+  | `@JsonIgnore` | propriété ignorée **dans les deux sens** |
+  | `@JsonProperty(access = Access.WRITE_ONLY)` | lue dans la requête, jamais écrite dans la réponse (un mot de passe) |
+  | `@JsonInclude(Include.NON_NULL)` | les valeurs `null` ne sont pas écrites |
+  | `@JsonFormat(pattern = "dd/MM/yyyy")` | format d'une date ou d'un nombre |
+  | `@JsonIgnoreProperties(ignoreUnknown = true)` | tolère les propriétés inconnues (déjà le défaut de Jackson 3) |
+
+  **Les dates.** Jackson 3 gère `java.time` sans module à ajouter, et écrit les dates en **ISO-8601** : `"2025-03-14"`
+  pour un `LocalDate`, `"2025-03-14T12:00:00Z"` pour un `Instant`.
+
+  **Régler tout le JSON de l'application.** Par des propriétés, ou par un bean `JsonMapperBuilderCustomizer` :
+
+  ```properties
+  spring.jackson.property-naming-strategy=SNAKE_CASE
+  spring.jackson.default-property-inclusion=non_null
+  ```
+
+  On injecte le `JsonMapper` de Spring Boot plutôt que d'en créer un : il porte cette configuration.
+
+  **Les pièges.**
+
+  - **Les cycles** : un `Auteur` qui a ses `Livre`, chaque `Livre` désignant son `Auteur`. Jackson descend sans fin, puis
+    échoue : « Document nesting depth (501) exceeds the maximum allowed », d'où une 500. On renvoie des DTO sans le lien
+    retour, ou l'on coupe ce lien avec `@JsonIgnore` (ou `@JsonManagedReference` et `@JsonBackReference`).
+  - **`@JsonIgnore` sur un mot de passe** l'empêche aussi d'être lu à l'inscription : il arrive `null`. C'est
+    `WRITE_ONLY` qu'il faut.
+  - **Les entités JPA exposées** : chargement paresseux, cycles, champs internes. Un DTO évite les trois.
+
+  **En entretien** : « Spring Boot 4 utilise Jackson 3, avec un `JsonMapper` que j'injecte plutôt que de le recréer. Je
+  règle une classe avec `@JsonProperty`, `@JsonInclude` ou `@JsonFormat`, et tout le JSON avec les propriétés
+  `spring.jackson.*`. J'expose des DTO, ce qui m'évite les cycles et les champs internes qui fuient. »
+cards:
+  - key: mapper-de-boot-4
+    format: course
+    question: "Quelle classe Spring Boot 4 configure-t-il pour lire et écrire le JSON ?"
+    choices:
+      - {text: "`JsonMapper`, du paquet `tools.jackson.databind.json`", correct: true}
+      - {text: "`ObjectMapper`, du paquet `com.fasterxml.jackson.databind`", correct: false}
+      - {text: "`Gson`, de la bibliothèque de Google", correct: false}
+      - {text: "`Jsonb`, de Jakarta JSON Binding", correct: false}
+    answer: "Spring Boot 4 passe à Jackson 3, dont les classes vivent sous `tools.jackson`. L'`ObjectMapper` de `com.fasterxml.jackson.databind` est celui de Jackson 2."
+  - key: sens-de-jsonignore
+    format: course
+    question: "Dans quels sens `@JsonIgnore` posé sur un champ agit-il ?"
+    choices:
+      - {text: "Dans les deux : il n'est ni écrit ni lu", correct: true}
+      - {text: "Seulement à l'écriture de la réponse", correct: false}
+      - {text: "Seulement à la lecture de la requête", correct: false}
+      - {text: "Dans aucun : il ne sert qu'à la documentation", correct: false}
+    answer: "Le champ disparaît du JSON écrit, et une valeur reçue pour lui est ignorée. Pour le seul sens de la lecture : `@JsonProperty(access = Access.WRITE_ONLY)`."
+  - key: role-jsonproperty
+    format: course
+    question: "Que fait `@JsonProperty(\"prix_ttc\")` sur le composant `prixTtc` d'un record ?"
+    choices:
+      - {text: "Il nomme la propriété `prix_ttc` dans le JSON, lu comme écrit", correct: true}
+      - {text: "Il convertit la valeur en centimes toutes taxes comprises", correct: false}
+      - {text: "Il rend la propriété obligatoire dans le JSON reçu", correct: false}
+      - {text: "Il ajoute une propriété `prix_ttc` à côté de `prixTtc`", correct: false}
+    answer: "Le nom Java reste `prixTtc` ; le JSON utilise `prix_ttc`, dans les réponses comme dans les requêtes."
+  - key: localdate-par-defaut
+    format: course
+    question: "Comment Spring Boot 4 écrit-il un `LocalDate` du 14 mars 2025 dans le JSON, par défaut ?"
+    choices:
+      - {text: "`\"2025-03-14\"`", correct: true}
+      - {text: "`[2025,3,14]`", correct: false}
+      - {text: "`\"14/03/2025\"`", correct: false}
+      - {text: "`1741910400000`", correct: false}
+    answer: "Jackson 3 gère `java.time` d'office et écrit les dates en ISO-8601. Le tableau `[2025,3,14]` était l'ancien comportement de Jackson 2 sans réglage."
+  - key: vf-paquet-des-annotations
+    format: true-false
+    question: "Avec Jackson 3, les annotations comme `@JsonProperty` restent dans le paquet `com.fasterxml.jackson.annotation`."
+    truth: true
+    answer: "Seules les classes du moteur changent de paquet (`tools.jackson`). Les annotations sont partagées entre Jackson 2 et 3 : les DTO n'ont pas à changer leurs imports."
+  - key: vf-exception-non-verifiee
+    format: true-false
+    question: "Avec Jackson 3, `writeValueAsString` lève une exception vérifiée qu'il faut déclarer ou rattraper."
+    truth: false
+    answer: "`JacksonException` hérite de `RuntimeException` en Jackson 3. Le `throws JsonProcessingException` de Jackson 2 disparaît."
+  - key: vf-classe-sans-getter
+    format: true-false
+    question: "Un objet dont les champs sont privés et sans getter est écrit `{}` par le `JsonMapper` de Spring Boot 4."
+    truth: true
+    answer: "Jackson ne voit aucune propriété : il écrit un objet vide, sans erreur. Un record, ou des getters, exposent les valeurs."
+  - key: vf-non-null
+    format: true-false
+    question: "`@JsonInclude(JsonInclude.Include.NON_NULL)` sur une classe retire du JSON écrit les propriétés qui valent `null`."
+    truth: true
+    answer: "Sans lui, la propriété est écrite avec `null`. Pour tout le projet : `spring.jackson.default-property-inclusion=non_null`."
+  - key: qcm-mot-de-passe-lu-seulement
+    format: multiple-choice
+    question: "Le mot de passe doit être lu dans la requête d'inscription, mais jamais écrit dans une réponse. Quelle annotation poses-tu ?"
+    choices:
+      - {text: "`@JsonProperty(access = JsonProperty.Access.WRITE_ONLY)`", correct: true}
+      - {text: "`@JsonProperty(access = JsonProperty.Access.READ_ONLY)`", correct: false}
+      - {text: "`@JsonIgnore`", correct: false}
+      - {text: "`@JsonInclude(JsonInclude.Include.NON_NULL)`", correct: false}
+    answer: "`WRITE_ONLY` : la propriété ne sert qu'à écrire dans l'objet Java, donc à la lecture du JSON. `READ_ONLY` fait l'inverse ; `@JsonIgnore` bloque les deux sens."
+  - key: qcm-snake-case-global
+    format: multiple-choice
+    question: "Comment écris-tu toutes les propriétés JSON en `snake_case`, sans annoter chaque champ ?"
+    choices:
+      - {text: "Avec `spring.jackson.property-naming-strategy=SNAKE_CASE`", correct: true}
+      - {text: "Avec `@JsonProperty` sur chaque classe du projet", correct: false}
+      - {text: "Avec `spring.mvc.json.case=snake` dans la configuration", correct: false}
+      - {text: "Avec l'en-tête `Accept: application/snake+json`", correct: false}
+    answer: "La stratégie de nommage s'applique à tout le `JsonMapper` de Spring Boot : `prixTtc` devient `prix_ttc` partout."
+  - key: qcm-format-d-une-date
+    format: multiple-choice
+    question: "Comment écris-tu un `LocalDate` sous la forme `14/03/2025`, pour un seul champ du JSON ?"
+    choices:
+      - {text: "`@JsonFormat(pattern = \"dd/MM/yyyy\")`", correct: true}
+      - {text: "`@DateTimeFormat(pattern = \"dd/MM/yyyy\")`", correct: false}
+      - {text: "`@JsonProperty(pattern = \"dd/MM/yyyy\")`", correct: false}
+      - {text: "`@JsonSerialize(pattern = \"dd/MM/yyyy\")`", correct: false}
+    answer: "`@JsonFormat` règle le format pour Jackson. `@DateTimeFormat` est une annotation de Spring pour les paramètres de requête et les formulaires, pas pour le JSON."
+  - key: qcm-cycle-auteur-livres
+    format: multiple-choice
+    question: "Un `Auteur` a la liste de ses `Livre`, et chaque `Livre` désigne son `Auteur`. Que se passe-t-il quand un contrôleur renvoie un auteur ?"
+    choices:
+      - {text: "Une 500 : l'écriture boucle jusqu'à la limite de profondeur", correct: true}
+      - {text: "Jackson repère le cycle et écrit `null` à sa place", correct: false}
+      - {text: "Jackson n'écrit que le premier niveau, sans les livres", correct: false}
+      - {text: "L'application refuse de démarrer à cause du cycle", correct: false}
+    answer: "Jackson suit les liens sans fin, jusqu'à « Document nesting depth (501) exceeds the maximum allowed » : `HttpMessageNotWritableException`, donc 500."
+  - key: trous-jsonproperty
+    format: fill-in
+    question: |-
+      Complète pour que le composant s'appelle `prix_ttc` dans le JSON :
+      ```java
+      public record Produit(String nom, @___("prix_ttc") BigDecimal prixTtc) {}
+      ```
+    blanks:
+      - [JsonProperty]
+    answer: "`@JsonProperty` donne le nom de la propriété JSON, en lecture comme en écriture."
+  - key: trous-jsonignore
+    format: fill-in
+    question: |-
+      Complète pour que `jetonInterne` n'apparaisse jamais dans le JSON :
+      ```java
+      public class Utilisateur {
+          private String email;
+          @___
+          private String jetonInterne;
+      ```
+    blanks:
+      - [JsonIgnore]
+    answer: "`@JsonIgnore` retire la propriété du JSON, dans les deux sens."
+  - key: trous-jsoninclude
+    format: fill-in
+    question: |-
+      Complète pour ne pas écrire les propriétés nulles :
+      ```java
+      @JsonInclude(JsonInclude.Include.___)
+      public record Profil(String pseudo, String bio) {}
+      ```
+    blanks:
+      - [NON_NULL]
+    answer: "`NON_NULL` omet les valeurs `null` ; `NON_EMPTY` omettrait aussi les chaînes et collections vides."
+  - key: trous-jsonformat
+    format: fill-in
+    question: |-
+      Complète pour écrire la date au format `14/03/2025` :
+      ```java
+      public record Facture(String numero, @___(pattern = "dd/MM/yyyy") LocalDate emise) {}
+      ```
+    blanks:
+      - [JsonFormat]
+    answer: "`@JsonFormat(pattern = ...)` règle le format de ce seul champ."
+  - key: bug-classe-sans-getter
+    format: bug-fix
+    question: |-
+      `GET /api/resume` répond 200 avec `{}` : aucune donnée. Quelle correction est la bonne ?
+      ```java
+      public class Resume {
+          private final int commandes;
+          private final long chiffreAffaires;
+
+          public Resume(int commandes, long chiffreAffaires) {
+              this.commandes = commandes;
+              this.chiffreAffaires = chiffreAffaires;
+          }
+      }
+      ```
+    choices:
+      - {text: "En faire un record, dont les accesseurs exposent les valeurs", correct: true}
+      - {text: "Annoter la classe `Resume` avec `@ResponseBody`", correct: false}
+      - {text: "Retirer le mot-clé `final` des deux champs privés", correct: false}
+      - {text: "Faire implémenter `Serializable` à la classe `Resume`", correct: false}
+    answer: |-
+      ```java
+      public record Resume(int commandes, long chiffreAffaires) {}
+      ```
+      Jackson écrit ce qu'il voit : des getters, des composants de record, ou des champs publics. Des champs privés
+      sans getter restent invisibles, d'où `{}`. `Serializable` concerne la sérialisation Java, pas le JSON.
+  - key: bug-cycle-bidirectionnel
+    format: bug-fix
+    question: |-
+      `GET /api/auteurs/1` répond 500 : « Could not write JSON: Document nesting depth (501) exceeds the maximum
+      allowed ». Quelle correction est la bonne ?
+      ```java
+      public class Auteur {
+          public String nom;
+          public List<Livre> livres;
+      }
+
+      public class Livre {
+          public String titre;
+          public Auteur auteur;
+      }
+      ```
+    choices:
+      - {text: "Annoter le champ `Livre.auteur` avec `@JsonIgnore`", correct: true}
+      - {text: "Annoter le champ `Auteur.livres` avec `@JsonInclude(NON_NULL)`", correct: false}
+      - {text: "Faire implémenter `Serializable` aux deux classes", correct: false}
+      - {text: "Annoter le champ `Livre.auteur` avec `@JsonProperty`", correct: false}
+    answer: |-
+      ```java
+      public class Livre {
+          public String titre;
+          @JsonIgnore
+          public Auteur auteur;
+      }
+      ```
+      L'auteur écrit ses livres, qui écrivent leur auteur, et ainsi de suite. Couper le lien retour casse le cycle ;
+      un DTO sans ce lien est la solution la plus nette.
+  - key: bug-mot-de-passe-perdu
+    format: bug-fix
+    question: |-
+      À l'inscription, `motDePasse` arrive toujours `null`, alors que le JSON reçu le contient. Il ne doit jamais
+      apparaître dans les réponses. Quelle correction est la bonne ?
+      ```java
+      public class Compte {
+          private String login;
+          @JsonIgnore
+          private String motDePasse;
+          // getters et setters
+      }
+      ```
+    choices:
+      - {text: "Remplacer `@JsonIgnore` par `@JsonProperty(access = Access.WRITE_ONLY)`", correct: true}
+      - {text: "Remplacer `@JsonIgnore` par `@JsonProperty(access = Access.READ_ONLY)`", correct: false}
+      - {text: "Retirer `@JsonIgnore`, et ne rien changer d'autre", correct: false}
+      - {text: "Remplacer `@JsonIgnore` par `@JsonInclude(Include.NON_NULL)`", correct: false}
+    answer: |-
+      ```java
+      @JsonProperty(access = JsonProperty.Access.WRITE_ONLY)
+      private String motDePasse;
+      ```
+      `@JsonIgnore` agit dans les deux sens : le mot de passe n'est plus lu. `WRITE_ONLY` le lit dans la requête et ne
+      l'écrit jamais. Sans annotation, il serait écrit dans les réponses.
+  - key: bug-objectmapper-jackson2
+    format: bug-fix
+    question: |-
+      Dans un projet Spring Boot 4, cette classe ne compile pas : le paquet `com.fasterxml.jackson.databind` n'existe
+      pas. Quelle correction est la bonne ?
+      ```java
+      import com.fasterxml.jackson.databind.ObjectMapper;
+
+      @Service
+      public class Exporteur {
+          private final ObjectMapper mapper;
+
+          public Exporteur(ObjectMapper mapper) {
+              this.mapper = mapper;
+          }
+      }
+      ```
+    choices:
+      - {text: "Injecter `tools.jackson.databind.json.JsonMapper` à la place", correct: true}
+      - {text: "Créer un `new ObjectMapper()` dans le constructeur", correct: false}
+      - {text: "Ajouter `@Autowired` sur le paramètre du constructeur", correct: false}
+      - {text: "Importer `com.fasterxml.jackson.annotation.ObjectMapper`", correct: false}
+    answer: |-
+      ```java
+      import tools.jackson.databind.json.JsonMapper;
+
+      public Exporteur(JsonMapper mapper) {
+      ```
+      Spring Boot 4 embarque Jackson 3, dont les classes sont sous `tools.jackson`. Seules les annotations restent
+      sous `com.fasterxml.jackson.annotation`. Le `JsonMapper` injecté porte la configuration de l'application.

@@ -1,0 +1,227 @@
+notion: propagation
+lesson: |-
+  La **propagation** dit ce que fait une méthode `@Transactional` quand elle est appelée **alors qu'une transaction
+  est peut-être déjà ouverte**. Elle se règle avec l'attribut `propagation` :
+  `@Transactional(propagation = Propagation.REQUIRES_NEW)`.
+
+  | Propagation | Une transaction est ouverte | Aucune transaction |
+  |---|---|---|
+  | `REQUIRED` (défaut) | la rejoint | en crée une |
+  | `REQUIRES_NEW` | la **suspend** et en crée une nouvelle, indépendante | en crée une |
+  | `SUPPORTS` | la rejoint | s'exécute sans transaction |
+  | `NOT_SUPPORTED` | la suspend, s'exécute sans transaction | s'exécute sans transaction |
+  | `MANDATORY` | la rejoint | `IllegalTransactionStateException` |
+  | `NEVER` | `IllegalTransactionStateException` | s'exécute sans transaction |
+  | `NESTED` | crée un **savepoint** dans la transaction en cours | en crée une |
+
+  **`REQUIRED`, le cas courant.** Le service ouvre la transaction, les repositories et les autres services
+  transactionnels la rejoignent : tout est validé ou annulé ensemble. Revers : si une méthode participante laisse
+  sortir une exception, toute la transaction devient rollback-only.
+
+  **`REQUIRES_NEW`, une transaction à part.** Utile pour ce qui doit survivre à l'échec de l'appelant : un journal
+  d'audit, un compteur de tentatives.
+
+  ```java
+  @Service
+  public class Audit {
+      @Transactional(propagation = Propagation.REQUIRES_NEW)
+      public void tracer(String action) {
+          traces.save(new Trace(action));   // validée tout de suite, quoi qu'il arrive ensuite
+      }
+  }
+  ```
+
+  Ses pièges :
+  - elle prend une **seconde connexion** pendant que la transaction suspendue garde la sienne. Sous charge, avec un
+    petit pool, les threads peuvent s'attendre les uns les autres ;
+  - elle ne voit pas ce que la transaction suspendue a écrit sans le valider, et peut attendre sur ses verrous ;
+  - appelée par `this.tracer(...)` depuis le même bean, elle ne passe pas par le proxy : aucune nouvelle transaction.
+
+  **`MANDATORY`** documente et vérifie qu'une méthode n'a de sens que dans une transaction existante : appelée sans,
+  elle lève `IllegalTransactionStateException: No existing transaction found for transaction marked with propagation
+  'mandatory'`.
+
+  **`NESTED`** repose sur les savepoints JDBC : un échec annule jusqu'au savepoint, pas toute la transaction. Avec
+  JPA, `JpaTransactionManager` le refuse par défaut (`NestedTransactionNotSupportedException`), car le savepoint ne
+  remet pas le contexte de persistance en arrière. Il sert surtout avec `JdbcTemplate` et
+  `DataSourceTransactionManager`.
+
+  **En entretien** : « La propagation dit comment une méthode transactionnelle se comporte face à une transaction
+  existante. `REQUIRED`, le défaut, la rejoint ; `REQUIRES_NEW` la suspend et ouvre une transaction indépendante,
+  pratique pour un journal d'audit, au prix d'une seconde connexion. `MANDATORY` exige une transaction, et `NESTED`
+  pose un savepoint, surtout utile en JDBC. »
+cards:
+  - key: required
+    format: course
+    question: "Que fait une méthode `@Transactional` en propagation par défaut, appelée alors qu'une transaction est ouverte ?"
+    choices:
+      - {text: "Elle rejoint la transaction ouverte", correct: true}
+      - {text: "Elle suspend la transaction et en ouvre une autre", correct: false}
+      - {text: "Elle lève une `IllegalTransactionStateException`", correct: false}
+      - {text: "Elle pose un savepoint dans la transaction ouverte", correct: false}
+    answer: "Le défaut est `REQUIRED` : rejoindre la transaction en cours, ou en créer une s'il n'y en a pas. Tout est alors validé ou annulé ensemble."
+  - key: requires-new
+    format: course
+    question: "Que fait `Propagation.REQUIRES_NEW` quand une transaction est déjà ouverte ?"
+    choices:
+      - {text: "Elle suspend la transaction en cours et en ouvre une indépendante", correct: true}
+      - {text: "Elle rejoint la transaction en cours, comme la propagation par défaut", correct: false}
+      - {text: "Elle pose un savepoint, annulable sans annuler la transaction entière", correct: false}
+      - {text: "Elle valide la transaction en cours, puis en ouvre une autre à la suite", correct: false}
+    answer: "La nouvelle transaction est validée ou annulée seule, avec sa propre connexion. Ensuite, la transaction suspendue reprend. Valider l'ancienne avant serait un tout autre comportement."
+  - key: mandatory
+    format: course
+    question: "À quoi sert `Propagation.MANDATORY` ?"
+    choices:
+      - {text: "À exiger qu'une transaction soit déjà ouverte par l'appelant", correct: true}
+      - {text: "À forcer l'ouverture d'une transaction neuve à chaque appel", correct: false}
+      - {text: "À rendre la transaction obligatoire pour les seules écritures", correct: false}
+      - {text: "À interdire qu'une transaction soit ouverte par l'appelant", correct: false}
+    answer: "Une méthode `MANDATORY` appelée sans transaction lève `IllegalTransactionStateException`. Elle documente qu'elle n'a de sens qu'au sein d'un cas d'usage déjà transactionnel. L'interdiction, c'est `NEVER`."
+  - key: nested
+    format: course
+    question: "Sur quoi repose `Propagation.NESTED` ?"
+    choices:
+      - {text: "Sur un savepoint JDBC dans la transaction en cours", correct: true}
+      - {text: "Sur une seconde connexion, comme `REQUIRES_NEW`", correct: false}
+      - {text: "Sur une transaction distribuée entre deux bases", correct: false}
+      - {text: "Sur un verrou pessimiste pris sur les lignes lues", correct: false}
+    answer: "Un échec de la méthode annule jusqu'au savepoint, et la transaction englobante continue. Avec JPA, `JpaTransactionManager` le refuse par défaut, car le contexte de persistance ne revient pas au savepoint."
+  - key: vf-defaut-requires-new
+    format: true-false
+    question: "La propagation par défaut de `@Transactional` est `REQUIRES_NEW`."
+    truth: false
+    answer: "C'est `REQUIRED` : rejoindre la transaction en cours, ou en créer une."
+  - key: vf-seconde-connexion
+    format: true-false
+    question: "Pendant qu'une méthode `REQUIRES_NEW` s'exécute, la transaction suspendue garde sa connexion, et la nouvelle en utilise une autre."
+    truth: true
+    answer: "Deux connexions par thread pendant l'appel : avec un petit pool et beaucoup de requêtes simultanées, les threads peuvent épuiser le pool en s'attendant mutuellement."
+  - key: vf-nested-jpa
+    format: true-false
+    question: "Avec le `JpaTransactionManager` configuré par Spring Boot, `Propagation.NESTED` fonctionne sans aucun réglage."
+    truth: false
+    answer: "Il lève `NestedTransactionNotSupportedException : Transaction manager does not allow nested transactions by default`. Il faudrait activer `nestedTransactionAllowed`, et le contexte de persistance ne reviendrait pas au savepoint."
+  - key: vf-requires-new-this
+    format: true-false
+    question: "Une méthode `REQUIRES_NEW` appelée par `this.tracer()` depuis le même bean s'exécute dans une nouvelle transaction."
+    truth: false
+    answer: "L'appel interne contourne le proxy : l'annotation est ignorée, et la méthode s'exécute dans la transaction de l'appelante. Il faut la placer dans un autre bean."
+  - key: qcm-journal-audit
+    format: multiple-choice
+    question: "Une trace d'audit doit rester en base même si le traitement qui l'écrit échoue ensuite. Quelle propagation donnes-tu à la méthode qui l'enregistre ?"
+    choices:
+      - {text: "`REQUIRES_NEW`", correct: true}
+      - {text: "`REQUIRED`", correct: false}
+      - {text: "`MANDATORY`", correct: false}
+      - {text: "`SUPPORTS`", correct: false}
+    answer: "`REQUIRES_NEW` valide la trace dans sa propre transaction, avant que l'appelant ne poursuive. Avec `REQUIRED`, `MANDATORY` ou `SUPPORTS`, elle rejoindrait la transaction du traitement et serait annulée avec lui."
+  - key: qcm-mandatory-sans
+    format: multiple-choice
+    question: "Une méthode `@Transactional(propagation = Propagation.MANDATORY)` est appelée hors de toute transaction. Que se passe-t-il ?"
+    choices:
+      - {text: "Elle lève `IllegalTransactionStateException`", correct: true}
+      - {text: "Elle ouvre une transaction, comme `REQUIRED`", correct: false}
+      - {text: "Elle s'exécute sans transaction, sans rien dire", correct: false}
+      - {text: "Elle lève `UnexpectedRollbackException` au retour", correct: false}
+    answer: "Le message : « No existing transaction found for transaction marked with propagation 'mandatory' ». C'est le rôle de `MANDATORY` : refuser d'être appelée sans transaction."
+  - key: qcm-supports
+    format: multiple-choice
+    question: "Que fait une méthode en `Propagation.SUPPORTS` appelée hors de toute transaction ?"
+    choices:
+      - {text: "Elle s'exécute sans transaction", correct: true}
+      - {text: "Elle ouvre une nouvelle transaction", correct: false}
+      - {text: "Elle lève une exception de propagation", correct: false}
+      - {text: "Elle attend qu'une transaction s'ouvre", correct: false}
+    answer: "`SUPPORTS` rejoint une transaction s'il y en a une, et s'en passe sinon. Elle convient à une lecture qui n'exige rien."
+  - key: qcm-not-supported
+    format: multiple-choice
+    question: "Que fait une méthode en `Propagation.NOT_SUPPORTED` appelée pendant une transaction ?"
+    choices:
+      - {text: "Elle suspend la transaction et s'exécute sans", correct: true}
+      - {text: "Elle rejoint la transaction en cours, sans rien dire", correct: false}
+      - {text: "Elle lève une `IllegalTransactionStateException`", correct: false}
+      - {text: "Elle valide la transaction en cours, puis s'exécute", correct: false}
+    answer: "La transaction reprend au retour de la méthode. Lever une exception quand une transaction existe, c'est `NEVER`."
+  - key: trous-requires-new
+    format: fill-in
+    question: |-
+      Complète pour que la trace soit validée même si l'appelant échoue ensuite :
+      ```java
+      @Transactional(propagation = Propagation.___)
+      public void tracer(String action) {
+          traces.save(new Trace(action));
+      }
+      ```
+    blanks:
+      - [REQUIRES_NEW]
+    answer: "`REQUIRES_NEW` suspend la transaction de l'appelant et valide la trace dans la sienne."
+  - key: trous-mandatory
+    format: fill-in
+    question: |-
+      Complète pour refuser tout appel qui n'a pas déjà ouvert une transaction :
+      ```java
+      @Transactional(propagation = Propagation.___)
+      public void reserverStock(Commande commande) { ... }
+      ```
+    blanks:
+      - [MANDATORY]
+    answer: "`MANDATORY` lève `IllegalTransactionStateException` quand aucune transaction n'est ouverte."
+  - key: trous-attribut
+    format: fill-in
+    question: |-
+      Complète le nom de l'attribut :
+      ```java
+      @Transactional(___ = Propagation.REQUIRES_NEW)
+      public void compterTentative(String email) { ... }
+      ```
+    blanks:
+      - [propagation]
+    answer: "L'attribut `propagation` prend une valeur de l'enum `Propagation`."
+  - key: trous-defaut
+    format: fill-in
+    question: |-
+      Complète : ces deux annotations sont équivalentes.
+      ```java
+      @Transactional
+      @Transactional(propagation = Propagation.___)
+      ```
+    blanks:
+      - [REQUIRED]
+    answer: "`REQUIRED` est la propagation par défaut : rejoindre la transaction en cours, ou en créer une."
+  - key: situation-audit
+    format: scenario
+    question: "Le service de virement écrit une trace d'audit, puis un contrôle de fraude échoue et annule tout, trace comprise. L'équipe sécurité veut garder les traces des tentatives. Que proposes-tu ?"
+    choices:
+      - {text: "Mettre l'écriture de la trace dans un autre bean, en `REQUIRES_NEW`", correct: true}
+      - {text: "Annoter la méthode de trace du même service avec `REQUIRES_NEW`", correct: false}
+      - {text: "Attraper l'exception de fraude pour que la transaction soit validée", correct: false}
+      - {text: "Écrire la trace en `MANDATORY` pour qu'elle exige la transaction", correct: false}
+    answer: "La trace doit avoir sa propre transaction, validée tout de suite. Dans le même service, l'appel interne contournerait le proxy ; attraper l'exception validerait aussi le virement frauduleux."
+  - key: situation-pool-requires-new
+    format: scenario
+    question: "Sous charge, avec un pool de 10 connexions, l'application se fige : chaque requête tient une connexion et attend d'en obtenir une seconde pour sa méthode `REQUIRES_NEW`. Que proposes-tu ?"
+    choices:
+      - {text: "Limiter `REQUIRES_NEW` au strict besoin, ou l'appeler hors transaction", correct: true}
+      - {text: "Remplacer `REQUIRES_NEW` par `NESTED`, qui marche pareil avec JPA", correct: false}
+      - {text: "Passer toutes les méthodes en `NOT_SUPPORTED` pour libérer le pool", correct: false}
+      - {text: "Mettre la méthode en `readOnly = true` pour qu'elle partage la connexion", correct: false}
+    answer: "Chaque `REQUIRES_NEW` demande une connexion de plus pendant que la première attend. Quand toutes les connexions sont prises par des transactions suspendues, plus rien n'avance. On réduit ces appels, on les fait hors de la transaction principale, ou l'on dimensionne le pool en conséquence."
+  - key: situation-requires-new-ignore
+    format: scenario
+    question: "Ton collègue a annoté `compterTentative` en `REQUIRES_NEW`, mais le compteur est annulé chaque fois que l'authentification échoue. Elle est appelée par `this.compterTentative(email)` dans le même service. Que lui dis-tu ?"
+    choices:
+      - {text: "L'appel interne ignore l'annotation : la méthode doit vivre dans un autre bean", correct: true}
+      - {text: "`REQUIRES_NEW` ne marche pas avec JPA : il faut passer par `JdbcTemplate`", correct: false}
+      - {text: "Il manque `rollbackFor = Exception.class` sur la méthode `compterTentative`", correct: false}
+      - {text: "Il faut appeler `flush()` dans `compterTentative` pour forcer la validation", correct: false}
+    answer: "Sans proxy, pas de nouvelle transaction : le compteur est écrit dans celle de l'appelant, puis annulé avec elle. Déplacé dans un bean dédié et injecté, l'appel traverse le proxy."
+  - key: situation-required-vs-new
+    format: scenario
+    question: "En entretien : « Quelle différence entre `REQUIRED` et `REQUIRES_NEW` ? » Quelle réponse donnes-tu ?"
+    choices:
+      - {text: "`REQUIRED` rejoint la transaction en cours ; `REQUIRES_NEW` la suspend et en ouvre une autre", correct: true}
+      - {text: "`REQUIRED` ouvre toujours une transaction ; `REQUIRES_NEW` en ouvre une si aucune n'existe", correct: false}
+      - {text: "`REQUIRED` vaut pour les lectures ; `REQUIRES_NEW` est réservée aux méthodes d'écriture", correct: false}
+      - {text: "Aucune : `REQUIRES_NEW` est l'ancien nom de `REQUIRED`, gardé pour la compatibilité", correct: false}
+    answer: "Avec `REQUIRED`, tout est validé ou annulé ensemble. Avec `REQUIRES_NEW`, la méthode a son propre sort, au prix d'une seconde connexion : c'est l'outil d'un journal d'audit."

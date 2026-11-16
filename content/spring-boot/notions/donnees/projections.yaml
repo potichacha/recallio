@@ -1,0 +1,298 @@
+notion: projections
+lesson: |-
+  Un écran de liste n'a pas besoin de l'entité entière, avec ses vingt colonnes et ses relations. Une **projection**
+  ne lit que ce qui sert, et renvoie un objet léger, qui n'est pas une entité gérée.
+
+  **Projection par interface.** On déclare les getters voulus ; Spring Data ne sélectionne que ces colonnes, et
+  renvoie un proxy qui implémente l'interface :
+
+  ```java
+  public interface ProduitResume {
+      String getNom();
+      int getPrix();
+  }
+
+  List<ProduitResume> findByCategorie(Categorie categorie);   // select nom, prix from produit where ...
+  ```
+
+  Les noms des getters suivent ceux des **attributs de l'entité** (`getNom` pour `nom`). Un getter peut traverser une
+  relation avec une interface imbriquée (`ClientResume getClient()`).
+
+  **Projection « ouverte ».** Un getter annoté `@Value("#{target.prenom + ' ' + target.nom}")` calcule sa valeur
+  depuis l'entité (`target`). Spring Data ne peut plus savoir quelles colonnes lire : il charge **l'entité entière**.
+
+  **Projection par record (ou classe DTO).**
+
+  ```java
+  public record ProduitResume(String nom, int prix) {}
+
+  List<ProduitResume> findByCategorie(Categorie categorie);        // requête dérivée : le constructeur suffit
+
+  @Query("select new boutique.ProduitResume(p.nom, p.prix) from Produit p where p.prix < :max")
+  List<ProduitResume> moinsChers(@Param("max") int max);           // JPQL : nom complet de la classe
+  ```
+
+  Dans une expression `select new`, la classe s'écrit avec son **package**, et les arguments suivent l'ordre et les
+  types du constructeur ; sinon, la requête est refusée au démarrage (« Could not resolve class 'ProduitResume' named
+  for instantiation », « Missing constructor for type 'ProduitResume' »).
+
+  **Projection dynamique.** Le type se choisit à l'appel :
+
+  ```java
+  <T> List<T> findByCategorie(Categorie categorie, Class<T> type);
+
+  produits.findByCategorie(LIVRE, ProduitResume.class);
+  ```
+
+  | Forme | Colonnes lues | Objet renvoyé |
+  |---|---|---|
+  | Entité | toutes | une entité gérée, modifiable |
+  | Interface fermée | celles des getters | un proxy en lecture seule |
+  | Interface ouverte (`@Value`) | toutes | un proxy, calculé depuis l'entité |
+  | Record / DTO | celles du constructeur | un objet ordinaire |
+
+  Une projection n'est pas gérée : pas de dirty checking, pas de chargement paresseux qui échoue plus tard, et
+  modifier l'objet ne change rien en base. C'est l'outil des lectures, en particulier des listes et des rapports.
+
+  **En entretien** : « Pour une lecture, je préfère une projection à l'entité : une interface dont les getters
+  nomment les attributs, ou un record, renvoyés par une requête dérivée ou un `select new`. Seules les colonnes utiles
+  sont lues, et l'objet n'est pas géré, donc rien à suivre. J'évite les projections ouvertes en `@Value`, qui
+  rechargent l'entité entière. »
+cards:
+  - key: pourquoi
+    format: course
+    question: "Pourquoi une projection plutôt que l'entité pour afficher une liste de produits ?"
+    choices:
+      - {text: "Elle ne lit que les colonnes utiles, et l'objet n'est pas suivi par Hibernate", correct: true}
+      - {text: "Elle met le résultat en cache, pour les appels suivants de la même liste", correct: false}
+      - {text: "Elle charge en plus toutes les relations, ce qui évite le chargement paresseux", correct: false}
+      - {text: "Elle permet de modifier les produits de la liste sans transaction ouverte", correct: false}
+    answer: "Moins de colonnes, moins de mémoire, pas d'instantané pour le dirty checking. Une projection est faite pour lire ; elle ne se modifie pas."
+  - key: interface-fermee
+    format: course
+    question: "Qu'est-ce qui relie un getter d'une projection par interface à une colonne ?"
+    choices:
+      - {text: "Son nom, qui suit celui de l'attribut de l'entité", correct: true}
+      - {text: "Son ordre de déclaration dans l'interface", correct: false}
+      - {text: "Une annotation `@Column` obligatoire sur chaque getter", correct: false}
+      - {text: "Son type de retour, comparé à celui de chaque colonne", correct: false}
+    answer: "`getNom()` lit l'attribut `nom`, `getPrixUnitaire()` l'attribut `prixUnitaire`. Un getter qui ne correspond à aucun attribut échoue à l'appel."
+  - key: projection-ouverte
+    format: course
+    question: "Que lit Spring Data pour une projection dont un getter porte `@Value(\"#{target.prenom + ' ' + target.nom}\")` ?"
+    choices:
+      - {text: "L'entité entière, car l'expression peut utiliser n'importe quel attribut", correct: true}
+      - {text: "Seulement `prenom` et `nom`, qu'il trouve en analysant l'expression", correct: false}
+      - {text: "Rien : l'expression est évaluée sans lire la base de données", correct: false}
+      - {text: "Seulement l'identifiant, puis chaque attribut par une requête à part", correct: false}
+    answer: "Une projection « ouverte » est calculée depuis l'entité (`target`) : Spring Data la charge en entier. On perd l'économie de colonnes ; un record construit dans la requête fait mieux."
+  - key: select-new
+    format: course
+    question: "Dans une requête JPQL, comment construit-on un record `ProduitResume` du package `boutique` ?"
+    choices:
+      - {text: "`select new boutique.ProduitResume(p.nom, p.prix) from Produit p`", correct: true}
+      - {text: "`select ProduitResume(p.nom, p.prix) from Produit p`", correct: false}
+      - {text: "`select p as ProduitResume from Produit p`", correct: false}
+      - {text: "`select new ProduitResume from Produit p`", correct: false}
+    answer: "L'expression constructeur s'écrit `new` suivi du nom complet de la classe, et des arguments dans l'ordre du constructeur."
+  - key: vf-colonnes-fermee
+    format: true-false
+    question: "Une projection par interface sans `@Value` ne lit que les colonnes de ses getters."
+    truth: true
+    answer: "Spring Data connaît les attributs voulus et n'écrit qu'eux dans le `select`. C'est une projection « fermée »."
+  - key: vf-ouverte-optimisee
+    format: true-false
+    question: "Une projection ouverte (`@Value`) ne lit que les colonnes utilisées par son expression."
+    truth: false
+    answer: "Spring Data n'analyse pas l'expression : il charge l'entité entière, puis évalue `@Value` dessus."
+  - key: vf-record-derivee
+    format: true-false
+    question: "Un record peut servir de type de retour d'une requête dérivée, comme `List<ProduitResume> findByCategorie(Categorie c)`."
+    truth: true
+    answer: "Spring Data construit chaque record avec son constructeur, dont les noms de paramètres suivent les attributs de l'entité."
+  - key: vf-projection-geree
+    format: true-false
+    question: "Modifier un objet renvoyé par une projection, dans une transaction, écrit la modification en base au commit."
+    truth: false
+    answer: "Une projection n'est pas une entité gérée : Hibernate ne la suit pas. Pour modifier, on charge l'entité."
+  - key: qcm-objet-interface
+    format: multiple-choice
+    question: "Quel objet reçoit-on pour une projection par interface `ProduitNom` ?"
+    choices:
+      - {text: "Un proxy généré qui implémente `ProduitNom`", correct: true}
+      - {text: "Une entité `Produit` complète, vue par l'interface", correct: false}
+      - {text: "Une `Map` des colonnes, castée en `ProduitNom`", correct: false}
+      - {text: "Une classe `ProduitNomImpl` écrite par le développeur", correct: false}
+    answer: "Spring Data crée un proxy (`$Proxy...`) qui répond aux getters avec les valeurs lues. Pas d'entité, pas de classe à écrire."
+  - key: qcm-dynamique
+    format: multiple-choice
+    question: "Quelle signature laisse l'appelant choisir le type de projection ?"
+    choices:
+      - {text: "`<T> List<T> findByCategorie(Categorie categorie, Class<T> type)`", correct: true}
+      - {text: "`List<Object> findByCategorie(Categorie categorie, String type)`", correct: false}
+      - {text: "`List<?> findByCategorie(Categorie categorie, Object type)`", correct: false}
+      - {text: "`<T> List<T> findByCategorie(Categorie categorie)`", correct: false}
+    answer: "Le paramètre `Class<T>` indique la forme voulue : l'entité, une interface ou un record. Sans lui, Spring Data ne peut pas connaître `T`."
+  - key: qcm-nom-getter
+    format: multiple-choice
+    question: "L'entité `Produit` a un attribut `prixUnitaire`. Quel getter le lit dans une projection par interface ?"
+    choices:
+      - {text: "`int getPrixUnitaire();`", correct: true}
+      - {text: "`int getPrix_unitaire();`", correct: false}
+      - {text: "`int prixUnitaire();`", correct: false}
+      - {text: "`int getPrixUnitaireColonne();`", correct: false}
+    answer: "La projection suit les conventions des JavaBeans sur les noms d'attributs, pas les noms de colonnes."
+  - key: qcm-usage
+    format: multiple-choice
+    question: "Pour quel besoin une projection convient-elle le moins ?"
+    choices:
+      - {text: "Charger un produit pour modifier son prix", correct: true}
+      - {text: "Afficher la liste des produits d'une catégorie", correct: false}
+      - {text: "Exporter le nom et le prix de 100 000 produits", correct: false}
+      - {text: "Renvoyer un résumé de commande en JSON", correct: false}
+    answer: "Une modification passe par l'entité gérée, que le dirty checking écrit au commit. Les trois autres sont des lectures, le terrain des projections."
+  - key: trous-new
+    format: fill-in
+    question: |-
+      Complète l'expression constructeur :
+      ```java
+      @Query("select ___ boutique.ProduitResume(p.nom, p.prix) from Produit p")
+      List<ProduitResume> resumes();
+      ```
+    blanks:
+      - [new]
+    answer: "`select new` suivi du nom complet de la classe et des arguments de son constructeur."
+  - key: trous-getter
+    format: fill-in
+    question: |-
+      Complète la projection pour lire l'attribut `nom` :
+      ```java
+      public interface ProduitNom {
+          String ___();
+      }
+      ```
+    blanks:
+      - [getNom]
+    answer: "Le getter `getNom()` correspond à l'attribut `nom` de l'entité."
+  - key: trous-class
+    format: fill-in
+    question: |-
+      Complète pour une projection dynamique :
+      ```java
+      <T> List<T> findByCategorie(Categorie categorie, ___<T> type);
+      ```
+    blanks:
+      - [Class]
+    answer: "L'appelant passe `ProduitResume.class`, ou `Produit.class` pour l'entité."
+  - key: trous-record
+    format: fill-in
+    question: |-
+      Complète pour que la requête dérivée renvoie des records :
+      ```java
+      public record ProduitResume(String nom, int prix) {}
+
+      List<___> findByCategorie(Categorie categorie);
+      ```
+    blanks:
+      - [ProduitResume]
+    answer: "Le type de retour suffit : Spring Data construit chaque `ProduitResume` avec les valeurs de `nom` et de `prix`."
+  - key: bug-getter-mal-nomme
+    format: bug-fix
+    question: |-
+      L'appel échoue : `PropertyReferenceException: No property 'produit' found for type 'String'; Traversed path:
+      Produit.nom`. L'entité `Produit` a un attribut `nom`. Quelle correction est la bonne ?
+      ```java
+      public interface NomSeul {
+          String getNomProduit();
+      }
+
+      List<NomSeul> findByPrixGreaterThan(int prix);
+      ```
+    choices:
+      - {text: "Renommer le getter en `getNom()`", correct: true}
+      - {text: "Annoter le getter avec `@Column(name = \"nom\")`", correct: false}
+      - {text: "Renommer la méthode en `findNomProduitByPrixGreaterThan`", correct: false}
+      - {text: "Changer le type de retour du getter en `Object`", correct: false}
+    answer: |-
+      ```java
+      public interface NomSeul {
+          String getNom();
+      }
+      ```
+      Spring Data lit `getNomProduit` comme le chemin `nom.produit` : l'attribut `nom`, puis une propriété `produit`
+      d'une `String`, qui n'existe pas. Le getter doit porter le nom de l'attribut.
+  - key: bug-select-new-sans-package
+    format: bug-fix
+    question: |-
+      L'application refuse de démarrer : `Could not resolve class 'ProduitResume' named for instantiation [select new
+      ProduitResume(p.nom, p.prix) from Produit p]`. Le record est dans le package `boutique`. Quelle correction est
+      la bonne ?
+      ```java
+      @Query("select new ProduitResume(p.nom, p.prix) from Produit p")
+      List<ProduitResume> resumes();
+      ```
+    choices:
+      - {text: "Écrire `select new boutique.ProduitResume(p.nom, p.prix) from Produit p`", correct: true}
+      - {text: "Écrire `select ProduitResume(p.nom, p.prix) from Produit p`, sans `new`", correct: false}
+      - {text: "Annoter le record `ProduitResume` avec `@Entity` pour qu'Hibernate le voie", correct: false}
+      - {text: "Ajouter `nativeQuery = true` pour que la base construise le record", correct: false}
+    answer: |-
+      ```java
+      @Query("select new boutique.ProduitResume(p.nom, p.prix) from Produit p")
+      ```
+      Dans une expression constructeur, Hibernate attend le nom complet de la classe. Un record ne peut pas être une
+      entité, et une requête native ne connaît pas `select new`.
+  - key: bug-ordre-constructeur
+    format: bug-fix
+    question: |-
+      L'application refuse de démarrer : `Missing constructor for type 'ProduitResume' [select new
+      boutique.ProduitResume(p.prix, p.nom) from Produit p]`. Quelle correction est la bonne ?
+      ```java
+      public record ProduitResume(String nom, int prix) {}
+
+      @Query("select new boutique.ProduitResume(p.prix, p.nom) from Produit p")
+      List<ProduitResume> resumes();
+      ```
+    choices:
+      - {text: "Passer les arguments dans l'ordre du constructeur : `(p.nom, p.prix)`", correct: true}
+      - {text: "Ajouter des alias aux arguments : `(p.prix as prix, p.nom as nom)`", correct: false}
+      - {text: "Changer le type du composant `prix` du record en `Integer`", correct: false}
+      - {text: "Retirer `new` pour laisser Spring Data choisir le constructeur", correct: false}
+    answer: |-
+      ```java
+      @Query("select new boutique.ProduitResume(p.nom, p.prix) from Produit p")
+      ```
+      Hibernate cherche un constructeur `(int, String)`, qui n'existe pas. Les arguments suivent l'ordre et les types
+      des paramètres du constructeur.
+  - key: bug-projection-ouverte
+    format: bug-fix
+    question: |-
+      La liste des clients est lente : le SQL lit toutes les colonnes de `client`, notes et adresse comprises, alors
+      que l'écran n'affiche que le nom complet. Quelle correction est la bonne ?
+      ```java
+      public interface ClientNom {
+          @Value("#{target.prenom + ' ' + target.nom}")
+          String getNomComplet();
+      }
+
+      List<ClientNom> findByVille(String ville);
+      ```
+    choices:
+      - {text: "Lire `getPrenom()` et `getNom()`, et assembler le nom complet en Java", correct: true}
+      - {text: "Ajouter `@Transactional(readOnly = true)` sur la méthode du repository", correct: false}
+      - {text: "Remplacer `@Value` par `@Column` sur le getter `getNomComplet`", correct: false}
+      - {text: "Passer toutes les relations de `Client` en `fetch = FetchType.LAZY`", correct: false}
+    answer: |-
+      ```java
+      public interface ClientNom {
+          String getPrenom();
+          String getNom();
+
+          default String nomComplet() {
+              return getPrenom() + " " + getNom();
+          }
+      }
+      ```
+      Avec `@Value`, la projection est « ouverte » : Spring Data charge l'entité entière pour évaluer l'expression.
+      Des getters simples la rendent « fermée » : seules `prenom` et `nom` sont lues. Une méthode `default` fait
+      l'assemblage. Un record `ClientNom(String prenom, String nom)` marcherait aussi.

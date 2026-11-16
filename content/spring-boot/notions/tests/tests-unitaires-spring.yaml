@@ -1,0 +1,205 @@
+notion: tests-unitaires-spring
+lesson: |-
+  Une application Spring n'a pas besoin de Spring pour être testée. Un service écrit avec l'**injection par
+  constructeur** est une classe ordinaire : le test le crée avec `new`, en lui passant ses dépendances. Pas de
+  contexte à démarrer : le test s'exécute en quelques millisecondes.
+
+  ```java
+  class RemiseServiceTest {
+
+      private final Clock lundi = Clock.fixed(Instant.parse("2026-03-02T09:00:00Z"), ZoneOffset.UTC);
+      private final PanierEnMemoire paniers = new PanierEnMemoire();       // un faux, derrière l'interface
+      private final RemiseService remises = new RemiseService(paniers, lundi);
+
+      @Test
+      void offreDixPourCentAPartirDeCentEuros() {
+          paniers.enregistrer(new Panier("p1", new BigDecimal("120")));
+
+          assertThat(remises.remise("p1")).isEqualByComparingTo("12");
+      }
+  }
+  ```
+
+  **Des faux ou des mocks.** Pour un repository ou une horloge, un **faux** simple (une `Map` derrière la même
+  interface, `Clock.fixed`) donne des tests lisibles qui vérifient un résultat. Un **mock** Mockito sert à prouver
+  une interaction (« le paiement a été demandé une fois »). Sans Spring, on les crée avec `mock(...)`, ou avec
+  `MockitoExtension` :
+
+  ```java
+  @ExtendWith(MockitoExtension.class)
+  class CommandeServiceTest {
+
+      @Mock
+      PaiementClient paiement;
+
+      @InjectMocks
+      CommandeService commandes;       // créé avec les @Mock du test
+  }
+  ```
+
+  Un test qui vérifie, appel par appel, ce que fait le code (`verify` sur six appels dans l'ordre) casse à chaque
+  refactoring : on préfère vérifier ce qui est observable.
+
+  **Ce qu'un test unitaire ne voit pas.** Créé avec `new`, l'objet n'a pas de **proxy** Spring. Les annotations
+  qui passent par le proxy ou par le framework n'ont donc aucun effet :
+
+  | Annotation, mécanisme | Où le tester |
+  |---|---|
+  | `@Transactional`, `@Cacheable`, `@Async`, `@PreAuthorize` | `@SpringBootTest` |
+  | routage HTTP, JSON, `@Valid` sur un contrôleur | `@WebMvcTest` |
+  | requêtes, mapping JPA, contraintes | `@DataJpaTest` |
+
+  **L'injection par champ** (`@Autowired private`) gêne : sans constructeur, le test doit passer par la réflexion
+  ou démarrer Spring. C'est l'une des raisons de préférer le constructeur.
+
+  **L'ordre.** On commence par les tests unitaires des règles, les plus nombreux, puis on ajoute une tranche pour
+  chaque couche qui touche au framework, et quelques tests complets.
+
+  **En entretien** : « Je teste d'abord sans Spring : grâce à l'injection par constructeur, je crée le service avec
+  `new`, des faux ou des mocks Mockito, et le test dure quelques millisecondes. Ce test ne voit pas ce que fait le
+  proxy (transactions, cache, sécurité) : pour ça, j'ajoute une tranche ou un `@SpringBootTest`. »
+cards:
+  - key: constructeur-et-tests
+    format: course
+    question: "Pourquoi l'injection par constructeur facilite-t-elle les tests unitaires d'un service Spring ?"
+    choices:
+      - {text: "Le test crée l'objet avec `new`, en lui passant ses dépendances", correct: true}
+      - {text: "Spring injecte alors des mocks automatiquement dans le test", correct: false}
+      - {text: "Elle rend les champs publics, donc modifiables par le test", correct: false}
+      - {text: "Elle évite de créer l'objet : le test appelle des méthodes statiques", correct: false}
+    answer: "Les dépendances sont des paramètres : un faux ou un mock suffit, sans contexte Spring. Les champs restent `final`."
+  - key: ce-que-new-ne-voit-pas
+    format: course
+    question: "Que ne vérifie pas un test unitaire d'un service annoté `@Transactional`, créé avec `new` ?"
+    choices:
+      - {text: "La transaction : sans proxy Spring, l'annotation n'a aucun effet", correct: true}
+      - {text: "La logique métier de ses méthodes publiques", correct: false}
+      - {text: "Les exceptions que ses méthodes lèvent", correct: false}
+      - {text: "Les valeurs que ses méthodes renvoient", correct: false}
+    answer: "C'est le proxy créé par Spring qui ouvre et annule la transaction. L'objet nu n'en a pas : il faut un test avec contexte."
+  - key: role-injectmocks
+    format: course
+    question: "Que fait `@InjectMocks` dans une classe de test qui utilise `MockitoExtension` ?"
+    choices:
+      - {text: "Il crée l'objet testé en lui passant les champs `@Mock` du test", correct: true}
+      - {text: "Il remplace un bean du contexte Spring par un mock du test", correct: false}
+      - {text: "Il crée un mock de la classe testée elle-même", correct: false}
+      - {text: "Il démarre un contexte Spring réduit aux mocks du test", correct: false}
+    answer: "Mockito appelle le constructeur de la classe avec les mocks du bon type. Aucun contexte Spring : c'est un test unitaire."
+  - key: rendre-la-date-testable
+    format: course
+    question: "Comment rends-tu testable un service Spring qui appelle `LocalDate.now()` ?"
+    choices:
+      - {text: "Je lui injecte une `Clock`, que le test fixe avec `Clock.fixed`", correct: true}
+      - {text: "Je démarre un `@SpringBootTest` réglé sur une date choisie", correct: false}
+      - {text: "Je change l'heure de la machine avant de lancer le test", correct: false}
+      - {text: "Je remplace `LocalDate` par un mock déclaré avec `@MockitoBean`", correct: false}
+    answer: "L'application déclare un bean `Clock` ; le service lit `LocalDate.now(clock)`. Le test passe une horloge arrêtée, et le résultat ne dépend plus du jour."
+  - key: vf-sans-spring
+    format: true-false
+    question: "Un service écrit avec l'injection par constructeur se teste sans démarrer Spring."
+    truth: true
+    answer: "On l'instancie avec `new` et l'on passe ses dépendances : des faux, des mocks, ou de vrais objets simples."
+  - key: vf-valid-sans-proxy
+    format: true-false
+    question: "Une contrainte `@Valid` sur le paramètre d'un service s'applique quand le test appelle ce service créé avec `new`."
+    truth: false
+    answer: "La validation des méthodes passe par un proxy Spring. Sans contexte, l'appel arrive directement à la méthode, qui reçoit l'objet invalide."
+  - key: vf-cout-contexte
+    format: true-false
+    question: "Démarrer un contexte Spring coûte bien plus cher que créer un service avec `new` et deux mocks."
+    truth: true
+    answer: "Un contexte demande souvent plusieurs secondes (scan, auto-configuration, base) ; un objet et deux mocks, quelques millisecondes."
+  - key: vf-mockitoextension-contexte
+    format: true-false
+    question: "`MockitoExtension` démarre un contexte Spring pour créer les mocks du test."
+    truth: false
+    answer: "C'est une extension JUnit de Mockito, sans rapport avec Spring : elle crée les `@Mock` et l'objet `@InjectMocks`, rien d'autre."
+  - key: qcm-calcul-de-remise
+    format: multiple-choice
+    question: "Quel test choisis-tu pour vérifier le calcul d'une remise selon le montant du panier ?"
+    choices:
+      - {text: "Un test unitaire du service, créé avec `new`", correct: true}
+      - {text: "Un `@SpringBootTest` avec la base de données", correct: false}
+      - {text: "Un `@WebMvcTest` qui appelle l'API du panier", correct: false}
+      - {text: "Un `@DataJpaTest` qui enregistre le panier", correct: false}
+    answer: "Une règle de calcul ne dépend pas du framework. Le test unitaire est le plus rapide et le plus précis : un cas par seuil."
+  - key: qcm-faux-repository
+    format: multiple-choice
+    question: "Dans un test unitaire, que préfère-t-on souvent à un mock pour remplacer un repository ?"
+    choices:
+      - {text: "Un faux en mémoire : une `Map` derrière la même interface", correct: true}
+      - {text: "Le vrai repository, avec une base H2 démarrée à la main", correct: false}
+      - {text: "Un `@MockitoBean`, qui remplace le bean dans le contexte", correct: false}
+      - {text: "Rien : on passe `null` au constructeur du service testé", correct: false}
+    answer: "Un faux se comporte comme un stockage : le test enregistre, appelle, puis lit le résultat. Il ne casse pas quand l'implémentation change ses appels."
+  - key: qcm-controleur-sans-spring
+    format: multiple-choice
+    question: "Que ne voit pas un test qui appelle la méthode d'un contrôleur comme une méthode Java ?"
+    choices:
+      - {text: "Le routage HTTP, la conversion JSON et la validation", correct: true}
+      - {text: "La valeur que renvoie la méthode du contrôleur", correct: false}
+      - {text: "Les appels que le contrôleur fait à son service", correct: false}
+      - {text: "Les exceptions que la méthode du contrôleur lève", correct: false}
+    answer: "Tout ce que Spring MVC ajoute autour de la méthode lui échappe. C'est ce que vérifie `@WebMvcTest`."
+  - key: qcm-activer-mock
+    format: multiple-choice
+    question: "Quelle annotation active les champs `@Mock` et `@InjectMocks` dans une classe de test JUnit 6 ?"
+    choices:
+      - {text: "`@ExtendWith(MockitoExtension.class)`", correct: true}
+      - {text: "`@ExtendWith(SpringExtension.class)`", correct: false}
+      - {text: "`@SpringBootTest`", correct: false}
+      - {text: "`@MockitoBean`", correct: false}
+    answer: "`MockitoExtension` crée les mocks avant chaque test, sans Spring. `SpringExtension` et `@SpringBootTest` démarreraient un contexte."
+  - key: situation-champs-autowired
+    format: scenario
+    question: |-
+      Ton collègue teste un service de facturation dont les dépendances sont des champs `@Autowired private`. Pour
+      chaque cas, il démarre un `@SpringBootTest`. Que proposes-tu ?
+    choices:
+      - {text: "Passer à l'injection par constructeur, et tester le service avec `new`", correct: true}
+      - {text: "Rendre les champs `public`, et les remplir dans chaque test", correct: false}
+      - {text: "Garder `@SpringBootTest`, mais avec `webEnvironment = NONE`", correct: false}
+      - {text: "Ajouter des setters `@Autowired` à côté des champs privés", correct: false}
+    answer: |-
+      Avec un constructeur, les dépendances deviennent explicites et les champs `final`. Le test unitaire n'a plus
+      besoin de Spring ; quelques tests d'intégration vérifient ensuite l'assemblage.
+  - key: situation-rollback-non-prouve
+    format: scenario
+    question: |-
+      Ton test unitaire vérifie que `commander` lève une exception quand le paiement échoue. Personne n'a vérifié
+      que la commande n'est pas restée en base. Que fais-tu ?
+    choices:
+      - {text: "J'ajoute un test avec contexte : seul le proxy Spring annule la transaction", correct: true}
+      - {text: "J'ajoute `@Transactional` sur la méthode du test unitaire", correct: false}
+      - {text: "Je remplace le repository par un mock qui simule l'annulation", correct: false}
+      - {text: "Je conclus que l'annulation est sûre, puisque l'exception est levée", correct: false}
+    answer: |-
+      L'annulation dépend du proxy transactionnel, de la règle de rollback et de la base : un test unitaire ne voit
+      rien de tout ça. Un `@SpringBootTest` qui provoque l'échec, puis relit la base, le prouve.
+  - key: situation-verify-fragile
+    format: scenario
+    question: |-
+      Le test unitaire d'un service vérifie avec `verify` l'ordre exact de six appels à son repository. Chaque
+      refactoring le casse, sans que le comportement ait changé. Que changes-tu ?
+    choices:
+      - {text: "Je vérifie le résultat observable, avec un faux en mémoire", correct: true}
+      - {text: "J'ajoute `verifyNoMoreInteractions` pour être plus strict", correct: false}
+      - {text: "Je passe ce test en `@SpringBootTest`, plus fidèle", correct: false}
+      - {text: "Je supprime le test, qui n'apporte rien", correct: false}
+    answer: |-
+      Le test décrit l'implémentation, pas le comportement. Avec un faux, il prépare un état, appelle le service,
+      puis vérifie l'état final : il survit aux refactorings et casse seulement quand le résultat change.
+  - key: situation-nouveau-service
+    format: scenario
+    question: |-
+      Ton équipe commence un nouveau service de calcul des remises, encore sans contrôleur ni table. Par quels tests
+      commences-tu ?
+    choices:
+      - {text: "Des tests unitaires des règles, sans Spring, rapides à écrire et à lancer", correct: true}
+      - {text: "Un `@SpringBootTest` qui passe par l'API, pour tout couvrir d'un coup", correct: false}
+      - {text: "Un test de charge, pour mesurer d'abord les temps de réponse", correct: false}
+      - {text: "Aucun : les tests s'écrivent une fois le service terminé", correct: false}
+    answer: |-
+      Les règles sont le cœur du service, et se testent sans infrastructure. Les tranches et les tests complets
+      viendront avec le contrôleur et la persistance.

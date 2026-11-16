@@ -1,0 +1,258 @@
+notion: problem-detail
+lesson: |-
+  Chaque API invente volontiers son format d'erreur. La **RFC 9457** (« Problem Details for HTTP APIs », qui remplace
+  la RFC 7807) en propose un standard, sous le type de contenu **`application/problem+json`** :
+
+  ```
+  {
+    "type": "https://api.exemple.fr/erreurs/stock-epuise",
+    "title": "Stock épuisé",
+    "status": 409,
+    "detail": "Plus que 0 exemplaire du produit 42",
+    "instance": "/api/commandes",
+    "code": "STOCK_EPUISE"
+  }
+  ```
+
+  | Membre | Rôle |
+  |---|---|
+  | `type` | une URI qui identifie le type de problème ; absent, il vaut `about:blank` (le statut suffit) |
+  | `title` | un résumé court du type, le même pour toutes ses occurrences |
+  | `status` | le statut HTTP, répété dans le corps |
+  | `detail` | l'explication de cette occurrence-ci |
+  | `instance` | une URI de cette occurrence, souvent le chemin de la requête |
+  | extensions | tout membre en plus, comme `code` ou la liste des champs invalides |
+
+  **Dans Spring**, la classe `ProblemDetail` représente ce corps :
+
+  ```java
+  @RestControllerAdvice
+  public class GestionnaireErreurs extends ResponseEntityExceptionHandler {
+
+      @ExceptionHandler(StockEpuiseException.class)
+      public ProblemDetail stockEpuise(StockEpuiseException e) {
+          ProblemDetail probleme = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, e.getMessage());
+          probleme.setType(URI.create("https://api.exemple.fr/erreurs/stock-epuise"));
+          probleme.setTitle("Stock épuisé");
+          probleme.setProperty("code", "STOCK_EPUISE");
+          return probleme;
+      }
+  }
+  ```
+
+  Renvoyer un `ProblemDetail` (directement, ou dans un `ResponseEntity`) donne le **statut** de la réponse, le type de
+  contenu `application/problem+json`, et `instance` vaut le chemin de la requête s'il n'est pas renseigné. Les
+  propriétés ajoutées par `setProperty` sont écrites **au premier niveau** du JSON.
+
+  **Les exceptions de Spring MVC.** `ResponseStatusException` et `ErrorResponseException` portent déjà un
+  `ProblemDetail`. La propriété **`spring.mvc.problemdetails.enabled=true`** fait répondre en ProblemDetail toutes les
+  exceptions de Spring MVC : validation (`detail` : « Invalid request content. »), paramètre manquant, 404, 405, 415...
+  Elle ne touche pas aux exceptions de l'application : sans gestionnaire, elles gardent la réponse d'erreur par défaut
+  de Spring Boot.
+
+  **Enrichir les erreurs de Spring.** Un advice qui hérite de `ResponseEntityExceptionHandler` peut redéfinir ses
+  méthodes, par exemple pour ajouter les champs invalides :
+
+  ```java
+  @Override
+  protected ResponseEntity<Object> handleMethodArgumentNotValid(MethodArgumentNotValidException ex,
+          HttpHeaders headers, HttpStatusCode status, WebRequest request) {
+      ProblemDetail probleme = ex.getBody();
+      probleme.setProperty("champs", ex.getBindingResult().getFieldErrors().stream()
+              .map(erreur -> erreur.getField() + " : " + erreur.getDefaultMessage())
+              .toList());
+      return ResponseEntity.status(status).body(probleme);
+  }
+  ```
+
+  **Ce qu'on n'y met pas** : la trace, le message d'une `SQLException`, un nom de classe interne. `detail` s'adresse au
+  client.
+
+  **En entretien** : « Je renvoie mes erreurs au format de la RFC 9457, avec `ProblemDetail` : `type`, `title`,
+  `status`, `detail`, `instance`, et des extensions comme un code stable. `spring.mvc.problemdetails.enabled` couvre les
+  exceptions de Spring MVC ; mes exceptions métier passent par un advice qui hérite de
+  `ResponseEntityExceptionHandler`. »
+cards:
+  - key: membre-type
+    format: course
+    question: "Quel membre d'un ProblemDetail désigne, par une URI, le type de problème rencontré ?"
+    choices:
+      - {text: "`type`", correct: true}
+      - {text: "`instance`", correct: false}
+      - {text: "`title`", correct: false}
+      - {text: "`code`", correct: false}
+    answer: "`type` identifie la catégorie d'erreur ; `instance` désigne cette occurrence-ci ; `title` en est le résumé lisible. `code` n'est pas standard : c'est une extension."
+  - key: type-de-contenu
+    format: course
+    question: "Quel type de contenu accompagne une réponse ProblemDetail ?"
+    choices:
+      - {text: "`application/problem+json`", correct: true}
+      - {text: "`application/json+error`", correct: false}
+      - {text: "`application/error+json`", correct: false}
+      - {text: "`text/problem`", correct: false}
+    answer: "La RFC 9457 définit `application/problem+json` (et `application/problem+xml`). Spring le pose quand le corps est un `ProblemDetail`."
+  - key: propriete-problemdetails
+    format: course
+    question: "Quelle propriété fait répondre en ProblemDetail les exceptions de Spring MVC (validation, 404, 405...) ?"
+    choices:
+      - {text: "`spring.mvc.problemdetails.enabled=true`", correct: true}
+      - {text: "`spring.web.error.format=problem`", correct: false}
+      - {text: "`server.error.problem-details=true`", correct: false}
+      - {text: "`spring.problem.enabled=true`", correct: false}
+    answer: "Spring Boot enregistre alors un `ResponseEntityExceptionHandler` qui rend ces exceptions en ProblemDetail. Les exceptions de l'application restent à traiter soi-même."
+  - key: place-de-setproperty
+    format: course
+    question: "Où apparaît `code` après `probleme.setProperty(\"code\", \"STOCK_EPUISE\")` ?"
+    choices:
+      - {text: "Au premier niveau du JSON, à côté de `title` et `status`", correct: true}
+      - {text: "Dans un objet `properties`, sous le JSON principal", correct: false}
+      - {text: "Dans un en-tête HTTP `Problem-Code` de la réponse", correct: false}
+      - {text: "Nulle part : la propriété ne sert qu'aux journaux", correct: false}
+    answer: "Les extensions sont des membres comme les autres pour la RFC : Spring les écrit à plat, `\"code\": \"STOCK_EPUISE\"`."
+  - key: vf-handler-qui-renvoie-un-problemdetail
+    format: true-false
+    question: "Une méthode `@ExceptionHandler` qui renvoie directement un `ProblemDetail` de statut 409 produit une réponse HTTP 409."
+    truth: true
+    answer: "Spring lit le statut dans le `ProblemDetail` ; pas besoin de `ResponseEntity` ni de `@ResponseStatus`."
+  - key: vf-instance-par-defaut
+    format: true-false
+    question: "Quand `instance` n'est pas renseigné, Spring y met le chemin de la requête."
+    truth: true
+    answer: "Une réponse à `GET /api/commandes/42` porte `\"instance\": \"/api/commandes/42\"`, utile pour relier l'erreur à la requête."
+  - key: vf-exception-maison-non-couverte
+    format: true-false
+    question: "Avec `spring.mvc.problemdetails.enabled=true`, une exception de l'application sans gestionnaire est elle aussi rendue en ProblemDetail."
+    truth: false
+    answer: "La propriété couvre les exceptions de Spring MVC. Une exception maison sans gestionnaire, même annotée `@ResponseStatus`, garde la réponse d'erreur par défaut de Spring Boot."
+  - key: vf-rfc-7807
+    format: true-false
+    question: "La RFC 9457 remplace la RFC 7807, qui définissait déjà les « problem details »."
+    truth: true
+    answer: "La RFC 9457 (2023) reprend le format de la 7807 et le précise, avec un registre de types communs. Un client de l'une comprend l'autre."
+  - key: qcm-creer-un-404
+    format: multiple-choice
+    question: "Quelle ligne crée un ProblemDetail 404 avec un détail lisible ?"
+    choices:
+      - {text: "`ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, \"Produit 42 introuvable\")`", correct: true}
+      - {text: "`ProblemDetail.of(HttpStatus.NOT_FOUND).detail(\"Produit 42 introuvable\")`", correct: false}
+      - {text: "`new ProblemDetail(404, \"Produit 42 introuvable\")`", correct: false}
+      - {text: "`ProblemDetail.notFound(\"Produit 42 introuvable\")`", correct: false}
+    answer: "`forStatus` et `forStatusAndDetail` sont les fabriques de `ProblemDetail`. Les autres méthodes n'existent pas, et son constructeur n'est pas public."
+  - key: qcm-ajouter-les-champs
+    format: multiple-choice
+    question: "Comment ajoutes-tu la liste des champs invalides au ProblemDetail d'une erreur de validation ?"
+    choices:
+      - {text: "Hériter de `ResponseEntityExceptionHandler`, et redéfinir `handleMethodArgumentNotValid`", correct: true}
+      - {text: "Ajouter `@ResponseStatus(HttpStatus.BAD_REQUEST)` sur le record validé", correct: false}
+      - {text: "Activer la propriété `spring.mvc.problemdetails.fields=true`", correct: false}
+      - {text: "Lever un `ProblemDetail` depuis le constructeur du record", correct: false}
+    answer: "La méthode redéfinie reçoit l'exception : `ex.getBody()` donne le ProblemDetail, `ex.getBindingResult()` les erreurs, qu'on ajoute par `setProperty`."
+  - key: qcm-detail-de-validation
+    format: multiple-choice
+    question: "ProblemDetail activés, quel `detail` Spring donne-t-il par défaut à une erreur de validation d'un `@RequestBody` ?"
+    choices:
+      - {text: "« Invalid request content. »", correct: true}
+      - {text: "La liste des champs invalides avec leurs messages", correct: false}
+      - {text: "Le message de la première contrainte violée", correct: false}
+      - {text: "« Validation failed for object »", correct: false}
+    answer: "Le détail par défaut reste général. Les champs fautifs ne sont pas listés : on les ajoute en redéfinissant `handleMethodArgumentNotValid`."
+  - key: qcm-type-absent
+    format: multiple-choice
+    question: "Que vaut `type` quand on ne le renseigne pas ?"
+    choices:
+      - {text: "`about:blank` : le problème n'a pas d'autre sens que son statut", correct: true}
+      - {text: "L'URL complète de la requête qui a échoué, pour la retrouver", correct: false}
+      - {text: "Le nom complet de la classe de l'exception, pour le débogage", correct: false}
+      - {text: "`null`, ce qui rend la réponse non conforme à la RFC", correct: false}
+    answer: "La RFC fixe `about:blank` par défaut ; Spring l'omet alors du JSON, ce qui revient au même. Un `type` propre se justifie dès qu'un client doit distinguer deux erreurs de même statut."
+  - key: trous-forstatusanddetail
+    format: fill-in
+    question: |-
+      Complète pour créer un ProblemDetail 409 :
+      ```java
+      ProblemDetail probleme = ProblemDetail.___(HttpStatus.CONFLICT, "Stock épuisé");
+      ```
+    blanks:
+      - [forStatusAndDetail]
+    answer: "`forStatusAndDetail` fixe le statut, le titre par défaut de ce statut, et le détail."
+  - key: trous-setproperty
+    format: fill-in
+    question: |-
+      Complète pour ajouter le code d'erreur en extension :
+      ```java
+      probleme.___("code", "STOCK_EPUISE");
+      ```
+    blanks:
+      - [setProperty]
+    answer: "`setProperty` ajoute un membre, écrit au premier niveau du JSON."
+  - key: trous-propriete-problemdetails
+    format: fill-in
+    question: |-
+      Complète la propriété qui rend en ProblemDetail les exceptions de Spring MVC :
+      ```properties
+      spring.mvc.___.enabled=true
+      ```
+    blanks:
+      - [problemdetails]
+    answer: "`spring.mvc.problemdetails.enabled=true`."
+  - key: trous-settype
+    format: fill-in
+    question: |-
+      Complète pour donner au problème son URI de type :
+      ```java
+      probleme.___(URI.create("https://api.exemple.fr/erreurs/stock-epuise"));
+      ```
+    blanks:
+      - [setType]
+    answer: "`setType` attend une `URI`, qui identifie la catégorie d'erreur."
+  - key: situation-formats-maison
+    format: scenario
+    question: |-
+      Chaque équipe renvoie ses erreurs dans un format maison différent, et le front a écrit quatre analyseurs. Que
+      proposes-tu ?
+    choices:
+      - {text: "Adopter le format de la RFC 9457, avec `ProblemDetail`", correct: true}
+      - {text: "Renvoyer toutes les erreurs en texte brut, sans format", correct: false}
+      - {text: "Remplacer toutes les erreurs par un statut 500 unique", correct: false}
+      - {text: "Laisser chaque équipe documenter son propre format", correct: false}
+    answer: |-
+      Un format standard, déjà produit par Spring, se lit partout de la même façon : un seul analyseur côté front, et
+      des outils qui le comprennent.
+  - key: situation-deux-erreurs-409
+    format: scenario
+    question: |-
+      Un client veut distinguer « stock épuisé » et « commande expirée », deux erreurs 409. Que fais-tu ?
+    choices:
+      - {text: "Je donne à chacune son `type` (une URI), ou un code en extension", correct: true}
+      - {text: "J'invente un statut HTTP pour chacune, comme 491 et 492", correct: false}
+      - {text: "Je renvoie 500 pour l'une et 409 pour l'autre", correct: false}
+      - {text: "Je mets le nom de l'erreur dans `instance`", correct: false}
+    answer: |-
+      Le statut dit la famille d'erreur, le `type` dit laquelle. Un client teste le `type` ou un code stable, pas le
+      texte de `detail`. `instance` désigne l'occurrence, pas la catégorie.
+  - key: situation-exception-maison-ancien-format
+    format: scenario
+    question: |-
+      Après avoir activé `spring.mvc.problemdetails.enabled`, les 404 de Spring sont des ProblemDetail, mais
+      `ProduitIntrouvableException` répond encore dans l'ancien format. Pourquoi ?
+    choices:
+      - {text: "La propriété ne couvre que les exceptions de Spring : la tienne veut un gestionnaire", correct: true}
+      - {text: "Le navigateur garde en cache les réponses d'erreur de l'ancien format", correct: false}
+      - {text: "La propriété ne s'applique qu'après un second redémarrage de l'application", correct: false}
+      - {text: "L'exception doit hériter de `ProblemDetail` pour être convertie", correct: false}
+    answer: |-
+      Un `@ExceptionHandler` qui renvoie un `ProblemDetail` la convertit ; ou bien l'exception hérite
+      d'`ErrorResponseException`, qui porte son ProblemDetail. `ProblemDetail` n'est pas une exception.
+  - key: situation-sqlexception-dans-detail
+    format: scenario
+    question: |-
+      Ton gestionnaire met le `getMessage()` d'une `SQLException` dans le `detail` d'un ProblemDetail 500. Qu'en
+      dis-tu en revue ?
+    choices:
+      - {text: "C'est une fuite : le détail d'une erreur interne reste dans les journaux", correct: true}
+      - {text: "C'est utile : le client saura quelle requête SQL corriger", correct: false}
+      - {text: "C'est sans risque, puisque la réponse est au format standard", correct: false}
+      - {text: "Il faut plutôt mettre la trace complète dans une extension", correct: false}
+    answer: |-
+      Le message d'une `SQLException` révèle tables, colonnes, parfois des valeurs. Le client reçoit un `detail`
+      générique et un identifiant de corrélation ; le message reste dans les journaux.

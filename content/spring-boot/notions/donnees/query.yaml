@@ -1,0 +1,305 @@
+notion: query
+lesson: |-
+  Quand une requête dérivée devient trop longue, ou impossible (une jointure, un agrégat, une mise à jour), on
+  l'écrit soi-même avec `@Query`.
+
+  **En JPQL** (le défaut). Le JPQL parle d'**entités et de leurs attributs**, pas de tables et de colonnes :
+
+  ```java
+  public interface ProduitRepository extends JpaRepository<Produit, Long> {
+
+      @Query("select p from Produit p where p.categorie = :categorie and p.prixUnitaire < :max")
+      List<Produit> moinsCherQue(@Param("categorie") Categorie categorie, @Param("max") int max);
+
+      @Query("select p.categorie, avg(p.prixUnitaire) from Produit p group by p.categorie")
+      List<Object[]> prixMoyenParCategorie();
+  }
+  ```
+
+  Les paramètres nommés (`:max`) se lient par `@Param`, ou par le nom du paramètre Java quand le code est compilé
+  avec `-parameters` (ce que font les plugins Maven et Gradle de Spring Boot). Les paramètres positionnels s'écrivent
+  `?1`, `?2`. Spring Data accepte aussi `like %:texte%`.
+
+  **En SQL natif**, pour une fonction propre à la base ou une requête que le JPQL ne sait pas écrire :
+
+  ```java
+  @NativeQuery("select * from produit where prix_unitaire > ?1")   // ou @Query(value = ..., nativeQuery = true)
+  List<Produit> cheres(int min);
+  ```
+
+  Ici, on parle bien de tables et de colonnes, et l'on perd la portabilité entre bases.
+
+  **Vérifiée au démarrage.** Spring Data fait valider chaque requête JPQL par Hibernate quand il crée le repository.
+  Écrire le nom de la table au lieu de l'entité donne « Could not resolve root entity 'produits' » ; une colonne au
+  lieu d'un attribut, « Could not resolve attribute 'prix_unitaire' ». Le SQL natif, lui, n'est vérifié qu'à
+  l'exécution.
+
+  **Les écritures : `@Modifying`.** Une requête `update` ou `delete` porte `@Modifying`, et s'exécute dans une
+  transaction :
+
+  ```java
+  @Modifying(clearAutomatically = true)
+  @Query("update Produit p set p.prixUnitaire = p.prixUnitaire * :coef where p.categorie = :categorie")
+  int augmenter(@Param("categorie") Categorie categorie, @Param("coef") double coef);
+  ```
+
+  | Oubli | Symptôme |
+  |---|---|
+  | `@Modifying` | « Query executed via 'getResultList()' or 'getSingleResult()' must be a 'select' query » |
+  | la transaction | « No active transaction for update or delete query » |
+  | `clearAutomatically` | après l'UPDATE, un `findById` dans la même transaction renvoie **l'ancienne** valeur |
+
+  Une requête `@Modifying` écrit directement en base, sans passer par les entités gérées : le contexte de
+  persistance garde les anciennes valeurs. `clearAutomatically = true` le vide après l'exécution ;
+  `flushAutomatically = true` envoie avant elle les modifications en attente.
+
+  **Jamais de concaténation.** Une valeur de l'utilisateur passe toujours par un paramètre, jamais dans la chaîne de
+  la requête : c'est ce qui empêche l'injection SQL.
+
+  **En entretien** : « `@Query` me sert quand le nom dérivé devient illisible ou ne suffit pas. J'écris du JPQL, sur
+  les entités et leurs attributs, avec des paramètres nommés, et Spring Data le valide au démarrage. Le SQL natif est
+  là pour ce que le JPQL ne sait pas faire. Pour un `update` ou un `delete`, j'ajoute `@Modifying`, une transaction,
+  et souvent `clearAutomatically` pour ne pas relire des valeurs périmées. »
+cards:
+  - key: jpql-entites
+    format: course
+    question: "Sur quoi porte une requête JPQL écrite dans `@Query` ?"
+    choices:
+      - {text: "Sur les entités et leurs attributs Java", correct: true}
+      - {text: "Sur les tables et leurs colonnes SQL", correct: false}
+      - {text: "Sur les DTO renvoyés par les contrôleurs", correct: false}
+      - {text: "Sur les méthodes déclarées dans le repository", correct: false}
+    answer: "`select p from Produit p where p.prixUnitaire < :max` : `Produit` est l'entité, `prixUnitaire` son attribut. Hibernate traduit vers la table `produit` et la colonne `prix_unitaire`."
+  - key: modifying-role
+    format: course
+    question: "À quoi sert `@Modifying` sur une méthode `@Query` ?"
+    choices:
+      - {text: "À exécuter un `update` ou un `delete` plutôt qu'une lecture", correct: true}
+      - {text: "À autoriser la modification des entités renvoyées par la requête", correct: false}
+      - {text: "À ouvrir une transaction autour de la requête, à la place du service", correct: false}
+      - {text: "À recharger les entités gérées après chaque lecture de la requête", correct: false}
+    answer: "Sans lui, Spring Data exécute la requête comme une lecture et Hibernate refuse un `update`. Avec lui, la méthode renvoie le nombre de lignes modifiées. La transaction reste à fournir."
+  - key: contexte-perime
+    format: course
+    question: "Dans une transaction, tu charges un produit (prix 10), puis une requête `@Modifying` passe son prix à 99, puis tu le relis avec `findById`. Que vaut le prix lu ?"
+    choices:
+      - {text: "10 : le contexte de persistance garde l'ancienne valeur", correct: true}
+      - {text: "99 : `findById` relit toujours la ligne en base", correct: false}
+      - {text: "99 : Hibernate met à jour les entités gérées touchées", correct: false}
+      - {text: "Une exception : l'entité gérée est devenue incohérente", correct: false}
+    answer: "La requête écrit en base sans passer par les entités, et `findById` renvoie l'entité déjà présente dans le contexte. `@Modifying(clearAutomatically = true)` vide le contexte après l'exécution : la relecture donne 99."
+  - key: natif-quand
+    format: course
+    question: "Quand choisis-tu une requête native plutôt qu'une requête JPQL ?"
+    choices:
+      - {text: "Pour une fonction ou une syntaxe propre à la base que le JPQL n'a pas", correct: true}
+      - {text: "Pour toute requête qui filtre sur plus de deux attributs d'une entité", correct: false}
+      - {text: "Pour que la requête soit validée au démarrage par Hibernate", correct: false}
+      - {text: "Pour que la requête reste portable d'une base de données à l'autre", correct: false}
+    answer: "Le SQL natif donne accès à tout ce que sait la base (fonctions de fenêtrage, types JSON...), au prix de la portabilité. Il n'est pas validé au démarrage, contrairement au JPQL."
+  - key: vf-validation-demarrage
+    format: true-false
+    question: "Une requête JPQL fausse dans `@Query` fait échouer le démarrage de l'application."
+    truth: true
+    answer: "Spring Data la fait valider par Hibernate en créant le repository : « Query validation failed for ... ». Le SQL natif n'est pas vérifié à ce moment-là."
+  - key: vf-transaction-modifying
+    format: true-false
+    question: "Une méthode `@Modifying` peut s'appeler hors de toute transaction : elle ouvre la sienne."
+    truth: false
+    answer: "Les méthodes déclarées dans un repository n'ont pas de transaction par défaut. Hors transaction : « No active transaction for update or delete query ». Le service appelant porte `@Transactional`."
+  - key: vf-like-spring-data
+    format: true-false
+    question: "Spring Data accepte la syntaxe `where p.nom like %:texte%` dans une `@Query`."
+    truth: true
+    answer: "Spring Data réécrit la requête et ajoute les `%` à la valeur du paramètre. C'est l'équivalent de `Containing` pour une requête dérivée."
+  - key: vf-concatenation
+    format: true-false
+    question: "Construire une requête native en concaténant une valeur saisie par l'utilisateur expose à l'injection SQL."
+    truth: true
+    answer: "La valeur devient du code SQL. Avec un paramètre (`:nom` ou `?1`), elle est transmise à part, comme une donnée."
+  - key: qcm-parametre-nomme
+    format: multiple-choice
+    question: "Comment s'écrit un paramètre nommé dans une `@Query` ?"
+    choices:
+      - {text: "`:max`", correct: true}
+      - {text: "`#max`", correct: false}
+      - {text: "`${max}`", correct: false}
+      - {text: "`{max}`", correct: false}
+    answer: "`:max`, lié par `@Param(\"max\")` ou par le nom du paramètre Java. Les paramètres positionnels s'écrivent `?1`."
+  - key: qcm-natif
+    format: multiple-choice
+    question: "Quelle annotation exécute une requête en SQL natif ?"
+    choices:
+      - {text: "`@Query(value = \"...\", nativeQuery = true)`", correct: true}
+      - {text: "`@Query(value = \"...\", sql = true)`", correct: false}
+      - {text: "`@Query(value = \"...\", jpql = false)`", correct: false}
+      - {text: "`@Modifying(nativeQuery = true)`", correct: false}
+    answer: "`nativeQuery = true`, ou l'annotation raccourcie `@NativeQuery`. La requête parle alors de tables et de colonnes."
+  - key: qcm-clear
+    format: multiple-choice
+    question: "Quel attribut vide le contexte de persistance après une requête `@Modifying` ?"
+    choices:
+      - {text: "`clearAutomatically = true`", correct: true}
+      - {text: "`flushAutomatically = true`", correct: false}
+      - {text: "`readOnly = false`", correct: false}
+      - {text: "`nativeQuery = true`", correct: false}
+    answer: "`clearAutomatically` évite de relire des entités périmées. `flushAutomatically` agit avant la requête : il envoie les modifications en attente, pour que l'UPDATE les voie."
+  - key: qcm-retour-modifying
+    format: multiple-choice
+    question: "Que peut renvoyer une méthode `@Modifying` qui exécute un `update` ?"
+    choices:
+      - {text: "Le nombre de lignes modifiées, en `int`", correct: true}
+      - {text: "La liste des entités modifiées", correct: false}
+      - {text: "L'entité modifiée la première", correct: false}
+      - {text: "Un `Optional` de la dernière ligne", correct: false}
+    answer: "`int` (ou `void`) : c'est le résultat de `executeUpdate`. Comparer ce nombre à 0 dit si la condition a trouvé une ligne."
+  - key: trous-query
+    format: fill-in
+    question: |-
+      Complète la requête JPQL :
+      ```java
+      @Query("select p from ___ p where p.prixUnitaire < :max")
+      List<Produit> moinsCherQue(@Param("___") int max);
+      ```
+    blanks:
+      - [Produit]
+      - [max]
+    answer: "Le JPQL nomme l'entité, `Produit` ; `@Param(\"max\")` relie le paramètre Java à `:max`."
+  - key: trous-modifying
+    format: fill-in
+    question: |-
+      Complète pour exécuter cette mise à jour :
+      ```java
+      @___
+      @Query("update Produit p set p.stock = 0 where p.id = :id")
+      int viderStock(@Param("id") Long id);
+      ```
+    blanks:
+      - [Modifying]
+    answer: "`@Modifying` fait exécuter la requête par `executeUpdate`, et la méthode renvoie le nombre de lignes modifiées."
+  - key: trous-native
+    format: fill-in
+    question: |-
+      Complète pour écrire la requête en SQL natif :
+      ```java
+      @Query(value = "select * from produit where prix_unitaire > ?1", ___ = true)
+      List<Produit> cheres(int min);
+      ```
+    blanks:
+      - [nativeQuery]
+    answer: "`nativeQuery = true` envoie la requête telle quelle à la base : tables et colonnes, pas entités."
+  - key: trous-clear
+    format: fill-in
+    question: |-
+      Complète pour que les relectures suivantes voient le nouveau prix :
+      ```java
+      @Modifying(___ = true)
+      @Query("update Produit p set p.prixUnitaire = :prix where p.id = :id")
+      int changerPrix(@Param("id") Long id, @Param("prix") int prix);
+      ```
+    blanks:
+      - [clearAutomatically]
+    answer: "`clearAutomatically` vide le contexte de persistance après l'UPDATE : les entités seront relues en base."
+  - key: bug-nom-de-table
+    format: bug-fix
+    question: |-
+      L'application refuse de démarrer : `Query validation failed for 'select p from produits p where p.prix <
+      :max'`, causé par `Could not resolve root entity 'produits'`. Quelle correction est la bonne ?
+      ```java
+      @Entity
+      @Table(name = "produits")
+      public class Produit { ... }
+
+      @Query("select p from produits p where p.prix < :max")
+      List<Produit> moinsCherQue(@Param("max") int max);
+      ```
+    choices:
+      - {text: "Écrire `select p from Produit p where p.prix < :max`", correct: true}
+      - {text: "Écrire `select p from \"produits\" p where p.prix < :max`", correct: false}
+      - {text: "Retirer `@Table(name = \"produits\")` de l'entité", correct: false}
+      - {text: "Ajouter `@Modifying` au-dessus de l'annotation `@Query`", correct: false}
+    answer: |-
+      ```java
+      @Query("select p from Produit p where p.prix < :max")
+      ```
+      Le JPQL nomme l'entité, pas la table. Retirer `@Table` ferait démarrer, mais changerait le nom de la table et
+      casserait le schéma existant.
+  - key: bug-nom-de-colonne
+    format: bug-fix
+    question: |-
+      L'application refuse de démarrer : `Could not resolve attribute 'prix_unitaire' of 'boutique.Produit'`. Quelle
+      correction est la bonne ?
+      ```java
+      @Entity
+      public class Produit {
+          @Id @GeneratedValue private Long id;
+          private int prixUnitaire;
+      }
+
+      @Query("select p from Produit p where p.prix_unitaire < :max")
+      List<Produit> moinsCherQue(@Param("max") int max);
+      ```
+    choices:
+      - {text: "Écrire `p.prixUnitaire` dans la requête", correct: true}
+      - {text: "Écrire `p.PRIX_UNITAIRE` dans la requête", correct: false}
+      - {text: "Renommer le champ Java en `prix_unitaire`", correct: false}
+      - {text: "Annoter le champ `@Column(name = \"prix\")`", correct: false}
+    answer: |-
+      ```java
+      @Query("select p from Produit p where p.prixUnitaire < :max")
+      ```
+      `prix_unitaire` est le nom de la colonne ; le JPQL utilise le nom de l'attribut Java. Renommer le champ
+      contredirait les conventions de nommage Java pour contourner une erreur de requête.
+  - key: bug-sans-modifying
+    format: bug-fix
+    question: |-
+      L'appel lève `InvalidDataAccessApiUsageException: Query executed via 'getResultList()' or 'getSingleResult()'
+      must be a 'select' query`. Le service appelant est `@Transactional`. Quelle correction est la bonne ?
+      ```java
+      @Query("update Produit p set p.stock = 0 where p.id = :id")
+      int viderStock(@Param("id") Long id);
+      ```
+    choices:
+      - {text: "Ajouter `@Modifying` sur la méthode", correct: true}
+      - {text: "Ajouter `nativeQuery = true` à l'annotation", correct: false}
+      - {text: "Changer le type de retour en `List<Produit>`", correct: false}
+      - {text: "Ajouter `@Transactional` sur la méthode", correct: false}
+    answer: |-
+      ```java
+      @Modifying
+      @Query("update Produit p set p.stock = 0 where p.id = :id")
+      int viderStock(@Param("id") Long id);
+      ```
+      Sans `@Modifying`, Spring Data exécute la requête comme une lecture (`getResultList`), qu'Hibernate refuse pour
+      un `update`. La transaction est déjà là, fournie par le service.
+  - key: bug-modifying-sans-transaction
+    format: bug-fix
+    question: |-
+      L'appel lève `InvalidDataAccessApiUsageException: No active transaction for update or delete query`. Quelle
+      correction est la bonne ?
+      ```java
+      @Modifying
+      @Query("update Produit p set p.prixUnitaire = :prix where p.id = :id")
+      int changerPrix(@Param("id") Long id, @Param("prix") int prix);
+
+      @Service
+      public class TarifService {
+          public void changerPrix(Long id, int prix) {
+              produits.changerPrix(id, prix);
+          }
+      }
+      ```
+    choices:
+      - {text: "Annoter `TarifService.changerPrix` avec `@Transactional`", correct: true}
+      - {text: "Retirer `@Modifying` de la méthode du repository", correct: false}
+      - {text: "Ajouter `clearAutomatically = true` à `@Modifying`", correct: false}
+      - {text: "Annoter `TarifService.changerPrix` avec `@Modifying`", correct: false}
+    answer: |-
+      ```java
+      @Transactional
+      public void changerPrix(Long id, int prix) {
+          produits.changerPrix(id, prix);
+      }
+      ```
+      Une méthode déclarée dans le repository n'a pas de transaction par défaut, et Hibernate exige une transaction
+      pour un `update`. Le service, qui porte le cas d'usage, l'ouvre.

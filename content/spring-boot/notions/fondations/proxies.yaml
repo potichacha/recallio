@@ -1,0 +1,221 @@
+notion: proxies
+lesson: |-
+  `@Transactional`, `@Async`, `@Cacheable`, `@Validated`, la sécurité des méthodes : toutes ces annotations sont
+  appliquées par un **proxy**. Spring ne modifie pas ta classe ; il crée un objet qui **se place devant** ton bean,
+  **intercepte** les appels, ajoute le comportement, puis **délègue** au vrai bean.
+
+  ```
+  appelant ──► proxy ──► (ouvre la transaction) ──► CommandeService.commander() ──► (valide ou annule)
+  ```
+
+  C'est le proxy, et non l'objet d'origine, qui est **injecté** partout. Il est créé par un `BeanPostProcessor`,
+  après l'initialisation du bean.
+
+  **Deux façons de faire un proxy.**
+
+  | | Proxy dynamique du JDK | Proxy CGLIB |
+  |---|---|---|
+  | principe | implémente les **interfaces** du bean | crée une **sous-classe** du bean |
+  | exige | une interface | une classe non `final`, des méthodes non `final` |
+  | s'injecte par | l'interface seulement | l'interface ou la classe |
+  | nom de classe | `$Proxy42` | `CommandeService$$SpringCGLIB$$0` |
+
+  **Spring Boot utilise CGLIB par défaut** (`spring.aop.proxy-target-class=true`), même pour un bean qui implémente
+  une interface : on peut ainsi injecter la classe concrète.
+
+  **Ce qu'un proxy ne voit pas.**
+  - Une **classe `final`** : CGLIB ne peut pas la sous-classer, le démarrage échoue (« Cannot subclass final
+    class »).
+  - Une **méthode `final`** ou **`private`** : la sous-classe ne peut pas la redéfinir ; l'annotation est
+    **ignorée sans erreur**.
+  - Un **appel par `this`** depuis le bean lui-même : il ne traverse pas le proxy (c'est l'auto-invocation, la
+    notion suivante).
+  - Un objet créé avec **`new`** : pas de proxy du tout.
+
+  **Le reconnaître.** `AopUtils.isAopProxy(bean)` répond oui ou non. Dans le débogueur, la classe s'appelle
+  `...$$SpringCGLIB$$0`, et ses champs sont `null` : c'est normal, le proxy n'a pas d'état, il délègue au vrai bean,
+  dont les champs sont remplis.
+
+  **En entretien** : « Les annotations comme `@Transactional` sont appliquées par un proxy qui entoure le bean et
+  intercepte les appels venant de l'extérieur. Spring Boot crée des proxies CGLIB, par sous-classe ; ils ne voient
+  ni les méthodes `final` ou `private`, ni les appels par `this`. »
+cards:
+  - key: mecanisme-de-transactional
+    format: course
+    question: "Comment Spring applique-t-il `@Transactional` à une méthode d'un bean ?"
+    choices:
+      - {text: "Il injecte un proxy, qui ouvre la transaction puis appelle la méthode", correct: true}
+      - {text: "Il réécrit le bytecode de la classe au moment de la compilation", correct: false}
+      - {text: "Il ajoute un bloc `try`/`finally` dans le code source de la méthode", correct: false}
+      - {text: "Il exécute la méthode dans un thread réservé aux transactions", correct: false}
+    answer: "Le proxy entoure le bean : il démarre la transaction, délègue, puis valide ou annule. La classe d'origine n'est pas modifiée."
+  - key: jdk-ou-cglib
+    format: course
+    question: "Quelle différence entre un proxy du JDK et un proxy CGLIB ?"
+    choices:
+      - {text: "Le proxy JDK implémente les interfaces ; CGLIB crée une sous-classe", correct: true}
+      - {text: "Le proxy JDK est une sous-classe ; CGLIB implémente les interfaces", correct: false}
+      - {text: "Le proxy JDK est créé à la compilation ; CGLIB au démarrage", correct: false}
+      - {text: "Le proxy JDK sert aux transactions ; CGLIB sert au cache", correct: false}
+    answer: "Le proxy JDK (`java.lang.reflect.Proxy`) ne connaît que des interfaces. CGLIB génère une sous-classe : il intercepte aussi les méthodes qui ne sont pas dans une interface."
+  - key: defaut-de-boot
+    format: course
+    question: "Quel type de proxy Spring Boot crée-t-il par défaut, même pour un bean qui implémente une interface ?"
+    choices:
+      - {text: "Un proxy CGLIB, par sous-classe", correct: true}
+      - {text: "Un proxy JDK, par interface", correct: false}
+      - {text: "Aucun, sans `@EnableAspectJAutoProxy`", correct: false}
+      - {text: "Un proxy compilé par AspectJ", correct: false}
+    answer: "`spring.aop.proxy-target-class` vaut `true` dans Spring Boot : on peut injecter la classe concrète comme l'interface."
+  - key: methode-finale
+    format: course
+    question: "Que se passe-t-il pour une méthode `final` annotée `@Transactional`, sur un bean proxifié par CGLIB ?"
+    choices:
+      - {text: "Elle n'est pas interceptée : la sous-classe ne peut pas la redéfinir", correct: true}
+      - {text: "Elle est interceptée, mais avec une transaction en lecture seule", correct: false}
+      - {text: "Le démarrage échoue avec « Cannot subclass final class »", correct: false}
+      - {text: "Elle s'exécute deux fois, par le proxy puis par le bean", correct: false}
+    answer: "L'annotation est ignorée sans erreur. Le démarrage n'échoue que pour une classe `final`, que CGLIB ne peut pas sous-classer."
+  - key: vf-proxy-injecte
+    format: true-false
+    question: "Le bean injecté dans un autre bean est le proxy, et non l'objet d'origine."
+    truth: true
+    answer: "C'est ce qui permet au proxy d'intercepter les appels venant de l'extérieur."
+  - key: vf-classe-finale-cglib
+    format: true-false
+    question: "Une classe `final` dont une méthode porte `@Async` peut être proxifiée par CGLIB."
+    truth: false
+    answer: "CGLIB crée une sous-classe : impossible pour une classe `final`. Le démarrage échoue, « Cannot subclass final class »."
+  - key: vf-methode-privee
+    format: true-false
+    question: "Un appel à une méthode `private` annotée `@Transactional` passe par le proxy."
+    truth: false
+    answer: "Une méthode privée n'est ni redéfinissable ni appelable de l'extérieur : le proxy ne la voit jamais, et l'annotation est sans effet."
+  - key: vf-isaopproxy
+    format: true-false
+    question: "`AopUtils.isAopProxy(bean)` dit si un bean est un proxy créé par Spring."
+    truth: true
+    answer: "Utile dans un test ou en débogage. `AopUtils.getTargetClass(bean)` donne la classe d'origine."
+  - key: qcm-annotation-sans-proxy
+    format: multiple-choice
+    question: "Laquelle de ces annotations n'agit pas par un proxy ?"
+    choices:
+      - {text: "`@Component`", correct: true}
+      - {text: "`@Transactional`", correct: false}
+      - {text: "`@Async`", correct: false}
+      - {text: "`@Cacheable`", correct: false}
+    answer: "`@Component` déclare un bean, lu par le scan. Les trois autres ajoutent un comportement autour des appels : il leur faut un proxy."
+  - key: qcm-nom-de-classe-proxy
+    format: multiple-choice
+    question: "Quel nom de classe affiche `service.getClass().getName()` pour un bean `CommandeService` proxifié par CGLIB ?"
+    choices:
+      - {text: "`com.boutique.CommandeService$$SpringCGLIB$$0`", correct: true}
+      - {text: "`com.boutique.CommandeService`", correct: false}
+      - {text: "`jdk.proxy2.$Proxy42`", correct: false}
+      - {text: "`com.boutique.CommandeServiceProxy`", correct: false}
+    answer: "La sous-classe générée porte le nom de la classe suivi de `$$SpringCGLIB$$`. `$Proxy42` est le nom d'un proxy du JDK."
+  - key: qcm-objet-cree-avec-new
+    format: multiple-choice
+    question: "Une instance de `CommandeService` créée avec `new` a-t-elle le comportement de `@Transactional` ?"
+    choices:
+      - {text: "Non : seul le proxy créé par le conteneur l'applique", correct: true}
+      - {text: "Oui : l'annotation agit sur toute instance de la classe", correct: false}
+      - {text: "Oui, à condition que la classe soit annotée `@Service`", correct: false}
+      - {text: "Oui, mais seulement dans un test JUnit", correct: false}
+    answer: "L'annotation n'est qu'une indication pour le conteneur. Sans proxy, aucune transaction n'est ouverte."
+  - key: qcm-injecter-un-proxy-jdk
+    format: multiple-choice
+    question: "Avec un proxy du JDK, quel type faut-il utiliser pour injecter le bean ?"
+    choices:
+      - {text: "Son interface : le proxy n'est pas une instance de la classe", correct: true}
+      - {text: "Sa classe concrète, comme avec un proxy CGLIB", correct: false}
+      - {text: "`Object`, suivi d'un transtypage vers la classe", correct: false}
+      - {text: "N'importe lequel : Spring convertit le proxy", correct: false}
+    answer: "Le proxy du JDK implémente seulement les interfaces. Demander la classe concrète échoue : c'est pourquoi Spring Boot préfère CGLIB."
+  - key: situation-classes-finales
+    format: scenario
+    question: |-
+      Ton collègue rend toutes ses classes `final` par principe. Son `CommandeService` a des méthodes
+      `@Transactional`. Que se passe-t-il au démarrage ?
+    choices:
+      - {text: "Il échoue : CGLIB ne peut pas sous-classer une classe `final`", correct: true}
+      - {text: "Les transactions s'appliquent normalement, sans changement", correct: false}
+      - {text: "Les transactions sont ignorées, sans erreur ni avertissement", correct: false}
+      - {text: "Spring retire le modificateur `final` au chargement de la classe", correct: false}
+    answer: |-
+      Le proxy CGLIB est une sous-classe. Les beans qui portent des annotations à proxy ne doivent pas être `final`
+      (ni leurs méthodes annotées).
+  - key: situation-expliquer-transactional
+    format: scenario
+    question: |-
+      En entretien : « Comment fonctionne `@Transactional` ? » Quelle réponse est la plus juste ?
+    choices:
+      - {text: "Un proxy entoure le bean : il ouvre la transaction, appelle, puis valide ou annule", correct: true}
+      - {text: "Le compilateur insère le code de la transaction dans la méthode annotée", correct: false}
+      - {text: "La base de données lit l'annotation par l'intermédiaire du pilote JDBC", correct: false}
+      - {text: "Hibernate lit l'annotation avant chaque requête SQL qu'il envoie", correct: false}
+    answer: |-
+      Le proxy délègue au gestionnaire de transactions (`PlatformTransactionManager`). En découlent les limites : pas
+      d'effet par `this`, ni sur une méthode privée ou `final`.
+  - key: situation-champs-nuls-debogueur
+    format: scenario
+    question: |-
+      Dans le débogueur, ton service s'appelle `CommandeService$$SpringCGLIB$$0`, et tous ses champs sont `null`. Un
+      collègue s'inquiète. Que lui dis-tu ?
+    choices:
+      - {text: "C'est le proxy : il délègue au vrai bean, dont les champs sont remplis", correct: true}
+      - {text: "Le bean est mal injecté : il faut ajouter `@Autowired` partout", correct: false}
+      - {text: "Spring a créé deux beans : il faut ajouter `@Primary`", correct: false}
+      - {text: "La classe a été compilée sans l'option `-parameters`", correct: false}
+    answer: |-
+      La sous-classe CGLIB est créée sans appeler le constructeur : ses propres champs restent vides. Elle transmet
+      chaque appel au vrai bean, qui, lui, a ses dépendances.
+  - key: situation-injection-de-l-implementation
+    format: scenario
+    question: |-
+      Avec `spring.aop.proxy-target-class=false`, l'injection de `CommandeServiceImpl` échoue alors que l'interface
+      `CommandeService` est bien implémentée. Pourquoi ?
+    choices:
+      - {text: "Le proxy JDK implémente l'interface, mais n'est pas un `CommandeServiceImpl`", correct: true}
+      - {text: "Spring interdit d'injecter une classe dont le nom finit par `Impl`", correct: false}
+      - {text: "La propriété désactive tous les proxies du contexte", correct: false}
+      - {text: "Le bean n'est pas encore créé au moment de l'injection", correct: false}
+    answer: |-
+      La propriété fait choisir un proxy du JDK pour les beans qui ont une interface. On injecte alors l'interface
+      (ce qui est préférable de toute façon), ou l'on revient au défaut de Spring Boot.
+  - key: def-proxy
+    format: definition
+    question: "Quel terme désigne l'objet qui se place devant un bean, intercepte ses appels pour ajouter un comportement, puis délègue au bean ?"
+    choices:
+      - {text: "Un proxy", correct: true}
+      - {text: "Un adaptateur", correct: false}
+      - {text: "Une façade", correct: false}
+      - {text: "Un intercepteur HTTP", correct: false}
+    answer: "Un proxy a la même interface que l'objet qu'il représente. Un adaptateur change d'interface ; une façade en simplifie plusieurs."
+  - key: def-cglib
+    format: definition
+    question: "Quel terme désigne la bibliothèque, intégrée à Spring, qui crée un proxy en générant une sous-classe du bean ?"
+    choices:
+      - {text: "CGLIB", correct: true}
+      - {text: "Byte Buddy", correct: false}
+      - {text: "Javassist", correct: false}
+      - {text: "AspectJ", correct: false}
+    answer: "Spring embarque une copie de CGLIB. Byte Buddy sert à Mockito et Hibernate ; AspectJ tisse les aspects dans le bytecode, sans proxy."
+  - key: def-proxy-du-jdk
+    format: definition
+    question: "Quel terme désigne le proxy fourni par le JDK (`java.lang.reflect.Proxy`), qui implémente une liste d'interfaces ?"
+    choices:
+      - {text: "Un proxy dynamique du JDK", correct: true}
+      - {text: "Un proxy CGLIB", correct: false}
+      - {text: "Un proxy inverse", correct: false}
+      - {text: "Un proxy de portée", correct: false}
+    answer: "Le proxy dynamique du JDK, créé à l'exécution. Un proxy inverse est un serveur réseau (nginx) ; un proxy de portée sert aux beans `request` et `session`."
+  - key: def-beanpostprocessor
+    format: definition
+    question: "Quel terme désigne le composant de Spring qui peut modifier ou remplacer chaque bean après son initialisation, et qui crée les proxies ?"
+    choices:
+      - {text: "Un `BeanPostProcessor`", correct: true}
+      - {text: "Un `BeanFactoryPostProcessor`", correct: false}
+      - {text: "Un `ApplicationListener`", correct: false}
+      - {text: "Une `FactoryBean`", correct: false}
+    answer: "Le `BeanPostProcessor` agit sur les beans créés. Le `BeanFactoryPostProcessor` agit plus tôt, sur les définitions de beans."

@@ -1,0 +1,202 @@
+notion: arret-gracieux
+lesson: |-
+  Un déploiement arrête les anciennes instances. Sans précaution, les requêtes **en cours** sont coupées : le client
+  reçoit une erreur, un paiement reste à moitié fait. L'**arrêt gracieux** laisse finir ce qui a commencé.
+
+  **Le signal.** Docker (`docker stop`) et Kubernetes envoient d'abord **`SIGTERM`**. La JVM exécute alors ses
+  crochets d'arrêt (shutdown hooks), dont celui de `SpringApplication`, qui ferme le contexte. Après un délai
+  (10 secondes pour Docker, `terminationGracePeriodSeconds`, 30 par défaut, pour Kubernetes), vient **`SIGKILL`** :
+  le processus meurt sans rien pouvoir faire. Un `kill -9` envoie directement `SIGKILL`.
+
+  **Ce que fait Spring Boot.** L'arrêt gracieux du serveur web est **actif par défaut depuis Spring Boot 3.4**
+  (`server.shutdown=graceful` ; `immediate` pour couper net). À la fermeture du contexte :
+
+  1. la readiness passe à `REFUSING_TRAFFIC` ;
+  2. le serveur **n'accepte plus de nouvelles requêtes** et **attend celles en cours**, dans la limite du délai ;
+  3. les beans `SmartLifecycle` s'arrêtent, phase par phase ;
+  4. les beans sont détruits : `@PreDestroy`, fermeture du pool de connexions.
+
+  ```properties
+  server.shutdown=graceful                       # le défaut depuis Spring Boot 3.4
+  spring.lifecycle.timeout-per-shutdown-phase=20s # 30 s par défaut
+  ```
+
+  Les logs le disent : `Commencing graceful shutdown. Waiting for active requests to complete`, puis
+  `Graceful shutdown complete`.
+
+  **Recevoir le signal, dans Docker.** Il faut que Java soit le processus 1 du conteneur. La forme **exec** de
+  l'`ENTRYPOINT` lance Java directement ; la forme **shell** lance un `/bin/sh -c`, qui ne transmet pas `SIGTERM` :
+  Docker attend 10 secondes, puis tue tout.
+
+  ```dockerfile
+  ENTRYPOINT ["java", "-jar", "/app.jar"]   # forme exec : Java reçoit SIGTERM
+  # ENTRYPOINT java -jar /app.jar           # forme shell : le signal n'arrive pas
+  ```
+
+  **Dans Kubernetes.** Quand un pod est supprimé, l'envoi de `SIGTERM` et le retrait du pod des endpoints du Service
+  se font **en parallèle** : pendant quelques secondes, des requêtes arrivent encore. On ajoute un **`preStop`** qui
+  attend quelques secondes avant le signal. Et les délais s'emboîtent :
+
+  ```
+  preStop (5 s) + timeout-per-shutdown-phase (20 s) < terminationGracePeriodSeconds (30 s)
+  ```
+
+  Si Spring attend plus longtemps que Kubernetes, `SIGKILL` coupe tout de même les requêtes.
+
+  **Les autres travaux en cours.** Les tâches des exécuteurs de Spring peuvent être attendues
+  (`spring.task.execution.shutdown.await-termination=true`) ; un consommateur de messages cesse de lire avant de
+  s'arrêter. Comme un arrêt brutal reste toujours possible (panne de machine, `SIGKILL`), les traitements doivent
+  être **idempotents** ou reprenables.
+
+  **En entretien** : « À l'arrêt, Spring Boot cesse d'accepter des requêtes, termine celles en cours dans la limite de
+  `spring.lifecycle.timeout-per-shutdown-phase`, puis ferme le contexte et ses ressources ; c'est le comportement par
+  défaut depuis Spring Boot 3.4. Encore faut-il que `SIGTERM` arrive à la JVM : forme exec de l'`ENTRYPOINT`. Dans
+  Kubernetes, un `preStop` laisse au pod le temps de sortir des endpoints, et le délai de Spring reste sous le
+  `terminationGracePeriodSeconds`. »
+cards:
+  - key: requetes-en-cours
+    format: course
+    question: "Que fait Spring Boot, en arrêt gracieux, des requêtes reçues avant le signal d'arrêt ?"
+    choices:
+      - {text: "Il les laisse se terminer, dans la limite d'un délai", correct: true}
+      - {text: "Il les interrompt aussitôt, et renvoie une erreur 500", correct: false}
+      - {text: "Il les garde en file, pour les rejouer au prochain démarrage", correct: false}
+      - {text: "Il les transfère à une autre instance du même service", correct: false}
+    answer: "Le serveur n'accepte plus de nouvelles requêtes, mais attend celles en cours, au plus `spring.lifecycle.timeout-per-shutdown-phase`."
+  - key: premier-signal
+    format: course
+    question: "Quel signal Docker et Kubernetes envoient-ils d'abord pour arrêter un conteneur ?"
+    choices:
+      - {text: "`SIGTERM`", correct: true}
+      - {text: "`SIGKILL`", correct: false}
+      - {text: "`SIGINT`", correct: false}
+      - {text: "`SIGHUP`", correct: false}
+    answer: "`SIGTERM` demande poliment l'arrêt : la JVM exécute ses crochets d'arrêt. `SIGKILL` vient après le délai de grâce, et ne laisse rien faire."
+  - key: delai-par-defaut
+    format: course
+    question: "Combien de temps Spring Boot accorde-t-il par défaut à chaque phase d'arrêt ?"
+    choices:
+      - {text: "30 secondes", correct: true}
+      - {text: "10 secondes", correct: false}
+      - {text: "60 secondes", correct: false}
+      - {text: "Aucune limite : il attend la fin des requêtes", correct: false}
+    answer: "`spring.lifecycle.timeout-per-shutdown-phase` vaut 30 s. Passé ce délai, l'arrêt continue, et les requêtes restantes sont coupées."
+  - key: forme-shell
+    format: course
+    question: "Pourquoi `ENTRYPOINT java -jar app.jar`, écrit en forme shell, empêche-t-il l'arrêt gracieux ?"
+    choices:
+      - {text: "Le shell est le processus 1, et ne transmet pas `SIGTERM` à Java", correct: true}
+      - {text: "La forme shell lance Java avec une option qui ignore les signaux", correct: false}
+      - {text: "Le shell attend la fin de Java avant d'accepter le moindre signal", correct: false}
+      - {text: "La forme shell désactive les crochets d'arrêt de la JVM", correct: false}
+    answer: "Java ne reçoit rien ; au bout du délai, `SIGKILL` tue tout. La forme exec, `ENTRYPOINT [\"java\", \"-jar\", \"app.jar\"]`, fait de Java le processus 1."
+  - key: vf-defaut-depuis-34
+    format: true-false
+    question: "Depuis Spring Boot 3.4, l'arrêt gracieux du serveur web est actif sans rien configurer."
+    truth: true
+    answer: "`server.shutdown` vaut `graceful` par défaut. Avant, il fallait l'activer ; `immediate` rétablit l'arrêt immédiat."
+  - key: vf-kill-9
+    format: true-false
+    question: "Un `kill -9` laisse à Spring le temps de terminer les requêtes en cours."
+    truth: false
+    answer: "`kill -9` envoie `SIGKILL`, que le processus ne peut ni intercepter ni retarder : aucun crochet d'arrêt ne s'exécute."
+  - key: vf-nouvelles-requetes
+    format: true-false
+    question: "Pendant l'arrêt gracieux, le serveur accepte encore de nouvelles requêtes, jusqu'à la fin du délai."
+    truth: false
+    answer: "Il refuse les nouvelles et termine les anciennes. C'est pourquoi, dans Kubernetes, un `preStop` laisse d'abord le pod sortir des endpoints."
+  - key: vf-predestroy-apres
+    format: true-false
+    question: "Les méthodes `@PreDestroy` s'exécutent après la fin de l'arrêt gracieux du serveur web."
+    truth: true
+    answer: "Le contexte arrête d'abord les composants à cycle de vie, dont le serveur, puis détruit les beans. Les requêtes en cours ont donc encore leurs beans."
+  - key: qcm-propriete-delai
+    format: multiple-choice
+    question: "Quelle propriété règle le délai d'attente de l'arrêt gracieux ?"
+    choices:
+      - {text: "`spring.lifecycle.timeout-per-shutdown-phase`", correct: true}
+      - {text: "`server.shutdown.timeout`", correct: false}
+      - {text: "`spring.main.shutdown-timeout`", correct: false}
+      - {text: "`server.tomcat.connection-timeout`", correct: false}
+    answer: "Le délai s'applique à chaque phase d'arrêt, dont celle du serveur web. `server.tomcat.connection-timeout` règle autre chose : l'attente d'une requête sur une connexion."
+  - key: qcm-valeur-immediate
+    format: multiple-choice
+    question: "Quelle valeur de `server.shutdown` coupe les requêtes en cours dès l'arrêt ?"
+    choices:
+      - {text: "`immediate`", correct: true}
+      - {text: "`none`", correct: false}
+      - {text: "`fast`", correct: false}
+      - {text: "`abort`", correct: false}
+    answer: "Les deux valeurs sont `graceful`, le défaut, et `immediate`."
+  - key: qcm-delai-kubernetes
+    format: multiple-choice
+    question: "Combien vaut `terminationGracePeriodSeconds` par défaut dans Kubernetes ?"
+    choices:
+      - {text: "30 secondes", correct: true}
+      - {text: "10 secondes", correct: false}
+      - {text: "60 secondes", correct: false}
+      - {text: "Aucune limite", correct: false}
+    answer: "Entre `SIGTERM` et `SIGKILL`, 30 secondes, `preStop` compris. Le délai de Spring doit tenir dedans."
+  - key: qcm-ordre-arret
+    format: multiple-choice
+    question: "Dans quel ordre se déroule l'arrêt d'une application web Spring Boot ?"
+    choices:
+      - {text: "Readiness refusée, requêtes terminées, puis beans détruits", correct: true}
+      - {text: "Beans détruits, requêtes terminées, puis readiness refusée", correct: false}
+      - {text: "Requêtes coupées, beans détruits, puis readiness refusée", correct: false}
+      - {text: "Readiness refusée, beans détruits, puis requêtes terminées", correct: false}
+    answer: "On retire d'abord l'instance du trafic, on laisse finir ce qui a commencé, et on ne détruit les beans (pool de connexions compris) qu'ensuite."
+  - key: situation-502-deploiement
+    format: scenario
+    question: |-
+      À chaque déploiement progressif dans Kubernetes, quelques clients reçoivent des erreurs 502 pendant deux ou
+      trois secondes, malgré l'arrêt gracieux. Que proposes-tu ?
+    choices:
+      - {text: "Un `preStop` qui attend quelques secondes, le temps de sortir des endpoints", correct: true}
+      - {text: "Un arrêt immédiat, pour que le pod disparaisse plus vite des endpoints", correct: false}
+      - {text: "Un `terminationGracePeriodSeconds` à 0, pour accélérer le déploiement", correct: false}
+      - {text: "Une sonde de liveness plus fréquente, toutes les 100 millisecondes", correct: false}
+    answer: |-
+      `SIGTERM` et le retrait des endpoints arrivent en même temps : le serveur refuse déjà des requêtes que le
+      réseau lui envoie encore. Un `preStop` de quelques secondes retarde le signal jusqu'à ce que plus rien
+      n'arrive.
+  - key: situation-exports-coupes
+    format: scenario
+    question: |-
+      Des exports qui durent 2 minutes sont coupés à chaque déploiement, alors que l'arrêt gracieux est actif.
+      Pourquoi ?
+    choices:
+      - {text: "Le délai par phase, 30 secondes par défaut, est plus court que l'export", correct: true}
+      - {text: "L'arrêt gracieux ne concerne que les requêtes HTTP en `GET`", correct: false}
+      - {text: "L'arrêt gracieux ne fonctionne qu'avec le serveur Jetty", correct: false}
+      - {text: "Les exports tournent dans le thread principal de la JVM", correct: false}
+    answer: |-
+      Passé `spring.lifecycle.timeout-per-shutdown-phase`, Spring continue l'arrêt. On peut allonger ce délai, et
+      `terminationGracePeriodSeconds` avec, mais un travail de 2 minutes gagne à devenir une tâche asynchrone
+      reprenable.
+  - key: situation-docker-dix-secondes
+    format: scenario
+    question: |-
+      `docker stop` prend toujours 10 secondes, et les logs n'affichent jamais `Commencing graceful shutdown`.
+      L'image a `ENTRYPOINT java -jar /app.jar`. Que changes-tu ?
+    choices:
+      - {text: "La forme exec : `ENTRYPOINT [\"java\", \"-jar\", \"/app.jar\"]`", correct: true}
+      - {text: "La propriété `server.shutdown=graceful`, absente de l'image", correct: false}
+      - {text: "Le signal d'arrêt, avec `docker stop --signal SIGINT`", correct: false}
+      - {text: "Le délai de Docker, avec `docker stop -t 60`", correct: false}
+    answer: |-
+      En forme shell, `/bin/sh` est le processus 1 et garde le signal pour lui ; Docker finit par envoyer
+      `SIGKILL`. L'arrêt gracieux est déjà le défaut : il ne lui manque que le signal.
+  - key: situation-delais-incoherents
+    format: scenario
+    question: |-
+      Spring a `timeout-per-shutdown-phase=60s`, et le pod `terminationGracePeriodSeconds: 30`. Que devient une
+      requête de 45 secondes, en cours au moment de l'arrêt ?
+    choices:
+      - {text: "Kubernetes tue le processus à 30 secondes : la requête est coupée", correct: true}
+      - {text: "Spring la termine : son délai l'emporte sur celui de Kubernetes", correct: false}
+      - {text: "Kubernetes attend la fin de la requête, puis supprime le pod", correct: false}
+      - {text: "Spring la rejoue sur une autre instance, une fois l'arrêt fini", correct: false}
+    answer: |-
+      `SIGKILL` arrive au bout du délai de grâce, quoi que fasse Spring. Les délais doivent s'emboîter : `preStop`
+      plus le délai de Spring, sous `terminationGracePeriodSeconds`.

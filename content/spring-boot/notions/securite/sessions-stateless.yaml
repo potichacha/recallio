@@ -1,0 +1,190 @@
+notion: sessions-stateless
+lesson: |-
+  Une fois l'utilisateur authentifié, il faut le **reconnaître à la requête suivante**. Deux modèles s'opposent.
+
+  **Avec session.** Le serveur garde l'état : l'utilisateur reçoit un cookie (`JSESSIONID`), et la session, en mémoire
+  du serveur, contient son `SecurityContext`. C'est le modèle des applications à formulaire de connexion.
+
+  **Sans état (stateless).** Chaque requête porte de quoi s'authentifier, un jeton dans l'en-tête `Authorization` ;
+  le serveur ne garde rien. C'est le modèle des API à JWT.
+
+  ```java
+  http.sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS));
+  ```
+
+  | Politique | Effet |
+  |---|---|
+  | `ALWAYS` | crée toujours une session |
+  | `IF_REQUIRED` (défaut) | en crée une quand c'est nécessaire, après une connexion par exemple |
+  | `NEVER` | n'en crée pas, mais utilise celle qui existe |
+  | `STATELESS` | n'en crée pas et n'en utilise pas pour garder l'authentification |
+
+  **Comparer.**
+
+  | | Session | Sans état |
+  |---|---|---|
+  | montée en charge | sessions à partager (Spring Session) ou affinité | n'importe quelle instance répond |
+  | révocation | immédiate : on invalide la session | difficile avant l'expiration du jeton |
+  | CSRF | à garder (cookie) | sans objet (en-tête) |
+
+  **Plusieurs instances.** Des sessions en mémoire obligent l'équilibreur de charge à renvoyer chaque utilisateur vers
+  la même instance (*sticky sessions*), et un redémarrage déconnecte tout le monde. **Spring Session** range les
+  sessions dans Redis ou une base, partagées par toutes les instances.
+
+  **Protéger la session.**
+
+  - **Fixation de session** : à la connexion, Spring Security **change l'identifiant de session**, pour qu'un
+    identifiant imposé par un attaquant avant la connexion ne serve à rien.
+  - **Sessions simultanées** : `session.maximumSessions(1)` limite un utilisateur à une session ouverte.
+  - **Le cookie** : `HttpOnly` (illisible par le JavaScript), `Secure` (HTTPS seulement), `SameSite` (pas envoyé depuis
+    un autre site). Les propriétés `server.servlet.session.cookie.http-only`, `.secure` et `.same-site` les règlent ;
+    `server.servlet.session.timeout` fixe la durée d'inactivité.
+
+  **En entretien** : « Une session garde l'état côté serveur, avec un cookie : révocation immédiate, mais il faut
+  partager les sessions entre instances, par Spring Session. Une API sans état reçoit un jeton à chaque requête, avec
+  `SessionCreationPolicy.STATELESS` : elle monte en charge sans rien partager, mais révoque mal. Je protège le cookie
+  de session par `HttpOnly`, `Secure` et `SameSite`. »
+cards:
+  - key: effet-de-stateless
+    format: course
+    question: "Que fait `SessionCreationPolicy.STATELESS` ?"
+    choices:
+      - {text: "Spring Security ne crée ni n'utilise de session pour garder l'authentification", correct: true}
+      - {text: "Tomcat refuse désormais toute requête qui porte un cookie de session", correct: false}
+      - {text: "La session est gardée dans une base plutôt qu'en mémoire", correct: false}
+      - {text: "La session expire automatiquement après chaque réponse", correct: false}
+    answer: "Chaque requête doit s'authentifier elle-même, par son jeton. Le reste de l'application peut encore créer une session, mais Spring Security ne s'en sert pas."
+  - key: fixation-de-session
+    format: course
+    question: "Que fait Spring Security contre la fixation de session, au moment de la connexion ?"
+    choices:
+      - {text: "Il change l'identifiant de session de l'utilisateur", correct: true}
+      - {text: "Il chiffre le cookie de session avec une clé secrète", correct: false}
+      - {text: "Il interdit plus d'une session par utilisateur", correct: false}
+      - {text: "Il supprime le cookie après chaque requête", correct: false}
+    answer: "Un attaquant qui aurait imposé un identifiant avant la connexion se retrouve avec une session vide : l'utilisateur authentifié en a reçu un nouveau."
+  - key: politique-par-defaut
+    format: course
+    question: "Quelle est la politique de création de session par défaut de Spring Security ?"
+    choices:
+      - {text: "`IF_REQUIRED`", correct: true}
+      - {text: "`ALWAYS`", correct: false}
+      - {text: "`NEVER`", correct: false}
+      - {text: "`STATELESS`", correct: false}
+    answer: "Une session n'est créée que si nécessaire, typiquement après une connexion par formulaire. Une API à jetons passe en `STATELESS`."
+  - key: role-de-spring-session
+    format: course
+    question: "À quoi sert Spring Session ?"
+    choices:
+      - {text: "À partager les sessions entre plusieurs instances, dans Redis ou une base", correct: true}
+      - {text: "À créer une session distincte par onglet du navigateur", correct: false}
+      - {text: "À remplacer les cookies de session par des jetons JWT", correct: false}
+      - {text: "À chiffrer le contenu de la session gardée en mémoire", correct: false}
+    answer: "Les sessions quittent la mémoire du serveur : n'importe quelle instance retrouve celle de l'utilisateur, et un redémarrage ne déconnecte personne."
+  - key: vf-affinite-de-session
+    format: true-false
+    question: "Avec des sessions en mémoire de chaque instance, sans Spring Session, l'équilibreur de charge doit renvoyer chaque utilisateur vers la même instance."
+    truth: true
+    answer: "Sinon, l'instance suivante ne connaît pas la session et l'utilisateur paraît déconnecté. C'est l'affinité de session (*sticky sessions*)."
+  - key: vf-httponly
+    format: true-false
+    question: "Un cookie `HttpOnly` reste lisible par le JavaScript de la page."
+    truth: false
+    answer: "`HttpOnly` interdit `document.cookie` sur ce cookie : un script injecté (XSS) ne peut pas voler la session. Le navigateur l'envoie quand même avec les requêtes."
+  - key: vf-une-seule-session
+    format: true-false
+    question: "`maximumSessions(1)` limite chaque utilisateur à une seule session ouverte à la fois."
+    truth: true
+    answer: "Une nouvelle connexion expire l'ancienne session (ou est refusée, avec `maxSessionsPreventsLogin(true)`)."
+  - key: vf-revocation-de-session
+    format: true-false
+    question: "Une session côté serveur se révoque plus simplement qu'un jeton sans état : il suffit de l'invalider."
+    truth: true
+    answer: "La session n'existe que sur le serveur : la supprimer coupe l'accès à la requête suivante. Un JWT, lui, reste valide jusqu'à son expiration."
+  - key: qcm-configurer-stateless
+    format: multiple-choice
+    question: "Quelle ligne rend la chaîne de sécurité sans état ?"
+    choices:
+      - {text: "`http.sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))`", correct: true}
+      - {text: "`http.sessionManagement(s -> s.invalidSessionUrl(\"/stateless\"))`", correct: false}
+      - {text: "`http.securityContext(c -> c.requireExplicitSave(false))`", correct: false}
+      - {text: "`http.csrf(csrf -> csrf.disable()).httpBasic(Customizer.withDefaults())`", correct: false}
+    answer: "La politique de création de session se règle dans `sessionManagement`. Désactiver CSRF va souvent avec, mais ne rend rien sans état."
+  - key: qcm-duree-d-inactivite
+    format: multiple-choice
+    question: "Quelle propriété fixe la durée d'inactivité d'une session ?"
+    choices:
+      - {text: "`server.servlet.session.timeout`", correct: true}
+      - {text: "`spring.security.session.timeout`", correct: false}
+      - {text: "`server.session.idle`", correct: false}
+      - {text: "`spring.session.expiry`", correct: false}
+    answer: "`server.servlet.session.timeout=30m` : au-delà de 30 minutes sans requête, la session expire."
+  - key: qcm-samesite-strict
+    format: multiple-choice
+    question: "Quelle propriété pose `SameSite=Strict` sur le cookie de session ?"
+    choices:
+      - {text: "`server.servlet.session.cookie.same-site=strict`", correct: true}
+      - {text: "`spring.security.cookie.same-site=strict`", correct: false}
+      - {text: "`server.cookie.samesite=strict`", correct: false}
+      - {text: "`spring.session.same-site=strict`", correct: false}
+    answer: "Les propriétés `server.servlet.session.cookie.*` règlent le cookie : `same-site`, `secure`, `http-only`, `name`."
+  - key: qcm-avantage-sans-etat
+    format: multiple-choice
+    question: "Quel avantage principal une API sans état a-t-elle sur une application à sessions ?"
+    choices:
+      - {text: "N'importe quelle instance sert n'importe quelle requête, sans rien partager", correct: true}
+      - {text: "Elle révoque l'accès d'un utilisateur plus vite qu'une session", correct: false}
+      - {text: "Elle n'a plus besoin d'authentifier chacune des requêtes reçues", correct: false}
+      - {text: "Elle peut se passer de HTTPS, puisque rien n'est gardé sur le serveur", correct: false}
+    answer: "Rien n'est gardé entre deux requêtes : on ajoute des instances sans Redis ni affinité. La révocation, en revanche, est plus difficile."
+  - key: situation-trois-instances
+    format: scenario
+    question: |-
+      Ton application à sessions passe de une à trois instances, et les utilisateurs sont déconnectés au hasard. Que
+      fais-tu ?
+    choices:
+      - {text: "Partager les sessions avec Spring Session (Redis), ou passer sans état", correct: true}
+      - {text: "Doubler la durée des sessions dans la configuration", correct: false}
+      - {text: "Désactiver la protection contre la fixation de session", correct: false}
+      - {text: "Demander aux utilisateurs de ne garder qu'un onglet ouvert", correct: false}
+    answer: |-
+      Chaque instance ne connaît que ses propres sessions : une requête qui tombe ailleurs est anonyme. Des sessions
+      partagées règlent le problème sans changer l'application ; l'affinité de session le masque.
+  - key: situation-jsessionid-inutile
+    format: scenario
+    question: |-
+      Une API n'est appelée que par une application mobile, avec un jeton. Le serveur crée pourtant un `JSESSIONID`
+      à chaque requête. Que changes-tu ?
+    choices:
+      - {text: "La politique de session, en `STATELESS`", correct: true}
+      - {text: "La durée des sessions, à une seconde", correct: false}
+      - {text: "Le nom du cookie, pour qu'il soit ignoré", correct: false}
+      - {text: "Rien : une session de plus ne coûte rien", correct: false}
+    answer: |-
+      Chaque session occupe de la mémoire, pour rien : le jeton suffit. `STATELESS` dit à Spring Security de ne pas
+      en créer pour l'authentification.
+  - key: situation-tout-deconnecter
+    format: scenario
+    question: |-
+      Un utilisateur signale un vol de compte et veut fermer toutes ses sessions ouvertes. Quelle architecture le
+      permet simplement ?
+    choices:
+      - {text: "Des sessions côté serveur, que l'on invalide toutes pour cet utilisateur", correct: true}
+      - {text: "Des JWT de 30 jours, rangés dans le navigateur", correct: false}
+      - {text: "Des jetons sans expiration, signés une seule fois", correct: false}
+      - {text: "Un cookie de session sans l'attribut `HttpOnly`", correct: false}
+    answer: |-
+      Le serveur connaît les sessions : il les supprime, et l'accès est coupé à la requête suivante. Avec des JWT, il
+      faudrait attendre leur expiration, ou tenir une liste de révocation.
+  - key: situation-cookie-sans-attributs
+    format: scenario
+    question: |-
+      L'audit signale que le cookie de session circule sans `Secure` ni `SameSite`. Que fais-tu ?
+    choices:
+      - {text: "Je les active par les propriétés `server.servlet.session.cookie.*`", correct: true}
+      - {text: "Je remplace le cookie par un paramètre d'URL", correct: false}
+      - {text: "Je raccourcis la session à une minute", correct: false}
+      - {text: "Je chiffre le contenu de la session en mémoire", correct: false}
+    answer: |-
+      `secure=true` réserve le cookie à HTTPS, `same-site=lax` (ou `strict`) l'empêche de partir depuis un autre site.
+      Un identifiant de session dans l'URL serait bien pire : il finit dans les journaux.

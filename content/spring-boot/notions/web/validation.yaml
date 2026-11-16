@@ -1,0 +1,279 @@
+notion: validation
+lesson: |-
+  Une API ne fait jamais confiance à ce qu'elle reçoit. **Bean Validation** (Jakarta Validation, implémentée par
+  Hibernate Validator) décrit les règles par des annotations, et Spring les vérifie avant d'appeler le contrôleur. Avec
+  Spring Boot, il faut le starter `spring-boot-starter-validation` : sans fournisseur, les annotations ne sont pas
+  vérifiées.
+
+  ```java
+  public record NouveauClient(
+          @NotBlank @Size(max = 100) String nom,
+          @NotBlank @Email String email,
+          @Min(18) int age,
+          @Valid @NotNull Adresse adresse) {}
+
+  @PostMapping("/api/clients")
+  @ResponseStatus(HttpStatus.CREATED)
+  public Client creer(@Valid @RequestBody NouveauClient client) {
+      return clients.creer(client);
+  }
+  ```
+
+  **`@Valid` déclenche la validation.** Sans lui, les contraintes du record ne sont que des décorations. Quand une règle
+  échoue, Spring lève `MethodArgumentNotValidException` et répond **400** : la méthode du contrôleur n'est pas appelée.
+
+  **Les contraintes courantes.**
+
+  | Contrainte | Refuse |
+  |---|---|
+  | `@NotNull` | `null` |
+  | `@NotEmpty` | `null` et vide (`""`, liste vide) |
+  | `@NotBlank` | `null`, `""` et les chaînes faites d'espaces |
+  | `@Size(min = 3, max = 20)` | une longueur (chaîne, collection) hors bornes |
+  | `@Min(18)`, `@Max`, `@Positive`, `@PositiveOrZero` | un nombre hors bornes |
+  | `@Email`, `@Pattern(regexp = "...")` | un format inattendu |
+  | `@Past`, `@Future` | une date du mauvais côté d'aujourd'hui |
+
+  **`null` est valide** pour toutes les contraintes sauf `@NotNull`, `@NotEmpty` et `@NotBlank` : `@Email` seul accepte
+  un email absent. Un champ obligatoire cumule les deux (`@NotBlank @Email`).
+
+  **La cascade.** `@Valid` sur le paramètre valide l'objet reçu, pas les objets qu'il contient. Pour descendre, on pose
+  `@Valid` sur le champ (`@Valid Adresse adresse`) ou sur les éléments d'une liste (`List<@Valid Ligne> lignes`).
+
+  **Le message.** Chaque contrainte a un message par défaut (« must not be blank », dans la langue du serveur), qu'on
+  remplace par `message` : `@NotBlank(message = "Le nom est obligatoire")`.
+
+  **Les pièges.**
+
+  - Une contrainte posée sur un type qu'elle ne sait pas vérifier (`@NotBlank` sur un `Integer`) fait échouer la
+    validation en 500 : « HV000030: No validator could be found for constraint ... ». Pour un nombre : `@NotNull`.
+  - Un paramètre `BindingResult` placé juste après le `@Valid` supprime l'exception : la méthode est appelée et doit lire
+    les erreurs elle-même. C'est utile pour un formulaire HTML, rarement pour une API.
+  - Valider dans l'API ne dispense pas la base de ses contraintes (`NOT NULL`, unicité) : la validation de l'API refuse
+    tôt avec un message clair, la base garantit la cohérence.
+
+  **En entretien** : « Je pose les contraintes Bean Validation sur le DTO, `@NotBlank`, `@Size`, `@Email`, et `@Valid`
+  sur le `@RequestBody`. Une violation lève `MethodArgumentNotValidException`, traduite en 400 avant l'appel du
+  contrôleur. Attention : `null` passe toutes les contraintes sauf les `@Not...`, et il faut `@Valid` pour valider les
+  objets imbriqués. »
+cards:
+  - key: notblank-ou-notnull
+    format: course
+    question: "Quelle contrainte refuse `null`, la chaîne vide et une chaîne faite d'espaces ?"
+    choices:
+      - {text: "`@NotBlank`", correct: true}
+      - {text: "`@NotNull`", correct: false}
+      - {text: "`@NotEmpty`", correct: false}
+      - {text: "`@Size(min = 0)`", correct: false}
+    answer: "`@NotNull` ne refuse que `null` ; `@NotEmpty` refuse aussi `\"\"`, mais accepte `\"   \"` ; `@NotBlank` refuse les trois. Elle ne s'applique qu'aux chaînes."
+  - key: declencher-la-validation
+    format: course
+    question: "Qu'est-ce qui déclenche la validation d'un `@RequestBody` dont le record porte des contraintes ?"
+    choices:
+      - {text: "L'annotation `@Valid` (ou `@Validated`) sur le paramètre", correct: true}
+      - {text: "La seule présence des contraintes sur le record", correct: false}
+      - {text: "L'annotation `@RestController` sur la classe", correct: false}
+      - {text: "Un appel à `validate()` dans le constructeur du record", correct: false}
+    answer: "Sans `@Valid`, personne ne vérifie les contraintes : l'objet invalide arrive dans la méthode. `@Validated` est la variante de Spring, qui accepte des groupes."
+  - key: exception-de-validation
+    format: course
+    question: "Quelle exception Spring lève-t-il quand un `@Valid @RequestBody` viole une contrainte ?"
+    choices:
+      - {text: "`MethodArgumentNotValidException`", correct: true}
+      - {text: "`ConstraintViolationException`", correct: false}
+      - {text: "`HttpMessageNotReadableException`", correct: false}
+      - {text: "`IllegalArgumentException`", correct: false}
+    answer: "Spring MVC la traduit en 400. `ConstraintViolationException` vient de la validation de méthodes par `@Validated` sur une classe ; `HttpMessageNotReadableException`, d'un JSON illisible."
+  - key: email-null
+    format: course
+    question: "Le champ `email` porte seulement `@Email`. Que donne la validation quand il vaut `null` ?"
+    choices:
+      - {text: "Il est valide : seules les contraintes `@Not...` refusent `null`", correct: true}
+      - {text: "Il est invalide : `null` n'est pas une adresse email", correct: false}
+      - {text: "Une `NullPointerException` dans le validateur", correct: false}
+      - {text: "Une erreur au démarrage de l'application", correct: false}
+    answer: "Par convention, une contrainte laisse passer `null` et laisse `@NotNull`, `@NotEmpty` ou `@NotBlank` décider. Un email obligatoire s'écrit `@NotBlank @Email`."
+  - key: vf-sans-starter
+    format: true-false
+    question: "Sans `spring-boot-starter-validation` ni autre fournisseur de Bean Validation, les annotations comme `@NotBlank` ne sont pas vérifiées."
+    truth: true
+    answer: "Les annotations sont dans l'API Jakarta Validation ; il faut une implémentation, Hibernate Validator, que le starter apporte. Sans elle, `@Valid` n'a rien pour valider."
+  - key: vf-methode-non-appelee
+    format: true-false
+    question: "Une violation de contrainte sur un `@Valid @RequestBody` répond 400 sans que la méthode du contrôleur soit appelée."
+    truth: true
+    answer: "La validation a lieu pendant la résolution des arguments, avant l'appel : le service ne voit jamais l'objet invalide."
+  - key: vf-pas-de-cascade
+    format: true-false
+    question: "`@Valid` sur un `@RequestBody` valide aussi chaque objet d'une liste qu'il contient, sans autre annotation."
+    truth: false
+    answer: "La validation ne descend que sur demande : `List<@Valid Ligne> lignes`, ou `@Valid` sur un champ objet. Sans elle, une ligne de quantité -1 passe."
+  - key: vf-bindingresult
+    format: true-false
+    question: "Un paramètre `BindingResult` placé juste après le `@Valid @RequestBody` empêche l'exception : la méthode est appelée et lit les erreurs."
+    truth: true
+    answer: "Spring range les erreurs dans le `BindingResult` au lieu de lever `MethodArgumentNotValidException`. La méthode doit alors tester `hasErrors()` elle-même."
+  - key: qcm-longueur-de-pseudo
+    format: multiple-choice
+    question: "Quelle contrainte impose à `pseudo` une longueur de 3 à 20 caractères ?"
+    choices:
+      - {text: "`@Size(min = 3, max = 20)`", correct: true}
+      - {text: "`@Min(3) @Max(20)`", correct: false}
+      - {text: "`@Range(min = 3, max = 20)`", correct: false}
+      - {text: "`@Length(3, 20)`", correct: false}
+    answer: "`@Size` mesure une longueur (chaîne, collection). `@Min` et `@Max` bornent une valeur numérique ; `@Range` aussi (Hibernate Validator)."
+  - key: qcm-notblank-sur-integer
+    format: multiple-choice
+    question: "Que se passe-t-il quand on valide un champ `Integer quantite` annoté `@NotBlank` ?"
+    choices:
+      - {text: "Une 500 : aucun validateur de `@NotBlank` pour un `Integer`", correct: true}
+      - {text: "La contrainte est ignorée, faute de chaîne à vérifier", correct: false}
+      - {text: "Elle refuse 0, comme une chaîne vide", correct: false}
+      - {text: "Elle refuse seulement `null`, comme `@NotNull`", correct: false}
+    answer: "Hibernate Validator lève `UnexpectedTypeException` (« HV000030: No validator could be found for constraint ... »), donc 500. Pour un nombre obligatoire : `@NotNull`."
+  - key: qcm-valider-les-lignes
+    format: multiple-choice
+    question: "Comment valides-tu chaque `Ligne` d'une `List<Ligne>` dans le corps d'une commande ?"
+    choices:
+      - {text: "`List<@Valid Ligne> lignes`", correct: true}
+      - {text: "`@NotEmpty List<Ligne> lignes`", correct: false}
+      - {text: "`@Size(min = 1) List<Ligne> lignes`", correct: false}
+      - {text: "`List<Ligne> lignes`, que `@Valid` sur le corps couvre déjà", correct: false}
+    answer: "`@Valid` sur l'élément fait valider chaque ligne. `@NotEmpty` et `@Size` ne regardent que la liste : sa présence et sa taille."
+  - key: qcm-message-personnalise
+    format: multiple-choice
+    question: "Comment remplaces-tu le message d'erreur par défaut d'une contrainte ?"
+    choices:
+      - {text: "`@NotBlank(message = \"Le nom est obligatoire\")`", correct: true}
+      - {text: "`@NotBlank(\"Le nom est obligatoire\")`", correct: false}
+      - {text: "`@NotBlank(error = \"Le nom est obligatoire\")`", correct: false}
+      - {text: "`@NotBlank @Message(\"Le nom est obligatoire\")`", correct: false}
+    answer: "Chaque contrainte a un attribut `message`. Il accepte aussi une clé entre accolades, cherchée dans `ValidationMessages.properties`."
+  - key: trous-valid
+    format: fill-in
+    question: |-
+      Complète pour que le client reçu soit validé avant l'appel de la méthode :
+      ```java
+      @PostMapping("/clients")
+      public Client creer(@___ @RequestBody NouveauClient client) {
+      ```
+    blanks:
+      - [Valid, Validated]
+    answer: "`@Valid` (ou `@Validated`) déclenche la validation ; une violation répond 400."
+  - key: trous-notblank
+    format: fill-in
+    question: |-
+      Complète pour refuser un nom absent, vide ou fait d'espaces :
+      ```java
+      public record NouveauClient(@___ String nom, @Email String email) {}
+      ```
+    blanks:
+      - [NotBlank]
+    answer: "`@NotBlank` refuse `null`, `\"\"` et `\"   \"`."
+  - key: trous-size
+    format: fill-in
+    question: |-
+      Complète pour limiter le texte à 280 caractères :
+      ```java
+      public record Message(@NotBlank @___(max = 280) String texte) {}
+      ```
+    blanks:
+      - [Size]
+    answer: "`@Size(max = 280)` borne la longueur ; elle accepte `null`, d'où le `@NotBlank`."
+  - key: trous-positive
+    format: fill-in
+    question: |-
+      Complète pour refuser une quantité nulle ou négative :
+      ```java
+      public record Ligne(String produit, @___ int quantite) {}
+      ```
+    blanks:
+      - [Positive, "Min(1)"]
+    answer: "`@Positive` exige une valeur strictement positive ; `@Min(1)` dit la même chose pour un entier."
+  - key: bug-valid-oublie
+    format: bug-fix
+    question: |-
+      L'API enregistre des clients au nom vide, malgré la contrainte. `POST /clients` avec `{"nom": ""}` répond 201.
+      Quelle correction est la bonne ?
+      ```java
+      public record NouveauClient(@NotBlank String nom) {}
+
+      @PostMapping("/clients")
+      @ResponseStatus(HttpStatus.CREATED)
+      public Client creer(@RequestBody NouveauClient client) {
+          return clients.creer(client);
+      }
+      ```
+    choices:
+      - {text: "Ajouter `@Valid` devant `@RequestBody`", correct: true}
+      - {text: "Remplacer `@NotBlank` par `@NotNull` sur `nom`", correct: false}
+      - {text: "Ajouter `@Validated` sur le record `NouveauClient`", correct: false}
+      - {text: "Ajouter `required = true` à `@RequestBody`", correct: false}
+    answer: |-
+      ```java
+      public Client creer(@Valid @RequestBody NouveauClient client) {
+      ```
+      Les contraintes ne s'appliquent que si quelqu'un les vérifie : `@Valid` sur le paramètre le demande à Spring.
+      `@NotNull` laisserait passer la chaîne vide.
+  - key: bug-notblank-sur-un-nombre
+    format: bug-fix
+    question: |-
+      Toute commande répond 500 : « HV000030: No validator could be found for constraint
+      'jakarta.validation.constraints.NotBlank' validating type 'java.lang.Integer'. ». Quelle correction est la
+      bonne ?
+      ```java
+      public record Commande(@NotBlank String produit, @NotBlank Integer quantite) {}
+      ```
+    choices:
+      - {text: "Remplacer `@NotBlank` par `@NotNull` sur `quantite`", correct: true}
+      - {text: "Remplacer `Integer` par `int` sur `quantite`", correct: false}
+      - {text: "Remplacer `@NotBlank` par `@NotEmpty` sur `quantite`", correct: false}
+      - {text: "Retirer `@NotBlank` du composant `produit`", correct: false}
+    answer: |-
+      ```java
+      public record Commande(@NotBlank String produit, @NotNull @Positive Integer quantite) {}
+      ```
+      `@NotBlank` ne sait vérifier que des chaînes. Un nombre obligatoire porte `@NotNull`, et ses bornes `@Positive`
+      ou `@Min`. `@NotEmpty` n'accepte pas non plus les nombres.
+  - key: bug-lignes-non-validees
+    format: bug-fix
+    question: |-
+      Une commande avec une ligne de quantité -1 est acceptée, alors que `Ligne` porte `@Positive`. Quelle correction
+      est la bonne ?
+      ```java
+      public record Ligne(String produit, @Positive int quantite) {}
+
+      public record Commande(@NotBlank String client, List<Ligne> lignes) {}
+
+      @PostMapping("/commandes")
+      public Commande passer(@Valid @RequestBody Commande commande) { ... }
+      ```
+    choices:
+      - {text: "Déclarer `List<@Valid Ligne> lignes` dans `Commande`", correct: true}
+      - {text: "Déclarer `@NotEmpty List<Ligne> lignes` dans `Commande`", correct: false}
+      - {text: "Ajouter un second `@Valid` devant le paramètre `commande`", correct: false}
+      - {text: "Remplacer `@Positive` par `@Min(0)` dans `Ligne`", correct: false}
+    answer: |-
+      ```java
+      public record Commande(@NotBlank String client, @NotEmpty List<@Valid Ligne> lignes) {}
+      ```
+      `@Valid` sur le paramètre valide la commande, pas ses lignes : il faut demander la cascade sur les éléments.
+      `@NotEmpty` ajoute utilement l'interdiction d'une liste vide, mais ne valide pas les lignes.
+  - key: bug-email-obligatoire
+    format: bug-fix
+    question: |-
+      L'email est obligatoire, mais une inscription sans email est acceptée. Quelle correction est la bonne ?
+      ```java
+      public record Inscription(@NotBlank String pseudo, @Email String email) {}
+      ```
+    choices:
+      - {text: "Ajouter `@NotBlank` à côté de `@Email`", correct: true}
+      - {text: "Écrire `@Email(required = true)` à la place", correct: false}
+      - {text: "Ajouter `@Valid` devant le composant `email`", correct: false}
+      - {text: "Remplacer `String` par `Optional<String>`", correct: false}
+    answer: |-
+      ```java
+      public record Inscription(@NotBlank String pseudo, @NotBlank @Email String email) {}
+      ```
+      `@Email` ne vérifie qu'un email présent : `null` lui convient. `@NotBlank` rend la présence obligatoire.
+      `@Email` n'a pas d'attribut `required`.

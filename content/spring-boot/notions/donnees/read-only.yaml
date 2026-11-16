@@ -1,0 +1,172 @@
+notion: read-only
+lesson: |-
+  `@Transactional(readOnly = true)` ouvre une transaction **déclarée en lecture seule**. C'est d'abord une
+  **indication** : chaque couche en tire ce qu'elle peut.
+
+  ```java
+  @Service
+  @Transactional(readOnly = true)          // le défaut de la classe : lecture
+  public class CatalogueService {
+
+      public List<ProduitDto> rechercher(String texte) { ... }   // lecture seule
+
+      @Transactional                       // redéfini pour l'écriture
+      public void renommer(long id, String nom) { ... }
+  }
+  ```
+
+  **Ce que ça change avec Hibernate.** Spring passe la session en mode de flush `MANUAL` et en lecture seule par
+  défaut :
+  - Hibernate **ne garde pas de copie** des entités chargées pour le dirty checking : moins de mémoire, moins de
+    calcul, sensible quand on charge beaucoup d'entités ;
+  - **rien n'est écrit au commit** : une entité modifiée, ou même un `save` d'une nouvelle entité, est perdu sans
+    erreur.
+
+  **Ce que ça change pour la base.** Spring appelle `Connection.setReadOnly(true)`. Le pilote et la base peuvent en
+  profiter : PostgreSQL ouvre une transaction `READ ONLY`, qui refuse toute écriture. Une configuration de routage
+  peut aussi envoyer ces transactions vers un **réplica** en lecture.
+
+  **Ce que ça ne garantit pas.** `readOnly` n'est pas un mécanisme de sécurité : selon la base et le pilote, une
+  requête d'écriture peut passer ou échouer. Il dit l'intention et active des optimisations.
+
+  **Spring Data l'utilise déjà.** `SimpleJpaRepository`, l'implémentation de `JpaRepository`, porte
+  `@Transactional(readOnly = true)` sur la classe, et `@Transactional` sur ses méthodes d'écriture (`save`,
+  `delete`...). Le même motif convient à un service surtout fait de lectures.
+
+  **Attention à la propagation.** Une méthode en lecture seule qui **rejoint** une transaction d'écriture ne la
+  change pas ; mais une méthode d'écriture appelée depuis une transaction en lecture seule la rejoint, et ses
+  écritures ne partent pas.
+
+  **En entretien** : « `readOnly = true` déclare une transaction de lecture. Avec Hibernate, Spring désactive le flush
+  et le dirty checking, ce qui économise mémoire et calcul ; la connexion est marquée en lecture seule, ce qui permet
+  à la base d'optimiser ou de router vers un réplica. Je le mets sur les méthodes de lecture des services, souvent par
+  défaut sur la classe, et je redéfinis `@Transactional` sur les écritures. »
+cards:
+  - key: effet-hibernate
+    format: course
+    question: "Que change `@Transactional(readOnly = true)` pour Hibernate ?"
+    choices:
+      - {text: "Pas de flush ni de dirty checking : les modifications ne partent pas", correct: true}
+      - {text: "Toutes les lectures passent par le cache de second niveau d'Hibernate", correct: false}
+      - {text: "Hibernate lève une exception dès qu'on appelle un setter sur une entité", correct: false}
+      - {text: "Les entités sont chargées en mode paresseux, même avec `FetchType.EAGER`", correct: false}
+    answer: "Spring passe la session en flush `MANUAL` et en lecture seule. Hibernate ne garde pas de copie des entités pour les comparer, et n'écrit rien au commit, sans prévenir."
+  - key: pourquoi-lecture
+    format: course
+    question: "Pourquoi annoter une méthode de lecture avec `@Transactional(readOnly = true)` plutôt que de ne rien mettre ?"
+    choices:
+      - {text: "Un seul contexte pour toutes les lectures, sans coût de dirty checking", correct: true}
+      - {text: "Sans transaction, Spring Data refuse d'exécuter une requête de lecture", correct: false}
+      - {text: "Elle met en cache le résultat de la méthode pour les appels suivants", correct: false}
+      - {text: "Elle force la base à servir la lecture depuis un index en mémoire", correct: false}
+    answer: "La transaction regroupe les lectures (chargement paresseux compris) dans un même contexte de persistance, et `readOnly` retire le coût du suivi des modifications. Elle dit aussi l'intention de la méthode."
+  - key: motif-classe
+    format: course
+    question: "Un service fait surtout des lectures. Quel motif d'annotations suit-il souvent, comme `SimpleJpaRepository` ?"
+    choices:
+      - {text: "`readOnly = true` sur la classe, `@Transactional` sur les écritures", correct: true}
+      - {text: "`@Transactional` sur la classe, `readOnly = true` sur les écritures", correct: false}
+      - {text: "`readOnly = true` sur la classe, et rien du tout sur les écritures", correct: false}
+      - {text: "Aucune annotation : Spring devine la lecture d'après le nom", correct: false}
+    answer: "L'annotation de méthode l'emporte sur celle de la classe. Les lectures héritent du `readOnly`, les écritures le redéfinissent ; sans cela, leurs modifications ne seraient pas écrites."
+  - key: pas-une-securite
+    format: course
+    question: "`readOnly = true` empêche-t-il à coup sûr toute écriture en base ?"
+    choices:
+      - {text: "Non : c'est une indication, dont l'effet dépend de la base et du pilote", correct: true}
+      - {text: "Oui : Spring analyse chaque requête et refuse les INSERT et UPDATE", correct: false}
+      - {text: "Oui : Hibernate lève une exception sur chaque appel à `save`", correct: false}
+      - {text: "Non : il n'a d'effet que sur les requêtes natives, jamais sur JPQL", correct: false}
+    answer: "Hibernate n'écrit pas les entités modifiées, et PostgreSQL refuse les écritures d'une transaction `READ ONLY`. Mais ce n'est pas un contrôle d'accès : d'autres bases ou pilotes ignorent l'indication."
+  - key: vf-modification-perdue
+    format: true-false
+    question: "Avec Hibernate, une entité chargée puis modifiée dans une méthode `@Transactional(readOnly = true)` n'est pas écrite en base au commit."
+    truth: true
+    answer: "Le flush est désactivé et la session ne suit pas les modifications : le changement est perdu, sans erreur."
+  - key: vf-simple-jpa-repository
+    format: true-false
+    question: "`SimpleJpaRepository` déclare `@Transactional(readOnly = true)` au niveau de sa classe."
+    truth: true
+    answer: "Ses lectures (`findById`, `findAll`...) en profitent ; ses écritures (`save`, `delete`...) portent leur propre `@Transactional`."
+  - key: vf-garantie-base
+    format: true-false
+    question: "`readOnly = true` garantit que toutes les bases de données refuseront une écriture faite dans la transaction."
+    truth: false
+    answer: "C'est une indication transmise au pilote par `Connection.setReadOnly(true)`. PostgreSQL l'applique ; d'autres bases peuvent l'ignorer."
+  - key: vf-ouvre-transaction
+    format: true-false
+    question: "`@Transactional(readOnly = true)` ouvre bel et bien une transaction."
+    truth: true
+    answer: "C'est une transaction, avec sa connexion et son contexte de persistance ; elle est seulement déclarée en lecture seule."
+  - key: qcm-flush-mode
+    format: multiple-choice
+    question: "Dans quel mode de flush Spring place-t-il la session Hibernate d'une transaction `readOnly = true` ?"
+    choices:
+      - {text: "`FlushMode.MANUAL`", correct: true}
+      - {text: "`FlushMode.AUTO`", correct: false}
+      - {text: "`FlushMode.COMMIT`", correct: false}
+      - {text: "`FlushMode.ALWAYS`", correct: false}
+    answer: "En `MANUAL`, Hibernate n'écrit que sur un `flush()` explicite. `AUTO`, le mode habituel, écrit avant les requêtes qui en dépendent et au commit."
+  - key: qcm-save-lecture-seule
+    format: multiple-choice
+    question: "Une méthode `@Transactional(readOnly = true)` appelle `produits.save(new Produit(\"stylo\"))`. Que se passe-t-il avec Hibernate ?"
+    choices:
+      - {text: "Rien n'est écrit, et aucune exception n'est levée", correct: true}
+      - {text: "Le produit est écrit : `save` ouvre sa propre transaction", correct: false}
+      - {text: "`save` lève une exception qui signale la lecture seule", correct: false}
+      - {text: "Le produit est écrit au prochain appel d'une autre méthode", correct: false}
+    answer: "`save` rejoint la transaction en lecture seule : l'entité est rendue persistante en mémoire, mais jamais envoyée à la base, puisque le flush est désactivé. C'est une erreur silencieuse."
+  - key: qcm-annotation-ecriture
+    format: multiple-choice
+    question: "La classe porte `@Transactional(readOnly = true)`. Quelle annotation mets-tu sur sa méthode `supprimer` ?"
+    choices:
+      - {text: "`@Transactional`", correct: true}
+      - {text: "`@Transactional(readOnly = true)`", correct: false}
+      - {text: "`@Modifying`", correct: false}
+      - {text: "Aucune : l'annotation de la classe suffit", correct: false}
+    answer: "`@Transactional` sur la méthode redéfinit celle de la classe, avec `readOnly = false`. `@Modifying` concerne les requêtes `@Query` d'écriture, dans un repository."
+  - key: qcm-gain
+    format: multiple-choice
+    question: "Quel gain `readOnly = true` apporte-t-il quand une méthode charge 50 000 entités pour un rapport ?"
+    choices:
+      - {text: "Hibernate ne garde pas de copie de chaque entité pour la comparer", correct: true}
+      - {text: "Hibernate charge les entités en un seul aller-retour, sans pagination", correct: false}
+      - {text: "La base renvoie les lignes compressées au lieu du format habituel", correct: false}
+      - {text: "Les entités sont chargées en parallèle, sur plusieurs connexions", correct: false}
+    answer: "Sans `readOnly`, chaque entité gérée a un instantané pour le dirty checking : la mémoire double presque, et le flush compare tout. Pour un gros rapport, une projection en DTO réduit encore la charge."
+  - key: situation-rapport-lent
+    format: scenario
+    question: "Le rapport mensuel charge 50 000 commandes et sature la mémoire ; il ne modifie rien. Que proposes-tu d'abord ?"
+    choices:
+      - {text: "`readOnly = true` et une projection limitée aux colonnes utiles", correct: true}
+      - {text: "Passer la méthode en `propagation = Propagation.REQUIRES_NEW`", correct: false}
+      - {text: "Charger toutes les relations en `FetchType.EAGER` d'un coup", correct: false}
+      - {text: "Retirer `@Transactional` pour que chaque lecture soit libérée", correct: false}
+    answer: "La lecture seule supprime les instantanés du dirty checking ; une projection (interface ou record) ne charge que les colonnes utiles, sans entités gérées. Le chargement immédiat de tout aggraverait le problème."
+  - key: situation-ecriture-perdue
+    format: scenario
+    question: "Une nouvelle méthode `archiver` d'un service ne fait rien : aucune erreur, aucune écriture. La classe porte `@Transactional(readOnly = true)`, la méthode n'a pas d'annotation. Que dis-tu ?"
+    choices:
+      - {text: "Elle hérite de la lecture seule : il faut l'annoter `@Transactional`", correct: true}
+      - {text: "Il faut appeler `save` sur chaque entité modifiée dans `archiver`", correct: false}
+      - {text: "Il faut annoter la méthode `@Modifying` pour autoriser l'écriture", correct: false}
+      - {text: "La base est en panne : une lecture seule lèverait une exception", correct: false}
+    answer: "L'annotation de la classe s'applique à la méthode : flush désactivé, rien n'est écrit. Même un `save` serait perdu. Une annotation `@Transactional` sur la méthode la repasse en écriture."
+  - key: situation-replica
+    format: scenario
+    question: "L'équipe ajoute un réplica PostgreSQL en lecture, et veut y envoyer les requêtes des pages de consultation. Sur quoi peut s'appuyer le routage ?"
+    choices:
+      - {text: "Sur le drapeau lecture seule des transactions `readOnly = true`", correct: true}
+      - {text: "Sur le nom des méthodes de repository qui commencent par `find`", correct: false}
+      - {text: "Sur le verbe HTTP : toutes les requêtes `GET` vont au réplica", correct: false}
+      - {text: "Sur la propagation `SUPPORTS`, réservée aux lectures du réplica", correct: false}
+    answer: "Une `DataSource` de routage (avec `AbstractRoutingDataSource`) consulte `TransactionSynchronizationManager.isCurrentTransactionReadOnly()` pour choisir la base. Les transactions en lecture seule partent vers le réplica."
+  - key: situation-entretien-readonly
+    format: scenario
+    question: "En entretien : « À quoi sert `readOnly = true` sur `@Transactional` ? » Quelle réponse donnes-tu ?"
+    choices:
+      - {text: "À déclarer une lecture : pas de flush ni de dirty checking, et une connexion marquée", correct: true}
+      - {text: "À empêcher toute écriture, comme un droit en lecture seule donné par la base", correct: false}
+      - {text: "À mettre en cache le résultat de la méthode, puisqu'il ne peut pas changer", correct: false}
+      - {text: "À éviter d'ouvrir une transaction pour les méthodes qui ne font que lire", correct: false}
+    answer: "C'est une optimisation et une déclaration d'intention : Hibernate économise le suivi des modifications, la base peut optimiser ou router vers un réplica. Ce n'est ni un contrôle d'accès, ni un cache, et la transaction existe bien."

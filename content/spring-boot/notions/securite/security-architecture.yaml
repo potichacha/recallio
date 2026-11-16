@@ -1,0 +1,235 @@
+notion: security-architecture
+lesson: |-
+  Dans une application de servlets, **Spring Security est une chaîne de filtres** placée devant le `DispatcherServlet`.
+  Chaque requête la traverse avant d'atteindre un contrôleur.
+
+  ```
+  requête → DelegatingFilterProxy → FilterChainProxy → SecurityFilterChain choisie → DispatcherServlet → contrôleur
+  ```
+
+  - **`DelegatingFilterProxy`** est le filtre de servlet enregistré dans le conteneur (Tomcat). Il ne fait rien
+    lui-même : il délègue à un bean Spring.
+  - **`FilterChainProxy`** (le bean `springSecurityFilterChain`) choisit **la première** `SecurityFilterChain` dont le
+    matcher accepte la requête, et en exécute les filtres dans l'ordre.
+  - Une **`SecurityFilterChain`** est une liste ordonnée de filtres, configurée par un bean.
+
+  **Quelques filtres, dans l'ordre :** `CsrfFilter` (jeton CSRF), `LogoutFilter`, les filtres d'authentification
+  (`UsernamePasswordAuthenticationFilter` pour un formulaire, `BasicAuthenticationFilter`,
+  `BearerTokenAuthenticationFilter` pour un JWT), `ExceptionTranslationFilter`, puis **`AuthorizationFilter`**, l'un
+  des derniers, qui décide si la requête passe.
+
+  **Le modèle d'authentification.**
+
+  ```
+  SecurityContextHolder → SecurityContext → Authentication (principal, autorités, authentifié ?)
+  ```
+
+  - `Authentication` porte le **principal** (l'utilisateur, souvent un `UserDetails`), ses **autorités**
+    (`GrantedAuthority` : `ROLE_ADMIN`, `SCOPE_lire`) et son état. Les identifiants (le mot de passe) sont effacés après
+    l'authentification.
+  - `SecurityContextHolder` range le contexte dans un **`ThreadLocal`** par défaut : il est lisible partout dans le
+    thread de la requête, et absent d'un autre thread (une tâche `@Async`).
+  - Dans un contrôleur, `@AuthenticationPrincipal` injecte le principal.
+
+  **Qui vérifie les identifiants ?** Un filtre d'authentification construit une demande et la confie à
+  l'**`AuthenticationManager`** (en pratique un `ProviderManager`), qui interroge ses **`AuthenticationProvider`**. Le
+  `DaoAuthenticationProvider` charge l'utilisateur par un `UserDetailsService` et compare le mot de passe avec un
+  `PasswordEncoder`.
+
+  **401 ou 403 ?** L'`ExceptionTranslationFilter` traduit les échecs :
+
+  | Exception | Situation | Réponse |
+  |---|---|---|
+  | `AuthenticationException` | pas authentifié, ou identifiants faux | l'`AuthenticationEntryPoint` : **401**, ou redirection vers le formulaire |
+  | `AccessDeniedException` | authentifié, mais sans le droit | l'`AccessDeniedHandler` : **403** |
+
+  **Sans configuration**, Spring Boot protège **tout** : formulaire de connexion et HTTP Basic, un utilisateur `user`
+  dont le mot de passe, généré, s'affiche au démarrage (« Using generated security password »), CSRF actif, en-têtes de
+  sécurité. Déclarer sa propre `SecurityFilterChain` remplace cette configuration.
+
+  **Déboguer.** Le journal `org.springframework.security` au niveau `TRACE` montre les filtres traversés et la raison
+  d'un refus.
+
+  **En entretien** : « Spring Security est une chaîne de filtres : `DelegatingFilterProxy` délègue au
+  `FilterChainProxy`, qui choisit une `SecurityFilterChain`. Les filtres d'authentification remplissent le
+  `SecurityContext`, dans un `ThreadLocal`, en passant par l'`AuthenticationManager` ; l'`AuthorizationFilter` décide ;
+  l'`ExceptionTranslationFilter` répond 401 à qui n'est pas authentifié, 403 à qui n'a pas le droit. »
+cards:
+  - key: insertion-dans-les-servlets
+    format: course
+    question: "Comment Spring Security s'insère-t-il dans une application de servlets ?"
+    choices:
+      - {text: "Par un filtre, `DelegatingFilterProxy`, qui délègue au bean `FilterChainProxy`", correct: true}
+      - {text: "Par un `HandlerInterceptor` enregistré avant chaque contrôleur", correct: false}
+      - {text: "Par un aspect qui entoure chaque méthode `@GetMapping`", correct: false}
+      - {text: "Par une servlet qui remplace le `DispatcherServlet`", correct: false}
+    answer: "Le conteneur ne connaît que des filtres de servlet ; `DelegatingFilterProxy` fait le pont vers les beans de Spring. La sécurité s'applique donc avant Spring MVC."
+  - key: choix-de-la-chaine
+    format: course
+    question: "Quand plusieurs `SecurityFilterChain` existent, laquelle traite une requête ?"
+    choices:
+      - {text: "La première, dans l'ordre, dont le matcher accepte la requête", correct: true}
+      - {text: "Toutes, l'une après l'autre, dans l'ordre de déclaration", correct: false}
+      - {text: "La plus récente, déclarée en dernier dans la configuration", correct: false}
+      - {text: "Celle dont le nom de bean vient en premier dans l'alphabet", correct: false}
+    answer: "`FilterChainProxy` parcourt les chaînes dans l'ordre (`@Order`) et s'arrête à la première qui correspond. Une seule chaîne traite une requête."
+  - key: configuration-par-defaut
+    format: course
+    question: "Que fait Spring Boot quand on ajoute Spring Security sans aucune configuration ?"
+    choices:
+      - {text: "Il protège tous les chemins, avec un utilisateur `user` au mot de passe généré", correct: true}
+      - {text: "Rien, tant qu'aucun bean `SecurityFilterChain` n'est déclaré", correct: false}
+      - {text: "Il ne protège que les chemins qui commencent par `/admin`", correct: false}
+      - {text: "Il refuse de démarrer sans un `UserDetailsService` déclaré", correct: false}
+    answer: "Le mot de passe s'affiche au démarrage (« Using generated security password »). Formulaire, HTTP Basic et CSRF sont actifs, jusqu'à ce qu'on déclare sa propre chaîne."
+  - key: filtre-de-traduction
+    format: course
+    question: "Quel filtre transforme une `AccessDeniedException` en réponse 403 ?"
+    choices:
+      - {text: "`ExceptionTranslationFilter`", correct: true}
+      - {text: "`AuthorizationFilter`", correct: false}
+      - {text: "`CsrfFilter`", correct: false}
+      - {text: "`SecurityContextHolderFilter`", correct: false}
+    answer: "`AuthorizationFilter` lève l'exception ; `ExceptionTranslationFilter`, placé avant lui, la rattrape et appelle l'`AccessDeniedHandler` (403) ou l'`AuthenticationEntryPoint` (401)."
+  - key: vf-threadlocal
+    format: true-false
+    question: "Par défaut, `SecurityContextHolder` range le contexte de sécurité dans un `ThreadLocal`."
+    truth: true
+    answer: "C'est la stratégie `MODE_THREADLOCAL` : le contexte suit la requête dans son thread. Une tâche lancée dans un autre thread ne le voit pas, sauf à le propager."
+  - key: vf-401-et-403-inverses
+    format: true-false
+    question: "Une requête anonyme vers une ressource protégée reçoit 403, et une requête authentifiée sans le droit voulu reçoit 401."
+    truth: false
+    answer: "C'est l'inverse : 401 quand l'utilisateur n'est pas authentifié (il doit s'identifier), 403 quand il l'est mais n'a pas le droit."
+  - key: vf-authorizationfilter-a-la-fin
+    format: true-false
+    question: "`AuthorizationFilter` est l'un des derniers filtres de la chaîne de Spring Security."
+    truth: true
+    answer: "Il doit passer après l'authentification, pour connaître l'utilisateur, et après `ExceptionTranslationFilter`, qui traduit ses refus."
+  - key: vf-dsl-par-lambdas
+    format: true-false
+    question: "Spring Security 7 se configure par des lambdas, comme `http.csrf(csrf -> csrf.disable())`, sans les chaînages `and()` d'autrefois."
+    truth: true
+    answer: "La configuration par lambdas est la forme courante depuis Spring Security 5.2 ; les méthodes sans lambda et `and()` ont été dépréciées en 6.1, puis retirées."
+  - key: qcm-contenu-d-authentication
+    format: multiple-choice
+    question: "Que contient un objet `Authentication` une fois l'utilisateur authentifié ?"
+    choices:
+      - {text: "Le principal, ses autorités et l'état « authentifié »", correct: true}
+      - {text: "Le mot de passe en clair et la session HTTP", correct: false}
+      - {text: "La liste des URL déjà visitées par l'utilisateur", correct: false}
+      - {text: "La configuration complète de la chaîne de filtres", correct: false}
+    answer: "Le principal dit qui ; les `GrantedAuthority` disent ce qu'il peut. Le mot de passe est effacé après l'authentification."
+  - key: qcm-verification-des-identifiants
+    format: multiple-choice
+    question: "Qui vérifie un nom d'utilisateur et un mot de passe dans l'architecture de Spring Security ?"
+    choices:
+      - {text: "Un `AuthenticationProvider`, appelé par l'`AuthenticationManager`", correct: true}
+      - {text: "Le `DelegatingFilterProxy`, enregistré dans Tomcat", correct: false}
+      - {text: "Le `SecurityContextHolder`, qui garde le contexte", correct: false}
+      - {text: "L'`AccessDeniedHandler`, qui répond 403", correct: false}
+    answer: "Le `ProviderManager` essaie ses fournisseurs ; le `DaoAuthenticationProvider` charge l'utilisateur par le `UserDetailsService` et compare le mot de passe avec le `PasswordEncoder`."
+  - key: qcm-utilisateur-courant
+    format: multiple-choice
+    question: "Comment lis-tu l'utilisateur courant dans une méthode de contrôleur ?"
+    choices:
+      - {text: "Avec un paramètre annoté `@AuthenticationPrincipal`", correct: true}
+      - {text: "Avec un paramètre annoté `@CurrentUser`, fourni par Spring", correct: false}
+      - {text: "Avec `HttpSession.getUser()`", correct: false}
+      - {text: "Avec `SecurityFilterChain.currentUser()`", correct: false}
+    answer: "`@AuthenticationPrincipal UserDetails utilisateur` (ou `Jwt jwt`) injecte le principal. Hors contrôleur : `SecurityContextHolder.getContext().getAuthentication()`."
+  - key: qcm-comprendre-un-refus
+    format: multiple-choice
+    question: "Comment vois-tu quels filtres de sécurité traitent une requête, et pourquoi elle est refusée ?"
+    choices:
+      - {text: "En passant le journal `org.springframework.security` au niveau `TRACE`", correct: true}
+      - {text: "En ajoutant `@CrossOrigin` sur le contrôleur concerné", correct: false}
+      - {text: "En désactivant CSRF le temps du diagnostic", correct: false}
+      - {text: "En lisant le corps de la réponse 403", correct: false}
+    answer: "Au niveau `TRACE`, Spring Security journalise la chaîne choisie, chaque filtre traversé et la décision d'autorisation. Le corps d'un 403 n'explique rien, volontairement."
+  - key: situation-tout-en-401
+    format: scenario
+    question: |-
+      Tu ajoutes Spring Security, et toutes tes routes répondent 401. Le journal affiche « Using generated security
+      password ». Que se passe-t-il ?
+    choices:
+      - {text: "La configuration par défaut protège tout : il faut déclarer ta `SecurityFilterChain`", correct: true}
+      - {text: "Le mot de passe de la base de données a changé au démarrage", correct: false}
+      - {text: "Spring Security bloque les requêtes tant que CSRF est actif", correct: false}
+      - {text: "Il manque l'annotation `@Secured` sur chaque contrôleur", correct: false}
+    answer: |-
+      Sans configuration, Spring Boot exige une authentification partout, avec un utilisateur `user` de test. Ta
+      propre `SecurityFilterChain` dit ce qui est public et ce qui ne l'est pas.
+  - key: situation-401-ou-403
+    format: scenario
+    question: |-
+      En entretien : « Quand Spring Security répond-il 401, et quand 403 ? » Que réponds-tu ?
+    choices:
+      - {text: "401 si l'utilisateur n'est pas authentifié, 403 s'il l'est sans avoir le droit", correct: true}
+      - {text: "401 pour une requête `GET`, 403 pour une requête `POST`", correct: false}
+      - {text: "401 pour une erreur de mot de passe, 403 pour un compte inconnu", correct: false}
+      - {text: "401 en développement, 403 en production", correct: false}
+    answer: |-
+      401 Unauthorized invite à s'authentifier (l'`AuthenticationEntryPoint`) ; 403 Forbidden refuse un utilisateur
+      connu (l'`AccessDeniedHandler`). Mauvais mot de passe et compte inconnu donnent tous deux 401.
+  - key: situation-contexte-perdu-en-async
+    format: scenario
+    question: |-
+      Dans une tâche `@Async`, `SecurityContextHolder.getContext().getAuthentication()` renvoie `null`. Pourquoi ?
+    choices:
+      - {text: "Le contexte est dans un `ThreadLocal` : il ne suit pas la tâche dans un autre thread", correct: true}
+      - {text: "Spring Security efface le contexte dès que la réponse est envoyée", correct: false}
+      - {text: "Une tâche `@Async` s'exécute avec l'utilisateur anonyme par sécurité", correct: false}
+      - {text: "L'annotation `@Async` désactive Spring Security dans la méthode", correct: false}
+    answer: |-
+      Le `ThreadLocal` appartient au thread de la requête. Pour propager le contexte, on enveloppe l'exécuteur dans un
+      `DelegatingSecurityContextAsyncTaskExecutor`, ou l'on passe à la tâche ce dont elle a besoin.
+  - key: situation-deux-publics
+    format: scenario
+    question: |-
+      L'API (`/api/**`, authentifiée par jeton) et le back-office (`/admin/**`, par formulaire) n'ont pas les mêmes
+      règles. Comment organises-tu la configuration ?
+    choices:
+      - {text: "Deux `SecurityFilterChain`, limitées par `securityMatcher` et ordonnées par `@Order`", correct: true}
+      - {text: "Une seule chaîne, avec un `if` sur le chemin dans chaque contrôleur", correct: false}
+      - {text: "Deux applications Spring Boot, déployées séparément", correct: false}
+      - {text: "Une chaîne pour l'API, et aucune protection pour le back-office", correct: false}
+    answer: |-
+      Chaque chaîne a son `securityMatcher` (`/api/**`, `/admin/**`) et ses propres règles : sans état et par JWT
+      d'un côté, session et formulaire de l'autre. `FilterChainProxy` choisit la première qui correspond.
+  - key: def-principal
+    format: definition
+    question: "Que désigne le « principal » dans Spring Security ?"
+    choices:
+      - {text: "L'identité de l'utilisateur authentifié, souvent un `UserDetails`", correct: true}
+      - {text: "Le filtre le plus important de la chaîne de sécurité", correct: false}
+      - {text: "Le rôle le plus élevé que possède l'utilisateur", correct: false}
+      - {text: "Le compte administrateur créé au démarrage", correct: false}
+    answer: "`authentication.getPrincipal()` renvoie un `UserDetails` après un formulaire, un `Jwt` avec un resource server, un `OidcUser` après une connexion OpenID Connect."
+  - key: def-grantedauthority
+    format: definition
+    question: "Qu'est-ce qu'une `GrantedAuthority` ?"
+    choices:
+      - {text: "Un droit accordé à l'utilisateur, comme `ROLE_ADMIN` ou `SCOPE_lire`", correct: true}
+      - {text: "Un certificat qui prouve l'identité du serveur", correct: false}
+      - {text: "Un jeton à usage unique envoyé par courriel", correct: false}
+      - {text: "La date jusqu'à laquelle la session reste valide", correct: false}
+    answer: "Une chaîne de caractères qui nomme un droit. Les rôles sont des autorités préfixées par `ROLE_` ; les règles d'autorisation les comparent."
+  - key: def-filterchainproxy
+    format: definition
+    question: "Qu'est-ce que le `FilterChainProxy` ?"
+    choices:
+      - {text: "Le bean qui choisit la `SecurityFilterChain` d'une requête et en exécute les filtres", correct: true}
+      - {text: "Un proxy HTTP qui relaie les requêtes vers un autre serveur", correct: false}
+      - {text: "Le filtre qui vérifie le jeton CSRF des formulaires", correct: false}
+      - {text: "Le proxy AOP qui vérifie les annotations `@PreAuthorize`", correct: false}
+    answer: "Enregistré sous le nom `springSecurityFilterChain`, il reçoit les requêtes du `DelegatingFilterProxy` et les fait passer dans la bonne chaîne."
+  - key: def-authenticationentrypoint
+    format: definition
+    question: "Qu'est-ce qu'un `AuthenticationEntryPoint` ?"
+    choices:
+      - {text: "Ce qui invite un client non authentifié à s'identifier : un 401, ou une redirection", correct: true}
+      - {text: "Le premier contrôleur appelé après une connexion réussie", correct: false}
+      - {text: "L'adresse du serveur d'autorisation OAuth2", correct: false}
+      - {text: "Le filtre qui lit le mot de passe dans le formulaire", correct: false}
+    answer: "Pour HTTP Basic, il répond 401 avec `WWW-Authenticate: Basic` ; pour un formulaire, il redirige vers `/login` ; pour un resource server, il répond 401 `Bearer`."

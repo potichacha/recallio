@@ -1,0 +1,330 @@
+notion: auto-invocation
+lesson: |-
+  Un proxy n'intercepte que les appels qui **passent par lui**, c'est-à-dire ceux qui viennent d'un autre objet. Un
+  appel d'une méthode du bean à une autre méthode du **même** bean (`this.methode()`, ou simplement `methode()`)
+  part de l'objet lui-même : il **contourne le proxy**, et l'annotation de la méthode appelée est **ignorée, sans
+  erreur ni avertissement**.
+
+  ```java
+  @Service
+  public class CommandeService {
+
+      @Transactional
+      public void commander(Commande commande) {
+          ...
+          journaliser(commande);          // appel par this : pas de proxy
+      }
+
+      @Transactional(propagation = Propagation.REQUIRES_NEW)
+      public void journaliser(Commande commande) { ... }   // REQUIRES_NEW ignoré
+  }
+  ```
+
+  Ici, `journaliser` s'exécute dans la transaction de `commander` : si la commande échoue, la ligne de journal est
+  annulée avec elle.
+
+  | Annotation | Effet attendu | Ce qui se passe par `this` |
+  |---|---|---|
+  | `@Transactional` | une transaction | aucune nouvelle transaction (ni `REQUIRES_NEW`, ni rien sans transaction appelante) |
+  | `@Async` | un autre thread | l'appel est **synchrone**, dans le thread de l'appelant |
+  | `@Cacheable` | lire le cache | le cache n'est **jamais** consulté |
+  | un aspect `@Around` | du code autour | rien |
+
+  **Les corrections.**
+
+  1. **Déplacer la méthode dans un autre bean** (la meilleure) : `JournalAudit.journaliser(...)`, injecté dans
+     `CommandeService`. L'appel traverse le proxy, et le découpage est souvent plus juste.
+  2. **Annoter la méthode d'entrée**, appelée de l'extérieur, quand c'est elle qui doit porter la transaction.
+  3. **Une transaction programmatique** : `TransactionTemplate.execute(...)`, qui ne dépend d'aucun proxy.
+  4. **Passer par son propre proxy** : s'injecter soi-même (`@Lazy`, ou `ObjectProvider<CommandeService>`), ou
+     `AopContext.currentProxy()`, qui exige `@EnableAspectJAutoProxy(exposeProxy = true)`. Ça marche, mais c'est un
+     contournement peu lisible.
+  5. **Le tissage AspectJ** (à la compilation ou au chargement), qui modifie le bytecode au lieu d'utiliser un proxy :
+     les appels par `this` sont alors interceptés. Plus lourd à mettre en place.
+
+  Le même piège touche une méthode `private` annotée : elle n'est appelable que par `this`, donc jamais par le proxy.
+
+  **En entretien** : « Les annotations de Spring passent par un proxy, qui ne voit que les appels venant d'un autre
+  bean. Un appel par `this` le contourne : `@Transactional`, `@Async` ou `@Cacheable` sont alors ignorés. Je déplace
+  la méthode dans un autre bean, ou j'utilise un `TransactionTemplate`. »
+cards:
+  - key: pourquoi-this-echappe
+    format: course
+    question: "Pourquoi un appel `this.journaliser()` depuis une autre méthode du même bean ignore-t-il `@Transactional` ?"
+    choices:
+      - {text: "L'appel part de l'objet lui-même, et non du proxy qui porte la transaction", correct: true}
+      - {text: "Spring désactive les annotations des méthodes appelées par d'autres méthodes", correct: false}
+      - {text: "Une transaction ne peut pas contenir un autre appel de méthode", correct: false}
+      - {text: "Le compilateur retire l'annotation des méthodes appelées en interne", correct: false}
+    answer: "Le proxy n'intercepte que ce qui passe par lui. `this` désigne le bean d'origine, derrière le proxy."
+  - key: correction-recommandee
+    format: course
+    question: "Quelle correction de l'auto-invocation est la plus propre ?"
+    choices:
+      - {text: "Déplacer la méthode annotée dans un autre bean, injecté", correct: true}
+      - {text: "Rendre la méthode annotée `static`", correct: false}
+      - {text: "Appeler la méthode annotée dans un nouveau thread", correct: false}
+      - {text: "Rendre la méthode annotée `private`", correct: false}
+    answer: "L'appel traverse alors le proxy de l'autre bean. Une méthode `static` ou `private` n'est jamais interceptée."
+  - key: async-par-this
+    format: course
+    question: "Une méthode appelle `this.envoyerMail()`, annotée `@Async`. Où s'exécute l'envoi ?"
+    choices:
+      - {text: "Dans le thread de l'appelant, de façon synchrone", correct: true}
+      - {text: "Dans un thread de l'exécuteur, comme prévu", correct: false}
+      - {text: "Nulle part : l'appel est purement ignoré", correct: false}
+      - {text: "Dans un nouveau thread virtuel, créé pour l'occasion", correct: false}
+    answer: "La méthode s'exécute bien, mais directement : l'appelant attend la fin de l'envoi."
+  - key: tissage-aspectj
+    format: course
+    question: "Quelle technique applique les aspects même aux appels par `this` ?"
+    choices:
+      - {text: "Le tissage AspectJ, à la compilation ou au chargement des classes", correct: true}
+      - {text: "Le proxy CGLIB, qui intercepte aussi les appels internes", correct: false}
+      - {text: "Le proxy du JDK, qui implémente toutes les méthodes de la classe", correct: false}
+      - {text: "La portée prototype, qui recrée le bean à chaque appel", correct: false}
+    answer: "AspectJ modifie le bytecode de la classe elle-même : il n'y a plus de proxy à contourner. C'est plus puissant, et plus lourd à configurer."
+  - key: vf-cacheable-par-this
+    format: true-false
+    question: "Un appel interne, par `this`, à une méthode `@Cacheable` lit la valeur dans le cache."
+    truth: false
+    answer: "Le cache est géré par le proxy : par `this`, la méthode s'exécute à chaque fois."
+  - key: vf-requires-new-par-this
+    format: true-false
+    question: "Une méthode `@Transactional(propagation = REQUIRES_NEW)` appelée par `this` depuis une méthode transactionnelle s'exécute dans la transaction de l'appelante."
+    truth: true
+    answer: "L'annotation est ignorée : aucune nouvelle transaction n'est ouverte. Un échec de l'appelante annule aussi le travail de la méthode appelée."
+  - key: vf-depuis-un-autre-bean
+    format: true-false
+    question: "Le même appel, fait depuis un autre bean qui reçoit le service par injection, passe par le proxy."
+    truth: true
+    answer: "L'autre bean a reçu le proxy : l'annotation s'applique."
+  - key: vf-currentproxy-sans-reglage
+    format: true-false
+    question: "`AopContext.currentProxy()` fonctionne sans aucune configuration."
+    truth: false
+    answer: "Il faut `@EnableAspectJAutoProxy(exposeProxy = true)`. Sinon : « Cannot find current proxy: Set 'exposeProxy' property on Advised to 'true' »."
+  - key: qcm-non-concernee
+    format: multiple-choice
+    question: "Laquelle de ces annotations n'est pas concernée par le piège de l'auto-invocation ?"
+    choices:
+      - {text: "`@PostConstruct`", correct: true}
+      - {text: "`@Transactional`", correct: false}
+      - {text: "`@Async`", correct: false}
+      - {text: "`@Cacheable`", correct: false}
+    answer: "`@PostConstruct` est appelée directement par le conteneur, sans proxy. Les trois autres ont besoin du proxy."
+  - key: qcm-exposer-le-proxy
+    format: multiple-choice
+    question: "Quel réglage permet d'appeler `AopContext.currentProxy()` ?"
+    choices:
+      - {text: "`@EnableAspectJAutoProxy(exposeProxy = true)`", correct: true}
+      - {text: "`@EnableTransactionManagement(proxy = true)`", correct: false}
+      - {text: "`@Scope(proxyMode = ScopedProxyMode.TARGET_CLASS)`", correct: false}
+      - {text: "`@EnableAsync(exposeProxy = true)`", correct: false}
+    answer: "Le proxy est alors rangé dans un `ThreadLocal` pendant l'appel. C'est un contournement : extraire la méthode dans un autre bean reste plus lisible."
+  - key: qcm-transaction-programmatique
+    format: multiple-choice
+    question: "Quelle alternative à `@Transactional` échappe au piège de l'auto-invocation, sans changer de bean ?"
+    choices:
+      - {text: "`TransactionTemplate`, qui ouvre la transaction dans le code", correct: true}
+      - {text: "`@Transactional` posée sur la classe entière", correct: false}
+      - {text: "`synchronized` sur la méthode appelée", correct: false}
+      - {text: "`@Lazy` sur la méthode appelée", correct: false}
+    answer: "`transactionTemplate.execute(statut -> ...)` démarre la transaction par du code, sans proxy. Annoter la classe ne change rien aux appels par `this`."
+  - key: qcm-symptome
+    format: multiple-choice
+    question: "Quel symptôme trahit souvent une auto-invocation ?"
+    choices:
+      - {text: "Une annotation sans effet, sans erreur ni avertissement", correct: true}
+      - {text: "Une `StackOverflowError` dès le démarrage", correct: false}
+      - {text: "Une `NoUniqueBeanDefinitionException`", correct: false}
+      - {text: "Un temps de compilation anormalement long", correct: false}
+    answer: "C'est ce qui rend le piège dangereux : tout semble marcher, jusqu'à la panne qui devait être annulée, ou l'appel qui devait être asynchrone."
+  - key: bug-journal-annule
+    format: bug-fix
+    question: |-
+      Quand une commande échoue, la ligne d'audit disparaît avec elle, alors qu'elle devait être gardée dans sa
+      propre transaction. Quelle correction est la bonne ?
+      ```java
+      @Service
+      public class CommandeService {
+          @Transactional
+          public void commander(Commande commande) {
+              journaliser(commande);
+              paiement.payer(commande);   // peut échouer
+          }
+
+          @Transactional(propagation = Propagation.REQUIRES_NEW)
+          public void journaliser(Commande commande) { ... }
+      }
+      ```
+    choices:
+      - {text: "Déplacer `journaliser` dans un bean `JournalAudit`, injecté", correct: true}
+      - {text: "Rendre la méthode `journaliser` `private`", correct: false}
+      - {text: "Retirer `@Transactional` de la méthode `commander`", correct: false}
+      - {text: "Remplacer `REQUIRES_NEW` par `REQUIRED`", correct: false}
+    answer: |-
+      ```java
+      @Service
+      public class JournalAudit {
+          @Transactional(propagation = Propagation.REQUIRES_NEW)
+          public void journaliser(Commande commande) { ... }
+      }
+      // dans CommandeService : journalAudit.journaliser(commande);
+      ```
+      Appelée par `this`, `journaliser` ignore `REQUIRES_NEW` et rejoint la transaction de `commander`. Depuis un
+      autre bean, l'appel traverse le proxy, qui ouvre une transaction séparée.
+  - key: bug-envoi-synchrone
+    format: bug-fix
+    question: |-
+      La réponse à une commande attend la fin de l'envoi du mail (trois secondes), malgré `@Async` et `@EnableAsync`.
+      Quelle correction est la bonne ?
+      ```java
+      @Service
+      public class CommandeService {
+          public Confirmation commander(Commande commande) {
+              ...
+              envoyerConfirmation(commande);
+              return confirmation;
+          }
+
+          @Async
+          public void envoyerConfirmation(Commande commande) { ... }
+      }
+      ```
+    choices:
+      - {text: "Déplacer `envoyerConfirmation` dans un bean `Courrier`, injecté", correct: true}
+      - {text: "Ajouter un second `@EnableAsync` sur la classe `CommandeService`", correct: false}
+      - {text: "Rendre la méthode `envoyerConfirmation` `static`", correct: false}
+      - {text: "Annoter aussi la méthode `commander` avec `@Async`", correct: false}
+    answer: |-
+      ```java
+      @Service
+      public class Courrier {
+          @Async
+          public void envoyerConfirmation(Commande commande) { ... }
+      }
+      ```
+      L'appel par `this` contourne le proxy : la méthode s'exécute dans le thread de la requête. Rendre `commander`
+      asynchrone ferait perdre la confirmation à renvoyer.
+  - key: bug-cache-ignore
+    format: bug-fix
+    question: |-
+      Le prix d'un produit est relu en base à chaque appel de `total`, malgré `@Cacheable` et `@EnableCaching`.
+      Quelle correction est la bonne ?
+      ```java
+      @Service
+      public class Tarifs {
+          public BigDecimal total(List<String> produits) {
+              return produits.stream().map(this::prix).reduce(BigDecimal.ZERO, BigDecimal::add);
+          }
+
+          @Cacheable("prix")
+          public BigDecimal prix(String produit) { return depot.prix(produit); }
+      }
+      ```
+    choices:
+      - {text: "Déplacer `prix` dans un bean `CatalogueDePrix`, injecté dans `Tarifs`", correct: true}
+      - {text: "Remplacer `this::prix` par une lambda `p -> prix(p)`", correct: false}
+      - {text: "Ajouter `@Cacheable(\"prix\")` sur la méthode `total`", correct: false}
+      - {text: "Déclarer la méthode `prix` `final`", correct: false}
+    answer: |-
+      ```java
+      @Service
+      public class CatalogueDePrix {
+          @Cacheable("prix")
+          public BigDecimal prix(String produit) { ... }
+      }
+      // dans Tarifs : produits.stream().map(catalogue::prix)...
+      ```
+      `this::prix` et `p -> prix(p)` appellent tous deux le bean d'origine. Le cache n'est consulté que par un appel
+      qui traverse le proxy, depuis un autre bean.
+  - key: bug-transaction-sur-methode-interne
+    format: bug-fix
+    question: |-
+      Un échec pendant `debiter` laisse le compte débité sans que la commande soit marquée payée : aucune transaction
+      n'est ouverte. `payer` est la méthode appelée par le contrôleur. Quelle correction est la bonne ?
+      ```java
+      @Service
+      public class Paiements {
+          public void payer(Commande commande) {
+              debiter(commande);
+          }
+
+          @Transactional
+          void debiter(Commande commande) {
+              comptes.debiter(commande.client(), commande.total());
+              commandes.marquerPayee(commande.id());
+          }
+      }
+      ```
+    choices:
+      - {text: "Mettre `@Transactional` sur `payer`, la méthode appelée de l'extérieur", correct: true}
+      - {text: "Rendre la méthode `debiter` `private`", correct: false}
+      - {text: "Remplacer `@Transactional` par `@Async` sur `debiter`", correct: false}
+      - {text: "Ajouter `@Lazy` sur la classe `Paiements`", correct: false}
+    answer: |-
+      ```java
+      @Transactional
+      public void payer(Commande commande) {
+          debiter(commande);
+      }
+      ```
+      Le contrôleur appelle `payer` à travers le proxy ; c'est donc elle qui doit porter la transaction. `debiter`,
+      appelée par `this`, n'est jamais interceptée.
+  - key: situation-s-injecter-soi-meme
+    format: scenario
+    question: |-
+      Un collègue corrige une auto-invocation en injectant le service dans lui-même (`@Lazy` sur un champ
+      `CommandeService self`), puis appelle `self.journaliser()`. Que lui dis-tu ?
+    choices:
+      - {text: "Ça marche, mais c'est un contournement : mieux vaut extraire la méthode", correct: true}
+      - {text: "Ça ne marche pas : un bean ne peut jamais s'injecter lui-même", correct: false}
+      - {text: "C'est la correction officielle recommandée par Spring", correct: false}
+      - {text: "Ça crée une nouvelle instance du service à chaque appel", correct: false}
+    answer: |-
+      `self` est le proxy : l'appel est intercepté. Mais la classe dépend d'elle-même, ce qui surprend le lecteur ;
+      une méthode qui a besoin de sa propre transaction mérite souvent son propre bean.
+  - key: situation-premiere-cause
+    format: scenario
+    question: |-
+      En entretien : « Mon `@Transactional` n'a aucun effet. Pourquoi ? » Quelle cause cites-tu en premier ?
+    choices:
+      - {text: "Un appel par `this` depuis le même bean, qui contourne le proxy", correct: true}
+      - {text: "Une base de données qui ne sait pas gérer les transactions", correct: false}
+      - {text: "Une méthode `public`, alors qu'elle devrait être `protected`", correct: false}
+      - {text: "Un bean de portée singleton, alors qu'il devrait être prototype", correct: false}
+    answer: |-
+      C'est la cause la plus fréquente. Viennent ensuite la méthode `private` ou `final`, l'objet créé avec `new`, et
+      l'exception vérifiée qui, par défaut, n'annule pas la transaction.
+  - key: situation-revue-async-privee
+    format: scenario
+    question: |-
+      En revue, tu vois `@Async` sur une méthode `private`, appelée par la méthode publique de la même classe. Que
+      signales-tu ?
+    choices:
+      - {text: "Méthode privée et appel par `this` : rien ne sera jamais asynchrone", correct: true}
+      - {text: "Rien : `@Async` fonctionne sur n'importe quelle méthode", correct: false}
+      - {text: "Il manque seulement `@EnableAsync` sur cette classe", correct: false}
+      - {text: "Il suffit de rendre la méthode `public`", correct: false}
+    answer: |-
+      Rendre la méthode publique ne suffit pas : l'appel par `this` contourne toujours le proxy. Il faut l'extraire
+      dans un autre bean, et l'appeler de là.
+  - key: situation-une-transaction-par-ligne
+    format: scenario
+    question: |-
+      Dans une même classe, une boucle traite 1 000 lignes, et chaque ligne doit être validée dans sa propre
+      transaction. Comment fais-tu sans créer de nouveau bean ?
+    choices:
+      - {text: "Un `TransactionTemplate`, qui exécute chaque ligne dans une transaction", correct: true}
+      - {text: "`@Transactional(REQUIRES_NEW)` sur une méthode privée appelée par la boucle", correct: false}
+      - {text: "`@Transactional` sur la méthode qui contient la boucle", correct: false}
+      - {text: "Un bloc `synchronized` autour du traitement de chaque ligne", correct: false}
+    answer: |-
+      ```java
+      for (Ligne ligne : lignes) {
+          transactions.executeWithoutResult(statut -> traiter(ligne));
+      }
+      ```
+      La transaction programmatique ne dépend d'aucun proxy. Une seule transaction autour de la boucle annulerait
+      tout au premier échec.

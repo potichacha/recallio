@@ -1,0 +1,198 @@
+notion: audit
+lesson: |-
+  « Quand cette ligne a-t-elle été créée ? Modifiée pour la dernière fois ? Par qui ? » Spring Data JPA remplit ces
+  champs tout seul, avec son **audit**.
+
+  **Trois pièces.**
+
+  ```java
+  @SpringBootApplication
+  @EnableJpaAuditing                                  // 1. activer l'audit
+  public class BoutiqueApplication {}
+
+  @Entity
+  @EntityListeners(AuditingEntityListener.class)      // 2. brancher l'écouteur sur l'entité
+  public class Produit {
+      @Id @GeneratedValue private Long id;
+
+      @CreatedDate                                    // 3. marquer les champs
+      @Column(updatable = false)
+      private Instant creeLe;
+
+      @LastModifiedDate
+      private Instant modifieLe;
+  }
+  ```
+
+  `@CreatedDate` et `@LastModifiedDate` viennent de `org.springframework.data.annotation`. Ils acceptent `Instant`,
+  `LocalDateTime`, `OffsetDateTime`... `@CreatedDate` est rempli à l'INSERT ; `@LastModifiedDate` à l'INSERT puis à
+  chaque UPDATE. `@Column(updatable = false)` protège la date de création d'une réécriture.
+
+  **Sans l'écouteur, rien ne se passe** : `@EnableJpaAuditing` seul ne suffit pas, chaque entité (ou une classe mère
+  `@MappedSuperclass` commune) porte `@EntityListeners(AuditingEntityListener.class)`. Les champs restent `null`, sans
+  erreur.
+
+  **Qui ?** `@CreatedBy` et `@LastModifiedBy` demandent à Spring l'utilisateur courant, par un bean
+  `AuditorAware<T>` que tu fournis (souvent à partir du contexte de Spring Security) :
+
+  ```java
+  @Bean
+  AuditorAware<String> auditeur() {
+      return () -> Optional.of(utilisateurCourant());
+  }
+  ```
+
+  **Une heure testable.** `@EnableJpaAuditing(dateTimeProviderRef = "horloge")` désigne un bean `DateTimeProvider` :
+  les tests y branchent une horloge fixe.
+
+  **Les alternatives.**
+  - Hibernate : `@CreationTimestamp` et `@UpdateTimestamp`, sans écouteur ni configuration, mais sans « qui ».
+  - JPA : des méthodes `@PrePersist` et `@PreUpdate` dans l'entité, pour un calcul sur mesure.
+  - L'**historique complet** (chaque version de chaque ligne) n'est pas de l'audit de Spring Data : c'est Hibernate
+    Envers (`@Audited`), qui écrit des tables de révisions.
+
+  **En entretien** : « L'audit de Spring Data remplit `@CreatedDate`, `@LastModifiedDate`, et avec un
+  `AuditorAware`, `@CreatedBy` et `@LastModifiedBy`. Il faut `@EnableJpaAuditing` et l'écouteur
+  `AuditingEntityListener` sur l'entité, souvent via une classe mère commune. Pour l'historique de chaque
+  modification, c'est un autre outil : Hibernate Envers. »
+cards:
+  - key: trois-pieces
+    format: course
+    question: "Que faut-il pour que Spring Data remplisse un champ `@CreatedDate` ?"
+    choices:
+      - {text: "`@EnableJpaAuditing`, l'écouteur `AuditingEntityListener` sur l'entité, et l'annotation du champ", correct: true}
+      - {text: "L'annotation du champ seule : Spring Data détecte `@CreatedDate` sur toute entité", correct: false}
+      - {text: "Un bean `AuditorAware`, qui fournit la date courante à chaque enregistrement", correct: false}
+      - {text: "Une colonne `default now()` en base, que `@CreatedDate` se contente de relire", correct: false}
+    answer: "L'audit s'active pour l'application, s'attache à chaque entité par l'écouteur, et cible des champs annotés. Il manque une pièce : le champ reste `null`."
+  - key: auditor-aware
+    format: course
+    question: "À quoi sert un bean `AuditorAware<T>` ?"
+    choices:
+      - {text: "À fournir l'utilisateur courant pour `@CreatedBy` et `@LastModifiedBy`", correct: true}
+      - {text: "À fournir l'heure courante pour `@CreatedDate` et `@LastModifiedDate`", correct: false}
+      - {text: "À écrire l'historique de chaque modification dans une table à part", correct: false}
+      - {text: "À vérifier qu'un utilisateur a le droit de modifier une entité", correct: false}
+    answer: "Spring Data ne sait pas qui est connecté : `AuditorAware` le lui dit, souvent depuis le contexte de Spring Security. L'heure vient, elle, d'un `DateTimeProvider`."
+  - key: envers
+    format: course
+    question: "On te demande de conserver chaque version successive d'une fiche produit, avec qui l'a modifiée et quand. Quel outil répond à ce besoin ?"
+    choices:
+      - {text: "Hibernate Envers, avec `@Audited` et ses tables de révisions", correct: true}
+      - {text: "`@LastModifiedDate` et `@LastModifiedBy` de Spring Data", correct: false}
+      - {text: "`@Version`, qui garde un numéro pour chaque modification", correct: false}
+      - {text: "`@UpdateTimestamp` d'Hibernate sur un champ de l'entité", correct: false}
+    answer: "L'audit de Spring Data ne garde que la dernière modification. Envers écrit une copie de chaque version dans une table de révisions. `@Version` sert au verrouillage optimiste, pas à l'historique."
+  - key: last-modified-creation
+    format: course
+    question: "Que vaut le champ `@LastModifiedDate` juste après l'INSERT d'une nouvelle entité ?"
+    choices:
+      - {text: "L'heure de la création, comme `@CreatedDate`", correct: true}
+      - {text: "`null`, jusqu'à la première modification", correct: false}
+      - {text: "L'heure du dernier démarrage de l'application", correct: false}
+      - {text: "La date du 1er janvier 1970, valeur par défaut", correct: false}
+    answer: "Spring Data remplit les deux champs à la création. Ensuite, seul `@LastModifiedDate` change à chaque UPDATE."
+  - key: vf-sans-ecouteur
+    format: true-false
+    question: "Avec `@EnableJpaAuditing` mais sans `@EntityListeners(AuditingEntityListener.class)` sur l'entité, son champ `@CreatedDate` reste `null`."
+    truth: true
+    answer: "L'écouteur fait le travail : sans lui, personne ne remplit le champ, et aucune erreur ne le signale."
+  - key: vf-paquet
+    format: true-false
+    question: "`@CreatedDate` vient du paquet `org.springframework.data.annotation`."
+    truth: true
+    answer: "Comme `@LastModifiedDate`, `@CreatedBy` et `@LastModifiedBy`. Les annotations d'Hibernate équivalentes sont `@CreationTimestamp` et `@UpdateTimestamp`."
+  - key: vf-historique
+    format: true-false
+    question: "L'audit de Spring Data garde l'historique de toutes les modifications d'une entité."
+    truth: false
+    answer: "Il ne garde que la création et la dernière modification, dans les colonnes de l'entité. L'historique complet demande Hibernate Envers ou une table d'événements."
+  - key: vf-classe-mere
+    format: true-false
+    question: "Les champs d'audit peuvent être déclarés une fois dans une classe `@MappedSuperclass` dont héritent les entités."
+    truth: true
+    answer: "La classe mère porte l'écouteur et les champs ; chaque entité qui en hérite est auditée, sans répétition."
+  - key: qcm-activer
+    format: multiple-choice
+    question: "Quelle annotation active l'audit de Spring Data JPA dans l'application ?"
+    choices:
+      - {text: "`@EnableJpaAuditing`", correct: true}
+      - {text: "`@EnableAuditing`", correct: false}
+      - {text: "`@EnableJpaRepositories`", correct: false}
+      - {text: "`@EnableTransactionManagement`", correct: false}
+    answer: "On la pose sur la classe `@SpringBootApplication` ou sur une classe `@Configuration`. Elle ne suffit pas seule : les entités ont besoin de l'écouteur."
+  - key: qcm-hibernate
+    format: multiple-choice
+    question: "Quelle annotation d'Hibernate remplit la date de création sans configuration de Spring Data ?"
+    choices:
+      - {text: "`@CreationTimestamp`", correct: true}
+      - {text: "`@CreatedDate`", correct: false}
+      - {text: "`@PrePersist`", correct: false}
+      - {text: "`@Temporal`", correct: false}
+    answer: "`@CreationTimestamp` (et `@UpdateTimestamp`) est géré par Hibernate lui-même. `@CreatedDate` est celle de Spring Data ; `@PrePersist` marque une méthode de rappel JPA."
+  - key: qcm-horloge
+    format: multiple-choice
+    question: "Comment rends-tu la date d'audit maîtrisable dans les tests ?"
+    choices:
+      - {text: "`@EnableJpaAuditing(dateTimeProviderRef = \"horloge\")` et un bean `DateTimeProvider`", correct: true}
+      - {text: "Un bean `AuditorAware<Instant>` qui renvoie une date fixe à chaque appel", correct: false}
+      - {text: "Une propriété `spring.jpa.auditing.date=2026-01-01` dans le profil de test", correct: false}
+      - {text: "`@CreatedDate(fixed = true)` sur le champ, dans la classe de test", correct: false}
+    answer: "Le `DateTimeProvider` fournit l'heure ; en test, il s'appuie sur une `Clock` fixe. `AuditorAware` fournit l'auteur, pas la date."
+  - key: qcm-a-quoi-ca-sert
+    format: multiple-choice
+    question: "Quelle question l'audit de Spring Data permet-il de résoudre ?"
+    choices:
+      - {text: "Qui a modifié ce produit en dernier, et quand ?", correct: true}
+      - {text: "Quelles valeurs ce produit avait-il il y a un mois ?", correct: false}
+      - {text: "Qui a lu ce produit dans les dernières 24 heures ?", correct: false}
+      - {text: "Combien de transactions ont échoué sur ce produit ?", correct: false}
+    answer: "Il garde la création et la dernière modification. Les anciennes valeurs demandent un historique (Envers) ; les lectures, des journaux d'accès."
+  - key: trous-ecouteur
+    format: fill-in
+    question: |-
+      Complète pour brancher l'audit sur l'entité :
+      ```java
+      @Entity
+      @EntityListeners(___.class)
+      public class Produit { ... }
+      ```
+    blanks:
+      - [AuditingEntityListener]
+    answer: "`AuditingEntityListener` remplit les champs d'audit avant l'INSERT et l'UPDATE."
+  - key: trous-created-date
+    format: fill-in
+    question: |-
+      Complète pour que Spring Data remplisse la date de création :
+      ```java
+      @___
+      @Column(updatable = false)
+      private Instant creeLe;
+      ```
+    blanks:
+      - [CreatedDate]
+    answer: "`@CreatedDate` est rempli une fois, à l'INSERT."
+  - key: trous-enable
+    format: fill-in
+    question: |-
+      Complète pour activer l'audit :
+      ```java
+      @SpringBootApplication
+      @Enable___
+      public class BoutiqueApplication {}
+      ```
+    blanks:
+      - [JpaAuditing]
+    answer: "`@EnableJpaAuditing` active l'audit de Spring Data JPA."
+  - key: trous-updatable
+    format: fill-in
+    question: |-
+      Complète pour qu'un UPDATE ne réécrive jamais la date de création :
+      ```java
+      @CreatedDate
+      @Column(___ = false)
+      private Instant creeLe;
+      ```
+    blanks:
+      - [updatable]
+    answer: "Avec `updatable = false`, Hibernate n'inclut pas la colonne dans ses UPDATE : même une entité fusionnée avec un `creeLe` vide ne l'efface pas."

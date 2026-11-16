@@ -1,0 +1,409 @@
+notion: pieges-classiques
+lesson: |-
+  Quatre pièges reviennent dans presque tous les projets Spring, et dans presque tous les entretiens. Ils ont un
+  point commun : le code **compile**, l'application **démarre**, et le défaut n'apparaît qu'à l'exécution, parfois
+  seulement en production.
+
+  **1. Le proxy contourné.** `@Transactional`, `@Async`, `@Cacheable` ou `@Retryable` ne modifient pas la méthode :
+  Spring place un **proxy** devant le bean, et c'est lui qui ouvre la transaction ou lance le thread. Tout appel qui
+  ne traverse pas le proxy perd l'annotation :
+
+  ```java
+  @Service
+  public class ImportService {
+      public void importer(List<String> noms) {
+          enregistrer(noms);              // this.enregistrer() : le proxy n'est pas traversé
+      }
+
+      @Transactional
+      public void enregistrer(List<String> noms) { ... }
+  }
+  ```
+
+  Mêmes effets avec une méthode `private` (le proxy ne peut pas l'intercepter) et avec un objet créé par `new` (ce
+  n'est pas un bean : ni injection, ni proxy). Remèdes : annoter la méthode **appelée de l'extérieur**, déplacer la
+  méthode annotée dans **un autre bean**, ou ouvrir la transaction à la main avec `TransactionTemplate`.
+
+  **2. La transaction perdue.** Par défaut, une transaction n'est annulée que par une exception **non vérifiée**
+  (`RuntimeException`, `Error`). Une exception vérifiée la laisse **valider** :
+
+  ```java
+  @Transactional
+  public void virer(...) throws SoldeInsuffisantException {   // extends Exception
+      mouvements.save(debit);
+      throw new SoldeInsuffisantException();   // le débit est validé en base
+  }
+  ```
+
+  Remèdes : `@Transactional(rollbackFor = SoldeInsuffisantException.class)`, ou une exception qui hérite de
+  `RuntimeException`. Autre variante : attraper l'exception dans la méthode sans la relancer, et le proxy, qui voit
+  un retour normal, valide.
+
+  **3. Le chargement paresseux hors session.** Une association `@OneToMany` est paresseuse : elle se charge au
+  premier accès, **si la session Hibernate est encore ouverte**. Lue après la transaction, elle lève (Hibernate 7) :
+
+  ```
+  org.hibernate.LazyInitializationException: Cannot lazily initialize collection of role
+  'boutique.Commande.lignes' with key '1' (no session)
+  ```
+
+  Spring Boot laisse `spring.jpa.open-in-view` à `true` par défaut : la session reste ouverte pendant toute la requête
+  web, ce qui **masque** l'erreur et déplace des requêtes SQL (souvent un N+1) dans la sérialisation. Le bon remède :
+  charger ce qu'il faut **dans le service**, dans la transaction (`JOIN FETCH`, `@EntityGraph`), et renvoyer un DTO ;
+  puis passer `open-in-view` à `false`.
+
+  **4. Le bean introuvable.** Au démarrage :
+
+  ```
+  Parameter 0 of constructor in boutique.app.CommandeService required a bean of type
+  'boutique.paiement.PaiementClient' that could not be found.
+  ```
+
+  Les causes, par fréquence : la classe est **hors du package** de la classe `@SpringBootApplication` (le scan part de
+  ce package et descend dans ses sous-packages, jamais à côté) ; elle n'a pas d'annotation (`@Component`,
+  `@Service`...) ; elle dépend d'une condition d'auto-configuration non remplie. L'inverse existe :
+  `NoUniqueBeanDefinitionException` (« expected single matching bean but found 2 »), réglé par `@Primary` ou
+  `@Qualifier`.
+
+  | Piège | Symptôme | Remède |
+  |---|---|---|
+  | appel par `this` | pas de transaction, pas d'`@Async` | passer par un autre bean |
+  | exception vérifiée | les écritures restent en base | `rollbackFor`, ou exception non vérifiée |
+  | association paresseuse | `LazyInitializationException` | charger dans le service, renvoyer un DTO |
+  | package hors du scan | « could not be found » au démarrage | ranger la classe sous celle de `@SpringBootApplication` |
+
+  **En entretien** : « Les annotations de Spring passent par un proxy : un appel par `this`, une méthode privée ou un
+  `new` y échappent. Une exception vérifiée n'annule pas une transaction, sauf `rollbackFor`. Et une association
+  paresseuse se charge dans le service, pas dans le contrôleur : je désactive `open-in-view`. »
+cards:
+  - key: appel-interne-transaction
+    format: course
+    question: "Depuis une méthode sans annotation, un service appelle `this.enregistrer()`, une méthode `@Transactional` de la même classe. Que devient la transaction ?"
+    choices:
+      - {text: "Aucune ne s'ouvre : l'appel ne traverse pas le proxy", correct: true}
+      - {text: "Elle s'ouvre, car l'annotation est relue à chaque appel", correct: false}
+      - {text: "Elle s'ouvre, mais seulement en lecture seule", correct: false}
+      - {text: "Spring lève une exception : l'appel interne est interdit", correct: false}
+    answer: "Le proxy n'intercepte que les appels venus de l'extérieur du bean. `this` désigne l'objet réel : l'annotation est ignorée pour cet appel, sans erreur ni avertissement."
+  - key: piege-exception-verifiee
+    format: course
+    question: "Quel piège cache une méthode `@Transactional` qui lève une exception vérifiée ?"
+    choices:
+      - {text: "La transaction est validée : seules les exceptions non vérifiées l'annulent", correct: true}
+      - {text: "La transaction reste ouverte jusqu'au prochain appel de la même méthode", correct: false}
+      - {text: "Le proxy avale l'exception, et l'appelant ne la voit jamais remonter", correct: false}
+      - {text: "La méthode est rejouée trois fois avant que la transaction soit annulée", correct: false}
+    answer: "C'est la règle héritée des EJB : une exception vérifiée est vue comme un résultat métier prévu. L'exception remonte bien, mais les écritures sont validées. `rollbackFor` change la règle."
+  - key: origine-lazy
+    format: course
+    question: "D'où vient une `LazyInitializationException` ?"
+    choices:
+      - {text: "D'une association paresseuse lue après la fermeture de la session Hibernate", correct: true}
+      - {text: "D'une entité sans constructeur public, qu'Hibernate ne sait pas instancier", correct: false}
+      - {text: "D'une requête trop lente, interrompue par le délai de la transaction", correct: false}
+      - {text: "D'un bean `@Lazy` appelé avant la fin du démarrage de l'application", correct: false}
+    answer: "La collection n'est qu'un proxy tant qu'on ne l'a pas lue. Pour la charger, Hibernate a besoin de sa session ; une fois la transaction terminée, il n'en a plus."
+  - key: service-introuvable
+    format: course
+    question: "Spring Boot ne trouve pas un `@Service` pourtant bien annoté. Quelle est la cause la plus fréquente ?"
+    choices:
+      - {text: "Sa classe est hors du package de `@SpringBootApplication` et de ses sous-packages", correct: true}
+      - {text: "Son constructeur n'est pas annoté `@Autowired`, et Spring l'ignore donc", correct: false}
+      - {text: "Sa classe n'implémente aucune interface, et Spring ne sait pas l'injecter", correct: false}
+      - {text: "Sa classe est `public`, alors qu'un bean doit être de visibilité package", correct: false}
+    answer: "Le scan part du package de la classe `@SpringBootApplication` et descend. Un package voisin (`boutique.paiement` à côté de `boutique.app`) n'est jamais parcouru."
+  - key: vf-methode-privee
+    format: true-false
+    question: "Une méthode `private` annotée `@Transactional` ouvre une transaction quand on l'appelle."
+    truth: false
+    answer: "Le proxy ne peut pas intercepter une méthode privée : l'annotation est ignorée, sans erreur. Il faut une méthode appelée de l'extérieur du bean."
+  - key: vf-open-in-view-defaut
+    format: true-false
+    question: "Sans configuration, Spring Boot garde la session JPA ouverte jusqu'à la fin de chaque requête web (`spring.jpa.open-in-view`)."
+    truth: true
+    answer: "La propriété vaut `true` par défaut, et Spring Boot l'annonce par un avertissement au démarrage. C'est commode, mais cela masque les `LazyInitializationException` et déplace des requêtes SQL dans la vue."
+  - key: vf-new-sans-proxy
+    format: true-false
+    question: "Un service créé avec `new` dans un autre bean n'a ni ses dépendances injectées ni ses proxies."
+    truth: true
+    answer: "Seul le conteneur injecte et enveloppe les beans qu'il crée. L'objet obtenu par `new` est nu : ses champs `@Autowired` restent nuls, et ses `@Transactional` n'ont aucun effet."
+  - key: vf-no-unique-bean
+    format: true-false
+    question: "`NoUniqueBeanDefinitionException` signale que Spring a trouvé plusieurs beans pour un point d'injection qui n'en attend qu'un."
+    truth: true
+    answer: "Son message dit « expected single matching bean but found 2 », suivi des noms des beans. `@Primary` désigne le bean par défaut, `@Qualifier` choisit à l'endroit de l'injection."
+  - key: qcm-remede-appel-interne
+    format: multiple-choice
+    question: "Quel remède corrige un appel interne qui contourne `@Transactional` ?"
+    choices:
+      - {text: "Déplacer la méthode annotée dans un autre bean, appelé par son proxy", correct: true}
+      - {text: "Rendre la méthode annotée `static`, pour que le proxy la voie", correct: false}
+      - {text: "Ajouter `@Lazy` sur la classe, pour retarder la création du proxy", correct: false}
+      - {text: "Écrire `enregistrer()` à la place de `this.enregistrer()`", correct: false}
+    answer: "Sans `this`, l'appel est exactement le même : il vise toujours l'objet réel. Un autre bean reçoit le proxy par injection, et son appel le traverse."
+  - key: qcm-remede-lazy
+    format: multiple-choice
+    question: "Quelle solution règle durablement une `LazyInitializationException` levée dans un contrôleur ?"
+    choices:
+      - {text: "Charger l'association dans le service (`JOIN FETCH`, `@EntityGraph`), puis renvoyer un DTO", correct: true}
+      - {text: "Passer toutes les associations en `FetchType.EAGER`, sur toutes les entités du modèle", correct: false}
+      - {text: "Activer `spring.jpa.open-in-view` et laisser la vue charger tout ce qu'elle lit", correct: false}
+      - {text: "Activer `hibernate.enable_lazy_load_no_trans`, qui ouvre une session à chaque accès", correct: false}
+    answer: "Le service sait ce que le cas d'usage demande, et le charge en une requête. `EAGER` charge tout partout ; les deux options de session ouverte cachent le problème et multiplient les requêtes."
+  - key: qcm-message-bean-introuvable
+    format: multiple-choice
+    question: |-
+      Que signifie, au démarrage, « required a bean of type 'boutique.paiement.PaiementClient' that could not be
+      found » ?
+    choices:
+      - {text: "Aucun bean de ce type n'est dans le contexte : classe non scannée ou non annotée", correct: true}
+      - {text: "Deux beans de ce type existent, et Spring ne sait pas lequel des deux choisir", correct: false}
+      - {text: "Le bean existe, mais il a été créé après le bean qui en a besoin", correct: false}
+      - {text: "La classe existe, mais son constructeur a levé une exception", correct: false}
+    answer: "Spring ne connaît aucun bean de ce type. Deux candidats donneraient un autre message (« expected single matching bean but found 2 ») ; l'ordre de création, Spring le gère seul."
+  - key: qcm-bean-par-defaut
+    format: multiple-choice
+    question: "Deux beans implémentent `Paiement`. Quelle annotation désigne celui qu'on injecte par défaut ?"
+    choices:
+      - {text: "`@Primary`", correct: true}
+      - {text: "`@Order`", correct: false}
+      - {text: "`@DependsOn`", correct: false}
+      - {text: "`@Lazy`", correct: false}
+    answer: "`@Primary` départage les candidats partout où le choix n'est pas précisé. `@Qualifier` choisit à un endroit donné ; `@Order` ne règle que l'ordre d'une liste injectée."
+  - key: bug-import-appel-interne
+    format: bug-fix
+    question: |-
+      L'import doit être tout ou rien. Pourtant, après l'exception sur le nom vide, `Ada` et `Alan` restent en base.
+      Quelle correction est la bonne ?
+      ```java
+      @Service
+      public class ImportService {
+          private final ClientRepository repository;
+
+          public ImportService(ClientRepository repository) {
+              this.repository = repository;
+          }
+
+          public void importer(List<String> noms) {
+              enregistrer(noms);
+          }
+
+          @Transactional
+          public void enregistrer(List<String> noms) {
+              for (String nom : noms) {
+                  if (nom.isBlank()) {
+                      throw new IllegalArgumentException("nom vide");
+                  }
+                  repository.save(new Client(nom));
+              }
+          }
+      }
+
+      // appelé ailleurs : importService.importer(List.of("Ada", "Alan", " "));
+      ```
+    choices:
+      - {text: "Annoter `importer`, la méthode appelée par les autres beans, avec `@Transactional`", correct: true}
+      - {text: "Annoter `enregistrer` avec `@Transactional(propagation = Propagation.REQUIRES_NEW)`", correct: false}
+      - {text: "Rendre `enregistrer` `private`, pour qu'elle ne soit appelée que par `importer`", correct: false}
+      - {text: "Lever une exception vérifiée plutôt qu'une `IllegalArgumentException`", correct: false}
+    answer: |-
+      ```java
+      @Transactional
+      public void importer(List<String> noms) {
+          enregistrer(noms);
+      }
+      ```
+      `importer` appelle `enregistrer` par `this` : aucune transaction ne s'ouvre, et chaque `save` valide la
+      sienne. Annoter le point d'entrée ouvre la transaction avant la boucle, et l'exception l'annule entière.
+      `REQUIRES_NEW` serait ignoré pour la même raison ; une exception vérifiée n'annulerait même pas la transaction.
+  - key: bug-debit-valide
+    format: bug-fix
+    question: |-
+      Quand le solde manque, l'exception remonte bien jusqu'au contrôleur, mais le débit reste en base. Quelle
+      correction est la bonne ?
+      ```java
+      public class SoldeInsuffisantException extends Exception {
+      }
+
+      @Service
+      public class VirementService {
+          private final MouvementRepository mouvements;
+
+          public VirementService(MouvementRepository mouvements) {
+              this.mouvements = mouvements;
+          }
+
+          @Transactional
+          public void virer(Compte source, Compte cible, BigDecimal montant) throws SoldeInsuffisantException {
+              mouvements.save(Mouvement.debit(source, montant));
+              if (source.solde().compareTo(montant) < 0) {
+                  throw new SoldeInsuffisantException();
+              }
+              mouvements.save(Mouvement.credit(cible, montant));
+          }
+      }
+      ```
+    choices:
+      - {text: "`@Transactional(rollbackFor = SoldeInsuffisantException.class)`", correct: true}
+      - {text: "`@Transactional(noRollbackFor = SoldeInsuffisantException.class)`", correct: false}
+      - {text: "`@Transactional(propagation = Propagation.MANDATORY)`", correct: false}
+      - {text: "`@Transactional(isolation = Isolation.SERIALIZABLE)`", correct: false}
+    answer: |-
+      ```java
+      @Transactional(rollbackFor = SoldeInsuffisantException.class)
+      public void virer(Compte source, Compte cible, BigDecimal montant) throws SoldeInsuffisantException {
+      ```
+      Par défaut, seules les exceptions non vérifiées annulent la transaction ; `SoldeInsuffisantException` hérite
+      d'`Exception`, donc le débit est validé. Autres remèdes : la faire hériter de `RuntimeException`, ou vérifier
+      le solde avant d'écrire.
+  - key: bug-lignes-hors-transaction
+    format: bug-fix
+    question: |-
+      Avec `spring.jpa.open-in-view=false`, cet appel lève « LazyInitializationException: Cannot lazily initialize
+      collection of role 'boutique.Commande.lignes' with key '1' (no session) ». `lignes` est une `@OneToMany`.
+      Quelle correction est la bonne ?
+      ```java
+      @Service
+      public class CommandeService {
+          private final CommandeRepository commandes;
+
+          public CommandeService(CommandeRepository commandes) {
+              this.commandes = commandes;
+          }
+
+          public Commande trouver(Long id) {
+              return commandes.findById(id).orElseThrow();
+          }
+      }
+
+      @RestController
+      class CommandeController {
+          private final CommandeService service;
+
+          CommandeController(CommandeService service) {
+              this.service = service;
+          }
+
+          @GetMapping("/commandes/{id}/nombre-de-lignes")
+          int nombreDeLignes(@PathVariable Long id) {
+              return service.trouver(id).getLignes().size();
+          }
+      }
+      ```
+    choices:
+      - {text: "Compter les lignes dans le service, dans une méthode `@Transactional(readOnly = true)`", correct: true}
+      - {text: "Remplacer `getLignes().size()` par `getLignes().isEmpty()` dans le contrôleur", correct: false}
+      - {text: "Appeler `commandes.flush()` dans `trouver`, avant de renvoyer la commande", correct: false}
+      - {text: "Déclarer le champ `lignes` en `final` dans l'entité `Commande`", correct: false}
+    answer: |-
+      ```java
+      @Transactional(readOnly = true)
+      public int nombreDeLignes(Long id) {
+          return commandes.findById(id).orElseThrow().getLignes().size();
+      }
+      ```
+      `findById` rend la commande et ferme sa session : la collection paresseuse ne peut plus se charger. Dans une
+      transaction du service, la session reste ouverte jusqu'au retour. Pour renvoyer les lignes elles-mêmes :
+      `JOIN FETCH` ou `@EntityGraph`, puis un DTO.
+  - key: bug-package-hors-scan
+    format: bug-fix
+    question: |-
+      L'application ne démarre pas : « Parameter 0 of constructor in boutique.app.CommandeService required a bean of
+      type 'boutique.paiement.PaiementClient' that could not be found. » Quelle correction est la bonne ?
+      ```java
+      package boutique.app;
+
+      @SpringBootApplication
+      public class App {
+      }
+      ```
+      ```java
+      package boutique.app;
+
+      @Service
+      public class CommandeService {
+          private final PaiementClient paiement;
+
+          public CommandeService(PaiementClient paiement) {
+              this.paiement = paiement;
+          }
+      }
+      ```
+      ```java
+      package boutique.paiement;
+
+      @Component
+      public class PaiementClient {
+      }
+      ```
+    choices:
+      - {text: "Déplacer `App` dans le package `boutique`, parent des deux autres", correct: true}
+      - {text: "Annoter `PaiementClient` avec `@Service` plutôt qu'avec `@Component`", correct: false}
+      - {text: "Ajouter `@Autowired` sur le constructeur de `CommandeService`", correct: false}
+      - {text: "Écrire un constructeur `public` explicite dans `PaiementClient`", correct: false}
+    answer: |-
+      ```java
+      package boutique;
+
+      @SpringBootApplication
+      public class App {
+      }
+      ```
+      Le scan part du package de la classe `@SpringBootApplication` et descend : `boutique.app` et ses
+      sous-packages. `boutique.paiement` est à côté, jamais parcouru. Avec `App` dans `boutique`, les deux packages
+      sont dessous. `@SpringBootApplication(scanBasePackages = "boutique")` marcherait aussi, en moins simple.
+  - key: situation-async-interne
+    format: scenario
+    question: |-
+      L'application a bien `@EnableAsync`. Un collègue annote `envoyerMail()` avec `@Async`, puis l'appelle depuis
+      `inscrire()`, dans la même classe. L'envoi reste dans le thread de la requête, et l'inscription reste lente.
+      Que lui expliques-tu ?
+    choices:
+      - {text: "Que l'appel par `this` contourne le proxy : `@Async` ne vaut que pour un appel venu d'un autre bean", correct: true}
+      - {text: "Que `@Async` exige une méthode `static`, que le proxy appelle sans passer par l'instance", correct: false}
+      - {text: "Que `@Async` ne marche qu'avec une méthode qui renvoie un `CompletableFuture`", correct: false}
+      - {text: "Que l'exécuteur par défaut n'a qu'un thread, déjà occupé par la requête en cours", correct: false}
+    answer: |-
+      `@Async` passe par le même proxy que `@Transactional` : l'appel interne l'ignore. On place `envoyerMail()` dans
+      un bean à part (un `NotificationService`), injecté dans le service d'inscription. Une méthode `void` peut très
+      bien être `@Async`.
+  - key: situation-avertissement-open-in-view
+    format: scenario
+    question: |-
+      Au démarrage, Spring Boot affiche un avertissement sur `spring.jpa.open-in-view`. Un collègue propose de
+      l'ignorer. Que lui réponds-tu ?
+    choices:
+      - {text: "Qu'il vaut mieux le passer à `false` : la session ouverte pendant la vue cache des N+1", correct: true}
+      - {text: "Qu'il signale une faille : les entités deviennent lisibles par le navigateur", correct: false}
+      - {text: "Qu'il annonce une option dépréciée, retirée à la prochaine version de Spring Boot", correct: false}
+      - {text: "Qu'il ne concerne que les tests, où la session reste ouverte entre deux méthodes", correct: false}
+    answer: |-
+      Avec `open-in-view`, la connexion reste prise pendant toute la requête, et les associations paresseuses se
+      chargent dans la sérialisation, une requête à la fois. À `false`, chaque oubli devient une
+      `LazyInitializationException` visible tout de suite, corrigée par un chargement explicite dans le service.
+  - key: situation-second-paiement
+    format: scenario
+    question: |-
+      Après l'ajout d'un second bean `Paiement`, l'application ne démarre plus : le journal dit qu'un seul bean était
+      attendu et que deux ont été trouvés. Que fais-tu ?
+    choices:
+      - {text: "Je marque l'un des deux `@Primary`, ou je choisis avec `@Qualifier` à l'injection", correct: true}
+      - {text: "Je supprime l'un des deux beans : Spring n'en accepte qu'un seul par type", correct: false}
+      - {text: "J'ajoute `@Lazy` sur les deux beans, pour que Spring choisisse plus tard", correct: false}
+      - {text: "Je renomme les deux classes, pour que leurs noms de bean soient différents", correct: false}
+    answer: |-
+      Plusieurs beans d'un même type sont permis ; c'est le point d'injection qui doit pouvoir choisir. `@Primary`
+      donne le défaut, `@Qualifier("carte")` précise l'endroit, et `List<Paiement>` les injecte tous.
+  - key: situation-piege-vecu
+    format: scenario
+    question: |-
+      En entretien : « Quel piège de Spring as-tu déjà rencontré en production ? » Quelle réponse fait la meilleure
+      impression ?
+    choices:
+      - {text: "Un cas précis : le symptôme, la cause (un appel par `this` qui contournait le proxy), le correctif", correct: true}
+      - {text: "« Aucun : je suis toujours la documentation, je n'en rencontre donc jamais »", correct: false}
+      - {text: "La liste de toutes les annotations de Spring, sans en expliquer une seule", correct: false}
+      - {text: "« Spring est trop magique », sans exemple, pour montrer son esprit critique", correct: false}
+    answer: |-
+      Le recruteur cherche une expérience réelle et un raisonnement : ce qu'on a observé, comment on a trouvé la
+      cause, ce qu'on a changé, et ce qu'on fait depuis pour l'éviter (un test, une règle de revue).

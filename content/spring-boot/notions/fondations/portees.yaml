@@ -1,0 +1,387 @@
+notion: portees
+lesson: |-
+  La **portée** (scope) d'un bean dit **combien d'instances** le conteneur en crée, et **pour combien de temps**.
+
+  | Portée | Instances | Fin de vie |
+  |---|---|---|
+  | `singleton` (défaut) | une par conteneur | fermeture du contexte |
+  | `prototype` | une nouvelle à chaque injection ou `getBean` | gérée par toi : Spring l'oublie |
+  | `request` (web) | une par requête HTTP | fin de la requête |
+  | `session` (web) | une par session HTTP | fin de la session |
+  | `application` (web) | une par `ServletContext` | arrêt de l'application web |
+
+  ```java
+  @Component
+  @Scope("prototype")          // ou ConfigurableBeanFactory.SCOPE_PROTOTYPE
+  public class Panier { ... }
+
+  @Component
+  @RequestScope                // proxy compris
+  public class ContexteRequete { private String idCorrelation; ... }
+  ```
+
+  **Le singleton n'est pas thread-safe d'office.** Il est **unique par conteneur** (pas par JVM, et sa classe reste
+  instanciable : ce n'est pas le patron Singleton). Toutes les requêtes l'utilisent en même temps : un champ
+  modifiable (un compteur, l'utilisateur courant) est partagé et corrompu. Un singleton doit être **sans état**, ou
+  protéger son état (`AtomicInteger`, collections concurrentes).
+
+  **Le piège du prototype dans un singleton.** L'injection n'a lieu **qu'une fois**, à la création du singleton :
+
+  ```java
+  @Service
+  public class Caisse {
+      private final Panier panier;          // le même Panier pour toujours !
+      public Caisse(Panier panier) { this.panier = panier; }
+  }
+  ```
+
+  Pour un nouvel objet à chaque usage, on injecte une fabrique :
+
+  ```java
+  private final ObjectProvider<Panier> paniers;
+  ...
+  Panier panier = paniers.getObject();    // un nouveau prototype à chaque appel
+  ```
+
+  (ou une méthode `@Lookup`, ou un proxy de portée).
+
+  **Les portées web et les proxies.** Un singleton est créé une fois, au démarrage, hors de toute requête : comment
+  lui injecter un bean `request` ? Par un **proxy de portée** : le singleton reçoit un proxy, qui, à chaque appel,
+  délègue au bean de la requête en cours. `@RequestScope` et `@SessionScope` créent ce proxy d'office ;
+  `@Scope("request")` seul ne le fait pas (`proxyMode = ScopedProxyMode.TARGET_CLASS` l'ajoute). Sans proxy, le
+  démarrage échoue : « Scope 'request' is not active for the current thread ».
+
+  Le même message apparaît quand on utilise un bean `request` **hors d'une requête** : dans un thread `@Async`, une
+  tâche planifiée, un runner. On copie alors la valeur utile avant de changer de thread.
+
+  **Le prototype et sa destruction.** Spring crée un prototype puis l'oublie : sa méthode `@PreDestroy` n'est jamais
+  appelée. Celui qui le demande doit libérer ses ressources.
+
+  **En entretien** : « La portée par défaut est singleton : une instance par conteneur, partagée par toutes les
+  requêtes, donc à garder sans état. Prototype crée un objet à chaque injection, mais injecté dans un singleton il
+  ne l'est qu'une fois : j'utilise alors un `ObjectProvider`. Les portées request et session passent par un proxy. »
+cards:
+  - key: portee-par-defaut
+    format: course
+    question: "Quelle est la portée d'un bean quand on ne précise rien ?"
+    choices:
+      - {text: "`singleton`", correct: true}
+      - {text: "`prototype`", correct: false}
+      - {text: "`request`", correct: false}
+      - {text: "`application`", correct: false}
+    answer: "Une seule instance par conteneur, créée au démarrage et partagée par tous ceux qui l'injectent."
+  - key: creation-d-un-prototype
+    format: course
+    question: "Quand Spring crée-t-il un nouvel objet pour un bean de portée `prototype` ?"
+    choices:
+      - {text: "À chaque injection et à chaque appel de `getBean`", correct: true}
+      - {text: "À chaque appel de l'une de ses méthodes", correct: false}
+      - {text: "Une fois pour chaque thread qui l'utilise", correct: false}
+      - {text: "Une fois pour chaque requête HTTP", correct: false}
+    answer: "Chaque demande au conteneur donne un nouvel objet. Mais un singleton qui l'injecte ne le demande qu'une fois, à sa propre création."
+  - key: singleton-et-patron
+    format: course
+    question: "Qu'est-ce qui distingue un singleton Spring du patron de conception Singleton ?"
+    choices:
+      - {text: "Il est unique par conteneur, et sa classe reste instanciable", correct: true}
+      - {text: "Il est unique par thread, et non par conteneur", correct: false}
+      - {text: "Il est recréé à chaque requête, contrairement au patron", correct: false}
+      - {text: "Il exige un constructeur privé et une méthode `getInstance`", correct: false}
+    answer: "Le patron Singleton garantit une instance par JVM, par son code. Le singleton Spring est une politique du conteneur : la classe reste ordinaire, et un test peut en créer d'autres."
+  - key: instances-request
+    format: course
+    question: "Combien d'instances d'un bean `@RequestScope` existent pendant que le serveur traite trois requêtes en même temps ?"
+    choices:
+      - {text: "Trois, une par requête", correct: true}
+      - {text: "Une, partagée par les trois requêtes", correct: false}
+      - {text: "Une par thread du serveur, gardée d'une requête à l'autre", correct: false}
+      - {text: "Aucune : il n'est créé qu'à la fin de chaque requête", correct: false}
+    answer: "Chaque requête a sa propre instance, créée à son premier usage et détruite à la fin de la requête."
+  - key: vf-compteur-dans-singleton
+    format: true-false
+    question: "Un bean singleton qui garde un compteur dans un champ `int` peut perdre des incréments sous des requêtes simultanées."
+    truth: true
+    answer: "Toutes les requêtes partagent le singleton : `total++` n'est pas atomique. Un `AtomicInteger`, ou pas d'état du tout."
+  - key: vf-predestroy-prototype
+    format: true-false
+    question: "Spring appelle la méthode `@PreDestroy` d'un bean prototype quand le contexte se ferme."
+    truth: false
+    answer: "Spring crée le prototype, puis ne le suit plus : sa destruction revient à celui qui l'a demandé."
+  - key: vf-prototype-dans-singleton
+    format: true-false
+    question: "Injecter un bean prototype dans un singleton donne un nouvel objet à chaque appel de méthode du singleton."
+    truth: false
+    answer: "L'injection a lieu une seule fois, à la création du singleton. Pour un nouvel objet à chaque usage : `ObjectProvider<T>.getObject()`."
+  - key: vf-requestscope-proxy
+    format: true-false
+    question: "`@RequestScope` crée d'office un proxy, ce qui permet d'injecter le bean dans un singleton."
+    truth: true
+    answer: "`@RequestScope` et `@SessionScope` ont `proxyMode = TARGET_CLASS` par défaut. `@Scope(\"request\")` seul n'a pas de proxy."
+  - key: qcm-nouveau-panier
+    format: multiple-choice
+    question: "Comment un singleton obtient-il un nouveau `Panier` (prototype) à chaque commande ?"
+    choices:
+      - {text: "Il injecte `ObjectProvider<Panier>` et appelle `getObject()`", correct: true}
+      - {text: "Il injecte `Panier`, puis appelle `panier.clone()`", correct: false}
+      - {text: "Il injecte `Panier` dans un champ `volatile`", correct: false}
+      - {text: "Il annote son propre champ `@Scope(\"prototype\")`", correct: false}
+    answer: "Chaque `getObject()` demande un bean au conteneur, donc un nouveau prototype, avec ses dépendances injectées."
+  - key: qcm-annotation-prototype
+    format: multiple-choice
+    question: "Quelle annotation donne la portée prototype à un bean ?"
+    choices:
+      - {text: "`@Scope(\"prototype\")`", correct: true}
+      - {text: "`@Prototype`", correct: false}
+      - {text: "`@Bean(scope = \"prototype\")`", correct: false}
+      - {text: "`@Lazy`", correct: false}
+    answer: "`@Scope` se pose sur la classe ou sur la méthode `@Bean`. `@Lazy` retarde la création d'un singleton, sans en créer plusieurs."
+  - key: qcm-panier-visiteur
+    format: multiple-choice
+    question: "Quelle portée choisir pour le panier d'un visiteur, qui doit survivre d'une page à l'autre ?"
+    choices:
+      - {text: "`session`", correct: true}
+      - {text: "`request`", correct: false}
+      - {text: "`prototype`", correct: false}
+      - {text: "`singleton`", correct: false}
+    answer: "Une instance par session HTTP. `request` perdrait le panier à chaque page ; `singleton` le partagerait entre tous les visiteurs."
+  - key: qcm-request-hors-requete
+    format: multiple-choice
+    question: "Un traitement `@Async` lit un bean `@RequestScope`. Quel message obtient-on ?"
+    choices:
+      - {text: "« Scope 'request' is not active for the current thread »", correct: true}
+      - {text: "« No qualifying bean of type ... available »", correct: false}
+      - {text: "« Requested bean is currently in creation »", correct: false}
+      - {text: "« Cannot subclass final class »", correct: false}
+    answer: "Le bean de requête est lié au thread qui traite la requête. Dans un autre thread, il n'y a pas de requête active : on passe la valeur en paramètre."
+  - key: trous-scope-prototype
+    format: fill-in
+    question: |-
+      Complète pour qu'un nouveau `Panier` soit créé à chaque injection :
+      ```java
+      @Component
+      @Scope("___")
+      public class Panier {
+      }
+      ```
+    blanks:
+      - [prototype]
+    answer: "`@Scope(\"prototype\")` : un nouvel objet à chaque demande au conteneur."
+  - key: trous-getobject
+    format: fill-in
+    question: |-
+      Complète pour obtenir un nouveau panier à chaque commande :
+      ```java
+      private final ObjectProvider<Panier> paniers;
+
+      public void commander() {
+          Panier panier = paniers.___();
+          ...
+      }
+      ```
+    blanks:
+      - [getObject]
+    answer: "`getObject()` demande le bean au conteneur à chaque appel : pour un prototype, c'est un nouvel objet."
+  - key: trous-requestscope
+    format: fill-in
+    question: |-
+      Complète pour un bean propre à chaque requête HTTP, injectable dans un singleton :
+      ```java
+      @Component
+      @___
+      public class ContexteRequete {
+          private String idCorrelation;
+      }
+      ```
+    blanks:
+      - [RequestScope]
+    answer: "`@RequestScope` équivaut à `@Scope(value = \"request\", proxyMode = ScopedProxyMode.TARGET_CLASS)`."
+  - key: trous-proxy-mode
+    format: fill-in
+    question: |-
+      Complète pour pouvoir injecter ce bean, une classe sans interface, dans un singleton :
+      ```java
+      @Component
+      @Scope(value = "session", proxyMode = ScopedProxyMode.___)
+      public class Panier {
+      }
+      ```
+    blanks:
+      - [TARGET_CLASS]
+    answer: "`TARGET_CLASS` crée un proxy CGLIB, une sous-classe. `INTERFACES` ne conviendrait qu'à un bean qui implémente une interface."
+  - key: bug-prototype-une-seule-fois
+    format: bug-fix
+    question: |-
+      Tous les clients partagent le même panier : les articles des uns apparaissent chez les autres. Quelle correction
+      est la bonne ?
+      ```java
+      @Component
+      @Scope("prototype")
+      public class Panier { ... }
+
+      @Service
+      public class Caisse {
+          private final Panier panier;
+
+          public Caisse(Panier panier) { this.panier = panier; }
+
+          public void commander(Article article) {
+              panier.ajouter(article);
+          }
+      }
+      ```
+    choices:
+      - {text: "Injecter `ObjectProvider<Panier>` et appeler `getObject()`", correct: true}
+      - {text: "Passer `Caisse` en portée prototype elle aussi, et rien d'autre", correct: false}
+      - {text: "Déclarer le champ `panier` `volatile`", correct: false}
+      - {text: "Retirer `@Scope(\"prototype\")` de la classe `Panier`", correct: false}
+    answer: |-
+      ```java
+      private final ObjectProvider<Panier> paniers;
+
+      public Panier nouveauPanier() {
+          return paniers.getObject();
+      }
+      ```
+      Le singleton `Caisse` reçoit son panier une seule fois. `ObjectProvider` redemande le bean au conteneur à
+      chaque usage ; le panier d'un client doit ensuite vivre avec lui (sa session), pas dans la caisse. Rendre
+      `Caisse` prototype ne servirait à rien : ceux qui l'injectent sont des singletons.
+  - key: bug-compteur-partage
+    format: bug-fix
+    question: |-
+      Sous charge, le nombre de commandes affiché est inférieur au nombre réel : des incréments se perdent. Quelle
+      correction est la bonne ?
+      ```java
+      @Service
+      public class Statistiques {
+          private int commandes;
+
+          public void compter() {
+              commandes++;
+          }
+      }
+      ```
+    choices:
+      - {text: "Remplacer le champ par un `AtomicInteger` et `incrementAndGet()`", correct: true}
+      - {text: "Passer `Statistiques` en portée `request`", correct: false}
+      - {text: "Passer `Statistiques` en portée `prototype`", correct: false}
+      - {text: "Déclarer le champ `commandes` `final`", correct: false}
+    answer: |-
+      ```java
+      private final AtomicInteger commandes = new AtomicInteger();
+
+      public void compter() {
+          commandes.incrementAndGet();
+      }
+      ```
+      Le singleton est partagé par tous les threads, et `commandes++` n'est pas atomique. Une portée `request` ou
+      `prototype` donnerait un compteur par requête : le total serait perdu.
+  - key: bug-request-sans-proxy
+    format: bug-fix
+    question: |-
+      Le démarrage de l'application web échoue : « Scope 'request' is not active for the current thread; consider
+      defining a scoped proxy for this bean if you intend to refer to it from a singleton ». Quelle correction est la
+      bonne ?
+      ```java
+      @Component
+      @Scope("request")
+      public class ContexteRequete { ... }
+
+      @Service
+      public class Journal {
+          public Journal(ContexteRequete contexte) { ... }
+      }
+      ```
+    choices:
+      - {text: "Remplacer `@Scope(\"request\")` par `@RequestScope`", correct: true}
+      - {text: "Remplacer `@Scope(\"request\")` par `@Scope(\"prototype\")`", correct: false}
+      - {text: "Ajouter `@Lazy` sur la classe `ContexteRequete`", correct: false}
+      - {text: "Ajouter `@Primary` sur la classe `ContexteRequete`", correct: false}
+    answer: |-
+      ```java
+      @Component
+      @RequestScope
+      public class ContexteRequete { ... }
+      ```
+      Le singleton `Journal` est créé au démarrage, hors de toute requête. `@RequestScope` lui injecte un proxy, qui
+      trouve à chaque appel le bean de la requête en cours.
+  - key: bug-requete-dans-async
+    format: bug-fix
+    question: |-
+      L'envoi asynchrone du reçu échoue : « Scope 'request' is not active for the current thread ». Quelle correction
+      est la bonne ?
+      ```java
+      @Service
+      public class Recus {
+          private final ContexteRequete contexte;   // @RequestScope
+
+          @Async
+          public void envoyer(Commande commande) {
+              mail.envoyer(contexte.email(), commande);
+          }
+      }
+      ```
+    choices:
+      - {text: "Lire l'e-mail dans la requête et le passer en paramètre à `envoyer`", correct: true}
+      - {text: "Passer `ContexteRequete` en portée `session`", correct: false}
+      - {text: "Retirer `@RequestScope` de la classe `ContexteRequete`", correct: false}
+      - {text: "Ajouter `@Lazy` sur le champ `contexte`", correct: false}
+    answer: |-
+      ```java
+      @Async
+      public void envoyer(Commande commande, String email) {
+          mail.envoyer(email, commande);
+      }
+      ```
+      Le bean de requête est lié au thread de la requête ; le thread `@Async` n'en a pas. On copie la valeur utile
+      avant de changer de thread. Une portée `session` poserait le même problème.
+  - key: situation-utilisateur-dans-un-champ
+    format: scenario
+    question: |-
+      Un collègue stocke l'utilisateur connecté dans un champ d'un `@Service`, qu'il remplit au début de chaque
+      requête. Qu'en dis-tu ?
+    choices:
+      - {text: "Le service est partagé : les requêtes simultanées s'écrasent l'utilisateur", correct: true}
+      - {text: "C'est correct : chaque requête reçoit sa propre copie du service", correct: false}
+      - {text: "C'est correct, à condition que le champ soit `private`", correct: false}
+      - {text: "Il suffit de déclarer le champ `final` pour l'isoler", correct: false}
+    answer: |-
+      Un `@Service` est un singleton. L'utilisateur doit passer en paramètre, ou venir d'un mécanisme lié à la requête
+      (le contexte de Spring Security, un bean `@RequestScope`).
+  - key: situation-generateur-de-rapports
+    format: scenario
+    question: |-
+      Un `GenerateurDeRapport` garde des résultats intermédiaires dans ses champs pendant un calcul, et plusieurs
+      rapports tournent en parallèle, hors requête HTTP. Quelle portée choisis-tu ?
+    choices:
+      - {text: "Prototype, obtenu par `ObjectProvider` pour chaque rapport", correct: true}
+      - {text: "Singleton : Spring copie l'objet pour chaque thread", correct: false}
+      - {text: "Request : chaque rapport est traité comme une requête", correct: false}
+      - {text: "Application : un objet par application suffit", correct: false}
+    answer: |-
+      Chaque calcul a besoin de son propre état : un prototype par rapport. Hors requête HTTP, la portée `request`
+      n'est pas active. Mieux encore : garder l'état dans des variables locales et rester singleton.
+  - key: situation-singleton-thread-safe
+    format: scenario
+    question: |-
+      En entretien : « Un bean singleton est-il thread-safe ? » Que réponds-tu ?
+    choices:
+      - {text: "Pas en soi : Spring garantit une instance, pas la sûreté de ses champs", correct: true}
+      - {text: "Oui : Spring synchronise chaque appel de ses méthodes", correct: false}
+      - {text: "Oui, à condition qu'il soit annoté `@Service`", correct: false}
+      - {text: "Non : un singleton ne peut pas servir à deux threads", correct: false}
+    answer: |-
+      Un singleton sans état modifiable est naturellement sûr. Dès qu'il garde un état, c'est au code de le protéger :
+      types atomiques, collections concurrentes, ou pas d'état du tout.
+  - key: situation-identifiant-de-correlation
+    format: scenario
+    question: |-
+      Tu veux un identifiant de corrélation propre à chaque requête HTTP, lisible depuis n'importe quel service.
+      Quelle solution proposes-tu ?
+    choices:
+      - {text: "Un bean `@RequestScope` qui porte l'identifiant, injecté où il faut", correct: true}
+      - {text: "Un champ `static` du contrôleur, rempli à chaque requête", correct: false}
+      - {text: "Un bean prototype, injecté dans chacun des services", correct: false}
+      - {text: "Un singleton dont on modifie le champ à chaque requête", correct: false}
+    answer: |-
+      Le proxy de `@RequestScope` donne à chaque requête sa propre valeur. Un champ statique ou un singleton serait
+      partagé ; un prototype injecté dans des singletons serait figé. (Le MDC des journaux est l'autre outil courant.)

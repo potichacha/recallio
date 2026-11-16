@@ -1,0 +1,273 @@
+notion: filtres-intercepteurs
+lesson: |-
+  Certains traitements concernent toutes les requêtes, ou beaucoup d'entre elles : journaliser, mesurer, ajouter un
+  identifiant de corrélation, vérifier une clé d'API. Plutôt que de les répéter dans chaque contrôleur, on les place
+  sur le trajet de la requête :
+
+  ```
+  client → Tomcat → filtres de servlet → DispatcherServlet → intercepteurs → contrôleur
+  ```
+
+  **Le filtre de servlet** (`jakarta.servlet.Filter`) agit avant Spring MVC. Il voit **toutes** les requêtes : fichiers
+  statiques, pages d'erreur, chemins inconnus. Il peut envelopper la requête ou la réponse, mais ne sait pas quel
+  contrôleur va répondre. Spring Security est un filtre.
+
+  ```java
+  @Component
+  public class CorrelationFilter extends OncePerRequestFilter {
+
+      @Override
+      protected void doFilterInternal(HttpServletRequest requete, HttpServletResponse reponse, FilterChain chaine)
+              throws ServletException, IOException {
+          String id = Optional.ofNullable(requete.getHeader("X-Request-Id")).orElse(UUID.randomUUID().toString());
+          MDC.put("requestId", id);
+          reponse.setHeader("X-Request-Id", id);
+          try {
+              chaine.doFilter(requete, reponse);      // sans cet appel, la requête s'arrête ici
+          } finally {
+              MDC.remove("requestId");
+          }
+      }
+  }
+  ```
+
+  - `OncePerRequestFilter` garantit un seul passage par requête, même lors d'un renvoi interne (vers `/error`).
+  - Un filtre `@Component` s'applique à toutes les URL. `FilterRegistrationBean` choisit les chemins
+    (`addUrlPatterns("/admin/*")`) et l'ordre (`setOrder`).
+  - **Oublier `chaine.doFilter(...)`** arrête la requête : ni le contrôleur ni les filtres suivants ne s'exécutent, et le
+    client reçoit une réponse vide, avec 200.
+
+  **L'intercepteur** (`HandlerInterceptor`) agit dans Spring MVC, une fois le contrôleur choisi : il reçoit le
+  **handler**, un `HandlerMethod` pour une méthode de contrôleur, dont il peut lire les annotations.
+
+  | Méthode | Appelée | Usage |
+  |---|---|---|
+  | `preHandle` | avant le contrôleur ; `false` arrête la requête | vérifier, refuser, démarrer un chrono |
+  | `postHandle` | après le contrôleur, s'il n'a pas levé d'exception | ajouter au modèle d'une vue |
+  | `afterCompletion` | toujours à la fin, avec l'exception éventuelle | mesurer, nettoyer |
+
+  ```java
+  @Configuration
+  public class WebConfig implements WebMvcConfigurer {
+      @Override
+      public void addInterceptors(InterceptorRegistry registry) {
+          registry.addInterceptor(new ChronoInterceptor())
+                  .addPathPatterns("/api/**")
+                  .excludePathPatterns("/api/public/**");
+      }
+  }
+  ```
+
+  Un intercepteur doit être **enregistré** ainsi : déclaré `@Component` seul, il n'est jamais appelé. Quand `preHandle`
+  renvoie `false`, il lui revient d'écrire la réponse (un `reponse.sendError(401)` par exemple) ; sinon le client reçoit
+  une réponse vide.
+
+  **Lequel choisir ?** Un filtre pour ce qui vaut pour toute requête HTTP, avant Spring MVC (corrélation, journal
+  d'accès, sécurité, compression) ; un intercepteur pour ce qui dépend du contrôleur appelé (une annotation à vérifier,
+  un temps par méthode).
+
+  **En entretien** : « Le filtre de servlet passe avant le `DispatcherServlet` et voit toutes les requêtes ; il doit
+  appeler `chain.doFilter`. L'intercepteur passe dans Spring MVC, connaît la méthode de contrôleur, et offre
+  `preHandle`, `postHandle` et `afterCompletion`. Je prends un filtre pour la corrélation ou la sécurité, un
+  intercepteur pour une règle liée à une annotation de contrôleur. »
+cards:
+  - key: ordre-de-passage
+    format: course
+    question: "Dans quel ordre une requête traverse-t-elle ces éléments ?"
+    choices:
+      - {text: "Filtre, `DispatcherServlet`, intercepteur, contrôleur", correct: true}
+      - {text: "Intercepteur, filtre, `DispatcherServlet`, contrôleur", correct: false}
+      - {text: "`DispatcherServlet`, filtre, contrôleur, intercepteur", correct: false}
+      - {text: "Contrôleur, intercepteur, filtre, `DispatcherServlet`", correct: false}
+    answer: "Les filtres appartiennent au conteneur de servlets et passent avant le `DispatcherServlet` ; les intercepteurs sont appelés par lui, juste avant le contrôleur."
+  - key: prehandle-qui-renvoie-false
+    format: course
+    question: "Que se passe-t-il quand `preHandle` d'un intercepteur renvoie `false` ?"
+    choices:
+      - {text: "Le contrôleur n'est pas appelé : la requête s'arrête là", correct: true}
+      - {text: "Le contrôleur est appelé, mais sa réponse est ignorée", correct: false}
+      - {text: "Spring répond 403 Forbidden de lui-même", correct: false}
+      - {text: "L'intercepteur suivant est appelé à sa place", correct: false}
+    answer: "Spring considère que l'intercepteur a traité la requête. Rien n'est écrit pour lui : sans `sendError`, le client reçoit une réponse vide, avec 200."
+  - key: methode-toujours-appelee
+    format: course
+    question: "Quelle méthode d'un `HandlerInterceptor` est appelée même quand le contrôleur lève une exception ?"
+    choices:
+      - {text: "`afterCompletion`", correct: true}
+      - {text: "`postHandle`", correct: false}
+      - {text: "`preHandle`", correct: false}
+      - {text: "`afterHandle`", correct: false}
+    answer: "`afterCompletion` reçoit l'exception éventuelle en dernier paramètre : c'est là qu'on arrête un chrono ou qu'on nettoie. `postHandle` est sauté en cas d'exception."
+  - key: ce-que-sait-l-intercepteur
+    format: course
+    question: "Qu'est-ce qu'un intercepteur connaît, et qu'un filtre de servlet ignore ?"
+    choices:
+      - {text: "La méthode de contrôleur qui va traiter la requête", correct: true}
+      - {text: "L'adresse IP du client qui envoie la requête", correct: false}
+      - {text: "Les en-têtes HTTP de la requête reçue", correct: false}
+      - {text: "Le chemin demandé par le client", correct: false}
+    answer: "Le paramètre `handler` est un `HandlerMethod` : la méthode, sa classe, leurs annotations. Le filtre, lui, passe avant que Spring ait choisi le contrôleur."
+  - key: vf-oubli-de-dofilter
+    format: true-false
+    question: "Un filtre qui oublie d'appeler `chain.doFilter(request, response)` arrête la requête : le contrôleur n'est pas appelé."
+    truth: true
+    answer: "La chaîne ne continue que si le filtre la relance. Le client reçoit ce que le filtre a écrit, souvent une réponse vide avec 200."
+  - key: vf-filtre-component
+    format: true-false
+    question: "Un `Filter` déclaré comme `@Component` est enregistré par Spring Boot pour toutes les URL."
+    truth: true
+    answer: "Spring Boot enregistre tout bean `Filter` dans le conteneur, sur `/*`. Pour choisir les chemins ou l'ordre : un `FilterRegistrationBean`."
+  - key: vf-posthandle-et-exception
+    format: true-false
+    question: "`postHandle` est appelé même quand le contrôleur lève une exception."
+    truth: false
+    answer: "`postHandle` ne suit qu'une exécution réussie. Pour un traitement garanti, c'est `afterCompletion`."
+  - key: vf-security-est-un-filtre
+    format: true-false
+    question: "Spring Security s'insère dans l'application sous la forme d'un filtre de servlet."
+    truth: true
+    answer: "Un `DelegatingFilterProxy` délègue à la chaîne de filtres de Spring Security : la sécurité s'applique avant même le `DispatcherServlet`."
+  - key: qcm-une-fois-par-requete
+    format: multiple-choice
+    question: "Quelle classe de base garantit qu'un filtre ne s'exécute qu'une fois par requête, même lors d'un renvoi interne ?"
+    choices:
+      - {text: "`OncePerRequestFilter`", correct: true}
+      - {text: "`GenericFilter`", correct: false}
+      - {text: "`HandlerInterceptor`", correct: false}
+      - {text: "`SingleRequestFilter`", correct: false}
+    answer: "Une requête peut repasser par les filtres, vers `/error` par exemple. `OncePerRequestFilter` le détecte et n'appelle `doFilterInternal` qu'une fois."
+  - key: qcm-enregistrer-un-intercepteur
+    format: multiple-choice
+    question: "Comment enregistres-tu un intercepteur pour les seuls chemins `/api/**` ?"
+    choices:
+      - {text: "Dans `addInterceptors` d'un `WebMvcConfigurer`, avec `addPathPatterns(\"/api/**\")`", correct: true}
+      - {text: "En annotant la classe de l'intercepteur avec `@Component` seul", correct: false}
+      - {text: "En annotant l'intercepteur avec `@RequestMapping(\"/api/**\")`", correct: false}
+      - {text: "Avec la propriété `spring.mvc.interceptors=/api/**`", correct: false}
+    answer: "Un intercepteur ne s'applique que s'il est ajouté à l'`InterceptorRegistry` ; `addPathPatterns` et `excludePathPatterns` choisissent les chemins."
+  - key: qcm-filtre-sur-un-chemin
+    format: multiple-choice
+    question: "Comment ne poses-tu un filtre que sur `/admin/*`, en fixant sa place parmi les autres filtres ?"
+    choices:
+      - {text: "Avec un `FilterRegistrationBean`, `addUrlPatterns` et `setOrder`", correct: true}
+      - {text: "Avec `@RequestMapping(\"/admin/*\")` sur la classe du filtre", correct: false}
+      - {text: "Avec un `HandlerInterceptor` qui implémente aussi `Filter`", correct: false}
+      - {text: "Avec `@Order` seul, sur la classe du filtre", correct: false}
+    answer: "Le `FilterRegistrationBean` enregistre le filtre avec ses chemins et son ordre. `@Order` règle l'ordre, mais laisse le filtre sur toutes les URL."
+  - key: qcm-besoin-d-un-filtre
+    format: multiple-choice
+    question: "Lequel de ces besoins revient plutôt à un filtre qu'à un intercepteur ?"
+    choices:
+      - {text: "Poser un identifiant de corrélation sur toutes les requêtes, fichiers statiques compris", correct: true}
+      - {text: "Vérifier une annotation `@Audit` posée sur la méthode du contrôleur", correct: false}
+      - {text: "Mesurer le temps passé dans chaque méthode de contrôleur", correct: false}
+      - {text: "Choisir un comportement d'après la classe du contrôleur appelé", correct: false}
+    answer: "Le filtre voit toutes les requêtes, même celles qu'aucun contrôleur ne traite. Les trois autres besoins dépendent du contrôleur appelé : c'est le terrain de l'intercepteur."
+  - key: trous-dofilter
+    format: fill-in
+    question: |-
+      Complète pour laisser la requête continuer son chemin :
+      ```java
+      @Override
+      protected void doFilterInternal(HttpServletRequest requete, HttpServletResponse reponse, FilterChain chaine)
+              throws ServletException, IOException {
+          MDC.put("requestId", UUID.randomUUID().toString());
+          try {
+              chaine.___(requete, reponse);
+          } finally {
+              MDC.remove("requestId");
+          }
+      }
+      ```
+    blanks:
+      - [doFilter]
+    answer: "`doFilter` passe la main au filtre suivant, puis au `DispatcherServlet`."
+  - key: trous-prehandle
+    format: fill-in
+    question: |-
+      Complète la méthode appelée avant le contrôleur :
+      ```java
+      @Override
+      public boolean ___(HttpServletRequest requete, HttpServletResponse reponse, Object handler) {
+          return requete.getHeader("X-Api-Key") != null;
+      }
+      ```
+    blanks:
+      - [preHandle]
+    answer: "`preHandle` renvoie `true` pour continuer, `false` pour arrêter la requête."
+  - key: trous-addpathpatterns
+    format: fill-in
+    question: |-
+      Complète pour limiter l'intercepteur aux chemins de l'API :
+      ```java
+      @Override
+      public void addInterceptors(InterceptorRegistry registry) {
+          registry.addInterceptor(new ChronoInterceptor()).___("/api/**");
+      }
+      ```
+    blanks:
+      - [addPathPatterns]
+    answer: "`addPathPatterns` choisit les chemins ; `excludePathPatterns` en retire."
+  - key: trous-onceperrequestfilter
+    format: fill-in
+    question: |-
+      Complète pour écrire un filtre qui ne passe qu'une fois par requête :
+      ```java
+      @Component
+      public class CorrelationFilter extends ___ {
+      ```
+    blanks:
+      - [OncePerRequestFilter]
+    answer: "`OncePerRequestFilter` fournit `doFilterInternal`, appelée une seule fois par requête."
+  - key: situation-journal-de-toutes-les-requetes
+    format: scenario
+    question: |-
+      Tu veux journaliser la durée de toutes les requêtes, celles des fichiers statiques et des erreurs comprises. Que
+      choisis-tu ?
+    choices:
+      - {text: "Un filtre de servlet, qui voit passer toutes les requêtes", correct: true}
+      - {text: "Un intercepteur enregistré sur le chemin `/**`", correct: false}
+      - {text: "Un `@RestControllerAdvice` avec un `@ExceptionHandler`", correct: false}
+      - {text: "Un aspect autour de chaque méthode `@GetMapping`", correct: false}
+    answer: |-
+      Seul le filtre est sur le trajet de toutes les requêtes, avant Spring MVC. Un intercepteur ne voit que celles
+      qui atteignent un handler ; un advice ne voit que les exceptions.
+  - key: situation-annotation-a-verifier
+    format: scenario
+    question: |-
+      Les méthodes annotées `@ReserveAuxPartenaires` doivent exiger l'en-tête `X-Partenaire`. Où places-tu la
+      vérification ?
+    choices:
+      - {text: "Dans un intercepteur, qui lit l'annotation sur le `HandlerMethod`", correct: true}
+      - {text: "Dans un filtre, qui lit l'annotation sur sa propre classe", correct: false}
+      - {text: "Dans le constructeur de chaque contrôleur concerné", correct: false}
+      - {text: "Dans `application.properties`, chemin par chemin", correct: false}
+    answer: |-
+      `preHandle` reçoit le handler : `((HandlerMethod) handler).hasMethodAnnotation(ReserveAuxPartenaires.class)`
+      dit si la règle s'applique, et l'intercepteur refuse la requête sinon.
+  - key: situation-reponses-vides
+    format: scenario
+    question: |-
+      Après l'ajout d'un filtre de journalisation, toutes les réponses arrivent vides, avec le statut 200. Que
+      cherches-tu d'abord ?
+    choices:
+      - {text: "Un appel à `chain.doFilter` oublié dans le filtre", correct: true}
+      - {text: "Un `@ResponseStatus` oublié sur les contrôleurs", correct: false}
+      - {text: "Une erreur dans la configuration de Jackson", correct: false}
+      - {text: "Un problème de CORS dans le navigateur", correct: false}
+    answer: |-
+      Un filtre qui ne relance pas la chaîne termine la requête sans rien écrire : le conteneur renvoie 200 et un
+      corps vide. C'est le symptôme typique.
+  - key: situation-chrono-avec-exception
+    format: scenario
+    question: |-
+      Ton intercepteur démarre un chrono dans `preHandle` et l'arrête dans `postHandle`. Les requêtes en erreur
+      manquent dans les mesures. Que corriges-tu ?
+    choices:
+      - {text: "J'arrête le chrono dans `afterCompletion`, appelée même en cas d'exception", correct: true}
+      - {text: "J'arrête le chrono dans `preHandle` de l'intercepteur suivant", correct: false}
+      - {text: "J'ajoute un `try`/`catch` dans chaque méthode de contrôleur", correct: false}
+      - {text: "Je démarre le chrono dans `postHandle` plutôt que dans `preHandle`", correct: false}
+    answer: |-
+      `postHandle` n'est pas appelée quand le contrôleur lève une exception. `afterCompletion` l'est toujours, et
+      reçoit l'exception : on peut même étiqueter la mesure avec elle.

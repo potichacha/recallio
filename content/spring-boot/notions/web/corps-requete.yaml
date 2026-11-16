@@ -1,0 +1,285 @@
+notion: corps-requete
+lesson: |-
+  Pour créer ou modifier une ressource, le client envoie ses données **dans le corps de la requête**, le plus souvent en
+  JSON. `@RequestBody` demande à Spring de le lire et de construire l'objet Java correspondant.
+
+  ```java
+  public record NouveauProduit(String nom, int prixEnCentimes) {}
+
+  @PostMapping("/api/produits")
+  @ResponseStatus(HttpStatus.CREATED)
+  public Produit creer(@RequestBody NouveauProduit produit) {
+      return produits.creer(produit);
+  }
+  ```
+
+  ```
+  POST /api/produits
+  Content-Type: application/json
+
+  {"nom": "Stylo", "prixEnCentimes": 250}
+  ```
+
+  **Le mécanisme.** Spring choisit le `HttpMessageConverter` qui sait lire le `Content-Type` reçu ; pour
+  `application/json`, c'est celui de **Jackson** (Jackson 3 avec Spring Boot 4). Jackson construit un record par son
+  constructeur canonique : pas besoin de setters.
+
+  **Ce qui peut mal tourner**, et ce que Spring répond avant même d'appeler la méthode :
+
+  | Situation | Réponse |
+  |---|---|
+  | `Content-Type` absent ou autre que JSON (`text/plain`) | 415 Unsupported Media Type |
+  | JSON mal formé | 400 « JSON parse error » (`HttpMessageNotReadableException`) |
+  | corps vide | 400 « Required request body is missing » |
+  | valeur du mauvais type (`"prix": "deux"`) | 400 |
+  | composant `int` absent ou `null` (Jackson 3) | 400 « Cannot map `null` into type `int` » |
+  | propriété inconnue du record | ignorée, la requête passe |
+
+  Pour un composant facultatif, on prend un type qui accepte `null` (`Integer`, `String`) et l'on fixe la valeur par
+  défaut dans le constructeur compact du record.
+
+  **L'oubli de `@RequestBody`.** Sans l'annotation, Spring ne lit pas le corps : il remplit l'objet avec les
+  **paramètres de la requête** (`?nom=...`), comme un formulaire. Avec un JSON, les champs restent à `null`, sans
+  erreur.
+
+  **Un seul corps.** Le corps se lit une fois : une méthode n'a qu'un paramètre `@RequestBody`. Un `GET` n'a pas de
+  corps : ses critères passent dans l'URL.
+
+  **Un objet dédié.** On reçoit un **DTO** (souvent un record) plutôt qu'une entité JPA : le client ne doit pas pouvoir
+  fixer l'identifiant, la date de création ou un rôle en ajoutant un champ au JSON.
+
+  **En entretien** : « `@RequestBody` fait lire le corps par un convertisseur choisi d'après le `Content-Type` ; pour du
+  JSON, c'est Jackson, qui construit l'objet, un record par exemple. Un mauvais type de contenu répond 415, un JSON
+  illisible 400. Je reçois un DTO dédié, jamais une entité, pour que le client ne fixe que ce qu'il a le droit de
+  fixer. »
+cards:
+  - key: role-requestbody
+    format: course
+    question: "Que fait `@RequestBody` sur un paramètre de méthode de contrôleur ?"
+    choices:
+      - {text: "Il construit l'objet à partir du corps JSON de la requête", correct: true}
+      - {text: "Il construit l'objet à partir des paramètres de l'URL", correct: false}
+      - {text: "Il écrit l'objet dans le corps de la réponse en JSON", correct: false}
+      - {text: "Il valide l'objet avant l'appel de la méthode", correct: false}
+    answer: "Un convertisseur de messages, celui de Jackson pour du JSON, lit le corps et construit l'objet. Écrire la réponse, c'est `@ResponseBody` ; valider, c'est `@Valid`."
+  - key: entete-content-type
+    format: course
+    question: "Quel en-tête le client doit-il envoyer pour qu'un `@RequestBody` soit lu comme du JSON ?"
+    choices:
+      - {text: "`Content-Type: application/json`", correct: true}
+      - {text: "`Accept: application/json`", correct: false}
+      - {text: "`Content-Encoding: json`", correct: false}
+      - {text: "`X-Format: application/json`", correct: false}
+    answer: "`Content-Type` décrit le corps envoyé ; Spring s'en sert pour choisir le convertisseur. `Accept` dit ce que le client veut recevoir en réponse."
+  - key: record-comme-dto
+    format: course
+    question: "Pourquoi un record convient-il bien comme objet reçu par `@RequestBody` ?"
+    choices:
+      - {text: "Jackson le construit par son constructeur canonique, sans setter", correct: true}
+      - {text: "Jackson ne sait plus lire que des records depuis Spring Boot 4", correct: false}
+      - {text: "Un record est validé d'office à la réception de la requête", correct: false}
+      - {text: "Un record se convertit plus vite en JSON qu'une classe ordinaire", correct: false}
+    answer: "Le record est immuable et sans code inutile ; Jackson passe les valeurs du JSON à son constructeur. Une classe avec setters marche aussi ; la validation demande toujours `@Valid`."
+  - key: un-seul-corps
+    format: course
+    question: "Combien de paramètres `@RequestBody` une méthode de contrôleur peut-elle avoir ?"
+    choices:
+      - {text: "Un seul : le corps de la requête ne se lit qu'une fois", correct: true}
+      - {text: "Autant qu'elle veut, un par propriété du JSON", correct: false}
+      - {text: "Deux au plus : l'objet principal et ses métadonnées", correct: false}
+      - {text: "Aucun pour un `PUT`, un seul pour un `POST`", correct: false}
+    answer: "Le corps est un flux lu une seule fois. Pour recevoir plusieurs objets, on les regroupe dans un DTO qui les contient."
+  - key: vf-mauvais-content-type
+    format: true-false
+    question: "Un `POST` dont le corps JSON part avec `Content-Type: text/plain`, vers un `@RequestBody Produit`, reçoit 415 Unsupported Media Type."
+    truth: true
+    answer: "Aucun convertisseur ne lit du `text/plain` en `Produit` : Spring répond 415, « Content-Type 'text/plain;charset=UTF-8' is not supported. »."
+  - key: vf-propriete-inconnue
+    format: true-false
+    question: "Avec la configuration de Spring Boot 4, une propriété JSON inconnue du record cible fait répondre 400."
+    truth: false
+    answer: "Jackson 3 ignore par défaut les propriétés inconnues, et Spring Boot ne change pas ce réglage : la requête passe, la propriété est perdue."
+  - key: vf-json-mal-forme
+    format: true-false
+    question: "Un corps JSON mal formé, coupé après une virgule, fait répondre 400 Bad Request."
+    truth: true
+    answer: "Jackson échoue à lire le corps : `HttpMessageNotReadableException` (« JSON parse error »), traduite en 400. La méthode n'est pas appelée."
+  - key: vf-int-absent-jackson3
+    format: true-false
+    question: "Avec Jackson 3 et Spring Boot 4, un composant `int` d'un record absent du JSON reçu fait répondre 400."
+    truth: true
+    answer: "Jackson 3 active `FAIL_ON_NULL_FOR_PRIMITIVES` : « Cannot map `null` into type `int` ». Pour un champ facultatif, on prend `Integer` et l'on choisit la valeur par défaut."
+  - key: qcm-oubli-requestbody
+    format: multiple-choice
+    question: "Une méthode `@PostMapping` déclare `creer(Client client)`, sans annotation, où `Client` est un record de deux `String`. Elle reçoit un JSON. Que contient `client` ?"
+    choices:
+      - {text: "Des champs à `null` : Spring l'a rempli avec les paramètres de requête", correct: true}
+      - {text: "Les valeurs du JSON, car `@RequestBody` est implicite", correct: false}
+      - {text: "Rien : l'application a refusé de démarrer", correct: false}
+      - {text: "Rien : Spring a répondu 415 avant l'appel", correct: false}
+    answer: "Sans `@RequestBody`, Spring lie l'objet aux paramètres de la requête (`?nom=...`), comme un formulaire. Le corps JSON n'est pas lu : les champs valent `null`, sans erreur."
+  - key: qcm-corps-absent
+    format: multiple-choice
+    question: "Que répond Spring MVC à un `POST` sans corps vers une méthode qui attend `@RequestBody Produit produit` ?"
+    choices:
+      - {text: "400 « Required request body is missing »", correct: true}
+      - {text: "200, avec `produit` à `null`", correct: false}
+      - {text: "204 No Content", correct: false}
+      - {text: "415 Unsupported Media Type", correct: false}
+    answer: "Le corps est obligatoire par défaut : `HttpMessageNotReadableException`, donc 400. `@RequestBody(required = false)` accepterait un corps absent, avec `null`."
+  - key: qcm-choix-du-convertisseur
+    format: multiple-choice
+    question: "Qu'est-ce qui choisit Jackson pour lire le corps d'une requête JSON ?"
+    choices:
+      - {text: "Le `HttpMessageConverter` qui accepte le `Content-Type` reçu", correct: true}
+      - {text: "Le `ViewResolver`, d'après le nom de la vue", correct: false}
+      - {text: "Le `HandlerInterceptor` déclaré pour le chemin", correct: false}
+      - {text: "Le filtre de servlet qui précède le contrôleur", correct: false}
+    answer: "Spring parcourt ses convertisseurs et prend le premier qui sait lire ce type de contenu vers le type du paramètre ; pour `application/json`, celui de Jackson."
+  - key: qcm-pas-d-entite
+    format: multiple-choice
+    question: "Pourquoi éviter de recevoir directement une entité JPA en `@RequestBody` ?"
+    choices:
+      - {text: "Le client pourrait fixer des champs interdits, comme l'id", correct: true}
+      - {text: "Jackson refuse de construire une classe annotée `@Entity`", correct: false}
+      - {text: "Une entité ne peut pas contenir de champ de type `String`", correct: false}
+      - {text: "Hibernate rejette tout objet construit par Jackson", correct: false}
+    answer: "Tout ce que l'entité expose devient modifiable par le JSON : identifiant, rôle, date de création (l'attaque dite de « mass assignment »). Un DTO ne contient que ce que le client a le droit d'envoyer."
+  - key: trous-requestbody
+    format: fill-in
+    question: |-
+      Complète pour lire la commande dans le corps JSON :
+      ```java
+      @PostMapping("/commandes")
+      public Commande passer(@___ NouvelleCommande commande) {
+      ```
+    blanks:
+      - [RequestBody]
+    answer: "`@RequestBody` fait lire le corps par Jackson."
+  - key: trous-contenttype-mockmvc
+    format: fill-in
+    question: |-
+      Complète la requête de test pour envoyer du JSON :
+      ```java
+      mvc.perform(post("/api/produits")
+              .contentType(MediaType.___)
+              .content("{\"nom\": \"stylo\"}"));
+      ```
+    blanks:
+      - [APPLICATION_JSON]
+    answer: "Sans type de contenu, la requête est traitée comme `application/octet-stream`, et le contrôleur répond 415."
+  - key: trous-record
+    format: fill-in
+    question: |-
+      Complète pour déclarer l'objet reçu comme un record :
+      ```java
+      public ___ NouveauClient(String nom, String email) {}
+      ```
+    blanks:
+      - [record]
+    answer: "Un record donne un objet immuable, que Jackson construit par son constructeur canonique."
+  - key: trous-consumes
+    format: fill-in
+    question: |-
+      Complète pour que la méthode n'accepte que du JSON :
+      ```java
+      @PostMapping(path = "/produits", ___ = MediaType.APPLICATION_JSON_VALUE)
+      public Produit creer(@RequestBody NouveauProduit produit) {
+      ```
+    blanks:
+      - [consumes]
+    answer: "`consumes` restreint la méthode aux requêtes de ce `Content-Type` ; les autres reçoivent 415."
+  - key: bug-requestbody-oublie
+    format: bug-fix
+    question: |-
+      `POST /clients` avec `{"nom": "Ada", "email": "ada@exemple.fr"}` répond 200, mais avec
+      `{"nom": null, "email": null}`. Quelle correction est la bonne ?
+      ```java
+      public record NouveauClient(String nom, String email) {}
+
+      @PostMapping("/clients")
+      public NouveauClient creer(NouveauClient client) {
+          return client;
+      }
+      ```
+    choices:
+      - {text: "Ajouter `@RequestBody` devant le paramètre `client`", correct: true}
+      - {text: "Ajouter `@ResponseBody` devant la méthode `creer`", correct: false}
+      - {text: "Ajouter `@RequestParam` devant le paramètre `client`", correct: false}
+      - {text: "Remplacer le record par une classe avec des setters", correct: false}
+    answer: |-
+      ```java
+      public NouveauClient creer(@RequestBody NouveauClient client) {
+      ```
+      Sans `@RequestBody`, Spring remplit l'objet avec les paramètres de la requête, qui n'en a pas : les champs
+      restent à `null`. Le corps JSON n'est jamais lu.
+  - key: bug-test-sans-content-type
+    format: bug-fix
+    question: |-
+      Ce test reçoit 415 au lieu de 201 : « Content-Type 'application/octet-stream' is not supported. ». Quelle
+      correction est la bonne ?
+      ```java
+      mvc.perform(post("/api/produits")
+              .content("{\"nom\": \"stylo\", \"prixEnCentimes\": 250}"))
+          .andExpect(status().isCreated());
+      ```
+    choices:
+      - {text: "Ajouter `.contentType(MediaType.APPLICATION_JSON)` à la requête", correct: true}
+      - {text: "Ajouter `.accept(MediaType.APPLICATION_JSON)` à la requête", correct: false}
+      - {text: "Remplacer `post` par `put` dans la requête", correct: false}
+      - {text: "Ajouter `consumes = \"*/*\"` sur la méthode du contrôleur", correct: false}
+    answer: |-
+      ```java
+      mvc.perform(post("/api/produits")
+              .contentType(MediaType.APPLICATION_JSON)
+              .content("{\"nom\": \"stylo\", \"prixEnCentimes\": 250}"))
+      ```
+      Sans `Content-Type`, le corps est vu comme des octets bruts, qu'aucun convertisseur ne lit en
+      `NouveauProduit`. `accept` ne décrit que la réponse attendue.
+  - key: bug-int-facultatif-dans-le-json
+    format: bug-fix
+    question: |-
+      Le stock est facultatif : sans lui, l'article doit être créé avec un stock de 0. Mais `{"titre": "Stylo"}`
+      répond 400 : « Cannot map `null` into type `int` ». Quelle correction est la bonne ?
+      ```java
+      public record NouvelArticle(String titre, int stock) {}
+      ```
+    choices:
+      - {text: "Déclarer `Integer stock`, et remplacer `null` par 0 dans le constructeur compact", correct: true}
+      - {text: "Déclarer `long stock`, dont la valeur par défaut est déjà 0", correct: false}
+      - {text: "Annoter le composant avec `@RequestParam(defaultValue = \"0\")`", correct: false}
+      - {text: "Annoter le composant `stock` avec `@JsonIgnore` pour l'ignorer", correct: false}
+    answer: |-
+      ```java
+      public record NouvelArticle(String titre, Integer stock) {
+          public NouvelArticle {
+              if (stock == null) {
+                  stock = 0;
+              }
+          }
+      }
+      ```
+      Jackson 3 refuse de mettre `null` dans un type primitif. Un `Integer` accepte l'absence, et le constructeur
+      compact fixe la valeur par défaut. `@JsonIgnore` ignorerait aussi un stock envoyé.
+  - key: bug-get-avec-corps
+    format: bug-fix
+    question: |-
+      Le front ne peut pas joindre de corps à un `GET`, et cette recherche répond toujours 400 : « Required request
+      body is missing ». Quelle correction est la bonne ?
+      ```java
+      @GetMapping("/produits/recherche")
+      public List<Produit> chercher(@RequestBody Filtre filtre) {
+      ```
+    choices:
+      - {text: "Lire les critères dans l'URL, avec des `@RequestParam`", correct: true}
+      - {text: "Ajouter `required = true` à l'annotation `@RequestBody`", correct: false}
+      - {text: "Remplacer `@GetMapping` par `@RequestMapping` sans verbe", correct: false}
+      - {text: "Ajouter `consumes = \"application/json\"` au `@GetMapping`", correct: false}
+    answer: |-
+      ```java
+      @GetMapping("/produits/recherche")
+      public List<Produit> chercher(@RequestParam String texte,
+                                    @RequestParam(defaultValue = "0") int page) {
+      ```
+      Un `GET` porte ses critères dans l'URL. Si les critères sont trop riches pour l'URL, on passe à
+      `POST /produits/recherche`, avec un corps.

@@ -1,0 +1,358 @@
+notion: rollback
+lesson: |-
+  Par défaut, une méthode `@Transactional` est **annulée** (rollback) quand elle se termine par une exception **non
+  vérifiée** (`RuntimeException` et ses sous-classes, ou une `Error`), et **validée** (commit) quand elle se termine
+  normalement ou par une exception **vérifiée** (`IOException`, toute `Exception` qui n'est pas une
+  `RuntimeException`).
+
+  | La méthode se termine par... | Résultat par défaut |
+  |---|---|
+  | un retour normal | commit |
+  | `IllegalStateException`, `DataIntegrityViolationException`... | rollback |
+  | `IOException`, une exception métier qui hérite d'`Exception` | **commit** |
+
+  Cette règle vient des EJB : une exception vérifiée y était vue comme un résultat métier, que l'appelant sait
+  traiter. Elle surprend souvent.
+
+  **Changer la règle.**
+
+  ```java
+  @Transactional(rollbackFor = IOException.class)      // annuler aussi sur IOException
+  public void importer(Path fichier) throws IOException { ... }
+
+  @Transactional(noRollbackFor = StockFaibleException.class)   // valider malgré cette exception
+  public void commander(Panier panier) { ... }
+  ```
+
+  Beaucoup d'équipes font hériter leurs exceptions métier de `RuntimeException` : la règle par défaut suffit alors.
+
+  **Une exception attrapée n'annule rien.** Le proxy ne voit que l'exception qui **sort** de la méthode. Un
+  `try/catch` qui journalise et continue laisse la transaction se valider, avec ce qui a déjà été écrit.
+
+  ```java
+  @Transactional
+  public void commander(Panier panier) {
+      try {
+          commandes.save(new Commande(panier));
+          stock.retirer(panier);              // lève StockInsuffisantException
+      } catch (StockInsuffisantException e) {
+          log.warn("stock insuffisant", e);   // commit : la commande reste, sans stock
+      }
+  }
+  ```
+
+  Pour annuler sans lever d'exception :
+  `TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();`.
+
+  **Rollback-only.** Quand une méthode transactionnelle qui **participe** à la transaction en cours (propagation
+  `REQUIRED`) laisse sortir une exception, Spring marque toute la transaction **rollback-only**. Si l'appelant
+  attrape l'exception et continue, le commit final échoue : `UnexpectedRollbackException: Transaction silently rolled
+  back because it has been marked as rollback-only`, et rien n'est écrit.
+
+  **Ce qu'un rollback n'annule pas.** Il annule les écritures **en base** de la transaction. Il ne remet pas les
+  objets Java en mémoire à leur état d'origine, ne rappelle pas un e-mail envoyé, ne supprime pas un fichier écrit.
+  Pour agir seulement après un commit réussi : `@TransactionalEventListener`, dont la phase par défaut est
+  `AFTER_COMMIT`.
+
+  **Attention à l'endroit de l'exception.** Une exception levée **après** le retour de la méthode
+  `@Transactional` (dans le contrôleur, par exemple) arrive trop tard : la transaction est déjà validée.
+
+  **En entretien** : « Par défaut, Spring annule sur les exceptions non vérifiées et les `Error`, et valide sur les
+  exceptions vérifiées ; `rollbackFor` et `noRollbackFor` changent la règle. Une exception attrapée dans la méthode
+  n'annule rien. Et quand une méthode participante échoue, la transaction devient rollback-only : l'appelant qui
+  l'attrape obtient une `UnexpectedRollbackException` au commit. »
+cards:
+  - key: regle-par-defaut
+    format: course
+    question: "Quelle est la règle de rollback par défaut d'une méthode `@Transactional` ?"
+    choices:
+      - {text: "Rollback sur les exceptions non vérifiées et les `Error`, commit sur les vérifiées", correct: true}
+      - {text: "Rollback sur toute exception, qu'elle soit vérifiée ou non, et sur les `Error`", correct: false}
+      - {text: "Rollback sur les exceptions vérifiées, commit sur les exceptions non vérifiées", correct: false}
+      - {text: "Jamais de rollback automatique : il faut appeler `setRollbackOnly()` à la main", correct: false}
+    answer: "Une `RuntimeException` ou une `Error` qui sort de la méthode annule la transaction. Une exception vérifiée (`IOException`...) la laisse se valider, sauf si `rollbackFor` dit le contraire."
+  - key: origine-regle
+    format: course
+    question: "D'où vient la règle qui valide la transaction quand une exception vérifiée sort de la méthode ?"
+    choices:
+      - {text: "Des EJB : une exception vérifiée y était un résultat métier que l'appelant traite", correct: true}
+      - {text: "De JDBC : les pilotes valident d'eux-mêmes avant de lever une `SQLException`", correct: false}
+      - {text: "D'Hibernate : il ne sait pas annuler après une exception déclarée par `throws`", correct: false}
+      - {text: "Du compilateur Java, qui interdit de relancer une exception vérifiée dans un proxy", correct: false}
+    answer: "Spring a repris la convention des EJB. Pour annuler aussi sur une exception vérifiée, on ajoute `rollbackFor`, ou l'on fait hériter ses exceptions métier de `RuntimeException`."
+  - key: ce-qui-est-annule
+    format: course
+    question: "Une méthode `@Transactional` modifie une entité, envoie un e-mail, puis lève une `IllegalStateException`. Qu'annule le rollback ?"
+    choices:
+      - {text: "Les écritures en base faites dans la transaction", correct: true}
+      - {text: "Les écritures en base et l'envoi de l'e-mail", correct: false}
+      - {text: "Les écritures en base et l'état de l'objet Java", correct: false}
+      - {text: "Rien : l'exception arrive après l'envoi du mail", correct: false}
+    answer: "Le rollback ne concerne que la base. L'e-mail est parti, et l'objet en mémoire garde ses nouvelles valeurs. Pour envoyer l'e-mail seulement si tout réussit, on l'envoie après le commit (`@TransactionalEventListener`)."
+  - key: rollback-only
+    format: course
+    question: "Une méthode `@Transactional` appelée depuis une autre (propagation `REQUIRED`) lève une exception, que l'appelante attrape avant de continuer. Que devient la transaction ?"
+    choices:
+      - {text: "Elle est marquée rollback-only : le commit final échouera", correct: true}
+      - {text: "Elle se valide normalement, puisque l'exception est traitée", correct: false}
+      - {text: "Elle est annulée tout de suite, puis une nouvelle est ouverte", correct: false}
+      - {text: "Seules les écritures de la méthode appelée sont annulées", correct: false}
+    answer: "Les deux méthodes partagent la même transaction. L'exception qui traverse le proxy de la méthode appelée la marque rollback-only. Au commit, Spring annule tout et lève une `UnexpectedRollbackException`."
+  - key: vf-ioexception
+    format: true-false
+    question: "Sans attribut particulier, une `IOException` qui sort d'une méthode `@Transactional` annule la transaction."
+    truth: false
+    answer: "`IOException` est une exception vérifiée : la transaction est validée. Il faut `@Transactional(rollbackFor = IOException.class)` pour l'annuler."
+  - key: vf-runtime
+    format: true-false
+    question: "Sans attribut particulier, une `IllegalStateException` qui sort d'une méthode `@Transactional` annule la transaction."
+    truth: true
+    answer: "`IllegalStateException` hérite de `RuntimeException` : c'est le cas par défaut du rollback."
+  - key: vf-objets-memoire
+    format: true-false
+    question: "Après un rollback, les entités Java modifiées pendant la transaction reprennent leurs valeurs d'origine."
+    truth: false
+    answer: "Le rollback annule les écritures en base, pas l'état des objets en mémoire. Les entités sont détachées avec leurs valeurs modifiées : il faut les relire pour retrouver l'état de la base."
+  - key: vf-exception-attrapee
+    format: true-false
+    question: "Une exception attrapée dans la méthode `@Transactional` elle-même, sans être relancée, n'annule pas la transaction."
+    truth: true
+    answer: "Le proxy ne voit que ce qui sort de la méthode. Si elle se termine normalement, il valide la transaction, avec tout ce qui a été écrit avant l'exception."
+  - key: qcm-rollbackfor
+    format: multiple-choice
+    question: "Quelle annotation fait annuler la transaction quand la méthode lève une exception vérifiée ?"
+    choices:
+      - {text: "`@Transactional(rollbackFor = Exception.class)`", correct: true}
+      - {text: "`@Transactional(noRollbackFor = Exception.class)`", correct: false}
+      - {text: "`@Transactional(readOnly = false)`", correct: false}
+      - {text: "`@Transactional(propagation = Propagation.REQUIRES_NEW)`", correct: false}
+    answer: "`rollbackFor` ajoute des types d'exception qui déclenchent le rollback. `noRollbackFor` fait l'inverse, et la propagation ne change pas la règle d'annulation."
+  - key: qcm-unexpected
+    format: multiple-choice
+    question: "Quelle exception reçoit l'appelant quand il valide une transaction déjà marquée rollback-only ?"
+    choices:
+      - {text: "`UnexpectedRollbackException`", correct: true}
+      - {text: "`IllegalTransactionStateException`", correct: false}
+      - {text: "`TransactionSystemException`", correct: false}
+      - {text: "`HeuristicCompletionException`", correct: false}
+    answer: "Son message le dit : « Transaction silently rolled back because it has been marked as rollback-only ». Spring signale ainsi que le commit attendu n'a pas eu lieu."
+  - key: qcm-laquelle-valide
+    format: multiple-choice
+    question: "Laquelle de ces exceptions, sortie d'une méthode `@Transactional` sans attribut, laisse la transaction se valider ?"
+    choices:
+      - {text: "`java.io.IOException`", correct: true}
+      - {text: "`java.lang.IllegalArgumentException`", correct: false}
+      - {text: "`org.springframework.dao.DataIntegrityViolationException`", correct: false}
+      - {text: "`java.lang.NullPointerException`", correct: false}
+    answer: "Seule `IOException` est vérifiée. Les trois autres héritent de `RuntimeException`, y compris les exceptions d'accès aux données de Spring : elles annulent la transaction."
+  - key: qcm-annuler-sans-exception
+    format: multiple-choice
+    question: "Comment annules-tu la transaction en cours sans lever d'exception ?"
+    choices:
+      - {text: "`TransactionAspectSupport.currentTransactionStatus().setRollbackOnly()`", correct: true}
+      - {text: "`entityManager.clear()`, qui oublie toutes les entités gérées", correct: false}
+      - {text: "`TransactionSynchronizationManager.clear()`, qui délie la transaction", correct: false}
+      - {text: "`entityManager.detach(entite)` sur chaque entité modifiée", correct: false}
+    answer: "`setRollbackOnly()` marque la transaction : le proxy l'annulera à la sortie de la méthode. `clear` et `detach` oublient des entités, mais ce qui a déjà été envoyé à la base reste dans la transaction."
+  - key: trous-rollbackfor
+    format: fill-in
+    question: |-
+      Complète pour annuler la transaction aussi sur une `IOException` :
+      ```java
+      @Transactional(___ = IOException.class)
+      public void importer(Path fichier) throws IOException { ... }
+      ```
+    blanks:
+      - [rollbackFor]
+    answer: "`rollbackFor` ajoute `IOException` aux exceptions qui déclenchent le rollback."
+  - key: trous-norollbackfor
+    format: fill-in
+    question: |-
+      Complète pour que cette exception non vérifiée laisse la transaction se valider :
+      ```java
+      @Transactional(___ = StockFaibleException.class)
+      public void commander(Panier panier) { ... }
+      ```
+    blanks:
+      - [noRollbackFor]
+    answer: "`noRollbackFor` retire un type d'exception de la règle : la transaction est validée malgré elle."
+  - key: trous-setrollbackonly
+    format: fill-in
+    question: |-
+      Complète pour annuler la transaction sans lever d'exception :
+      ```java
+      if (!panier.estValide()) {
+          TransactionAspectSupport.currentTransactionStatus().___();
+          return Resultat.refuse();
+      }
+      ```
+    blanks:
+      - [setRollbackOnly]
+    answer: "`setRollbackOnly()` marque la transaction ; le proxy l'annule quand la méthode se termine."
+  - key: trous-after-commit
+    format: fill-in
+    question: |-
+      Complète pour envoyer l'e-mail seulement une fois la transaction validée :
+      ```java
+      @TransactionalEventListener(phase = TransactionPhase.___)
+      public void envoyerConfirmation(CommandeCreee evenement) { ... }
+      ```
+    blanks:
+      - [AFTER_COMMIT]
+    answer: "`AFTER_COMMIT` est d'ailleurs la phase par défaut. Si la transaction est annulée, l'écouteur n'est pas appelé."
+  - key: bug-exception-verifiee
+    format: bug-fix
+    question: |-
+      Quand la lecture du fichier lève une `IOException`, la ligne d'import reste en base. Quelle correction est la
+      bonne ?
+      ```java
+      @Transactional
+      public void importer(Path fichier) throws IOException {
+          imports.save(new Import(fichier.toString()));
+          for (String ligne : Files.readAllLines(fichier)) {
+              produits.save(Produit.depuis(ligne));
+          }
+      }
+      ```
+    choices:
+      - {text: "Écrire `@Transactional(rollbackFor = IOException.class)`", correct: true}
+      - {text: "Écrire `@Transactional(noRollbackFor = IOException.class)`", correct: false}
+      - {text: "Écrire `@Transactional(readOnly = true)` sur la méthode", correct: false}
+      - {text: "Attraper l'`IOException` dans la méthode et la journaliser", correct: false}
+    answer: |-
+      ```java
+      @Transactional(rollbackFor = IOException.class)
+      public void importer(Path fichier) throws IOException {
+      ```
+      `IOException` est vérifiée : par défaut, la transaction est validée avec ce qui a déjà été écrit. `rollbackFor`
+      l'ajoute aux exceptions qui annulent. L'attraper ferait pire : la méthode se terminerait normalement, donc commit.
+  - key: bug-exception-avalee
+    format: bug-fix
+    question: |-
+      Quand le stock manque, la commande est quand même enregistrée, sans que le stock ait bougé. Quelle correction
+      est la bonne ?
+      ```java
+      @Transactional
+      public void commander(Panier panier) {
+          try {
+              commandes.save(new Commande(panier));
+              stock.retirer(panier);   // lève StockInsuffisantException (non vérifiée)
+          } catch (StockInsuffisantException e) {
+              log.warn("stock insuffisant pour {}", panier.id(), e);
+          }
+      }
+      ```
+    choices:
+      - {text: "Relancer l'exception après l'avoir journalisée", correct: true}
+      - {text: "Ajouter `rollbackFor = StockInsuffisantException.class`", correct: false}
+      - {text: "Journaliser avec `log.error` plutôt qu'avec `log.warn`", correct: false}
+      - {text: "Ajouter `propagation = Propagation.REQUIRES_NEW`", correct: false}
+    answer: |-
+      ```java
+      } catch (StockInsuffisantException e) {
+          log.warn("stock insuffisant pour {}", panier.id(), e);
+          throw e;
+      }
+      ```
+      Le proxy ne voit que l'exception qui sort de la méthode. Attrapée et oubliée, elle laisse la méthode se terminer
+      normalement : commit, commande comprise. `rollbackFor` n'y change rien, puisque rien ne sort. On peut aussi
+      retirer le `try/catch` et journaliser plus haut.
+  - key: bug-rollback-only
+    format: bug-fix
+    question: |-
+      Le traitement d'un lot se termine par `UnexpectedRollbackException: Transaction silently rolled back because it
+      has been marked as rollback-only`, et aucun paiement n'est enregistré, même les acceptés. `payer` est une
+      méthode `@Transactional` d'un autre bean. Quelle correction est la bonne ?
+      ```java
+      @Transactional
+      public void traiterLot(List<Paiement> lot) {
+          for (Paiement paiement : lot) {
+              try {
+                  paiements.payer(paiement);   // lève PaiementRefuseException (non vérifiée)
+              } catch (PaiementRefuseException e) {
+                  refus.add(paiement);
+              }
+          }
+      }
+      ```
+    choices:
+      - {text: "Annoter `payer` avec `propagation = Propagation.REQUIRES_NEW`", correct: true}
+      - {text: "Ajouter `rollbackFor = PaiementRefuseException.class` à `traiterLot`", correct: false}
+      - {text: "Attraper `Exception` plutôt que `PaiementRefuseException`", correct: false}
+      - {text: "Ajouter `readOnly = true` à l'annotation de `traiterLot`", correct: false}
+    answer: |-
+      ```java
+      @Transactional(propagation = Propagation.REQUIRES_NEW)
+      public void payer(Paiement paiement) { ... }
+      ```
+      Avec la propagation par défaut, `payer` partage la transaction du lot : son exception la marque rollback-only, et
+      le commit final échoue. En `REQUIRES_NEW`, chaque paiement a sa propre transaction : un refus n'annule que la
+      sienne, et les paiements acceptés sont validés.
+  - key: bug-exception-apres-commit
+    format: bug-fix
+    question: |-
+      Quand le plafond est dépassé, le client reçoit une erreur, mais la commande est bien en base. `creer` est une
+      méthode `@Transactional`. Quelle correction est la bonne ?
+      ```java
+      @PostMapping("/commandes")
+      public CommandeDto creer(@RequestBody NouvelleCommande demande) {
+          Commande commande = commandeService.creer(demande);
+          if (commande.total() > plafond) {
+              throw new PlafondDepasseException(commande.total());
+          }
+          return CommandeDto.de(commande);
+      }
+      ```
+    choices:
+      - {text: "Vérifier le plafond dans `commandeService.creer`, avant d'enregistrer", correct: true}
+      - {text: "Annoter la méthode du contrôleur avec `@Transactional(readOnly = true)`", correct: false}
+      - {text: "Faire hériter `PlafondDepasseException` de `RuntimeException` plutôt que d'`Exception`", correct: false}
+      - {text: "Ajouter `rollbackFor = PlafondDepasseException.class` sur `commandeService.creer`", correct: false}
+    answer: |-
+      ```java
+      @Transactional
+      public Commande creer(NouvelleCommande demande) {
+          if (demande.total() > plafond) {
+              throw new PlafondDepasseException(demande.total());
+          }
+          return commandes.save(new Commande(demande));
+      }
+      ```
+      Quand `creer` rend la main, sa transaction est déjà validée : une exception levée ensuite dans le contrôleur
+      n'annule plus rien. La règle métier appartient au service, dans la transaction.
+  - key: situation-entretien-regle
+    format: scenario
+    question: "En entretien : « Une méthode `@Transactional` lève une exception métier qui hérite d'`Exception`. Les données sont-elles annulées ? » Que réponds-tu ?"
+    choices:
+      - {text: "Non : une exception vérifiée valide la transaction, sauf `rollbackFor`", correct: true}
+      - {text: "Oui : toute exception qui sort d'une méthode annule sa transaction", correct: false}
+      - {text: "Oui, mais seulement si la méthode est aussi en `readOnly = false`", correct: false}
+      - {text: "Non : Spring n'annule jamais rien sans un appel à `setRollbackOnly`", correct: false}
+    answer: "La règle par défaut annule sur `RuntimeException` et `Error` seulement. Pour une exception vérifiée, il faut `rollbackFor`, ou faire hériter l'exception métier de `RuntimeException`."
+  - key: situation-tout-annuler
+    format: scenario
+    question: "Ton équipe veut que toute exception, vérifiée ou non, annule les transactions de ses services. Que proposes-tu ?"
+    choices:
+      - {text: "Des exceptions métier non vérifiées, ou `rollbackFor = Exception.class` partout", correct: true}
+      - {text: "Passer toutes les méthodes en `propagation = Propagation.REQUIRES_NEW`", correct: false}
+      - {text: "Mettre `noRollbackFor = RuntimeException.class` sur chaque annotation", correct: false}
+      - {text: "Rien : c'est déjà le comportement par défaut de Spring Boot 4", correct: false}
+    answer: "La règle par défaut valide sur les exceptions vérifiées. Le plus simple est de faire hériter les exceptions métier de `RuntimeException` ; sinon, `rollbackFor = Exception.class` sur chaque `@Transactional`, éventuellement via une annotation composée."
+  - key: situation-objet-apres-rollback
+    format: scenario
+    question: "Après un rollback, ton collègue réutilise l'entité `Commande` qu'il avait modifiée et l'affiche : le statut montre « PAYÉE ». La base dit « EN ATTENTE ». Que lui expliques-tu ?"
+    choices:
+      - {text: "Le rollback n'agit que sur la base : il faut relire l'entité", correct: true}
+      - {text: "Le rollback a échoué : il faut relancer la transaction", correct: false}
+      - {text: "H2 ignore les rollbacks : en production, ce serait juste", correct: false}
+      - {text: "L'entité reste gérée et sera écrite à la transaction suivante", correct: false}
+    answer: "L'objet Java garde les valeurs qu'on lui a données ; seule la base est revenue en arrière. Après un rollback, les entités sont détachées et peuvent être fausses : on les relit."
+  - key: situation-email
+    format: scenario
+    question: "Un service envoie l'e-mail de confirmation dans la méthode `@Transactional` qui crée la commande. Parfois la commande est annulée, mais le client a reçu l'e-mail. Que proposes-tu ?"
+    choices:
+      - {text: "Publier un événement et l'envoyer dans un `@TransactionalEventListener`", correct: true}
+      - {text: "Envoyer l'e-mail au tout début de la méthode, avant d'écrire en base", correct: false}
+      - {text: "Ajouter `rollbackFor = MailException.class` sur la méthode du service", correct: false}
+      - {text: "Mettre l'envoi dans une méthode `REQUIRES_NEW` du même service", correct: false}
+    answer: "Un rollback ne rappelle pas un e-mail. Un `@TransactionalEventListener` (phase `AFTER_COMMIT` par défaut) ne s'exécute que si la transaction est validée."

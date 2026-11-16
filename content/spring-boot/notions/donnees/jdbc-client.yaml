@@ -1,0 +1,339 @@
+notion: jdbc-client
+lesson: |-
+  JPA n'est pas toujours le bon outil : un rapport en SQL compliqué, une mise à jour en masse, une table sans entité.
+  Spring JDBC exécute du **SQL écrit à la main**, sans contexte de persistance, sans chargement paresseux, sans
+  surprise.
+
+  **`JdbcClient`** (Spring 6.1 et plus) est l'interface moderne, fluide. Spring Boot en fournit un bean dès qu'une
+  `DataSource` existe, comme pour `JdbcTemplate` et `NamedParameterJdbcTemplate`.
+
+  ```java
+  record ProduitLigne(String nom, int prixUnitaire) {}
+
+  List<ProduitLigne> moinsChers = jdbc.sql("select nom, prix_unitaire from produit where prix_unitaire < :max")
+          .param("max", 10)
+          .query(ProduitLigne.class)
+          .list();
+
+  Optional<ProduitLigne> produit = jdbc.sql("select nom, prix_unitaire from produit where id = :id")
+          .param("id", id)
+          .query(ProduitLigne.class)
+          .optional();
+
+  int modifiees = jdbc.sql("update produit set stock = stock - :q where id = :id and stock >= :q")
+          .param("q", quantite)
+          .param("id", id)
+          .update();
+  ```
+
+  **Le résultat.**
+
+  | Méthode | Résultat |
+  |---|---|
+  | `.list()` | une liste, vide si rien ne correspond |
+  | `.optional()` | un `Optional` : vide si aucune ligne |
+  | `.single()` | exactement une ligne ; sinon `EmptyResultDataAccessException` (« Incorrect result size: expected 1, actual 0 ») |
+  | `.update()` | le nombre de lignes modifiées |
+
+  **Le mapping.** `.query(ProduitLigne.class)` remplit un record (ou une classe) d'après les **noms des colonnes** :
+  `prix_unitaire` va dans `prixUnitaire`. Une colonne manquante échoue ; un alias SQL (`prix as prix_unitaire`) règle
+  la différence. On peut aussi écrire le mapping soi-même : `.query((rs, n) -> new ProduitLigne(rs.getString("nom"),
+  rs.getInt("prix_unitaire")))`. Pour une seule valeur : `.query(Integer.class).single()`.
+
+  **`JdbcTemplate`**, l'interface historique, reste partout : `queryForObject(sql, Integer.class, args)` pour une seule
+  colonne, `query(sql, rowMapper, args)` pour des lignes, `update`, `batchUpdate` pour les insertions en masse.
+  Attention : `queryForObject(sql, ProduitLigne.class)` attend **une seule colonne** (« Incorrect column count:
+  expected 1, actual 2 »).
+
+  **Les paramètres, toujours.** Une valeur passe par `:nom` et `.param(...)`, jamais par concaténation : c'est ce
+  qui empêche l'injection SQL.
+
+  **Exceptions et transactions.** Les `SQLException` sont traduites en `DataAccessException`, non vérifiées et
+  précises : `DuplicateKeyException`, `DataIntegrityViolationException`, `EmptyResultDataAccessException`. Le code
+  JDBC participe aux transactions `@Transactional`, même mêlé à des repositories JPA. Mais une modification d'entité
+  pas encore envoyée par Hibernate est invisible pour une requête JDBC : on appelle `flush()` avant si besoin.
+
+  **En entretien** : « Pour du SQL écrit à la main, j'utilise `JdbcClient` : du SQL avec des paramètres nommés, un
+  mapping par record, `list`, `optional`, `single` ou `update`. C'est idéal pour les rapports et les traitements en
+  masse, sans le coût d'un contexte de persistance. Les erreurs deviennent des `DataAccessException`, et il participe
+  aux mêmes transactions que JPA. »
+cards:
+  - key: quand
+    format: course
+    question: "Dans une application Spring Data JPA, quand choisis-tu `JdbcClient` ?"
+    choices:
+      - {text: "Pour un rapport en SQL complexe, ou une mise à jour en masse", correct: true}
+      - {text: "Pour tout enregistrement d'entité, plus rapide qu'un `save`", correct: false}
+      - {text: "Pour charger une entité avec ses relations paresseuses", correct: false}
+      - {text: "Pour profiter du dirty checking sans écrire de transaction", correct: false}
+    answer: "`JdbcClient` exécute le SQL tel quel et renvoie des objets simples : pas d'entité gérée, pas de dirty checking. C'est le bon outil quand on sait exactement quel SQL on veut."
+  - key: mapping
+    format: course
+    question: "Comment `.query(ProduitLigne.class)` remplit-il le record `ProduitLigne(String nom, int prixUnitaire)` ?"
+    choices:
+      - {text: "D'après les noms des colonnes : `prix_unitaire` va dans `prixUnitaire`", correct: true}
+      - {text: "D'après l'ordre des colonnes, sans regarder leurs noms dans le résultat", correct: false}
+      - {text: "D'après les annotations `@Column` posées sur les composants du record", correct: false}
+      - {text: "D'après le type des colonnes : la première `int` va dans le premier `int`", correct: false}
+    answer: "Le nom de chaque colonne est comparé aux composants du record, en passant du `snake_case` au `camelCase`. Une colonne au nom différent demande un alias SQL."
+  - key: single-vide
+    format: course
+    question: "Que fait `.query(ProduitLigne.class).single()` quand la requête ne renvoie aucune ligne ?"
+    choices:
+      - {text: "Elle lève `EmptyResultDataAccessException`", correct: true}
+      - {text: "Elle renvoie `null`, sans aucune exception", correct: false}
+      - {text: "Elle renvoie un record aux valeurs par défaut", correct: false}
+      - {text: "Elle renvoie un `Optional` vide à l'appelant", correct: false}
+    answer: "« Incorrect result size: expected 1, actual 0 ». `single()` exige exactement une ligne ; `optional()` accepte l'absence."
+  - key: traduction
+    format: course
+    question: "Que devient une `SQLException` levée par le pilote pendant un appel à `JdbcClient` ?"
+    choices:
+      - {text: "Une `DataAccessException` non vérifiée, comme `DuplicateKeyException`", correct: true}
+      - {text: "Une `SQLException` vérifiée, à déclarer dans chaque `throws`", correct: false}
+      - {text: "Une `RuntimeException` générique, sans information sur la cause", correct: false}
+      - {text: "Rien : l'erreur est journalisée, et la méthode renvoie `null`", correct: false}
+    answer: "Spring traduit les codes d'erreur de la base en exceptions précises de sa hiérarchie `DataAccessException`, les mêmes qu'avec JPA. Elles sont non vérifiées, donc annulent la transaction."
+  - key: vf-bean-fourni
+    format: true-false
+    question: "Spring Boot fournit un bean `JdbcClient` dès qu'une `DataSource` est configurée."
+    truth: true
+    answer: "Comme `JdbcTemplate` et `NamedParameterJdbcTemplate`. Il suffit de l'injecter."
+  - key: vf-single-null
+    format: true-false
+    question: "`.query(ProduitLigne.class).single()` renvoie `null` quand aucune ligne ne correspond."
+    truth: false
+    answer: "Elle lève `EmptyResultDataAccessException`. Pour un résultat facultatif, `.optional()` renvoie un `Optional` vide."
+  - key: vf-meme-transaction
+    format: true-false
+    question: "Une méthode `@Transactional` peut appeler un repository JPA et `JdbcClient` dans la même transaction."
+    truth: true
+    answer: "Ils partagent la connexion de la transaction : tout est validé ou annulé ensemble. Seule précaution : un `flush()` avant une requête JDBC qui doit voir des modifications d'entités."
+  - key: vf-dirty-checking
+    format: true-false
+    question: "Modifier un record renvoyé par `JdbcClient` dans une transaction l'écrit en base au commit."
+    truth: false
+    answer: "Spring JDBC n'a ni entités gérées ni dirty checking : on écrit avec un `update` explicite. Un record est d'ailleurs immuable."
+  - key: qcm-zero-ou-un
+    format: multiple-choice
+    question: "Quelle méthode de `JdbcClient` convient à une requête qui renvoie au plus une ligne ?"
+    choices:
+      - {text: "`.optional()`", correct: true}
+      - {text: "`.single()`", correct: false}
+      - {text: "`.list()`", correct: false}
+      - {text: "`.update()`", correct: false}
+    answer: "`optional()` renvoie un `Optional` vide quand rien ne correspond. `single()` lèverait une exception, `list()` renverrait une liste."
+  - key: qcm-update
+    format: multiple-choice
+    question: "Que renvoie `jdbc.sql(\"update produit set stock = 0 where categorie = :c\").param(\"c\", \"livre\").update()` ?"
+    choices:
+      - {text: "Le nombre de lignes modifiées", correct: true}
+      - {text: "La liste des lignes modifiées", correct: false}
+      - {text: "Un booléen : modifié ou non", correct: false}
+      - {text: "La requête SQL réellement exécutée", correct: false}
+    answer: "Un `int`. Le comparer à 0 dit si la condition a trouvé des lignes : c'est la base d'une mise à jour conditionnelle atomique."
+  - key: qcm-doublon
+    format: multiple-choice
+    question: "Quelle exception reçoit-on quand un INSERT viole une clé unique ?"
+    choices:
+      - {text: "`DuplicateKeyException`", correct: true}
+      - {text: "`EmptyResultDataAccessException`", correct: false}
+      - {text: "`IncorrectResultSizeDataAccessException`", correct: false}
+      - {text: "`BadSqlGrammarException`", correct: false}
+    answer: "Spring traduit le code d'erreur de la base en `DuplicateKeyException`, une sous-classe de `DataIntegrityViolationException`. On peut l'attraper pour répondre 409."
+  - key: qcm-valeur-seule
+    format: multiple-choice
+    question: "Comment lis-tu un simple nombre, `select count(*) from produit`, avec `JdbcClient` ?"
+    choices:
+      - {text: "`.query(Long.class).single()`", correct: true}
+      - {text: "`.query(Produit.class).single()`", correct: false}
+      - {text: "`.update()`, qui renvoie le nombre", correct: false}
+      - {text: "`.query().listOfRows().size()`", correct: false}
+    answer: "Une classe simple (`Long`, `Integer`, `String`) lit la valeur de l'unique colonne. `update()` renvoie un nombre de lignes modifiées, pas le résultat d'un `select`."
+  - key: trous-param
+    format: fill-in
+    question: |-
+      Complète pour lier le paramètre nommé :
+      ```java
+      jdbc.sql("select nom, prix from produit where id = :id")
+              .___("id", id)
+              .query(ProduitLigne.class)
+              .optional();
+      ```
+    blanks:
+      - [param]
+    answer: "`.param(\"id\", id)` lie `:id` ; la valeur part à part de la requête, ce qui empêche l'injection SQL."
+  - key: trous-list
+    format: fill-in
+    question: |-
+      Complète pour obtenir toutes les lignes :
+      ```java
+      List<ProduitLigne> lignes = jdbc.sql("select nom, prix from produit")
+              .query(ProduitLigne.class)
+              .___();
+      ```
+    blanks:
+      - [list]
+    answer: "`.list()` renvoie toutes les lignes, ou une liste vide."
+  - key: trous-update
+    format: fill-in
+    question: |-
+      Complète pour exécuter la mise à jour et récupérer le nombre de lignes modifiées :
+      ```java
+      int n = jdbc.sql("update produit set stock = stock - 1 where id = :id and stock > 0")
+              .param("id", id)
+              .___();
+      ```
+    blanks:
+      - [update]
+    answer: "`.update()` exécute l'ordre et renvoie le nombre de lignes touchées : 0 si le stock était vide."
+  - key: trous-optional
+    format: fill-in
+    question: |-
+      Complète pour qu'un identifiant absent donne un résultat vide plutôt qu'une exception :
+      ```java
+      Optional<ProduitLigne> produit = jdbc.sql("select nom, prix from produit where id = :id")
+              .param("id", id)
+              .query(ProduitLigne.class)
+              .___();
+      ```
+    blanks:
+      - [optional]
+    answer: "`.optional()` renvoie un `Optional` vide quand aucune ligne ne correspond."
+  - key: bug-injection
+    format: bug-fix
+    question: |-
+      Un test de sécurité recherche le texte `' or '1'='1` et reçoit tous les clients. Quelle correction est la
+      bonne ?
+      ```java
+      public List<ClientLigne> rechercher(String nom) {
+          return jdbc.sql("select id, nom from client where nom = '" + nom + "'")
+                  .query(ClientLigne.class)
+                  .list();
+      }
+      ```
+    choices:
+      - {text: "Écrire `where nom = :nom` et passer la valeur par `.param(\"nom\", nom)`", correct: true}
+      - {text: "Retirer les apostrophes de `nom` avec `nom.replace(\"'\", \"\")` avant", correct: false}
+      - {text: "Mettre la recherche dans une méthode annotée `@Transactional(readOnly = true)`", correct: false}
+      - {text: "Remplacer `.list()` par `.single()` pour ne renvoyer qu'un seul client", correct: false}
+    answer: |-
+      ```java
+      return jdbc.sql("select id, nom from client where nom = :nom")
+              .param("nom", nom)
+              .query(ClientLigne.class)
+              .list();
+      ```
+      Concaténée, la saisie devient du SQL : la condition `or '1'='1'` est toujours vraie. Un paramètre transmet la
+      valeur à part, comme une donnée. Filtrer les apostrophes à la main laisse d'autres attaques passer.
+  - key: bug-single-absent
+    format: bug-fix
+    question: |-
+      `GET /produits/999` répond 500 avec `EmptyResultDataAccessException: Incorrect result size: expected 1, actual
+      0`. Le comportement attendu est un 404. Quelle correction est la bonne ?
+      ```java
+      public ProduitLigne trouver(long id) {
+          return jdbc.sql("select nom, prix from produit where id = :id")
+                  .param("id", id)
+                  .query(ProduitLigne.class)
+                  .single();
+      }
+      ```
+    choices:
+      - {text: "Utiliser `.optional()` puis `orElseThrow(() -> new ProduitIntrouvableException(id))`", correct: true}
+      - {text: "Utiliser `.list().get(0)`, qui renvoie la première ligne sans lever d'exception", correct: false}
+      - {text: "Annoter la méthode `@Transactional`, pour que `single()` attende la ligne en base", correct: false}
+      - {text: "Ajouter `limit 1` à la requête, pour que `single()` reçoive toujours une ligne", correct: false}
+    answer: |-
+      ```java
+      return jdbc.sql("select nom, prix from produit where id = :id")
+              .param("id", id)
+              .query(ProduitLigne.class)
+              .optional()
+              .orElseThrow(() -> new ProduitIntrouvableException(id));
+      ```
+      `single()` exige une ligne. `optional()` rend l'absence explicite, et l'exception métier devient un 404.
+      `list().get(0)` lèverait une `IndexOutOfBoundsException`.
+  - key: bug-query-for-object
+    format: bug-fix
+    question: |-
+      L'appel échoue : `IncorrectResultSetColumnCountException: Incorrect column count: expected 1, actual 2`. Quelle
+      correction est la bonne ?
+      ```java
+      record ProduitLigne(String nom, int prix) {}
+
+      ProduitLigne produit = jdbcTemplate.queryForObject(
+              "select nom, prix from produit where nom = ?", ProduitLigne.class, "kiwi");
+      ```
+    choices:
+      - {text: "Passer par `jdbcClient` et `.query(ProduitLigne.class).single()`", correct: true}
+      - {text: "Ne sélectionner que `nom` dans la requête, et garder le reste", correct: false}
+      - {text: "Remplacer `ProduitLigne.class` par `Object[].class` dans l'appel", correct: false}
+      - {text: "Remplacer le record par une classe avec un constructeur vide", correct: false}
+    answer: |-
+      ```java
+      ProduitLigne produit = jdbcClient.sql("select nom, prix from produit where nom = ?")
+              .param("kiwi")
+              .query(ProduitLigne.class)
+              .single();
+      ```
+      `queryForObject(sql, Class, args)` lit **une seule colonne** et la convertit dans la classe donnée. Pour
+      remplir un objet de plusieurs colonnes, il faut un mapping de lignes : celui de `JdbcClient`, ou
+      `jdbcTemplate.queryForObject(sql, new DataClassRowMapper<>(ProduitLigne.class), "kiwi")`.
+  - key: bug-colonne-absente
+    format: bug-fix
+    question: |-
+      La requête échoue : `BadSqlGrammarException`, causée par `Column "prixUnitaire" not found`. La table a une colonne
+      `prix`. Quelle correction est la bonne ?
+      ```java
+      record Tarif(String nom, int prixUnitaire) {}
+
+      List<Tarif> tarifs = jdbc.sql("select nom, prix from produit").query(Tarif.class).list();
+      ```
+    choices:
+      - {text: "Écrire `select nom, prix as prix_unitaire from produit`", correct: true}
+      - {text: "Écrire `select nom, prix from produit order by prix`", correct: false}
+      - {text: "Annoter le composant du record avec `@Column(name = \"prix\")`", correct: false}
+      - {text: "Remplacer `.list()` par `.optional()` en fin de chaîne", correct: false}
+    answer: |-
+      ```java
+      jdbc.sql("select nom, prix as prix_unitaire from produit").query(Tarif.class).list();
+      ```
+      Le mapping cherche, pour chaque composant du record, une colonne du même nom (`prixUnitaire` ou
+      `prix_unitaire`). L'alias donne à la colonne le nom attendu. `@Column` est une annotation JPA, ignorée ici.
+  - key: situation-rapport
+    format: scenario
+    question: "Le rapport mensuel demande une requête de 40 lignes avec agrégats et fonctions de fenêtrage. Le JPQL ne sait pas l'écrire. Que proposes-tu ?"
+    choices:
+      - {text: "La requête SQL dans `JdbcClient`, mappée vers des records", correct: true}
+      - {text: "Charger toutes les entités et calculer le rapport en Java", correct: false}
+      - {text: "Créer une entité JPA par ligne du rapport, avec `@Entity`", correct: false}
+      - {text: "Découper le calcul en quarante requêtes dérivées simples", correct: false}
+    answer: "Le SQL natif dit exactement ce qu'on veut, et la base fait le calcul. `JdbcClient` le lance avec des paramètres et remplit des records, sans entités ni contexte de persistance."
+  - key: situation-jpa-puis-jdbc
+    format: scenario
+    question: "Dans une transaction, ton collègue modifie le prix d'une entité, puis lit les prix avec `JdbcClient` : il voit l'ancien prix. Que lui expliques-tu ?"
+    choices:
+      - {text: "Hibernate n'a pas encore envoyé l'UPDATE : un `flush()` avant la requête", correct: true}
+      - {text: "`JdbcClient` lit dans une autre transaction : il faut `REQUIRES_NEW`", correct: false}
+      - {text: "`JdbcClient` lit le cache de second niveau d'Hibernate, pas la base", correct: false}
+      - {text: "Il faut appeler `save` : sans lui, la modification ne partira jamais", correct: false}
+    answer: "Hibernate retarde les écritures jusqu'au flush (au commit, ou avant ses propres requêtes). Une requête JDBC passe à côté de lui : elle voit la base telle qu'elle est. `entityManager.flush()` ou `saveAndFlush` envoie l'UPDATE d'abord, dans la même transaction."
+  - key: situation-insertion-masse
+    format: scenario
+    question: "Un import quotidien insère 200 000 lignes avec `saveAll` ; il prend 20 minutes et sature la mémoire. Les lignes n'ont ni relation ni règle métier. Que proposes-tu ?"
+    choices:
+      - {text: "Des insertions par lots avec `jdbcTemplate.batchUpdate`", correct: true}
+      - {text: "Un `save` par ligne, chacun dans sa propre transaction", correct: false}
+      - {text: "Charger les 200 000 lignes en `EAGER` avant l'import", correct: false}
+      - {text: "Un `saveAll` en `readOnly = true` pour économiser la mémoire", correct: false}
+    answer: "Chaque entité de `saveAll` reste gérée jusqu'au commit, avec son instantané. `batchUpdate` envoie les INSERT par paquets, sans contexte de persistance. Une transaction par ligne serait encore plus lente."
+  - key: situation-entretien-jdbc
+    format: scenario
+    question: "En entretien : « JPA ou JdbcClient, comment choisis-tu ? » Que réponds-tu ?"
+    choices:
+      - {text: "JPA pour le modèle métier et ses écritures, JdbcClient pour le SQL de lecture et de masse", correct: true}
+      - {text: "JdbcClient partout : JPA est déconseillé depuis Spring Boot 4 et Hibernate 7", correct: false}
+      - {text: "JPA partout : JdbcClient ne participe pas aux transactions `@Transactional`", correct: false}
+      - {text: "JdbcClient pour les écritures, JPA pour les lectures, car il les met en cache", correct: false}
+    answer: "JPA apporte le mapping des relations, le dirty checking, les cascades : utile pour faire vivre le modèle. Pour un rapport, un export ou une mise à jour en masse, le SQL direct est plus simple et plus rapide. Les deux partagent les mêmes transactions."

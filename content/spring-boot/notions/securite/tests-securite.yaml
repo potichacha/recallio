@@ -1,0 +1,308 @@
+notion: tests-securite
+lesson: |-
+  Une règle de sécurité non testée finit par s'ouvrir sans que personne le voie. La bibliothèque
+  **`spring-security-test`** simule des utilisateurs dans les tests, sans serveur d'autorisation ni vraie connexion.
+
+  **Simuler un utilisateur par annotation.**
+
+  ```java
+  @WebMvcTest(ProduitController.class)
+  @Import(SecurityConfig.class)
+  class ProduitControllerTest {
+
+      @Autowired
+      MockMvc mvc;
+
+      @MockitoBean
+      ProduitService produits;
+
+      @Test
+      void unAnonymeNePeutPasSupprimer() throws Exception {
+          mvc.perform(delete("/api/produits/42").with(csrf()))
+                  .andExpect(status().isUnauthorized());          // 401 avec HTTP Basic
+      }
+
+      @Test
+      @WithMockUser(roles = "CLIENT")
+      void unClientNePeutPasSupprimer() throws Exception {
+          mvc.perform(delete("/api/produits/42").with(csrf()))
+                  .andExpect(status().isForbidden());
+      }
+
+      @Test
+      @WithMockUser(roles = "ADMIN")
+      void unAdministrateurSupprime() throws Exception {
+          mvc.perform(delete("/api/produits/42").with(csrf()))
+                  .andExpect(status().isNoContent());
+      }
+  }
+  ```
+
+  | Outil | Simule |
+  |---|---|
+  | `@WithMockUser` | l'utilisateur `user`, rôle `USER` ; ou `@WithMockUser(username = "ana", roles = "ADMIN")` |
+  | `@WithAnonymousUser` | un visiteur anonyme |
+  | `@WithUserDetails("ana@exemple.fr")` | l'utilisateur chargé par le `UserDetailsService` de l'application |
+  | `.with(user("ana").roles("ADMIN"))` | un utilisateur, pour une seule requête |
+  | `.with(jwt())` | une requête authentifiée par JWT, sans émetteur réel |
+  | `.with(jwt().authorities(new SimpleGrantedAuthority("SCOPE_admin")))` | un JWT avec ses autorités |
+  | `.with(csrf())` | un jeton CSRF valide |
+
+  Les post-processeurs (`user`, `jwt`, `csrf`) viennent de `SecurityMockMvcRequestPostProcessors`. `roles` ajoute le
+  préfixe `ROLE_` et refuse un rôle qui le porte déjà ; `authorities` prend les autorités telles quelles.
+
+  **Trois pièges.**
+
+  - **La configuration absente.** `@WebMvcTest` ne charge que la couche web : contrôleurs, advices, filtres... mais pas
+    les classes `@Configuration` ordinaires. Sans `@Import(SecurityConfig.class)`, le test tourne avec la sécurité par
+    défaut de Spring Boot (tout protégé, CSRF actif), et non avec tes règles.
+  - **Le CSRF.** Tant que la protection est active, un `POST`, `PUT` ou `DELETE` de test sans `.with(csrf())` reçoit
+    403, même avec un utilisateur simulé.
+  - **Les autorités d'un JWT.** `.with(jwt())` seul ne donne que des autorités par défaut : pour une règle
+    `hasAuthority("SCOPE_admin")`, on fournit cette autorité.
+
+  **Que tester ?** Pour chaque règle : un **refus** (anonyme : 401 ; rôle insuffisant : 403) et une **réussite**. Les
+  refus comptent le plus : ce sont eux qui disparaissent en silence quand une règle est déplacée.
+
+  **En entretien** : « Avec `spring-security-test`, je simule l'utilisateur par `@WithMockUser` ou `.with(jwt())`, et
+  j'ajoute `.with(csrf())` aux requêtes qui modifient. Dans un `@WebMvcTest`, j'importe ma configuration de sécurité.
+  Je teste surtout les refus : 401 pour un anonyme, 403 pour un rôle insuffisant. »
+cards:
+  - key: utilisateur-par-defaut
+    format: course
+    question: "Quel utilisateur `@WithMockUser`, sans attribut, simule-t-il ?"
+    choices:
+      - {text: "`user`, avec le rôle `USER`", correct: true}
+      - {text: "`admin`, avec le rôle `ADMIN`", correct: false}
+      - {text: "Un utilisateur anonyme, sans rôle", correct: false}
+      - {text: "`test`, avec toutes les autorités", correct: false}
+    answer: "Les valeurs par défaut sont `username = \"user\"`, `password = \"password\"` et `roles = \"USER\"`. On les change par les attributs de l'annotation."
+  - key: simuler-un-jwt
+    format: course
+    question: "Comment simules-tu une requête authentifiée par JWT dans un test MockMvc, sans serveur d'autorisation ?"
+    choices:
+      - {text: "Avec `.with(jwt())`, de `SecurityMockMvcRequestPostProcessors`", correct: true}
+      - {text: "Avec un vrai jeton demandé à Keycloak avant chaque test", correct: false}
+      - {text: "Avec `@WithMockUser`, qui produit aussi un JWT signé", correct: false}
+      - {text: "Avec l'en-tête `Authorization: Bearer test` sur la requête", correct: false}
+    answer: "Le post-processeur place directement une authentification JWT dans le contexte, sans jeton à décoder. Un en-tête inventé serait rejeté par le décodeur."
+  - key: role-de-withuserdetails
+    format: course
+    question: "Que fait `@WithUserDetails(\"ana@exemple.fr\")` sur un test ?"
+    choices:
+      - {text: "Il charge cet utilisateur par le `UserDetailsService` de l'application", correct: true}
+      - {text: "Il crée un utilisateur fictif nommé `ana@exemple.fr`, rôle `USER`", correct: false}
+      - {text: "Il envoie un courriel de test à cette adresse", correct: false}
+      - {text: "Il connecte cet utilisateur par le formulaire de connexion", correct: false}
+    answer: "L'utilisateur simulé a les vrais rôles et le vrai principal de l'application, tels que les charge ton `UserDetailsService`. Il faut que ce bean existe dans le contexte du test."
+  - key: configuration-ignoree
+    format: course
+    question: "Pourquoi un test `@WebMvcTest` peut-il ignorer les règles de ta classe `SecurityConfig` ?"
+    choices:
+      - {text: "La tranche ne charge pas les classes `@Configuration` : il faut `@Import(SecurityConfig.class)`", correct: true}
+      - {text: "Spring Security est toujours désactivé dans les tests MockMvc, quoi qu'on fasse", correct: false}
+      - {text: "Les règles ne s'appliquent qu'aux requêtes envoyées sur un vrai port réseau", correct: false}
+      - {text: "La configuration n'est lue qu'au second test exécuté dans la même classe", correct: false}
+    answer: "`@WebMvcTest` charge la couche web et la sécurité par défaut de Spring Boot, mais pas tes classes de configuration. `@Import` ajoute la tienne."
+  - key: vf-anonyme-et-http-basic
+    format: true-false
+    question: "Sans utilisateur simulé, une requête de test vers un point d'entrée protégé par HTTP Basic seul reçoit 401."
+    truth: true
+    answer: "L'`AuthenticationEntryPoint` de HTTP Basic répond 401 avec `WWW-Authenticate: Basic`. Avec un formulaire de connexion, ce serait une redirection vers `/login`."
+  - key: vf-roles-et-prefixe
+    format: true-false
+    question: "`@WithMockUser(roles = \"ADMIN\")` donne l'autorité `ROLE_ADMIN`."
+    truth: true
+    answer: "`roles` ajoute le préfixe, comme `User.withUsername(...).roles(...)`. Pour des autorités exactes : `authorities = \"SCOPE_lire\"`."
+  - key: vf-csrf-et-utilisateur-simule
+    format: true-false
+    question: "Dans un test MockMvc, un `POST` avec `@WithMockUser` passe la protection CSRF sans rien ajouter."
+    truth: false
+    answer: "Simuler l'utilisateur ne fournit pas de jeton CSRF : la requête reçoit 403. `.with(csrf())` ajoute un jeton valide."
+  - key: vf-jwt-avec-autorites
+    format: true-false
+    question: "`.with(jwt().authorities(new SimpleGrantedAuthority(\"SCOPE_lire\")))` simule un JWT qui porte l'autorité `SCOPE_lire`."
+    truth: true
+    answer: "On fixe les autorités directement ; `.jwt(j -> j.claim(\"email\", \"ana@exemple.fr\"))` règle les claims du jeton simulé."
+  - key: qcm-tester-un-refus
+    format: multiple-choice
+    question: "Comment vérifies-tu qu'un simple client ne peut pas supprimer un produit ?"
+    choices:
+      - {text: "`@WithMockUser(roles = \"CLIENT\")`, puis `status().isForbidden()`", correct: true}
+      - {text: "`@WithMockUser(roles = \"ADMIN\")`, puis `status().isOk()`", correct: false}
+      - {text: "Sans utilisateur simulé, puis `status().isForbidden()`", correct: false}
+      - {text: "`@WithAnonymousUser`, puis `status().isOk()`", correct: false}
+    answer: "Un utilisateur authentifié sans le bon rôle reçoit 403. Sans utilisateur, ce serait 401 (ou une redirection) : un autre cas, à tester aussi."
+  - key: qcm-utilisateur-d-une-requete
+    format: multiple-choice
+    question: "Quelle écriture simule un administrateur pour une seule requête MockMvc ?"
+    choices:
+      - {text: "`.with(user(\"ana\").roles(\"ADMIN\"))`", correct: true}
+      - {text: "`.with(admin(\"ana\"))`", correct: false}
+      - {text: "`.header(\"Role\", \"ADMIN\")`", correct: false}
+      - {text: "`.with(roles(\"ADMIN\"))`", correct: false}
+    answer: "`user(...)` vient de `SecurityMockMvcRequestPostProcessors`. Un en-tête inventé ne change rien à l'authentification."
+  - key: qcm-dependance-de-test
+    format: multiple-choice
+    question: "Quelle bibliothèque apporte `@WithMockUser` et `jwt()` ?"
+    choices:
+      - {text: "`spring-security-test`", correct: true}
+      - {text: "`spring-security-oauth2-jose`", correct: false}
+      - {text: "`mockito-security`", correct: false}
+      - {text: "`spring-boot-starter-security` seul", correct: false}
+    answer: "`spring-security-test` contient les annotations et les post-processeurs MockMvc. `spring-security-oauth2-jose` décode les vrais JWT ; le starter de sécurité ne contient rien pour les tests."
+  - key: qcm-post-sans-csrf
+    format: multiple-choice
+    question: "Que reçoit un `POST` de test, avec `@WithMockUser` mais sans `.with(csrf())`, quand la protection CSRF est active ?"
+    choices:
+      - {text: "403 Forbidden", correct: true}
+      - {text: "401 Unauthorized", correct: false}
+      - {text: "200 OK", correct: false}
+      - {text: "400 Bad Request", correct: false}
+    answer: "Le `CsrfFilter` refuse la requête avant le contrôleur, quel que soit l'utilisateur."
+  - key: trous-withmockuser
+    format: fill-in
+    question: |-
+      Complète pour simuler un administrateur :
+      ```java
+      @Test
+      @___(roles = "ADMIN")
+      void unAdministrateurSupprimeUnProduit() throws Exception {
+      ```
+    blanks:
+      - [WithMockUser]
+    answer: "`@WithMockUser` place un utilisateur simulé dans le contexte de sécurité du test."
+  - key: trous-jwt
+    format: fill-in
+    question: |-
+      Complète pour envoyer une requête authentifiée par un JWT simulé :
+      ```java
+      mvc.perform(get("/api/commandes").with(___()))
+              .andExpect(status().isOk());
+      ```
+    blanks:
+      - [jwt]
+    answer: "`jwt()` simule l'authentification d'un resource server, sans émetteur réel."
+  - key: trous-csrf
+    format: fill-in
+    question: |-
+      Complète pour que le `POST` porte un jeton CSRF valide :
+      ```java
+      mvc.perform(post("/api/produits").with(___())
+              .contentType(MediaType.APPLICATION_JSON)
+              .content(json))
+      ```
+    blanks:
+      - [csrf]
+    answer: "`csrf()` ajoute un jeton valide à la requête de test."
+  - key: trous-import
+    format: fill-in
+    question: |-
+      Complète pour que le test applique tes règles de sécurité :
+      ```java
+      @WebMvcTest(ProduitController.class)
+      @___(SecurityConfig.class)
+      class ProduitControllerTest {
+      ```
+    blanks:
+      - [Import]
+    answer: "`@Import` ajoute la classe de configuration au contexte réduit de `@WebMvcTest`."
+  - key: bug-post-sans-csrf
+    format: bug-fix
+    question: |-
+      Ce test reçoit 403 au lieu de 201, alors que l'utilisateur simulé a le bon rôle. Quelle correction est la
+      bonne ?
+      ```java
+      @Test
+      @WithMockUser(roles = "ADMIN")
+      void unAdministrateurCreeUnProduit() throws Exception {
+          mvc.perform(post("/api/produits")
+                          .contentType(MediaType.APPLICATION_JSON)
+                          .content("{\"nom\": \"stylo\"}"))
+                  .andExpect(status().isCreated());
+      }
+      ```
+    choices:
+      - {text: "Ajouter `.with(csrf())` à la requête", correct: true}
+      - {text: "Remplacer `roles = \"ADMIN\"` par `roles = \"ROLE_ADMIN\"`", correct: false}
+      - {text: "Ajouter `.with(httpBasic(\"user\", \"password\"))` à la requête", correct: false}
+      - {text: "Remplacer `post` par `get` dans la requête", correct: false}
+    answer: |-
+      ```java
+      mvc.perform(post("/api/produits").with(csrf())
+                      .contentType(MediaType.APPLICATION_JSON)
+                      .content("{\"nom\": \"stylo\"}"))
+      ```
+      La protection CSRF est active : sans jeton, le `POST` est refusé avant le contrôleur. Le rôle n'y est pour
+      rien.
+  - key: bug-role-prefixe-dans-le-test
+    format: bug-fix
+    question: |-
+      Ce test échoue avant même la requête : `roles` ne doit pas commencer par `ROLE_`. Quelle correction est la
+      bonne ?
+      ```java
+      @Test
+      @WithMockUser(roles = "ROLE_ADMIN")
+      void unAdministrateurVoitLesStatistiques() throws Exception {
+      ```
+    choices:
+      - {text: "Écrire `@WithMockUser(roles = \"ADMIN\")`", correct: true}
+      - {text: "Écrire `@WithMockUser(username = \"ROLE_ADMIN\")`", correct: false}
+      - {text: "Écrire `@WithMockUser(roles = \"admin\")`", correct: false}
+      - {text: "Écrire `@WithAnonymousUser` à la place", correct: false}
+    answer: |-
+      ```java
+      @WithMockUser(roles = "ADMIN")            // ou authorities = "ROLE_ADMIN"
+      ```
+      `roles` ajoute lui-même le préfixe et refuse qu'on le donne. En minuscules, le rôle deviendrait `ROLE_admin`,
+      que `hasRole("ADMIN")` ne reconnaît pas.
+  - key: bug-configuration-non-importee
+    format: bug-fix
+    question: |-
+      `GET /api/produits` est ouvert à tous en production (`permitAll`), mais ce test reçoit 401. Quelle correction
+      est la bonne ?
+      ```java
+      @WebMvcTest(ProduitController.class)
+      class ProduitControllerTest {
+
+          @Test
+          void unVisiteurVoitLesProduits() throws Exception {
+              mvc.perform(get("/api/produits")).andExpect(status().isOk());
+          }
+      }
+      ```
+    choices:
+      - {text: "Ajouter `@Import(SecurityConfig.class)` sur la classe de test", correct: true}
+      - {text: "Ajouter `@WithMockUser` sur la méthode de test", correct: false}
+      - {text: "Ajouter `.with(csrf())` à la requête `GET`", correct: false}
+      - {text: "Remplacer `@WebMvcTest` par `@DataJpaTest`", correct: false}
+    answer: |-
+      ```java
+      @WebMvcTest(ProduitController.class)
+      @Import(SecurityConfig.class)
+      class ProduitControllerTest {
+      ```
+      Sans ta configuration, le test applique la sécurité par défaut de Spring Boot, qui protège tout. `@WithMockUser`
+      ferait passer le test, mais ne vérifierait plus que la page est publique.
+  - key: bug-jwt-sans-autorite
+    format: bug-fix
+    question: |-
+      La règle exige `hasAuthority("SCOPE_admin")`. Ce test d'un administrateur reçoit 403. Quelle correction est la
+      bonne ?
+      ```java
+      mvc.perform(get("/api/admin/statistiques").with(jwt()))
+              .andExpect(status().isOk());
+      ```
+    choices:
+      - {text: "Écrire `.with(jwt().authorities(new SimpleGrantedAuthority(\"SCOPE_admin\")))`", correct: true}
+      - {text: "Ajouter `@WithMockUser(roles = \"ADMIN\")` en plus de `.with(jwt())`", correct: false}
+      - {text: "Ajouter `.with(csrf())` à la requête `GET`", correct: false}
+      - {text: "Écrire `.with(jwt().jwt(j -> j.subject(\"admin\")))`", correct: false}
+    answer: |-
+      ```java
+      mvc.perform(get("/api/admin/statistiques")
+                      .with(jwt().authorities(new SimpleGrantedAuthority("SCOPE_admin"))))
+              .andExpect(status().isOk());
+      ```
+      `jwt()` seul ne donne pas l'autorité exigée. Le nom de l'utilisateur (`subject`) ne change rien à ses
+      autorités.

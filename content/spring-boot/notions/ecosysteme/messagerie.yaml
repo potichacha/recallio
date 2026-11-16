@@ -1,0 +1,234 @@
+notion: messagerie
+lesson: |-
+  Un **système de messages** (un broker) découple deux services : l'émetteur publie un message et passe à la suite ;
+  le destinataire le traite quand il peut. On y gagne la résistance aux pics et aux pannes du destinataire, au prix
+  d'un traitement **asynchrone**, et d'erreurs plus difficiles à suivre.
+
+  **Kafka : un journal partitionné.** Un **topic** est découpé en **partitions** ; chaque message y reçoit un numéro,
+  son **offset**. Les messages **restent** dans le topic après lecture, jusqu'à la fin de la rétention (sept jours,
+  par exemple) : un nouveau lecteur peut relire l'historique.
+
+  - Un **groupe de consommateurs** (`groupId`) se répartit les partitions : chaque partition est lue par une seule
+    instance du groupe. Deux groupes différents lisent chacun tous les messages.
+  - **L'ordre n'est garanti qu'au sein d'une partition.** La **clé** du message choisit la partition : les messages
+    de même clé, comme l'identifiant d'une commande, restent dans l'ordre.
+  - Le consommateur enregistre son offset **après** le traitement : après une panne, un message peut être relu. C'est
+    la livraison « au moins une fois » ; le traitement doit donc être **idempotent**.
+
+  Avec Spring for Apache Kafka et le starter de Spring Boot :
+
+  ```properties
+  spring.kafka.bootstrap-servers=kafka:9092
+  spring.kafka.consumer.group-id=facturation
+  ```
+
+  ```java
+  @Service
+  class PublicationCommandes {
+      private final KafkaTemplate<String, CommandeCreee> kafka;
+
+      PublicationCommandes(KafkaTemplate<String, CommandeCreee> kafka) {
+          this.kafka = kafka;
+      }
+
+      void publier(CommandeCreee evenement) {
+          kafka.send("commandes", evenement.commandeId(), evenement);   // topic, clé, valeur
+      }
+  }
+
+  @Component
+  class Facturation {
+      @KafkaListener(topics = "commandes", groupId = "facturation")
+      void surCommande(CommandeCreee evenement) {
+          factures.creerPour(evenement);
+      }
+  }
+  ```
+
+  `send` n'attend pas l'acquittement du broker : il renvoie un `CompletableFuture`, qui se termine quand le broker a
+  répondu.
+
+  **Les erreurs.** Un message qui fait échouer l'écouteur est réessayé. S'il échoue toujours (un message
+  « empoisonné », mal formé), il ne doit pas bloquer sa partition : le gestionnaire d'erreurs de Spring Kafka
+  (`DefaultErrorHandler`) fait quelques tentatives espacées, puis confie le message à un **topic de lettres mortes**
+  (DLT), que l'on surveille.
+
+  **RabbitMQ : des files et du routage.** Le producteur publie sur un **exchange**, qui route le message vers des
+  **files** selon des **liaisons** (bindings) et une **clé de routage**. Un exchange `direct` route par clé exacte,
+  `topic` par motif (`commande.*`), `fanout` vers toutes les files liées. Un message **acquitté est retiré** de sa
+  file. Avec Spring AMQP :
+
+  ```java
+  rabbit.convertAndSend("boutique", "commande.creee", evenement);   // exchange, clé de routage, objet
+
+  @RabbitListener(queues = "facturation.commandes")
+  void surCommande(CommandeCreee evenement) { ... }
+  ```
+
+  | | Kafka | RabbitMQ |
+  |---|---|---|
+  | Modèle | un journal partitionné, relisible | des files, alimentées par des exchanges |
+  | Après lecture | le message reste, jusqu'à la rétention | le message acquitté disparaît |
+  | Ordre | par partition | par file, avec un seul consommateur |
+  | Points forts | gros débit, relecture, flux d'événements | routage fin, files de travail |
+
+  **La double écriture.** Enregistrer en base puis publier dans la même méthode n'est pas atomique : si le broker
+  tombe juste après le commit, l'événement est perdu ; si la publication part avant un rollback, elle annonce une
+  commande qui n'existe pas. Le remède est le **transactional outbox** : l'événement est écrit dans une table de la
+  même base, dans la même transaction, puis publié par un processus à part, qui réessaie jusqu'au succès.
+
+  Spring propose aussi JMS (`JmsTemplate`, `@JmsListener`), et Spring Cloud Stream, une abstraction au-dessus des
+  brokers.
+
+  **En entretien** : « Kafka est un journal partitionné : les messages restent, l'ordre est garanti par partition, et
+  un groupe de consommateurs se répartit les partitions. RabbitMQ route les messages vers des files, qui les retirent
+  une fois acquittés. Dans les deux cas, la livraison est au moins une fois : le consommateur doit être idempotent,
+  et l'outbox évite de perdre un événement entre la base et le broker. »
+cards:
+  - key: ordre-dans-kafka
+    format: course
+    question: "Dans Kafka, quel ordre des messages est garanti à un consommateur ?"
+    choices:
+      - {text: "L'ordre au sein d'une partition, d'où l'intérêt d'une clé stable", correct: true}
+      - {text: "L'ordre global du topic, quel que soit le nombre de partitions", correct: false}
+      - {text: "Aucun ordre : les messages arrivent dans un ordre aléatoire", correct: false}
+      - {text: "L'ordre d'arrivée sur le broker, à la milliseconde près", correct: false}
+    answer: "Chaque partition est un journal ordonné ; entre partitions, aucun ordre. Les messages de même clé vont dans la même partition, donc restent dans l'ordre."
+  - key: deux-instances-meme-groupe
+    format: course
+    question: "Deux instances de ton service écoutent le topic Kafka `commandes` avec le même `groupId`. Comment se partagent-elles les messages ?"
+    choices:
+      - {text: "Chaque partition est lue par une seule des deux instances", correct: true}
+      - {text: "Chaque message est lu par les deux instances, une fois chacune", correct: false}
+      - {text: "La première instance lit tout, la seconde attend une panne", correct: false}
+      - {text: "Les messages pairs vont à l'une, les messages impairs à l'autre", correct: false}
+    answer: "Un groupe se répartit les partitions. Pour que chaque instance reçoive tous les messages, il faudrait des groupes différents ; au-delà du nombre de partitions, une instance de plus reste inactive."
+  - key: conservation-kafka-rabbit
+    format: course
+    question: "Qu'est-ce qui distingue Kafka de RabbitMQ sur la conservation des messages ?"
+    choices:
+      - {text: "Kafka garde les messages après lecture, RabbitMQ les retire une fois acquittés", correct: true}
+      - {text: "RabbitMQ garde les messages après lecture, Kafka les retire une fois acquittés", correct: false}
+      - {text: "Les deux gardent chaque message tant qu'un administrateur ne l'efface pas", correct: false}
+      - {text: "Aucun des deux ne stocke les messages : ils passent en mémoire, puis disparaissent", correct: false}
+    answer: "Kafka est un journal : les messages restent jusqu'à la fin de la rétention, et chaque groupe avance son propre offset. RabbitMQ est une file : un message acquitté est retiré."
+  - key: role-exchange
+    format: course
+    question: "Dans RabbitMQ, à quoi sert un exchange ?"
+    choices:
+      - {text: "À recevoir les messages publiés, et à les router vers des files", correct: true}
+      - {text: "À stocker les messages jusqu'à ce qu'un consommateur les lise", correct: false}
+      - {text: "À convertir les objets Java en JSON avant leur envoi", correct: false}
+      - {text: "À répartir les partitions entre les consommateurs d'un groupe", correct: false}
+    answer: "Le producteur publie sur un exchange ; les liaisons (bindings) et la clé de routage décident des files qui reçoivent le message. Ce sont les files qui stockent."
+  - key: vf-relecture-apres-panne
+    format: true-false
+    question: "Avec la configuration par défaut d'un consommateur Kafka, un même message peut être traité deux fois après une panne."
+    truth: true
+    answer: "L'offset est enregistré après le traitement : si l'instance tombe entre les deux, le message est relu. C'est la livraison « au moins une fois », d'où des consommateurs idempotents."
+  - key: vf-autre-groupe-relit
+    format: true-false
+    question: "Un nouveau groupe de consommateurs Kafka peut relire des messages déjà lus par un autre groupe, tant qu'ils sont dans la rétention."
+    truth: true
+    answer: "Les messages ne sont pas retirés à la lecture. Chaque groupe a ses propres offsets : un nouveau groupe peut partir du début du topic."
+  - key: vf-send-asynchrone
+    format: true-false
+    question: "`kafkaTemplate.send(topic, cle, valeur)` attend l'acquittement du broker avant de rendre la main."
+    truth: false
+    answer: "Il renvoie un `CompletableFuture`, qui se termine quand le broker a répondu. Pour réagir à un échec d'envoi, on le compose (`whenComplete`) ; pour attendre, on appelle `join`."
+  - key: vf-double-ecriture
+    format: true-false
+    question: "Écrire en base puis publier sur Kafka dans la même méthode `@Transactional` rend les deux opérations atomiques."
+    truth: false
+    answer: "La transaction de la base ne couvre pas le broker : l'un peut réussir et l'autre échouer. Le transactional outbox écrit l'événement en base, dans la même transaction, puis le publie à part."
+  - key: qcm-kafka-listener
+    format: multiple-choice
+    question: "Quelle annotation fait d'une méthode un consommateur du topic `commandes`, dans le groupe `facturation` ?"
+    choices:
+      - {text: "`@KafkaListener(topics = \"commandes\", groupId = \"facturation\")`", correct: true}
+      - {text: "`@RabbitListener(queues = \"commandes\", group = \"facturation\")`", correct: false}
+      - {text: "`@EventListener(topic = \"commandes\", group = \"facturation\")`", correct: false}
+      - {text: "`@JmsListener(topics = \"commandes\", groupId = \"facturation\")`", correct: false}
+    answer: "`@KafkaListener` vient de Spring for Apache Kafka. `@RabbitListener` lit une file RabbitMQ, `@JmsListener` une destination JMS, et `@EventListener` les événements internes à l'application."
+  - key: qcm-cle-identifiant-commande
+    format: multiple-choice
+    question: "Pourquoi publies-tu les événements d'une commande avec l'identifiant de cette commande comme clé Kafka ?"
+    choices:
+      - {text: "Pour qu'ils aillent dans la même partition, et restent dans l'ordre", correct: true}
+      - {text: "Pour que Kafka chiffre le message avec cette clé avant l'envoi", correct: false}
+      - {text: "Pour que le broker refuse un second message de même clé", correct: false}
+      - {text: "Pour que le consommateur puisse le supprimer après lecture", correct: false}
+    answer: "La partition se choisit d'après la clé. « Créée », « payée », « expédiée » arrivent alors dans l'ordre au même consommateur."
+  - key: qcm-bootstrap-servers
+    format: multiple-choice
+    question: "Quelle propriété indique à Spring Boot l'adresse du cluster Kafka ?"
+    choices:
+      - {text: "`spring.kafka.bootstrap-servers`", correct: true}
+      - {text: "`spring.kafka.broker-url`", correct: false}
+      - {text: "`spring.kafka.consumer.host`", correct: false}
+      - {text: "`kafka.servers.list`", correct: false}
+    answer: "`spring.kafka.bootstrap-servers=kafka:9092` : le client y découvre ensuite tout le cluster. Les réglages propres aux consommateurs sont sous `spring.kafka.consumer.*`."
+  - key: qcm-convert-and-send
+    format: multiple-choice
+    question: "Quelle méthode de `RabbitTemplate` convertit un objet en message et le publie sur un exchange ?"
+    choices:
+      - {text: "`convertAndSend(exchange, routingKey, objet)`", correct: true}
+      - {text: "`send(topic, key, objet)`", correct: false}
+      - {text: "`publish(queue, objet)`", correct: false}
+      - {text: "`produce(exchange, objet)`", correct: false}
+    answer: "`convertAndSend` passe l'objet au convertisseur de messages, puis le publie avec sa clé de routage. `send(topic, key, valeur)` est la forme de `KafkaTemplate`."
+  - key: situation-debit-en-double
+    format: scenario
+    question: |-
+      Ton consommateur Kafka débite un compte à chaque message `PaiementAccepte`. Après un redémarrage, un client a été
+      débité deux fois. Que proposes-tu ?
+    choices:
+      - {text: "Rendre le traitement idempotent, en notant les messages déjà traités", correct: true}
+      - {text: "Régler le producteur sur `acks=0`, pour ne jamais renvoyer un message", correct: false}
+      - {text: "Remplacer Kafka par des appels `@Async` entre les deux services", correct: false}
+      - {text: "Augmenter le nombre de partitions du topic, pour lire plus vite", correct: false}
+    answer: |-
+      La livraison est au moins une fois : un message traité mais dont l'offset n'était pas encore enregistré est
+      relu. On garde l'identifiant de chaque paiement traité (une contrainte d'unicité en base suffit souvent), et l'on
+      ignore un message déjà vu. `acks=0` perdrait des messages sans empêcher la relecture.
+  - key: situation-message-empoisonne
+    format: scenario
+    question: |-
+      Un message mal formé fait échouer ton `@KafkaListener` en boucle, et plus aucun message de sa partition n'est
+      traité. Que proposes-tu ?
+    choices:
+      - {text: "Quelques tentatives, puis l'envoi du message dans un topic de lettres mortes", correct: true}
+      - {text: "Relancer le service en boucle, jusqu'à ce que le message finisse par passer", correct: false}
+      - {text: "Supprimer le topic, et demander au producteur de tout renvoyer", correct: false}
+      - {text: "Repartir du dernier offset à chaque démarrage, pour sauter ce qui bloque", correct: false}
+    answer: |-
+      Un message mal formé échouera toujours. Le `DefaultErrorHandler` de Spring Kafka fait quelques tentatives
+      espacées, puis le confie à un topic de lettres mortes (DLT) : la partition repart, et l'on examine le message à
+      part. Sauter au dernier offset perdrait aussi tous les messages sains.
+  - key: situation-outbox
+    format: scenario
+    question: |-
+      Ton service enregistre une commande, puis publie `CommandeCreee` sur Kafka. Si Kafka est indisponible juste
+      après le commit, l'événement est perdu. Que proposes-tu ?
+    choices:
+      - {text: "Écrire l'événement dans une table d'outbox, dans la même transaction, puis le publier à part", correct: true}
+      - {text: "Publier l'événement avant d'enregistrer la commande, pour qu'il parte en premier", correct: false}
+      - {text: "Entourer l'envoi d'un `try`, et ignorer l'erreur quand Kafka répond mal", correct: false}
+      - {text: "Annoter la méthode d'envoi avec `@Async`, pour qu'elle réessaie dans un autre thread", correct: false}
+    answer: |-
+      La commande et son événement sont validés ensemble, dans la même base. Un processus à part lit la table d'outbox
+      et publie sur Kafka, en réessayant jusqu'au succès. Publier avant d'enregistrer annoncerait des commandes
+      qu'un rollback aurait effacées.
+  - key: situation-rejouer-un-mois
+    format: scenario
+    question: |-
+      Ton équipe doit diffuser des événements métier à plusieurs services, et un futur service devra pouvoir relire le
+      dernier mois d'événements. Que proposes-tu ?
+    choices:
+      - {text: "Kafka : les messages restent dans le topic, et chaque groupe lit à son rythme", correct: true}
+      - {text: "RabbitMQ avec une seule file, lue à tour de rôle par tous les services", correct: false}
+      - {text: "Des appels REST synchrones, du service émetteur vers chaque service", correct: false}
+      - {text: "Une table partagée, que chaque service interroge toutes les minutes", correct: false}
+    answer: |-
+      Avec une rétention d'un mois, un nouveau groupe de consommateurs relit l'historique depuis le début. Une file
+      RabbitMQ partagée distribuerait chaque message à un seul service, puis l'effacerait.

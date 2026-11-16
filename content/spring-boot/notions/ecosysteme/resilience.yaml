@@ -1,0 +1,218 @@
+notion: resilience
+lesson: |-
+  Un appel à un autre service **échoue**, tôt ou tard : il est lent, injoignable, ou répond une erreur. La résilience
+  consiste à empêcher qu'une panne chez lui devienne une panne chez toi. Quatre outils, à combiner.
+
+  **1. Le délai d'attente (timeout), toujours.** Sans lui, un service qui ne répond plus bloque tes threads jusqu'à
+  épuisement, et ton API tombe avec lui. On règle un délai de connexion et un délai de lecture sur le client HTTP
+  (`RestClient`), courts et adaptés à chaque appel.
+
+  **2. La nouvelle tentative (retry)**, pour les erreurs **passagères** : une coupure réseau, une réponse 503. Deux
+  règles :
+
+  - ne réessayer que ce qui est **idempotent** (une lecture, un `PUT` complet), ou protégé par une **clé
+    d'idempotence** : réessayer un `POST /paiements` peut débiter deux fois ;
+  - espacer les tentatives, avec un délai **croissant** (backoff exponentiel) et une part de **hasard** (jitter),
+    pour ne pas assaillir en même temps un service qui se relève.
+
+  Spring Framework 7 l'intègre, sans dépendance de plus :
+
+  ```java
+  @Configuration
+  @EnableResilientMethods
+  class ResilienceConfig { }
+
+  @Service
+  class ClientTarifs {
+      @Retryable(includes = ResourceAccessException.class, maxRetries = 4,
+                 delay = 200, multiplier = 2, jitter = 50)
+      public Tarif tarif(String produit) {
+          return restClient.get().uri("/tarifs/{p}", produit).retrieve().body(Tarif.class);
+      }
+  }
+  ```
+
+  Sans attribut, `@Retryable` (`org.springframework.resilience.annotation`) fait jusqu'à **3 nouvelles tentatives**,
+  espacées d'**une seconde**. `includes` et `excludes` choisissent les exceptions à réessayer. Quand toutes les
+  tentatives ont échoué, l'appelant reçoit la **dernière exception** levée. Comme `@Async` ou `@Transactional`, c'est
+  un **proxy** : sans `@EnableResilientMethods` (Spring Boot ne l'active pas pour toi), ou par un appel `this`, rien
+  n'est réessayé. Dans du code, `RetryTemplate` fait la même chose :
+
+  ```java
+  var retry = new RetryTemplate(RetryPolicy.builder().maxRetries(3).delay(Duration.ofMillis(200)).build());
+  Tarif tarif = retry.invoke(() -> client.tarif("kiwi"));
+  ```
+
+  **3. Le disjoncteur (circuit breaker).** Quand un service est vraiment en panne, le réessayer l'achève. Le
+  disjoncteur compte les échecs :
+
+  | État | Comportement |
+  |---|---|
+  | **fermé** | les appels passent ; il compte les échecs |
+  | **ouvert** | au-delà d'un seuil (50 % d'échecs, par exemple), il **refuse aussitôt** les appels, sans contacter le service |
+  | **semi-ouvert** | après un délai, il laisse passer quelques appels d'essai : réussis, il se referme ; ratés, il se rouvre |
+
+  Un refus rapide libère tes threads et laisse le service se relever. On prévoit une **réponse de repli**
+  (fallback) : une fiche produit sans recommandations, un tarif en cache. Dans l'écosystème Spring, c'est
+  **Resilience4j** qui fournit le disjoncteur (Spring Cloud Circuit Breaker en offre une abstraction) ; Hystrix est
+  abandonné.
+
+  **4. Limiter.**
+
+  - La **cloison** (bulkhead) limite les appels **simultanés** vers un service : un service lent n'occupe pas tous
+    tes threads. Spring Framework 7 offre `@ConcurrencyLimit(10)` : au-delà, l'appel attend son tour, ou est refusé
+    avec la politique `REJECT` (`InvocationRejectedException`).
+  - Le **limiteur de débit** (rate limiter) borne le nombre d'appels **par seconde** : pour respecter le quota d'un
+    partenaire, ou pour protéger ton API, souvent dans la passerelle.
+
+  **L'ordre.** Un délai court sur chaque appel ; quelques tentatives espacées pour le passager ; un disjoncteur pour
+  le durable ; un repli pour l'utilisateur. Et tout cela se surveille : un disjoncteur qui s'ouvre est une alerte.
+
+  **En entretien** : « D'abord un timeout sur chaque appel distant. Puis des tentatives espacées, avec jitter,
+  seulement sur les opérations idempotentes : `@Retryable` de Spring Framework 7, ou Resilience4j. Un disjoncteur
+  coupe les appels vers un service en panne et sert un repli, et une cloison limite les appels simultanés. »
+cards:
+  - key: disjoncteur-ouvert
+    format: course
+    question: "Que fait un disjoncteur (circuit breaker) quand il est dans l'état ouvert ?"
+    choices:
+      - {text: "Il refuse aussitôt les appels, sans contacter le service en panne", correct: true}
+      - {text: "Il laisse passer tous les appels, et compte les échecs", correct: false}
+      - {text: "Il laisse passer quelques appels d'essai, pour tester le service", correct: false}
+      - {text: "Il met les appels en file, et les rejoue quand le service revient", correct: false}
+    answer: "Ouvert, il échoue vite : les threads sont libérés et le service a le temps de se relever. Fermé, il laisse passer et compte ; semi-ouvert, il fait des essais."
+  - key: quels-appels-reessayer
+    format: course
+    question: "Quels appels distants peut-on réessayer sans risque après une erreur réseau ?"
+    choices:
+      - {text: "Les opérations idempotentes, comme une lecture ou un `PUT` complet", correct: true}
+      - {text: "Tous les appels, puisque le premier a échoué de toute façon", correct: false}
+      - {text: "Seulement les `POST`, qui créent une ressource à chaque appel", correct: false}
+      - {text: "Aucun : une nouvelle tentative corrompt toujours les données", correct: false}
+    answer: "Après une erreur réseau, on ignore si le premier appel a été exécuté. Une opération idempotente peut être rejouée sans effet de plus ; un `POST` demande une clé d'idempotence."
+  - key: activer-retryable
+    format: course
+    question: "Que faut-il, avec Spring Framework 7, pour qu'une méthode annotée `@Retryable` soit vraiment réessayée ?"
+    choices:
+      - {text: "`@EnableResilientMethods` sur une configuration, et un appel qui passe par le proxy", correct: true}
+      - {text: "Rien : Spring Boot active `@Retryable` dès qu'une méthode lève une exception", correct: false}
+      - {text: "La dépendance Resilience4j, et un fichier `resilience.yml` à la racine du projet", correct: false}
+      - {text: "`@EnableAsync` sur une configuration, car les tentatives tournent dans un pool", correct: false}
+    answer: "`@Retryable` fonctionne par proxy, comme `@Transactional`. Sans `@EnableResilientMethods`, l'annotation est ignorée, même dans une application Spring Boot ; un appel par `this` la contourne aussi."
+  - key: pourquoi-backoff-et-jitter
+    format: course
+    question: "Pourquoi ajouter un délai croissant et une part de hasard (jitter) entre les nouvelles tentatives ?"
+    choices:
+      - {text: "Pour ne pas assaillir tous ensemble un service qui se relève", correct: true}
+      - {text: "Pour que les journaux d'erreurs soient plus faciles à lire", correct: false}
+      - {text: "Pour laisser à la JVM le temps de libérer de la mémoire", correct: false}
+      - {text: "Pour respecter la limite de trois tentatives imposée par HTTP", correct: false}
+    answer: "Sans délai ni hasard, des milliers de clients réessaient au même instant, et la vague de tentatives fait retomber le service. Le jitter étale ces vagues."
+  - key: vf-retryable-par-defaut
+    format: true-false
+    question: "Sans attribut, `@Retryable` de Spring Framework 7 fait jusqu'à 3 nouvelles tentatives, espacées d'une seconde."
+    truth: true
+    answer: "`maxRetries` vaut 3 et `delay` 1 000 ms par défaut : soit 4 appels au plus. `multiplier`, `jitter` et `maxDelay` règlent l'espacement."
+  - key: vf-derniere-exception
+    format: true-false
+    question: "Quand toutes les tentatives de `@Retryable` échouent, l'appelant reçoit la dernière exception levée par la méthode."
+    truth: true
+    answer: "La méthode annotée relance l'exception de la dernière tentative, telle quelle. C'est `RetryTemplate.execute` qui, lui, l'enveloppe dans une `RetryException`."
+  - key: vf-retry-sans-timeout
+    format: true-false
+    question: "Une nouvelle tentative protège d'un service qui ne répond plus du tout, même si l'appel n'a aucun délai d'attente."
+    truth: false
+    answer: "Sans délai d'attente, le premier appel reste bloqué : il n'échoue jamais, et aucune tentative ne part. Le timeout vient en premier."
+  - key: vf-concurrency-limit
+    format: true-false
+    question: "`@ConcurrencyLimit(10)` limite à dix le nombre d'exécutions simultanées de la méthode annotée."
+    truth: true
+    answer: "C'est une cloison (bulkhead) : au-delà, l'appel attend son tour, ou est refusé avec la politique `REJECT`. Elle limite le nombre d'appels en cours, pas un débit par seconde."
+  - key: qcm-semi-ouvert
+    format: multiple-choice
+    question: "Que fait un disjoncteur dans l'état semi-ouvert (half-open) ?"
+    choices:
+      - {text: "Il laisse passer quelques appels d'essai, pour décider s'il se referme", correct: true}
+      - {text: "Il refuse tous les appels pendant une durée fixée à l'avance", correct: false}
+      - {text: "Il laisse passer tous les appels, sans plus compter les échecs", correct: false}
+      - {text: "Il redémarre le service distant avant de laisser passer les appels", correct: false}
+    answer: "Après le délai d'ouverture, quelques appels testent le service : s'ils réussissent, le disjoncteur se referme ; sinon, il se rouvre."
+  - key: qcm-cloison
+    format: multiple-choice
+    question: "Quel mécanisme empêche un service lent d'occuper tous les threads de ton application ?"
+    choices:
+      - {text: "Une cloison (bulkhead), qui limite les appels simultanés vers lui", correct: true}
+      - {text: "Un disjoncteur réglé pour ne jamais s'ouvrir, quoi qu'il arrive", correct: false}
+      - {text: "Une nouvelle tentative immédiate à chaque erreur", correct: false}
+      - {text: "Un cache sans durée de vie sur toutes ses réponses", correct: false}
+    answer: "Comme les cloisons étanches d'un navire, elle confine la panne : au plus N threads attendent ce service, les autres servent le reste de l'application."
+  - key: qcm-repli-fiche-produit
+    format: multiple-choice
+    question: "Le service de recommandations est en panne. Quelle réponse de repli (fallback) est la plus raisonnable pour une fiche produit ?"
+    choices:
+      - {text: "Afficher la fiche sans recommandations, ou avec une liste par défaut", correct: true}
+      - {text: "Renvoyer une erreur 500 pour toute la fiche produit", correct: false}
+      - {text: "Réessayer en boucle jusqu'à ce que le service réponde", correct: false}
+      - {text: "Rediriger l'utilisateur vers la page d'accueil du site", correct: false}
+    answer: "Les recommandations sont accessoires : un mode dégradé garde l'essentiel en service. Réessayer en boucle bloquerait la page et chargerait le service en panne."
+  - key: qcm-quota-partenaire
+    format: multiple-choice
+    question: "Un partenaire t'autorise 100 appels par seconde vers son API. Quel mécanisme te protège d'un dépassement ?"
+    choices:
+      - {text: "Un limiteur de débit (rate limiter) côté client", correct: true}
+      - {text: "Un disjoncteur réglé à 100 échecs", correct: false}
+      - {text: "Un `@Retryable` avec `maxRetries = 100`", correct: false}
+      - {text: "Un `@ConcurrencyLimit(100)` sur la méthode d'appel", correct: false}
+    answer: "Le limiteur compte les appels par unité de temps. `@ConcurrencyLimit` borne les appels simultanés : cent appels de 10 ms chacun en feraient bien plus de cent par seconde."
+  - key: situation-tempete-de-tentatives
+    format: scenario
+    question: |-
+      Le service de paiement ralentit ; tes cinq services le réessaient chacun cinq fois, sans délai, et la panne
+      s'aggrave. Que proposes-tu ?
+    choices:
+      - {text: "Un disjoncteur, et des tentatives espacées avec jitter, pour le laisser se relever", correct: true}
+      - {text: "Passer à dix tentatives, pour augmenter les chances de succès", correct: false}
+      - {text: "Retirer tout délai entre les tentatives, pour échouer plus vite", correct: false}
+      - {text: "Appeler le paiement en `@Async`, sans changer les tentatives", correct: false}
+    answer: |-
+      Chaque appel lent en déclenche cinq autres : la charge est multipliée au pire moment. Espacer les tentatives,
+      puis couper les appels par un disjoncteur, réduit la charge et laisse le service revenir.
+  - key: situation-double-debit
+    format: scenario
+    question: |-
+      Ton `POST /paiements` vers un prestataire expire parfois. Un collègue a ajouté `@Retryable`, et des clients sont
+      maintenant débités deux fois. Que proposes-tu ?
+    choices:
+      - {text: "Une clé d'idempotence, envoyée avec chaque tentative et dédoublonnée", correct: true}
+      - {text: "Augmenter `maxRetries`, pour que la dernière tentative réussisse", correct: false}
+      - {text: "Réessayer seulement une heure plus tard, quand le premier appel est oublié", correct: false}
+      - {text: "Passer l'appel en `@Async`, pour ne pas bloquer le client pendant les essais", correct: false}
+    answer: |-
+      Un délai expiré ne dit pas si le paiement a eu lieu. La même clé, envoyée à chaque tentative (souvent dans un
+      en-tête `Idempotency-Key`), permet au prestataire de reconnaître la répétition et de ne débiter qu'une fois.
+  - key: situation-tomcat-sature
+    format: scenario
+    question: |-
+      Un service externe met trente secondes à répondre ; tous les threads de Tomcat l'attendent, et ton API ne répond
+      plus à personne. Que proposes-tu d'abord ?
+    choices:
+      - {text: "Un délai d'attente court sur le client HTTP, puis un disjoncteur", correct: true}
+      - {text: "Doubler le nombre de threads de Tomcat", correct: false}
+      - {text: "Ajouter `@Retryable` sur l'appel au service externe", correct: false}
+      - {text: "Mettre l'appel dans une transaction en lecture seule", correct: false}
+    answer: |-
+      Le délai d'attente rend les threads au bout de quelques secondes ; le disjoncteur refuse ensuite les appels
+      d'emblée. Plus de threads n'attendraient que plus longtemps, et `@Retryable` multiplierait l'attente.
+  - key: situation-erreurs-400-reessayees
+    format: scenario
+    question: |-
+      Ton `@Retryable` réessaie aussi les réponses 400 du service distant, qui échouent à chaque fois et allongent tes
+      temps de réponse. Que proposes-tu ?
+    choices:
+      - {text: "Limiter les tentatives aux erreurs passagères, avec `includes` ou `excludes`", correct: true}
+      - {text: "Passer `maxRetries` à 1, pour que l'erreur 400 ne revienne qu'une fois de plus", correct: false}
+      - {text: "Allonger `delay`, pour laisser au service distant le temps d'accepter la requête", correct: false}
+      - {text: "Retirer l'annotation, et réessayer à la main dans une boucle du contrôleur", correct: false}
+    answer: |-
+      Une 400 dit que la requête est fausse : la rejouer ne changera rien. On réessaie les erreurs réseau et les 5xx
+      (`includes = {ResourceAccessException.class, HttpServerErrorException.class}`), pas les 4xx.

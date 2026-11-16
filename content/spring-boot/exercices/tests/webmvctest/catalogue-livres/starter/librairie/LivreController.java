@@ -1,0 +1,30 @@
+package librairie;
+
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+@RestController
+@RequestMapping("/api/livres")
+public class LivreController {
+
+    private final CatalogueService catalogue;
+
+    public LivreController(CatalogueService catalogue) {
+        this.catalogue = catalogue;
+    }
+
+    @GetMapping("/{isbn}")
+    public Livre lire(@PathVariable String isbn) {
+        return catalogue.trouver(isbn).orElse(null);
+    }
+
+    @PostMapping
+    public Livre ajouter(@RequestBody Livre livre) {
+        catalogue.ajouter(livre);
+        return livre;
+    }
+}

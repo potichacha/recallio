@@ -1,0 +1,320 @@
+notion: validation-avancee
+lesson: |-
+  Au-delà de `@Valid` et des contraintes standard, Bean Validation sait valider **selon le contexte**, avec des
+  **règles maison**, et sur les **paramètres de méthode**.
+
+  **Les groupes.** Un même DTO sert à la création et à la mise à jour, avec des règles différentes. Un groupe est une
+  simple interface ; une contrainte dit à quels groupes elle appartient ; `@Validated` (de Spring, car `@Valid` ne prend
+  pas de groupe) choisit le groupe à valider :
+
+  ```java
+  public interface Creation {}
+  public interface MiseAJour {}
+
+  public record ProduitDto(
+          @Null(groups = Creation.class) @NotNull(groups = MiseAJour.class) Long id,
+          @NotBlank(groups = {Creation.class, MiseAJour.class}) String nom) {}
+
+  @PostMapping
+  public Produit creer(@Validated(Creation.class) @RequestBody ProduitDto produit) { ... }
+  ```
+
+  Attention : seuls les groupes demandés sont validés. Une contrainte **sans groupe** appartient au groupe `Default`, que
+  `@Validated(Creation.class)` **ignore**. On l'inclut avec `@Validated({Creation.class, Default.class})`, ou en
+  écrivant `interface Creation extends Default {}`.
+
+  **Une contrainte maison.** Une annotation et son validateur :
+
+  ```java
+  @Target({ElementType.FIELD, ElementType.PARAMETER})
+  @Retention(RetentionPolicy.RUNTIME)
+  @Constraint(validatedBy = CodePostalValidator.class)
+  public @interface CodePostal {
+      String message() default "code postal invalide";
+      Class<?>[] groups() default {};
+      Class<? extends Payload>[] payload() default {};
+  }
+
+  public class CodePostalValidator implements ConstraintValidator<CodePostal, String> {
+      @Override
+      public boolean isValid(String valeur, ConstraintValidatorContext contexte) {
+          return valeur == null || valeur.matches("\\d{5}");     // null : laissé à @NotNull
+      }
+  }
+  ```
+
+  - Sans `@Retention(RetentionPolicy.RUNTIME)`, l'annotation n'existe plus à l'exécution : la contrainte est **ignorée
+    sans erreur**.
+  - Sans `message`, `groups` ou `payload`, la validation échoue : « HV000074: ... contains Constraint annotation, but
+    does not contain a groups parameter. », donc une 500.
+  - Par convention, `isValid` renvoie `true` pour `null`.
+
+  **Une règle entre plusieurs champs** (la date de fin après la date de début) : une contrainte posée sur **la classe**
+  (`@Target(ElementType.TYPE)`), dont le validateur reçoit l'objet entier.
+
+  **Les éléments d'un conteneur.** `List<@NotBlank String> tags`, `Map<@NotBlank String, @Positive Integer> stock`.
+
+  **Les messages.** Ils interpolent les attributs : `@Size(min = 3, max = 20, message = "entre {min} et {max}
+  caractères")` ; une clé entre accolades est cherchée dans `ValidationMessages.properties`.
+
+  **Valider les paramètres de méthode.** Depuis Spring Framework 6.1, un contrôleur valide **lui-même** les contraintes
+  posées sur ses paramètres : `@RequestParam @Min(1) int page` répond **400** (`HandlerMethodValidationException`). Il
+  ne faut **pas** mettre `@Validated` sur la classe du contrôleur : la validation passe alors par un proxy AOP, qui lève
+  `ConstraintViolationException`, une 500 sans gestionnaire. `@Validated` sur la classe reste l'outil d'un **service**
+  qui veut valider ses paramètres (`transferer(@Positive long montant)`).
+
+  **En entretien** : « Les groupes, choisis par `@Validated(Groupe.class)`, adaptent les règles au cas d'usage, sans
+  oublier que `Default` n'est plus validé. Une contrainte maison, c'est une annotation `@Constraint` en `RUNTIME` avec
+  `message`, `groups` et `payload`, et un `ConstraintValidator`. Depuis Spring 6.1, les paramètres d'un contrôleur se
+  valident sans `@Validated`, et une violation répond 400. »
+cards:
+  - key: activer-un-groupe
+    format: course
+    question: "Comment demandes-tu de valider un `@RequestBody` avec le seul groupe `Creation` ?"
+    choices:
+      - {text: "Avec `@Validated(Creation.class)` sur le paramètre", correct: true}
+      - {text: "Avec `@Valid(Creation.class)` sur le paramètre", correct: false}
+      - {text: "Avec `@Creation` posé sur le paramètre", correct: false}
+      - {text: "Avec `@Group(Creation.class)` sur la méthode", correct: false}
+    answer: "`@Valid`, de Jakarta, n'a pas d'attribut : il valide le groupe `Default`. `@Validated`, de Spring, accepte la liste des groupes à valider."
+  - key: parties-d-une-contrainte
+    format: course
+    question: "Que doit déclarer une annotation de contrainte maison, en plus de `@Constraint(validatedBy = ...)` ?"
+    choices:
+      - {text: "Les attributs `message`, `groups` et `payload`", correct: true}
+      - {text: "Un attribut `value` et un constructeur par défaut", correct: false}
+      - {text: "Une méthode `isValid` et une méthode `validate`", correct: false}
+      - {text: "Les attributs `validator` et `order`", correct: false}
+    answer: "La spécification les exige ; sans eux, Hibernate Validator refuse la contrainte à la première validation (HV000074 pour `groups`). Ajoute aussi `@Retention(RUNTIME)`."
+  - key: regle-entre-deux-champs
+    format: course
+    question: "Comment vérifies-tu que `dateFin` est après `dateDebut`, dans le même objet ?"
+    choices:
+      - {text: "Avec une contrainte posée sur la classe, dont le validateur reçoit l'objet", correct: true}
+      - {text: "Avec `@Future` sur `dateFin`, qui la compare d'office à `dateDebut`", correct: false}
+      - {text: "Avec `@After(\"dateDebut\")` posé sur le champ `dateFin`", correct: false}
+      - {text: "Avec `@Size` posé sur les deux dates à la fois", correct: false}
+    answer: "Une contrainte de champ ne voit que son champ. Posée sur la classe (`@Target(TYPE)`), elle reçoit l'objet entier et compare ce qu'elle veut. `@Future` compare à aujourd'hui."
+  - key: validated-sur-un-controleur
+    format: course
+    question: "Que change `@Validated` posé sur la classe d'un contrôleur dont un `@RequestParam` porte `@Min(1)` ?"
+    choices:
+      - {text: "Une violation lève `ConstraintViolationException`, soit une 500 par défaut", correct: true}
+      - {text: "Rien : une violation répond toujours 400 Bad Request", correct: false}
+      - {text: "La contrainte `@Min(1)` n'est plus vérifiée du tout", correct: false}
+      - {text: "L'application refuse de démarrer", correct: false}
+    answer: "La validation passe alors par le proxy AOP de `MethodValidationPostProcessor`, qui lève `ConstraintViolationException`. Sans `@Validated`, Spring MVC valide lui-même et répond 400."
+  - key: vf-groupe-default-ignore
+    format: true-false
+    question: "Avec `@Validated(Creation.class)`, les contraintes sans groupe (le groupe `Default`) sont vérifiées aussi."
+    truth: false
+    answer: "Seul `Creation` est validé : un `@NotBlank` sans groupe laisse passer un nom vide. `@Validated({Creation.class, Default.class})`, ou `Creation extends Default`, les réunit."
+  - key: vf-retention-oubliee
+    format: true-false
+    question: "Une annotation de contrainte maison sans `@Retention(RetentionPolicy.RUNTIME)` est ignorée, sans erreur."
+    truth: true
+    answer: "La rétention par défaut est `CLASS` : l'annotation n'est pas visible par réflexion, Hibernate Validator ne la voit pas, et rien ne signale l'oubli."
+  - key: vf-validation-des-parametres
+    format: true-false
+    question: "Depuis Spring Framework 6.1, `@RequestParam @Min(1) int page` est validé sans `@Validated` sur la classe, et une violation répond 400."
+    truth: true
+    answer: "Spring MVC valide les paramètres qui portent des contraintes et lève `HandlerMethodValidationException`, traduite en 400."
+  - key: vf-elements-d-une-liste
+    format: true-false
+    question: "`List<@NotBlank String> tags`, dans un objet validé, vérifie chaque élément de la liste."
+    truth: true
+    answer: "Bean Validation 2 a introduit les contraintes sur les éléments de conteneur : listes, ensembles, clés et valeurs de `Map`, `Optional`."
+  - key: qcm-isvalid-et-null
+    format: multiple-choice
+    question: "Par convention, que renvoie `isValid` d'un validateur maison quand la valeur est `null` ?"
+    choices:
+      - {text: "`true` : on laisse `@NotNull` décider si `null` est permis", correct: true}
+      - {text: "`false` : une valeur absente n'est jamais valide", correct: false}
+      - {text: "Il lève une `NullPointerException`", correct: false}
+      - {text: "Il renvoie `null` et laisse le framework trancher", correct: false}
+    answer: "Ainsi la contrainte se combine : `@CodePostal` seul rend le champ facultatif, `@NotNull @CodePostal` le rend obligatoire. `isValid` renvoie un `boolean`, jamais `null`."
+  - key: qcm-groups-oublie
+    format: multiple-choice
+    question: "Une contrainte maison oublie l'attribut `groups()`. Que se passe-t-il à la validation ?"
+    choices:
+      - {text: "Une `ConstraintDefinitionException` (HV000074), donc une 500", correct: true}
+      - {text: "La contrainte s'applique au seul groupe `Default`", correct: false}
+      - {text: "La contrainte est ignorée, sans aucun message", correct: false}
+      - {text: "Le compilateur refuse l'annotation", correct: false}
+    answer: "Hibernate Validator vérifie la définition de la contrainte quand il la rencontre : « contains Constraint annotation, but does not contain a groups parameter. »"
+  - key: qcm-valider-un-service
+    format: multiple-choice
+    question: "Comment fais-tu valider les paramètres d'une méthode de service, comme `transferer(@Positive long montant)` ?"
+    choices:
+      - {text: "En annotant la classe du service avec `@Validated`", correct: true}
+      - {text: "En annotant seulement le paramètre avec `@Valid`", correct: false}
+      - {text: "Rien : Spring valide toutes les méthodes publiques", correct: false}
+      - {text: "En annotant la méthode avec `@RequestParam`", correct: false}
+    answer: "`@Validated` sur la classe fait créer un proxy qui valide paramètres et retours ; une violation lève `ConstraintViolationException`. Hors des contrôleurs, c'est le moyen prévu."
+  - key: qcm-interpolation
+    format: multiple-choice
+    question: "Quel message donne `@Size(min = 3, max = 20, message = \"entre {min} et {max} caractères\")` en cas de violation ?"
+    choices:
+      - {text: "« entre 3 et 20 caractères »", correct: true}
+      - {text: "« entre {min} et {max} caractères »", correct: false}
+      - {text: "« entre min et max caractères »", correct: false}
+      - {text: "Une exception : les accolades sont interdites", correct: false}
+    answer: "Le message interpole les attributs de la contrainte entre accolades. Une clé (`{produit.nom.taille}`) est cherchée dans `ValidationMessages.properties`."
+  - key: trous-validated-groupe
+    format: fill-in
+    question: |-
+      Complète pour valider le corps avec le groupe `Creation` :
+      ```java
+      @PostMapping
+      public Produit creer(@___(Creation.class) @RequestBody ProduitDto produit) {
+      ```
+    blanks:
+      - [Validated]
+    answer: "`@Validated`, de Spring, accepte des groupes ; `@Valid` n'en accepte pas."
+  - key: trous-constraint
+    format: fill-in
+    question: |-
+      Complète la déclaration de la contrainte maison :
+      ```java
+      @Target({ElementType.FIELD, ElementType.PARAMETER})
+      @Retention(RetentionPolicy.RUNTIME)
+      @___(validatedBy = CodePostalValidator.class)
+      public @interface CodePostal {
+      ```
+    blanks:
+      - [Constraint]
+    answer: "`@Constraint` relie l'annotation à son validateur."
+  - key: trous-constraintvalidator
+    format: fill-in
+    question: |-
+      Complète le validateur :
+      ```java
+      public class CodePostalValidator implements ___<CodePostal, String> {
+          @Override
+          public boolean isValid(String valeur, ConstraintValidatorContext contexte) {
+              return valeur == null || valeur.matches("\\d{5}");
+          }
+      }
+      ```
+    blanks:
+      - [ConstraintValidator]
+    answer: "`ConstraintValidator<A, T>` : l'annotation qu'il valide, puis le type de la valeur."
+  - key: trous-groups
+    format: fill-in
+    question: |-
+      Complète pour que `id` doive être absent à la création seulement :
+      ```java
+      public record ProduitDto(
+              @Null(___ = Creation.class) Long id,
+              @NotBlank String nom) {}
+      ```
+    blanks:
+      - [groups]
+    answer: "L'attribut `groups` range la contrainte dans un ou plusieurs groupes."
+  - key: bug-retention-oubliee
+    format: bug-fix
+    question: |-
+      Des adresses au code postal `abc` sont acceptées, sans erreur ni avertissement. Quelle correction est la
+      bonne ?
+      ```java
+      @Target({ElementType.FIELD, ElementType.PARAMETER})
+      @Constraint(validatedBy = CodePostalValidator.class)
+      public @interface CodePostal {
+          String message() default "code postal invalide";
+          Class<?>[] groups() default {};
+          Class<? extends Payload>[] payload() default {};
+      }
+      ```
+    choices:
+      - {text: "Ajouter `@Retention(RetentionPolicy.RUNTIME)` sur l'annotation", correct: true}
+      - {text: "Ajouter `ElementType.TYPE` dans `@Target`", correct: false}
+      - {text: "Ajouter `@Documented` sur l'annotation", correct: false}
+      - {text: "Remplacer le `default` de `message` par une clé entre accolades", correct: false}
+    answer: |-
+      ```java
+      @Target({ElementType.FIELD, ElementType.PARAMETER})
+      @Retention(RetentionPolicy.RUNTIME)
+      @Constraint(validatedBy = CodePostalValidator.class)
+      public @interface CodePostal {
+      ```
+      La rétention par défaut, `CLASS`, retire l'annotation à l'exécution : le validateur n'est jamais appelé, en
+      silence.
+  - key: bug-groupe-sans-default
+    format: bug-fix
+    question: |-
+      Depuis l'ajout des groupes, un produit au nom vide est accepté à la création. Le nom doit rester obligatoire.
+      Quelle correction est la bonne ?
+      ```java
+      public interface Creation {}
+
+      public record ProduitDto(@Null(groups = Creation.class) Long id, @NotBlank String nom) {}
+
+      @PostMapping
+      public Produit creer(@Validated(Creation.class) @RequestBody ProduitDto produit) { ... }
+      ```
+    choices:
+      - {text: "Déclarer `interface Creation extends Default {}`", correct: true}
+      - {text: "Remplacer `@Validated(Creation.class)` par `@Valid`", correct: false}
+      - {text: "Remplacer `@NotBlank` par `@NotNull` sur `nom`", correct: false}
+      - {text: "Ajouter `@Validated` sur la classe du contrôleur", correct: false}
+    answer: |-
+      ```java
+      public interface Creation extends Default {}
+      ```
+      `@NotBlank` sans groupe appartient à `Default`, que `@Validated(Creation.class)` ne valide pas. En héritant de
+      `Default`, `Creation` l'inclut. `@Valid` validerait `nom`, mais plus le `@Null` de l'identifiant.
+  - key: bug-validated-sur-controleur
+    format: bug-fix
+    question: |-
+      `GET /produits?page=0` répond 500 : « ConstraintViolationException: produits.page: must be greater than or
+      equal to 1 ». Le client devrait recevoir 400. Quelle correction est la bonne ?
+      ```java
+      @Validated
+      @RestController
+      public class ProduitController {
+
+          @GetMapping("/produits")
+          public List<Produit> produits(@RequestParam @Min(1) int page) { ... }
+      }
+      ```
+    choices:
+      - {text: "Retirer `@Validated` de la classe du contrôleur", correct: true}
+      - {text: "Remplacer `@Min(1)` par `@Positive`", correct: false}
+      - {text: "Ajouter `@Valid` devant `@RequestParam`", correct: false}
+      - {text: "Remplacer `int page` par `Integer page`", correct: false}
+    answer: |-
+      ```java
+      @RestController
+      public class ProduitController {
+      ```
+      Avec `@Validated`, la validation passe par un proxy AOP qui lève `ConstraintViolationException`, que Spring MVC
+      ne traduit pas : 500. Sans lui, Spring MVC valide les paramètres et répond 400.
+  - key: bug-groups-manquant
+    format: bug-fix
+    question: |-
+      Toute adresse validée répond 500 : « HV000074: CodePostal contains Constraint annotation, but does not contain
+      a groups parameter. ». Quelle correction est la bonne ?
+      ```java
+      @Target({ElementType.FIELD, ElementType.PARAMETER})
+      @Retention(RetentionPolicy.RUNTIME)
+      @Constraint(validatedBy = CodePostalValidator.class)
+      public @interface CodePostal {
+          String message() default "code postal invalide";
+          Class<? extends Payload>[] payload() default {};
+      }
+      ```
+    choices:
+      - {text: "Ajouter `Class<?>[] groups() default {};` à l'annotation", correct: true}
+      - {text: "Ajouter `@Validated` sur la classe du validateur", correct: false}
+      - {text: "Retirer l'attribut `payload` de l'annotation", correct: false}
+      - {text: "Ajouter `ElementType.TYPE_USE` dans `@Target`", correct: false}
+    answer: |-
+      ```java
+      public @interface CodePostal {
+          String message() default "code postal invalide";
+          Class<?>[] groups() default {};
+          Class<? extends Payload>[] payload() default {};
+      }
+      ```
+      La spécification exige `message`, `groups` et `payload` sur toute contrainte. Retirer `payload` déclencherait
+      la même erreur pour lui.

@@ -1,0 +1,234 @@
+notion: webflux
+lesson: |-
+  **Spring WebFlux** est la pile web **réactive** de Spring, à côté de Spring MVC. Elle sert les requêtes **sans
+  bloquer** : une poignée de threads (une *event loop*, sur Netty par défaut) traite à tour de rôle les événements de
+  milliers de connexions. Un thread n'attend jamais une base ou un service distant : il passe à autre chose, et reprend
+  quand la réponse arrive.
+
+  **Reactor** fournit les types : `Mono<T>` émet **au plus un** élément, `Flux<T>` **de zéro à plusieurs**. Les deux
+  suivent la norme **Reactive Streams**, avec la **contre-pression** : le consommateur dit combien d'éléments il peut
+  recevoir.
+
+  ```java
+  @RestController
+  @RequestMapping("/api/produits")
+  public class ProduitController {
+
+      @GetMapping("/{id}")
+      public Mono<Produit> unProduit(@PathVariable long id) {
+          return produits.findById(id);                       // un dépôt réactif (R2DBC)
+      }
+
+      @GetMapping(value = "/prix", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+      public Flux<ServerSentEvent<Prix>> prix() {
+          return cotations.flux().map(prix -> ServerSentEvent.builder(prix).build());
+      }
+  }
+  ```
+
+  Les annotations sont celles de Spring MVC ; il existe aussi des routes fonctionnelles (`RouterFunction`).
+
+  **La règle d'or : ne jamais bloquer.** JDBC, JPA, `Thread.sleep`, un `RestTemplate` : dans un thread de l'event loop,
+  ils figent toutes les requêtes qu'il sert. Appeler `.block()` dans un tel thread lève une `IllegalStateException`. Il
+  faut des pilotes réactifs de bout en bout : **R2DBC** pour les bases relationnelles, MongoDB réactif, `WebClient` pour
+  les appels HTTP. Un appel bloquant inévitable s'isole sur un ordonnanceur dédié
+  (`subscribeOn(Schedulers.boundedElastic())`).
+
+  **Quand la choisir ?**
+
+  | Spring MVC | WebFlux |
+  |---|---|
+  | un thread par requête, code impératif | quelques threads, code en flux |
+  | JDBC, JPA, toutes les bibliothèques | pilotes réactifs indispensables |
+  | simple à lire, à déboguer, à tester | traces de pile peu parlantes, courbe d'apprentissage |
+  | des milliers de requêtes simultanées avec les threads virtuels | flux continus, passerelles, très nombreuses connexions |
+
+  WebFlux ne rend pas une requête plus rapide : il tient **plus de requêtes simultanées** quand elles attendent beaucoup.
+  Depuis Java 21, les **threads virtuels** (`spring.threads.virtual.enabled=true`) donnent ce bénéfice à Spring MVC,
+  avec du code bloquant ordinaire : WebFlux se justifie surtout pour le streaming (Server-Sent Events, WebSocket), une
+  passerelle (Spring Cloud Gateway), ou une chaîne déjà réactive.
+
+  Si les starters de Spring MVC et de WebFlux sont tous deux présents, Spring Boot configure **Spring MVC**.
+
+  **En entretien** : « WebFlux est la pile réactive de Spring : peu de threads, aucun blocage, `Mono` et `Flux` de
+  Reactor, avec contre-pression. Elle tient beaucoup de connexions qui attendent, mais impose des pilotes réactifs
+  partout et complique le débogage. Pour une API CRUD sur JPA, je reste sur Spring MVC, avec les threads virtuels si la
+  concurrence l'exige. »
+cards:
+  - key: mono-et-flux
+    format: course
+    question: "Quelle différence entre `Mono` et `Flux` ?"
+    choices:
+      - {text: "`Mono` émet au plus un élément, `Flux` de zéro à plusieurs", correct: true}
+      - {text: "`Mono` est synchrone, `Flux` est asynchrone", correct: false}
+      - {text: "`Mono` vient de Spring, `Flux` vient du JDK", correct: false}
+      - {text: "`Mono` sert côté client, `Flux` côté serveur", correct: false}
+    answer: "Les deux sont des `Publisher` de Reactor, asynchrones. `Mono` convient à un résultat unique (un produit), `Flux` à une suite (une liste, un flux continu)."
+  - key: serveur-par-defaut
+    format: course
+    question: "Sur quel serveur une application Spring Boot WebFlux démarre-t-elle par défaut ?"
+    choices:
+      - {text: "Netty", correct: true}
+      - {text: "Tomcat", correct: false}
+      - {text: "Jetty", correct: false}
+      - {text: "GlassFish", correct: false}
+    answer: "Le starter WebFlux apporte Reactor Netty, non bloquant. WebFlux peut aussi tourner sur un conteneur de servlets, mais Netty est le choix par défaut."
+  - key: pourquoi-ne-pas-bloquer
+    format: course
+    question: "Pourquoi ne faut-il jamais appeler une API bloquante (JDBC, `Thread.sleep`) dans un contrôleur WebFlux ?"
+    choices:
+      - {text: "Peu de threads servent toutes les requêtes : en bloquer un les freine toutes", correct: true}
+      - {text: "Le compilateur refuse tout appel bloquant dans un contrôleur WebFlux", correct: false}
+      - {text: "Reactor annule d'office tout appel bloquant au bout d'une seconde", correct: false}
+      - {text: "JDBC ne peut pas être ajouté à une application qui utilise WebFlux", correct: false}
+    answer: "Le modèle repose sur des threads qui ne s'arrêtent jamais. Un appel bloquant immobilise l'un d'eux, et toutes les connexions qu'il sert attendent."
+  - key: deux-starters
+    format: course
+    question: "Une application a les deux starters, Spring MVC et WebFlux. Que configure Spring Boot ?"
+    choices:
+      - {text: "Spring MVC, sur un conteneur de servlets", correct: true}
+      - {text: "WebFlux, sur Netty", correct: false}
+      - {text: "Les deux, sur deux ports différents", correct: false}
+      - {text: "Rien : il refuse de démarrer", correct: false}
+    answer: "Spring MVC l'emporte : on ajoute souvent WebFlux pour son `WebClient`. `spring.main.web-application-type=reactive` force le choix inverse."
+  - key: vf-annotations-communes
+    format: true-false
+    question: "Un contrôleur WebFlux peut utiliser `@RestController` et `@GetMapping`, comme un contrôleur Spring MVC."
+    truth: true
+    answer: "Le modèle d'annotations est le même ; seuls les types de retour changent (`Mono`, `Flux`). WebFlux propose aussi des routes fonctionnelles."
+  - key: vf-requete-plus-rapide
+    format: true-false
+    question: "Avec WebFlux, une requête isolée reçoit sa réponse plus tôt qu'avec Spring MVC."
+    truth: false
+    answer: "Le réactif n'accélère pas une requête : il en tient davantage en parallèle quand elles attendent des entrées-sorties. Une requête isolée n'y gagne rien."
+  - key: vf-contre-pression
+    format: true-false
+    question: "La contre-pression permet à un consommateur de dire à la source combien d'éléments il peut recevoir."
+    truth: true
+    answer: "Le consommateur demande `n` éléments (`request(n)`) ; la source n'en envoie pas davantage. C'est ce qui évite de noyer un consommateur lent."
+  - key: vf-base-relationnelle
+    format: true-false
+    question: "Avec WebFlux, l'accès non bloquant à une base relationnelle passe par un pilote réactif comme R2DBC, pas par JDBC."
+    truth: true
+    answer: "JDBC, et JPA au-dessus, bloquent le thread pendant la requête SQL. R2DBC renvoie des `Mono` et des `Flux`, sans bloquer."
+  - key: qcm-cas-pour-webflux
+    format: multiple-choice
+    question: "Dans quel cas WebFlux se justifie-t-il le mieux ?"
+    choices:
+      - {text: "Une passerelle qui relaie beaucoup d'appels lents en même temps", correct: true}
+      - {text: "Un back-office CRUD sur une base PostgreSQL avec JPA", correct: false}
+      - {text: "Un calcul intensif qui occupe le processeur", correct: false}
+      - {text: "Une application qui repose sur des bibliothèques bloquantes", correct: false}
+    answer: "Beaucoup d'attente et peu de calcul : c'est le terrain du réactif. Un CRUD sur JPA bloquerait, et un calcul lourd occupe le processeur quel que soit le modèle."
+  - key: qcm-threads-virtuels-et-mvc
+    format: multiple-choice
+    question: "Qu'apportent les threads virtuels de Java 21 à une application Spring MVC, face à WebFlux ?"
+    choices:
+      - {text: "Beaucoup de requêtes bloquantes simultanées, sans passer au réactif", correct: true}
+      - {text: "La contre-pression des flux réactifs, sans changer de code", correct: false}
+      - {text: "Une exécution plus rapide de chaque instruction Java", correct: false}
+      - {text: "La suppression du pool de connexions à la base", correct: false}
+    answer: "Un thread virtuel bloqué ne coûte presque rien : Spring MVC tient alors une forte concurrence avec du code impératif ordinaire. La contre-pression reste propre au réactif."
+  - key: qcm-block-dans-netty
+    format: multiple-choice
+    question: "Que se passe-t-il quand on appelle `.block()` dans un thread de Netty d'une application WebFlux ?"
+    choices:
+      - {text: "Reactor lève une `IllegalStateException` : bloquer y est interdit", correct: true}
+      - {text: "Le thread attend, et les autres requêtes patientent sans erreur", correct: false}
+      - {text: "La requête passe d'office dans un thread virtuel", correct: false}
+      - {text: "Rien : `.block()` est sans effet dans WebFlux", correct: false}
+    answer: "Reactor repère les threads non bloquants et refuse `block()` : « block()/blockFirst()/blockLast() are blocking, which is not supported in thread reactor-http-nio-... »."
+  - key: qcm-server-sent-events
+    format: multiple-choice
+    question: "Quel type de retour diffuse des événements au client au fil de l'eau, en Server-Sent Events ?"
+    choices:
+      - {text: "`Flux<ServerSentEvent<Prix>>`", correct: true}
+      - {text: "`Mono<List<Prix>>`", correct: false}
+      - {text: "`List<Prix>`", correct: false}
+      - {text: "`Optional<Prix>`", correct: false}
+    answer: "Un `Flux` émet chaque prix dès qu'il est connu, et la connexion reste ouverte. `Mono<List<Prix>>` n'envoie qu'une fois, la liste complète."
+  - key: situation-crud-vers-webflux
+    format: scenario
+    question: |-
+      Une équipe veut passer son API CRUD (Spring MVC, JPA) à WebFlux « pour la performance ». Que lui conseilles-tu ?
+    choices:
+      - {text: "Rester sur Spring MVC : JPA bloque, le gain serait nul ; mesurer d'abord", correct: true}
+      - {text: "Migrer sans attendre : WebFlux est toujours plus rapide", correct: false}
+      - {text: "Migrer les contrôleurs, et garder JPA tel quel", correct: false}
+      - {text: "Appeler JPA avec `.block()` dans les contrôleurs WebFlux", correct: false}
+    answer: |-
+      Des contrôleurs réactifs devant JPA bloqueraient l'event loop : pire qu'avant. Il faudrait réécrire l'accès aux
+      données en R2DBC. On mesure d'abord ; les threads virtuels suffisent souvent.
+  - key: situation-cours-de-bourse
+    format: scenario
+    question: |-
+      Ton application doit pousser les cours de bourse à des milliers de navigateurs ouverts en continu. Que
+      choisis-tu ?
+    choices:
+      - {text: "Un `Flux` réactif, diffusé en Server-Sent Events par WebFlux", correct: true}
+      - {text: "Des requêtes `GET` répétées par chaque navigateur chaque seconde", correct: false}
+      - {text: "Un fichier CSV régénéré et téléchargé chaque minute", correct: false}
+      - {text: "Un appel `RestClient` du navigateur vers le serveur", correct: false}
+    answer: |-
+      Des milliers de connexions ouvertes qui attendent : c'est le cas d'usage du réactif. Le serveur pousse chaque
+      cours dès qu'il change, sans interroger sans cesse.
+  - key: situation-jdbc-dans-un-map
+    format: scenario
+    question: |-
+      Dans un service WebFlux, un collègue appelle un `JdbcTemplate` à l'intérieur d'un `map`. Que lui dis-tu ?
+    choices:
+      - {text: "Il bloque l'event loop : passer à R2DBC, ou isoler l'appel sur un ordonnanceur dédié", correct: true}
+      - {text: "C'est correct : `map` s'exécute toujours dans un autre thread", correct: false}
+      - {text: "Il suffit de remplacer `map` par `flatMap`, qui rend JDBC non bloquant", correct: false}
+      - {text: "Il suffit d'ajouter `.block()` à la fin du flux", correct: false}
+    answer: |-
+      `map` s'exécute dans le thread qui émet l'élément, souvent celui de Netty. Un appel bloquant inévitable passe
+      par `Mono.fromCallable(...).subscribeOn(Schedulers.boundedElastic())`.
+  - key: situation-inconvenient-du-reactif
+    format: scenario
+    question: |-
+      En entretien, on te demande le principal inconvénient du réactif. Que réponds-tu ?
+    choices:
+      - {text: "Un code plus dur à lire et à déboguer : les traces de pile perdent le fil", correct: true}
+      - {text: "Une consommation de mémoire bien plus forte par requête", correct: false}
+      - {text: "L'impossibilité d'écrire des tests unitaires", correct: false}
+      - {text: "L'obligation de payer une licence pour Reactor", correct: false}
+    answer: |-
+      Le flux d'exécution saute d'un thread à l'autre : une trace de pile montre la mécanique de Reactor plutôt que ton
+      code. S'y ajoutent la courbe d'apprentissage et l'exigence de pilotes réactifs partout.
+  - key: def-reactive-streams
+    format: definition
+    question: "Dans l'écosystème Java, qu'est-ce que Reactive Streams ?"
+    choices:
+      - {text: "Une norme d'échange asynchrone de flux de données, avec contre-pression", correct: true}
+      - {text: "Une bibliothèque de Spring pour diffuser des vidéos en direct", correct: false}
+      - {text: "Le nom du serveur web qu'utilise WebFlux par défaut", correct: false}
+      - {text: "Un protocole réseau qui remplace HTTP entre services", correct: false}
+    answer: "Quatre interfaces (`Publisher`, `Subscriber`, `Subscription`, `Processor`), reprises par `java.util.concurrent.Flow`. Reactor, RxJava et R2DBC les implémentent."
+  - key: def-contre-pression
+    format: definition
+    question: "Que désigne la contre-pression (backpressure) dans un flux réactif ?"
+    choices:
+      - {text: "Le consommateur qui règle le débit de la source sur ce qu'il peut traiter", correct: true}
+      - {text: "La source qui ralentit d'elle-même quand le réseau est lent", correct: false}
+      - {text: "Un délai imposé entre deux requêtes d'un même client", correct: false}
+      - {text: "La pression mémoire qui déclenche le ramasse-miettes", correct: false}
+    answer: "Le consommateur demande un nombre d'éléments ; la source n'en émet pas plus. Un producteur rapide ne noie pas un consommateur lent."
+  - key: def-event-loop
+    format: definition
+    question: "Qu'est-ce qu'une event loop, dans un serveur comme Netty ?"
+    choices:
+      - {text: "Un thread qui traite à tour de rôle les événements de nombreuses connexions", correct: true}
+      - {text: "Une boucle infinie qu'un contrôleur doit éviter", correct: false}
+      - {text: "Un pool de mille threads, un par connexion ouverte", correct: false}
+      - {text: "Un minuteur qui relance les requêtes échouées", correct: false}
+    answer: "Le thread attend des événements (données reçues, écriture possible) et exécute le code qui y répond, sans jamais bloquer. Quelques threads suffisent ainsi pour des milliers de connexions."
+  - key: def-r2dbc
+    format: definition
+    question: "Dans l'écosystème réactif de Spring, qu'est-ce que R2DBC ?"
+    choices:
+      - {text: "Une API d'accès réactif, non bloquant, aux bases relationnelles", correct: true}
+      - {text: "Un pilote JDBC plus rapide, conçu pour PostgreSQL", correct: false}
+      - {text: "Le cache de second niveau d'Hibernate", correct: false}
+      - {text: "Un format de sérialisation binaire de Reactor", correct: false}
+    answer: "Reactive Relational Database Connectivity : des pilotes qui renvoient des `Publisher`. Spring Data R2DBC propose des dépôts réactifs au-dessus."

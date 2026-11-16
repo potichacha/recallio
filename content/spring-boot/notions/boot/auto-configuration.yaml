@@ -1,0 +1,336 @@
+notion: auto-configuration
+lesson: |-
+  L'**auto-configuration** est le cœur de Spring Boot : des classes de configuration **conditionnelles**, livrées dans
+  les jars de Boot (ou d'une bibliothèque), qui créent des beans d'infrastructure **seulement si** leurs conditions
+  sont remplies.
+
+  **Comment Boot les trouve.** `@EnableAutoConfiguration` (inclus dans `@SpringBootApplication`) lit, dans chaque jar,
+  le fichier `META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports`, qui liste les classes
+  candidates. Depuis Spring Boot 3, l'ancien `META-INF/spring.factories` n'est **plus lu** pour cela.
+
+  ```java
+  @AutoConfiguration
+  @ConditionalOnClass(AuditClient.class)                 // la bibliothèque est-elle là ?
+  public class AuditAutoConfiguration {
+
+      @Bean
+      @ConditionalOnMissingBean                          // l'application en a-t-elle déjà un ?
+      @ConditionalOnBooleanProperty(name = "audit.enabled", matchIfMissing = true)
+      AuditClient auditClient(AuditProperties proprietes) {
+          return new AuditClient(proprietes.url());
+      }
+  }
+  ```
+
+  | Condition | Vraie si... |
+  |---|---|
+  | `@ConditionalOnClass` / `@ConditionalOnMissingClass` | une classe est (ou n'est pas) dans le classpath |
+  | `@ConditionalOnBean` / `@ConditionalOnMissingBean` | un bean du type existe (ou pas) dans le contexte |
+  | `@ConditionalOnProperty` / `@ConditionalOnBooleanProperty` | une propriété a la valeur attendue |
+  | `@ConditionalOnWebApplication` | l'application est une application web |
+  | `@ConditionalOnSingleCandidate` | un seul bean du type, ou un `@Primary` |
+
+  **Ton bean gagne.** Les auto-configurations sont traitées **après** la configuration de l'application ; leurs
+  beans portent presque tous `@ConditionalOnMissingBean`. Déclarer ton propre bean fait **reculer** Boot. Attention :
+  remplacer un bean entier fait perdre ses réglages (déclarer son propre `JsonMapper` fait ignorer les propriétés
+  `spring.jackson.*`). Pour ajuster sans remplacer : une **propriété**, ou un **customizer**
+  (`JsonMapperBuilderCustomizer`). Et `@ConditionalOnMissingBean` n'est fiable que dans une auto-configuration :
+  dans une `@Configuration` ordinaire, le résultat dépend de l'ordre de lecture des classes.
+
+  **Voir ce qui s'est passé.** Démarrer avec `--debug` (ou `debug=true`) affiche le **rapport d'évaluation des
+  conditions** : les correspondances positives (appliquées), négatives (écartées, avec la condition fautive), les
+  exclusions. Actuator l'expose aussi (`/actuator/conditions`).
+
+  **Écarter une auto-configuration.** `@SpringBootApplication(exclude = ...)`, ou
+  `spring.autoconfigure.exclude=...` dans la configuration. Spring Boot 4 a déplacé ces classes dans des modules par
+  technologie : `org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration` (et non plus
+  `org.springframework.boot.autoconfigure.jdbc`). Un ancien nom dans la propriété est **ignoré sans erreur**.
+
+  **En entretien** : « L'auto-configuration, ce sont des classes `@AutoConfiguration` listées dans un fichier
+  `.imports`, avec des conditions sur le classpath, les beans et les propriétés. Elles passent après ma
+  configuration, et `@ConditionalOnMissingBean` les fait reculer devant mes beans. Le rapport `--debug` dit ce qui a
+  été appliqué, et pourquoi. »
+cards:
+  - key: fichier-des-candidates
+    format: course
+    question: "Où une bibliothèque déclare-t-elle ses classes d'auto-configuration, depuis Spring Boot 3 ?"
+    choices:
+      - {text: "Dans `META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports`", correct: true}
+      - {text: "Dans `META-INF/spring.factories`, sous la clé `EnableAutoConfiguration`", correct: false}
+      - {text: "Dans `application.properties`, sous la clé `spring.autoconfigure.include`", correct: false}
+      - {text: "Dans `module-info.java`, par une clause `provides`", correct: false}
+    answer: "Un nom de classe par ligne. `spring.factories` servait jusqu'à Boot 2.7 ; Boot 3 a cessé de le lire pour l'auto-configuration."
+  - key: pourquoi-ton-bean-gagne
+    format: course
+    question: "Pourquoi l'auto-configuration ne remplace-t-elle pas un bean que l'application déclare elle-même ?"
+    choices:
+      - {text: "Ses beans portent `@ConditionalOnMissingBean`, évalué après ta configuration", correct: true}
+      - {text: "Spring garde toujours le dernier bean déclaré d'un même type", correct: false}
+      - {text: "Spring Boot ignore toute méthode `@Bean` de ses propres jars", correct: false}
+      - {text: "Les beans de l'application sont tous `@Primary` d'office", correct: false}
+    answer: "Les auto-configurations sont lues en dernier : quand la condition est évaluée, ton bean existe déjà, et celui de Boot n'est pas créé."
+  - key: sens-de-on-class
+    format: course
+    question: "Que vérifie `@ConditionalOnClass(DataSource.class)` ?"
+    choices:
+      - {text: "Que la classe est présente dans le classpath", correct: true}
+      - {text: "Qu'un bean de ce type existe dans le contexte", correct: false}
+      - {text: "Que la classe est annotée `@Component`", correct: false}
+      - {text: "Qu'une propriété `datasource` est définie", correct: false}
+    answer: "C'est la condition qui fait réagir Boot aux dépendances. L'existence d'un bean se teste avec `@ConditionalOnBean`."
+  - key: voir-le-rapport
+    format: course
+    question: "Comment voir quelles auto-configurations se sont appliquées, et pourquoi ?"
+    choices:
+      - {text: "Démarrer avec `--debug` et lire le rapport d'évaluation des conditions", correct: true}
+      - {text: "Lire le `pom.xml`, qui liste les auto-configurations actives", correct: false}
+      - {text: "Afficher `context.getBeanDefinitionNames()` au démarrage", correct: false}
+      - {text: "Ajouter `@EnableAutoConfiguration(report = true)`", correct: false}
+    answer: "Le rapport donne chaque condition évaluée. La liste des noms de beans dit ce qui existe, pas pourquoi."
+  - key: vf-spring-factories-ignore
+    format: true-false
+    question: "Depuis Spring Boot 3, une auto-configuration déclarée seulement dans `META-INF/spring.factories` est ignorée."
+    truth: true
+    answer: "Il faut la lister dans `META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports`."
+  - key: vf-missing-bean-hors-auto
+    format: true-false
+    question: "`@ConditionalOnMissingBean` dans une classe `@Configuration` ordinaire de l'application est aussi fiable que dans une auto-configuration."
+    truth: false
+    answer: "La condition voit les beans déjà enregistrés : dans une configuration ordinaire, le résultat dépend de l'ordre de lecture. Elle est faite pour les auto-configurations, traitées en dernier."
+  - key: vf-correspondances-negatives
+    format: true-false
+    question: "Le rapport d'évaluation des conditions liste aussi les auto-configurations écartées, avec la raison."
+    truth: true
+    answer: "Ce sont les « Negative matches » : par exemple, « did not find required class »."
+  - key: vf-exclusion-par-propriete
+    format: true-false
+    question: "`spring.autoconfigure.exclude` permet d'exclure une auto-configuration depuis `application.properties`."
+    truth: true
+    answer: "Elle attend le nom complet de la classe. Pratique pour exclure seulement dans un profil."
+  - key: qcm-condition-sur-propriete
+    format: multiple-choice
+    question: "Quelle condition active une configuration seulement si `boutique.audit.enabled=true` ?"
+    choices:
+      - {text: "`@ConditionalOnBooleanProperty(\"boutique.audit.enabled\")`", correct: true}
+      - {text: "`@ConditionalOnClass(name = \"boutique.audit.enabled\")`", correct: false}
+      - {text: "`@ConditionalOnBean(name = \"boutique.audit.enabled\")`", correct: false}
+      - {text: "`@Profile(\"boutique.audit.enabled\")`", correct: false}
+    answer: "`@ConditionalOnBooleanProperty` (Boot 3.5) vise une propriété booléenne ; on écrit aussi `@ConditionalOnProperty(name = ..., havingValue = \"true\")`."
+  - key: qcm-annotation-de-classe
+    format: multiple-choice
+    question: "Quelle annotation marque une classe d'auto-configuration dans Spring Boot 3 et 4 ?"
+    choices:
+      - {text: "`@AutoConfiguration`", correct: true}
+      - {text: "`@EnableAutoConfiguration`", correct: false}
+      - {text: "`@SpringBootConfiguration`", correct: false}
+      - {text: "`@AutoConfigureOrder`", correct: false}
+    answer: "`@AutoConfiguration` est une `@Configuration` sans proxy, avec `before` et `after` pour l'ordre. `@EnableAutoConfiguration` active le mécanisme."
+  - key: qcm-customizer
+    format: multiple-choice
+    question: "Tu veux seulement ajouter un module au `JsonMapper` de Spring Boot, sans perdre ses réglages. Que déclares-tu ?"
+    choices:
+      - {text: "Un bean `JsonMapperBuilderCustomizer`", correct: true}
+      - {text: "Un bean `JsonMapper` construit par `JsonMapper.builder()`", correct: false}
+      - {text: "Une classe qui hérite de `JacksonAutoConfiguration`", correct: false}
+      - {text: "Un `@PostConstruct` qui recrée le `JsonMapper`", correct: false}
+    answer: "Le customizer ajuste le constructeur du mapper que Boot prépare, propriétés `spring.jackson.*` comprises. Un `JsonMapper` à soi ferait reculer Boot entièrement."
+  - key: qcm-correspondances-negatives
+    format: multiple-choice
+    question: "Dans le rapport des conditions, que trouve-t-on sous « Negative matches » ?"
+    choices:
+      - {text: "Les auto-configurations écartées, avec la condition qui a échoué", correct: true}
+      - {text: "Les beans qui ont levé une exception au démarrage", correct: false}
+      - {text: "Les propriétés inconnues de `application.properties`", correct: false}
+      - {text: "Les tests qui ont échoué au dernier build", correct: false}
+    answer: "Utile pour comprendre pourquoi un bean attendu manque : classe absente, bean déjà présent, propriété non définie..."
+  - key: trous-missing-bean
+    format: fill-in
+    question: |-
+      Complète pour que l'application puisse fournir son propre `AuditClient` :
+      ```java
+      @AutoConfiguration
+      public class AuditAutoConfiguration {
+          @Bean
+          @ConditionalOn___
+          AuditClient auditClient() {
+              return new AuditClient();
+          }
+      }
+      ```
+    blanks:
+      - [MissingBean]
+    answer: "`@ConditionalOnMissingBean` : le bean n'est créé que si l'application n'en a pas déjà un."
+  - key: trous-on-class
+    format: fill-in
+    question: |-
+      Complète pour n'appliquer la configuration que si `AuditClient` est dans le classpath :
+      ```java
+      @AutoConfiguration
+      @ConditionalOn___(AuditClient.class)
+      public class AuditAutoConfiguration { ... }
+      ```
+    blanks:
+      - [Class]
+    answer: "`@ConditionalOnClass` teste la présence d'une classe, sans la charger si elle manque."
+  - key: trous-debug
+    format: fill-in
+    question: |-
+      Complète la propriété qui affiche le rapport des conditions au démarrage :
+      ```properties
+      ___=true
+      ```
+    blanks:
+      - [debug]
+    answer: "`debug=true`, comme l'argument `--debug`, affiche le rapport et des journaux plus détaillés pour le cœur de Boot."
+  - key: trous-exclude
+    format: fill-in
+    question: |-
+      Complète pour exclure une auto-configuration dans `application.properties` :
+      ```properties
+      spring.autoconfigure.___=org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration
+      ```
+    blanks:
+      - [exclude]
+    answer: "`spring.autoconfigure.exclude` accepte une liste de noms de classes, séparés par des virgules."
+  - key: bug-spring-factories
+    format: bug-fix
+    question: |-
+      Ta bibliothèque d'audit déclare son auto-configuration comme ceci. Dans une application Spring Boot 4, le
+      démarrage échoue : « required a bean of type 'com.audit.AuditClient' that could not be found ». Quelle
+      correction est la bonne ?
+      ```properties
+      # META-INF/spring.factories
+      org.springframework.boot.autoconfigure.EnableAutoConfiguration=com.audit.AuditAutoConfiguration
+      ```
+    choices:
+      - {text: "Lister la classe dans le fichier `AutoConfiguration.imports` de `META-INF/spring/`", correct: true}
+      - {text: "Ajouter `@ComponentScan(\"com.audit\")` dans l'auto-configuration", correct: false}
+      - {text: "Renommer le fichier en `META-INF/spring-autoconfigure.factories`", correct: false}
+      - {text: "Ajouter `@Primary` sur la méthode `@Bean` de l'auto-configuration", correct: false}
+    answer: |-
+      ```
+      # META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports
+      com.audit.AuditAutoConfiguration
+      ```
+      Depuis Spring Boot 3, `spring.factories` n'est plus lu pour l'auto-configuration. La classe est annotée
+      `@AutoConfiguration` et listée dans le fichier `.imports`.
+  - key: bug-propre-jsonmapper
+    format: bug-fix
+    question: |-
+      Depuis l'ajout de ce bean, `spring.jackson.serialization.indent-output=true` n'a plus d'effet : le JSON n'est
+      plus indenté. Quelle correction est la bonne ?
+      ```java
+      @Configuration
+      public class JsonConfig {
+          @Bean
+          JsonMapper jsonMapper() {
+              return JsonMapper.builder().addModule(new ModuleBoutique()).build();
+          }
+      }
+      ```
+    choices:
+      - {text: "Déclarer un `JsonMapperBuilderCustomizer` qui ajoute le module", correct: true}
+      - {text: "Ajouter `@Primary` sur la méthode `jsonMapper()`", correct: false}
+      - {text: "Renommer la méthode en `objectMapper()`", correct: false}
+      - {text: "Exclure `JacksonAutoConfiguration`", correct: false}
+    answer: |-
+      ```java
+      @Bean
+      JsonMapperBuilderCustomizer moduleBoutique() {
+          return builder -> builder.addModule(new ModuleBoutique());
+      }
+      ```
+      Ton `JsonMapper` fait reculer l'auto-configuration, et avec elle la lecture des propriétés `spring.jackson.*`.
+      Le customizer ajoute le module au mapper que Boot construit, réglages compris.
+  - key: bug-pas-d-url
+    format: bug-fix
+    question: |-
+      Le démarrage échoue : « Failed to configure a DataSource: 'url' attribute is not specified and no embedded
+      datasource could be configured. Reason: Failed to determine a suitable driver class ». L'application doit
+      utiliser PostgreSQL. Quelle correction est la bonne ?
+      ```xml
+      <dependency>
+          <groupId>org.springframework.boot</groupId>
+          <artifactId>spring-boot-starter-data-jpa</artifactId>
+      </dependency>
+      ```
+    choices:
+      - {text: "Ajouter le pilote PostgreSQL et `spring.datasource.url`", correct: true}
+      - {text: "Ajouter `@EnableJpaRepositories` sur la classe principale", correct: false}
+      - {text: "Ajouter `@Primary` sur la classe principale", correct: false}
+      - {text: "Retirer le starter, puis le remettre à la fin du `pom.xml`", correct: false}
+    answer: |-
+      ```properties
+      spring.datasource.url=jdbc:postgresql://localhost:5432/boutique
+      ```
+      (avec la dépendance `org.postgresql:postgresql`). L'auto-configuration de JPA veut une source de données : sans
+      URL ni base embarquée dans le classpath, elle ne sait pas laquelle créer.
+  - key: bug-exclusion-ancien-paquet
+    format: bug-fix
+    question: |-
+      Après la migration vers Spring Boot 4, l'application configure de nouveau une source de données au démarrage,
+      malgré cette exclusion. Aucune erreur ne signale le problème. Quelle correction est la bonne ?
+      ```properties
+      spring.autoconfigure.exclude=org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
+      ```
+    choices:
+      - {text: "Écrire le nouveau nom : `org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration`", correct: true}
+      - {text: "Écrire seulement le nom simple de la classe : `DataSourceAutoConfiguration`", correct: false}
+      - {text: "Passer la propriété en majuscules : `SPRING_AUTOCONFIGURE_EXCLUDE`", correct: false}
+      - {text: "Écrire `spring.autoconfigure.exclude[0]` au lieu de `spring.autoconfigure.exclude`", correct: false}
+    answer: |-
+      ```properties
+      spring.autoconfigure.exclude=org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration
+      ```
+      Spring Boot 4 a déplacé les auto-configurations dans des modules par technologie. Un nom de classe qui n'existe
+      plus est ignoré par la propriété, sans erreur.
+  - key: situation-jdbctemplate-mysterieux
+    format: scenario
+    question: |-
+      Un nouveau venu demande pourquoi l'application a un `JdbcTemplate`, alors que personne ne l'a déclaré. Comment
+      le lui montres-tu ?
+    choices:
+      - {text: "Par le rapport `--debug`, où `JdbcTemplateAutoConfiguration` est appliquée", correct: true}
+      - {text: "Par une recherche de `new JdbcTemplate` dans le code de l'application", correct: false}
+      - {text: "Par le fichier `pom.xml`, qui déclare chaque bean de l'application", correct: false}
+      - {text: "Par la documentation de JDBC, qui crée ce bean d'office", correct: false}
+    answer: |-
+      Le rapport liste l'auto-configuration en correspondance positive, avec ses conditions : une `DataSource`
+      présente, et pas de `JdbcTemplate` déjà déclaré.
+  - key: situation-desactiver-par-propriete
+    format: scenario
+    question: |-
+      Tu écris l'auto-configuration d'un client interne. Les applications doivent pouvoir la désactiver par une
+      propriété, active si rien n'est dit. Comment fais-tu ?
+    choices:
+      - {text: "Une condition sur la propriété, vraie quand la propriété est absente", correct: true}
+      - {text: "Un `if` dans la méthode `@Bean`, qui renvoie `null`", correct: false}
+      - {text: "Un profil `sans-audit`, à activer dans chaque application", correct: false}
+      - {text: "Une exclusion obligatoire dans chaque application qui n'en veut pas", correct: false}
+    answer: |-
+      `@ConditionalOnBooleanProperty(name = "audit.enabled", matchIfMissing = true)` : le client existe par défaut, et
+      `audit.enabled=false` le retire. Une méthode `@Bean` qui renvoie `null` crée un bean nul, source d'erreurs.
+  - key: situation-autoconfiguration-en-entretien
+    format: scenario
+    question: |-
+      En entretien : « Comment fonctionne l'auto-configuration de Spring Boot ? » Que réponds-tu ?
+    choices:
+      - {text: "Des configurations conditionnelles, selon le classpath, les beans et les propriétés", correct: true}
+      - {text: "Un générateur de code qui écrit la configuration à la compilation", correct: false}
+      - {text: "Un fichier XML unique qui décrit tous les beans possibles", correct: false}
+      - {text: "Une recherche en ligne des réglages recommandés au démarrage", correct: false}
+    answer: |-
+      On complète : classes `@AutoConfiguration` listées dans un fichier `.imports`, traitées après la configuration de
+      l'application, et `@ConditionalOnMissingBean` qui les fait reculer ; `--debug` pour le rapport.
+  - key: situation-dates-iso
+    format: scenario
+    question: |-
+      La sérialisation JSON doit écrire les dates au format ISO. Faut-il déclarer ton propre `JsonMapper` ?
+    choices:
+      - {text: "Non : une propriété `spring.jackson.*` ou un customizer suffit", correct: true}
+      - {text: "Oui : c'est la seule façon de changer la sérialisation", correct: false}
+      - {text: "Oui, et il faut aussi exclure `JacksonAutoConfiguration`", correct: false}
+      - {text: "Non : il faut redéfinir `toString` sur chaque objet", correct: false}
+    answer: |-
+      Régler sans remplacer garde tous les autres réglages de Boot (modules, propriétés, intégration à Spring MVC). Un
+      bean à soi n'est utile que pour une configuration vraiment à part.

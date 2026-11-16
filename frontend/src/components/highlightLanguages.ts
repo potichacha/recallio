@@ -7,6 +7,7 @@ import go from 'highlight.js/lib/languages/go'
 import java from 'highlight.js/lib/languages/java'
 import kotlin from 'highlight.js/lib/languages/kotlin'
 import markdown from 'highlight.js/lib/languages/markdown'
+import properties from 'highlight.js/lib/languages/properties'
 import protobuf from 'highlight.js/lib/languages/protobuf'
 import python from 'highlight.js/lib/languages/python'
 import rust from 'highlight.js/lib/languages/rust'
@@ -33,6 +34,7 @@ export const HIGHLIGHT_LANGUAGES = {
   java,
   kotlin,
   markdown,
+  properties,
   protobuf,
   python,
   rust,
