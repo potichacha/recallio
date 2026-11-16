@@ -1,0 +1,224 @@
+notion: mutiny
+lesson: |-
+  Quarkus repose sur un cœur réactif, Vert.x. Pour écrire du code réactif sans s'y perdre, il fournit **Mutiny**
+  (SmallRye Mutiny) : une bibliothèque de flux asynchrones, avec deux types seulement.
+
+  **1. `Uni` et `Multi`.**
+
+  | Type | Émet | Exemple |
+  |---|---|---|
+  | `Uni<T>` | **un** élément (éventuellement `null`), ou un échec | le résultat d'une requête, d'un appel HTTP |
+  | `Multi<T>` | **0 à n** éléments, puis une fin, ou un échec | un flux de messages, de lignes, d'événements |
+
+  Un `Multi` gère la **contre-pression** (backpressure) : le consommateur dit combien d'éléments il peut recevoir, et
+  le producteur ne le submerge pas.
+
+  **2. Une API guidée par les événements.** On réagit à ce qui arrive : `onItem()`, `onFailure()`, `onCompletion()`,
+  `ifNoItem()`. Chaque méthode renvoie un nouvel `Uni` ou `Multi` : on décrit un **pipeline**.
+
+  ```java
+  Uni<String> salutation = Uni.createFrom().item("monde")
+          .onItem().transform(nom -> "Bonjour " + nom)
+          .onFailure().recoverWithItem("Bonjour quand même");
+  ```
+
+  **3. Paresseux : rien ne se passe sans abonnement.** Construire un pipeline ne l'exécute pas. Il ne démarre que
+  lorsqu'on s'y **abonne** (subscribe), et il redémarre à chaque abonnement.
+
+  - `Uni.createFrom().item(() -> calculer())` appelle `calculer()` à chaque abonnement ;
+  - `Uni.createFrom().item(calculer())` l'appelle tout de suite, une fois, à la construction.
+
+  **4. Qui s'abonne ?** Dans Quarkus, le plus souvent, **personne d'autre que Quarkus** : une méthode REST qui renvoie
+  un `Uni` laisse Quarkus s'y abonner, et écrire la réponse quand l'élément arrive. Elle s'exécute alors sur la boucle
+  d'événements, qu'il ne faut jamais bloquer.
+
+  ```java
+  @GET
+  @Path("/{id}")
+  public Uni<Produit> lire(Long id) {
+      return catalogue.chercher(id);        // Quarkus s'abonne
+  }
+  ```
+
+  Ailleurs, on s'abonne soi-même :
+
+  - `subscribe().with(element -> ..., echec -> ...)` : asynchrone, sans bloquer ;
+  - `await().indefinitely()` ou `await().atMost(Duration.ofSeconds(2))` : **bloque** le thread jusqu'au résultat.
+    Sur la boucle d'événements, c'est interdit : « The current thread cannot be blocked: vert.x-eventloop-thread-0 ».
+    Une exception vérifiée y remonte enveloppée dans une `CompletionException`.
+
+  **5. Passer d'un `Multi` à un `Uni`.** `multi.collect().asList()` donne un `Uni<List<T>>` ;
+  `multi.select().first(3)` garde les trois premiers éléments, `select().where(...)` filtre.
+
+  **En entretien** : « Mutiny a deux types : `Uni` pour un résultat unique ou un échec, `Multi` pour un flux, avec
+  contre-pression. Les pipelines sont paresseux : rien ne s'exécute avant l'abonnement. Dans Quarkus, je renvoie le
+  `Uni` depuis l'endpoint et Quarkus s'y abonne ; je n'appelle jamais `await()` sur la boucle d'événements. »
+cards:
+  - key: uni-ou-multi
+    format: course
+    question: "Quelle différence entre un `Uni` et un `Multi` de Mutiny ?"
+    choices:
+      - {text: "`Uni` émet un élément ou un échec ; `Multi`, de 0 à n éléments", correct: true}
+      - {text: "`Uni` est synchrone ; `Multi` est asynchrone", correct: false}
+      - {text: "`Uni` tourne sur un worker ; `Multi`, sur la boucle d'événements", correct: false}
+      - {text: "`Uni` ne peut pas échouer ; `Multi` le peut", correct: false}
+    answer: "Les deux sont asynchrones et peuvent échouer. Le `Uni` représente un résultat unique (une requête), le `Multi` un flux (des messages)."
+  - key: quand-s-execute-le-pipeline
+    format: course
+    question: "Quand s'exécute un pipeline Mutiny comme `Uni.createFrom().item(() -> lire()).onItem().transform(...)` ?"
+    choices:
+      - {text: "Quand quelqu'un s'y abonne, et à chaque abonnement", correct: true}
+      - {text: "Dès sa construction, une seule fois", correct: false}
+      - {text: "À la fin de la requête HTTP en cours", correct: false}
+      - {text: "Au prochain tour de la boucle d'événements", correct: false}
+    answer: "Un pipeline est paresseux : il décrit un traitement, que l'abonnement déclenche. Deux abonnements l'exécutent deux fois."
+  - key: qui-s-abonne
+    format: course
+    question: "Une méthode REST renvoie un `Uni<Produit>`. Qui s'abonne à ce `Uni` ?"
+    choices:
+      - {text: "Quarkus, qui écrit la réponse quand l'élément arrive", correct: true}
+      - {text: "Personne : il faut appeler `subscribe()` dans la méthode", correct: false}
+      - {text: "Le client HTTP, à la réception de la réponse", correct: false}
+      - {text: "Le premier intercepteur CDI de la méthode", correct: false}
+    answer: "Quarkus REST s'abonne au `Uni` renvoyé, sans bloquer, puis écrit la réponse (ou l'erreur). S'abonner soi-même dans la méthode ferait exécuter le pipeline deux fois."
+  - key: await-sur-la-boucle
+    format: course
+    question: "Que se passe-t-il si une méthode REST qui renvoie un `Uni` appelle `await().indefinitely()` sur un autre `Uni` ?"
+    choices:
+      - {text: "Une `IllegalStateException` : la boucle d'événements ne peut pas être bloquée", correct: true}
+      - {text: "La méthode attend le résultat, sans autre conséquence", correct: false}
+      - {text: "Quarkus déplace l'attente sur un thread virtuel", correct: false}
+      - {text: "Le `Uni` attendu est annulé, et renvoie `null`", correct: false}
+    answer: "La méthode s'exécute sur la boucle d'événements : « The current thread cannot be blocked: vert.x-eventloop-thread-0 ». On enchaîne avec `onItem().transformToUni(...)` au lieu d'attendre."
+  - key: vf-element-null
+    format: true-false
+    question: "Un `Uni` peut émettre `null` comme élément."
+    truth: true
+    answer: "`Uni.createFrom().nullItem()` le fait ; `onItem().ifNull()` permet d'y réagir. C'est une valeur, pas un échec."
+  - key: vf-sans-abonnement
+    format: true-false
+    question: "Construire `Uni.createFrom().item(\"a\").onItem().invoke(x -> journal.add(x))` ajoute `a` au journal, même sans abonnement."
+    truth: false
+    answer: "Rien ne s'exécute sans abonnement : le pipeline est seulement décrit. L'effet de bord n'a lieu qu'à l'abonnement."
+  - key: vf-fournisseur-a-chaque-abonnement
+    format: true-false
+    question: "`Uni.createFrom().item(() -> calculer())` appelle `calculer()` à chaque abonnement."
+    truth: true
+    answer: "Le fournisseur est appelé à chaque abonnement. Avec `item(calculer())`, la valeur est calculée une seule fois, à la construction."
+  - key: vf-uni-sur-un-worker
+    format: true-false
+    question: "Par défaut, une méthode REST qui renvoie un `Uni` s'exécute sur un thread de travail (worker)."
+    truth: false
+    answer: "Quarkus REST lit la signature : un `Uni` ou un `Multi` signale un code non bloquant, exécuté sur la boucle d'événements. Une méthode qui renvoie un `String` s'exécute, elle, sur un worker."
+  - key: qcm-multi-vers-liste
+    format: multiple-choice
+    question: "Comment transformes-tu un `Multi<Produit>` en `Uni<List<Produit>>` ?"
+    choices:
+      - {text: "`multi.collect().asList()`", correct: true}
+      - {text: "`multi.toList()`", correct: false}
+      - {text: "`multi.await().asList()`", correct: false}
+      - {text: "`multi.onItem().transform(List::of)`", correct: false}
+    answer: "`collect().asList()` accumule les éléments et émet la liste à la fin du flux. `transform(List::of)` ferait une liste par élément."
+  - key: qcm-s-abonner
+    format: multiple-choice
+    question: "Comment t'abonnes-tu à un `Uni` sans bloquer, en traitant l'élément et l'échec ?"
+    choices:
+      - {text: "`uni.subscribe().with(element -> ..., echec -> ...)`", correct: true}
+      - {text: "`uni.await().indefinitely()` dans un `try`", correct: false}
+      - {text: "`uni.onItem().invoke(element -> ...)` seul", correct: false}
+      - {text: "`uni.then(element -> ..., echec -> ...)`", correct: false}
+    answer: "`subscribe().with(...)` déclenche le pipeline et rend la main aussitôt. `invoke` seul n'abonne personne ; `await` bloque."
+  - key: qcm-attendre-avec-delai
+    format: multiple-choice
+    question: "Dans un test, comment attends-tu le résultat d'un `Uni` deux secondes au plus ?"
+    choices:
+      - {text: "`uni.await().atMost(Duration.ofSeconds(2))`", correct: true}
+      - {text: "`uni.await().indefinitely(2)`", correct: false}
+      - {text: "`uni.subscribe().with(2)`", correct: false}
+      - {text: "`uni.ifNoItem().await(2)`", correct: false}
+    answer: "`await().atMost(...)` bloque le thread et lève une `TimeoutException` au-delà du délai. À réserver aux tests et aux threads qui peuvent bloquer."
+  - key: qcm-exception-verifiee-await
+    format: multiple-choice
+    question: "Que lève `Uni.createFrom().failure(new IOException(\"disque\")).await().indefinitely()` ?"
+    choices:
+      - {text: "Une `CompletionException` dont la cause est l'`IOException`", correct: true}
+      - {text: "L'`IOException` elle-même, telle quelle", correct: false}
+      - {text: "Rien : `await` renvoie `null` en cas d'échec", correct: false}
+      - {text: "Une `TimeoutException`, faute d'élément", correct: false}
+    answer: "`await` ne peut pas lever d'exception vérifiée : il l'enveloppe dans une `CompletionException`. Une `RuntimeException` remonterait telle quelle."
+  - key: trous-creer-uni
+    format: fill-in
+    question: |-
+      Complète pour créer un `Uni` qui émet « bonjour » :
+      ```java
+      Uni<String> salut = Uni.createFrom().___("bonjour");
+      ```
+    blanks:
+      - [item]
+    answer: "`createFrom().item(...)` ; `failure(...)` créerait un `Uni` en échec."
+  - key: trous-collect-aslist
+    format: fill-in
+    question: |-
+      Complète pour réunir les éléments du flux dans une liste :
+      ```java
+      Uni<List<Produit>> tous = produits.collect().___();
+      ```
+    blanks:
+      - [asList]
+    answer: "`collect().asList()` émet la liste quand le `Multi` se termine."
+  - key: trous-transform
+    format: fill-in
+    question: |-
+      Complète pour mettre le nom en majuscules :
+      ```java
+      Uni<String> majuscules = nom.onItem().___(n -> n.toUpperCase());
+      ```
+    blanks:
+      - [transform]
+    answer: "`onItem().transform(...)` applique une fonction synchrone à l'élément."
+  - key: trous-subscribe-with
+    format: fill-in
+    question: |-
+      Complète pour s'abonner, avec un traitement de l'élément et un de l'échec :
+      ```java
+      prix.subscribe().___(p -> afficher(p), e -> journal.error("Échec", e));
+      ```
+    blanks:
+      - [with]
+    answer: "`subscribe().with(...)` prend un callback pour l'élément et, mieux vaut toujours, un pour l'échec."
+  - key: def-uni
+    format: definition
+    question: "Quel type de Mutiny désigne une opération asynchrone qui émet un seul élément, ou un échec ?"
+    choices:
+      - {text: "`Uni`", correct: true}
+      - {text: "`Multi`", correct: false}
+      - {text: "`CompletionStage`", correct: false}
+      - {text: "`Optional`", correct: false}
+    answer: "`Uni<T>` : le résultat d'une requête ou d'un appel distant. `CompletionStage` est l'équivalent du JDK, sans la paresse de Mutiny."
+  - key: def-multi
+    format: definition
+    question: "Quel type de Mutiny désigne un flux asynchrone de zéro à n éléments, terminé par une fin ou un échec ?"
+    choices:
+      - {text: "`Multi`", correct: true}
+      - {text: "`Uni`", correct: false}
+      - {text: "`Stream`", correct: false}
+      - {text: "`Iterator`", correct: false}
+    answer: "`Multi<T>` gère aussi la contre-pression. Un `Stream` du JDK est synchrone, et se consomme une seule fois."
+  - key: def-contre-pression
+    format: definition
+    question: "Quel terme désigne le mécanisme par lequel un consommateur limite le nombre d'éléments qu'un flux lui envoie ?"
+    choices:
+      - {text: "La contre-pression (backpressure)", correct: true}
+      - {text: "La mise en tampon (buffering)", correct: false}
+      - {text: "Le parallélisme (parallelism)", correct: false}
+      - {text: "La sérialisation (serialization)", correct: false}
+    answer: "Le consommateur demande n éléments ; le producteur n'en envoie pas plus. Un tampon n'est qu'une façon de gérer un producteur trop rapide."
+  - key: def-abonnement
+    format: definition
+    question: "Quel terme désigne l'acte qui déclenche l'exécution d'un pipeline Mutiny, jusque-là seulement décrit ?"
+    choices:
+      - {text: "L'abonnement (subscription)", correct: true}
+      - {text: "La composition (composition)", correct: false}
+      - {text: "La matérialisation (materialization)", correct: false}
+      - {text: "L'émission (emission)", correct: false}
+    answer: "Rien ne se passe avant `subscribe()`, `await()`, ou l'abonnement de Quarkus à un `Uni` renvoyé par un endpoint."

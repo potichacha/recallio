@@ -1,0 +1,310 @@
+notion: datasource
+lesson: |-
+  Une **source de données** (datasource), c'est l'accès d'une application à sa base : le pilote JDBC, l'URL, les
+  identifiants, et un **pool de connexions**. Dans Quarkus, on la décrit entièrement dans `application.properties`,
+  sans écrire une ligne de Java.
+
+  **1. Le pilote : une extension.** Chaque base a son extension : `quarkus-jdbc-postgresql`, `quarkus-jdbc-mysql`,
+  `quarkus-jdbc-mariadb`, `quarkus-jdbc-oracle`, `quarkus-jdbc-mssql`, `quarkus-jdbc-h2`... Elle apporte le pilote et
+  le pool **Agroal**, le pool de connexions de Quarkus (pas HikariCP, celui de Spring Boot).
+
+  ```bash
+  quarkus ext add jdbc-postgresql
+  ```
+
+  **2. La configuration.**
+
+  ```properties
+  quarkus.datasource.db-kind=postgresql
+  quarkus.datasource.username=boutique
+  quarkus.datasource.password=${DB_PASSWORD}
+  quarkus.datasource.jdbc.url=jdbc:postgresql://localhost:5432/boutique
+  quarkus.datasource.jdbc.max-size=16
+  ```
+
+  | Propriété | Rôle |
+  |---|---|
+  | `db-kind` | le type de base : `postgresql`, `mysql`, `h2`... **fixé au build** |
+  | `jdbc.url` | l'URL JDBC, lue au démarrage |
+  | `username`, `password` | les identifiants |
+  | `jdbc.max-size`, `jdbc.min-size` | la taille du pool (20 et 0 par défaut) |
+  | `jdbc.acquisition-timeout` | l'attente d'une connexion libre (5 secondes par défaut) |
+
+  Attention au nom : c'est `quarkus.datasource.jdbc.url`, pas `quarkus.datasource.url`. Une clé inconnue est
+  **ignorée**, avec un simple avertissement au démarrage : « Unrecognized configuration key ».
+
+  **3. Dev Services : pas d'URL en dev ni en test.** Si aucune URL n'est configurée et que Docker est là, Quarkus
+  démarre lui-même un conteneur de la base indiquée par `db-kind`, et y branche l'application. En production, il n'y a
+  pas de Dev Services : l'URL se donne par le profil `%prod` ou par une variable d'environnement.
+
+  ```properties
+  %prod.quarkus.datasource.jdbc.url=jdbc:postgresql://db.interne:5432/boutique
+  ```
+
+  **4. Les secrets.** Le mot de passe ne va jamais dans le dépôt : `${DB_PASSWORD}`, ou directement la variable
+  `QUARKUS_DATASOURCE_PASSWORD`, qui surcharge la propriété.
+
+  **5. Le pool.** Chaque requête emprunte une connexion et la rend. Quand les `max-size` connexions sont prises, la
+  suivante attend `acquisition-timeout`, puis échoue : « Sorry, acquisition timeout! ». La cause la plus fréquente
+  n'est pas un pool trop petit, mais une **fuite** : une connexion obtenue à la main et jamais fermée.
+
+  ```java
+  @Inject
+  AgroalDataSource dataSource;
+
+  public int compter() throws SQLException {
+      try (Connection connexion = dataSource.getConnection();
+           Statement requete = connexion.createStatement();
+           ResultSet resultat = requete.executeQuery("select count(*) from produit")) {
+          resultat.next();
+          return resultat.getInt(1);
+      }
+  }
+  ```
+
+  **6. Plusieurs bases : les sources nommées.** Le nom se place entre guillemets dans la clé, et un qualificateur
+  choisit la source à l'injection :
+
+  ```properties
+  quarkus.datasource."stats".db-kind=postgresql
+  quarkus.datasource."stats".jdbc.url=jdbc:postgresql://stats:5432/stats
+  ```
+
+  ```java
+  @Inject
+  @DataSource("stats")
+  AgroalDataSource stats;
+  ```
+
+  Sans `@DataSource`, c'est la source par défaut qui est injectée, quel que soit le nom du champ.
+
+  **En entretien** : « J'ajoute l'extension du pilote, puis je décris la source dans `application.properties` :
+  `db-kind`, `jdbc.url`, les identifiants et la taille du pool Agroal. En dev et en test, sans URL, les Dev Services
+  démarrent la base dans un conteneur ; en production, l'URL et le mot de passe viennent de variables
+  d'environnement. Une erreur « acquisition timeout » signale le plus souvent une connexion jamais rendue. »
+cards:
+  - key: extension-du-pilote
+    format: course
+    question: "Que faut-il ajouter à un projet Quarkus pour se connecter à PostgreSQL en JDBC ?"
+    choices:
+      - {text: "L'extension `quarkus-jdbc-postgresql`", correct: true}
+      - {text: "La dépendance `com.zaxxer:HikariCP`", correct: false}
+      - {text: "Un fichier `persistence.xml` avec l'URL", correct: false}
+      - {text: "Une classe annotée `@DataSourceDefinition`", correct: false}
+    answer: "L'extension apporte le pilote et le pool Agroal, préparés au build. Le reste se décrit dans `application.properties`, sans `persistence.xml`."
+  - key: pool-epuise
+    format: course
+    question: "Toutes les connexions du pool sont prises. Que se passe-t-il pour la requête suivante ?"
+    choices:
+      - {text: "Elle attend une connexion libre, puis échoue après `acquisition-timeout`", correct: true}
+      - {text: "Agroal ouvre une connexion de plus, au-delà de `max-size`", correct: false}
+      - {text: "Elle échoue aussitôt, sans attendre aucune connexion", correct: false}
+      - {text: "Elle prend la connexion la plus ancienne à une autre requête", correct: false}
+    answer: "Le pool ne dépasse jamais `max-size`. La requête attend (5 secondes par défaut), puis lève « Sorry, acquisition timeout! ». Une fuite de connexions est la cause la plus fréquente."
+  - key: mot-de-passe-en-production
+    format: course
+    question: "Où mets-tu le mot de passe de la base de production ?"
+    choices:
+      - {text: "Dans une variable d'environnement, comme `QUARKUS_DATASOURCE_PASSWORD`", correct: true}
+      - {text: "Dans `application.properties`, sous le préfixe `%prod`", correct: false}
+      - {text: "Dans une constante Java, compilée dans l'application", correct: false}
+      - {text: "Dans le `README`, pour que l'équipe le retrouve", correct: false}
+    answer: "Un secret ne va jamais dans le dépôt. La variable d'environnement surcharge la propriété `quarkus.datasource.password` ; un coffre (Vault) convient aussi."
+  - key: role-de-db-kind
+    format: course
+    question: "À quoi sert `quarkus.datasource.db-kind` ?"
+    choices:
+      - {text: "À dire le type de base, d'où Quarkus déduit pilote et Dev Services", correct: true}
+      - {text: "À nommer la base de données à laquelle se connecter", correct: false}
+      - {text: "À choisir entre une source JDBC et une source réactive", correct: false}
+      - {text: "À fixer le dialecte SQL des requêtes natives seulement", correct: false}
+    answer: "`postgresql`, `mysql`, `h2`... Quarkus en déduit le pilote, l'image des Dev Services et le dialecte d'Hibernate. La propriété est fixée au build."
+  - key: vf-dev-services-base
+    format: true-false
+    question: "En dev et en test, sans URL configurée et avec Docker disponible, Quarkus démarre lui-même la base dans un conteneur."
+    truth: true
+    answer: "Ce sont les Dev Services : ils lisent `db-kind`, lancent un conteneur et y branchent l'application. Ils n'existent pas en production."
+  - key: vf-pool-hikari
+    format: true-false
+    question: "Le pool de connexions JDBC de Quarkus est HikariCP, comme dans Spring Boot."
+    truth: false
+    answer: "Quarkus utilise Agroal, apporté par les extensions de pilotes JDBC. On le règle par `quarkus.datasource.jdbc.max-size`, `min-size`, `acquisition-timeout`..."
+  - key: vf-db-kind-au-demarrage
+    format: true-false
+    question: "On peut changer `quarkus.datasource.db-kind` au démarrage de l'application déjà construite, par une variable d'environnement."
+    truth: false
+    answer: "`db-kind` est fixée au build : Quarkus y prépare le pilote et Hibernate. L'URL, les identifiants et la taille du pool, eux, se lisent au démarrage."
+  - key: vf-source-nommee
+    format: true-false
+    question: "Une source de données nommée se configure avec son nom entre guillemets dans la clé, comme `quarkus.datasource.\"stats\".db-kind`."
+    truth: true
+    answer: "Les guillemets délimitent le nom. On l'injecte ensuite avec le qualificateur `@DataSource(\"stats\")`."
+  - key: qcm-taille-par-defaut
+    format: multiple-choice
+    question: "Quelle est la taille maximale par défaut du pool Agroal (`quarkus.datasource.jdbc.max-size`) ?"
+    choices:
+      - {text: "20", correct: true}
+      - {text: "10", correct: false}
+      - {text: "100", correct: false}
+      - {text: "Illimitée", correct: false}
+    answer: "20 connexions par défaut, et `min-size` à 0. Un pool doit rester borné : la base a elle-même un nombre maximal de connexions, partagé entre toutes les instances."
+  - key: qcm-injecter-source-par-defaut
+    format: multiple-choice
+    question: "Comment obtiens-tu la source de données par défaut dans un bean, pour du JDBC direct ?"
+    choices:
+      - {text: "`@Inject AgroalDataSource dataSource;`", correct: true}
+      - {text: "`DriverManager.getConnection(url)` dans chaque méthode", correct: false}
+      - {text: "`@PersistenceContext DataSource dataSource;`", correct: false}
+      - {text: "`@Inject @Default(\"datasource\") Connection connexion;`", correct: false}
+    answer: "Quarkus produit un bean `AgroalDataSource` (aussi injectable comme `javax.sql.DataSource`). `DriverManager` contournerait le pool ; `@PersistenceContext` sert à l'`EntityManager`."
+  - key: qcm-url-de-production
+    format: multiple-choice
+    question: "Comment donnes-tu une URL de base pour la production seulement, en laissant les Dev Services en dev et en test ?"
+    choices:
+      - {text: "`%prod.quarkus.datasource.jdbc.url=...`", correct: true}
+      - {text: "`quarkus.datasource.jdbc.url=...` sans préfixe", correct: false}
+      - {text: "`quarkus.datasource.prod.url=...`", correct: false}
+      - {text: "`%dev.quarkus.datasource.devservices.enabled=true`", correct: false}
+    answer: "Le préfixe `%prod` limite la propriété au profil de production. Sans préfixe, l'URL vaudrait aussi en dev et en test, et les Dev Services ne démarreraient plus."
+  - key: qcm-deux-bases
+    format: multiple-choice
+    question: "Ton application lit ses commandes dans une base et écrit ses statistiques dans une autre. Comment la configures-tu ?"
+    choices:
+      - {text: "Une source par défaut et une source nommée, `quarkus.datasource.\"stats\".*`", correct: true}
+      - {text: "Deux URL séparées par une virgule dans `quarkus.datasource.jdbc.url`", correct: false}
+      - {text: "Deux fichiers `application.properties`, un par base", correct: false}
+      - {text: "Deux extensions de pilote, chacune avec sa propre base", correct: false}
+    answer: "Chaque source nommée a ses clés et son pool. On choisit laquelle injecter avec `@DataSource(\"stats\")`."
+  - key: trous-db-kind
+    format: fill-in
+    question: |-
+      Complète pour indiquer que la base est un PostgreSQL :
+      ```properties
+      quarkus.datasource.___=postgresql
+      ```
+    blanks:
+      - [db-kind]
+    answer: "`db-kind` dit le type de base ; Quarkus en déduit le pilote et les Dev Services."
+  - key: trous-jdbc-url
+    format: fill-in
+    question: |-
+      Complète la clé de l'URL JDBC :
+      ```properties
+      quarkus.datasource.jdbc.___=jdbc:postgresql://localhost:5432/boutique
+      ```
+    blanks:
+      - [url]
+    answer: "`quarkus.datasource.jdbc.url` : la clé `quarkus.datasource.url` n'existe pas, et serait ignorée."
+  - key: trous-taille-du-pool
+    format: fill-in
+    question: |-
+      Complète pour limiter le pool à 16 connexions :
+      ```properties
+      quarkus.datasource.jdbc.___=16
+      ```
+    blanks:
+      - [max-size]
+    answer: "`max-size` borne le pool (20 par défaut) ; `min-size` garde des connexions ouvertes d'avance."
+  - key: trous-qualificateur-source-nommee
+    format: fill-in
+    question: |-
+      Complète pour injecter la source nommée « stats » :
+      ```java
+      @Inject
+      @___("stats")
+      AgroalDataSource stats;
+      ```
+    blanks:
+      - [DataSource]
+    answer: "`@DataSource` (`io.quarkus.agroal.DataSource`) choisit une source nommée. Sans lui, c'est la source par défaut, quel que soit le nom du champ."
+  - key: bug-cle-url-inconnue
+    format: bug-fix
+    question: |-
+      En dev, Quarkus démarre un conteneur PostgreSQL au lieu d'utiliser ta base locale, et le journal affiche
+      « Unrecognized configuration key "quarkus.datasource.url" ». Quelle correction est la bonne ?
+      ```properties
+      quarkus.datasource.db-kind=postgresql
+      quarkus.datasource.url=jdbc:postgresql://localhost:5432/boutique
+      ```
+    choices:
+      - {text: "Renommer la clé en `quarkus.datasource.jdbc.url`", correct: true}
+      - {text: "Ajouter `quarkus.datasource.devservices.enabled=true`", correct: false}
+      - {text: "Retirer `jdbc:` au début de l'URL", correct: false}
+      - {text: "Remplacer `postgresql` par `jdbc-postgresql` dans `db-kind`", correct: false}
+    answer: |-
+      ```properties
+      quarkus.datasource.jdbc.url=jdbc:postgresql://localhost:5432/boutique
+      ```
+      Une clé inconnue est ignorée, avec un simple avertissement. Pour Quarkus, aucune URL n'est donnée : en dev, les
+      Dev Services prennent le relais avec une base vide.
+  - key: bug-connexion-jamais-fermee
+    format: bug-fix
+    question: |-
+      Après une vingtaine d'appels, chaque requête attend cinq secondes puis échoue : « Sorry, acquisition timeout! ».
+      Quelle correction est la bonne ?
+      ```java
+      public int compter() throws SQLException {
+          Connection connexion = dataSource.getConnection();
+          ResultSet resultat = connexion.createStatement().executeQuery("select count(*) from produit");
+          resultat.next();
+          return resultat.getInt(1);
+      }
+      ```
+    choices:
+      - {text: "Ouvrir la connexion dans un `try` avec ressources", correct: true}
+      - {text: "Porter `jdbc.max-size` à 200 connexions", correct: false}
+      - {text: "Porter `jdbc.acquisition-timeout` à une minute", correct: false}
+      - {text: "Appeler `System.gc()` après chaque requête", correct: false}
+    answer: |-
+      ```java
+      try (Connection connexion = dataSource.getConnection();
+           Statement requete = connexion.createStatement();
+           ResultSet resultat = requete.executeQuery("select count(*) from produit")) {
+          resultat.next();
+          return resultat.getInt(1);
+      }
+      ```
+      Chaque appel garde une connexion : au 21e, le pool (20 par défaut) est vide. Agrandir le pool ou l'attente ne
+      fait que retarder la panne ; fermer la connexion la rend au pool.
+  - key: bug-url-seulement-en-dev
+    format: bug-fix
+    question: |-
+      En production, sans Dev Services, l'application refuse de démarrer : sa source de données n'a pas d'URL. Le
+      fichier ne contient que ceci. Quelle correction est la bonne ?
+      ```properties
+      quarkus.datasource.db-kind=postgresql
+      %dev.quarkus.datasource.jdbc.url=jdbc:postgresql://localhost:5432/boutique
+      ```
+    choices:
+      - {text: "Donner l'URL de production, par `%prod.` ou une variable d'environnement", correct: true}
+      - {text: "Remplacer le préfixe `%dev.` par `%test.` sur la ligne de l'URL", correct: false}
+      - {text: "Activer `quarkus.datasource.devservices.enabled` en production", correct: false}
+      - {text: "Retirer la ligne `db-kind`, que Quarkus devinera depuis le pilote", correct: false}
+    answer: |-
+      ```properties
+      %prod.quarkus.datasource.jdbc.url=${DB_URL}
+      ```
+      Le préfixe `%dev.` limite l'URL au mode dev. En production, rien ne la fournit, et les Dev Services n'y existent
+      pas. La variable `QUARKUS_DATASOURCE_JDBC_URL` ferait aussi l'affaire.
+  - key: bug-source-nommee-sans-qualificateur
+    format: bug-fix
+    question: |-
+      Les statistiques s'écrivent dans la base principale, qui n'a pas de table `visite`, au lieu de la source nommée
+      « stats », pourtant configurée. Quelle correction est la bonne ?
+      ```java
+      @Inject
+      AgroalDataSource stats;
+      ```
+    choices:
+      - {text: "Ajouter le qualificateur `@DataSource(\"stats\")` sur le champ", correct: true}
+      - {text: "Renommer le champ en `statsDataSource`", correct: false}
+      - {text: "Annoter le champ avec `@Named(\"default\")`", correct: false}
+      - {text: "Déclarer le champ en `private final`", correct: false}
+    answer: |-
+      ```java
+      @Inject
+      @DataSource("stats")
+      AgroalDataSource stats;
+      ```
+      CDI choisit un bean par son type et ses qualificateurs, jamais par le nom du champ. Sans qualificateur, c'est la
+      source par défaut.

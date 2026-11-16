@@ -1,0 +1,300 @@
+notion: diagnostic
+lesson: |-
+  Trois familles de problèmes reviennent dans les applications Quarkus, et dans les questions d'entretien : un
+  **thread d'entrées-sorties bloqué**, un **bean introuvable**, une **propriété fixée au build**. Les reconnaître à
+  leur message fait gagner des heures.
+
+  **1. Un thread d'entrées-sorties bloqué.** Vert.x sert les requêtes avec quelques threads de boucle d'événements.
+  Un appel bloquant sur l'un d'eux (JDBC, Hibernate ORM, un `Thread.sleep`, un client HTTP synchrone) gèle toutes les
+  requêtes qu'il sert.
+
+  - Vert.x le signale dans les journaux : « Thread vert.x-eventloop-thread-0 has been blocked for 2345 ms, time limit
+    is 2000 ms ».
+  - Hibernate ORM le refuse net : `BlockingOperationNotAllowedException: You have attempted to perform a blocking
+    operation on a IO thread. This is not allowed, as blocking the IO thread will cause major performance issues with
+    your application.`
+
+  La cause habituelle : un endpoint qui renvoie un `Uni` (il s'exécute alors sur la boucle d'événements) mais appelle
+  du code bloquant. Les remèdes : renvoyer un type ordinaire (Quarkus REST l'exécute sur un thread de travail),
+  annoter `@Blocking`, utiliser `@RunOnVirtualThread`, ou passer à une API réactive (Hibernate Reactive).
+
+  **2. Un bean introuvable.** ArC vérifie les injections au build : l'application ne démarre pas.
+
+  - « Unsatisfied dependency for type Paiement and qualifiers [@Default] » : aucun bean ne convient. Souvent, la classe
+    n'a **pas d'annotation de scope** (sans elle, ce n'est pas un bean), ou elle vit dans un **module sans index**
+    (un jar de la même application : il faut l'indexer, par le plugin Jandex ou `quarkus.index-dependency`), ou un
+    qualificatif ne correspond pas.
+  - « Ambiguous dependencies for type Paiement and qualifiers [@Default] » : plusieurs beans conviennent. On qualifie
+    l'un d'eux (`@Identifier("virement")`, ou un qualificatif maison), ou l'on désigne le défaut par une
+    `@Alternative` avec `@Priority`. Attention : `@Named` seul ne retire pas `@Default`, l'ambiguïté reste.
+  - À l'exécution, « No bean found for required type [class Rapport] » : le bean existe, mais rien ne l'injecte, et
+    Quarkus l'a **retiré** au build. Une recherche par programme (`CDI.current().select(...)`) ne le retrouve pas :
+    `@Unremovable`, ou une injection `Instance<Rapport>`.
+
+  **3. Une propriété fixée au build.** Certaines propriétés changent le code généré : le type de base
+  (`quarkus.datasource.db-kind`), les extensions actives, des chemins. Les changer au démarrage (variable
+  d'environnement, `-D`) **n'a pas d'effet** : Quarkus l'écrit dans un avertissement, « Build time property cannot be
+  changed at runtime ». Il faut **reconstruire**. La documentation de chaque propriété le signale par un cadenas.
+
+  | Symptôme | Cause probable | Remède |
+  |---|---|---|
+  | « has been blocked for ... ms » | appel bloquant sur la boucle d'événements | thread de travail, `@Blocking`, réactif |
+  | `BlockingOperationNotAllowedException` | Hibernate ORM appelé depuis un `Uni` | retour ordinaire ou `@Blocking` |
+  | « Unsatisfied dependency » | pas de scope, module non indexé, qualificatif | scope, index Jandex |
+  | « Ambiguous dependencies » | plusieurs implémentations | qualificatif, alternative |
+  | « No bean found » à l'exécution | bean inutilisé retiré | `@Unremovable`, `Instance<T>` |
+  | une propriété changée sans effet | propriété de build | reconstruire |
+
+  **En entretien** : « Un avertissement "has been blocked" ou une `BlockingOperationNotAllowedException` signale du
+  code bloquant sur la boucle d'événements : je le déplace sur un thread de travail. Un bean introuvable se voit dès
+  le build : scope manquant, module non indexé, qualificatif ; à l'exécution, c'est souvent un bean inutilisé retiré.
+  Et une propriété de build ne se change pas au démarrage : il faut reconstruire. »
+cards:
+  - key: sens-du-blocage
+    format: course
+    question: "Que signale le journal « Thread vert.x-eventloop-thread-0 has been blocked for 2345 ms, time limit is 2000 ms » ?"
+    choices:
+      - {text: "Du code bloquant s'exécute sur un thread de boucle d'événements", correct: true}
+      - {text: "La base de données a mis plus de deux secondes à démarrer", correct: false}
+      - {text: "Le ramasse-miettes a suspendu la JVM pendant deux secondes", correct: false}
+      - {text: "Un client a mis plus de deux secondes à envoyer sa requête", correct: false}
+    answer: "Vert.x surveille ses threads de boucle d'événements : l'un d'eux n'a pas rendu la main depuis 2,3 s. Toutes les requêtes qu'il sert attendent pendant ce temps."
+  - key: classe-sans-scope
+    format: course
+    question: "Pourquoi une classe `PaiementCarte implements Paiement`, sans aucune annotation, ne satisfait-elle pas `@Inject Paiement` ?"
+    choices:
+      - {text: "Sans annotation de scope, ce n'est pas un bean pour Quarkus", correct: true}
+      - {text: "Une interface ne peut jamais être injectée avec CDI", correct: false}
+      - {text: "La classe doit porter le même nom que son interface", correct: false}
+      - {text: "La classe doit être déclarée dans `application.properties`", correct: false}
+    answer: "ArC ne découvre que les classes qui ont une annotation définissant un bean (un scope comme `@ApplicationScoped`, ou un stéréotype). Sans elle, la classe est ignorée."
+  - key: bean-retire
+    format: course
+    question: "Pourquoi `CDI.current().select(Rapport.class).get()` lève-t-il « No bean found » alors que `Rapport` est `@ApplicationScoped` ?"
+    choices:
+      - {text: "Rien n'injecte `Rapport` : Quarkus l'a retiré au build", correct: true}
+      - {text: "Un bean `@ApplicationScoped` ne se cherche jamais par programme", correct: false}
+      - {text: "La recherche par programme n'est permise que dans les tests", correct: false}
+      - {text: "`Rapport` n'est créé qu'après la première requête HTTP", correct: false}
+    answer: "Le retrait des beans inutilisés ne voit pas les recherches par programme. `@Unremovable` garde le bean ; une injection `Instance<Rapport>` le garde aussi."
+  - key: module-non-indexe
+    format: course
+    question: "Une classe `@ApplicationScoped` d'un autre module Maven de ton projet n'est pas trouvée. Que lui manque-t-il souvent ?"
+    choices:
+      - {text: "Un index Jandex, par le plugin ou `quarkus.index-dependency`", correct: true}
+      - {text: "Une annotation `@Component`, que Quarkus lit dans les jar", correct: false}
+      - {text: "Une déclaration dans `META-INF/services` de chaque bean", correct: false}
+      - {text: "Une dépendance de portée `test` plutôt que `compile`", correct: false}
+    answer: "Quarkus découvre les beans par l'index Jandex. Un jar sans index (ni `beans.xml`) n'est pas parcouru : on l'indexe au build du module, ou on le déclare dans la configuration."
+  - key: vf-injection-au-build
+    format: true-false
+    question: "Une dépendance impossible à satisfaire empêche l'application Quarkus de démarrer, avant toute requête."
+    truth: true
+    answer: "ArC valide les injections au build : « Unsatisfied dependency for type ... » apparaît avant même le démarrage."
+  - key: vf-propriete-de-build
+    format: true-false
+    question: "Changer `quarkus.datasource.db-kind` par une variable d'environnement prend effet au démarrage suivant, sans reconstruire."
+    truth: false
+    answer: "C'est une propriété fixée au build : la changer au démarrage n'a pas d'effet, et Quarkus le signale par un avertissement. Il faut reconstruire."
+  - key: vf-uni-et-hibernate
+    format: true-false
+    question: "Un endpoint qui renvoie un `Uni` et appelle Hibernate ORM dans son corps lève une `BlockingOperationNotAllowedException`."
+    truth: true
+    answer: "La méthode s'exécute sur la boucle d'événements, où Hibernate ORM refuse de bloquer : « You have attempted to perform a blocking operation on a IO thread »."
+  - key: vf-tous-les-beans-gardes
+    format: true-false
+    question: "Quarkus garde tous les beans déclarés, même ceux que rien n'injecte ni n'utilise."
+    truth: false
+    answer: "Il retire au build les beans inutilisés. Un bean seulement cherché par programme doit être marqué `@Unremovable`."
+  - key: qcm-ambiguite
+    format: multiple-choice
+    question: "Le build échoue sur « Ambiguous dependencies for type Paiement ». Que fais-tu ?"
+    choices:
+      - {text: "Je choisis l'implémentation par un qualificatif, ou j'en fais le défaut", correct: true}
+      - {text: "Je supprime l'interface `Paiement`, source de l'ambiguïté", correct: false}
+      - {text: "J'annote les deux implémentations avec `@Unremovable`", correct: false}
+      - {text: "Je passe les deux implémentations en `@Singleton`", correct: false}
+    answer: "Deux beans conviennent au même point d'injection : un qualificatif (`@Identifier`, un qualificatif maison) sur l'un d'eux, ou une `@Alternative` avec `@Priority` sur le défaut, lève le doute. `@Named` seul ne suffit pas, et le scope n'y change rien."
+  - key: qcm-propriete-sans-effet
+    format: multiple-choice
+    question: "L'exploitation a changé une propriété par variable d'environnement, et Quarkus avertit « Build time property cannot be changed at runtime ». Que fais-tu ?"
+    choices:
+      - {text: "Je change la propriété dans la configuration, puis je reconstruis", correct: true}
+      - {text: "Je redémarre l'application deux fois de suite", correct: false}
+      - {text: "Je passe la valeur par `-D` plutôt que par variable", correct: false}
+      - {text: "Je renomme la variable en minuscules, avec des points", correct: false}
+    answer: "Une propriété de build est figée dans l'artefact : ni variable, ni `-D` ne la changent au démarrage. Seul un nouveau build la prend en compte."
+  - key: qcm-garder-un-bean
+    format: multiple-choice
+    question: "Un système de greffons cherche ses beans par leur nom, à l'exécution. Comment empêches-tu Quarkus de les retirer ?"
+    choices:
+      - {text: "J'annote ces beans avec `@Unremovable`", correct: true}
+      - {text: "Je les déclare `@Singleton` au lieu d'`@ApplicationScoped`", correct: false}
+      - {text: "Je les annote `@Startup`, sans autre réglage", correct: false}
+      - {text: "Je les rends `public`, avec un constructeur public", correct: false}
+    answer: "`@Unremovable` dit à ArC de garder le bean même si rien ne l'injecte. `quarkus.arc.unremovable-types` le fait par configuration."
+  - key: qcm-remede-au-blocage
+    format: multiple-choice
+    question: "Un endpoint renvoie `Uni<List<Produit>>` mais appelle Hibernate ORM, bloquant. Quelle correction est la plus simple ?"
+    choices:
+      - {text: "Renvoyer `List<Produit>` : l'endpoint passe sur un thread de travail", correct: true}
+      - {text: "Envelopper l'appel dans `Uni.createFrom().item(...)`", correct: false}
+      - {text: "Augmenter la limite de blocage de Vert.x à dix secondes", correct: false}
+      - {text: "Ajouter des threads de boucle d'événements à Vert.x", correct: false}
+    answer: "Quarkus REST exécute une méthode à retour ordinaire sur un thread de travail, où bloquer est permis. Envelopper dans un `Uni` ne change pas de thread : l'appel bloque toujours la boucle."
+  - key: bug-uni-bloquant
+    format: bug-fix
+    question: |-
+      `GET /produits` répond 500 : « BlockingOperationNotAllowedException: You have attempted to perform a blocking
+      operation on a IO thread ». Quelle correction est la bonne ?
+      ```java
+      @GET
+      public Uni<List<Produit>> lister() {
+          return Uni.createFrom().item(Produit.<Produit>listAll());
+      }
+      ```
+    choices:
+      - {text: "Renvoyer `List<Produit>` directement, sans `Uni`", correct: true}
+      - {text: "Annoter la méthode avec `@Transactional`", correct: false}
+      - {text: "Remplacer `item(...)` par `emitter(...)` dans l'`Uni`", correct: false}
+      - {text: "Annoter la méthode avec `@NonBlocking`", correct: false}
+    answer: |-
+      ```java
+      @GET
+      public List<Produit> lister() {
+          return Produit.listAll();
+      }
+      ```
+      Une méthode qui renvoie un `Uni` s'exécute sur la boucle d'événements, où Hibernate ORM refuse de bloquer. Un
+      retour ordinaire part sur un thread de travail. `@Blocking` sur la méthode conviendrait aussi ; `@NonBlocking`
+      ferait l'inverse.
+  - key: bug-classe-sans-scope
+    format: bug-fix
+    question: |-
+      Le build échoue : « Unsatisfied dependency for type Paiement and qualifiers [@Default] », pour le champ
+      `@Inject Paiement paiement` d'une ressource. Quelle correction est la bonne ?
+      ```java
+      public class PaiementCarte implements Paiement {
+          public String payer() {
+              return "carte";
+          }
+      }
+      ```
+    choices:
+      - {text: "Annoter `PaiementCarte` avec `@ApplicationScoped`", correct: true}
+      - {text: "Annoter l'interface `Paiement` avec `@ApplicationScoped`", correct: false}
+      - {text: "Remplacer `@Inject Paiement` par `@Inject PaiementCarte`", correct: false}
+      - {text: "Ajouter un constructeur public sans argument à `PaiementCarte`", correct: false}
+    answer: |-
+      ```java
+      @ApplicationScoped
+      public class PaiementCarte implements Paiement {
+      ```
+      Sans annotation définissant un bean, la classe n'est pas découverte : aucun bean ne fournit `Paiement`, ni
+      `PaiementCarte`. Annoter l'interface ne crée pas de bean.
+  - key: bug-bean-retire
+    format: bug-fix
+    question: |-
+      `GET /rapports/ventes` répond 500 : « UnsatisfiedResolutionException: No bean found for required type [class
+      Rapport] ». Rien d'autre n'injecte `Rapport`. Quelle correction est la bonne ?
+      ```java
+      @ApplicationScoped
+      public class Rapport { ... }
+
+      @GET
+      @Path("/ventes")
+      public String ventes() {
+          return CDI.current().select(Rapport.class).get().ventes();
+      }
+      ```
+    choices:
+      - {text: "Annoter `Rapport` avec `@Unremovable`, ou l'injecter", correct: true}
+      - {text: "Passer `Rapport` en `@Singleton`, créé au démarrage", correct: false}
+      - {text: "Remplacer `CDI.current()` par `new Rapport()`", correct: false}
+      - {text: "Annoter la méthode `ventes` avec `@Transactional`", correct: false}
+    answer: |-
+      ```java
+      @Inject
+      Rapport rapport;
+      ```
+      Quarkus retire au build les beans que rien n'injecte, et ne voit pas la recherche par programme. Injecté (ou
+      marqué `@Unremovable`), le bean reste. `new` créerait un objet sans ses propres injections.
+  - key: bug-deux-implementations
+    format: bug-fix
+    question: |-
+      Depuis l'ajout du paiement par virement, le build échoue : « Ambiguous dependencies for type Paiement and
+      qualifiers [@Default] ». La carte doit rester le défaut. Quelle correction est la bonne ?
+      ```java
+      @ApplicationScoped
+      public class PaiementCarte implements Paiement { ... }
+
+      @ApplicationScoped
+      public class PaiementVirement implements Paiement { ... }
+      ```
+    choices:
+      - {text: "Qualifier `PaiementVirement` avec `@Identifier(\"virement\")`", correct: true}
+      - {text: "Nommer `PaiementVirement` avec `@Named(\"virement\")`, sans plus", correct: false}
+      - {text: "Passer `PaiementVirement` en `@RequestScoped`", correct: false}
+      - {text: "Annoter les deux classes avec `@Unremovable`", correct: false}
+    answer: |-
+      ```java
+      @ApplicationScoped
+      @Identifier("virement")
+      public class PaiementVirement implements Paiement { ... }
+      ```
+      Avec un qualificatif, `PaiementVirement` perd le qualificatif `@Default` : `@Inject Paiement` reçoit la carte,
+      et `@Inject @Identifier("virement") Paiement` le virement. `@Named` seul ne suffit pas : un bean qui n'a que
+      `@Named` garde `@Default`, et l'ambiguïté reste. Le scope n'y change rien.
+  - key: situation-latences-en-production
+    format: scenario
+    question: |-
+      En production, des latences de plusieurs secondes touchent toutes les routes à la fois. Les journaux montrent
+      « vert.x-eventloop-thread-1 has been blocked for 3120 ms ». Que fais-tu ?
+    choices:
+      - {text: "Je cherche l'appel bloquant sur la boucle, et je le passe sur un thread de travail", correct: true}
+      - {text: "Je double la mémoire de la JVM, qui manque visiblement", correct: false}
+      - {text: "Je relève la limite de blocage de Vert.x à dix secondes", correct: false}
+      - {text: "J'ajoute des pods, pour répartir les requêtes bloquées", correct: false}
+    answer: |-
+      Le journal donne la pile du thread bloqué : on y trouve l'appel (JDBC, client synchrone, `sleep`) fait depuis un
+      endpoint réactif ou un gestionnaire Vert.x. Relever la limite ne fait que taire l'alerte.
+  - key: situation-propriete-de-build
+    format: scenario
+    question: |-
+      L'exploitation veut changer le chemin racine de l'application par une variable d'environnement, mais rien ne
+      change, et un avertissement parle de « build time property ». Que lui expliques-tu ?
+    choices:
+      - {text: "Cette propriété est figée au build : il faut la régler et reconstruire", correct: true}
+      - {text: "La variable doit être écrite en minuscules, avec des points", correct: false}
+      - {text: "La variable n'est lue qu'au deuxième démarrage de l'application", correct: false}
+      - {text: "Les variables d'environnement ne sont jamais lues par Quarkus", correct: false}
+    answer: |-
+      Certaines propriétés changent le code généré au build : elles sont figées dans l'artefact. Les autres
+      propriétés se lisent bien dans l'environnement ; la documentation marque les premières d'un cadenas.
+  - key: situation-module-partage
+    format: scenario
+    question: |-
+      Ton projet a un module Maven `commun` avec des beans `@ApplicationScoped`. Dans l'application, leur injection
+      échoue : « Unsatisfied dependency ». Que fais-tu ?
+    choices:
+      - {text: "J'indexe le module `commun` avec le plugin Jandex", correct: true}
+      - {text: "Je copie les classes du module dans l'application", correct: false}
+      - {text: "Je passe ces beans en `@Singleton`, découverts partout", correct: false}
+      - {text: "J'ajoute `@Inject` sur les constructeurs de ces beans", correct: false}
+    answer: |-
+      Quarkus ne découvre les beans d'un jar que s'il est indexé (plugin Jandex, `beans.xml`, ou
+      `quarkus.index-dependency` dans la configuration). Copier les classes contourne le problème en dupliquant le
+      code.
+  - key: situation-greffons
+    format: scenario
+    question: |-
+      Ton application choisit à l'exécution un calculateur de frais parmi plusieurs beans, par
+      `CDI.current().select(...)`. En production, certains sont introuvables. Que proposes-tu ?
+    choices:
+      - {text: "Injecter `Instance<Calculateur>` et y choisir le bon bean", correct: true}
+      - {text: "Créer les calculateurs avec `new`, sans passer par CDI", correct: false}
+      - {text: "Relancer l'application jusqu'à ce que les beans apparaissent", correct: false}
+      - {text: "Passer tous les calculateurs en `@Dependent`", correct: false}
+    answer: |-
+      Un point d'injection `Instance<Calculateur>` dit à Quarkus que ces beans servent : il les garde, et le code les
+      parcourt ou les sélectionne. `@Unremovable` sur chacun marche aussi, mais s'oublie au prochain calculateur.

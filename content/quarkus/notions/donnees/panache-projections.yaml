@@ -1,0 +1,184 @@
+notion: panache-projections
+lesson: |-
+  Charger des entités entières pour n'afficher que deux colonnes, c'est lire trop de données et créer des objets
+  qu'Hibernate surveille pour rien. Une **projection** ne lit que ce qu'il faut, directement dans un DTO.
+
+  **1. `project()` vers un record.**
+
+  ```java
+  public record ResumeProduit(String nom, int prix) {}
+
+  List<ResumeProduit> resumes = Produit.find("categorie", Sort.by("nom"), categorie)
+          .project(ResumeProduit.class)
+          .list();
+  ```
+
+  Panache lit les **noms des paramètres du constructeur** (`nom`, `prix`) et en fait la requête :
+  `select new ResumeProduit(nom, prix) from Produit where categorie = ?1 order by nom`. Seules ces colonnes sont lues.
+
+  - Les noms des paramètres doivent être connus à l'exécution : le compilateur doit les garder (`-parameters`), ce que
+    fait la configuration Maven d'un projet Quarkus.
+  - Un paramètre qui ne porte pas le nom du champ, ou qui va chercher un champ d'une relation, s'annote
+    `@ProjectedFieldName` :
+
+  ```java
+  public record LigneCatalogue(String nom, @ProjectedFieldName("fournisseur.nom") String fournisseur) {}
+  ```
+
+  **2. Ce qu'on y gagne.**
+
+  - Moins de colonnes lues et transférées, surtout quand l'entité a des champs lourds (une description, une image).
+  - Des objets **non gérés** : pas de dirty checking, pas de chargement paresseux, donc pas de
+    `LazyInitializationException` quand on les sérialise.
+  - Un DTO prêt à renvoyer en JSON, qui fixe le contrat de l'API.
+
+  **3. Ce qui ne change pas.** `project()` renvoie une nouvelle `PanacheQuery` : on la trie, on la pagine et on la
+  termine comme les autres (`page(...)`, `list()`, `firstResultOptional()`, `count()`).
+
+  ```java
+  List<ResumeProduit> page = Produit.findAll(Sort.by("nom"))
+          .project(ResumeProduit.class)
+          .page(0, 20)
+          .list();
+  ```
+
+  **4. Quand l'utiliser.** Pour les listes et les écrans de lecture : catalogue, tableau de bord, export. Pour
+  modifier des données, on charge l'entité, qu'Hibernate suivra jusqu'au commit.
+
+  **En entretien** : « Pour une liste en lecture, je projette la requête sur un record avec `project()` : Panache n'en
+  lit que les colonnes, d'après les noms des paramètres du constructeur, et `@ProjectedFieldName` va chercher un champ
+  d'une relation. Les objets ne sont pas gérés : rien à surveiller, rien de paresseux à sérialiser. Pour modifier, je
+  charge l'entité. »
+cards:
+  - key: effet-de-project
+    format: course
+    question: "Que fait `Produit.findAll().project(ResumeProduit.class).list()` ?"
+    choices:
+      - {text: "Il ne lit que les colonnes du constructeur de `ResumeProduit`", correct: true}
+      - {text: "Il charge les entités, puis les copie dans des `ResumeProduit`", correct: false}
+      - {text: "Il crée une vue `ResumeProduit` dans la base de données", correct: false}
+      - {text: "Il convertit chaque produit en JSON avec Jackson", correct: false}
+    answer: "Panache écrit un `select new ResumeProduit(...)` : la base ne renvoie que ces colonnes, et aucune entité n'est créée."
+  - key: comment-panache-choisit
+    format: course
+    question: "Comment Panache sait-il quelles colonnes lire pour `project(ResumeProduit.class)` ?"
+    choices:
+      - {text: "Par les noms des paramètres du constructeur", correct: true}
+      - {text: "Par l'ordre des champs de l'entité `Produit`", correct: false}
+      - {text: "Par les getters déclarés dans `ResumeProduit`", correct: false}
+      - {text: "Par une annotation `@Projection` sur la classe", correct: false}
+    answer: "Le paramètre `nom` donne la colonne `nom`. Ces noms doivent être gardés à la compilation (`-parameters`), sinon on les précise avec `@ProjectedFieldName`."
+  - key: champ-d-une-relation
+    format: course
+    question: "Ton DTO veut le nom du fournisseur du produit, `produit.fournisseur.nom`. Comment le projettes-tu ?"
+    choices:
+      - {text: "`@ProjectedFieldName(\"fournisseur.nom\") String fournisseur`", correct: true}
+      - {text: "Un paramètre nommé `fournisseurNom`, deviné par Panache", correct: false}
+      - {text: "Un paramètre `Fournisseur fournisseur`, chargé en entier", correct: false}
+      - {text: "C'est impossible : une projection ne lit que l'entité racine", correct: false}
+    answer: "`@ProjectedFieldName` donne le chemin du champ à lire, y compris à travers une relation. Panache ne devine pas `fournisseurNom`."
+  - key: projection-ou-entite
+    format: course
+    question: "Pourquoi une projection évite-t-elle les `LazyInitializationException` à la sérialisation ?"
+    choices:
+      - {text: "Ses objets ne sont pas gérés et n'ont rien de paresseux", correct: true}
+      - {text: "Elle garde la session ouverte jusqu'à la fin de la requête", correct: false}
+      - {text: "Elle charge toutes les relations de l'entité d'office", correct: false}
+      - {text: "Elle passe chaque relation de l'entité en `EAGER`", correct: false}
+    answer: "Un record projeté ne contient que des valeurs déjà lues : aucune collection à charger plus tard, rien à surveiller."
+  - key: vf-objets-geres
+    format: true-false
+    question: "Modifier un objet obtenu par `project()`, dans une transaction, modifie la ligne en base au commit."
+    truth: false
+    answer: "Une projection n'est pas une entité : Hibernate ne la suit pas. Pour modifier, on charge l'entité elle-même."
+  - key: vf-record
+    format: true-false
+    question: "Un record Java peut servir de classe de projection à `project()`."
+    truth: true
+    answer: "Un record a un constructeur canonique dont les paramètres portent les noms de ses composants : Panache s'en sert pour la requête."
+  - key: vf-paginer-projection
+    format: true-false
+    question: "Une requête projetée par `project()` peut encore être paginée avec `page(...)`."
+    truth: true
+    answer: "`project()` renvoie une nouvelle `PanacheQuery` : tri, pagination et `count()` restent disponibles."
+  - key: vf-parametres-compiles
+    format: true-false
+    question: "Sans l'option `-parameters` du compilateur ni `@ProjectedFieldName`, Panache ne peut pas savoir quelle colonne va à quel paramètre."
+    truth: true
+    answer: "Sans `-parameters`, les paramètres s'appellent `arg0`, `arg1` à l'exécution. Un projet Quarkus active l'option dans sa configuration Maven."
+  - key: qcm-ecrire-projection
+    format: multiple-choice
+    question: "Quel appel renvoie les produits d'une catégorie sous forme de `ResumeProduit` ?"
+    choices:
+      - {text: "`Produit.find(\"categorie\", c).project(ResumeProduit.class).list()`", correct: true}
+      - {text: "`Produit.find(\"categorie\", c).list(ResumeProduit.class)`", correct: false}
+      - {text: "`Produit.project(ResumeProduit.class).find(\"categorie\", c)`", correct: false}
+      - {text: "`Produit.find(\"categorie\", c).map(ResumeProduit::new)`", correct: false}
+    answer: "`project` s'applique à la `PanacheQuery` que renvoie `find`, puis on la termine par `list()`."
+  - key: qcm-annotation-chemin
+    format: multiple-choice
+    question: "Quelle annotation relie un paramètre de projection à un champ d'un autre nom ?"
+    choices:
+      - {text: "`@ProjectedFieldName`", correct: true}
+      - {text: "`@Column`", correct: false}
+      - {text: "`@JsonProperty`", correct: false}
+      - {text: "`@Named`", correct: false}
+    answer: "`@ProjectedFieldName(\"fournisseur.nom\")` donne le chemin du champ. `@Column` décrit une colonne d'entité, `@JsonProperty` un nom JSON."
+  - key: qcm-quand-projeter
+    format: multiple-choice
+    question: "Dans quel cas une projection convient-elle le mieux ?"
+    choices:
+      - {text: "Une liste qui affiche deux colonnes d'une entité qui en a trente", correct: true}
+      - {text: "Une méthode qui modifie le prix d'un produit chargé", correct: false}
+      - {text: "La création d'une commande et de ses lignes", correct: false}
+      - {text: "La suppression de tous les produits d'une catégorie", correct: false}
+    answer: "La projection sert la lecture : moins de colonnes, pas d'objets gérés. Modifier, créer ou supprimer passe par les entités ou par des requêtes `update` et `delete`."
+  - key: qcm-colonnes-lues
+    format: multiple-choice
+    question: "Avec `record ResumeProduit(String nom, int prix)`, quelles colonnes la requête projetée lit-elle ?"
+    choices:
+      - {text: "Seulement `nom` et `prix`", correct: true}
+      - {text: "Toutes les colonnes de la table `Produit`", correct: false}
+      - {text: "`id`, `nom` et `prix`", correct: false}
+      - {text: "Aucune : les valeurs viennent du cache", correct: false}
+    answer: "La requête devient `select new ResumeProduit(nom, prix) ...` : l'identifiant n'est pas lu, faute de paramètre `id`."
+  - key: trous-project
+    format: fill-in
+    question: |-
+      Complète pour ne lire que le nom et le prix :
+      ```java
+      List<ResumeProduit> resumes = Produit.findAll().___(ResumeProduit.class).list();
+      ```
+    blanks:
+      - [project]
+    answer: "`project` remplace l'entité par le DTO dans le `select`."
+  - key: trous-record-dto
+    format: fill-in
+    question: |-
+      Complète pour déclarer la classe de projection en une ligne :
+      ```java
+      public ___ ResumeProduit(String nom, int prix) {}
+      ```
+    blanks:
+      - [record]
+    answer: "Un `record` donne un constructeur dont les paramètres portent les noms de ses composants."
+  - key: trous-projectedfieldname
+    format: fill-in
+    question: |-
+      Complète pour lire le nom du fournisseur du produit :
+      ```java
+      public record LigneCatalogue(String nom, @___("fournisseur.nom") String fournisseur) {}
+      ```
+    blanks:
+      - [ProjectedFieldName]
+    answer: "`@ProjectedFieldName` donne le chemin du champ, à travers la relation `fournisseur`."
+  - key: trous-terminer
+    format: fill-in
+    question: |-
+      Complète pour obtenir la liste des résumés :
+      ```java
+      List<ResumeProduit> resumes = Produit.findAll(Sort.by("nom")).project(ResumeProduit.class).___();
+      ```
+    blanks:
+      - [list]
+    answer: "La requête projetée se termine comme une autre : `list()`, `firstResultOptional()`, `count()`..."

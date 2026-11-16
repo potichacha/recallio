@@ -1,0 +1,354 @@
+notion: blocking
+lesson: |-
+  Quarkus REST choisit le thread d'une méthode d'après sa signature : un `Uni` sur la boucle d'événements, un objet
+  ordinaire sur un worker. Deux annotations de SmallRye (`io.smallrye.common.annotation`) **renversent** ce choix
+  quand la signature ne dit pas la vérité sur le code.
+
+  **`@Blocking`** : exécuter sur un worker, malgré une signature réactive.
+
+  ```java
+  @GET
+  @Path("/{id}")
+  @Blocking
+  public Uni<ProduitVue> trouver(@RestPath long id) {
+      // un client SOAP synchrone, hérité, qui bloque : permis sur un worker
+      return Uni.createFrom().item(() -> ancienCatalogue.trouver(id));
+  }
+  ```
+
+  **`@NonBlocking`** : exécuter sur la boucle d'événements, malgré une signature ordinaire.
+
+  ```java
+  @GET
+  @Path("/ping")
+  @NonBlocking
+  public String ping() {
+      return "pong";   // un calcul en mémoire, sans aucune attente
+  }
+  ```
+
+  | Signature | Sans annotation | Avec `@Blocking` | Avec `@NonBlocking` |
+  |---|---|---|---|
+  | `Uni<T>`, `Multi<T>` | boucle d'événements | worker | boucle d'événements |
+  | `T`, `void` | worker | worker | boucle d'événements |
+
+  Les deux se posent sur une méthode ou sur toute la classe ; elles servent aussi ailleurs dans Quarkus (messagerie,
+  tâches planifiées).
+
+  **`@NonBlocking` est une promesse, pas une optimisation.** Elle évite un passage de thread, ce qui gagne un peu sur
+  un traitement très court. Mais si le code bloque (JDBC, Hibernate ORM, un fichier, un client synchrone), il gèle la
+  boucle ; Hibernate ORM y lève même une `BlockingOperationNotAllowedException`. Dans le doute, on ne la met pas.
+
+  **Déporter une partie d'un pipeline.** Dans une méthode réactive, un appel bloquant isolé peut partir sur un worker
+  sans changer toute la méthode :
+
+  ```java
+  return Uni.createFrom().item(() -> ancienCatalogue.trouver(id))
+          .runSubscriptionOn(Infrastructure.getDefaultWorkerPool());
+  ```
+
+  **En entretien** : « Quarkus déduit le thread de la signature ; `@Blocking` envoie une méthode réactive sur un
+  worker quand elle appelle du code bloquant, et `@NonBlocking` garde une méthode ordinaire sur la boucle quand elle
+  ne fait qu'un calcul en mémoire. `@NonBlocking` est une promesse : du JDBC derrière gèle la boucle. Et dans un
+  pipeline Mutiny, `runSubscriptionOn` déporte un appel bloquant isolé. »
+cards:
+  - key: effet-de-blocking
+    format: course
+    question: "Que fait `@Blocking` sur une méthode de ressource qui renvoie `Uni<ProduitVue>` ?"
+    choices:
+      - {text: "Elle s'exécute sur un thread worker, et peut appeler du code bloquant", correct: true}
+      - {text: "Elle s'exécute sur la boucle d'événements, plus rapidement", correct: false}
+      - {text: "Elle bloque le client jusqu'à ce que le `Uni` soit résolu", correct: false}
+      - {text: "Elle n'accepte plus qu'une requête à la fois", correct: false}
+    answer: "`@Blocking` renverse le choix déduit de la signature réactive : la méthode part sur un worker."
+  - key: effet-de-nonblocking
+    format: course
+    question: "Que fait `@NonBlocking` sur une méthode de ressource qui renvoie une `String` ?"
+    choices:
+      - {text: "Elle s'exécute sur la boucle d'événements, au lieu d'un worker", correct: true}
+      - {text: "Elle rend non bloquants les appels JDBC qu'elle contient", correct: false}
+      - {text: "Elle s'exécute sur un thread virtuel, créé pour la requête", correct: false}
+      - {text: "Elle renvoie sa réponse avant la fin de son exécution", correct: false}
+    answer: "`@NonBlocking` évite le passage par un worker. Elle ne change rien au code : s'il bloque, il bloque la boucle."
+  - key: paquet-des-annotations
+    format: course
+    question: "D'où viennent `@Blocking` et `@NonBlocking` dans une application Quarkus ?"
+    choices:
+      - {text: "De `io.smallrye.common.annotation`", correct: true}
+      - {text: "De `jakarta.ws.rs`, l'API Jakarta REST", correct: false}
+      - {text: "De `java.util.concurrent`, dans le JDK", correct: false}
+      - {text: "De `org.jboss.resteasy.reactive`", correct: false}
+    answer: "Ces annotations de SmallRye servent dans tout Quarkus : REST, messagerie, tâches planifiées."
+  - key: quand-nonblocking
+    format: course
+    question: "Quand `@NonBlocking` convient-il à une méthode ordinaire ?"
+    choices:
+      - {text: "Quand elle ne fait qu'un court calcul en mémoire, sans aucune attente", correct: true}
+      - {text: "Quand elle lit la base de données avec Hibernate ORM", correct: false}
+      - {text: "Quand elle appelle un service distant avec un client synchrone", correct: false}
+      - {text: "Quand elle est lente et qu'il faut l'accélérer à tout prix", correct: false}
+    answer: "Sur la boucle, seul un code qui n'attend jamais est permis. Le gain, un passage de thread évité, n'est réel que pour un traitement très court."
+  - key: vf-blocking-sur-la-classe
+    format: true-false
+    question: "`@Blocking` posée sur une classe de ressource s'applique à toutes ses méthodes."
+    truth: true
+    answer: "L'annotation se pose sur une méthode ou sur la classe ; sur la classe, toutes les méthodes partent sur un worker."
+  - key: vf-nonblocking-et-jdbc
+    format: true-false
+    question: "`@NonBlocking` rend non bloquant un appel JDBC fait dans la méthode."
+    truth: false
+    answer: "L'annotation choisit seulement le thread. Un appel JDBC reste bloquant : sur la boucle, il la gèle, et Hibernate ORM y est refusé."
+  - key: vf-blocking-uni-sur-worker
+    format: true-false
+    question: "Une méthode `@Blocking` qui renvoie un `Uni` s'exécute sur un thread worker."
+    truth: true
+    answer: "La signature réactive l'aurait mise sur la boucle ; `@Blocking` la déplace sur un worker, comme `executor-thread-1`."
+  - key: vf-nonblocking-string
+    format: true-false
+    question: "Une méthode `@NonBlocking` qui renvoie une `String` s'exécute sur une boucle d'événements."
+    truth: true
+    answer: "Sans l'annotation, elle irait sur un worker. Avec, elle reste sur `vert.x-eventloop-thread-N`."
+  - key: qcm-bibliotheque-bloquante
+    format: multiple-choice
+    question: "Une méthode qui renvoie `Uni<Tarif>` doit appeler une ancienne bibliothèque bloquante. Que fais-tu au plus simple ?"
+    choices:
+      - {text: "J'annote la méthode avec `@Blocking`", correct: true}
+      - {text: "J'annote la méthode avec `@NonBlocking`", correct: false}
+      - {text: "J'appelle la bibliothèque dans un `synchronized`", correct: false}
+      - {text: "J'augmente le nombre de boucles d'événements", correct: false}
+    answer: "`@Blocking` envoie la méthode sur un worker, où l'attente est permise. Sur la boucle, l'appel la gèlerait."
+  - key: qcm-ping
+    format: multiple-choice
+    question: "Quelle méthode peut porter `@NonBlocking` sans risque ?"
+    choices:
+      - {text: "Un `ping` qui renvoie la version de l'application, en mémoire", correct: true}
+      - {text: "Une recherche de produits faite avec Hibernate ORM", correct: false}
+      - {text: "Un export qui écrit un gros fichier sur le disque", correct: false}
+      - {text: "Un appel synchrone au service de paiement", correct: false}
+    answer: "Seul un traitement sans attente a sa place sur la boucle. Base, disque ou réseau bloquent."
+  - key: qcm-deporter-un-appel
+    format: multiple-choice
+    question: "Dans un pipeline Mutiny, comment fais-tu exécuter un seul appel bloquant sur un worker ?"
+    choices:
+      - {text: "Avec `.runSubscriptionOn(Infrastructure.getDefaultWorkerPool())`", correct: true}
+      - {text: "Avec `.await().indefinitely()` sur la boucle d'événements", correct: false}
+      - {text: "Avec `Thread.sleep(0)` juste avant l'appel bloquant", correct: false}
+      - {text: "Avec `.onItem().transform(...)`, qui change de thread", correct: false}
+    answer: "`runSubscriptionOn` fait s'exécuter le `Uni` sur le pool indiqué. `await()` bloquerait au contraire le thread courant."
+  - key: qcm-nonblocking-et-panache
+    format: multiple-choice
+    question: "Une méthode `@NonBlocking` appelle `Produit.listAll()` de Panache (Hibernate ORM). Que se passe-t-il ?"
+    choices:
+      - {text: "Une `BlockingOperationNotAllowedException`, et une réponse 500", correct: true}
+      - {text: "La liste est renvoyée, plus vite que sur un worker", correct: false}
+      - {text: "Quarkus ignore `@NonBlocking` et choisit un worker", correct: false}
+      - {text: "La requête attend qu'une boucle d'événements se libère", correct: false}
+    answer: "`@NonBlocking` place la méthode sur la boucle, où Hibernate ORM est refusé. L'annotation n'est pas une option de performance."
+  - key: trous-blocking
+    format: fill-in
+    question: |-
+      Complète pour que cette méthode réactive s'exécute sur un worker :
+      ```java
+      @GET
+      @___
+      public Uni<Tarif> tarif(@RestPath String reference) {
+      ```
+    blanks:
+      - [Blocking]
+    answer: "`@Blocking` déplace la méthode sur un thread worker."
+  - key: trous-nonblocking
+    format: fill-in
+    question: |-
+      Complète pour garder cette méthode sur la boucle d'événements :
+      ```java
+      @GET
+      @Path("/ping")
+      @___
+      public String ping() {
+          return "pong";
+      }
+      ```
+    blanks:
+      - [NonBlocking]
+    answer: "`@NonBlocking` évite le passage par un worker ; le code ne doit jamais attendre."
+  - key: trous-import-blocking
+    format: fill-in
+    question: |-
+      Complète l'import de l'annotation :
+      ```java
+      import io.smallrye.common.annotation.___;
+      ```
+    blanks:
+      - [Blocking, NonBlocking, RunOnVirtualThread]
+    answer: "`io.smallrye.common.annotation` contient `Blocking`, `NonBlocking` et `RunOnVirtualThread`."
+  - key: trous-worker-pool
+    format: fill-in
+    question: |-
+      Complète pour exécuter cet appel bloquant sur le pool de workers :
+      ```java
+      return Uni.createFrom().item(() -> ancienCatalogue.trouver(id))
+              .runSubscriptionOn(Infrastructure.___());
+      ```
+    blanks:
+      - [getDefaultWorkerPool]
+    answer: "`Infrastructure.getDefaultWorkerPool()` donne le pool de workers de Quarkus."
+  - key: bug-client-synchrone-dans-uni
+    format: bug-fix
+    question: |-
+      Le journal répète « vert.x-eventloop-thread-0 has been blocked for 4100 ms » à chaque appel du tarif. Quelle
+      correction est la bonne ?
+      ```java
+      @GET
+      @Path("/{reference}/tarif")
+      public Uni<Tarif> tarif(@RestPath String reference) {
+          Tarif tarif = ancienServiceSoap.calculer(reference);   // appel synchrone, lent
+          return Uni.createFrom().item(tarif);
+      }
+      ```
+    choices:
+      - {text: "Annoter la méthode avec `@Blocking`", correct: true}
+      - {text: "Annoter la méthode avec `@NonBlocking`", correct: false}
+      - {text: "Remplacer `item(tarif)` par `item(() -> tarif)`", correct: false}
+      - {text: "Ajouter `@Transactional` sur la méthode", correct: false}
+    answer: |-
+      ```java
+      @GET
+      @Path("/{reference}/tarif")
+      @Blocking
+      public Uni<Tarif> tarif(@RestPath String reference) { ... }
+      ```
+      L'appel synchrone s'exécute sur la boucle d'événements, que le `Uni` a choisie. Avec `@Blocking`, il part sur
+      un worker. Le passer dans une lambda ne change pas de thread.
+  - key: bug-nonblocking-sur-une-recherche
+    format: bug-fix
+    question: |-
+      La recherche répond 500 : « BlockingOperationNotAllowedException: You have attempted to perform a blocking
+      operation on a IO thread ». Quelle correction est la bonne ?
+      ```java
+      @GET
+      @NonBlocking
+      public List<Produit> chercher(@RestQuery String q) {
+          return Produit.list("nom like ?1", "%" + q + "%");
+      }
+      ```
+    choices:
+      - {text: "Retirer `@NonBlocking`, pour revenir sur un worker", correct: true}
+      - {text: "Ajouter `@Blocking` sur la classe et garder `@NonBlocking`", correct: false}
+      - {text: "Faire renvoyer `Uni<List<Produit>>` à la méthode", correct: false}
+      - {text: "Annoter la méthode avec `@Transactional`", correct: false}
+    answer: |-
+      ```java
+      @GET
+      public List<Produit> chercher(@RestQuery String q) {
+          return Produit.list("nom like ?1", "%" + q + "%");
+      }
+      ```
+      `@NonBlocking` place la méthode sur la boucle, où Hibernate ORM est refusé. Un `Uni` la laisserait sur la
+      boucle, lui aussi.
+  - key: bug-transactional-uni-blocking
+    format: bug-fix
+    question: |-
+      L'appel répond 500 : « @Transactional cannot start a JTA transaction within a reactive pipeline. If the
+      annotated method is intended to be blocking, ensure it is executed on a worker thread ». La méthode doit
+      garder sa signature réactive. Quelle correction est la bonne ?
+      ```java
+      @POST
+      @Transactional
+      public Uni<Produit> creer(NouveauProduit nouveau) {
+          return Uni.createFrom().item(() -> catalogue.ajouter(nouveau));
+      }
+      ```
+    choices:
+      - {text: "Ajouter `@Blocking` sur la méthode", correct: true}
+      - {text: "Ajouter `@NonBlocking` sur la méthode", correct: false}
+      - {text: "Retirer `@Transactional` de la méthode", correct: false}
+      - {text: "Remplacer `@POST` par `@PUT`", correct: false}
+    answer: |-
+      ```java
+      @POST
+      @Transactional
+      @Blocking
+      public Uni<Produit> creer(NouveauProduit nouveau) { ... }
+      ```
+      Sur la boucle d'événements, une transaction JTA ne peut pas démarrer. `@Blocking` envoie la méthode sur un
+      worker, comme le message le suggère. Sans `@Transactional`, l'écriture perdrait sa transaction.
+  - key: bug-pdf-sur-la-boucle
+    format: bug-fix
+    question: |-
+      Pendant la génération d'une facture en PDF, qui prend plusieurs secondes de calcul, les autres requêtes
+      attendent. Quelle correction est la bonne ?
+      ```java
+      @GET
+      @Path("/{id}/facture")
+      @NonBlocking
+      public byte[] facture(@RestPath long id) {
+          return generateurPdf.generer(id);
+      }
+      ```
+    choices:
+      - {text: "Retirer `@NonBlocking`, pour calculer sur un worker", correct: true}
+      - {text: "Faire renvoyer `Uni<byte[]>`, sans autre changement", correct: false}
+      - {text: "Ajouter `@Produces(\"application/pdf\")` à la méthode", correct: false}
+      - {text: "Déclarer `generer` en `synchronized`", correct: false}
+    answer: |-
+      ```java
+      @GET
+      @Path("/{id}/facture")
+      public byte[] facture(@RestPath long id) {
+          return generateurPdf.generer(id);
+      }
+      ```
+      Un long calcul occupe la boucle d'événements aussi sûrement qu'une attente : toutes ses requêtes patientent.
+      Sur un worker, seul ce calcul occupe son thread. Un `Uni` resterait sur la boucle.
+  - key: situation-soap-dans-une-api-reactive
+    format: scenario
+    question: |-
+      Ton API est écrite en `Uni`, et une nouvelle méthode doit appeler un ancien client SOAP synchrone. Que
+      proposes-tu ?
+    choices:
+      - {text: "`@Blocking` sur la méthode, ou `runSubscriptionOn` sur l'appel bloquant", correct: true}
+      - {text: "Appeler le client sur la boucle : un seul appel bloquant ne gêne personne", correct: false}
+      - {text: "Réécrire tout le client SOAP en réactif avant d'ajouter la méthode", correct: false}
+      - {text: "`@NonBlocking` sur la méthode, pour qu'elle reste réactive", correct: false}
+    answer: |-
+      L'appel synchrone part sur un worker, et le reste de l'API garde son modèle. Sur la boucle, chaque appel lent
+      gèlerait des centaines de requêtes.
+  - key: situation-nonblocking-partout
+    format: scenario
+    question: |-
+      Un collègue propose d'ajouter `@NonBlocking` à toutes les ressources « pour gagner en performance ». Que
+      réponds-tu ?
+    choices:
+      - {text: "Non : la plupart appellent la base, et gèleraient les boucles d'événements", correct: true}
+      - {text: "Oui : `@NonBlocking` rend chaque appel bloquant asynchrone", correct: false}
+      - {text: "Oui : Quarkus repasse seul sur un worker quand c'est nécessaire", correct: false}
+      - {text: "Oui, à condition d'augmenter le nombre de boucles d'événements", correct: false}
+    answer: |-
+      `@NonBlocking` promet un code qui n'attend jamais. Hibernate ORM y lève une exception ; JDBC ou un client
+      synchrone y gèlent la boucle. On ne la réserve qu'aux traitements courts en mémoire.
+  - key: situation-calcul-lourd
+    format: scenario
+    question: |-
+      Une méthode `Uni` redimensionne des images, un calcul de plusieurs centaines de millisecondes. Les temps de
+      réponse de toute l'API se dégradent. Que fais-tu ?
+    choices:
+      - {text: "Je fais exécuter le calcul sur un worker, avec `@Blocking`", correct: true}
+      - {text: "Je garde le calcul sur la boucle : il n'attend ni réseau ni disque", correct: false}
+      - {text: "J'ajoute `@NonBlocking` pour accélérer le calcul", correct: false}
+      - {text: "Je découpe l'image en morceaux, tous traités sur la boucle", correct: false}
+    answer: |-
+      Un calcul long occupe la boucle autant qu'une attente : les requêtes qu'elle sert patientent. Sur un worker, il
+      n'occupe que son thread.
+  - key: situation-ping-de-sante
+    format: scenario
+    question: |-
+      Un `GET /ping` renvoie une constante, appelé des milliers de fois par minute par la surveillance. Peut-il porter
+      `@NonBlocking` ?
+    choices:
+      - {text: "Oui : il ne fait aucune attente, et évite un passage par un worker", correct: true}
+      - {text: "Non : une méthode qui renvoie une `String` ne peut pas l'utiliser", correct: false}
+      - {text: "Non : `@NonBlocking` est réservée aux méthodes qui renvoient un `Uni`", correct: false}
+      - {text: "Oui, mais seulement en mode dev, la production l'ignorant", correct: false}
+    answer: |-
+      C'est le cas d'école : un traitement en mémoire, court, très fréquent. Sur la boucle d'événements, il répond
+      sans changer de thread.

@@ -1,0 +1,193 @@
+notion: integration-test
+lesson: |-
+  `@QuarkusTest` démarre l'application dans la JVM des tests, à partir des classes compilées. Il ne dit rien de
+  **l'artefact qu'on livre** : le jar empaqueté, l'exécutable natif, l'image de conteneur. Un oubli de réflexion en
+  natif, une ressource absente du jar, une option de démarrage : ces erreurs n'apparaissent qu'avec l'artefact.
+  `@QuarkusIntegrationTest` le teste.
+
+  ```java
+  @QuarkusIntegrationTest
+  class ProduitResourceIT extends ProduitResourceTest {
+      // rejoue les tests de ProduitResourceTest contre l'artefact construit
+  }
+  ```
+
+  **Comment il fonctionne.**
+
+  - Il s'exécute **après le packaging**, dans la phase `verify` de Maven, par le plugin Failsafe : `./mvnw verify`,
+    ou `./mvnw verify -Dnative` pour l'exécutable natif. Les classes se nomment en `IT`.
+  - Il **lance l'artefact dans un processus séparé** (`java -jar target/quarkus-app/quarkus-run.jar`, l'exécutable
+    natif, ou le conteneur si l'on a construit une image), puis lui parle **en HTTP**.
+  - L'artefact tourne dans le profil **`prod`** par défaut (`quarkus.test.integration-test-profile`). Les Dev Services
+    démarrent quand même, et leur configuration est passée au processus lancé.
+
+  **Ce qu'il ne permet pas.** Le test et l'application ne partagent plus la même JVM :
+
+  - pas d'`@Inject` d'un bean de l'application, ni d'`@InjectMock`, ni d'`@InjectSpy` ;
+  - pas de `@TestTransaction` : le test n'a pas accès à la base de l'application ;
+  - seulement ce qu'un client verrait : HTTP, et les effets observables.
+
+  D'où l'habitude de faire **hériter** la classe `IT` d'un `@QuarkusTest` qui n'utilise que RestAssured. Un test
+  hérité qui a besoin d'injection se marque `@DisabledOnIntegrationTest`.
+
+  **Dans le pom généré**, la propriété `skipITs` vaut `true` : `./mvnw verify` saute les tests d'intégration, sauf
+  dans le profil `native`, qui la passe à `false`. Pour les lancer en JVM : `./mvnw verify -DskipITs=false`.
+
+  | | `@QuarkusTest` | `@QuarkusIntegrationTest` |
+  |---|---|---|
+  | ce qui tourne | l'application, dans la JVM des tests | l'artefact construit, dans un autre processus |
+  | quand | phase `test` (Surefire) | phase `verify` (Failsafe) |
+  | injection, mocks | oui | non |
+  | profil | `test` | `prod` par défaut |
+  | ce qu'il attrape | la logique et l'assemblage | les erreurs de packaging, de natif, d'image |
+
+  **En entretien** : « `@QuarkusIntegrationTest` teste l'artefact livré : le jar, l'exécutable natif ou l'image,
+  lancé dans un processus à part, dans la phase `verify`. Il ne parle qu'en HTTP, sans injection ni mock : je fais
+  hériter la classe `IT` d'un test RestAssured existant. C'est lui qui attrape les erreurs propres au natif, comme
+  une classe oubliée pour la réflexion. »
+cards:
+  - key: ce-que-teste-l-it
+    format: course
+    question: "Que teste `@QuarkusIntegrationTest` que `@QuarkusTest` ne teste pas ?"
+    choices:
+      - {text: "L'artefact construit : jar, exécutable natif ou image", correct: true}
+      - {text: "Les beans CDI, avec leurs dépendances injectées", correct: false}
+      - {text: "La logique métier, sans démarrer l'application", correct: false}
+      - {text: "Les requêtes SQL, contre une base en mémoire", correct: false}
+    answer: "`@QuarkusTest` démarre l'application à partir des classes compilées. `@QuarkusIntegrationTest` lance l'artefact empaqueté, comme en production : il attrape les erreurs de packaging et de natif."
+  - key: phase-maven
+    format: course
+    question: "Dans quelle phase Maven les tests `@QuarkusIntegrationTest` s'exécutent-ils ?"
+    choices:
+      - {text: "`verify`, par le plugin Failsafe, après le packaging", correct: true}
+      - {text: "`test`, par le plugin Surefire, avant le packaging", correct: false}
+      - {text: "`compile`, juste après la compilation des classes", correct: false}
+      - {text: "`deploy`, une fois l'artefact publié dans le dépôt", correct: false}
+    answer: "Il leur faut l'artefact : ils passent donc après `package`, dans `verify`. Failsafe exécute les classes en `IT`."
+  - key: comment-il-parle-a-l-application
+    format: course
+    question: "Comment un `@QuarkusIntegrationTest` interagit-il avec l'application ?"
+    choices:
+      - {text: "En HTTP, avec un artefact lancé dans un autre processus", correct: true}
+      - {text: "Par des beans injectés, dans la même JVM que le test", correct: false}
+      - {text: "Par des mocks Mockito installés dans l'artefact", correct: false}
+      - {text: "Par des appels JMX à la JVM de l'application", correct: false}
+    answer: "L'artefact tourne à part : le test ne voit que ce qu'un client verrait. `@Inject`, `@InjectMock` et `@TestTransaction` n'y ont pas de sens."
+  - key: profil-de-l-artefact
+    format: course
+    question: "Dans quel profil de configuration l'artefact lancé par un `@QuarkusIntegrationTest` tourne-t-il, par défaut ?"
+    choices:
+      - {text: "`prod`", correct: true}
+      - {text: "`test`", correct: false}
+      - {text: "`dev`", correct: false}
+      - {text: "`it`", correct: false}
+    answer: "L'artefact est celui de la production, lancé dans le profil `prod` ; `quarkus.test.integration-test-profile` change ce choix. Les Dev Services démarrent malgré tout, et lui passent leur configuration."
+  - key: vf-injection-en-it
+    format: true-false
+    question: "Un `@QuarkusIntegrationTest` peut injecter un bean de l'application avec `@Inject`."
+    truth: false
+    answer: "L'application tourne dans un autre processus : aucun bean n'est accessible. Le test passe par HTTP, comme un client."
+  - key: vf-heritage
+    format: true-false
+    question: "Une classe `@QuarkusIntegrationTest` peut hériter d'une classe `@QuarkusTest` pour rejouer ses tests contre l'artefact."
+    truth: true
+    answer: "C'est l'usage : `class ProduitResourceIT extends ProduitResourceTest {}`. Les tests hérités qui ont besoin d'injection se marquent `@DisabledOnIntegrationTest`."
+  - key: vf-natif-attrape
+    format: true-false
+    question: "Une classe oubliée pour la réflexion en natif peut passer tous les `@QuarkusTest` et ne casser qu'un `@QuarkusIntegrationTest` lancé avec `-Dnative`."
+    truth: true
+    answer: "`@QuarkusTest` tourne sur une JVM, où la réflexion marche toujours. Seul l'exécutable natif révèle l'oubli, et seul le test d'intégration l'exécute."
+  - key: vf-skipits
+    format: true-false
+    question: "Dans un projet Quarkus généré, `./mvnw verify` lance les tests d'intégration en JVM sans autre option."
+    truth: false
+    answer: "Le pom généré fixe `skipITs` à `true` ; seul le profil `native` le passe à `false`. En JVM, on écrit `./mvnw verify -DskipITs=false`."
+  - key: qcm-tester-le-natif
+    format: multiple-choice
+    question: "Comment vérifies-tu que l'exécutable natif répond comme la version JVM ?"
+    choices:
+      - {text: "`./mvnw verify -Dnative`, avec des classes `@QuarkusIntegrationTest`", correct: true}
+      - {text: "`./mvnw test -Dnative`, avec les classes `@QuarkusTest` existantes", correct: false}
+      - {text: "`quarkus dev --native`, puis les tests continus avec la touche `r`", correct: false}
+      - {text: "`./mvnw package -Dnative`, qui exécute l'exécutable au passage", correct: false}
+    answer: "Le profil `native` construit l'exécutable puis lance les tests d'intégration contre lui. `@QuarkusTest` s'exécute toujours sur la JVM, même avec `-Dnative`."
+  - key: qcm-test-qui-injecte
+    format: multiple-choice
+    question: "`ProduitResourceIT` hérite de `ProduitResourceTest`, dont un test utilise `@InjectMock`. Que fais-tu de ce test ?"
+    choices:
+      - {text: "Je l'annote `@DisabledOnIntegrationTest`", correct: true}
+      - {text: "Je l'annote `@QuarkusIntegrationTest` en plus", correct: false}
+      - {text: "Je remplace `@InjectMock` par `@Inject`", correct: false}
+      - {text: "Je l'annote `@TestProfile` pour l'isoler", correct: false}
+    answer: "Le mock ne peut pas être installé dans un artefact lancé à part. `@DisabledOnIntegrationTest` garde le test pour `@QuarkusTest` et le saute contre l'artefact."
+  - key: qcm-nom-des-classes
+    format: multiple-choice
+    question: "Comment nommes-tu une classe de test d'intégration pour que Failsafe l'exécute ?"
+    choices:
+      - {text: "Avec le suffixe `IT` : `ProduitResourceIT`", correct: true}
+      - {text: "Avec le suffixe `Test` : `ProduitResourceTest`", correct: false}
+      - {text: "Avec le préfixe `Native` : `NativeProduitResource`", correct: false}
+      - {text: "N'importe comment : l'annotation suffit à Failsafe", correct: false}
+    answer: "Failsafe retient par défaut les classes en `IT` (et `ITCase`) ; Surefire, celles en `Test`. Le nom décide de la phase."
+  - key: qcm-ce-qu-on-y-verifie
+    format: multiple-choice
+    question: "Quel test as-tu intérêt à écrire en `@QuarkusIntegrationTest` plutôt qu'en `@QuarkusTest` ?"
+    choices:
+      - {text: "Un parcours HTTP qui sérialise des types passés par la réflexion", correct: true}
+      - {text: "Un calcul de prix, qui bouchonne le dépôt avec `@InjectMock`", correct: false}
+      - {text: "Une requête Panache, isolée par `@TestTransaction`", correct: false}
+      - {text: "La valeur d'une propriété lue par `@ConfigProperty`", correct: false}
+    answer: "La sérialisation par réflexion est ce qui casse en natif. Les trois autres demandent l'injection ou la base de l'application, impossibles contre un artefact lancé à part."
+  - key: situation-natif-casse-en-prod
+    format: scenario
+    question: |-
+      En production, ton service natif répond 500 sur un endpoint (« No serializer found for class Remise ») dont
+      tous les `@QuarkusTest` passent. Que mets-tu en place pour que ça n'arrive plus ?
+    choices:
+      - {text: "Des tests `@QuarkusIntegrationTest`, joués contre l'exécutable natif en CI", correct: true}
+      - {text: "Plus de `@QuarkusTest` sur cet endpoint, avec des assertions plus précises", correct: false}
+      - {text: "Des tests unitaires de la classe sérialisée, sans démarrer Quarkus", correct: false}
+      - {text: "Un passage en mode JVM en production, où ce bug ne peut pas arriver", correct: false}
+    answer: |-
+      L'erreur n'existe que dans l'exécutable natif, que seuls les tests d'intégration exécutent. Un job de CI
+      `./mvnw verify -Dnative` l'aurait attrapée avant la production.
+  - key: situation-tests-it-trop-lents
+    format: scenario
+    question: |-
+      Le job `verify -Dnative` prend vingt minutes, et l'équipe veut le lancer sur chaque commit. Que proposes-tu ?
+    choices:
+      - {text: "Les tests JVM à chaque commit, le natif et ses tests avant la fusion ou chaque nuit", correct: true}
+      - {text: "Supprimer les tests d'intégration natifs, puisque les tests JVM passent", correct: false}
+      - {text: "Lancer le natif sur chaque commit, en réduisant les tests à un seul", correct: false}
+      - {text: "Remplacer le natif par l'image JVM en production, pour aller plus vite", correct: false}
+    answer: |-
+      La compilation native est lente : on la garde pour les étapes qui comptent (fusion, nuit, publication), et les
+      tests JVM rapides donnent le retour à chaque commit. Supprimer les tests natifs rouvre la porte aux erreurs
+      qu'ils sont seuls à voir.
+  - key: situation-it-et-donnees
+    format: scenario
+    question: |-
+      Ton `@QuarkusIntegrationTest` doit vérifier la liste des produits, mais il ne peut pas les insérer en base comme
+      le faisait le `@QuarkusTest`. Comment prépares-tu les données ?
+    choices:
+      - {text: "Je les crée par l'API, avec des `POST` RestAssured", correct: true}
+      - {text: "Je les insère avec `@TestTransaction` et une entité Panache", correct: false}
+      - {text: "J'injecte le repository avec `@Inject` dans le test", correct: false}
+      - {text: "J'appelle `Produit.persist` dans un `@BeforeEach`", correct: false}
+    answer: |-
+      Le test d'intégration ne voit que l'interface publique : il prépare ses données comme un client, par l'API.
+      Les trois autres supposent la JVM de l'application, que le test ne partage plus.
+  - key: situation-image-a-verifier
+    format: scenario
+    question: |-
+      Tu construis l'image de conteneur avec `quarkus.container-image.build=true`, et tu veux vérifier que l'image
+      elle-même démarre et répond. Que fais-tu ?
+    choices:
+      - {text: "Je lance les `@QuarkusIntegrationTest` après la construction de l'image", correct: true}
+      - {text: "Je lance les `@QuarkusTest`, qui démarrent l'image dans Docker", correct: false}
+      - {text: "J'ajoute un `@QuarkusComponentTest` sur la classe d'application", correct: false}
+      - {text: "Je vérifie la présence de l'image avec `docker images`", correct: false}
+    answer: |-
+      Quand une image a été construite, le test d'intégration la lance et la teste en HTTP : configuration, port,
+      dépendances système. `@QuarkusTest` ne démarre jamais l'image, et lister les images ne prouve pas qu'elle
+      répond.

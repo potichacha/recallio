@@ -1,0 +1,192 @@
+notion: messaging-acquittement
+lesson: |-
+  Chaque message reçu doit être **acquitté** (*ack*) quand il est traité, ou **refusé** (*nack*) quand son traitement
+  échoue. C'est ce qui permet au connecteur Kafka de valider les offsets (« j'ai tout lu jusqu'ici »), et de décider
+  quoi faire d'un message qui échoue.
+
+  **1. Qui acquitte, et quand ?**
+
+  | Signature de la méthode | Acquittement par défaut |
+  |---|---|
+  | `void traiter(Commande c)`, ou qui renvoie un `Uni` | **après** le traitement : au retour, ou quand le `Uni` se termine |
+  | `CompletionStage<Void> traiter(Message<Commande> m)` | **manuel** : `return m.ack();` ou `m.nack(erreur)` |
+
+  `@Acknowledgment(Acknowledgment.Strategy.PRE_PROCESSING)` acquitte **avant** le traitement : un plantage au milieu
+  perd alors le message (au plus une fois). `POST_PROCESSING` garde la livraison au moins une fois.
+
+  **2. La validation des offsets (`commit-strategy`).** Par défaut, `throttled` : le connecteur valide
+  périodiquement le plus grand offset dont **tous** les messages précédents de la partition sont acquittés. Un
+  message qui reste trop longtemps sans acquittement (une minute par défaut) fait passer le connecteur en échec de
+  santé : c'est le signe d'un oubli d'acquittement.
+
+  **3. Quand le traitement échoue (`failure-strategy`).** Une exception, ou un `nack`, déclenche la stratégie d'échec
+  du canal :
+
+  | Stratégie | Effet |
+  |---|---|
+  | `fail` (défaut) | le canal s'arrête, l'application passe en échec de santé |
+  | `ignore` | l'échec est journalisé, le message est sauté |
+  | `dead-letter-queue` | le message part dans un topic de « lettres mortes », la consommation continue |
+  | `delayed-retry-topic` | le message est rejoué plus tard, par des topics de nouvelle tentative |
+
+  ```properties
+  mp.messaging.incoming.paiements.failure-strategy=dead-letter-queue
+  ```
+
+  **4. Réessayer avant de refuser.** Une panne passagère (un service indisponible deux secondes) se traite par une
+  nouvelle tentative, avant le `nack` : `@Retry` de MicroProfile Fault Tolerance sur la méthode, ou la stratégie
+  `delayed-retry-topic`. La file des lettres mortes garde les messages vraiment fautifs, pour une analyse et un
+  rejeu à la main.
+
+  **5. Au moins une fois, donc idempotent.** Avec l'acquittement après traitement, un plantage entre le traitement
+  et la validation de l'offset fait relire le message. Le consommateur doit supporter ce doublon.
+
+  **En entretien** : « Un message traité est acquitté, un message en échec est refusé. Avec une méthode qui reçoit la
+  charge utile, l'acquittement suit le traitement ; avec un `Message`, je l'écris moi-même. Un refus déclenche la
+  stratégie d'échec : `fail` par défaut, qui arrête tout, et je préfère souvent `dead-letter-queue`, après quelques
+  nouvelles tentatives. La livraison est au moins une fois : mes traitements sont idempotents. »
+cards:
+  - key: quand-l-ack-automatique
+    format: course
+    question: "Quand le message d'une méthode `@Incoming void traiter(Commande c)` est-il acquitté, par défaut ?"
+    choices:
+      - {text: "Après le retour de la méthode, si elle n'a pas levé d'exception", correct: true}
+      - {text: "Dès sa réception, avant l'appel de la méthode", correct: false}
+      - {text: "Jamais : il faut appeler `ack()` soi-même", correct: false}
+      - {text: "À la validation suivante des offsets, quoi qu'il arrive", correct: false}
+    answer: "C'est l'acquittement après traitement (`POST_PROCESSING`) : une exception provoque un refus à la place."
+  - key: effet-d-un-nack
+    format: course
+    question: "Que déclenche le refus (`nack`) d'un message ?"
+    choices:
+      - {text: "La stratégie d'échec du canal (`failure-strategy`)", correct: true}
+      - {text: "Un nouvel envoi du message par son producteur", correct: false}
+      - {text: "La suppression du message dans le topic", correct: false}
+      - {text: "La validation de l'offset, comme un `ack`", correct: false}
+    answer: "Le connecteur applique la stratégie configurée : arrêter (`fail`), sauter (`ignore`), mettre de côté (`dead-letter-queue`) ou rejouer plus tard."
+  - key: strategie-par-defaut
+    format: course
+    question: "Quel est l'effet de la stratégie d'échec par défaut, `fail` ?"
+    choices:
+      - {text: "Le canal cesse de consommer, et l'application passe en échec de santé", correct: true}
+      - {text: "Le message fautif est sauté, et la consommation continue", correct: false}
+      - {text: "Le message fautif est rejoué indéfiniment, jusqu'à réussir", correct: false}
+      - {text: "Le message fautif part dans un topic de lettres mortes", correct: false}
+    answer: "Rien n'est perdu, mais plus rien n'avance : un orchestrateur qui surveille la santé redémarrera l'instance, qui relira le même message."
+  - key: role-dead-letter-queue
+    format: course
+    question: "Que fait la stratégie d'échec `dead-letter-queue` ?"
+    choices:
+      - {text: "Elle envoie le message fautif dans un autre topic, et continue", correct: true}
+      - {text: "Elle supprime le message fautif sans laisser de trace", correct: false}
+      - {text: "Elle arrête le canal jusqu'à une intervention humaine", correct: false}
+      - {text: "Elle renvoie le message fautif à son producteur", correct: false}
+    answer: "Le message est mis de côté pour être analysé et rejoué, et la consommation des suivants continue."
+  - key: vf-pre-processing
+    format: true-false
+    question: "Avec `@Acknowledgment(Acknowledgment.Strategy.PRE_PROCESSING)`, un plantage pendant le traitement peut faire perdre le message."
+    truth: true
+    answer: "Le message est acquitté avant d'être traité : relancé, le consommateur reprend après lui. C'est une livraison au plus une fois."
+  - key: vf-message-manuel
+    format: true-false
+    question: "Une méthode `@Incoming` qui reçoit un `Message<Commande>` doit acquitter elle-même ses messages."
+    truth: true
+    answer: "Avec un `Message`, l'acquittement est manuel : `return message.ack();`, ou `message.nack(erreur)` en cas d'échec."
+  - key: vf-ignore-rejoue
+    format: true-false
+    question: "La stratégie d'échec `ignore` rejoue plus tard le message qui a échoué."
+    truth: false
+    answer: "`ignore` journalise l'échec et passe au message suivant : le message fautif est perdu pour ce consommateur. Pour rejouer plus tard, `delayed-retry-topic`."
+  - key: vf-throttled
+    format: true-false
+    question: "Avec la stratégie `throttled`, un offset n'est validé que lorsque tous les messages précédents de la partition sont acquittés."
+    truth: true
+    answer: "Un seul message jamais acquitté bloque donc la validation de toute la partition, d'où l'alerte de santé après un délai."
+  - key: qcm-configurer-dlq
+    format: multiple-choice
+    question: "Comment envoies-tu les messages en échec du canal `paiements` dans une file de lettres mortes ?"
+    choices:
+      - {text: "`mp.messaging.incoming.paiements.failure-strategy=dead-letter-queue`", correct: true}
+      - {text: "`mp.messaging.incoming.paiements.commit-strategy=dead-letter-queue`", correct: false}
+      - {text: "`mp.messaging.outgoing.paiements.failure-strategy=ignore`", correct: false}
+      - {text: "`@Acknowledgment(Acknowledgment.Strategy.NONE)` sur la méthode", correct: false}
+    answer: "`failure-strategy` décide du sort d'un message refusé ; `commit-strategy` règle la validation des offsets."
+  - key: qcm-acquitter-avant
+    format: multiple-choice
+    question: "Quelle annotation acquitte le message avant même d'appeler la méthode ?"
+    choices:
+      - {text: "`@Acknowledgment(Acknowledgment.Strategy.PRE_PROCESSING)`", correct: true}
+      - {text: "`@Acknowledgment(Acknowledgment.Strategy.POST_PROCESSING)`", correct: false}
+      - {text: "`@Acknowledgment(Acknowledgment.Strategy.MANUAL)`", correct: false}
+      - {text: "`@Blocking(ack = true)`", correct: false}
+    answer: "`PRE_PROCESSING` acquitte à la réception : un échec du traitement ne fera rien relire."
+  - key: qcm-refuser-a-la-main
+    format: multiple-choice
+    question: "Dans une méthode qui reçoit un `Message<Paiement>`, comment refuses-tu un message dont le traitement a échoué ?"
+    choices:
+      - {text: "`return message.nack(erreur);`", correct: true}
+      - {text: "`return message.ack();`", correct: false}
+      - {text: "`throw new IllegalStateException()` après `ack()`", correct: false}
+      - {text: "`return null;`", correct: false}
+    answer: "`nack` signale l'échec, avec sa cause : la stratégie d'échec s'applique. Acquitter puis lever une exception validerait un message mal traité."
+  - key: qcm-commit-par-defaut
+    format: multiple-choice
+    question: "Quelle stratégie de validation des offsets le connecteur Kafka utilise-t-il par défaut ?"
+    choices:
+      - {text: "`throttled`", correct: true}
+      - {text: "`latest`", correct: false}
+      - {text: "`ignore`", correct: false}
+      - {text: "`dead-letter-queue`", correct: false}
+    answer: "`throttled` valide périodiquement, et surveille les messages restés sans acquittement. `latest` valide à chaque acquittement, plus coûteux ; `dead-letter-queue` est une stratégie d'échec."
+  - key: situation-panne-passagere
+    format: scenario
+    question: |-
+      Le service de stock est parfois indisponible quelques secondes. Chaque fois, des messages partent dans la file
+      des lettres mortes, et quelqu'un doit les rejouer à la main. Que proposes-tu ?
+    choices:
+      - {text: "Quelques nouvelles tentatives espacées avant le refus, avec `@Retry`", correct: true}
+      - {text: "Passer la stratégie d'échec à `ignore`, pour ne plus rien rejouer", correct: false}
+      - {text: "Acquitter les messages avant le traitement, dès leur arrivée", correct: false}
+      - {text: "Supprimer la file des lettres mortes et laisser le canal s'arrêter", correct: false}
+    answer: |-
+      Une panne de quelques secondes se surmonte en réessayant ; la file des lettres mortes doit garder les messages
+      vraiment fautifs. `ignore` perdrait les messages, et acquitter avant le traitement aussi.
+  - key: situation-message-empoisonne
+    format: scenario
+    question: |-
+      Un message mal formé bloque le canal `paiements` (stratégie `fail`) : l'instance redémarre en boucle sur lui.
+      Que mets-tu en place ?
+    choices:
+      - {text: "La stratégie `dead-letter-queue`, et une alerte sur son topic", correct: true}
+      - {text: "La stratégie `ignore`, pour ne plus être dérangé", correct: false}
+      - {text: "Un redémarrage automatique plus rapide de l'instance", correct: false}
+      - {text: "La validation des offsets à chaque message reçu", correct: false}
+    answer: |-
+      Le message fautif est mis de côté, la consommation reprend, et l'alerte prévient qu'il faut l'analyser. Pour des
+      paiements, `ignore` perdrait des données en silence.
+  - key: situation-statistiques
+    format: scenario
+    question: |-
+      Un canal reçoit des statistiques de navigation. Perdre un message mal formé est sans conséquence, mais la
+      consommation ne doit jamais s'arrêter. Quelle stratégie d'échec choisis-tu ?
+    choices:
+      - {text: "`ignore` : l'échec est journalisé, et le message sauté", correct: true}
+      - {text: "`fail` : le canal s'arrête au premier échec", correct: false}
+      - {text: "`delayed-retry-topic`, avec une dizaine de tentatives", correct: false}
+      - {text: "`dead-letter-queue`, avec un rejeu manuel de chaque message", correct: false}
+    answer: |-
+      Ici, le message n'a pas de valeur durable : le sauter suffit. Rejouer ou mettre de côté coûterait plus que ce que
+      vaut le message.
+  - key: situation-acquitter-trop-tot
+    format: scenario
+    question: |-
+      Pour gagner du temps, un collègue acquitte les paiements dès leur réception (`PRE_PROCESSING`). Que lui
+      réponds-tu ?
+    choices:
+      - {text: "Un plantage pendant le traitement perdrait le paiement : on acquitte après", correct: true}
+      - {text: "C'est une bonne idée : les offsets avancent plus vite", correct: false}
+      - {text: "C'est sans effet : Kafka relit toujours tous les messages", correct: false}
+      - {text: "Il faut aussi passer la stratégie d'échec à `ignore`", correct: false}
+    answer: |-
+      Acquitté avant le traitement, le message ne sera jamais relu : un plantage au milieu le perd. Pour un paiement,
+      on garde l'acquittement après traitement, et un traitement idempotent pour les doublons.

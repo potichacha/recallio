@@ -1,0 +1,236 @@
+notion: build-time
+lesson: |-
+  Au démarrage, un framework Java classique fait beaucoup de travail : il **parcourt le classpath** pour trouver les
+  classes annotées, **lit les annotations par réflexion**, analyse la configuration, construit le métamodèle des
+  entités, crée des proxies. Ce travail donne toujours le même résultat pour une application donnée ; pourtant, il est
+  refait **à chaque démarrage**, sur chaque réplique.
+
+  **L'idée de Quarkus** : faire ce travail **une fois, pendant le build**, et livrer son résultat.
+
+  | Au démarrage (framework classique) | Au build (Quarkus) |
+  |---|---|
+  | scan du classpath | index Jandex des classes, construit à la compilation |
+  | lecture des annotations par réflexion | analyse de l'index par les extensions |
+  | création des proxies à l'exécution | proxies et classes générés en bytecode |
+  | métamodèle JPA construit au lancement | métamodèle préparé au build |
+  | résolution de l'injection | graphe des beans validé au build |
+
+  **La phase d'augmentation.** Pendant `./mvnw package` (ou au lancement du mode dev), Quarkus exécute les **build
+  steps** de chaque extension, des méthodes annotées `@BuildStep`. Elles lisent l'**index Jandex** (un index des
+  classes, des méthodes et des annotations), produisent des informations pour les autres étapes, et génèrent du
+  bytecode. Ce qui doit se faire au lancement est **enregistré** par des *recorders* : le code de démarrage généré
+  ne fait plus que rejouer ces appels.
+
+  **Ce que tu y gagnes** : moins de classes chargées, pas de réflexion au démarrage, moins de mémoire, un démarrage
+  rapide. Et des erreurs plus tôt : une dépendance introuvable fait échouer le build, pas la première requête.
+
+  **Ce que cela implique.**
+
+  - **Deux sortes de propriétés.** Certaines sont lues au build et **fixées** dans l'application construite
+    (`quarkus.datasource.db-kind`, le choix des extensions actives) ; les changer au lancement ne sert à rien, Quarkus
+    le signale par un avertissement. Les autres sont lues au démarrage (`quarkus.datasource.jdbc.url`,
+    `quarkus.http.port`) et se surchargent librement, par exemple par une variable d'environnement. La documentation
+    de chaque extension marque d'un cadenas les propriétés fixées au build.
+  - **Un monde connu d'avance.** Quarkus suppose que les classes de l'application sont connues au build. Charger des
+    plugins à l'exécution, générer des classes à la volée ou s'appuyer sur la réflexion arbitraire va à contre-courant,
+    et casse franchement en image native.
+  - **Un build un peu plus long** : c'est le prix d'un démarrage court, payé une fois.
+
+  **Et l'image native ?** Elle pousse l'idée jusqu'au bout : GraalVM part du principe d'un **monde fermé** (toutes les
+  classes connues à la compilation), et peut même exécuter l'initialisation statique pendant le build pour en stocker
+  le résultat dans l'exécutable. Le build time de Quarkus rend ce passage naturel.
+
+  ```properties
+  # fixée au build : la changer demande de reconstruire l'application
+  quarkus.datasource.db-kind=postgresql
+  # lue au démarrage : surchargée en production par QUARKUS_DATASOURCE_JDBC_URL
+  quarkus.datasource.jdbc.url=jdbc:postgresql://localhost:5432/boutique
+  ```
+
+  **En entretien** : « Quarkus déplace au build le travail que les frameworks font d'habitude au démarrage : l'index
+  Jandex remplace le scan du classpath, les extensions analysent l'application et génèrent le bytecode de démarrage.
+  On y gagne en temps de démarrage et en mémoire, et les erreurs d'injection apparaissent dès le build. En contrepartie,
+  certaines propriétés sont fixées au build, et l'application doit être connue d'avance, ce qui prépare aussi l'image
+  native. »
+cards:
+  - key: phase-d-augmentation
+    format: course
+    question: "Que fait Quarkus pendant sa phase d'augmentation ?"
+    choices:
+      - {text: "Il exécute les build steps des extensions, qui analysent l'application et génèrent du bytecode", correct: true}
+      - {text: "Il augmente la taille du tas de la JVM selon la mémoire du conteneur", correct: false}
+      - {text: "Il télécharge les extensions manquantes au premier démarrage de l'application", correct: false}
+      - {text: "Il ajoute des répliques de l'application quand la charge augmente", correct: false}
+    answer: "L'augmentation est le cœur du build time : chaque extension lit l'index des classes, prépare ce dont elle a besoin et génère le code de démarrage. L'application construite n'a plus qu'à le rejouer."
+  - key: pas-de-scan-au-demarrage
+    format: course
+    question: "Pourquoi une application Quarkus n'a-t-elle pas besoin de parcourir le classpath à son démarrage ?"
+    choices:
+      - {text: "Ses classes ont été indexées et analysées au build, et le résultat est livré", correct: true}
+      - {text: "Elle interdit les annotations, qui obligeraient à parcourir le classpath", correct: false}
+      - {text: "Elle charge toutes ses classes en mémoire d'un seul bloc, sans les chercher", correct: false}
+      - {text: "La JVM lui fournit la liste des classes annotées, mise en cache par le système", correct: false}
+    answer: "L'index Jandex, construit au build, recense classes et annotations. Les extensions l'analysent une fois ; le démarrage ne refait ni scan ni lecture d'annotations par réflexion."
+  - key: propriete-fixee-au-build
+    format: course
+    question: "Que se passe-t-il si l'on change au lancement une propriété fixée au build, comme `quarkus.datasource.db-kind` ?"
+    choices:
+      - {text: "La nouvelle valeur est ignorée, et Quarkus le signale par un avertissement", correct: true}
+      - {text: "Quarkus reconstruit l'application au démarrage avec la nouvelle valeur", correct: false}
+      - {text: "La nouvelle valeur remplace l'ancienne, comme pour toute autre propriété", correct: false}
+      - {text: "L'application refuse de démarrer et efface la configuration en cause", correct: false}
+    answer: "Le build a déjà utilisé cette valeur pour générer le code : la changer demande de reconstruire. Les propriétés lues au démarrage, comme l'URL JDBC, se surchargent, elles, sans rebuild."
+  - key: erreurs-plus-tot
+    format: course
+    question: "Quand une dépendance injectée n'a aucun bean correspondant, quand Quarkus le signale-t-il ?"
+    choices:
+      - {text: "Au build : le graphe des beans est validé pendant l'augmentation", correct: true}
+      - {text: "À la première requête HTTP qui utilise le bean manquant", correct: false}
+      - {text: "Jamais : le champ injecté reste simplement à `null`", correct: false}
+      - {text: "Au premier redémarrage de l'application en production", correct: false}
+    answer: "ArC résout toutes les injections pendant le build ; une dépendance introuvable ou ambiguë fait échouer le build (ou le démarrage du mode dev) avec un message précis, bien avant la production."
+  - key: vf-reflexion-au-demarrage
+    format: true-false
+    question: "Au démarrage, Quarkus lit les annotations des classes de l'application par réflexion."
+    truth: false
+    answer: "Les annotations sont lues au build, dans l'index Jandex. Au démarrage, le code généré crée directement les beans et les routes, sans réflexion."
+  - key: vf-db-kind-fixee
+    format: true-false
+    question: "`quarkus.datasource.db-kind` est une propriété fixée au build."
+    truth: true
+    answer: "Le type de base détermine le pilote et le dialecte, choisis au build. On peut, en revanche, changer l'URL, l'utilisateur et le mot de passe au lancement."
+  - key: vf-url-par-variable
+    format: true-false
+    question: "L'URL JDBC d'une application Quarkus déjà construite peut être changée par une variable d'environnement, sans reconstruire."
+    truth: true
+    answer: "`quarkus.datasource.jdbc.url` est lue au démarrage : `QUARKUS_DATASOURCE_JDBC_URL` la surcharge. C'est ainsi qu'une même image sert en recette et en production."
+  - key: vf-demarrage-plus-lent
+    format: true-false
+    question: "Le travail fait au build ralentit chaque démarrage de l'application Quarkus."
+    truth: false
+    answer: "C'est l'inverse : ce travail est fait une fois, pendant le build, et chaque démarrage s'en trouve allégé. Seul le build dure un peu plus."
+  - key: qcm-index-des-classes
+    format: multiple-choice
+    question: "Quel outil Quarkus utilise-t-il pour indexer classes et annotations au build ?"
+    choices:
+      - {text: "Jandex", correct: true}
+      - {text: "ASM", correct: false}
+      - {text: "Javassist", correct: false}
+      - {text: "Reflections", correct: false}
+    answer: "Jandex construit un index des classes, des méthodes et de leurs annotations, que toutes les extensions interrogent. ASM et Javassist manipulent du bytecode ; Reflections scanne à l'exécution."
+  - key: qcm-annotation-build-step
+    format: multiple-choice
+    question: "Dans le module deployment d'une extension, quelle annotation marque une méthode exécutée pendant le build ?"
+    choices:
+      - {text: "`@BuildStep`", correct: true}
+      - {text: "`@Startup`", correct: false}
+      - {text: "`@PostConstruct`", correct: false}
+      - {text: "`@Observes`", correct: false}
+    answer: "Une méthode `@BuildStep` consomme et produit des « build items » ; Quarkus les ordonne selon ces dépendances. `@Startup` et `@PostConstruct` concernent les beans, à l'exécution."
+  - key: qcm-consequence-pour-le-developpeur
+    format: multiple-choice
+    question: "Quelle conséquence du build time un développeur Quarkus doit-il connaître ?"
+    choices:
+      - {text: "Certaines propriétés ne se changent qu'en reconstruisant l'application", correct: true}
+      - {text: "Toute la configuration doit être écrite en dur dans le code Java", correct: false}
+      - {text: "Les tests ne peuvent pas démarrer l'application, faute de build", correct: false}
+      - {text: "Chaque modification du code demande de redémarrer la machine", correct: false}
+    answer: "Les propriétés fixées au build (marquées d'un cadenas dans la documentation) sont figées dans l'application construite. Les autres restent modifiables au lancement."
+  - key: qcm-recorder
+    format: multiple-choice
+    question: "À quoi sert un « recorder » dans une extension Quarkus ?"
+    choices:
+      - {text: "Ses appels faits au build sont enregistrés en bytecode, rejoué au démarrage", correct: true}
+      - {text: "Il enregistre chaque requête HTTP pour la rejouer pendant les tests", correct: false}
+      - {text: "Il enregistre les métriques de l'application dans une base de données", correct: false}
+      - {text: "Il garde l'historique des builds pour revenir à une version précédente", correct: false}
+    answer: "Un build step appelle les méthodes du recorder ; Quarkus n'exécute pas ces appels, il les écrit dans le code de démarrage. Au lancement, ils s'exécutent avec les valeurs de la configuration."
+  - key: situation-db-kind-en-production
+    format: scenario
+    question: |-
+      En production, tu passes de PostgreSQL à MariaDB en changeant `QUARKUS_DATASOURCE_DB_KIND`, sans reconstruire.
+      L'application garde le pilote PostgreSQL et affiche un avertissement. Que fais-tu ?
+    choices:
+      - {text: "Je reconstruis l'application avec la nouvelle valeur, fixée au build", correct: true}
+      - {text: "Je redémarre le pod plusieurs fois, jusqu'à ce que la valeur soit prise", correct: false}
+      - {text: "J'écris la valeur dans un fichier `.env` plutôt que dans la variable", correct: false}
+      - {text: "Je passe la propriété en minuscules dans la variable d'environnement", correct: false}
+    answer: |-
+      Le type de base choisit le pilote et le dialecte pendant le build : le code généré ne le relit plus. Il faut
+      reconstruire, et ajouter l'extension `quarkus-jdbc-mariadb`. L'URL, elle, se change au lancement.
+  - key: situation-plugins-dynamiques
+    format: scenario
+    question: |-
+      Ton équipe veut charger à l'exécution des plugins déposés dans un dossier, inconnus au moment du build. Quelle
+      remarque fais-tu sur le choix de Quarkus ?
+    choices:
+      - {text: "Quarkus suppose des classes connues au build : ce besoin va à contre-courant", correct: true}
+      - {text: "C'est son point fort : il rescanne le classpath à chaque nouvelle requête", correct: false}
+      - {text: "Aucune : les beans des plugins seront injectés comme ceux de l'application", correct: false}
+      - {text: "Il suffit de passer en image native, qui découvre les classes à l'exécution", correct: false}
+    answer: |-
+      Le graphe des beans, les routes et les entités sont figés au build. Des classes arrivées après ne deviennent pas
+      des beans. Pour un vrai système de plugins, il faut une architecture dédiée ; l'image native, monde fermé, est
+      encore plus stricte.
+  - key: situation-pourquoi-si-rapide
+    format: scenario
+    question: |-
+      En entretien, on te demande : « Pourquoi Quarkus démarre-t-il plus vite qu'un framework Java classique ? »
+      Quelle réponse est la meilleure ?
+    choices:
+      - {text: "Il fait au build le scan, l'analyse et la génération de code ; le démarrage les réutilise", correct: true}
+      - {text: "Il est écrit en C++, puis embarqué dans la JVM sous forme de bibliothèque native", correct: false}
+      - {text: "Il désactive le compilateur JIT de la JVM, qui ralentit le démarrage des applications", correct: false}
+      - {text: "Il démarre ses beans en parallèle, sur autant de threads que la machine a de cœurs", correct: false}
+    answer: |-
+      La réponse nomme le mécanisme : index Jandex, build steps des extensions, bytecode généré. On peut ajouter la
+      conséquence pratique : des propriétés fixées au build, et des erreurs d'injection détectées dès la compilation.
+  - key: situation-build-plus-long
+    format: scenario
+    question: |-
+      Un collègue s'étonne que `./mvnw package` dure plus longtemps sur le projet Quarkus que sur son ancien projet. Que
+      lui expliques-tu ?
+    choices:
+      - {text: "Le build fait le travail d'analyse que l'ancien projet refaisait à chaque démarrage", correct: true}
+      - {text: "Quarkus compile chaque classe deux fois, pour vérifier que le résultat est identique", correct: false}
+      - {text: "Le plugin Maven de Quarkus télécharge toutes les extensions à chaque construction", correct: false}
+      - {text: "Le build lance un test de charge complet de l'application avant de produire le jar", correct: false}
+    answer: |-
+      Le travail n'a pas disparu, il a changé de moment : payé une fois au build, il disparaît de chaque démarrage, sur
+      chaque réplique. En natif, le build est bien plus long encore, pour un démarrage quasi instantané.
+  - key: def-augmentation
+    format: definition
+    question: "Quel terme désigne, dans Quarkus, la phase du build où les extensions analysent l'application et génèrent son code de démarrage ?"
+    choices:
+      - {text: "L'augmentation", correct: true}
+      - {text: "L'instrumentation", correct: false}
+      - {text: "Le tissage (weaving)", correct: false}
+      - {text: "La compilation à la volée", correct: false}
+    answer: "L'augmentation produit l'application finale : routes, beans, configuration, entités sont préparés. Le tissage désigne l'ajout d'aspects dans le bytecode, à la manière d'AspectJ."
+  - key: def-jandex
+    format: definition
+    question: "Quel terme désigne l'index des classes, des méthodes et des annotations que Quarkus construit pour éviter le scan du classpath ?"
+    choices:
+      - {text: "L'index Jandex", correct: true}
+      - {text: "Le registre JNDI", correct: false}
+      - {text: "Le fichier MANIFEST.MF", correct: false}
+      - {text: "Le cache du chargeur de classes", correct: false}
+    answer: "Jandex lit le bytecode et indexe les annotations. Les dépendances qui contiennent des beans doivent être indexées aussi (un index Jandex dans le jar, ou `quarkus.index-dependency`)."
+  - key: def-monde-ferme
+    format: definition
+    question: "Quel terme désigne l'hypothèse selon laquelle toutes les classes d'une application sont connues au moment de la compilation ?"
+    choices:
+      - {text: "Le monde fermé (closed world)", correct: true}
+      - {text: "Le chargement paresseux (lazy loading)", correct: false}
+      - {text: "La liaison tardive (late binding)", correct: false}
+      - {text: "Le classpath plat (flat classpath)", correct: false}
+    answer: "L'image native de GraalVM repose sur le monde fermé : elle n'inclut que ce qu'elle voit à la compilation. Le build time de Quarkus va dans le même sens, ce qui rend le passage au natif naturel."
+  - key: def-propriete-build-time
+    format: definition
+    question: "Quel terme désigne une propriété de configuration lue au build, que le lancement de l'application ne peut plus changer ?"
+    choices:
+      - {text: "Une propriété fixée au build (build time)", correct: true}
+      - {text: "Une propriété de profil (`%prod.`)", correct: false}
+      - {text: "Une propriété de runtime", correct: false}
+      - {text: "Une propriété système de la JVM", correct: false}
+    answer: "La documentation de Quarkus marque ces propriétés d'un cadenas. Une propriété de runtime, au contraire, est lue à chaque démarrage et se surcharge par l'environnement."

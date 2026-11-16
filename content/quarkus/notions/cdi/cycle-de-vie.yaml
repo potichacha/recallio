@@ -1,0 +1,324 @@
+notion: cycle-de-vie
+lesson: |-
+  Le conteneur crée un bean, le remplit, l'utilise, puis le détruit. Des **rappels** permettent d'agir à ces moments.
+
+  **L'ordre de création.**
+
+  1. le **constructeur** (avec ses paramètres injectés, s'il y en a) ;
+  2. l'**injection** des champs et des méthodes `@Inject` ;
+  3. la méthode **`@PostConstruct`** : toutes les dépendances sont là, c'est l'endroit de l'initialisation.
+
+  À la destruction, la méthode **`@PreDestroy`** libère ce qui doit l'être (fermer un client, vider un tampon).
+
+  ```java
+  @ApplicationScoped
+  public class Connecteur {
+
+      @Inject
+      Configuration configuration;
+
+      private Client client;
+
+      @PostConstruct
+      void ouvrir() {
+          client = Client.ouvrir(configuration.url());   // les champs injectés sont prêts
+      }
+
+      @PreDestroy
+      void fermer() {
+          client.close();
+      }
+  }
+  ```
+
+  **Pourquoi pas le constructeur ?** D'abord, les champs `@Inject` y valent encore `null`. Ensuite, pour un bean à
+  portée normale doté d'un constructeur sans paramètre, ce constructeur s'exécute **aussi pour créer le proxy
+  client** : un message de journal ou un compteur dans le constructeur apparaît deux fois. `@PostConstruct` ne s'exécute
+  qu'une fois, pour la vraie instance.
+
+  **Quand ont lieu ces rappels ?** Ils suivent la portée :
+
+  | Portée | `@PostConstruct` | `@PreDestroy` |
+  |---|---|---|
+  | `@ApplicationScoped` | au premier appel de méthode | à l'arrêt de l'application |
+  | `@Singleton` | à la première injection | à l'arrêt de l'application |
+  | `@RequestScoped` | au premier appel dans la requête | à la fin de la requête |
+  | `@Dependent` | à chaque injection | avec le bean qui le contient |
+
+  **Agir au démarrage et à l'arrêt.** Un bean `@ApplicationScoped` est paresseux : son `@PostConstruct` attend le
+  premier appel. Pour agir au démarrage :
+
+  ```java
+  @ApplicationScoped
+  public class Prechauffage {
+      void demarrer(@Observes StartupEvent evenement) { ... }   // io.quarkus.runtime.StartupEvent
+      void arreter(@Observes ShutdownEvent evenement) { ... }   // io.quarkus.runtime.ShutdownEvent
+  }
+
+  @Startup                     // io.quarkus.runtime.Startup : le bean est créé au démarrage
+  @ApplicationScoped
+  public class CacheDesTarifs {
+      @PostConstruct
+      void charger() { ... }
+  }
+  ```
+
+  **En entretien** : « Le constructeur crée l'objet, le conteneur injecte ses champs, puis appelle `@PostConstruct` :
+  c'est là que j'initialise, une seule fois, avec toutes les dépendances. `@PreDestroy` libère les ressources, à la fin
+  de la portée. Un `@ApplicationScoped` est créé au premier appel ; pour agir au démarrage, j'observe `StartupEvent` ou
+  j'ajoute `@Startup`. »
+cards:
+  - key: moment-du-post-construct
+    format: course
+    question: "Quand le conteneur appelle-t-il la méthode `@PostConstruct` d'un bean ?"
+    choices:
+      - {text: "Après le constructeur et l'injection, une fois par instance", correct: true}
+      - {text: "Avant le constructeur, pour préparer les champs du bean", correct: false}
+      - {text: "À chaque appel de méthode, avant la méthode appelée", correct: false}
+      - {text: "Au build, pour figer l'état initial dans l'application", correct: false}
+    answer: "Le conteneur construit l'objet, remplit ses points d'injection, puis appelle `@PostConstruct` : toutes les dépendances sont disponibles, et l'appel n'a lieu qu'une fois par instance."
+  - key: post-construct-plutot-que-constructeur
+    format: course
+    question: "Pourquoi initialiser un bean `@ApplicationScoped` dans `@PostConstruct` plutôt que dans son constructeur sans paramètre ?"
+    choices:
+      - {text: "Les champs injectés y sont prêts, et il ne s'exécute pas pour le proxy client", correct: true}
+      - {text: "Le constructeur d'un bean n'est jamais appelé : seul `@PostConstruct` l'est", correct: false}
+      - {text: "`@PostConstruct` s'exécute au build, ce qui accélère le démarrage", correct: false}
+      - {text: "Un constructeur ne peut pas lever d'exception dans un bean CDI", correct: false}
+    answer: "Dans le constructeur, les champs `@Inject` valent `null` ; et ArC appelle aussi ce constructeur pour créer le proxy client. `@PostConstruct` ne concerne que la vraie instance, une fois injectée."
+  - key: agir-au-demarrage
+    format: course
+    question: "Comment exécuter du code au démarrage de l'application Quarkus ?"
+    choices:
+      - {text: "En observant `StartupEvent`, ou avec un bean annoté `@Startup`", correct: true}
+      - {text: "En écrivant une méthode `main` dans chaque bean qui doit démarrer", correct: false}
+      - {text: "En plaçant le code dans un bloc `static` du bean concerné", correct: false}
+      - {text: "En annotant la méthode avec `@PostConstruct`, qui s'exécute au démarrage", correct: false}
+    answer: "`void demarrer(@Observes StartupEvent e)` s'exécute au démarrage ; `@Startup` crée le bean (et appelle son `@PostConstruct`) au démarrage. Un `@PostConstruct` seul attend la première utilisation."
+  - key: pre-destroy-application-scoped
+    format: course
+    question: "Quand la méthode `@PreDestroy` d'un bean `@ApplicationScoped` est-elle appelée ?"
+    choices:
+      - {text: "À l'arrêt de l'application", correct: true}
+      - {text: "À la fin de chaque requête HTTP", correct: false}
+      - {text: "Après chaque appel de méthode", correct: false}
+      - {text: "Jamais : seuls les `@Dependent` en ont", correct: false}
+    answer: "Le contexte de l'application est détruit à l'arrêt : ses beans reçoivent alors `@PreDestroy`. Pour un `@RequestScoped`, c'est à la fin de la requête."
+  - key: vf-startup
+    format: true-false
+    question: "`@Startup` fait créer le bean au démarrage de l'application, même si personne ne l'a encore utilisé."
+    truth: true
+    answer: "Sans `@Startup`, un `@ApplicationScoped` attend son premier appel. Avec, son `@PostConstruct` s'exécute au démarrage : utile pour charger un cache ou vérifier une connexion."
+  - key: vf-constructeur-deux-fois
+    format: true-false
+    question: "Le constructeur sans paramètre d'un bean `@ApplicationScoped` peut s'exécuter deux fois : pour le proxy client, puis pour l'instance."
+    truth: true
+    answer: "Le proxy client hérite de la classe du bean et appelle son constructeur. Le code d'initialisation va donc dans `@PostConstruct`, appelé une seule fois."
+  - key: vf-post-construct-a-l-injection
+    format: true-false
+    question: "Le `@PostConstruct` d'un bean `@ApplicationScoped` s'exécute dès que le bean est injecté quelque part."
+    truth: false
+    answer: "L'injection ne fournit que le proxy client ; l'instance, et son `@PostConstruct`, attendent le premier appel de méthode. Un `@Singleton`, lui, est créé à l'injection."
+  - key: vf-shutdown-event
+    format: true-false
+    question: "Une méthode qui observe `ShutdownEvent` s'exécute à l'arrêt de l'application."
+    truth: true
+    answer: "`void arreter(@Observes ShutdownEvent e)` est le pendant de `StartupEvent`. Les `@PreDestroy` des beans `@ApplicationScoped` s'exécutent aussi à l'arrêt."
+  - key: qcm-evenement-de-demarrage
+    format: multiple-choice
+    question: "Quelle classe d'événement une méthode observe-t-elle pour s'exécuter au démarrage de Quarkus ?"
+    choices:
+      - {text: "`io.quarkus.runtime.StartupEvent`", correct: true}
+      - {text: "`jakarta.enterprise.event.Startup`", correct: false}
+      - {text: "`org.eclipse.microprofile.ApplicationReady`", correct: false}
+      - {text: "`io.vertx.core.StartEvent`", correct: false}
+    answer: "`StartupEvent` et `ShutdownEvent` sont dans `io.quarkus.runtime`, comme l'annotation `@Startup`."
+  - key: qcm-pre-destroy-request-scoped
+    format: multiple-choice
+    question: "Quand la méthode `@PreDestroy` d'un bean `@RequestScoped` est-elle appelée ?"
+    choices:
+      - {text: "À la fin de la requête qui l'a créé", correct: true}
+      - {text: "À l'arrêt de l'application seulement", correct: false}
+      - {text: "Au premier appel de la requête suivante", correct: false}
+      - {text: "Quand le ramasse-miettes récupère l'objet", correct: false}
+    answer: "Le contexte de requête est détruit à la fin de la requête, avec ses beans. On ne compte jamais sur le ramasse-miettes pour libérer une ressource."
+  - key: qcm-annotation-creation-au-demarrage
+    format: multiple-choice
+    question: "Quelle annotation fait créer un bean `@ApplicationScoped` dès le démarrage de l'application ?"
+    choices:
+      - {text: "`@Startup`", correct: true}
+      - {text: "`@PostConstruct`", correct: false}
+      - {text: "`@Singleton`", correct: false}
+      - {text: "`@Eager`", correct: false}
+    answer: "`io.quarkus.runtime.Startup`. `@PostConstruct` marque une méthode d'initialisation, sans changer le moment de la création. `@Eager` n'existe pas dans CDI."
+  - key: qcm-destruction-dependent
+    format: multiple-choice
+    question: "Un bean `@Dependent` est injecté dans un bean `@ApplicationScoped`. Quand le premier est-il détruit ?"
+    choices:
+      - {text: "Avec le bean qui le contient, donc à l'arrêt de l'application", correct: true}
+      - {text: "À la fin de chaque requête qui l'a utilisé", correct: false}
+      - {text: "Juste après le premier appel de l'une de ses méthodes", correct: false}
+      - {text: "Jamais : un bean `@Dependent` n'est pas détruit", correct: false}
+    answer: "Un `@Dependent` appartient au bean qui le reçoit et partage son cycle de vie. Son `@PreDestroy` s'exécute quand ce bean est détruit."
+  - key: trous-post-construct
+    format: fill-in
+    question: |-
+      Complète pour que cette méthode s'exécute une fois, après l'injection :
+      ```java
+      @___
+      void initialiser() {
+          tarifs = catalogue.chargerTarifs();
+      }
+      ```
+    blanks:
+      - [PostConstruct]
+    answer: "`@PostConstruct` (`jakarta.annotation.PostConstruct`) : les dépendances sont injectées, l'initialisation peut s'en servir."
+  - key: trous-pre-destroy
+    format: fill-in
+    question: |-
+      Complète pour fermer le client quand le bean est détruit :
+      ```java
+      @___
+      void fermer() {
+          client.close();
+      }
+      ```
+    blanks:
+      - [PreDestroy]
+    answer: "`@PreDestroy` s'exécute à la destruction du bean : l'arrêt de l'application pour un `@ApplicationScoped`."
+  - key: trous-observer-le-demarrage
+    format: fill-in
+    question: |-
+      Complète pour que cette méthode s'exécute au démarrage de l'application :
+      ```java
+      void demarrer(@___ StartupEvent evenement) {
+          LOG.info("Boutique démarrée");
+      }
+      ```
+    blanks:
+      - [Observes]
+    answer: "`@Observes` fait de la méthode un observateur de `StartupEvent`, que Quarkus émet au démarrage."
+  - key: trous-startup
+    format: fill-in
+    question: |-
+      Complète pour que ce cache soit chargé au démarrage, sans attendre la première requête :
+      ```java
+      @___
+      @ApplicationScoped
+      public class CacheDesTarifs {
+          @PostConstruct
+          void charger() { ... }
+      }
+      ```
+    blanks:
+      - [Startup]
+    answer: "`@Startup` crée le bean au démarrage : son `@PostConstruct` s'exécute alors, avant la première requête."
+  - key: bug-constructeur-deux-fois
+    format: bug-fix
+    question: |-
+      Au premier appel, le journal affiche deux fois « Connexion ouverte », et le serveur distant voit deux
+      connexions. Quelle correction est la bonne ?
+      ```java
+      @ApplicationScoped
+      public class Messagerie {
+          private Connexion connexion;
+
+          public Messagerie() {
+              connexion = Connexion.ouvrir();
+              LOG.info("Connexion ouverte");
+          }
+      }
+      ```
+    choices:
+      - {text: "Déplacer l'ouverture dans une méthode `@PostConstruct`", correct: true}
+      - {text: "Déclarer le champ `connexion` en `static`", correct: false}
+      - {text: "Déclarer le constructeur `private`", correct: false}
+      - {text: "Ajouter `@Inject` sur le constructeur", correct: false}
+    answer: |-
+      ```java
+      @PostConstruct
+      void ouvrir() {
+          connexion = Connexion.ouvrir();
+          LOG.info("Connexion ouverte");
+      }
+      ```
+      Le proxy client hérite de `Messagerie` et appelle son constructeur sans paramètre : le code s'exécute une fois
+      pour le proxy, une fois pour l'instance. `@PostConstruct` n'est appelé que pour l'instance.
+  - key: bug-cache-charge-a-la-premiere-requete
+    format: bug-fix
+    question: |-
+      Le premier client de la journée attend dix secondes : c'est sa requête qui charge le cache. Le cache doit être
+      prêt dès le démarrage. Quelle correction est la bonne ?
+      ```java
+      @ApplicationScoped
+      public class CacheDesTarifs {
+          @PostConstruct
+          void charger() {
+              tarifs = base.chargerTousLesTarifs();
+          }
+      }
+      ```
+    choices:
+      - {text: "Annoter la classe avec `@Startup`", correct: true}
+      - {text: "Remplacer `@PostConstruct` par `@PreDestroy`", correct: false}
+      - {text: "Remplacer `@ApplicationScoped` par `@RequestScoped`", correct: false}
+      - {text: "Déclarer la méthode `charger` en `public`", correct: false}
+    answer: |-
+      ```java
+      @Startup
+      @ApplicationScoped
+      public class CacheDesTarifs {
+      ```
+      Un `@ApplicationScoped` est créé au premier appel : c'est la première requête qui paie le chargement. `@Startup`
+      crée le bean au démarrage. Observer `StartupEvent` dans la classe ferait de même.
+  - key: bug-observes-oublie
+    format: bug-fix
+    question: |-
+      Ce message ne s'affiche jamais au démarrage, et aucune erreur n'apparaît. Quelle correction est la bonne ?
+      ```java
+      @ApplicationScoped
+      public class Accueil {
+          void demarrer(StartupEvent evenement) {
+              LOG.info("Boutique prête");
+          }
+      }
+      ```
+    choices:
+      - {text: "Annoter le paramètre avec `@Observes`", correct: true}
+      - {text: "Déclarer la méthode `demarrer` en `public`", correct: false}
+      - {text: "Annoter la méthode avec `@PostConstruct`", correct: false}
+      - {text: "Renommer la méthode en `onStart`", correct: false}
+    answer: |-
+      ```java
+      void demarrer(@Observes StartupEvent evenement) {
+          LOG.info("Boutique prête");
+      }
+      ```
+      Sans `@Observes`, c'est une méthode ordinaire que personne n'appelle. Le nom de la méthode et sa visibilité ne
+      comptent pas.
+  - key: bug-dependent-charge-plusieurs-fois
+    format: bug-fix
+    question: |-
+      Au démarrage, le fichier des pays (lourd) est lu cinq fois : une par service qui injecte `ReferentielPays`. Il
+      devrait être lu une seule fois. Quelle correction est la bonne ?
+      ```java
+      @Dependent
+      public class ReferentielPays {
+          @PostConstruct
+          void charger() {
+              pays = lireLeFichier("pays.csv");
+          }
+      }
+      ```
+    choices:
+      - {text: "Remplacer `@Dependent` par `@ApplicationScoped`", correct: true}
+      - {text: "Remplacer `@PostConstruct` par un appel dans le constructeur", correct: false}
+      - {text: "Remplacer `@Dependent` par `@RequestScoped`", correct: false}
+      - {text: "Annoter la classe avec `@Startup`, en gardant `@Dependent`", correct: false}
+    answer: |-
+      ```java
+      @ApplicationScoped
+      public class ReferentielPays {
+      ```
+      Un `@Dependent` est créé pour chaque point d'injection : cinq services, cinq instances, cinq lectures. Une portée
+      partagée crée une seule instance, donc une seule lecture.

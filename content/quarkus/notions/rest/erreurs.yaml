@@ -1,0 +1,368 @@
+notion: erreurs
+lesson: |-
+  Un service signale un problème métier par une exception : produit introuvable, stock insuffisant. Il ne sait rien
+  de HTTP. C'est la couche REST qui **traduit** l'exception en réponse : un statut juste et un corps utile au client.
+  Une exception que personne ne traduit répond **500**.
+
+  **Les exceptions de Jakarta REST.** Elles portent déjà leur statut : `NotFoundException` (404),
+  `BadRequestException` (400), `NotAuthorizedException` (401), `ForbiddenException` (403), ou
+  `ClientErrorException(Response.Status.CONFLICT)` pour un 409. Commodes dans une ressource ; dans un service, elles
+  feraient fuir HTTP dans le métier.
+
+  **`@ServerExceptionMapper`**, la façon de Quarkus REST. Une méthode annotée reçoit l'exception et renvoie la
+  réponse :
+
+  ```java
+  public class GestionnaireErreurs {
+
+      public record Erreur(String code, String message) {}
+
+      @ServerExceptionMapper
+      public RestResponse<Erreur> introuvable(ProduitIntrouvableException e) {
+          return RestResponse.status(Response.Status.NOT_FOUND, new Erreur("PRODUIT_INTROUVABLE", e.getMessage()));
+      }
+
+      @ServerExceptionMapper
+      public RestResponse<Erreur> stock(StockInsuffisantException e) {
+          return RestResponse.status(Response.Status.CONFLICT, new Erreur("STOCK_INSUFFISANT", e.getMessage()));
+      }
+  }
+  ```
+
+  - Placée dans une classe à part, la méthode vaut pour **toute l'application** ; placée dans une classe de
+    ressource, pour **cette ressource seulement**.
+  - Le type traité est celui du paramètre ; la méthode peut aussi recevoir `UriInfo` ou `HttpHeaders`.
+  - Entre plusieurs, Quarkus prend **le plus spécifique** : pour `StockInsuffisantException extends MetierException`,
+    la méthode de `StockInsuffisantException` passe avant celle de `MetierException`.
+
+  **`ExceptionMapper<E>`**, la façon de Jakarta REST, marche aussi, à condition de porter **`@Provider`** : sans
+  lui, Quarkus REST l'ignore.
+
+  ```java
+  @Provider
+  public class IntrouvableMapper implements ExceptionMapper<ProduitIntrouvableException> {
+      @Override
+      public Response toResponse(ProduitIntrouvableException e) {
+          return Response.status(404).entity(new Erreur("PRODUIT_INTROUVABLE", e.getMessage())).build();
+      }
+  }
+  ```
+
+  **Le piège du filet trop large.** Un mapper de `Exception` attrape **aussi** les exceptions de Jakarta REST : un
+  chemin inconnu (404) ou un mauvais verbe (405) deviennent des 500. S'il en faut un, il laisse passer les
+  `WebApplicationException` avec leur propre réponse :
+
+  ```java
+  @ServerExceptionMapper
+  public Response inattendue(Exception e) {
+      if (e instanceof WebApplicationException w) {
+          return w.getResponse();
+      }
+      Log.error("Erreur inattendue", e);
+      return Response.serverError().entity(new Erreur("ERREUR_INTERNE", "Une erreur est survenue")).build();
+  }
+  ```
+
+  **Le corps d'erreur.** Un **code stable** (`STOCK_INSUFFISANT`) que le client peut tester, un message lisible, et
+  rien d'interne : ni pile d'appels, ni requête SQL. Le format standard est Problem Details (RFC 9457). En mode dev
+  et en test, Quarkus montre la pile d'une 500 pour aider au diagnostic.
+
+  **En entretien** : « Mes services lèvent des exceptions métier, sans rien savoir de HTTP. Une classe de
+  `@ServerExceptionMapper` les traduit en statut et en corps, avec un code stable ; Quarkus choisit le mapper le plus
+  spécifique. Un `ExceptionMapper` classique demande `@Provider`, et un filet sur `Exception` doit laisser passer les
+  `WebApplicationException`, sinon les 404 deviennent des 500. »
+cards:
+  - key: exception-non-traduite
+    format: course
+    question: "Que répond Quarkus REST quand une ressource laisse sortir une exception que rien ne traduit ?"
+    choices:
+      - {text: "500 Internal Server Error", correct: true}
+      - {text: "400 Bad Request", correct: false}
+      - {text: "404 Not Found", correct: false}
+      - {text: "503 Service Unavailable", correct: false}
+    answer: "Une exception inconnue est une erreur du serveur : 500. Les `WebApplicationException`, elles, portent leur statut."
+  - key: portee-mapper-dans-ressource
+    format: course
+    question: "Une méthode `@ServerExceptionMapper` est déclarée dans la classe `ProduitResource`. Où s'applique-t-elle ?"
+    choices:
+      - {text: "Aux seules méthodes de `ProduitResource`", correct: true}
+      - {text: "À toutes les ressources de l'application", correct: false}
+      - {text: "Aux ressources du même paquet", correct: false}
+      - {text: "Nulle part : elle doit être dans un `@Provider`", correct: false}
+    answer: "Dans une ressource, le mapper est local. Placé dans une classe à part, il vaudrait pour toute l'application."
+  - key: notfoundexception
+    format: course
+    question: "Que répond une ressource qui lève `new NotFoundException(\"Produit 42 introuvable\")` ?"
+    choices:
+      - {text: "404, sans qu'aucun mapper soit nécessaire", correct: true}
+      - {text: "500, puisque personne ne rattrape l'exception", correct: false}
+      - {text: "400, l'exception venant d'une erreur du client", correct: false}
+      - {text: "200, avec le message de l'exception en corps", correct: false}
+    answer: "Les `WebApplicationException` de Jakarta REST portent leur statut : `NotFoundException` répond 404."
+  - key: mapper-le-plus-specifique
+    format: course
+    question: "Deux mappers existent, pour `MetierException` et pour `StockInsuffisantException`, qui en hérite. Lequel traite une `StockInsuffisantException` ?"
+    choices:
+      - {text: "Celui de `StockInsuffisantException`, le plus spécifique", correct: true}
+      - {text: "Celui de `MetierException`, la classe mère", correct: false}
+      - {text: "Les deux, l'un après l'autre", correct: false}
+      - {text: "Le premier trouvé dans le code source", correct: false}
+    answer: "Quarkus choisit le mapper dont le type est le plus proche de l'exception. Celui de `MetierException` reste pour ses autres sous-classes."
+  - key: vf-provider-obligatoire
+    format: true-false
+    question: "Une classe qui implémente `ExceptionMapper`, sans `@Provider`, est prise en compte par Quarkus REST."
+    truth: false
+    answer: "Sans `@Provider`, le mapper est ignoré : l'exception répond 500. `@ServerExceptionMapper` n'a pas besoin de cette annotation."
+  - key: vf-mapper-global
+    format: true-false
+    question: "Une méthode `@ServerExceptionMapper` placée dans une classe qui n'est pas une ressource s'applique à toute l'application."
+    truth: true
+    answer: "C'est la place d'un gestionnaire central. Dans une ressource, la même méthode ne vaudrait que pour elle."
+  - key: vf-client-error-409
+    format: true-false
+    question: "`throw new ClientErrorException(Response.Status.CONFLICT)` fait répondre 409 à une ressource."
+    truth: true
+    answer: "`ClientErrorException` accepte tout statut 4xx. Pour une erreur métier, une exception propre et un mapper restent plus clairs."
+  - key: vf-filet-exception
+    format: true-false
+    question: "Un `ExceptionMapper<Exception>` qui répond 500 laisse intacts les 404 et 405 produits par Quarkus REST."
+    truth: false
+    answer: "Ces réponses passent par des `WebApplicationException`, qu'il attrape comme les autres : elles deviennent des 500. Il doit rendre `getResponse()` pour elles."
+  - key: qcm-signature-mapper
+    format: multiple-choice
+    question: "Quelle méthode traduit `ProduitIntrouvableException` en 404 ?"
+    choices:
+      - {text: "`@ServerExceptionMapper RestResponse<Erreur> introuvable(ProduitIntrouvableException e)`", correct: true}
+      - {text: "`@ExceptionHandler RestResponse<Erreur> introuvable(ProduitIntrouvableException e)`", correct: false}
+      - {text: "`@ServerExceptionMapper void introuvable(ProduitIntrouvableException e) throws Exception`", correct: false}
+      - {text: "`@Provider RestResponse<Erreur> introuvable(Exception e, int statut)`", correct: false}
+    answer: "Le paramètre donne le type traité, le retour donne la réponse. `@ExceptionHandler` appartient à Spring."
+  - key: qcm-statut-stock
+    format: multiple-choice
+    question: "Une commande est refusée faute de stock. Quel statut le mapper renvoie-t-il ?"
+    choices:
+      - {text: "409 Conflict", correct: true}
+      - {text: "404 Not Found", correct: false}
+      - {text: "500 Internal Server Error", correct: false}
+      - {text: "401 Unauthorized", correct: false}
+    answer: "La requête est correcte, mais contredit l'état des données : 409. 500 dirait que le serveur est en panne."
+  - key: qcm-exception-403
+    format: multiple-choice
+    question: "Quelle exception de Jakarta REST répond 403 ?"
+    choices:
+      - {text: "`ForbiddenException`", correct: true}
+      - {text: "`NotAuthorizedException`", correct: false}
+      - {text: "`NotAllowedException`", correct: false}
+      - {text: "`BadRequestException`", correct: false}
+    answer: "`ForbiddenException` : 403, l'appelant est connu mais n'a pas le droit. `NotAuthorizedException` : 401 ; `NotAllowedException` : 405."
+  - key: qcm-ou-traduire
+    format: multiple-choice
+    question: "Où traduis-tu les exceptions métier de toute l'application ?"
+    choices:
+      - {text: "Dans une classe à part, avec des méthodes `@ServerExceptionMapper`", correct: true}
+      - {text: "Dans chaque service, en levant des `WebApplicationException`", correct: false}
+      - {text: "Dans chaque méthode de ressource, par un `try`/`catch`", correct: false}
+      - {text: "Dans un filtre de réponse, qui relit chaque corps", correct: false}
+    answer: "Un seul endroit définit les statuts et le format des erreurs ; les ressources restent écrites pour le cas nominal, et les services ignorent HTTP."
+  - key: trous-servermapper
+    format: fill-in
+    question: |-
+      Complète pour traduire cette exception dans toute l'application :
+      ```java
+      public class GestionnaireErreurs {
+          @___
+          public RestResponse<Erreur> introuvable(ProduitIntrouvableException e) { ... }
+      }
+      ```
+    blanks:
+      - [ServerExceptionMapper]
+    answer: "`org.jboss.resteasy.reactive.server.ServerExceptionMapper` : le type du paramètre dit quelle exception est traitée."
+  - key: trous-exceptionmapper
+    format: fill-in
+    question: |-
+      Complète le mapper à la façon de Jakarta REST :
+      ```java
+      @Provider
+      public class IntrouvableMapper implements ___<ProduitIntrouvableException> {
+          @Override
+          public Response toResponse(ProduitIntrouvableException e) { ... }
+      }
+      ```
+    blanks:
+      - [ExceptionMapper]
+    answer: "`jakarta.ws.rs.ext.ExceptionMapper<E>` déclare `toResponse`."
+  - key: trous-provider
+    format: fill-in
+    question: |-
+      Complète pour que Quarkus REST prenne ce mapper en compte :
+      ```java
+      @___
+      public class StockMapper implements ExceptionMapper<StockInsuffisantException> {
+      ```
+    blanks:
+      - [Provider]
+    answer: "Sans `@Provider`, un `ExceptionMapper` est ignoré."
+  - key: trous-notfoundexception
+    format: fill-in
+    question: |-
+      Complète pour répondre 404 depuis la ressource :
+      ```java
+      throw new ___("Produit " + id + " introuvable");
+      ```
+    blanks:
+      - [NotFoundException]
+    answer: "`jakarta.ws.rs.NotFoundException` porte le statut 404."
+  - key: bug-mapper-sans-provider
+    format: bug-fix
+    question: |-
+      Un produit introuvable répond 500, comme si ce mapper n'existait pas. Quelle correction est la bonne ?
+      ```java
+      public class IntrouvableMapper implements ExceptionMapper<ProduitIntrouvableException> {
+          @Override
+          public Response toResponse(ProduitIntrouvableException e) {
+              return Response.status(404).entity(new Erreur("PRODUIT_INTROUVABLE", e.getMessage())).build();
+          }
+      }
+      ```
+    choices:
+      - {text: "Annoter la classe avec `@Provider`", correct: true}
+      - {text: "Annoter la classe avec `@Path(\"/erreurs\")`", correct: false}
+      - {text: "Rendre la méthode `toResponse` statique", correct: false}
+      - {text: "Faire hériter l'exception de `Exception`", correct: false}
+    answer: |-
+      ```java
+      @Provider
+      public class IntrouvableMapper implements ExceptionMapper<ProduitIntrouvableException> {
+      ```
+      Quarkus REST n'enregistre que les `ExceptionMapper` annotés `@Provider`. Une méthode `@ServerExceptionMapper`
+      n'aurait pas ce besoin.
+  - key: bug-filet-trop-large
+    format: bug-fix
+    question: |-
+      Depuis l'ajout de ce mapper, un chemin inconnu répond 500 au lieu de 404, et un mauvais verbe 500 au lieu de
+      405. Les erreurs inattendues doivent toujours répondre 500. Quelle correction est la bonne ?
+      ```java
+      @Provider
+      public class Filet implements ExceptionMapper<Exception> {
+          @Override
+          public Response toResponse(Exception e) {
+              return Response.serverError().entity("Erreur interne").build();
+          }
+      }
+      ```
+    choices:
+      - {text: "Rendre `w.getResponse()` quand l'exception est une `WebApplicationException`", correct: true}
+      - {text: "Remplacer `Exception` par `Throwable` dans le type du mapper", correct: false}
+      - {text: "Retirer `@Provider`, pour que le mapper passe en dernier", correct: false}
+      - {text: "Répondre `Response.status(404)` à toutes les exceptions", correct: false}
+    answer: |-
+      ```java
+      if (e instanceof WebApplicationException w) {
+          return w.getResponse();
+      }
+      return Response.serverError().entity("Erreur interne").build();
+      ```
+      Les 404 et 405 de Quarkus REST passent par des `WebApplicationException`, que ce mapper attrapait aussi. Leur
+      réponse porte déjà le bon statut. Sans `@Provider`, le mapper ne servirait plus du tout.
+  - key: bug-mapper-local
+    format: bug-fix
+    question: |-
+      `StockInsuffisantException`, levée par `CommandeResource`, répond 500, alors que ce mapper la traduit bien
+      dans `ProduitResource`. Quelle correction est la bonne ?
+      ```java
+      @Path("/produits")
+      public class ProduitResource {
+          // ... les méthodes de la ressource
+
+          @ServerExceptionMapper
+          public RestResponse<Erreur> stock(StockInsuffisantException e) {
+              return RestResponse.status(Response.Status.CONFLICT, new Erreur("STOCK_INSUFFISANT", e.getMessage()));
+          }
+      }
+      ```
+    choices:
+      - {text: "Déplacer la méthode dans une classe à part, qui n'est pas une ressource", correct: true}
+      - {text: "Annoter la méthode avec `@Provider` en plus de `@ServerExceptionMapper`", correct: false}
+      - {text: "Déclarer la méthode `stock` en `static` dans `ProduitResource`", correct: false}
+      - {text: "Copier la même méthode dans la classe `CommandeService`", correct: false}
+    answer: |-
+      ```java
+      public class GestionnaireErreurs {
+          @ServerExceptionMapper
+          public RestResponse<Erreur> stock(StockInsuffisantException e) { ... }
+      }
+      ```
+      Dans une ressource, un `@ServerExceptionMapper` ne vaut que pour elle. Dans une classe à part, il vaut pour
+      toute l'application.
+  - key: bug-type-trop-large
+    format: bug-fix
+    question: |-
+      Une `NullPointerException`, causée par un bug, répond 404 « PRODUIT_INTROUVABLE ». Quelle correction est la
+      bonne ?
+      ```java
+      @ServerExceptionMapper
+      public RestResponse<Erreur> introuvable(RuntimeException e) {
+          return RestResponse.status(Response.Status.NOT_FOUND, new Erreur("PRODUIT_INTROUVABLE", e.getMessage()));
+      }
+      ```
+    choices:
+      - {text: "Déclarer le paramètre en `ProduitIntrouvableException`", correct: true}
+      - {text: "Déclarer le paramètre en `Exception`, plus large encore", correct: false}
+      - {text: "Répondre `Response.Status.CONFLICT` au lieu de 404", correct: false}
+      - {text: "Rattraper la `NullPointerException` dans chaque ressource", correct: false}
+    answer: |-
+      ```java
+      @ServerExceptionMapper
+      public RestResponse<Erreur> introuvable(ProduitIntrouvableException e) { ... }
+      ```
+      Le type du paramètre dit quelles exceptions le mapper traite : `RuntimeException` les prenait toutes, bugs
+      compris. Un bug doit rester une 500, journalisée.
+  - key: situation-service-et-http
+    format: scenario
+    question: |-
+      Ton service de commandes lève `NotFoundException` de Jakarta REST quand un produit manque. Il sert aussi à un
+      traitement par lots. Que proposes-tu en revue ?
+    choices:
+      - {text: "Lever une exception métier, traduite en 404 par un mapper", correct: true}
+      - {text: "Garder `NotFoundException` : c'est le bon statut, partout", correct: false}
+      - {text: "Renvoyer `null`, et laisser chaque appelant tester", correct: false}
+      - {text: "Lever `RuntimeException`, plus simple à rattraper", correct: false}
+    answer: |-
+      Le traitement par lots n'a pas de réponse HTTP. `ProduitIntrouvableException` dit ce qui se passe ; la couche
+      REST, et elle seule, décide du 404.
+  - key: situation-front-et-messages
+    format: scenario
+    question: |-
+      Le front choisit son message d'après le texte de l'erreur, et casse dès qu'on reformule ce texte. Que fais-tu ?
+    choices:
+      - {text: "J'ajoute un code stable, comme `STOCK_INSUFFISANT`, au corps d'erreur", correct: true}
+      - {text: "Je fige le texte des messages, qu'on ne reformulera plus jamais", correct: false}
+      - {text: "Je mets le nom de la classe d'exception dans le corps à la place", correct: false}
+      - {text: "Je renvoie le statut seul, sans corps, pour qu'il n'y ait rien à lire", correct: false}
+    answer: |-
+      Le client teste un code qui ne change pas ; le message reste libre, pour un humain. Le nom d'une classe
+      exposerait l'implémentation et changerait au premier renommage.
+  - key: situation-pile-au-client
+    format: scenario
+    question: |-
+      Un mapper renvoie `e.toString()` et la pile d'appels dans le corps de chaque erreur 500. Que fais-tu ?
+    choices:
+      - {text: "Je renvoie un message générique, et je journalise l'exception côté serveur", correct: true}
+      - {text: "Je garde la pile : elle aide le client à corriger sa requête", correct: false}
+      - {text: "Je réponds 200 avec un corps vide, pour ne rien laisser voir", correct: false}
+      - {text: "Je chiffre la pile avant de l'envoyer au client", correct: false}
+    answer: |-
+      Une pile révèle les bibliothèques, les classes, parfois des requêtes SQL : de quoi préparer une attaque. Le
+      client reçoit un message et, au besoin, un identifiant qui retrouve l'erreur dans les journaux.
+  - key: situation-try-catch-dans-les-ressources
+    format: scenario
+    question: |-
+      Chaque méthode de ressource a son `try`/`catch`, qui construit la même `Response` d'erreur. Que proposes-tu ?
+    choices:
+      - {text: "Une classe de `@ServerExceptionMapper`, qui traduit tout en un seul endroit", correct: true}
+      - {text: "Une méthode utilitaire statique, appelée dans chaque bloc `catch`", correct: false}
+      - {text: "Des `throws Exception` sur chaque méthode, et rien d'autre", correct: false}
+      - {text: "Un `finally` dans chaque méthode, à la place du `catch`", correct: false}
+    answer: |-
+      Les ressources redeviennent lisibles, écrites pour le cas nominal ; le format des erreurs est défini une fois.
+      Une nouvelle exception métier ne demande qu'une méthode de plus.

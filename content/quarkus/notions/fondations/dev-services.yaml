@@ -1,0 +1,327 @@
+notion: dev-services
+lesson: |-
+  Une application a besoin d'une base PostgreSQL, d'un Kafka, d'un Keycloak. Avant de pouvoir la lancer, chaque
+  développeur devait les installer et les configurer. Avec les **Dev Services**, Quarkus **les démarre pour toi**.
+
+  **Le principe.** En mode dev et dans les tests (`@QuarkusTest`), quand une extension a besoin d'un service et que
+  **rien n'est configuré** pour lui, Quarkus démarre un conteneur (avec Testcontainers, sur Docker ou Podman) et
+  **injecte la configuration** qui va avec : URL, utilisateur, mot de passe.
+
+  ```properties
+  # aucune URL : en dev et en test, Quarkus démarre un PostgreSQL dans un conteneur
+  quarkus.datasource.db-kind=postgresql
+  ```
+
+  Avec la seule extension `quarkus-jdbc-postgresql`, même `db-kind` est déduit. Au lancement, le journal annonce le
+  conteneur ; la Dev UI montre la configuration qu'il a reçue.
+
+  **Les conditions** pour qu'un Dev Service démarre :
+
+  1. l'extension en propose un (datasources JDBC et réactives, Kafka, Keycloak avec `quarkus-oidc`, Redis, RabbitMQ,
+     MongoDB...) ;
+  2. le service **n'est pas configuré** : une `quarkus.datasource.jdbc.url` (ou un `kafka.bootstrap.servers`) le
+     désactive ;
+  3. on est en mode **dev ou test**, jamais en production ;
+  4. un moteur de conteneurs est disponible (sauf pour H2 et Derby, démarrés dans la JVM).
+
+  **Les réglages utiles.**
+
+  ```properties
+  # la même version que la production
+  quarkus.datasource.devservices.image-name=postgres:17
+  # désactiver le Dev Service d'une base
+  quarkus.datasource.devservices.enabled=false
+  # désactiver tous les Dev Services
+  quarkus.devservices.enabled=false
+  ```
+
+  **Dev et production, côte à côte.** La configuration de production se met sous le profil `prod`, pour ne pas
+  empêcher le Dev Service :
+
+  ```properties
+  %prod.quarkus.datasource.jdbc.url=jdbc:postgresql://db:5432/boutique
+  %prod.quarkus.datasource.username=boutique
+  ```
+
+  En production, l'URL arrive souvent par une variable d'environnement (`QUARKUS_DATASOURCE_JDBC_URL`).
+
+  **Pour les tests**, c'est la même mécanique : un `@QuarkusTest` obtient sa propre base dans un conteneur. Une CI qui
+  lance ces tests a donc besoin de Docker ; sinon, Testcontainers échoue (« Could not find a valid Docker
+  environment »).
+
+  **En entretien** : « Les Dev Services démarrent en dev et en test les services dont mes extensions ont besoin,
+  PostgreSQL, Kafka ou Keycloak, dans des conteneurs, et injectent leur configuration. Ils ne démarrent que si le
+  service n'est pas configuré : je mets donc la configuration de production sous `%prod.`. Ils demandent Docker ou
+  Podman, et ne tournent jamais en production. »
+cards:
+  - key: quand-demarre-un-dev-service
+    format: course
+    question: "Quand Quarkus démarre-t-il un Dev Service pour une base de données ?"
+    choices:
+      - {text: "En dev ou en test, quand aucune URL n'est configurée pour cette base", correct: true}
+      - {text: "À chaque démarrage, en production comme en dev, pour garantir une base", correct: false}
+      - {text: "Seulement quand on le demande avec `quarkus.devservices.start=true`", correct: false}
+      - {text: "Quand la base de production ne répond plus, comme base de secours", correct: false}
+    answer: "Il faut une extension qui en propose un, un service non configuré, le mode dev ou test, et un moteur de conteneurs. Une URL configurée signifie « j'ai déjà une base » : le Dev Service s'efface."
+  - key: configuration-injectee
+    format: course
+    question: "Comment l'application connaît-elle l'adresse de la base démarrée par un Dev Service ?"
+    choices:
+      - {text: "Quarkus lui fournit l'URL, l'utilisateur et le mot de passe du conteneur", correct: true}
+      - {text: "Le développeur copie l'adresse du conteneur dans `application.properties`", correct: false}
+      - {text: "Le conteneur écoute toujours sur `localhost:5432`, l'adresse par défaut", correct: false}
+      - {text: "L'application interroge Docker à chaque requête pour trouver la base", correct: false}
+    answer: "Le conteneur écoute sur un port choisi au hasard ; Quarkus ajoute à la configuration les propriétés qui y mènent. La Dev UI les affiche."
+  - key: jamais-en-production
+    format: course
+    question: "Dans quel mode les Dev Services ne démarrent-ils jamais ?"
+    choices:
+      - {text: "En production, avec l'application construite", correct: true}
+      - {text: "En mode dev, avec `quarkus dev`", correct: false}
+      - {text: "Dans les tests `@QuarkusTest`", correct: false}
+      - {text: "Dans le test continu du mode dev", correct: false}
+    answer: "Les Dev Services sont un outil de développement et de test. En production, l'application doit recevoir une vraie configuration, souvent par variables d'environnement."
+  - key: sur-quoi-reposent-ils
+    format: course
+    question: "Sur quoi les Dev Services reposent-ils pour démarrer une base PostgreSQL ?"
+    choices:
+      - {text: "Sur Testcontainers, avec Docker ou Podman", correct: true}
+      - {text: "Sur un PostgreSQL embarqué dans la JVM", correct: false}
+      - {text: "Sur un service hébergé par Red Hat", correct: false}
+      - {text: "Sur l'installation locale de PostgreSQL", correct: false}
+    answer: "Testcontainers pilote le moteur de conteneurs. Seuls H2 et Derby, écrits en Java, démarrent sans conteneur, dans la JVM."
+  - key: vf-dev-services-et-quarkustest
+    format: true-false
+    question: "Les Dev Services démarrent aussi pour les tests `@QuarkusTest`."
+    truth: true
+    answer: "Les tests profitent de la même mécanique : une vraie base dans un conteneur, sans configuration. Il faut donc Docker sur la machine qui lance les tests, CI comprise."
+  - key: vf-url-desactive
+    format: true-false
+    question: "Configurer `quarkus.datasource.jdbc.url` sans préfixe de profil empêche le Dev Service de cette base de démarrer en mode dev."
+    truth: true
+    answer: "Une URL configurée signifie que la base existe déjà. Pour garder le Dev Service en dev, on limite l'URL de production au profil `prod` : `%prod.quarkus.datasource.jdbc.url`."
+  - key: vf-production-sans-base
+    format: true-false
+    question: "En production, si aucune base n'est configurée, Quarkus démarre un conteneur PostgreSQL comme en mode dev."
+    truth: false
+    answer: "Les Dev Services ne tournent qu'en dev et en test. En production, sans URL, l'application ne peut pas joindre de base."
+  - key: vf-keycloak
+    format: true-false
+    question: "Avec l'extension `quarkus-oidc` et sans serveur d'identité configuré, les Dev Services démarrent un Keycloak en mode dev."
+    truth: true
+    answer: "Le Keycloak démarré a un realm de test et des utilisateurs, et la configuration OIDC de l'application pointe dessus. On teste ainsi l'authentification sans rien installer."
+  - key: qcm-prerequis-poste
+    format: multiple-choice
+    question: "De quoi un poste de développement a-t-il besoin pour profiter des Dev Services de PostgreSQL ?"
+    choices:
+      - {text: "D'un moteur de conteneurs, Docker ou Podman", correct: true}
+      - {text: "D'un PostgreSQL installé et démarré en local", correct: false}
+      - {text: "D'un compte sur un service cloud de bases de données", correct: false}
+      - {text: "D'un Kubernetes local, comme Minikube", correct: false}
+    answer: "Testcontainers lance le conteneur sur Docker ou Podman. Rien d'autre à installer : la bonne image est téléchargée au premier lancement."
+  - key: qcm-choisir-la-version
+    format: multiple-choice
+    question: "Comment imposer au Dev Service la même version de PostgreSQL qu'en production ?"
+    choices:
+      - {text: "Avec `quarkus.datasource.devservices.image-name`", correct: true}
+      - {text: "Avec `quarkus.datasource.db-version` seulement", correct: false}
+      - {text: "Avec `quarkus.devservices.version`", correct: false}
+      - {text: "En installant cette version de PostgreSQL sur le poste", correct: false}
+    answer: "`quarkus.datasource.devservices.image-name=postgres:17` choisit l'image du conteneur. Développer sur la version de production évite les surprises de syntaxe ou de comportement."
+  - key: qcm-voir-la-configuration
+    format: multiple-choice
+    question: "Où vois-tu l'URL et les identifiants de la base démarrée par un Dev Service ?"
+    choices:
+      - {text: "Dans la Dev UI, et dans le journal du démarrage", correct: true}
+      - {text: "Dans `application.properties`, où Quarkus les écrit", correct: false}
+      - {text: "Dans le `pom.xml`, sous les propriétés du projet", correct: false}
+      - {text: "Nulle part : ils restent secrets, même en dev", correct: false}
+    answer: "Quarkus n'écrit rien dans tes fichiers : la configuration vit en mémoire. La Dev UI la montre, pour s'y connecter avec un client SQL par exemple."
+  - key: qcm-tout-desactiver
+    format: multiple-choice
+    question: "Quelle propriété désactive tous les Dev Services de l'application ?"
+    choices:
+      - {text: "`quarkus.devservices.enabled=false`", correct: true}
+      - {text: "`quarkus.dev.enabled=false`", correct: false}
+      - {text: "`quarkus.testcontainers.enabled=false`", correct: false}
+      - {text: "`quarkus.datasource.enabled=false`", correct: false}
+    answer: "Le réglage global coupe tout ; chaque extension a aussi le sien, comme `quarkus.datasource.devservices.enabled` ou `quarkus.kafka.devservices.enabled`."
+  - key: trous-desactiver-tous
+    format: fill-in
+    question: |-
+      Complète pour désactiver tous les Dev Services :
+      ```properties
+      quarkus.devservices.___=false
+      ```
+    blanks:
+      - [enabled]
+    answer: "`quarkus.devservices.enabled=false` coupe tous les Dev Services, par exemple sur une machine sans Docker."
+  - key: trous-image-postgres
+    format: fill-in
+    question: |-
+      Complète pour choisir l'image du Dev Service PostgreSQL :
+      ```properties
+      quarkus.datasource.devservices.___=postgres:17
+      ```
+    blanks:
+      - [image-name]
+    answer: "`image-name` prend une image et son étiquette, comme pour `docker run`."
+  - key: trous-db-kind
+    format: fill-in
+    question: |-
+      Complète pour demander une base PostgreSQL, que le Dev Service démarrera :
+      ```properties
+      quarkus.datasource.db-kind=___
+      ```
+    blanks:
+      - [postgresql]
+    answer: "`postgresql`, avec l'extension `quarkus-jdbc-postgresql`. Les autres valeurs : `mysql`, `mariadb`, `oracle`, `mssql`, `db2`, `h2`, `derby`."
+  - key: trous-url-de-production
+    format: fill-in
+    question: |-
+      Complète pour que cette URL ne vaille qu'en production, et laisse le Dev Service démarrer en dev :
+      ```properties
+      %___.quarkus.datasource.jdbc.url=jdbc:postgresql://db:5432/boutique
+      ```
+    blanks:
+      - [prod]
+    answer: "Sous `%prod.`, l'URL n'existe pas en dev ni en test : le Dev Service démarre. En production, elle s'applique, ou une variable d'environnement la remplace."
+  - key: bug-url-sans-profil
+    format: bug-fix
+    question: |-
+      Depuis qu'une URL est dans le fichier, `quarkus dev` ne démarre plus de conteneur et échoue à se connecter :
+      « Connection to localhost:5432 refused ». Aucun PostgreSQL n'est installé sur le poste. Quelle correction est la
+      bonne ?
+      ```properties
+      quarkus.datasource.db-kind=postgresql
+      quarkus.datasource.jdbc.url=jdbc:postgresql://localhost:5432/boutique
+      ```
+    choices:
+      - {text: "Préfixer l'URL par `%prod.` pour qu'elle ne vaille qu'en production", correct: true}
+      - {text: "Ajouter `quarkus.devservices.enabled=true` pour forcer le conteneur", correct: false}
+      - {text: "Remplacer `localhost` par `127.0.0.1` dans l'URL de la base", correct: false}
+      - {text: "Retirer `quarkus.datasource.db-kind`, qui bloque le Dev Service", correct: false}
+    answer: |-
+      ```properties
+      quarkus.datasource.db-kind=postgresql
+      %prod.quarkus.datasource.jdbc.url=jdbc:postgresql://localhost:5432/boutique
+      ```
+      Une URL configurée désactive le Dev Service : l'application cherche une base que personne n'a démarrée. Sous
+      `%prod.`, l'URL disparaît en dev et en test, et le conteneur démarre.
+  - key: bug-tests-sur-la-recette
+    format: bug-fix
+    question: |-
+      L'équipe développe contre la base de recette. Depuis, chaque lancement des tests `@QuarkusTest` efface des
+      données de cette base. Les tests doivent avoir leur propre base, jetable. Quelle correction est la bonne ?
+      ```properties
+      quarkus.datasource.db-kind=postgresql
+      quarkus.datasource.jdbc.url=jdbc:postgresql://recette:5432/boutique
+      ```
+    choices:
+      - {text: "Limiter l'URL au profil `dev` : `%dev.quarkus.datasource.jdbc.url`", correct: true}
+      - {text: "Ajouter `quarkus.devservices.enabled=false` pour protéger la recette", correct: false}
+      - {text: "Annoter chaque classe de test avec `@TestProfile(\"recette\")`", correct: false}
+      - {text: "Passer `quarkus.datasource.db-kind` à `h2` pour toute l'application", correct: false}
+    answer: |-
+      ```properties
+      quarkus.datasource.db-kind=postgresql
+      %dev.quarkus.datasource.jdbc.url=jdbc:postgresql://recette:5432/boutique
+      ```
+      Sans préfixe, l'URL vaut aussi pour le profil `test` : les tests écrivent dans la recette, et aucun Dev Service
+      ne démarre. Limitée à `%dev.`, elle laisse aux tests un PostgreSQL dans un conteneur, recréé à chaque fois.
+  - key: bug-devservices-desactives-partout
+    format: bug-fix
+    question: |-
+      Un collègue a copié la configuration de production dans le fichier commun. Depuis, `quarkus dev` échoue au
+      démarrage faute de base de données, alors que Docker tourne. Quelle correction est la bonne ?
+      ```properties
+      quarkus.datasource.db-kind=postgresql
+      quarkus.devservices.enabled=false
+      %prod.quarkus.datasource.jdbc.url=${DATABASE_URL}
+      ```
+    choices:
+      - {text: "Retirer `quarkus.devservices.enabled=false`, ou le limiter au profil `prod`", correct: true}
+      - {text: "Remplacer `postgresql` par `h2` dans `quarkus.datasource.db-kind`", correct: false}
+      - {text: "Retirer le préfixe `%prod.` de l'URL de la base de données", correct: false}
+      - {text: "Redémarrer Docker pour qu'il détecte le mode dev de Quarkus", correct: false}
+    answer: |-
+      ```properties
+      quarkus.datasource.db-kind=postgresql
+      %prod.quarkus.datasource.jdbc.url=${DATABASE_URL}
+      ```
+      La ligne désactive tous les Dev Services, et aucune URL n'existe en dev : il n'y a plus de base. En production,
+      cette ligne est inutile, puisque les Dev Services n'y démarrent jamais.
+  - key: bug-production-sans-url
+    format: bug-fix
+    question: |-
+      L'application marche en dev, mais en production `java -jar` ne parvient à joindre aucune base. Le fichier de
+      configuration ne contient que ceci. Quelle correction est la bonne ?
+      ```properties
+      quarkus.datasource.db-kind=postgresql
+      quarkus.hibernate-orm.schema-management.strategy=update
+      ```
+    choices:
+      - {text: "Fournir l'URL de production, par `QUARKUS_DATASOURCE_JDBC_URL` par exemple", correct: true}
+      - {text: "Activer les Dev Services en production avec `%prod.quarkus.devservices.enabled=true`", correct: false}
+      - {text: "Installer Docker sur le serveur, pour que Quarkus y démarre la base", correct: false}
+      - {text: "Remplacer `update` par `drop-and-create` pour que la base soit créée", correct: false}
+    answer: |-
+      ```bash
+      export QUARKUS_DATASOURCE_JDBC_URL=jdbc:postgresql://db:5432/boutique
+      export QUARKUS_DATASOURCE_USERNAME=boutique
+      export QUARKUS_DATASOURCE_PASSWORD=...
+      ```
+      En dev, le Dev Service fournissait l'URL. En production, il ne démarre jamais : il faut une vraie base et sa
+      configuration, par variables d'environnement pour garder les secrets hors du dépôt.
+  - key: situation-nouveau-collegue
+    format: scenario
+    question: |-
+      Le guide d'installation du projet demande d'installer PostgreSQL et Kafka avant tout lancement, et les nouveaux
+      arrivants y passent une journée. Que proposes-tu ?
+    choices:
+      - {text: "De retirer les URL locales et de laisser les Dev Services démarrer ces services", correct: true}
+      - {text: "D'écrire un guide plus détaillé, avec des captures d'écran de chaque étape", correct: false}
+      - {text: "De partager une base et un Kafka communs à toute l'équipe de développement", correct: false}
+      - {text: "De remplacer PostgreSQL par H2 en production pour simplifier l'installation", correct: false}
+    answer: |-
+      Avec Docker sur le poste, `quarkus dev` suffit : chaque développeur obtient sa base et son Kafka, isolés et
+      jetables. Une base commune crée des interférences entre développeurs.
+  - key: situation-meme-version-qu-en-prod
+    format: scenario
+    question: |-
+      La production tourne sur PostgreSQL 16 ; une requête qui marche en dev échoue en production. Le Dev Service
+      démarre l'image par défaut. Que fais-tu ?
+    choices:
+      - {text: "J'impose `postgres:16` avec `quarkus.datasource.devservices.image-name`", correct: true}
+      - {text: "Je passe la production à la version du Dev Service, quelle qu'elle soit", correct: false}
+      - {text: "Je désactive les Dev Services et j'installe PostgreSQL 16 sur chaque poste", correct: false}
+      - {text: "Je teste désormais chaque requête directement sur la base de production", correct: false}
+    answer: |-
+      Le Dev Service démarre l'image qu'on lui indique : développer et tester sur la version de production fait
+      apparaître ces écarts avant la livraison.
+  - key: situation-tests-sur-vraie-base
+    format: scenario
+    question: |-
+      Tes tests `@QuarkusTest` utilisent H2 en mémoire, mais l'application tourne sur PostgreSQL, et des requêtes
+      natives se comportent différemment. Que proposes-tu ?
+    choices:
+      - {text: "De retirer la configuration H2 des tests : le Dev Service fournira un PostgreSQL", correct: true}
+      - {text: "De remplacer les requêtes natives par des requêtes compatibles avec H2 seulement", correct: false}
+      - {text: "De lancer les tests sur la base de production, la seule vraiment fidèle", correct: false}
+      - {text: "De garder H2 et de vérifier ces requêtes à la main avant chaque livraison", correct: false}
+    answer: |-
+      Sans configuration de base pour le profil `test`, chaque `@QuarkusTest` obtient un vrai PostgreSQL dans un
+      conteneur, comme en production. On y gagne la fidélité, pour quelques secondes de démarrage.
+  - key: situation-base-partagee-en-dev
+    format: scenario
+    question: |-
+      Pour une démonstration, tu dois lancer `quarkus dev` sur une base de recette déjà remplie, plutôt que sur un
+      conteneur vide. Comment fais-tu ?
+    choices:
+      - {text: "Je configure `%dev.quarkus.datasource.jdbc.url` vers la base de recette", correct: true}
+      - {text: "Je copie la base de recette dans le conteneur après chaque démarrage", correct: false}
+      - {text: "J'arrête Docker, pour que Quarkus cherche une autre base tout seul", correct: false}
+      - {text: "Je passe en profil `prod` pour que le mode dev lise l'URL de production", correct: false}
+    answer: |-
+      Une URL configurée pour le profil `dev` désactive le Dev Service de cette base : l'application se connecte à
+      la recette. Retirer la ligne rend le conteneur jetable.

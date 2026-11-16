@@ -1,0 +1,312 @@
+notion: test-transaction
+lesson: |-
+  Les classes `@QuarkusTest` partagent l'application, donc **la même base**. Un test qui laisse des lignes derrière
+  lui peut faire échouer le suivant. `@TestTransaction` (`io.quarkus.test.TestTransaction`) règle le problème :
+  la méthode de test s'exécute dans une transaction, **annulée à la fin**, quoi qu'il arrive.
+
+  ```java
+  @QuarkusTest
+  class ProduitRepositoryTest {
+
+      @Inject
+      ProduitRepository produits;
+
+      @Test
+      @TestTransaction
+      void trouveLesProduitsEnRupture() {
+          produits.persist(new Produit("stylo", 0));
+          produits.persist(new Produit("gomme", 12));
+
+          assertEquals(1, produits.enRupture().size());
+      }   // rollback : la base est comme avant le test
+  }
+  ```
+
+  **`@TestTransaction` ou `@Transactional` ?** Les deux ouvrent une transaction autour de la méthode de test. Mais
+  `@Transactional` la **valide** à la fin : les lignes restent en base. `@TestTransaction` l'**annule**.
+
+  **Ce qu'elle couvre, et ce qu'elle ne couvre pas.**
+
+  - Elle couvre ce que **le test lui-même** écrit, par un repository ou une entité Panache.
+  - Elle ne couvre **pas les requêtes HTTP** : RestAssured appelle l'application, qui traite la requête dans un autre
+    thread et sa propre transaction. Ce qu'une ressource écrit est validé et reste en base. Et la ressource ne voit
+    pas ce que le test a écrit sans le valider : un `GET` du produit que le test vient de persister répond 404.
+  - Posée sur la **classe**, elle vaut pour chaque méthode de test, mais aussi pour chaque `@BeforeEach` : celui-ci
+    a sa propre transaction, annulée à sa sortie, et le test ne voit plus ses données. Une préparation commune se
+    place dans le test, ou dans une méthode appelée au début du test.
+  - Posée sur une **méthode**, elle ne couvre pas le `@BeforeEach` : y écrire lève « Transaction is not active,
+    consider adding @Transactional to your method to automatically activate one ».
+
+  **Le piège du flush.** Hibernate n'envoie ses `INSERT` qu'au flush : avant une requête, au commit, ou sur demande.
+  Une transaction annulée n'est jamais validée : une contrainte de la base (unicité, clé étrangère, `NOT NULL`) peut
+  ne jamais être vérifiée. Pour tester une contrainte, on force l'écriture avec `persistAndFlush` ou `flush()` :
+
+  ```java
+  @Test
+  @TestTransaction
+  void refuseUnCodeEnDouble() {
+      Produit.persist(new Produit("SKU-1"));
+      Produit doublon = new Produit("SKU-1");
+      assertThrows(PersistenceException.class, doublon::persistAndFlush);
+  }
+  ```
+
+  **En réactif**, avec Hibernate Reactive, l'équivalent est `@TestReactiveTransaction`, avec `@RunOnVertxContext`.
+
+  **En entretien** : « Avec `@TestTransaction`, chaque test s'exécute dans une transaction annulée à la fin : les
+  tests restent indépendants malgré la base partagée. Elle ne couvre que ce que le test écrit lui-même : une requête
+  RestAssured passe par sa propre transaction, validée. Et comme rien n'est validé, je force le flush quand je teste
+  une contrainte de la base. »
+cards:
+  - key: effet-de-testtransaction
+    format: course
+    question: "Que devient ce qu'un test annoté `@TestTransaction` écrit en base ?"
+    choices:
+      - {text: "Il est annulé à la fin du test, quoi qu'il arrive", correct: true}
+      - {text: "Il est validé à la fin du test, s'il a réussi", correct: false}
+      - {text: "Il est annulé seulement si le test échoue", correct: false}
+      - {text: "Il est effacé au redémarrage de l'application", correct: false}
+    answer: "La transaction du test est toujours annulée (rollback). C'est ce qui garde les tests indépendants, alors qu'ils partagent la même base."
+  - key: testtransaction-ou-transactional
+    format: course
+    question: "Quelle différence entre `@TestTransaction` et `@Transactional` sur une méthode de test ?"
+    choices:
+      - {text: "`@Transactional` valide les écritures à la fin ; `@TestTransaction` les annule", correct: true}
+      - {text: "`@Transactional` est refusé sur un test ; seul `@TestTransaction` est permis", correct: false}
+      - {text: "`@TestTransaction` valide les écritures ; `@Transactional` les annule", correct: false}
+      - {text: "Aucune : `@TestTransaction` est un simple alias de `@Transactional`", correct: false}
+    answer: "Quarkus applique `@Transactional` à une méthode de test comme à un bean : la transaction est validée, et les lignes restent pour les tests suivants. `@TestTransaction` est fait pour les tests : il annule tout."
+  - key: requete-http-et-transaction
+    format: course
+    question: "Dans un test `@TestTransaction`, la ressource appelée par RestAssured écrit une ligne. Que devient-elle ?"
+    choices:
+      - {text: "Elle reste en base : la requête a sa propre transaction, validée", correct: true}
+      - {text: "Elle est annulée avec la transaction du test, à la fin", correct: false}
+      - {text: "Elle est refusée : une seule transaction peut être ouverte", correct: false}
+      - {text: "Elle reste en mémoire, sans jamais atteindre la base", correct: false}
+    answer: "La requête HTTP est traitée dans un autre thread, avec sa propre transaction. `@TestTransaction` n'annule que ce que le test écrit lui-même."
+  - key: before-each-et-classe
+    format: course
+    question: "`@TestTransaction` est posée sur la classe. Que voit le test des lignes écrites par le `@BeforeEach` ?"
+    choices:
+      - {text: "Rien : le `@BeforeEach` a sa propre transaction, annulée à sa sortie", correct: true}
+      - {text: "Tout : le `@BeforeEach` et le test partagent une seule transaction", correct: false}
+      - {text: "Tout : le `@BeforeEach` s'exécute hors transaction, et valide", correct: false}
+      - {text: "Rien : `@BeforeEach` est interdit avec `@TestTransaction`", correct: false}
+    answer: "L'annotation de classe s'applique à chaque méthode appelée par JUnit, dont le `@BeforeEach` : sa transaction est annulée avant le test. On prépare donc les données dans le test lui-même."
+  - key: vf-get-de-la-ligne-du-test
+    format: true-false
+    question: "Dans un test `@TestTransaction`, un `GET` RestAssured voit le produit que le test vient de persister."
+    truth: false
+    answer: "La ressource tourne dans sa propre transaction, et la ligne du test n'est pas validée : le `GET` répond 404. Pour tester l'API, on crée les données par l'API, ou dans une transaction validée."
+  - key: vf-contrainte-sans-flush
+    format: true-false
+    question: "Dans un test `@TestTransaction`, persister deux produits au même code unique, sans flush, ne lève aucune exception."
+    truth: true
+    answer: "Hibernate n'envoie l'`INSERT` qu'au flush, et la transaction annulée n'est jamais validée : la base ne voit jamais le doublon. `persistAndFlush` le lui envoie aussitôt."
+  - key: vf-annotation-sur-la-classe
+    format: true-false
+    question: "Posée sur la classe de test, `@TestTransaction` s'applique à chacune de ses méthodes de test."
+    truth: true
+    answer: "Chaque méthode de test a sa transaction, annulée à sa fin. Attention : le `@BeforeEach` aussi, dans une transaction séparée."
+  - key: vf-ecrire-sans-transaction
+    format: true-false
+    question: "Dans un `@QuarkusTest`, persister une entité Panache hors de toute transaction fonctionne, et la ligne est validée aussitôt."
+    truth: false
+    answer: "Panache lève `TransactionRequiredException` : « Transaction is not active, consider adding @Transactional to your method to automatically activate one ». Il faut `@TestTransaction` ou `@Transactional`."
+  - key: qcm-tests-qui-se-genent
+    format: multiple-choice
+    question: "Deux tests de repository passent seuls, mais échouent ensemble : chacun compte des lignes laissées par l'autre. Que fais-tu ?"
+    choices:
+      - {text: "J'annote chaque test avec `@TestTransaction`", correct: true}
+      - {text: "J'annote chaque test avec `@Transactional`", correct: false}
+      - {text: "J'impose l'ordre des tests avec `@Order`", correct: false}
+      - {text: "Je mets chaque test dans un `@TestProfile` à lui", correct: false}
+    answer: "Chaque test annule ce qu'il écrit : la base reste propre. `@Transactional` validerait les lignes ; un ordre imposé cache la dépendance ; un profil par test redémarre l'application pour rien."
+  - key: qcm-tester-une-contrainte
+    format: multiple-choice
+    question: "Dans un test `@TestTransaction`, comment vérifies-tu que la base refuse un code produit en double ?"
+    choices:
+      - {text: "Je persiste le doublon avec `persistAndFlush`", correct: true}
+      - {text: "Je persiste le doublon avec `persist`, sans rien d'autre", correct: false}
+      - {text: "J'attends la fin du test, où le rollback lève l'erreur", correct: false}
+      - {text: "J'appelle `rollback()` moi-même après le second `persist`", correct: false}
+    answer: "`persistAndFlush` envoie l'`INSERT` tout de suite : la base lève l'erreur d'unicité, que Hibernate traduit en `ConstraintViolationException`, une `PersistenceException`. Un rollback n'envoie jamais rien."
+  - key: qcm-preparer-les-donnees
+    format: multiple-choice
+    question: "Ta classe porte `@TestTransaction`, et chaque test a besoin des mêmes trois produits en base. Où les crées-tu ?"
+    choices:
+      - {text: "Au début de chaque test, par une méthode appelée par le test", correct: true}
+      - {text: "Dans un `@BeforeEach`, qui partage la transaction du test", correct: false}
+      - {text: "Dans un `@BeforeAll` statique, une fois pour toute la classe", correct: false}
+      - {text: "Dans un `@AfterEach`, pour qu'ils servent au test suivant", correct: false}
+    answer: "Le `@BeforeEach` a sa propre transaction, annulée avant le test : ses produits disparaissent. Créés dans le test, ils vivent dans sa transaction, et sont annulés avec elle."
+  - key: qcm-tester-l-api-et-la-base
+    format: multiple-choice
+    question: "Ton test `@TestTransaction` persiste un produit, puis l'appelle par `GET /produits/{id}` : 404. Pourquoi ?"
+    choices:
+      - {text: "La requête a sa propre transaction, qui ne voit pas la ligne non validée", correct: true}
+      - {text: "Le produit est annulé avant l'appel HTTP, dès la fin du `persist`", correct: false}
+      - {text: "RestAssured appelle l'application de dev, qui a une autre base", correct: false}
+      - {text: "L'identifiant n'est attribué qu'au commit, il vaut encore `null`", correct: false}
+    answer: "La ligne du test n'est visible que dans sa transaction. La ressource, dans un autre thread, ne la voit pas. On crée la donnée par l'API, ou on la valide dans une méthode `@Transactional` à part."
+  - key: trous-annotation-de-rollback
+    format: fill-in
+    question: |-
+      Complète pour que les écritures du test soient annulées à la fin :
+      ```java
+      @Test
+      @___
+      void trouveLesProduitsEnRupture() {
+      ```
+    blanks:
+      - [TestTransaction]
+    answer: "`@TestTransaction` (`io.quarkus.test.TestTransaction`) annule la transaction du test à sa fin."
+  - key: trous-forcer-le-flush
+    format: fill-in
+    question: |-
+      Complète pour que la base vérifie la contrainte d'unicité tout de suite :
+      ```java
+      Produit doublon = new Produit("SKU-1");
+      assertThrows(PersistenceException.class, doublon::___);
+      ```
+    blanks:
+      - [persistAndFlush]
+    answer: "`persistAndFlush` persiste puis envoie l'`INSERT` aussitôt : la base lève l'erreur pendant le test."
+  - key: trous-import
+    format: fill-in
+    question: |-
+      Complète l'import de l'annotation :
+      ```java
+      import io.quarkus.___.TestTransaction;
+      ```
+    blanks:
+      - [test]
+    answer: "`io.quarkus.test.TestTransaction`, fournie avec `quarkus-junit`."
+  - key: trous-exception-attendue
+    format: fill-in
+    question: |-
+      Complète : sans transaction, `produit.persist()` lève une exception de JPA.
+      ```java
+      assertThrows(___.class, produit::persist);
+      ```
+    blanks:
+      - [TransactionRequiredException, jakarta.persistence.TransactionRequiredException]
+    answer: "`TransactionRequiredException` : « Transaction is not active, consider adding @Transactional to your method to automatically activate one »."
+  - key: bug-donnees-qui-restent
+    format: bug-fix
+    question: |-
+      Ce test passe, mais les suivants trouvent un produit `stylo` de trop, à chaque exécution. Quelle correction est
+      la bonne ?
+      ```java
+      @Test
+      @Transactional
+      void trouveUnProduitParSonNom() {
+          Produit.persist(new Produit("stylo", 2));
+          assertTrue(Produit.find("nom", "stylo").firstResultOptional().isPresent());
+      }
+      ```
+    choices:
+      - {text: "Remplacer `@Transactional` par `@TestTransaction`", correct: true}
+      - {text: "Ajouter `@Rollback` à côté de `@Transactional`", correct: false}
+      - {text: "Retirer `@Transactional`, inutile dans un test", correct: false}
+      - {text: "Ajouter `Produit.flush()` à la fin du test", correct: false}
+    answer: |-
+      ```java
+      @Test
+      @TestTransaction
+      void trouveUnProduitParSonNom() {
+      ```
+      `@Transactional` valide la transaction à la fin du test : la ligne reste. `@TestTransaction` l'annule.
+      `@Rollback` est une annotation de Spring ; sans transaction, `persist` lèverait `TransactionRequiredException`.
+  - key: bug-before-each-annule
+    format: bug-fix
+    question: |-
+      Le test échoue : « expected: <1> but was: <0> ». Quelle correction est la bonne ?
+      ```java
+      @QuarkusTest
+      @TestTransaction
+      class ProduitTest {
+
+          @BeforeEach
+          void preparer() {
+              Produit.persist(new Produit("stylo", 2));
+          }
+
+          @Test
+          void compteLesStylos() {
+              assertEquals(1, Produit.count("nom", "stylo"));
+          }
+      }
+      ```
+    choices:
+      - {text: "Créer le produit au début du test, et non dans le `@BeforeEach`", correct: true}
+      - {text: "Annoter aussi le `@BeforeEach` avec `@TestTransaction`", correct: false}
+      - {text: "Remplacer `@BeforeEach` par `@BeforeAll` sur la même méthode", correct: false}
+      - {text: "Appeler `Produit.flush()` au début du test `compteLesStylos`", correct: false}
+    answer: |-
+      ```java
+      @Test
+      void compteLesStylos() {
+          Produit.persist(new Produit("stylo", 2));
+          assertEquals(1, Produit.count("nom", "stylo"));
+      }
+      ```
+      L'annotation de classe s'applique aussi au `@BeforeEach` : il a sa propre transaction, annulée à sa sortie, et
+      le produit disparaît avant le test. Le créer dans le test le place dans la transaction du test.
+  - key: bug-contrainte-jamais-verifiee
+    format: bug-fix
+    question: |-
+      Ce test échoue : « Expected jakarta.persistence.PersistenceException to be thrown, but nothing was thrown ».
+      Le champ `code` est pourtant unique en base. Quelle correction est la bonne ?
+      ```java
+      @Test
+      @TestTransaction
+      void refuseUnCodeEnDouble() {
+          Produit.persist(new Produit("SKU-1"));
+          Produit doublon = new Produit("SKU-1");
+          assertThrows(PersistenceException.class, doublon::persist);
+      }
+      ```
+    choices:
+      - {text: "Persister le doublon avec `doublon::persistAndFlush`", correct: true}
+      - {text: "Remplacer `@TestTransaction` par `@Transactional`", correct: false}
+      - {text: "Attendre une `IllegalStateException` au lieu de l'autre", correct: false}
+      - {text: "Ajouter `@Column(unique = true)` sur la classe de test", correct: false}
+    answer: |-
+      ```java
+      assertThrows(PersistenceException.class, doublon::persistAndFlush);
+      ```
+      `persist` ne fait que préparer l'`INSERT`, envoyé au flush. La transaction est annulée sans flush : la base ne
+      voit jamais le doublon. Avec `@Transactional`, l'erreur arriverait au commit, après le test, hors de
+      `assertThrows`.
+  - key: bug-get-qui-ne-trouve-pas
+    format: bug-fix
+    question: |-
+      Ce test échoue : « Expected status code <200> but was <404> ». La ressource fonctionne en production. Quelle
+      correction est la bonne ?
+      ```java
+      @Test
+      @TestTransaction
+      void relitUnProduit() {
+          Produit produit = new Produit("stylo", 2);
+          produit.persist();
+          given().get("/produits/{id}", produit.id).then().statusCode(200);
+      }
+      ```
+    choices:
+      - {text: "Créer le produit par `POST /produits`, puis le relire par l'API", correct: true}
+      - {text: "Appeler `produit.flush()` avant la requête RestAssured", correct: false}
+      - {text: "Ajouter `@Transactional` sur la ressource `GET /produits/{id}`", correct: false}
+      - {text: "Attendre quelques secondes avant d'appeler la ressource", correct: false}
+    answer: |-
+      ```java
+      @Test
+      void relitUnProduit() {
+          Integer id = given().contentType(ContentType.JSON).body("{\"nom\": \"stylo\", \"prix\": 2}")
+              .post("/produits").then().statusCode(201).extract().path("id");
+          given().get("/produits/{id}", id).then().statusCode(200);
+      }
+      ```
+      La ressource tourne dans sa propre transaction, qui ne voit pas une ligne non validée, même envoyée par un
+      flush. Créée par l'API, la donnée est validée : le test reste indépendant s'il ne compte pas les lignes.

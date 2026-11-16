@@ -1,0 +1,307 @@
+notion: reponses
+lesson: |-
+  Par défaut, une méthode de ressource répond 200 avec ce qu'elle renvoie, ou 204 si elle ne renvoie rien. Une API
+  soignée dit plus : 201 et l'adresse de ce qui a été créé, 404 quand rien n'est trouvé, des en-têtes utiles. Quarkus
+  REST offre trois outils.
+
+  **1. Des annotations, pour un statut ou un en-tête fixe** (`org.jboss.resteasy.reactive`) :
+
+  ```java
+  @POST
+  @ResponseStatus(201)
+  @ResponseHeader(name = "X-Version", value = "1")
+  public ProduitVue creer(NouveauProduit nouveau) { ... }
+  ```
+
+  **2. `Response`, l'objet de Jakarta REST**, pour décider à l'exécution :
+
+  ```java
+  @POST
+  public Response creer(NouveauProduit nouveau) {
+      ProduitVue cree = catalogue.ajouter(nouveau);
+      return Response.created(URI.create("/produits/" + cree.id()))   // 201 + Location
+              .entity(cree)
+              .build();
+  }
+
+  @GET
+  public Response lister() {
+      List<ProduitVue> page = catalogue.page(0);
+      return Response.ok(page).header("X-Total-Count", catalogue.total()).build();
+  }
+  ```
+
+  `Response` n'est pas typé : ni le lecteur ni la spécification OpenAPI ne savent ce que contient le corps.
+
+  **3. `RestResponse<T>`, sa version typée** de Quarkus REST :
+
+  ```java
+  @GET
+  @Path("/{id}")
+  public RestResponse<ProduitVue> trouver(@RestPath long id) {
+      return catalogue.trouver(id)
+              .map(RestResponse::ok)
+              .orElse(RestResponse.notFound());
+  }
+  ```
+
+  Ses fabriques : `RestResponse.ok(x)`, `RestResponse.notFound()`, `RestResponse.noContent()`,
+  `RestResponse.status(Status.CONFLICT)`, et `RestResponse.ResponseBuilder` pour le reste
+  (`RestResponse.ResponseBuilder.<ProduitVue>created(uri).entity(cree).build()`, le type précisé pour que Java
+  l'infère).
+
+  **L'en-tête `Location`.** Une URI relative passée à `created(...)` est résolue par rapport à l'adresse de
+  l'application : le client reçoit `Location: http://hote:8080/produits/7`.
+
+  **Les statuts à connaître.**
+
+  | Statut | Quand |
+  |---|---|
+  | 200 OK | une lecture, une modification qui renvoie la ressource |
+  | 201 Created | une création, avec `Location` |
+  | 202 Accepted | une demande prise en compte, traitée plus tard |
+  | 204 No Content | une suppression, une action sans corps à renvoyer |
+  | 400 Bad Request | une requête invalide (corps, paramètres) |
+  | 404 Not Found | la ressource n'existe pas |
+  | 409 Conflict | la requête contredit l'état actuel (stock épuisé, doublon) |
+
+  Pour les erreurs, lever une exception est souvent plus clair que construire la réponse : `throw new
+  NotFoundException()` répond 404 (notion suivante, sur les exceptions).
+
+  **En entretien** : « Pour un statut fixe, `@ResponseStatus` ; quand il dépend du traitement, je renvoie un
+  `RestResponse<T>`, typé, plutôt qu'un `Response`. Une création répond 201 avec `Location`, une suppression 204, une
+  ressource absente 404. Les erreurs métier, je les lève en exceptions et je les traduis en un seul endroit. »
+cards:
+  - key: repondre-201-avec-location
+    format: course
+    question: Comment réponds-tu 201 Created avec l'adresse de la ressource créée ?
+    choices:
+      - {text: "`Response.created(URI.create(\"/produits/\" + id)).entity(p).build()`", correct: true}
+      - {text: "`Response.ok(p).header(\"Status\", 201).build()`", correct: false}
+      - {text: "`Response.status(200).location(\"/produits/\" + id).build()`", correct: false}
+      - {text: "`Response.accepted(URI.create(\"/produits/\" + id)).build()`", correct: false}
+    answer: "`created` fixe le statut 201 et l'en-tête `Location`. `Status` n'est pas un en-tête, et `accepted` répond 202."
+  - key: interet-de-restresponse
+    format: course
+    question: "Qu'apporte `RestResponse<ProduitVue>` par rapport à `Response` ?"
+    choices:
+      - {text: "Le type du corps, connu du compilateur et d'OpenAPI", correct: true}
+      - {text: "Une réponse plus rapide, sans sérialisation JSON", correct: false}
+      - {text: "La possibilité d'ajouter des en-têtes à la réponse", correct: false}
+      - {text: "Le statut 201 automatique pour toute création", correct: false}
+    answer: "`RestResponse<T>` porte le type de son entité : le code se lit mieux, et la spécification OpenAPI décrit le bon schéma. `Response` aussi sait ajouter des en-têtes."
+  - key: statut-fixe
+    format: course
+    question: "Quelle annotation de Quarkus REST fait répondre 201 à une méthode qui renvoie l'objet créé ?"
+    choices:
+      - {text: "`@ResponseStatus(201)`", correct: true}
+      - {text: "`@Status(201)`", correct: false}
+      - {text: "`@Produces(\"201\")`", correct: false}
+      - {text: "`@ResponseHeader(201)`", correct: false}
+    answer: "`org.jboss.resteasy.reactive.ResponseStatus` fixe le statut des réponses réussies de la méthode. La valeur renvoyée reste le corps."
+  - key: location-relative
+    format: course
+    question: "Que reçoit le client quand la méthode répond `Response.created(URI.create(\"/produits/7\"))` ?"
+    choices:
+      - {text: "Un en-tête `Location` absolu, comme `http://hote:8080/produits/7`", correct: true}
+      - {text: "Un en-tête `Location` relatif, exactement `/produits/7`", correct: false}
+      - {text: "Une redirection 302 vers `/produits/7`, suivie par le client", correct: false}
+      - {text: "Le corps `/produits/7`, sans en-tête `Location`", correct: false}
+    answer: "Jakarta REST résout une URI relative par rapport à l'adresse de l'application. Le statut reste 201 : ce n'est pas une redirection."
+  - key: vf-restresponse-notfound
+    format: true-false
+    question: "`RestResponse.notFound()` construit une réponse 404 sans corps."
+    truth: true
+    answer: "C'est la façon typée de répondre 404 sans lever d'exception, par exemple au bout d'un `Optional`."
+  - key: vf-responsestatus-et-exception
+    format: true-false
+    question: "`@ResponseStatus(201)` impose aussi le statut 201 quand la méthode lève une exception."
+    truth: false
+    answer: "L'annotation ne vise que les réponses réussies. Une exception suit son propre chemin : un mapper, ou un 500 si personne ne la traduit."
+  - key: vf-en-tete-avec-response
+    format: true-false
+    question: "`Response.ok(page).header(\"X-Total-Count\", 120).build()` répond 200 avec l'en-tête `X-Total-Count`."
+    truth: true
+    answer: "`header` ajoute un en-tête au constructeur de réponse. Pour un en-tête fixe, `@ResponseHeader` suffit."
+  - key: vf-response-type-openapi
+    format: true-false
+    question: "Une méthode qui renvoie `Response` indique à OpenAPI le type de son corps."
+    truth: false
+    answer: "`Response` n'est pas typé : la spécification ne peut pas décrire le corps sans annotation de plus. `RestResponse<T>` le dit d'office."
+  - key: qcm-statut-suppression
+    format: multiple-choice
+    question: Quel statut renvoie une suppression réussie qui n'a rien à renvoyer ?
+    choices:
+      - {text: "204 No Content", correct: true}
+      - {text: "200 OK, avec un corps vide", correct: false}
+      - {text: "202 Accepted", correct: false}
+      - {text: "410 Gone", correct: false}
+    answer: "Une méthode `void` répond 204 d'office. 410 dirait qu'une ressource a existé et n'existe plus, à une lecture suivante."
+  - key: qcm-restresponse-409
+    format: multiple-choice
+    question: "Quelle expression construit une réponse 409 typée ?"
+    choices:
+      - {text: "`RestResponse.status(Response.Status.CONFLICT)`", correct: true}
+      - {text: "`RestResponse.conflict()`", correct: false}
+      - {text: "`RestResponse.ok(409)`", correct: false}
+      - {text: "`RestResponse.notFound(409)`", correct: false}
+    answer: "`RestResponse.status` prend n'importe quel statut ; seules les réponses les plus courantes ont leur fabrique (`ok`, `notFound`, `noContent`)."
+  - key: qcm-en-tete-fixe
+    format: multiple-choice
+    question: "Quelle annotation ajoute l'en-tête `X-Version: 1` à toutes les réponses d'une méthode ?"
+    choices:
+      - {text: "`@ResponseHeader(name = \"X-Version\", value = \"1\")`", correct: true}
+      - {text: "`@HeaderParam(\"X-Version\")` sur la méthode", correct: false}
+      - {text: "`@RestHeader(\"X-Version\")` sur la méthode", correct: false}
+      - {text: "`@Produces(\"X-Version: 1\")` sur la méthode", correct: false}
+    answer: "`@ResponseHeader` écrit un en-tête de réponse. `@HeaderParam` et `@RestHeader` lisent un en-tête de la requête."
+  - key: qcm-traitement-differe
+    format: multiple-choice
+    question: "Un `@POST` lance un export qui prendra plusieurs minutes, puis rend la main. Quel statut renvoie-t-il ?"
+    choices:
+      - {text: "202 Accepted", correct: true}
+      - {text: "201 Created", correct: false}
+      - {text: "200 OK", correct: false}
+      - {text: "204 No Content", correct: false}
+    answer: "202 dit que la demande est acceptée mais pas terminée ; la réponse peut donner l'adresse où suivre l'export."
+  - key: trous-created
+    format: fill-in
+    question: |-
+      Complète pour répondre 201 avec l'en-tête `Location` :
+      ```java
+      return Response.___(URI.create("/produits/" + cree.id())).entity(cree).build();
+      ```
+    blanks:
+      - [created]
+    answer: "`Response.created(uri)` fixe le statut 201 et l'en-tête `Location`."
+  - key: trous-responsestatus
+    format: fill-in
+    question: |-
+      Complète pour que cette création réponde 201 :
+      ```java
+      @POST
+      @___(201)
+      public ProduitVue creer(NouveauProduit nouveau) {
+      ```
+    blanks:
+      - [ResponseStatus]
+    answer: "`@ResponseStatus` de Quarkus REST fixe le statut des réponses réussies."
+  - key: trous-restresponse-type
+    format: fill-in
+    question: |-
+      Complète le type de retour, typé, de cette méthode :
+      ```java
+      @GET
+      @Path("/{id}")
+      public ___<ProduitVue> trouver(@RestPath long id) {
+      ```
+    blanks:
+      - [RestResponse]
+    answer: "`RestResponse<T>` est la réponse typée de Quarkus REST."
+  - key: trous-notfound
+    format: fill-in
+    question: |-
+      Complète pour répondre 404 quand le produit manque :
+      ```java
+      return catalogue.trouver(id)
+              .map(RestResponse::ok)
+              .orElse(RestResponse.___());
+      ```
+    blanks:
+      - [notFound]
+    answer: "`RestResponse.notFound()` construit une réponse 404 sans corps."
+  - key: bug-null-au-lieu-de-404
+    format: bug-fix
+    question: |-
+      `GET /produits/999` répond 204 No Content pour un produit qui n'existe pas. Le client attend 404. Quelle
+      correction est la bonne ?
+      ```java
+      @GET
+      @Path("/{id}")
+      public ProduitVue trouver(@RestPath long id) {
+          return catalogue.trouver(id).orElse(null);
+      }
+      ```
+    choices:
+      - {text: "Lever `NotFoundException` quand le produit manque", correct: true}
+      - {text: "Ajouter `@ResponseStatus(404)` sur la méthode", correct: false}
+      - {text: "Renvoyer `Optional<ProduitVue>` tel quel", correct: false}
+      - {text: "Renvoyer un `ProduitVue` aux champs vides", correct: false}
+    answer: |-
+      ```java
+      return catalogue.trouver(id).orElseThrow(NotFoundException::new);
+      ```
+      Une méthode qui renvoie `null` répond 204 : pas d'entité. `@ResponseStatus(404)` changerait aussi le statut
+      des produits trouvés. `RestResponse.notFound()` est l'autre bonne solution.
+  - key: bug-post-en-200
+    format: bug-fix
+    question: |-
+      Le test du contrat attend 201 pour une création, et reçoit 200. Quelle correction est la bonne ?
+      ```java
+      @POST
+      public ProduitVue creer(NouveauProduit nouveau) {
+          return catalogue.ajouter(nouveau);
+      }
+      ```
+    choices:
+      - {text: "Annoter la méthode avec `@ResponseStatus(201)`", correct: true}
+      - {text: "Remplacer `@POST` par `@PUT`, qui répond 201", correct: false}
+      - {text: "Ajouter `@Produces(MediaType.APPLICATION_JSON)`", correct: false}
+      - {text: "Faire renvoyer `void` à la méthode `creer`", correct: false}
+    answer: |-
+      ```java
+      @POST
+      @ResponseStatus(201)
+      public ProduitVue creer(NouveauProduit nouveau) { ... }
+      ```
+      Le statut ne dépend pas du verbe : un objet renvoyé donne 200. Pour ajouter `Location`, on renverrait
+      `Response.created(...)` ou un `RestResponse`.
+  - key: bug-build-oublie
+    format: bug-fix
+    question: |-
+      Ce code ne compile pas : « incompatible types: ResponseBuilder cannot be converted to Response ». Quelle
+      correction est la bonne ?
+      ```java
+      @POST
+      public Response creer(NouveauProduit nouveau) {
+          ProduitVue cree = catalogue.ajouter(nouveau);
+          return Response.created(URI.create("/produits/" + cree.id())).entity(cree);
+      }
+      ```
+    choices:
+      - {text: "Terminer la chaîne par `.build()`", correct: true}
+      - {text: "Faire renvoyer `Object` à la méthode", correct: false}
+      - {text: "Remplacer `entity(cree)` par `ok(cree)`", correct: false}
+      - {text: "Ajouter `@ResponseStatus(201)`", correct: false}
+    answer: |-
+      ```java
+      return Response.created(URI.create("/produits/" + cree.id())).entity(cree).build();
+      ```
+      `created`, `ok` ou `status` renvoient un `ResponseBuilder` ; c'est `build()` qui produit la `Response`.
+  - key: bug-type-du-builder
+    format: bug-fix
+    question: |-
+      Ce code ne compile pas : « incompatible types: RestResponse<Object> cannot be converted to
+      RestResponse<ProduitVue> ». Quelle correction est la bonne ?
+      ```java
+      @POST
+      public RestResponse<ProduitVue> creer(NouveauProduit nouveau) {
+          ProduitVue cree = catalogue.ajouter(nouveau);
+          return RestResponse.ResponseBuilder.created(URI.create("/produits/" + cree.id()))
+                  .entity(cree)
+                  .build();
+      }
+      ```
+    choices:
+      - {text: "Écrire `RestResponse.ResponseBuilder.<ProduitVue>created(...)`", correct: true}
+      - {text: "Faire renvoyer `RestResponse<?>` puis caster à l'appel", correct: false}
+      - {text: "Remplacer `.entity(cree)` par `.entity((Object) cree)`", correct: false}
+      - {text: "Retirer `.build()` à la fin de la chaîne", correct: false}
+    answer: |-
+      ```java
+      return RestResponse.ResponseBuilder.<ProduitVue>created(URI.create("/produits/" + cree.id()))
+              .entity(cree)
+              .build();
+      ```
+      `created` est générique, mais Java ne déduit pas son type à travers la chaîne d'appels : il prend `Object`.
+      Le préciser donne un `RestResponse<ProduitVue>`.

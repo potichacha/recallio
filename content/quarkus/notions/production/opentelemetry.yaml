@@ -1,0 +1,197 @@
+notion: opentelemetry
+lesson: |-
+  Une requête traverse souvent plusieurs services : la passerelle, le catalogue, le stock, la base. Quand elle est
+  lente, où passe le temps ? Les **traces distribuées** répondent : une **trace** suit une requête de bout en bout,
+  découpée en **spans**, une par opération (une requête reçue, un appel sortant, une requête SQL), avec son début, sa
+  durée, ses attributs et son statut.
+
+  ```
+  GET /commandes/42                         ████████████████████  480 ms   (passerelle)
+    GET /catalogue/produits                  ████                  90 ms   (catalogue)
+    GET /stock/SKU-1                              ███████████     310 ms   (stock)
+      SELECT ... FROM stock                         ██████████    290 ms
+  ```
+
+  **Dans Quarkus**, l'extension `quarkus-opentelemetry` suffit pour l'essentiel :
+
+  - un span pour chaque **requête REST reçue** et chaque **appel du REST Client**, sans code ;
+  - la **propagation du contexte** : l'identifiant de trace part dans l'en-tête HTTP `traceparent` (le standard W3C
+    Trace Context), et le service suivant rattache ses spans à la même trace ;
+  - l'**export** des spans par le protocole **OTLP** vers un collecteur (OpenTelemetry Collector, Jaeger, Tempo...),
+    dont l'adresse se règle sous `quarkus.otel.exporter.otlp`.
+
+  D'autres extensions s'y branchent : les requêtes JDBC (`quarkus.datasource.jdbc.telemetry=true`), Kafka, la
+  messagerie réactive.
+
+  **Ses propres spans.** Pour une méthode de bean qui compte (un calcul, un traitement par lots) :
+
+  ```java
+  @WithSpan("calcul-des-frais")
+  public int fraisDePort(@SpanAttribute("pays") String pays, Panier panier) { ... }
+  ```
+
+  `@WithSpan` (`io.opentelemetry.instrumentation.annotations`) crée un span autour de l'appel, enfant du span courant ;
+  `Span.current().setAttribute(...)` ajoute un attribut au span en cours.
+
+  **Relier journaux et traces.** Quarkus place `traceId` et `spanId` dans le contexte des journaux (MDC) : un format
+  qui les affiche (`%X{traceId}`) permet de retrouver toutes les lignes d'une requête, dans tous les services.
+
+  **Le volume.** Tracer chaque requête coûte en réseau et en stockage. On **échantillonne** : par exemple 10 % des
+  traces (`quarkus.otel.traces.sampler=parentbased_traceidratio` et `quarkus.otel.traces.sampler.arg=0.1`). Le mode
+  « parent » suit la décision du service appelant, pour garder des traces complètes.
+
+  | Signal | Répond à | Exemple |
+  |---|---|---|
+  | métriques | combien, à quelle vitesse, en moyenne ? | 2 % d'erreurs, p99 à 800 ms |
+  | traces | où passe le temps de **cette** requête ? | 310 ms dans le stock |
+  | journaux | que s'est-il passé, en détail ? | le message d'erreur exact |
+
+  **En entretien** : « Avec `quarkus-opentelemetry`, chaque requête REST reçue ou émise a son span, et l'identifiant
+  de trace passe d'un service à l'autre dans l'en-tête `traceparent` ; les spans partent en OTLP vers un collecteur.
+  J'ajoute mes spans avec `@WithSpan`, je mets le `traceId` dans les journaux pour les relier, et j'échantillonne en
+  production. Les traces complètent les métriques : elles expliquent une requête, pas une tendance. »
+cards:
+  - key: definition-d-une-trace
+    format: course
+    question: "Qu'est-ce qu'une trace distribuée ?"
+    choices:
+      - {text: "Le parcours d'une requête à travers les services, en spans", correct: true}
+      - {text: "Le journal complet d'un service, horodaté ligne à ligne", correct: false}
+      - {text: "Une moyenne des durées de réponse, calculée par service", correct: false}
+      - {text: "La pile d'appels Java d'une exception, envoyée au collecteur", correct: false}
+    answer: "Une trace rassemble les spans de toutes les opérations d'une même requête, dans tous les services qu'elle traverse. Les moyennes sont le rôle des métriques."
+  - key: propagation-du-contexte
+    format: course
+    question: "Comment le service appelé sait-il qu'il participe à la même trace que l'appelant ?"
+    choices:
+      - {text: "L'identifiant de trace arrive dans l'en-tête HTTP `traceparent`", correct: true}
+      - {text: "Le collecteur relie les spans d'après leur heure de début", correct: false}
+      - {text: "Les deux services lisent la trace dans une base partagée", correct: false}
+      - {text: "L'appelant ajoute l'identifiant de trace dans le corps JSON", correct: false}
+    answer: "C'est le standard W3C Trace Context : le REST Client ajoute `traceparent`, et le service appelé rattache ses spans à cette trace."
+  - key: role-de-withspan
+    format: course
+    question: "Que fait `@WithSpan` posé sur une méthode de bean ?"
+    choices:
+      - {text: "Il crée un span autour de chaque appel de la méthode", correct: true}
+      - {text: "Il ouvre une nouvelle trace, détachée de la requête", correct: false}
+      - {text: "Il journalise les paramètres de la méthode à chaque appel", correct: false}
+      - {text: "Il compte les appels de la méthode dans une métrique", correct: false}
+    answer: "Le span est l'enfant du span courant : il apparaît dans la trace de la requête, avec sa durée. `@SpanAttribute` y ajoute un paramètre."
+  - key: instrumentation-sans-code
+    format: course
+    question: "Que trace `quarkus-opentelemetry` sans aucun code ?"
+    choices:
+      - {text: "Les requêtes REST reçues et les appels du REST Client", correct: true}
+      - {text: "Chaque méthode de chaque bean de l'application", correct: false}
+      - {text: "Rien : chaque span doit être créé avec `@WithSpan`", correct: false}
+      - {text: "Seulement les erreurs, pour limiter le volume", correct: false}
+    answer: "Les entrées et sorties HTTP sont tracées d'office, propagation comprise. Les méthodes internes ne le sont que si on les annote."
+  - key: vf-requetes-tracees
+    format: true-false
+    question: "Avec `quarkus-opentelemetry`, chaque requête REST reçue a son span sans écrire de code."
+    truth: true
+    answer: "L'extension instrumente le serveur HTTP et le REST Client. Le code n'intervient que pour des spans métier."
+  - key: vf-en-tete-traceparent
+    format: true-false
+    question: "L'identifiant de trace passe d'un service à l'autre dans l'en-tête HTTP `traceparent`."
+    truth: true
+    answer: "C'est le format W3C Trace Context, que propage OpenTelemetry par défaut."
+  - key: vf-traces-remplacent-metriques
+    format: true-false
+    question: "Une fois les traces en place, les métriques ne servent plus à rien."
+    truth: false
+    answer: "Les métriques donnent les tendances et déclenchent les alertes, à faible coût ; les traces expliquent une requête particulière, souvent échantillonnée. Les deux se complètent."
+  - key: vf-trace-par-service
+    format: true-false
+    question: "Chaque service crée sa propre trace : une requête qui traverse trois services produit trois traces."
+    truth: false
+    answer: "Grâce à la propagation du contexte, les spans des trois services appartiennent à la même trace. C'est tout l'intérêt du traçage distribué."
+  - key: qcm-protocole-d-export
+    format: multiple-choice
+    question: "Par quel protocole `quarkus-opentelemetry` envoie-t-il ses spans au collecteur ?"
+    choices:
+      - {text: "OTLP", correct: true}
+      - {text: "SNMP", correct: false}
+      - {text: "JMX", correct: false}
+      - {text: "Syslog", correct: false}
+    answer: "OTLP (OpenTelemetry Protocol) est le protocole d'export d'OpenTelemetry, que comprennent le Collector, Jaeger ou Tempo."
+  - key: qcm-relier-les-journaux
+    format: multiple-choice
+    question: "Comment retrouves-tu toutes les lignes de journal d'une requête, dans les trois services qu'elle traverse ?"
+    choices:
+      - {text: "J'affiche le `traceId` dans le format des journaux", correct: true}
+      - {text: "J'ajoute l'adresse IP du client à chaque ligne", correct: false}
+      - {text: "Je compare l'heure des lignes dans les trois services", correct: false}
+      - {text: "Je mets le nom du thread dans chaque ligne", correct: false}
+    answer: "Quarkus place `traceId` et `spanId` dans le MDC : avec `%X{traceId}` dans le format, une recherche sur cet identifiant rassemble toute la requête."
+  - key: qcm-volume-de-traces
+    format: multiple-choice
+    question: "Les traces de toutes les requêtes coûtent trop cher à stocker. Que fais-tu ?"
+    choices:
+      - {text: "J'échantillonne : je ne garde qu'une part des traces", correct: true}
+      - {text: "Je désactive la propagation entre les services", correct: false}
+      - {text: "Je supprime les spans des appels REST sortants", correct: false}
+      - {text: "J'envoie les traces dans les journaux à la place", correct: false}
+    answer: "Un échantillonneur garde, par exemple, 10 % des traces ; en mode « parent », il suit la décision de l'appelant, et les traces gardées restent complètes."
+  - key: qcm-span-metier
+    format: multiple-choice
+    question: "Quelle annotation crée un span autour d'une méthode de calcul, dans la trace de la requête ?"
+    choices:
+      - {text: "`@WithSpan`", correct: true}
+      - {text: "`@Traced`", correct: false}
+      - {text: "`@Timed`", correct: false}
+      - {text: "`@NewTrace`", correct: false}
+    answer: "`@WithSpan` vient d'OpenTelemetry. `@Traced` était l'annotation de l'ancien MicroProfile OpenTracing ; `@Timed` crée une métrique Micrometer, pas un span."
+  - key: situation-requete-lente
+    format: scenario
+    question: |-
+      La page de commande met parfois trois secondes. Elle appelle quatre services. Les métriques de chacun semblent
+      correctes. Comment trouves-tu où passe le temps ?
+    choices:
+      - {text: "J'examine les traces des requêtes lentes, span par span", correct: true}
+      - {text: "J'augmente la mémoire des quatre services, l'un après l'autre", correct: false}
+      - {text: "Je compare les moyennes de durée des quatre services", correct: false}
+      - {text: "J'ajoute un `System.out.println` dans chaque méthode", correct: false}
+    answer: |-
+      Une trace montre, pour une requête précise, le temps passé dans chaque service et chaque appel. Les moyennes
+      lissent justement les cas lents qu'on cherche.
+  - key: situation-cout-en-production
+    format: scenario
+    question: |-
+      En production, le collecteur reçoit des millions de spans par heure, et la facture de stockage explose. Les
+      traces restent utiles. Que proposes-tu ?
+    choices:
+      - {text: "Échantillonner les traces, en suivant la décision de l'appelant", correct: true}
+      - {text: "Couper OpenTelemetry en production, et le garder en recette", correct: false}
+      - {text: "Ne tracer que le premier service, pas les suivants", correct: false}
+      - {text: "Envoyer les spans par mail à l'équipe chaque soir", correct: false}
+    answer: |-
+      Une part des traces suffit pour comprendre les comportements courants ; le mode « parent » garde des traces
+      entières. Couper le traçage en production retire l'outil là où il sert le plus.
+  - key: situation-ticket-de-support
+    format: scenario
+    question: |-
+      Un client signale une erreur et donne l'heure. Les journaux de trois services défilent par milliers de lignes.
+      Que mets-tu en place pour la prochaine fois ?
+    choices:
+      - {text: "Le `traceId` dans les journaux, et renvoyé au client avec l'erreur", correct: true}
+      - {text: "Des journaux plus détaillés, au niveau `DEBUG`, en production", correct: false}
+      - {text: "Un service de journaux par client, pour isoler ses requêtes", correct: false}
+      - {text: "Une capture d'écran systématique, demandée au client", correct: false}
+    answer: |-
+      Avec l'identifiant de trace dans chaque ligne, et dans la réponse d'erreur, le support retrouve en une recherche
+      toutes les lignes et la trace complète de la requête.
+  - key: situation-traitement-par-lots
+    format: scenario
+    question: |-
+      Ta trace d'import montre un seul long span de 40 secondes, sans détail : la lecture, la validation et l'écriture
+      sont des méthodes d'un même service. Comment vois-tu leur part ?
+    choices:
+      - {text: "J'annote ces méthodes avec `@WithSpan`, pour un span chacune", correct: true}
+      - {text: "J'ajoute un compteur Micrometer à chacune de ces méthodes", correct: false}
+      - {text: "Je découpe l'import en trois services, appelés en HTTP", correct: false}
+      - {text: "Je réduis l'échantillonnage pour garder plus de détails", correct: false}
+    answer: |-
+      Chaque méthode annotée devient un span enfant : la trace montre la durée de chacune. Découper en services pour
+      obtenir des spans serait un remède bien plus cher que le mal.

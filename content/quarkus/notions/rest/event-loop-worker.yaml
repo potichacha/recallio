@@ -1,0 +1,345 @@
+notion: event-loop-worker
+lesson: |-
+  Sous Quarkus tourne **Vert.x**, un moteur d'entrées-sorties **non bloquantes**. Comprendre ses deux sortes de
+  threads explique la plupart des erreurs de performance d'une application Quarkus.
+
+  **Les boucles d'événements** (`vert.x-eventloop-thread-N`). Peu nombreuses (deux par cœur par défaut), elles
+  reçoivent toutes les requêtes HTTP. Chacune traite à tour de rôle des milliers de connexions : elle avance une
+  requête tant qu'il y a du travail, et passe à une autre dès qu'il faut attendre une réponse du réseau. La règle
+  d'or : **ne jamais bloquer une boucle d'événements**. Une boucle bloquée gèle toutes les requêtes qui lui sont
+  confiées ; au-delà de deux secondes, Vert.x l'écrit au journal :
+
+  ```
+  WARN  Thread Thread[vert.x-eventloop-thread-0,5,main] has been blocked for 2531 ms, time limit is 2000 ms
+  ```
+
+  **Les threads workers** (`executor-thread-N`). Un pool bien plus grand, fait pour le code **bloquant** : JDBC,
+  Hibernate ORM, un client HTTP synchrone, la lecture d'un fichier. Un worker peut attendre ; il ne retient que sa
+  propre requête.
+
+  **Qui va où ?** Quarkus REST choisit d'après la **signature** de la méthode :
+
+  | Signature | Thread |
+  |---|---|
+  | `List<Produit> lister()`, `String`, `void`... | un worker : le code peut bloquer |
+  | `Uni<Produit>`, `Multi<...>`, `CompletionStage<...>` | la boucle d'événements : le code ne doit pas bloquer |
+
+  ```java
+  @GET
+  public List<Produit> lister() {          // executor-thread-1 : Hibernate ORM est permis
+      return Produit.listAll();
+  }
+
+  @GET
+  @Path("/reactif")
+  public Uni<String> bonjour() {           // vert.x-eventloop-thread-0 : rien de bloquant ici
+      return Uni.createFrom().item("bonjour");
+  }
+  ```
+
+  Les annotations `@Blocking`, `@NonBlocking` et `@RunOnVirtualThread` changent ce choix (notions suivantes).
+
+  **Quarkus protège la boucle.** Appeler Hibernate ORM depuis la boucle d'événements lève une exception :
+
+  ```
+  BlockingOperationNotAllowedException: You have attempted to perform a blocking operation on a IO thread.
+  This is not allowed, as blocking the IO thread will cause major performance issues with your application.
+  ```
+
+  De même, `@Transactional` sur une méthode qui renvoie un `Uni` refuse de démarrer une transaction JTA sur la
+  boucle.
+
+  **Lequel choisir ?** Pour une application CRUD classique avec Hibernate ORM, des méthodes impératives, donc des
+  workers, suffisent. Le modèle réactif (Mutiny, Hibernate Reactive, clients non bloquants) sert quand il faut tenir
+  un très grand nombre de connexions qui attendent.
+
+  **En entretien** : « Quarkus repose sur Vert.x : quelques boucles d'événements reçoivent toutes les requêtes et ne
+  doivent jamais bloquer, et un pool de workers exécute le code bloquant. Quarkus REST choisit d'après la signature :
+  un `Uni` sur la boucle, un objet ordinaire sur un worker. Hibernate ORM sur la boucle lève une exception, et une
+  boucle bloquée plus de deux secondes est signalée au journal. »
+cards:
+  - key: thread-d-une-methode-ordinaire
+    format: course
+    question: "Sur quel thread s'exécute par défaut une méthode de ressource qui renvoie `List<Produit>` ?"
+    choices:
+      - {text: "Un thread worker, comme `executor-thread-1`", correct: true}
+      - {text: "Une boucle d'événements, comme `vert.x-eventloop-thread-0`", correct: false}
+      - {text: "Le thread `main` de l'application", correct: false}
+      - {text: "Un thread créé pour la requête, puis détruit", correct: false}
+    answer: "Une signature ordinaire dit que le code peut bloquer : Quarkus REST l'envoie sur un worker."
+  - key: thread-d-une-methode-uni
+    format: course
+    question: "Sur quel thread s'exécute par défaut une méthode de ressource qui renvoie `Uni<Produit>` ?"
+    choices:
+      - {text: "Une boucle d'événements de Vert.x", correct: true}
+      - {text: "Un thread worker du pool d'exécution", correct: false}
+      - {text: "Un thread virtuel créé pour la requête", correct: false}
+      - {text: "Le thread qui a démarré l'application", correct: false}
+    answer: "Un type réactif promet un code non bloquant : Quarkus REST l'exécute sur la boucle d'événements."
+  - key: pourquoi-ne-pas-bloquer
+    format: course
+    question: Pourquoi ne faut-il jamais bloquer une boucle d'événements ?
+    choices:
+      - {text: "Peu nombreuses, elles servent toutes les requêtes : une boucle bloquée gèle les siennes", correct: true}
+      - {text: "Une boucle bloquée est tuée par la JVM, puis relancée après un délai fixe", correct: false}
+      - {text: "Le code bloquant y lève toujours une exception, quel qu'il soit", correct: false}
+      - {text: "Elles n'ont pas accès à la mémoire partagée de l'application", correct: false}
+    answer: "Chaque boucle traite des milliers de connexions à tour de rôle. Si elle attend, toutes ces connexions attendent avec elle."
+  - key: nombre-de-boucles
+    format: course
+    question: "Combien de boucles d'événements Quarkus crée-t-il par défaut ?"
+    choices:
+      - {text: "Deux par cœur de processeur", correct: true}
+      - {text: "Une par requête HTTP en cours", correct: false}
+      - {text: "Deux cents, quel que soit le processeur", correct: false}
+      - {text: "Une seule pour toute l'application", correct: false}
+    answer: "Peu de threads suffisent, puisqu'ils ne bloquent pas. Le pool de workers, lui, est bien plus grand."
+  - key: vf-uni-sur-la-boucle
+    format: true-false
+    question: "Une méthode de ressource qui renvoie `Uni<String>` s'exécute par défaut sur une boucle d'événements."
+    truth: true
+    answer: "La signature réactive suffit : sans `@Blocking`, Quarkus REST la garde sur la boucle."
+  - key: vf-liste-sur-un-worker
+    format: true-false
+    question: "Une méthode de ressource qui renvoie `List<Produit>` s'exécute par défaut sur un thread worker."
+    truth: true
+    answer: "Une signature ordinaire peut bloquer : JDBC, Hibernate ORM, un fichier. Elle part sur un worker."
+  - key: vf-orm-sur-la-boucle
+    format: true-false
+    question: "Appeler Hibernate ORM depuis une boucle d'événements est permis, mais déconseillé."
+    truth: false
+    answer: "C'est refusé : Quarkus lève `BlockingOperationNotAllowedException`. Il protège ainsi la boucle d'un appel bloquant."
+  - key: vf-avertissement-deux-secondes
+    format: true-false
+    question: "Vert.x écrit un avertissement quand une boucle d'événements reste bloquée plus de deux secondes."
+    truth: true
+    answer: "« Thread ... has been blocked for 2531 ms, time limit is 2000 ms » : le signe d'un appel bloquant sur la boucle."
+  - key: qcm-choix-du-thread
+    format: multiple-choice
+    question: "Sur quoi Quarkus REST s'appuie-t-il pour choisir le thread d'une méthode sans annotation ?"
+    choices:
+      - {text: "Sur sa signature : un type réactif va sur la boucle, le reste sur un worker", correct: true}
+      - {text: "Sur la durée de ses appels précédents, mesurée en production", correct: false}
+      - {text: "Sur le verbe HTTP : `GET` sur la boucle, les autres sur un worker", correct: false}
+      - {text: "Sur la taille du corps de la requête reçue", correct: false}
+    answer: "Le choix est fait au build, d'après le type de retour. `@Blocking`, `@NonBlocking` et `@RunOnVirtualThread` le modifient."
+  - key: qcm-orm-dans-un-uni
+    format: multiple-choice
+    question: "Une méthode qui renvoie `Uni<List<Produit>>` appelle `Produit.listAll()` de Panache (Hibernate ORM). Que se passe-t-il ?"
+    choices:
+      - {text: "Une `BlockingOperationNotAllowedException` : ORM refuse la boucle", correct: true}
+      - {text: "Rien de grave : la liste arrive un peu plus tard", correct: false}
+      - {text: "Quarkus déplace l'appel vers un worker, sans rien dire", correct: false}
+      - {text: "Panache bascule seul vers Hibernate Reactive", correct: false}
+    answer: "Le `Uni` place la méthode sur la boucle, où Hibernate ORM, bloquant, est interdit. Il faut une signature ordinaire, ou `@Blocking`."
+  - key: qcm-interet-de-la-boucle
+    format: multiple-choice
+    question: "Quel est l'intérêt du modèle à boucles d'événements ?"
+    choices:
+      - {text: "Tenir beaucoup de connexions qui attendent avec très peu de threads", correct: true}
+      - {text: "Accélérer les calculs lourds en les répartissant sur les boucles", correct: false}
+      - {text: "Rendre bloquant du code réactif, pour qu'il soit plus simple", correct: false}
+      - {text: "Supprimer le besoin de base de données dans l'application", correct: false}
+    answer: "Une requête qui attend le réseau ne retient aucun thread. Le gain porte sur les entrées-sorties, pas sur le calcul."
+  - key: qcm-nom-du-thread
+    format: multiple-choice
+    question: "Le journal montre `executor-thread-3` pour une requête. Qu'en déduis-tu ?"
+    choices:
+      - {text: "Elle s'exécute sur un worker, où le code peut bloquer", correct: true}
+      - {text: "Elle s'exécute sur la troisième boucle d'événements", correct: false}
+      - {text: "Elle s'exécute sur un thread virtuel de Java 21", correct: false}
+      - {text: "Elle est en attente, sans thread pour l'exécuter", correct: false}
+    answer: "Les workers s'appellent `executor-thread-N`, les boucles `vert.x-eventloop-thread-N`, les threads virtuels de Quarkus `quarkus-virtual-thread-N`."
+  - key: bug-orm-sur-la-boucle
+    format: bug-fix
+    question: |-
+      L'appel répond 500 : « BlockingOperationNotAllowedException: You have attempted to perform a blocking
+      operation on a IO thread ». L'application n'utilise que Hibernate ORM. Quelle correction est la bonne ?
+      ```java
+      @GET
+      public Uni<List<Produit>> lister() {
+          return Uni.createFrom().item(() -> Produit.listAll());
+      }
+      ```
+    choices:
+      - {text: "Renvoyer directement `List<Produit>`, sans `Uni`", correct: true}
+      - {text: "Ajouter `@NonBlocking` sur la méthode", correct: false}
+      - {text: "Remplacer `item` par `emitter` dans le `Uni`", correct: false}
+      - {text: "Ajouter `@Transactional` sur la méthode", correct: false}
+    answer: |-
+      ```java
+      @GET
+      public List<Produit> lister() {
+          return Produit.listAll();
+      }
+      ```
+      Le `Uni` place la méthode sur la boucle d'événements, où Hibernate ORM est interdit. Une signature ordinaire
+      l'envoie sur un worker. Envelopper un appel bloquant dans un `Uni` ne le rend pas réactif.
+  - key: bug-attente-sur-la-boucle
+    format: bug-fix
+    question: |-
+      Le journal répète « vert.x-eventloop-thread-1 has been blocked for 3012 ms », et toutes les requêtes
+      ralentissent. Quelle correction est la bonne ?
+      ```java
+      @GET
+      @Path("/rapport")
+      public Uni<String> rapport() throws IOException {
+          // un gros fichier, sur un disque réseau
+          String contenu = Files.readString(Paths.get("/data/rapport.csv"));
+          return Uni.createFrom().item(contenu);
+      }
+      ```
+    choices:
+      - {text: "Renvoyer une `String` ordinaire, pour s'exécuter sur un worker", correct: true}
+      - {text: "Augmenter le délai d'alerte des boucles à dix secondes", correct: false}
+      - {text: "Ajouter des boucles d'événements, une par requête", correct: false}
+      - {text: "Lire le fichier dans un bloc `synchronized`", correct: false}
+    answer: |-
+      ```java
+      @GET
+      @Path("/rapport")
+      public String rapport() throws IOException {
+          return Files.readString(Paths.get("/data/rapport.csv"));
+      }
+      ```
+      La lecture bloque la boucle d'événements, et toutes les requêtes qu'elle sert attendent avec elle. Sur un
+      worker, seule cette requête attend. Repousser l'alerte ne ferait que la cacher.
+  - key: bug-nonblocking-et-orm
+    format: bug-fix
+    question: |-
+      Depuis qu'un collègue a ajouté `@NonBlocking` « pour la performance », la liste répond 500 :
+      « BlockingOperationNotAllowedException ». Quelle correction est la bonne ?
+      ```java
+      @GET
+      @NonBlocking
+      public List<Produit> lister() {
+          return Produit.listAll();
+      }
+      ```
+    choices:
+      - {text: "Retirer `@NonBlocking` : la méthode repart sur un worker", correct: true}
+      - {text: "Ajouter `@Transactional` à côté de `@NonBlocking`", correct: false}
+      - {text: "Faire renvoyer `Uni<List<Produit>>` à la méthode", correct: false}
+      - {text: "Appeler `Produit.listAll()` dans un nouveau `Thread`", correct: false}
+    answer: |-
+      ```java
+      @GET
+      public List<Produit> lister() {
+          return Produit.listAll();
+      }
+      ```
+      `@NonBlocking` place la méthode sur la boucle d'événements, où Hibernate ORM est interdit. Ce n'est pas une
+      option de performance : elle promet un code qui n'attend jamais.
+  - key: bug-transactional-sur-uni
+    format: bug-fix
+    question: |-
+      L'appel répond 500 : « @Transactional cannot start a JTA transaction within a reactive pipeline ». Le code
+      utilise Hibernate ORM. Quelle correction est la bonne ?
+      ```java
+      @POST
+      @Transactional
+      public Uni<Produit> creer(NouveauProduit nouveau) {
+          return Uni.createFrom().item(() -> catalogue.ajouter(nouveau));
+      }
+      ```
+    choices:
+      - {text: "Faire renvoyer `Produit` à la méthode, sans `Uni`", correct: true}
+      - {text: "Retirer `@Transactional`, inutile avec un `Uni`", correct: false}
+      - {text: "Ajouter `@NonBlocking` à côté de `@Transactional`", correct: false}
+      - {text: "Remplacer `@POST` par `@PUT` sur la méthode", correct: false}
+    answer: |-
+      ```java
+      @POST
+      @Transactional
+      public Produit creer(NouveauProduit nouveau) {
+          return catalogue.ajouter(nouveau);
+      }
+      ```
+      Le `Uni` place la méthode sur la boucle d'événements, où une transaction JTA ne peut pas démarrer. Une
+      signature ordinaire la met sur un worker. Sans `@Transactional`, l'écriture n'aurait plus de transaction.
+  - key: situation-thread-bloque
+    format: scenario
+    question: |-
+      En production, le journal répète « vert.x-eventloop-thread-0 has been blocked for 2800 ms ». Que fais-tu ?
+    choices:
+      - {text: "Je cherche l'appel bloquant fait sur la boucle, et je le passe sur un worker", correct: true}
+      - {text: "Je relève le seuil d'alerte, pour que le journal reste lisible", correct: false}
+      - {text: "J'augmente la mémoire de la JVM, signe d'un manque de tas", correct: false}
+      - {text: "J'ignore le message : il n'a aucun effet sur les requêtes", correct: false}
+    answer: |-
+      La pile d'appels jointe à l'avertissement montre où la boucle attend. Une signature ordinaire, ou `@Blocking`,
+      déplace ce code sur un worker ; les autres requêtes de la boucle ne l'attendent plus.
+  - key: situation-crud-classique
+    format: scenario
+    question: |-
+      Ton équipe démarre une API CRUD avec Hibernate ORM et PostgreSQL. Un collègue veut tout écrire avec des `Uni`
+      « parce que Quarkus est réactif ». Que réponds-tu ?
+    choices:
+      - {text: "Des méthodes impératives sur des workers suffisent, avec Hibernate ORM", correct: true}
+      - {text: "Il a raison : sans `Uni`, Quarkus refuse d'exposer une méthode REST", correct: false}
+      - {text: "Il faut des `Uni`, mais en gardant Hibernate ORM et JDBC dedans", correct: false}
+      - {text: "Il faut des `Uni`, sinon chaque requête crée son propre thread", correct: false}
+    answer: |-
+      Quarkus sait faire les deux. Le réactif demande Hibernate Reactive et des clients non bloquants ; il ne paie
+      que pour un très grand nombre de connexions qui attendent. Un `Uni` autour de Hibernate ORM cumule les défauts.
+  - key: situation-quarkus-est-il-reactif
+    format: scenario
+    question: |-
+      En entretien : « Quarkus est-il un framework réactif ? » Quelle réponse est la meilleure ?
+    choices:
+      - {text: "Son cœur l'est, avec Vert.x ; il exécute aussi du code impératif, choisi méthode par méthode", correct: true}
+      - {text: "Oui, uniquement : tout le code d'une application doit renvoyer des `Uni`", correct: false}
+      - {text: "Non : il crée un thread par requête, comme un serveur d'applications classique", correct: false}
+      - {text: "Non : le réactif n'est disponible que dans l'exécutable natif", correct: false}
+    answer: |-
+      Les boucles d'événements de Vert.x reçoivent tout ; Quarkus REST envoie le code bloquant sur des workers, ou
+      sur des threads virtuels. On garde l'impératif là où il est plus simple, et le réactif là où il paie.
+  - key: situation-milliers-de-connexions
+    format: scenario
+    question: |-
+      Ton service relaie des milliers de requêtes lentes vers un partenaire, et le pool de workers sature. Que
+      proposes-tu ?
+    choices:
+      - {text: "Un client non bloquant et des `Uni`, ou des threads virtuels", correct: true}
+      - {text: "Un pool de workers de cinquante mille threads de la plateforme", correct: false}
+      - {text: "Des appels bloquants sur la boucle d'événements, plus rapide", correct: false}
+      - {text: "Un `Thread.sleep` entre les appels, pour lisser la charge", correct: false}
+    answer: |-
+      Chaque requête passe son temps à attendre : un thread de la plateforme par requête coûte trop. Le réactif ne
+      retient aucun thread pendant l'attente ; les threads virtuels coûtent presque rien.
+  - key: def-boucle-d-evenements
+    format: definition
+    question: "Qu'est-ce qu'une boucle d'événements (event loop) dans Vert.x ?"
+    choices:
+      - {text: "Un thread qui traite à tour de rôle les événements de nombreuses connexions, sans jamais attendre", correct: true}
+      - {text: "Un thread créé pour chaque requête, qui s'arrête quand la réponse est envoyée", correct: false}
+      - {text: "Une boucle `while` qui interroge la base de données en permanence", correct: false}
+      - {text: "Une file de messages persistante, partagée entre plusieurs applications", correct: false}
+    answer: "Elle avance chaque requête tant qu'il y a du travail, et passe à une autre dès qu'il faut attendre. D'où la règle : ne jamais la bloquer."
+  - key: def-thread-worker
+    format: definition
+    question: "Qu'est-ce qu'un thread worker dans Quarkus ?"
+    choices:
+      - {text: "Un thread d'un pool dédié au code bloquant, comme JDBC ou Hibernate ORM", correct: true}
+      - {text: "Un thread de la boucle d'événements réservé aux requêtes les plus rapides", correct: false}
+      - {text: "Un processus séparé, lancé pour chaque tâche planifiée de l'application", correct: false}
+      - {text: "Un thread virtuel créé par la JVM pour chaque appel de méthode", correct: false}
+    answer: "Les workers (`executor-thread-N`) peuvent attendre : un worker bloqué ne retient que sa propre requête."
+  - key: def-entree-sortie-non-bloquante
+    format: definition
+    question: "Qu'est-ce qu'une entrée-sortie non bloquante ?"
+    choices:
+      - {text: "Une opération qui rend la main tout de suite, le résultat arrivant plus tard", correct: true}
+      - {text: "Une opération qui ne peut jamais échouer, faute de délai d'attente", correct: false}
+      - {text: "Une opération exécutée dans un bloc `synchronized`, sans concurrence", correct: false}
+      - {text: "Une opération lancée au build, avant le démarrage de l'application", correct: false}
+    answer: "Le thread ne reste pas à attendre la réponse du réseau : il traite autre chose, et un événement signale le résultat."
+  - key: def-uni
+    format: definition
+    question: "Qu'est-ce qu'un `Uni` de Mutiny ?"
+    choices:
+      - {text: "Un résultat asynchrone unique : une valeur ou une erreur, plus tard", correct: true}
+      - {text: "Un flux de valeurs sans fin, émises les unes après les autres", correct: false}
+      - {text: "Un thread dédié à une seule requête, créé par Quarkus", correct: false}
+      - {text: "Une transaction de base de données à une seule requête SQL", correct: false}
+    answer: "`Uni<T>` représente une seule valeur à venir ; `Multi<T>` représente un flux de valeurs. Quarkus REST exécute une méthode qui en renvoie sur la boucle d'événements."

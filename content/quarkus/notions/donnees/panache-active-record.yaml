@@ -1,0 +1,314 @@
+notion: panache-active-record
+lesson: |-
+  **Panache** est une surcouche d'Hibernate ORM propre à Quarkus : elle retire le code répétitif des entités et des
+  requêtes. Elle propose deux styles ; le premier, **active record**, met les opérations de persistance sur l'entité
+  elle-même. Extension : `quarkus-hibernate-orm-panache`.
+
+  **1. L'entité hérite de `PanacheEntity`.**
+
+  ```java
+  @Entity
+  public class Produit extends PanacheEntity {
+      public String nom;
+      public int prix;
+  }
+  ```
+
+  - `PanacheEntity` fournit l'identifiant : un champ `public Long id`, généré. Pas de `@Id` à écrire.
+  - Les champs sont **publics**, sans getter ni setter. Panache génère les accesseurs au build et réécrit chaque
+    `produit.nom` en appel d'accesseur : on peut écrire plus tard un `getNom()` qui transforme la valeur, sans toucher
+    aux appelants.
+  - L'annotation `@Entity` reste obligatoire. Sans elle, le premier appel échoue : « Entity 'boutique.Produit' was not
+    found. Did you forget to annotate your Panache Entity classes with '@Entity'? »
+  - Pour choisir son identifiant (un code, un UUID), on hérite de `PanacheEntityBase` et on déclare son propre `@Id`.
+
+  **2. Des méthodes statiques pour lire, des méthodes d'instance pour écrire.**
+
+  | Appel | Effet |
+  |---|---|
+  | `Produit.findById(id)` | l'entité, ou `null` si elle n'existe pas |
+  | `Produit.findByIdOptional(id)` | un `Optional` |
+  | `Produit.listAll()`, `Produit.count()` | toutes les entités, leur nombre |
+  | `Produit.list("nom", nom)`, `Produit.find(...)` | une requête (voir les requêtes Panache) |
+  | `Produit.deleteById(id)` | `true` si une entité a été supprimée |
+  | `produit.persist()`, `produit.delete()` | enregistrer, supprimer cette entité |
+  | `produit.isPersistent()` | l'entité est-elle déjà en base ? |
+
+  **3. Les requêtes métier deviennent des méthodes statiques de l'entité.** Le code qui lit les produits reste à côté
+  de leurs champs :
+
+  ```java
+  @Entity
+  public class Produit extends PanacheEntity {
+      public String nom;
+      public int prix;
+
+      public static Optional<Produit> parNom(String nom) {
+          return find("nom", nom).firstResultOptional();
+      }
+
+      public static List<Produit> moinsChersQue(int prix) {
+          return list("prix < ?1", prix);
+      }
+  }
+  ```
+
+  **4. Les écritures demandent toujours une transaction.**
+
+  ```java
+  @POST
+  @Transactional
+  public Response creer(NouveauProduit nouveau) {
+      Produit produit = new Produit();
+      produit.nom = nouveau.nom();
+      produit.prix = nouveau.prix();
+      produit.persist();
+      return Response.status(Response.Status.CREATED).entity(produit).build();
+  }
+  ```
+
+  Dans la transaction, modifier un champ d'une entité chargée suffit : elle est écrite au commit.
+
+  **5. Les limites.** Des méthodes statiques se remplacent mal dans un test : il faut l'extension `quarkus-panache-mock`
+  et `PanacheMock`, ou passer au style **repository**. L'entité porte aussi sa persistance : c'est simple et lisible
+  pour une application CRUD, moins pour un domaine riche qu'on veut tenir à l'écart du framework.
+
+  **En entretien** : « En active record, mon entité hérite de `PanacheEntity` : elle reçoit un `id` généré et des
+  méthodes comme `findById`, `list`, `persist`. J'y écris mes requêtes métier en méthodes statiques, et j'expose des
+  champs publics, dont Panache génère les accesseurs. Les écritures restent dans une méthode `@Transactional`. »
+cards:
+  - key: apport-de-panacheentity
+    format: course
+    question: "Qu'apporte `PanacheEntity` à une entité qui en hérite ?"
+    choices:
+      - {text: "Un `id` généré et les méthodes `findById`, `list`, `persist`...", correct: true}
+      - {text: "L'annotation `@Entity`, qu'on n'a donc plus à écrire", correct: false}
+      - {text: "Une table créée à chaque démarrage, quelle que soit la configuration", correct: false}
+      - {text: "Des getters et setters écrits dans le code source", correct: false}
+    answer: "`PanacheEntity` déclare un `public Long id` généré et hérite des méthodes de `PanacheEntityBase`. `@Entity` reste obligatoire ; les accesseurs sont générés au build, pas dans le source."
+  - key: ou-ecrire-requete-metier
+    format: course
+    question: "En active record, où écris-tu la requête « produits moins chers que » ?"
+    choices:
+      - {text: "Dans une méthode statique de l'entité `Produit`", correct: true}
+      - {text: "Dans une interface qui hérite de `PanacheRepository`", correct: false}
+      - {text: "Dans le contrôleur REST, avec l'`EntityManager`", correct: false}
+      - {text: "Dans un fichier `queries.properties` à part", correct: false}
+    answer: "`public static List<Produit> moinsChersQue(int prix) { return list(\"prix < ?1\", prix); }` : la requête vit à côté des champs qu'elle interroge."
+  - key: identifiant-choisi
+    format: course
+    question: "Ton entité `Pays` a pour identifiant son code ISO (`FR`, `DE`). De quoi hérite-t-elle ?"
+    choices:
+      - {text: "De `PanacheEntityBase`, avec son propre champ `@Id`", correct: true}
+      - {text: "De `PanacheEntity`, en changeant le type de son `id`", correct: false}
+      - {text: "De `PanacheEntity`, avec un second champ `@Id`", correct: false}
+      - {text: "De rien : Panache exige un identifiant `Long`", correct: false}
+    answer: "`PanacheEntity` impose un `Long id` généré. `PanacheEntityBase` donne les mêmes méthodes, sans identifiant : on déclare `@Id public String code;`."
+  - key: champs-publics
+    format: course
+    question: "Pourquoi les champs publics d'une entité Panache ne cassent-ils pas l'encapsulation ?"
+    choices:
+      - {text: "Panache génère les accesseurs et réécrit chaque accès au champ en appel", correct: true}
+      - {text: "Hibernate rend les champs en lecture seule après le chargement", correct: false}
+      - {text: "Le compilateur Java interdit leur accès hors du paquet", correct: false}
+      - {text: "Quarkus copie l'entité avant chaque lecture d'un champ", correct: false}
+    answer: "Au build, `produit.nom` devient `produit.getNom()`. On peut donc écrire un vrai `getNom()` plus tard, sans modifier les appelants."
+  - key: vf-findbyid-null
+    format: true-false
+    question: "`Produit.findById(42L)` renvoie `null` quand aucun produit n'a cet identifiant."
+    truth: true
+    answer: "D'où `findByIdOptional`, qui renvoie un `Optional` vide : `orElseThrow(NotFoundException::new)` répond alors 404."
+  - key: vf-entity-obligatoire
+    format: true-false
+    question: "Une classe qui hérite de `PanacheEntity` doit quand même être annotée `@Entity`."
+    truth: true
+    answer: "`PanacheEntity` n'est qu'une super-classe mappée. Sans `@Entity`, le premier appel échoue : « Did you forget to annotate your Panache Entity classes with '@Entity'? »"
+  - key: vf-persist-sans-transaction
+    format: true-false
+    question: "`produit.persist()` fonctionne hors transaction : Panache en ouvre une pour l'occasion."
+    truth: false
+    answer: "Panache n'ouvre aucune transaction : `persist` lève `TransactionRequiredException`. On annote la méthode appelante avec `@Transactional`."
+  - key: vf-deletebyid-booleen
+    format: true-false
+    question: "`Produit.deleteById(id)` renvoie `false` quand aucun produit n'avait cet identifiant."
+    truth: true
+    answer: "Le booléen dit si une entité a été supprimée : un endpoint `DELETE` s'en sert pour répondre 404 plutôt que 204."
+  - key: qcm-lister-tout
+    format: multiple-choice
+    question: "Quel appel renvoie tous les produits sous forme de liste ?"
+    choices:
+      - {text: "`Produit.listAll()`", correct: true}
+      - {text: "`Produit.findAll()`", correct: false}
+      - {text: "`Produit.getAll()`", correct: false}
+      - {text: "`new Produit().list()`", correct: false}
+    answer: "`listAll()` renvoie une `List`. `findAll()` existe aussi, mais renvoie une `PanacheQuery`, à trier ou paginer avant d'en tirer une liste."
+  - key: qcm-optional
+    format: multiple-choice
+    question: "Quelle méthode renvoie un `Optional` plutôt qu'une entité ou `null` ?"
+    choices:
+      - {text: "`Produit.findByIdOptional(id)`", correct: true}
+      - {text: "`Produit.findById(id)`", correct: false}
+      - {text: "`Produit.getById(id)`", correct: false}
+      - {text: "`Produit.loadById(id)`", correct: false}
+    answer: "`findByIdOptional` évite le `null` ; `findById` le renvoie quand l'entité n'existe pas. Les deux autres n'existent pas."
+  - key: qcm-supprimer-entite-chargee
+    format: multiple-choice
+    question: "Tu as chargé un produit dans une méthode `@Transactional`. Comment le supprimes-tu ?"
+    choices:
+      - {text: "`produit.delete();`", correct: true}
+      - {text: "`produit.remove();`", correct: false}
+      - {text: "`Produit.delete(produit);`", correct: false}
+      - {text: "`produit = null;`", correct: false}
+    answer: "`delete()` est une méthode d'instance de l'entité. La méthode statique `delete(...)` prend une requête, comme `Produit.delete(\"nom\", nom)`."
+  - key: qcm-compter
+    format: multiple-choice
+    question: "Comment comptes-tu tous les produits en base ?"
+    choices:
+      - {text: "`Produit.count()`", correct: true}
+      - {text: "`Produit.listAll().size()`", correct: false}
+      - {text: "`Produit.size()`", correct: false}
+      - {text: "`Produit.length()`", correct: false}
+    answer: "`count()` envoie un `select count(*)`. `listAll().size()` donnerait le même nombre, mais en chargeant toutes les lignes en mémoire."
+  - key: trous-heriter
+    format: fill-in
+    question: |-
+      Complète pour écrire une entité en active record, avec un identifiant fourni :
+      ```java
+      @Entity
+      public class Produit extends ___ {
+          public String nom;
+      }
+      ```
+    blanks:
+      - [PanacheEntity]
+    answer: "`PanacheEntity` fournit le `Long id` généré et les méthodes de Panache."
+  - key: trous-premier-resultat
+    format: fill-in
+    question: |-
+      Complète pour renvoyer le produit de ce nom, ou `null` :
+      ```java
+      public static Produit parNom(String nom) {
+          return find("nom", nom).___();
+      }
+      ```
+    blanks:
+      - [firstResult]
+    answer: "`firstResult()` renvoie le premier résultat ou `null` ; `firstResultOptional()` renvoie un `Optional`."
+  - key: trous-enregistrer
+    format: fill-in
+    question: |-
+      Complète pour enregistrer le nouveau produit :
+      ```java
+      @Transactional
+      public void ajouter(Produit produit) {
+          produit.___();
+      }
+      ```
+    blanks:
+      - [persist]
+    answer: "`persist()` est une méthode d'instance de l'entité ; la transaction est obligatoire."
+  - key: trous-introuvable-404
+    format: fill-in
+    question: |-
+      Complète pour répondre 404 quand le produit n'existe pas :
+      ```java
+      return Produit.<Produit>___(id).orElseThrow(NotFoundException::new);
+      ```
+    blanks:
+      - [findByIdOptional]
+    answer: "`findByIdOptional` renvoie un `Optional` ; `NotFoundException` (Jakarta REST) répond 404."
+  - key: bug-entity-oubliee
+    format: bug-fix
+    question: |-
+      `GET /produits` répond 500 : « Entity 'boutique.Produit' was not found. Did you forget to annotate your Panache
+      Entity classes with '@Entity'? » Quelle correction est la bonne ?
+      ```java
+      public class Produit extends PanacheEntity {
+          public String nom;
+          public int prix;
+      }
+      ```
+    choices:
+      - {text: "Annoter la classe `Produit` avec `@Entity`", correct: true}
+      - {text: "Déclarer un champ `@Id public Long id;` dans la classe", correct: false}
+      - {text: "Hériter de `PanacheEntityBase` plutôt que de `PanacheEntity`", correct: false}
+      - {text: "Annoter la classe `Produit` avec `@ApplicationScoped`", correct: false}
+    answer: |-
+      ```java
+      @Entity
+      public class Produit extends PanacheEntity {
+      ```
+      `PanacheEntity` n'est qu'une super-classe mappée : sans `@Entity`, Hibernate ne connaît pas `Produit`. L'`id`
+      est déjà fourni ; une entité n'est pas un bean CDI.
+  - key: bug-findbyid-null
+    format: bug-fix
+    question: |-
+      `GET /produits/999` répond 500 avec une `NullPointerException` au lieu de 404. Quelle correction est la bonne ?
+      ```java
+      @GET
+      @Path("/{id}")
+      public String nom(@PathParam("id") Long id) {
+          Produit produit = Produit.findById(id);
+          return produit.nom;
+      }
+      ```
+    choices:
+      - {text: "Passer par `findByIdOptional(id).orElseThrow(NotFoundException::new)`", correct: true}
+      - {text: "Annoter la méthode avec `@Transactional` pour charger le produit", correct: false}
+      - {text: "Rattraper la `NullPointerException` et renvoyer une chaîne vide", correct: false}
+      - {text: "Remplacer `findById(id)` par `findAll().firstResult()`", correct: false}
+    answer: |-
+      ```java
+      Produit produit = Produit.<Produit>findByIdOptional(id).orElseThrow(NotFoundException::new);
+      return produit.nom;
+      ```
+      `findById` renvoie `null` quand l'identifiant est inconnu. `NotFoundException` répond 404 ; une chaîne vide
+      répondrait 200 et mentirait au client.
+  - key: bug-champs-prives
+    format: bug-fix
+    question: |-
+      `GET /produits` renvoie `[{"id":1}]` : le nom et le prix ont disparu du JSON. Quelle correction est la bonne ?
+      ```java
+      @Entity
+      public class Produit extends PanacheEntity {
+          private String nom;
+          private int prix;
+      }
+      ```
+    choices:
+      - {text: "Rendre les champs publics, pour que Panache génère leurs accesseurs", correct: true}
+      - {text: "Annoter chaque champ privé avec `@Column(nullable = false)`", correct: false}
+      - {text: "Déclarer les champs en `final`, remplis par un constructeur", correct: false}
+      - {text: "Annoter la classe avec `@JsonInclude(Include.ALWAYS)`", correct: false}
+    answer: |-
+      ```java
+      public String nom;
+      public int prix;
+      ```
+      Jackson ne voit ni champ public ni getter : il n'écrit que l'`id`, public dans `PanacheEntity`. Avec des champs
+      publics, Panache génère les accesseurs ; des getters écrits à la main marcheraient aussi.
+  - key: bug-suppression-silencieuse
+    format: bug-fix
+    question: |-
+      `DELETE /produits/999` répond 204, alors que le produit 999 n'existe pas. Le client croit l'avoir supprimé.
+      Quelle correction est la bonne ?
+      ```java
+      @DELETE
+      @Path("/{id}")
+      @Transactional
+      public void supprimer(@PathParam("id") Long id) {
+          Produit.deleteById(id);
+      }
+      ```
+    choices:
+      - {text: "Tester le booléen de `deleteById`, et lever `NotFoundException` s'il est faux", correct: true}
+      - {text: "Retirer `@Transactional`, inutile pour une suppression", correct: false}
+      - {text: "Remplacer `deleteById(id)` par `delete(\"id\", id)`", correct: false}
+      - {text: "Renvoyer `Response.ok()` à la place de `void`", correct: false}
+    answer: |-
+      ```java
+      if (!Produit.deleteById(id)) {
+          throw new NotFoundException();
+      }
+      ```
+      `deleteById` renvoie `false` quand rien n'a été supprimé. Sans test, la méthode `void` répond toujours 204.

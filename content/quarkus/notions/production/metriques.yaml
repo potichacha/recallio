@@ -1,0 +1,200 @@
+notion: metriques
+lesson: |-
+  Les **métriques** disent comment l'application se porte dans le temps : combien de requêtes, en combien de temps,
+  combien d'erreurs, combien de commandes. Quarkus s'appuie sur **Micrometer**, la même bibliothèque que Spring Boot,
+  et l'expose au format de **Prometheus**.
+
+  ```xml
+  <dependency>
+      <groupId>io.quarkus</groupId>
+      <artifactId>quarkus-micrometer-registry-prometheus</artifactId>
+  </dependency>
+  ```
+
+  L'application publie alors `/q/metrics`, que **Prometheus vient lire** à intervalles réguliers (il « scrape » : c'est
+  lui qui tire, l'application ne pousse rien). Sans code, on y trouve déjà les métriques de la JVM (mémoire, ramasse-
+  miettes, threads) et des requêtes HTTP :
+
+  ```
+  http_server_requests_seconds_count{method="GET",outcome="SUCCESS",status="200",uri="/produits/{id}"} 1542.0
+  http_server_requests_seconds_sum{method="GET",outcome="SUCCESS",status="200",uri="/produits/{id}"} 23.7
+  ```
+
+  Le tag `uri` porte le **modèle** du chemin (`/produits/{id}`), pas chaque identifiant.
+
+  **Ses propres métriques.** On injecte le `MeterRegistry`, ou l'on annote une méthode :
+
+  ```java
+  @ApplicationScoped
+  public class CommandeService {
+
+      @Inject
+      MeterRegistry registry;
+
+      public void passer(Commande commande) {
+          registry.counter("commandes.passees", "paiement", commande.moyen()).increment();
+          ...
+      }
+
+      @Timed("commandes.calcul.frais")
+      public int fraisDePort(Panier panier) { ... }
+  }
+  ```
+
+  | Type | Mesure | Exemple |
+  |---|---|---|
+  | `Counter` | un total qui ne fait que croître | commandes passées |
+  | `Timer` | des durées : nombre, somme, maximum | temps de calcul des frais |
+  | `Gauge` | une valeur instantanée, qui monte et descend | taille d'une file d'attente |
+  | `DistributionSummary` | une distribution de valeurs | montant des paniers |
+
+  `@Counted` et `@Timed` (`io.micrometer.core.annotation`) font de même sur une méthode de bean.
+
+  **Les noms.** Micrometer écrit `commandes.passees` ; Prometheus le lit `commandes_passees_total` (un compteur prend
+  `_total`), et un timer donne `_seconds_count`, `_seconds_sum` et `_seconds_max`.
+
+  **Le piège de la cardinalité.** Chaque combinaison de valeurs de tags est une **série** à part, gardée en mémoire et
+  stockée par Prometheus. Un tag aux valeurs bornées (`paiement` : carte, virement) va bien ; un tag
+  `client=<identifiant>` crée une série par client, et fait exploser la mémoire. Les détails par client vont dans
+  les journaux ou les traces, pas dans les métriques.
+
+  **En entretien** : « Avec `quarkus-micrometer-registry-prometheus`, l'application expose `/q/metrics`, que
+  Prometheus lit à intervalles réguliers : JVM et HTTP sans code, et mes métriques métier par le `MeterRegistry` ou
+  `@Counted` et `@Timed`. Je choisis le type (compteur, timer, jauge) selon ce que je mesure, et je garde des tags aux
+  valeurs bornées : un identifiant en tag crée une série par valeur. »
+cards:
+  - key: endpoint-des-metriques
+    format: course
+    question: "Sur quel chemin une application Quarkus expose-t-elle ses métriques pour Prometheus ?"
+    choices:
+      - {text: "`/q/metrics`", correct: true}
+      - {text: "`/actuator/prometheus`", correct: false}
+      - {text: "`/q/health/metrics`", correct: false}
+      - {text: "`/metrics/prometheus`", correct: false}
+    answer: "Avec `quarkus-micrometer-registry-prometheus`, Quarkus expose `/q/metrics`. `/actuator/prometheus` est le chemin de Spring Boot."
+  - key: qui-tire
+    format: course
+    question: "Comment Prometheus obtient-il les métriques de l'application ?"
+    choices:
+      - {text: "Il lit `/q/metrics` à intervalles réguliers", correct: true}
+      - {text: "L'application les lui pousse à chaque requête", correct: false}
+      - {text: "Il les déduit des journaux de l'application", correct: false}
+      - {text: "Il les lit dans la base de données de l'application", correct: false}
+    answer: "Prometheus fonctionne en pull : il interroge (scrape) l'endpoint de chaque instance. L'application ne fait que tenir ses compteurs à jour."
+  - key: compteur-ou-jauge
+    format: course
+    question: "Quel type de métrique choisis-tu pour le nombre de messages en attente dans une file, qui monte et descend ?"
+    choices:
+      - {text: "Une `Gauge`", correct: true}
+      - {text: "Un `Counter`", correct: false}
+      - {text: "Un `Timer`", correct: false}
+      - {text: "Un `DistributionSummary`", correct: false}
+    answer: "Une jauge donne une valeur instantanée. Un compteur ne fait que croître ; un timer mesure des durées ; une distribution, des valeurs observées une à une."
+  - key: tag-uri
+    format: course
+    question: "Que contient le tag `uri` de `http_server_requests_seconds_count` pour la ressource `/produits/{id}` ?"
+    choices:
+      - {text: "Le modèle `/produits/{id}`, pour toutes les requêtes", correct: true}
+      - {text: "Le chemin réel, comme `/produits/42`, à chaque requête", correct: false}
+      - {text: "Le nom de la méthode Java qui a traité la requête", correct: false}
+      - {text: "L'adresse IP du client qui a envoyé la requête", correct: false}
+    answer: "Le modèle garde un nombre de séries borné. Un tag par identifiant créerait une série par produit."
+  - key: vf-jvm-et-http-sans-code
+    format: true-false
+    question: "Avec `quarkus-micrometer-registry-prometheus`, les métriques de la JVM et des requêtes HTTP sont publiées sans écrire de code."
+    truth: true
+    answer: "L'extension enregistre ses binders : mémoire, ramasse-miettes, threads, requêtes HTTP. On n'écrit que les métriques métier."
+  - key: vf-tag-identifiant
+    format: true-false
+    question: "Ajouter l'identifiant du client en tag d'un compteur est sans risque, tant que le compteur reste unique."
+    truth: false
+    answer: "Chaque valeur de tag crée une série : un tag par client multiplie les séries par le nombre de clients, en mémoire et dans Prometheus."
+  - key: vf-suffixe-total
+    format: true-false
+    question: "Le compteur Micrometer `commandes.passees` apparaît dans `/q/metrics` sous le nom `commandes_passees_total`."
+    truth: true
+    answer: "Le format Prometheus remplace les points par des tirets bas et ajoute `_total` aux compteurs."
+  - key: vf-meme-bibliotheque
+    format: true-false
+    question: "Quarkus et Spring Boot utilisent tous deux Micrometer pour leurs métriques."
+    truth: true
+    answer: "Le code de métriques (`MeterRegistry`, `@Timed`) se porte d'un framework à l'autre ; seuls l'extension et le chemin d'exposition changent."
+  - key: qcm-extension
+    format: multiple-choice
+    question: "Quelle extension ajoutes-tu pour exposer des métriques au format Prometheus ?"
+    choices:
+      - {text: "`quarkus-micrometer-registry-prometheus`", correct: true}
+      - {text: "`quarkus-smallrye-health`", correct: false}
+      - {text: "`quarkus-opentelemetry`", correct: false}
+      - {text: "`quarkus-prometheus-client`", correct: false}
+    answer: "Elle apporte Micrometer et son registre Prometheus. SmallRye Health répond aux sondes ; OpenTelemetry sert d'abord aux traces."
+  - key: qcm-mesurer-une-duree
+    format: multiple-choice
+    question: "Comment mesures-tu la durée de chaque appel à `fraisDePort`, sans toucher à son code ?"
+    choices:
+      - {text: "J'annote la méthode avec `@Timed(\"commandes.frais\")`", correct: true}
+      - {text: "J'annote la méthode avec `@Counted(\"commandes.frais\")`", correct: false}
+      - {text: "J'ajoute un `System.nanoTime()` au début et à la fin", correct: false}
+      - {text: "J'annote la méthode avec `@Gauge(\"commandes.frais\")`", correct: false}
+    answer: "`@Timed` enregistre un timer : nombre d'appels, durée totale, maximum. `@Counted` ne compte que les appels ; mesurer à la main mêle la mesure au métier."
+  - key: qcm-tag-raisonnable
+    format: multiple-choice
+    question: "Quel tag peux-tu ajouter sans risque au compteur des commandes passées ?"
+    choices:
+      - {text: "Le moyen de paiement : carte, virement ou paypal", correct: true}
+      - {text: "L'identifiant de la commande", correct: false}
+      - {text: "L'adresse e-mail du client", correct: false}
+      - {text: "L'horodatage exact de la commande", correct: false}
+    answer: "Ses valeurs sont peu nombreuses et connues : quelques séries seulement. Les trois autres ont une valeur par commande ou par client, et l'e-mail est en plus une donnée personnelle."
+  - key: qcm-noms-d-un-timer
+    format: multiple-choice
+    question: "Quelles séries Prometheus un timer Micrometer nommé `paiement.duree` produit-il ?"
+    choices:
+      - {text: "`paiement_duree_seconds_count`, `_sum` et `_max`", correct: true}
+      - {text: "`paiement_duree_total` seulement", correct: false}
+      - {text: "`paiement.duree.millis`, `.avg` et `.p99`", correct: false}
+      - {text: "`paiement_duree` seulement, en millisecondes", correct: false}
+    answer: "Un timer donne le nombre d'événements, leur durée totale et la plus longue, en secondes. Prometheus calcule ensuite des moyennes et des débits."
+  - key: trous-compteur
+    format: fill-in
+    question: |-
+      Complète pour compter une commande payée par carte :
+      ```java
+      registry.___("commandes.passees", "paiement", "carte").increment();
+      ```
+    blanks:
+      - [counter]
+    answer: "`registry.counter(nom, cléTag, valeurTag...)` crée ou retrouve le compteur, puis `increment()` l'augmente."
+  - key: trous-registre
+    format: fill-in
+    question: |-
+      Complète l'injection du registre de métriques :
+      ```java
+      @Inject
+      ___ registry;
+      ```
+    blanks:
+      - [MeterRegistry]
+    answer: "`MeterRegistry` (`io.micrometer.core.instrument`) crée et retrouve compteurs, timers et jauges."
+  - key: trous-annotation-de-duree
+    format: fill-in
+    question: |-
+      Complète pour mesurer la durée de la méthode :
+      ```java
+      @___("commandes.calcul.frais")
+      public int fraisDePort(Panier panier) {
+      ```
+    blanks:
+      - [Timed]
+    answer: "`@Timed` (`io.micrometer.core.annotation`) enregistre un timer à chaque appel."
+  - key: trous-annotation-de-compte
+    format: fill-in
+    question: |-
+      Complète pour compter les appels de la méthode :
+      ```java
+      @___("paniers.vides")
+      public void vider(Panier panier) {
+      ```
+    blanks:
+      - [Counted]
+    answer: "`@Counted` incrémente un compteur à chaque appel de la méthode."

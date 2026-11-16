@@ -1,0 +1,32 @@
+statement: |-
+  La banque a deux problèmes. Un virement réussi ne change aucun solde en base. Et quand on tente de corriger cela,
+  un lot de virements qui échoue au milieu laisse les premiers appliqués.
+
+  Corrige `VirementService` pour que ses méthodes soient **tout ou rien** :
+
+  - `virer(de, vers, montant)` : crédite le compte cible, débite le compte source, et l'écrit en base ; si la source
+    n'a pas assez d'argent, `SoldeInsuffisantException` est levée, et **aucun** solde ne change ;
+  - `virerLot(virements)` : si un seul virement du lot échoue, **aucun** virement du lot n'est appliqué.
+
+  `ouvrir` marche déjà. Les tests relisent les soldes en base, dans une nouvelle transaction, après chaque appel. Ne
+  change ni `Compte`, ni l'ordre des opérations dans `virer` (le crédit avant le débit).
+explanation: |-
+  ```java
+  @Transactional
+  public void virer(Long de, Long vers, int montant) { ... }
+
+  @Transactional
+  public void virerLot(List<Virement> virements) { ... }
+  ```
+
+  Sans transaction, `Compte.findById` lit bien les comptes, mais modifier leurs soldes n'écrit rien : aucun commit ne
+  déclenche le dirty checking. Avec `@Transactional`, les comptes chargés sont suivis, et leurs nouveaux soldes
+  partent au commit, sans `persist`.
+
+  Le crédit passe avant le débit : quand le débit lève `SoldeInsuffisantException`, une exception non vérifiée, le
+  crédit est déjà fait en mémoire. L'intercepteur annule alors la transaction, et rien n'est écrit.
+
+  Annoter `virer` seule ne suffit pas pour le lot. Quarkus intercepte même l'appel de `virerLot` à `virer` dans la
+  même classe : sans annotation sur `virerLot`, chaque `virer` ouvre et valide sa propre transaction, et les premiers
+  virements restent appliqués. Avec `@Transactional` sur `virerLot`, la transaction est ouverte une fois ; chaque
+  `virer` la rejoint (`REQUIRED`, la valeur par défaut), et le premier échec annule tout le lot.

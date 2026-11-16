@@ -1,0 +1,250 @@
+notion: test-profile
+lesson: |-
+  Certains tests ont besoin d'une **autre configuration** : une fonctionnalité activée, une remise différente, une
+  implémentation de remplacement. Un **profil de test** la décrit, et `@TestProfile` l'applique à une classe.
+
+  ```java
+  public class RemiseActive implements QuarkusTestProfile {
+
+      @Override
+      public Map<String, String> getConfigOverrides() {
+          return Map.of("boutique.remise", "15");
+      }
+  }
+
+  @QuarkusTest
+  @TestProfile(RemiseActive.class)
+  class RemiseTest {
+
+      @Test
+      void appliqueLaRemise() {
+          given().get("/panier/total").then().body(is("85"));
+      }
+  }
+  ```
+
+  **Ce qu'un profil peut régler** (`QuarkusTestProfile`, toutes les méthodes ont une valeur par défaut) :
+
+  | Méthode | Rôle |
+  |---|---|
+  | `getConfigOverrides()` | des propriétés, qui l'emportent sur `application.properties` |
+  | `getEnabledAlternatives()` | des beans `@Alternative` à activer, à la place des beans ordinaires |
+  | `getConfigProfile()` | un autre profil de configuration que `test`, pour lire ses lignes `%profil.` |
+  | `testResources()` | des ressources de test propres à ce profil |
+  | `tags()` | des étiquettes, pour ne lancer que certains profils |
+
+  **Le coût : un redémarrage.** L'application de test est partagée tant que la configuration ne change pas. Une
+  classe avec un autre profil impose d'**arrêter et de redémarrer** l'application, ce qui prend plusieurs secondes.
+  Quarkus range les classes de test par profil pour limiter les allers-retours (`QuarkusTestProfileAwareClassOrderer`,
+  réglé d'office), mais chaque profil distinct coûte au moins un démarrage.
+
+  D'où les règles :
+
+  - **Peu de profils**, partagés par plusieurs classes : un profil « remise active », pas un profil par classe.
+  - Pour remplacer un bean, **`@InjectMock`** suffit, sans redémarrage : un profil avec une alternative ne se
+    justifie que si le remplacement doit valoir dès le démarrage.
+  - Une valeur qui change d'un test à l'autre se passe plutôt en paramètre de l'appel, que par la configuration.
+  - Les étiquettes permettent de séparer les tests lents en CI : `-Dquarkus.test.profile.tags=remise` ne lance que
+    les classes dont le profil porte cette étiquette.
+
+  **Ce n'est pas `%test.`.** Les lignes `%test.` de `application.properties` valent pour **tous** les tests, sans
+  redémarrage. Un profil de test ne sert qu'à **une partie** des classes.
+
+  **En entretien** : « `@TestProfile` applique à une classe de test une configuration particulière : des propriétés,
+  des alternatives, un autre profil. Chaque profil distinct redémarre l'application, donc j'en garde peu et je les
+  partage entre classes. Pour remplacer un bean, je préfère `@InjectMock`, qui ne redémarre rien. »
+cards:
+  - key: role-de-testprofile
+    format: course
+    question: "À quoi sert `@TestProfile(RemiseActive.class)` sur une classe `@QuarkusTest` ?"
+    choices:
+      - {text: "À démarrer l'application avec la configuration du profil, pour cette classe", correct: true}
+      - {text: "À activer le profil `%remise-active.` pour tous les tests du projet", correct: false}
+      - {text: "À remplacer un bean par un mock, sans redémarrer l'application", correct: false}
+      - {text: "À mesurer la durée de chaque test de la classe, pour la CI", correct: false}
+    answer: "La classe s'exécute dans une application démarrée avec les réglages du profil : propriétés, alternatives, profil de configuration. Les autres classes n'en voient rien."
+  - key: cout-d-un-profil
+    format: course
+    question: "Que coûte une classe de test avec un `@TestProfile` différent des autres ?"
+    choices:
+      - {text: "Un arrêt et un redémarrage de l'application de test", correct: true}
+      - {text: "Une recompilation complète du projet avant ses tests", correct: false}
+      - {text: "Rien : la configuration est changée à chaud", correct: false}
+      - {text: "Un nouveau conteneur de base de données par test", correct: false}
+    answer: "L'application de test ne se partage qu'à configuration égale. Chaque profil distinct coûte un démarrage, donc plusieurs secondes : d'où l'intérêt d'en avoir peu."
+  - key: methode-des-proprietes
+    format: course
+    question: "Quelle méthode de `QuarkusTestProfile` fixe des propriétés pour les classes qui utilisent le profil ?"
+    choices:
+      - {text: "`getConfigOverrides()`", correct: true}
+      - {text: "`getEnabledAlternatives()`", correct: false}
+      - {text: "`getConfigProfile()`", correct: false}
+      - {text: "`testResources()`", correct: false}
+    answer: "`getConfigOverrides()` renvoie une `Map` de propriétés, qui l'emportent sur `application.properties`. `getConfigProfile()` change le nom du profil actif, `getEnabledAlternatives()` active des beans."
+  - key: profil-ou-prefixe-test
+    format: course
+    question: "Quelle différence entre une ligne `%test.` d'`application.properties` et un profil de test ?"
+    choices:
+      - {text: "`%test.` vaut pour tous les tests ; un profil, pour certaines classes", correct: true}
+      - {text: "`%test.` ne vaut qu'en CI ; un profil vaut aussi sur le poste", correct: false}
+      - {text: "Aucune : un profil de test écrit des lignes `%test.` à sa place", correct: false}
+      - {text: "`%test.` redémarre l'application ; un profil ne redémarre rien", correct: false}
+    answer: "Les lignes `%test.` sont lues au démarrage commun de tous les `@QuarkusTest`. Un profil de test ne s'applique qu'aux classes qui le citent, au prix d'un redémarrage."
+  - key: vf-profil-partage
+    format: true-false
+    question: "Deux classes de test qui utilisent le même `@TestProfile` peuvent partager la même application démarrée."
+    truth: true
+    answer: "La configuration est la même : Quarkus garde l'application. Il range même les classes par profil, pour enchaîner celles qui partagent le leur."
+  - key: vf-mock-et-profil
+    format: true-false
+    question: "Pour remplacer un bean par un mock dans une classe de test, il faut lui donner un `@TestProfile`."
+    truth: false
+    answer: "`@InjectMock` remplace le bean pour la classe, sans profil et sans redémarrage. Un profil avec `getEnabledAlternatives()` ne sert que si le remplacement doit exister dès le démarrage."
+  - key: vf-profil-par-classe
+    format: true-false
+    question: "Donner un `@TestProfile` différent à chacune des 30 classes de test ne ralentit pas la suite, puisque l'application est partagée."
+    truth: false
+    answer: "L'application n'est partagée qu'à configuration égale : 30 profils, c'est au moins 30 démarrages. On regroupe les besoins en quelques profils."
+  - key: vf-overrides-l-emportent
+    format: true-false
+    question: "Une propriété donnée par `getConfigOverrides()` l'emporte sur la même propriété écrite dans `application.properties`."
+    truth: true
+    answer: "C'est son rôle : les propriétés du profil passent devant celles du fichier, pour les classes qui utilisent ce profil."
+  - key: qcm-tester-un-drapeau
+    format: multiple-choice
+    question: "La fonction « paiement en trois fois » dépend de `paiement.trois-fois.actif`, faux par défaut. Comment testes-tu le cas actif ?"
+    choices:
+      - {text: "Une classe avec un profil qui met la propriété à `true`", correct: true}
+      - {text: "Une ligne `%test.paiement.trois-fois.actif=true`, pour tout", correct: false}
+      - {text: "`System.setProperty` au début du test, avant l'appel", correct: false}
+      - {text: "Un `@InjectMock` sur l'objet `Config` de l'application", correct: false}
+    answer: "Le profil active la fonction pour cette seule classe ; les autres tests gardent le cas par défaut. `%test.` changerait le défaut de tous les tests ; une propriété système posée après le démarrage arrive trop tard."
+  - key: qcm-ralentissement
+    format: multiple-choice
+    question: "Ta suite de tests prend 4 minutes, dont l'essentiel en démarrages de Quarkus. Quelle cause cherches-tu d'abord ?"
+    choices:
+      - {text: "Trop de profils et de ressources de test différents", correct: true}
+      - {text: "Trop de méthodes de test dans chaque classe", correct: false}
+      - {text: "Des `@InjectMock` dans plusieurs classes de test", correct: false}
+      - {text: "Des assertions RestAssured trop nombreuses", correct: false}
+    answer: "Chaque combinaison distincte de profil et de ressources de test redémarre l'application. Les méthodes, les mocks et les assertions ne coûtent presque rien à côté."
+  - key: qcm-activer-une-alternative
+    format: multiple-choice
+    question: "Quelle méthode d'un profil active un bean `@Alternative`, comme un faux service de paiement ?"
+    choices:
+      - {text: "`getEnabledAlternatives()`", correct: true}
+      - {text: "`getConfigOverrides()`", correct: false}
+      - {text: "`disableGlobalTestResources()`", correct: false}
+      - {text: "`tags()`", correct: false}
+    answer: "`getEnabledAlternatives()` renvoie les classes `@Alternative` à activer : elles remplacent les beans ordinaires dès le démarrage."
+  - key: qcm-lancer-un-profil-en-ci
+    format: multiple-choice
+    question: "Comment ne lances-tu que les classes dont le profil porte l'étiquette `lent` ?"
+    choices:
+      - {text: "`-Dquarkus.test.profile.tags=lent`", correct: true}
+      - {text: "`-Dquarkus.profile=lent`", correct: false}
+      - {text: "`-Dtest.profile=lent`", correct: false}
+      - {text: "`-Dquarkus.test.tags.include=lent`", correct: false}
+    answer: "Les étiquettes viennent de la méthode `tags()` du profil ; `quarkus.test.profile.tags` filtre les classes à lancer. `quarkus.profile` change le profil de configuration, pas la sélection des tests."
+  - key: trous-annotation-du-profil
+    format: fill-in
+    question: |-
+      Complète pour que cette classe utilise le profil `RemiseActive` :
+      ```java
+      @QuarkusTest
+      @___(RemiseActive.class)
+      class RemiseTest {
+      ```
+    blanks:
+      - [TestProfile]
+    answer: "`@TestProfile` (`io.quarkus.test.junit.TestProfile`) applique le profil à la classe."
+  - key: trous-interface-du-profil
+    format: fill-in
+    question: |-
+      Complète la déclaration du profil :
+      ```java
+      public class RemiseActive implements ___ {
+      ```
+    blanks:
+      - [QuarkusTestProfile]
+    answer: "`QuarkusTestProfile` : toutes ses méthodes ont une valeur par défaut, on ne redéfinit que celles dont on a besoin."
+  - key: trous-surcharges
+    format: fill-in
+    question: |-
+      Complète pour fixer la remise à 15 dans ce profil :
+      ```java
+      @Override
+      public Map<String, String> ___() {
+          return Map.of("boutique.remise", "15");
+      }
+      ```
+    blanks:
+      - [getConfigOverrides]
+    answer: "`getConfigOverrides()` renvoie les propriétés du profil."
+  - key: trous-alternatives
+    format: fill-in
+    question: |-
+      Complète pour activer le faux service de paiement :
+      ```java
+      @Override
+      public Set<Class<?>> ___() {
+          return Set.of(FauxPaiement.class);
+      }
+      ```
+    blanks:
+      - [getEnabledAlternatives]
+    answer: "`getEnabledAlternatives()` active les beans `@Alternative` listés, à la place des beans ordinaires."
+  - key: situation-un-profil-par-classe
+    format: scenario
+    question: |-
+      Chaque classe de test du projet a son propre `@TestProfile`, souvent pour une seule propriété. La suite
+      prend dix minutes. Que proposes-tu ?
+    choices:
+      - {text: "Regrouper les besoins en quelques profils partagés, et passer le reste en `%test.`", correct: true}
+      - {text: "Lancer les tests en parallèle sur plusieurs JVM, sans rien changer d'autre", correct: false}
+      - {text: "Remplacer chaque profil par un `System.setProperty` dans un `@BeforeAll`", correct: false}
+      - {text: "Supprimer les tests qui ont un profil, trop chers à maintenir", correct: false}
+    answer: |-
+      Chaque profil distinct redémarre l'application. Une propriété commune à tous les tests va en `%test.` ; les
+      cas particuliers se regroupent dans deux ou trois profils, partagés par plusieurs classes. Une propriété
+      système posée après le démarrage n'est pas lue.
+  - key: situation-profil-pour-un-faux
+    format: scenario
+    question: |-
+      Ton collègue crée un profil qui active une alternative `FauxStock`, pour une seule classe de test qui veut
+      simuler une rupture. Que lui proposes-tu ?
+    choices:
+      - {text: "Un `@InjectMock` sur le stock, bouchonné dans le test, sans profil", correct: true}
+      - {text: "Garder le profil, et ajouter `FauxStock` à tous les autres profils", correct: false}
+      - {text: "Écrire `FauxStock` en `@Singleton`, pour éviter le redémarrage", correct: false}
+      - {text: "Mettre `%test.stock.rupture=true` pour toute la suite de tests", correct: false}
+    answer: |-
+      `@InjectMock` remplace le bean pour la classe, sans redémarrer l'application, et chaque test écrit son
+      scénario avec `when(...)`. Le profil coûte un démarrage pour ce que fait un mock.
+  - key: situation-deux-configurations
+    format: scenario
+    question: |-
+      Le calcul des frais de port change selon `livraison.mode` (`standard` ou `express`). Tu dois tester les deux
+      modes de bout en bout. Comment t'y prends-tu ?
+    choices:
+      - {text: "`standard` en configuration de test, et un profil pour `express`", correct: true}
+      - {text: "Un profil pour chaque mode, et aucune valeur par défaut", correct: false}
+      - {text: "Changer la propriété dans le test, entre deux appels HTTP", correct: false}
+      - {text: "Ne tester qu'un mode : l'autre partage le même code", correct: false}
+    answer: |-
+      Le mode courant sert à la plupart des tests, sans redémarrage ; un seul profil couvre l'autre mode, au prix d'un
+      démarrage. La configuration est lue au démarrage : la changer pendant un test n'a pas d'effet fiable.
+  - key: situation-tests-lents-en-ci
+    format: scenario
+    question: |-
+      Quelques classes de test ont un profil qui démarre des ressources lourdes. L'équipe veut les lancer à part en
+      CI, dans un second job. Que fais-tu ?
+    choices:
+      - {text: "J'étiquette ces profils avec `tags()`, et je filtre par `quarkus.test.profile.tags`", correct: true}
+      - {text: "Je déplace ces classes dans `src/main/java`, hors des tests ordinaires", correct: false}
+      - {text: "Je les annote `@Disabled`, et je les réactive à la main en CI", correct: false}
+      - {text: "Je leur donne un nom en `IT`, pour qu'elles tournent après le packaging", correct: false}
+    answer: |-
+      Les étiquettes du profil permettent de choisir les classes à lancer : le second job passe
+      `-Dquarkus.test.profile.tags=...`. Renommer en `IT` les ferait tourner comme tests d'intégration, contre
+      l'artefact construit : un autre usage.

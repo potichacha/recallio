@@ -1,0 +1,316 @@
+notion: inject-mock
+lesson: |-
+  Un `@QuarkusTest` démarre l'application avec ses vrais beans. Pour isoler ce qu'on teste d'un prestataire lent,
+  payant ou injoignable (une banque, un service de mail), on **remplace un bean par un mock Mockito**, le temps d'une
+  classe de test. C'est l'équivalent de `@MockitoBean` dans Spring.
+
+  ```xml
+  <dependency>
+      <groupId>io.quarkus</groupId>
+      <artifactId>quarkus-junit-mockito</artifactId>
+      <scope>test</scope>
+  </dependency>
+  ```
+
+  ```java
+  @QuarkusTest
+  class PaiementTest {
+
+      @InjectMock
+      Banque banque;
+
+      @Test
+      void payeLaCommande() {
+          when(banque.debiter("4970-1111", 30)).thenReturn("TX-1");
+
+          given().post("/commandes/{id}/paiement", id).then().statusCode(200);
+
+          verify(banque).debiter("4970-1111", 30);
+      }
+  }
+  ```
+
+  **`@InjectMock`** (`io.quarkus.test.InjectMock`) crée un mock du bean et l'installe **à la place du vrai** : la
+  ressource, le service, tous ceux qui injectent `Banque` reçoivent le mock pendant les tests de cette classe.
+
+  - **Un mock neuf pour chaque méthode de test** : un `when(...)` ne fuit pas d'un test à l'autre.
+  - **Seule la classe annotée est touchée** : les autres classes de test voient le vrai bean, sans redémarrage.
+  - Sans `when(...)`, un mock renvoie la valeur par défaut : `null`, `0`, `false`, une liste vide.
+
+  **La condition : un scope normal.** Quarkus installe le mock derrière le *client proxy*, le mandataire qu'il injecte
+  pour un bean `@ApplicationScoped` ou `@RequestScoped`. Un bean `@Singleton` ou `@Dependent` est injecté sans
+  mandataire : le test échoue avant de commencer, avec « Invalid use of io.quarkus.test.InjectMock - the injected
+  bean does not declare a CDI normal scope but: jakarta.inject.Singleton ». Deux solutions : passer le bean en
+  `@ApplicationScoped`, ou ajouter `@MockitoConfig(convertScopes = true)` sur le champ du test.
+
+  **`@InjectSpy`** (`io.quarkus.test.junit.mockito.InjectSpy`) garde le vrai bean, mais **l'espionne** : ses méthodes
+  s'exécutent vraiment, et l'on peut vérifier ses appels avec `verify`. Pour en bouchonner une seule, on écrit
+  `doReturn("faux").when(journal).noter("y")` : `when(journal.noter("y"))` appellerait d'abord la vraie méthode.
+
+  | Je veux | J'utilise |
+  |---|---|
+  | remplacer un bean dans une classe de test | `@InjectMock` |
+  | garder le vrai bean et compter ses appels | `@InjectSpy` |
+  | un faux bean pour tous les tests | une classe `@Mock` (`io.quarkus.test.Mock`) dans `src/test/java` |
+  | installer un mock à la main | `QuarkusMock.installMockForType(mock, Banque.class)` dans un `@BeforeEach` |
+
+  **Les pièges.**
+
+  - `@Mock` de Mockito (`org.mockito.Mock`) sur un champ d'un `@QuarkusTest` : sans extension Mockito, le champ
+    reste `null`, et le vrai bean reste en place dans l'application.
+  - Un client REST se remplace avec son qualificatif : `@InjectMock @RestClient MeteoClient meteo`.
+  - Le mock ne remplace que des beans : un objet créé par `new` dans le code n'est jamais remplacé.
+
+  **En entretien** : « Avec `@InjectMock`, je remplace un bean par un mock Mockito dans une classe de test : toute
+  l'application reçoit le mock, et chaque méthode de test en a un neuf. Le bean doit avoir un scope normal, comme
+  `@ApplicationScoped`, car le mock passe par le client proxy ; sinon j'utilise `convertScopes`. Pour garder le vrai
+  bean et vérifier ses appels, j'utilise `@InjectSpy`. »
+cards:
+  - key: effet-de-injectmock
+    format: course
+    question: "Que fait `@InjectMock Banque banque` dans un `@QuarkusTest` ?"
+    choices:
+      - {text: "Il remplace le bean `Banque` par un mock, pour toute l'application", correct: true}
+      - {text: "Il crée un mock dans le test, sans toucher au bean de l'application", correct: false}
+      - {text: "Il espionne la vraie `Banque`, dont les méthodes s'exécutent", correct: false}
+      - {text: "Il redémarre l'application avec un faux bean pour chaque test", correct: false}
+    answer: "Tous ceux qui injectent `Banque` (la ressource, les services) reçoivent le mock pendant les tests de cette classe. Garder le vrai bean en le surveillant, c'est `@InjectSpy` ; rien ne redémarre."
+  - key: scope-exige
+    format: course
+    question: "Quel scope un bean doit-il avoir pour être remplacé par `@InjectMock`, sans autre réglage ?"
+    choices:
+      - {text: "Un scope normal, comme `@ApplicationScoped` ou `@RequestScoped`", correct: true}
+      - {text: "`@Singleton`, pour qu'une seule instance soit remplacée", correct: false}
+      - {text: "`@Dependent`, pour qu'une instance soit créée par injection", correct: false}
+      - {text: "N'importe lequel : Quarkus réécrit tous les beans en test", correct: false}
+    answer: "Le mock s'installe derrière le client proxy, que Quarkus n'injecte que pour un scope normal. Un `@Singleton` ou un `@Dependent` fait échouer le test, sauf avec `@MockitoConfig(convertScopes = true)`."
+  - key: duree-de-vie-du-mock
+    format: course
+    question: "Un test écrit `when(banque.debiter(...)).thenReturn(\"TX-1\")`. Que voit le test suivant de la même classe ?"
+    choices:
+      - {text: "Un mock neuf : sans `when`, il renvoie `null`", correct: true}
+      - {text: "Le même mock, qui renvoie toujours `TX-1`", correct: false}
+      - {text: "La vraie `Banque`, rétablie entre deux tests", correct: false}
+      - {text: "Une erreur : le mock est déjà consommé", correct: false}
+    answer: "Quarkus crée un mock neuf pour chaque méthode de test : les comportements ne fuient pas d'un test à l'autre. Chaque test écrit ses propres `when`."
+  - key: role-de-injectspy
+    format: course
+    question: "Qu'apporte `@InjectSpy` par rapport à `@InjectMock` ?"
+    choices:
+      - {text: "Le vrai bean s'exécute, et l'on peut vérifier ses appels", correct: true}
+      - {text: "Le mock est partagé par toutes les classes de test", correct: false}
+      - {text: "Le bean est remplacé même s'il est `@Singleton`", correct: false}
+      - {text: "Les appels au bean sont enregistrés dans un journal", correct: false}
+    answer: "Un espion enveloppe le vrai bean : ses méthodes font leur travail, et `verify(journal).noter(\"x\")` compte les appels. On bouchonne une méthode avec `doReturn(...).when(espion)...`."
+  - key: vf-autres-classes-intactes
+    format: true-false
+    question: "Un `@InjectMock` déclaré dans une classe de test ne remplace pas le bean pour les autres classes de test de l'exécution."
+    truth: true
+    answer: "Le mock n'est actif que pour les tests de la classe qui le déclare. Les autres classes voient le vrai bean, dans la même application, sans redémarrage."
+  - key: vf-mock-de-mockito
+    format: true-false
+    question: "Dans un `@QuarkusTest`, un champ annoté `@Mock` (de `org.mockito`) remplace le bean correspondant dans l'application."
+    truth: false
+    answer: "Sans extension Mockito, le champ reste même `null`. Et un mock Mockito ordinaire n'est pas installé dans le conteneur : seul `@InjectMock` remplace le bean."
+  - key: vf-singleton-refuse
+    format: true-false
+    question: "`@InjectMock` sur un bean `@Singleton` fait échouer le test, sauf réglage particulier."
+    truth: true
+    answer: "« Invalid use of io.quarkus.test.InjectMock - the injected bean does not declare a CDI normal scope ». On passe le bean en `@ApplicationScoped`, ou l'on ajoute `@MockitoConfig(convertScopes = true)` au champ."
+  - key: vf-mock-sans-when
+    format: true-false
+    question: "Une méthode d'un mock, appelée sans `when(...)` préalable, appelle la vraie méthode du bean."
+    truth: false
+    answer: "Un mock ne fait rien : il renvoie la valeur par défaut du type (`null`, `0`, `false`, une collection vide). C'est un espion (`@InjectSpy`) qui appelle les vraies méthodes."
+  - key: qcm-remplacer-un-prestataire
+    format: multiple-choice
+    question: "Ton service appelle une API de mail payante. Comment l'empêches-tu d'envoyer de vrais mails pendant un `@QuarkusTest`, dans une seule classe ?"
+    choices:
+      - {text: "`@InjectMock` sur le bean qui appelle l'API de mail", correct: true}
+      - {text: "`@InjectSpy` sur le bean qui appelle l'API de mail", correct: false}
+      - {text: "Un `@Mock` de Mockito sur un champ du test", correct: false}
+      - {text: "Un `try`/`catch` autour de chaque appel du test", correct: false}
+    answer: "`@InjectMock` installe un mock à la place du bean, pour toute l'application, pendant les tests de la classe. Un espion appellerait la vraie API ; un `@Mock` ordinaire ne remplace rien."
+  - key: qcm-bouchonner-un-espion
+    format: multiple-choice
+    question: "`journal` est un `@InjectSpy`. Comment fais-tu renvoyer `\"faux\"` à `journal.noter(\"y\")`, sans exécuter la vraie méthode ?"
+    choices:
+      - {text: "`doReturn(\"faux\").when(journal).noter(\"y\")`", correct: true}
+      - {text: "`when(journal.noter(\"y\")).thenReturn(\"faux\")`", correct: false}
+      - {text: "`given(journal).noter(\"y\").thenReturn(\"faux\")`", correct: false}
+      - {text: "`journal.noter(\"y\").thenReturn(\"faux\")`", correct: false}
+    answer: "Avec un espion, `when(journal.noter(\"y\"))` appelle d'abord la vraie méthode, pour obtenir l'argument de `when`. `doReturn(...).when(espion)` bouchonne sans rien exécuter."
+  - key: qcm-mock-pour-tous-les-tests
+    format: multiple-choice
+    question: "Tu veux un faux `ServiceMail` pour tous les tests du projet, sans l'écrire dans chaque classe. Que fais-tu ?"
+    choices:
+      - {text: "Une classe annotée `io.quarkus.test.Mock` dans `src/test/java`", correct: true}
+      - {text: "Un `@InjectMock ServiceMail` dans une classe de test parente", correct: false}
+      - {text: "Une propriété `%test.quarkus.arc.mock=ServiceMail`", correct: false}
+      - {text: "Un `@InjectSpy ServiceMail` dans une seule des classes", correct: false}
+    answer: "`@Mock` de Quarkus est une alternative activée en test : la classe, qui étend ou implémente `ServiceMail`, le remplace partout. `@InjectMock` reste propre à une classe ; la propriété n'existe pas."
+  - key: qcm-client-rest
+    format: multiple-choice
+    question: "Comment remplaces-tu par un mock le client REST `MeteoClient`, injecté avec `@RestClient` ?"
+    choices:
+      - {text: "`@InjectMock @RestClient MeteoClient meteo`", correct: true}
+      - {text: "`@InjectMock MeteoClient meteo`, sans qualificatif", correct: false}
+      - {text: "`@InjectSpy(MeteoClient.class) Object meteo`", correct: false}
+      - {text: "`@Mock @Inject MeteoClient meteo`", correct: false}
+    answer: "Le client est un bean qualifié `@RestClient` : le mock doit viser le même type et le même qualificatif que le point d'injection."
+  - key: trous-annotation-du-mock
+    format: fill-in
+    question: |-
+      Complète pour remplacer `Banque` par un mock dans cette classe de test :
+      ```java
+      @QuarkusTest
+      class PaiementTest {
+
+          @___
+          Banque banque;
+      ```
+    blanks:
+      - [InjectMock]
+    answer: "`@InjectMock` (`io.quarkus.test.InjectMock`, artefact `quarkus-junit-mockito`)."
+  - key: trous-when-thenreturn
+    format: fill-in
+    question: |-
+      Complète pour que le mock renvoie `TX-1` :
+      ```java
+      ___(banque.debiter("4970-1111", 30)).___("TX-1");
+      ```
+    blanks:
+      - [when, Mockito.when]
+      - [thenReturn]
+    answer: "`when(appel).thenReturn(valeur)` : Mockito enregistre la réponse du mock à cet appel précis."
+  - key: trous-verifier-l-appel
+    format: fill-in
+    question: |-
+      Complète pour vérifier que la banque a été débitée une seule fois :
+      ```java
+      verify(banque, ___(1)).debiter("4970-1111", 30);
+      ```
+    blanks:
+      - [times, Mockito.times]
+    answer: "`times(1)` compte les appels ; c'est aussi la valeur par défaut de `verify(banque)`."
+  - key: trous-convertir-le-scope
+    format: fill-in
+    question: |-
+      `Horloge` est un bean `@Singleton`. Complète pour pouvoir le remplacer quand même :
+      ```java
+      @InjectMock
+      @MockitoConfig(___ = true)
+      Horloge horloge;
+      ```
+    blanks:
+      - [convertScopes]
+    answer: "`convertScopes = true` fait passer le bean en `@ApplicationScoped` pour les tests, ce qui permet de le remplacer."
+  - key: bug-mock-d-un-singleton
+    format: bug-fix
+    question: |-
+      Le test échoue avant sa première ligne : « Invalid use of io.quarkus.test.InjectMock - the injected bean does
+      not declare a CDI normal scope but: jakarta.inject.Singleton ». Quelle correction du code est la bonne ?
+      ```java
+      @Singleton
+      public class Banque {
+          public String debiter(String carte, int montant) { ... }
+      }
+      ```
+    choices:
+      - {text: "Annoter `Banque` avec `@ApplicationScoped` au lieu de `@Singleton`", correct: true}
+      - {text: "Annoter `Banque` avec `@Dependent` au lieu de `@Singleton`", correct: false}
+      - {text: "Déclarer la méthode `debiter` en `final`", correct: false}
+      - {text: "Remplacer `@InjectMock` par `@Inject` dans le test", correct: false}
+    answer: |-
+      ```java
+      @ApplicationScoped
+      public class Banque {
+      ```
+      `@InjectMock` installe le mock derrière le client proxy d'un bean à scope normal. `@Dependent` n'en a pas non
+      plus ; une méthode `final` empêcherait même Mockito de la bouchonner. Sans toucher au code, le test peut aussi
+      écrire `@MockitoConfig(convertScopes = true)`.
+  - key: bug-mock-de-mockito
+    format: bug-fix
+    question: |-
+      Ce test envoie de vrais mails, puis échoue sur une `NullPointerException` à la ligne du `when`. Quelle
+      correction est la bonne ?
+      ```java
+      @QuarkusTest
+      class InscriptionTest {
+
+          @Mock
+          ServiceMail mails;
+
+          @Test
+          void envoieUnMailDeBienvenue() {
+              when(mails.envoyer(anyString())).thenReturn(true);
+              given().post("/inscriptions/alice").then().statusCode(201);
+          }
+      }
+      ```
+    choices:
+      - {text: "Remplacer `@Mock` par `@InjectMock` sur le champ `mails`", correct: true}
+      - {text: "Remplacer `@Mock` par `@InjectSpy` sur le champ `mails`", correct: false}
+      - {text: "Ajouter `@Inject` à côté de `@Mock` sur le champ `mails`", correct: false}
+      - {text: "Déplacer le `when` dans une méthode `@BeforeAll`", correct: false}
+    answer: |-
+      ```java
+      @InjectMock
+      ServiceMail mails;
+      ```
+      Le `@Mock` de Mockito n'est traité par personne : le champ reste `null`, et l'application garde le vrai service.
+      `@InjectMock` crée le mock et l'installe dans le conteneur. Un espion enverrait toujours les mails.
+  - key: bug-when-sur-un-espion
+    format: bug-fix
+    question: |-
+      `stock` est un `@InjectSpy`. Ce test doit simuler une rupture, mais il interroge le vrai entrepôt dès la ligne
+      du `when`, et échoue sur son délai d'attente. Quelle correction est la bonne ?
+      ```java
+      when(stock.disponible("SKU-1")).thenReturn(0);
+      ```
+    choices:
+      - {text: "`doReturn(0).when(stock).disponible(\"SKU-1\");`", correct: true}
+      - {text: "`when(stock.disponible(\"SKU-1\")).thenAnswer(i -> 0);`", correct: false}
+      - {text: "`when(stock).disponible(\"SKU-1\").thenReturn(0);`", correct: false}
+      - {text: "`verify(stock).disponible(\"SKU-1\");` avant le `when`", correct: false}
+    answer: |-
+      ```java
+      doReturn(0).when(stock).disponible("SKU-1");
+      ```
+      Avec un espion, `stock.disponible("SKU-1")` s'exécute vraiment pour fournir l'argument de `when`. La forme
+      `doReturn(...).when(espion).methode(...)` enregistre la réponse sans appeler la méthode. Si le stock n'a jamais
+      besoin d'être réel dans ce test, `@InjectMock` est plus simple.
+  - key: bug-comportement-qui-fuit
+    format: bug-fix
+    question: |-
+      Le premier test passe, mais le second reçoit `-5` au lieu de `37` : la remise de 5 est appliquée à un prix
+      de 0. Quelle correction est la bonne ?
+      ```java
+      @InjectMock
+      Tarifs tarifs;
+
+      @Test
+      void appliqueLeTarif() {
+          when(tarifs.prix("a")).thenReturn(42);
+          given().get("/prix/a").then().body(is("42"));
+      }
+
+      @Test
+      void appliqueLaRemise() {
+          given().get("/prix/a/remise").then().body(is("37"));
+      }
+      ```
+    choices:
+      - {text: "Écrire aussi `when(tarifs.prix(\"a\")).thenReturn(42)` dans le second test", correct: true}
+      - {text: "Ordonner les tests pour que `appliqueLeTarif` passe le premier", correct: false}
+      - {text: "Remplacer `@InjectMock` par `@Inject` sur le champ `tarifs`", correct: false}
+      - {text: "Déclarer le champ `tarifs` en `static`, partagé par les tests", correct: false}
+    answer: |-
+      ```java
+      @BeforeEach
+      void tarifsConnus() {
+          when(tarifs.prix("a")).thenReturn(42);
+      }
+      ```
+      Chaque méthode de test reçoit un mock neuf : le `when` du premier test ne vaut pas pour le second. On écrit le
+      comportement dans chaque test, ou une fois dans un `@BeforeEach`. Ordonner les tests ne changerait rien.

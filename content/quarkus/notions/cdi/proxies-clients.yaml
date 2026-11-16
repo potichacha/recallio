@@ -1,0 +1,307 @@
+notion: proxies-clients
+lesson: |-
+  Quand un bean a une **portée normale** (`@ApplicationScoped`, `@RequestScoped`), ce n'est pas lui qu'on injecte,
+  mais un **proxy client** : un objet généré au build par ArC (`Tarifs_ClientProxy`), sous-classe du bean. À chaque
+  appel de méthode, le proxy cherche l'**instance contextuelle** (celle de l'application, celle de la requête en
+  cours), la crée au besoin, et lui transmet l'appel.
+
+  ```java
+  @Inject
+  Tarifs tarifs;                    // un Tarifs_ClientProxy
+
+  tarifs.prix("stylo");             // le proxy trouve (ou crée) l'instance, puis appelle prix() sur elle
+  ```
+
+  **Ce que le proxy permet.**
+
+  - **La création paresseuse** : l'instance naît au premier appel, pas à l'injection.
+  - **Mêler les portées** : un bean `@ApplicationScoped` peut injecter un `@RequestScoped` ; à chaque appel, le proxy
+    trouve l'instance de la requête en cours.
+  - **Les dépendances circulaires** : A et B s'injectent l'un l'autre, chacun reçoit un proxy.
+  - **Le remplacement dans les tests** : `@InjectMock` installe un mock derrière le proxy. D'où son refus des beans
+    `@Singleton`, qui n'en ont pas.
+
+  Les pseudo-portées, `@Singleton` et `@Dependent`, n'ont pas de proxy : on injecte l'objet lui-même.
+
+  **Les contraintes, levées par ArC.** Pour qu'une classe ait un proxy, CDI exige qu'elle ne soit pas `final`,
+  qu'elle ait un constructeur sans paramètre non privé, et pas de méthode `final`. ArC **transforme** les classes de
+  l'application au build pour lever ces contraintes : une classe `final` ou un constructeur unique avec paramètres
+  fonctionnent quand même.
+
+  **Les pièges.**
+
+  - **Les champs ne passent pas par le proxy.** Lire ou écrire `tarifs.seuil` touche le champ **du proxy**, un autre
+    objet que l'instance : une écriture n'est pas vue par le bean, et un champ rempli dans `@PostConstruct` y vaut
+    `null` ou 0. On passe toujours par des méthodes.
+  - **`getClass()` renvoie la classe du proxy** : `tarifs.getClass() == Tarifs.class` est faux. On teste avec
+    `instanceof`.
+  - **Le constructeur sans paramètre s'exécute aussi pour le proxy** : pas de logique dedans, elle va dans
+    `@PostConstruct`.
+
+  **En entretien** : « Un bean à portée normale est injecté sous la forme d'un proxy client, qui retrouve à chaque appel
+  la bonne instance. C'est ce qui permet la création paresseuse, l'injection d'un `@RequestScoped` dans un bean
+  partagé, les dépendances circulaires et les mocks de test. Le piège : les champs et `getClass()` ne passent pas par le
+  proxy, donc j'utilise des méthodes et `instanceof`. »
+cards:
+  - key: ce-qui-est-injecte-portee-normale
+    format: course
+    question: "Que reçoit un point d'injection dont le type est un bean `@RequestScoped` ?"
+    choices:
+      - {text: "Un proxy client, qui retrouve à chaque appel l'instance de la requête en cours", correct: true}
+      - {text: "L'instance de la première requête, gardée ensuite pour toutes les autres", correct: false}
+      - {text: "Une nouvelle instance, créée au moment de l'injection et jamais remplacée", correct: false}
+      - {text: "Une référence faible, que le ramasse-miettes efface à la fin de la requête", correct: false}
+    answer: "Le proxy est injecté une fois ; à chaque appel, il cherche l'instance du contexte actif. Deux requêtes concurrentes atteignent ainsi chacune leur propre instance."
+  - key: request-dans-application
+    format: course
+    question: "Pourquoi peut-on injecter un bean `@RequestScoped` dans un bean `@ApplicationScoped` ?"
+    choices:
+      - {text: "Le proxy client trouve, à chaque appel, l'instance de la requête en cours", correct: true}
+      - {text: "Le bean `@RequestScoped` devient `@ApplicationScoped` une fois injecté", correct: false}
+      - {text: "Le bean `@ApplicationScoped` est recréé pour chaque nouvelle requête", correct: false}
+      - {text: "On ne le peut pas : le build refuse une portée plus courte", correct: false}
+    answer: "Le bean partagé garde le proxy, pas une instance. Sans proxy, il garderait l'instance de la première requête, bien après sa fin."
+  - key: inject-mock-et-proxy
+    format: course
+    question: "Pourquoi `@InjectMock` ne peut-il remplacer qu'un bean à portée normale ?"
+    choices:
+      - {text: "Le mock prend la place de l'instance derrière le proxy client, que seule une portée normale a", correct: true}
+      - {text: "Mockito ne sait créer des mocks que pour les classes annotées `@ApplicationScoped`", correct: false}
+      - {text: "Les beans `@Singleton` sont créés au build, avant que le test ne puisse agir", correct: false}
+      - {text: "Une portée normale rend toutes les méthodes publiques, ce dont Mockito a besoin", correct: false}
+    answer: "Les points d'injection gardent le même proxy ; le test change seulement l'objet vers lequel il délègue. Un `@Singleton` est injecté directement : rien à rediriger."
+  - key: classe-finale
+    format: course
+    question: "Que fait ArC d'un bean `@ApplicationScoped` déclaré `final`, que CDI ne permet pas de proxifier ?"
+    choices:
+      - {text: "Il retire `final` au build : le proxy client fonctionne quand même", correct: true}
+      - {text: "Il refuse le build, avec une erreur sur la classe finale", correct: false}
+      - {text: "Il injecte l'instance elle-même, comme pour un `@Singleton`", correct: false}
+      - {text: "Il ignore la classe, qui n'est plus un bean du tout", correct: false}
+    answer: "ArC transforme le bytecode des classes de l'application pour les rendre proxifiables : `final` retiré, constructeur sans paramètre ajouté au besoin. Ce n'est possible que pour le code qu'il construit, pas pour les classes du JDK."
+  - key: vf-get-class
+    format: true-false
+    question: "Sur un bean `@ApplicationScoped` injecté, `getClass()` renvoie la classe du proxy, par exemple `Tarifs_ClientProxy`."
+    truth: true
+    answer: "`getClass()` est une méthode `final` d'`Object` : elle n'est pas transmise à l'instance. `instanceof Tarifs` reste vrai, puisque le proxy hérite de `Tarifs`."
+  - key: vf-ecrire-un-champ
+    format: true-false
+    question: "Écrire un champ public d'un bean `@ApplicationScoped` à travers le point d'injection modifie l'instance du bean."
+    truth: false
+    answer: "Le champ écrit est celui du proxy, un autre objet. L'instance garde son ancienne valeur, et ses méthodes ne voient rien. On passe par une méthode."
+  - key: vf-singleton-sans-proxy
+    format: true-false
+    question: "Un bean `@Singleton` est toujours injecté derrière un proxy client."
+    truth: false
+    answer: "`@Singleton` est une pseudo-portée : on injecte l'instance elle-même. C'est aussi pourquoi elle est créée dès l'injection, et ne se remplace pas par `@InjectMock`."
+  - key: vf-constructeur-avec-parametres
+    format: true-false
+    question: "Avec ArC, un bean `@ApplicationScoped` dont le seul constructeur prend des paramètres peut quand même avoir un proxy client."
+    truth: true
+    answer: "ArC ajoute au build un constructeur sans paramètre, réservé au proxy. Le constructeur avec paramètres ne s'exécute que pour la vraie instance, au premier appel."
+  - key: qcm-get-class-egal
+    format: multiple-choice
+    question: "`paiement` est un bean `@ApplicationScoped` de classe `Carte`, injecté. Que vaut `paiement.getClass() == Carte.class` ?"
+    choices:
+      - {text: "`false`, car `getClass()` renvoie la classe du proxy", correct: true}
+      - {text: "`true`, car le proxy transmet `getClass()` à l'instance", correct: false}
+      - {text: "Une `NullPointerException`, tant que l'instance n'existe pas", correct: false}
+      - {text: "Une erreur de compilation, `Carte` étant un bean", correct: false}
+    answer: "Le proxy est une sous-classe générée (`Carte_ClientProxy`). Pour tester le type, `paiement instanceof Carte` répond `true`."
+  - key: qcm-portee-sans-proxy
+    format: multiple-choice
+    question: "Lequel de ces beans est injecté sans proxy client ?"
+    choices:
+      - {text: "Un bean `@Singleton`", correct: true}
+      - {text: "Un bean `@ApplicationScoped`", correct: false}
+      - {text: "Un bean `@RequestScoped`", correct: false}
+      - {text: "Un bean `@SessionScoped`", correct: false}
+    answer: "`@Singleton` et `@Dependent` sont des pseudo-portées, injectées directement. Les portées normales (application, requête, session) passent par un proxy."
+  - key: qcm-creation-derriere-le-proxy
+    format: multiple-choice
+    question: "Qu'est-ce qui déclenche la création de l'instance d'un bean `@ApplicationScoped` derrière son proxy ?"
+    choices:
+      - {text: "Le premier appel d'une de ses méthodes", correct: true}
+      - {text: "L'injection du proxy dans un autre bean", correct: false}
+      - {text: "La lecture d'un de ses champs publics", correct: false}
+      - {text: "Le démarrage de l'application, toujours", correct: false}
+    answer: "Le proxy crée l'instance quand il doit lui transmettre un appel. Lire un champ ne passe pas par lui : cela ne crée rien, et lit le champ du proxy."
+  - key: qcm-lire-l-etat
+    format: multiple-choice
+    question: "Comment un bean doit-il lire l'état d'un bean `@ApplicationScoped` qu'il a reçu par injection ?"
+    choices:
+      - {text: "Par une méthode, transmise à l'instance par le proxy", correct: true}
+      - {text: "Par un champ public, lu directement sur le point d'injection", correct: false}
+      - {text: "Par réflexion, en lisant le champ privé de la classe", correct: false}
+      - {text: "Par un champ statique, partagé entre le proxy et l'instance", correct: false}
+    answer: "Seules les méthodes passent par le proxy. Un champ public, lu sur le point d'injection, est celui du proxy ; un champ statique contourne la portée."
+  - key: bug-ecriture-par-champ
+    format: bug-fix
+    question: |-
+      L'administration règle le seuil d'alerte à 10, mais le contrôle des stocks utilise toujours 42. Quelle
+      correction est la bonne ?
+      ```java
+      @ApplicationScoped
+      public class Reglages {
+          public int seuil = 42;
+
+          public boolean enAlerte(int stock) {
+              return stock < seuil;
+          }
+      }
+
+      // ailleurs, dans un autre bean
+      @Inject
+      Reglages reglages;
+
+      void regler() {
+          reglages.seuil = 10;
+      }
+      ```
+    choices:
+      - {text: "Rendre le champ privé et le modifier par une méthode `changerSeuil`", correct: true}
+      - {text: "Déclarer le champ `seuil` en `volatile` pour que l'écriture soit vue", correct: false}
+      - {text: "Remplacer `@ApplicationScoped` par `@Dependent` sur `Reglages`", correct: false}
+      - {text: "Écrire `reglages.seuil = 10` dans une méthode `@PostConstruct`", correct: false}
+    answer: |-
+      ```java
+      private volatile int seuil = 42;
+
+      public void changerSeuil(int seuil) {
+          this.seuil = seuil;
+      }
+      ```
+      `reglages` est le proxy client : l'écriture modifie le champ du proxy, pas celui de l'instance qu'utilise
+      `enAlerte`. Une méthode passe par le proxy et atteint l'instance ; `volatile` rend la valeur visible des autres
+      threads.
+  - key: bug-comparaison-de-classe
+    format: bug-fix
+    question: |-
+      Les paiements par carte ne reçoivent jamais leurs frais, alors que `paiement` est bien le bean `Carte`. Quelle
+      correction est la bonne ?
+      ```java
+      @Inject
+      Paiement paiement;   // le bean @ApplicationScoped Carte
+
+      int frais(int montant) {
+          if (paiement.getClass() == Carte.class) {
+              return montant / 100;
+          }
+          return 0;
+      }
+      ```
+    choices:
+      - {text: "Tester `paiement instanceof Carte` au lieu de comparer les classes", correct: true}
+      - {text: "Comparer avec `paiement.getClass().equals(Carte.class)`", correct: false}
+      - {text: "Comparer les noms simples des classes avec `getSimpleName()`", correct: false}
+      - {text: "Annoter `Carte` avec `@Named` pour que sa classe soit gardée", correct: false}
+    answer: |-
+      ```java
+      if (paiement instanceof Carte) {
+          return montant / 100;
+      }
+      ```
+      `getClass()` renvoie `Carte_ClientProxy`, la classe du proxy : la comparaison est toujours fausse, avec `==`
+      comme avec `equals` ou les noms. `instanceof` est vrai, car le proxy hérite de `Carte`. Mieux encore : une
+      méthode `frais` sur `Paiement`.
+  - key: bug-inject-mock-singleton
+    format: bug-fix
+    question: |-
+      Le test échoue avant même de commencer : « Invalid use of io.quarkus.test.InjectMock - the injected bean does
+      not declare a CDI normal scope but: jakarta.inject.Singleton ». Quelle correction est la bonne ?
+      ```java
+      @Singleton
+      public class Horloge {
+          public LocalTime maintenant() { return LocalTime.now(); }
+      }
+
+      @QuarkusTest
+      class OuvertureTest {
+          @InjectMock
+          Horloge horloge;
+      }
+      ```
+    choices:
+      - {text: "Remplacer `@Singleton` par `@ApplicationScoped` sur `Horloge`", correct: true}
+      - {text: "Remplacer `@InjectMock` par `@Inject` dans le test", correct: false}
+      - {text: "Ajouter `@Startup` à `Horloge` pour qu'elle existe avant le test", correct: false}
+      - {text: "Déclarer la classe `Horloge` en `final`", correct: false}
+    answer: |-
+      ```java
+      @ApplicationScoped
+      public class Horloge {
+      ```
+      `@InjectMock` remplace l'instance derrière le proxy client, et un `@Singleton` n'en a pas. Avec
+      `@ApplicationScoped`, tous les beans qui injectent `Horloge` voient le mock pendant le test.
+  - key: bug-champ-rempli-au-post-construct
+    format: bug-fix
+    question: |-
+      `Facturation` lit `parametres.tauxTva` et obtient toujours 0, alors que `@PostConstruct` le règle à 20. Quelle
+      correction est la bonne ?
+      ```java
+      @ApplicationScoped
+      public class Parametres {
+          public int tauxTva;
+
+          @PostConstruct
+          void charger() {
+              tauxTva = 20;
+          }
+      }
+
+      // dans Facturation
+      int tva(int montant) {
+          return montant * parametres.tauxTva / 100;
+      }
+      ```
+    choices:
+      - {text: "Lire le taux par une méthode, `parametres.tauxTva()`", correct: true}
+      - {text: "Remplacer `@PostConstruct` par un bloc d'initialisation", correct: false}
+      - {text: "Déclarer le champ `tauxTva` en `final`", correct: false}
+      - {text: "Ajouter `@Startup` sur `Parametres`", correct: false}
+    answer: |-
+      ```java
+      private int tauxTva;
+
+      public int tauxTva() {
+          return tauxTva;
+      }
+      ```
+      `parametres` est le proxy : lire son champ lit celui du proxy, que `@PostConstruct` ne remplit jamais (il ne
+      s'exécute que sur l'instance). `@Startup` créerait l'instance plus tôt, sans changer ce que lit le proxy.
+  - key: def-proxy-client
+    format: definition
+    question: "Quel terme désigne l'objet généré, injecté à la place d'un bean à portée normale, qui transmet chaque appel à l'instance du contexte actif ?"
+    choices:
+      - {text: "Un proxy client (client proxy)", correct: true}
+      - {text: "Un intercepteur", correct: false}
+      - {text: "Un décorateur", correct: false}
+      - {text: "Une fabrique de beans", correct: false}
+    answer: "Le proxy client ne fait que retrouver l'instance et déléguer. Un intercepteur ajoute un comportement autour des méthodes ; un décorateur enveloppe une interface métier."
+  - key: def-portee-normale
+    format: definition
+    question: "Quel terme désigne une portée, comme `@ApplicationScoped` ou `@RequestScoped`, dont les beans sont injectés à travers un proxy client ?"
+    choices:
+      - {text: "Une portée normale (normal scope)", correct: true}
+      - {text: "Une pseudo-portée (pseudo-scope)", correct: false}
+      - {text: "Une portée dépendante", correct: false}
+      - {text: "Une portée passivante", correct: false}
+    answer: "Les portées normales ont un contexte qui gère leurs instances, d'où le proxy. Les pseudo-portées (`@Singleton`, `@Dependent`) n'en ont pas."
+  - key: def-pseudo-portee
+    format: definition
+    question: "Quel terme désigne une portée, comme `@Singleton` ou `@Dependent`, dont les beans sont injectés directement, sans proxy client ?"
+    choices:
+      - {text: "Une pseudo-portée (pseudo-scope)", correct: true}
+      - {text: "Une portée normale (normal scope)", correct: false}
+      - {text: "Une portée statique", correct: false}
+      - {text: "Une portée locale au thread", correct: false}
+    answer: "Sans proxy, pas de création paresseuse ni de remplacement par `@InjectMock` ; en échange, un appel direct, sans intermédiaire."
+  - key: def-instance-contextuelle
+    format: definition
+    question: "Quel terme désigne l'objet réel d'un bean, rattaché à un contexte (l'application, une requête), vers lequel le proxy client transmet les appels ?"
+    choices:
+      - {text: "L'instance contextuelle (contextual instance)", correct: true}
+      - {text: "L'instance prototype (prototype instance)", correct: false}
+      - {text: "L'instance de référence (reference instance)", correct: false}
+      - {text: "L'instance déléguée (delegate instance)", correct: false}
+    answer: "Chaque contexte garde ses instances contextuelles : une pour l'application, une par requête active. Le proxy client les cherche dans le contexte actif."

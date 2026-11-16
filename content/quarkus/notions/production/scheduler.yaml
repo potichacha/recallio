@@ -1,0 +1,275 @@
+notion: scheduler
+lesson: |-
+  Une application a souvent des tâches à lancer à heure fixe ou à intervalle régulier : purger des paniers
+  abandonnés, relancer des factures, recalculer un classement. L'extension `quarkus-scheduler` les déclare avec
+  **`@Scheduled`** (`io.quarkus.scheduler.Scheduled`), sur une méthode de bean.
+
+  ```java
+  @ApplicationScoped
+  public class Purges {
+
+      @Scheduled(every = "10m", delayed = "30s")
+      @Transactional
+      void purgerLesPaniersAbandonnes() {
+          Panier.delete("modifieLe < ?1", Instant.now().minus(Duration.ofDays(7)));
+      }
+
+      @Scheduled(cron = "0 0 2 * * ?", concurrentExecution = Scheduled.ConcurrentExecution.SKIP)
+      void relancerLesFactures() { ... }
+  }
+  ```
+
+  **Deux façons de dire quand.**
+
+  - `every` : un intervalle, `"10s"`, `"5m"`, `"1h"` ou une durée ISO (`"PT10S"`). `delayed` retarde la première
+    exécution.
+  - `cron` : une expression **à la Quartz**, qui commence par **les secondes** : `"0 0 2 * * ?"` vaut « tous les jours
+    à 2 h 00 min 00 s ». Une expression crontab à cinq champs est refusée.
+
+  Les valeurs peuvent venir de la configuration : `every = "{purge.periode}"`, avec `purge.periode=10m` dans
+  `application.properties`.
+
+  **Ce que garantit le scheduler, et ce qu'il ne garantit pas.**
+
+  - Par défaut (`ConcurrentExecution.PROCEED`), une exécution démarre **même si la précédente n'est pas finie**. Pour
+    une tâche qui peut durer plus que sa période, `concurrentExecution = SKIP` saute le tour.
+  - Le scheduler vit **en mémoire, dans chaque instance** : sur trois pods, la tâche s'exécute trois fois. Il ne
+    rattrape pas non plus les exécutions manquées pendant un arrêt.
+  - Pour une tâche unique dans un cluster, ou persistante : l'extension **`quarkus-quartz`** en mode cluster, avec
+    un stockage JDBC (`quarkus.quartz.clustered=true`), ou un verrou en base.
+
+  **La méthode.** Elle ne renvoie rien (ou un `Uni`, pour une tâche non bloquante), et ne prend aucun paramètre, ou un
+  `ScheduledExecution` qui décrit l'exécution. Elle tourne sur un thread de travail : elle peut bloquer, et elle
+  écrit en base dans une transaction (`@Transactional`), comme n'importe quel bean. Une classe sans scope qui déclare
+  une méthode `@Scheduled` devient un bean `@Singleton`.
+
+  **En test**, `quarkus.scheduler.enabled=false` coupe toutes les tâches, pour qu'elles ne s'exécutent pas au milieu
+  des tests ; on appelle la méthode directement.
+
+  **En entretien** : « Avec `@Scheduled`, je déclare une tâche périodique, par `every` ou par une expression cron qui
+  commence par les secondes. Par défaut, les exécutions peuvent se chevaucher : je mets `SKIP` pour une tâche longue.
+  Et le scheduler tourne dans chaque instance : pour une tâche unique dans un cluster, je passe à Quartz en mode
+  cluster, ou je prends un verrou en base. »
+cards:
+  - key: effet-de-every
+    format: course
+    question: "Que fait `@Scheduled(every = \"10s\")` sur une méthode de bean ?"
+    choices:
+      - {text: "Il l'exécute toutes les 10 secondes, dans chaque instance", correct: true}
+      - {text: "Il l'exécute une fois, 10 secondes après le démarrage", correct: false}
+      - {text: "Il l'exécute toutes les 10 secondes, sur une seule instance", correct: false}
+      - {text: "Il limite la méthode à 10 secondes de durée d'exécution", correct: false}
+    answer: "La tâche se répète tant que l'application tourne, dans chaque instance. Une première exécution différée se demande avec `delayed`."
+  - key: format-du-cron
+    format: course
+    question: "Que veut dire l'expression `@Scheduled(cron = \"0 30 6 * * ?\")` ?"
+    choices:
+      - {text: "Tous les jours à 6 h 30 min 00 s", correct: true}
+      - {text: "Toutes les 30 minutes, à partir de 6 h", correct: false}
+      - {text: "Tous les jours à 0 h 30, le 6 du mois", correct: false}
+      - {text: "Le 6 de chaque mois à 0 h 00 min 30 s", correct: false}
+    answer: "Le cron de Quartz commence par les secondes : seconde 0, minute 30, heure 6, puis jour du mois, mois et jour de la semaine (`?` : peu importe)."
+  - key: chevauchement-par-defaut
+    format: course
+    question: "Une tâche `@Scheduled(every = \"1m\")` dure parfois trois minutes. Que se passe-t-il, par défaut ?"
+    choices:
+      - {text: "De nouvelles exécutions démarrent pendant que la première tourne", correct: true}
+      - {text: "Les exécutions suivantes attendent la fin de la première, en file", correct: false}
+      - {text: "Les exécutions suivantes sont sautées jusqu'à la fin de la première", correct: false}
+      - {text: "La première exécution est interrompue au bout d'une minute", correct: false}
+    answer: "Le mode par défaut est `PROCEED` : les exécutions se chevauchent. `concurrentExecution = SKIP` saute les tours tant que la précédente n'est pas finie."
+  - key: scheduler-ou-quartz
+    format: course
+    question: "Qu'apporte `quarkus-quartz` par rapport à `quarkus-scheduler` ?"
+    choices:
+      - {text: "Des tâches persistées en base, exécutées une fois par cluster", correct: true}
+      - {text: "Des expressions cron, que `quarkus-scheduler` ne connaît pas", correct: false}
+      - {text: "Des tâches plus rapides, exécutées sur la boucle d'événements", correct: false}
+      - {text: "L'annotation `@Scheduled`, que `quarkus-scheduler` n'a pas", correct: false}
+    answer: "Le scheduler simple vit en mémoire, dans chaque instance. Quartz, avec un stockage JDBC en mode cluster, coordonne les instances et garde les tâches."
+  - key: vf-chaque-instance
+    format: true-false
+    question: "Sur trois pods d'une même application, une méthode `@Scheduled` de `quarkus-scheduler` s'exécute dans chacun des trois."
+    truth: true
+    answer: "Chaque instance a son scheduler en mémoire, sans coordination : une tâche qui doit être unique demande Quartz en mode cluster ou un verrou."
+  - key: vf-cron-cinq-champs
+    format: true-false
+    question: "`@Scheduled(cron = ...)` accepte une expression crontab à cinq champs, comme `0 2 * * *`."
+    truth: false
+    answer: "Quarkus attend une expression à la Quartz, qui commence par les secondes : `0 0 2 * * ?` pour 2 h du matin."
+  - key: vf-proceed-par-defaut
+    format: true-false
+    question: "Par défaut, une nouvelle exécution d'une tâche planifiée démarre même si la précédente n'est pas finie."
+    truth: true
+    answer: "Le défaut est `ConcurrentExecution.PROCEED`. `SKIP` évite le chevauchement."
+  - key: vf-classe-sans-scope
+    format: true-false
+    question: "Une classe sans annotation de scope, qui déclare une méthode `@Scheduled`, devient quand même un bean."
+    truth: true
+    answer: "Quarkus lui ajoute `@Singleton` : la méthode est découverte et planifiée."
+  - key: qcm-valeur-par-defaut
+    format: multiple-choice
+    question: "Quelle est la valeur par défaut de `concurrentExecution` dans `@Scheduled` ?"
+    choices:
+      - {text: "`PROCEED`", correct: true}
+      - {text: "`SKIP`", correct: false}
+      - {text: "`QUEUE`", correct: false}
+      - {text: "`WAIT`", correct: false}
+    answer: "`PROCEED` laisse les exécutions se chevaucher ; `SKIP` saute une exécution tant que la précédente tourne. `QUEUE` et `WAIT` n'existent pas."
+  - key: qcm-periode-configurable
+    format: multiple-choice
+    question: "Comment lis-tu la période d'une tâche dans la propriété `purge.periode` ?"
+    choices:
+      - {text: "`@Scheduled(every = \"{purge.periode}\")`", correct: true}
+      - {text: "`@Scheduled(every = \"purge.periode\")`", correct: false}
+      - {text: "`@Scheduled(every = @ConfigProperty(\"purge.periode\"))`", correct: false}
+      - {text: "`@Scheduled(config = \"purge.periode\")`", correct: false}
+    answer: "Une valeur entre accolades est lue dans la configuration. Sans accolades, `purge.periode` serait pris pour une durée, et refusé."
+  - key: qcm-tache-unique-en-cluster
+    format: multiple-choice
+    question: "Ta tâche d'envoi du récapitulatif quotidien doit s'exécuter une seule fois, sur un cluster de quatre pods. Que choisis-tu ?"
+    choices:
+      - {text: "`quarkus-quartz` en mode cluster, avec un stockage JDBC", correct: true}
+      - {text: "`@Scheduled` avec `concurrentExecution = SKIP`", correct: false}
+      - {text: "`@Scheduled` sur une classe `@Singleton`", correct: false}
+      - {text: "`@Scheduled` avec `delayed` différent par pod", correct: false}
+    answer: "Quartz en cluster coordonne les instances par la base : une seule prend la tâche. `SKIP` et `@Singleton` ne valent que dans une instance ; décaler les pods ne fait que décaler les doublons."
+  - key: qcm-couper-en-test
+    format: multiple-choice
+    question: "Comment empêches-tu les tâches planifiées de s'exécuter pendant les tests ?"
+    choices:
+      - {text: "`%test.quarkus.scheduler.enabled=false`", correct: true}
+      - {text: "`%test.quarkus.scheduled.skip=true`", correct: false}
+      - {text: "`@Scheduled(test = false)` sur chaque tâche", correct: false}
+      - {text: "`@InjectMock Scheduler` dans chaque classe de test", correct: false}
+    answer: "Le scheduler ne démarre pas ; le test appelle la méthode de la tâche directement, au moment qu'il choisit."
+  - key: trous-intervalle
+    format: fill-in
+    question: |-
+      Complète pour exécuter la tâche toutes les 10 secondes :
+      ```java
+      @Scheduled(___ = "10s")
+      void rafraichir() {
+      ```
+    blanks:
+      - [every]
+    answer: "`every` fixe l'intervalle ; `cron` donne une expression horaire."
+  - key: trous-sauter
+    format: fill-in
+    question: |-
+      Complète pour qu'une exécution soit sautée tant que la précédente tourne :
+      ```java
+      @Scheduled(every = "1m", concurrentExecution = Scheduled.ConcurrentExecution.___)
+      ```
+    blanks:
+      - [SKIP]
+    answer: "`SKIP` empêche le chevauchement ; le défaut, `PROCEED`, le permet."
+  - key: trous-premier-delai
+    format: fill-in
+    question: |-
+      Complète pour que la première exécution attende 30 secondes après le démarrage :
+      ```java
+      @Scheduled(every = "1h", ___ = "30s")
+      ```
+    blanks:
+      - [delayed]
+    answer: "`delayed` retarde la première exécution, par exemple le temps que les caches soient chargés."
+  - key: trous-desactiver
+    format: fill-in
+    question: |-
+      Complète pour couper toutes les tâches planifiées en test :
+      ```properties
+      %test.quarkus.scheduler.___=false
+      ```
+    blanks:
+      - [enabled]
+    answer: "`quarkus.scheduler.enabled=false` : le scheduler ne démarre pas."
+  - key: bug-chevauchement
+    format: bug-fix
+    question: |-
+      Certaines factures sont relancées deux fois : la tâche dure parfois plus de cinq minutes, et deux exécutions
+      traitent les mêmes factures. Quelle correction est la bonne ?
+      ```java
+      @Scheduled(every = "5m")
+      void relancerLesFactures() {
+          factures.enRetard().forEach(relances::envoyer);
+      }
+      ```
+    choices:
+      - {text: "Ajouter `concurrentExecution = Scheduled.ConcurrentExecution.SKIP`", correct: true}
+      - {text: "Annoter la classe avec `@Singleton`, pour une seule instance du bean", correct: false}
+      - {text: "Ajouter `delayed = \"5m\"`, pour décaler la première exécution", correct: false}
+      - {text: "Annoter la méthode avec `@Transactional`, qui verrouille la table", correct: false}
+    answer: |-
+      ```java
+      @Scheduled(every = "5m", concurrentExecution = Scheduled.ConcurrentExecution.SKIP)
+      ```
+      Par défaut, une exécution démarre même si la précédente tourne encore. `SKIP` saute le tour. Le bean est déjà
+      unique dans l'instance, et décaler le premier tour ne change rien aux suivants.
+  - key: bug-cron-crontab
+    format: bug-fix
+    question: |-
+      L'application refuse de démarrer : l'expression cron de cette tâche est jugée invalide. Elle doit tourner
+      chaque nuit à 2 h. Quelle correction est la bonne ?
+      ```java
+      @Scheduled(cron = "0 2 * * *")
+      void archiver() {
+      ```
+    choices:
+      - {text: "`@Scheduled(cron = \"0 0 2 * * ?\")`", correct: true}
+      - {text: "`@Scheduled(cron = \"2 0 * * *\")`", correct: false}
+      - {text: "`@Scheduled(cron = \"0 2 * * * *\")`", correct: false}
+      - {text: "`@Scheduled(every = \"0 2 * * *\")`", correct: false}
+    answer: |-
+      ```java
+      @Scheduled(cron = "0 0 2 * * ?")
+      ```
+      Le cron de Quartz commence par les secondes : seconde 0, minute 0, heure 2. `0 2 * * * *` voudrait dire « à la
+      minute 2 de chaque heure », et `every` n'accepte qu'une durée.
+  - key: bug-ecriture-sans-transaction
+    format: bug-fix
+    question: |-
+      À chaque exécution, la purge échoue : « TransactionRequiredException: Transaction is not active, consider
+      adding @Transactional to your method to automatically activate one ». Quelle correction est la bonne ?
+      ```java
+      @Scheduled(every = "10m")
+      void purger() {
+          Panier.delete("modifieLe < ?1", Instant.now().minus(Duration.ofDays(7)));
+      }
+      ```
+    choices:
+      - {text: "Annoter la méthode avec `@Transactional`", correct: true}
+      - {text: "Annoter la méthode avec `@ActivateRequestContext`", correct: false}
+      - {text: "Remplacer `every` par `cron = \"0 */10 * * * ?\"`", correct: false}
+      - {text: "Ajouter `concurrentExecution = SKIP` à l'annotation", correct: false}
+    answer: |-
+      ```java
+      @Scheduled(every = "10m")
+      @Transactional
+      void purger() {
+      ```
+      Une tâche planifiée qui écrit en base a besoin d'une transaction, comme toute méthode de bean. Le contexte de
+      requête est déjà actif pendant l'exécution ; la façon de planifier n'y change rien.
+  - key: bug-trois-recapitulatifs
+    format: bug-fix
+    question: |-
+      Depuis le passage à trois pods, chaque client reçoit trois fois le récapitulatif du matin. Quelle correction
+      est la bonne ?
+      ```java
+      @Scheduled(cron = "0 0 7 * * ?")
+      void envoyerLesRecapitulatifs() {
+          clients.tous().forEach(mails::recapitulatif);
+      }
+      ```
+    choices:
+      - {text: "Passer à `quarkus-quartz` en mode cluster, avec un stockage JDBC", correct: true}
+      - {text: "Ajouter `concurrentExecution = Scheduled.ConcurrentExecution.SKIP`", correct: false}
+      - {text: "Annoter la classe avec `@Singleton` plutôt qu'`@ApplicationScoped`", correct: false}
+      - {text: "Ajouter `delayed = \"10s\"`, pour que les pods ne partent pas ensemble", correct: false}
+    answer: |-
+      ```properties
+      quarkus.quartz.clustered=true
+      quarkus.quartz.store-type=jdbc-cmt
+      ```
+      Chaque pod a son scheduler en mémoire : la tâche s'exécute trois fois. Quartz en cluster coordonne les
+      instances par la base, et une seule envoie les mails. `SKIP` et `@Singleton` ne valent que dans un pod.

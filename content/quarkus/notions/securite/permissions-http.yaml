@@ -1,0 +1,271 @@
+notion: permissions-http
+lesson: |-
+  Les annotations protègent les endpoints un par un. Les **permissions HTTP** protègent des **chemins**, dans
+  `application.properties`, avant même que la requête atteigne un endpoint. Elles couvrent tout ce que sert
+  l'application : endpoints REST, fichiers statiques, chemins techniques sous `/q`.
+
+  ```properties
+  # tout est authentifié par défaut...
+  quarkus.http.auth.permission.authentifie.paths=/*
+  quarkus.http.auth.permission.authentifie.policy=authenticated
+
+  # ...sauf ce qui est public
+  quarkus.http.auth.permission.public.paths=/api/catalogue/*,/q/health/*
+  quarkus.http.auth.permission.public.policy=permit
+
+  # l'administration est réservée au rôle admin
+  quarkus.http.auth.policy.role-admin.roles-allowed=admin
+  quarkus.http.auth.permission.admin.paths=/api/admin/*
+  quarkus.http.auth.permission.admin.policy=role-admin
+  ```
+
+  **Une permission** (`quarkus.http.auth.permission.<nom>`) associe des `paths` (et, si l'on veut, des `methods`) à une
+  `policy`. Le nom (`public`, `admin`) est libre : il ne sert qu'à regrouper ses lignes.
+
+  | Politique | Effet |
+  |---|---|
+  | `permit` | tout le monde passe |
+  | `authenticated` | il faut une identité |
+  | `deny` | personne ne passe |
+  | une politique de rôles | déclarée par `quarkus.http.auth.policy.<nom>.roles-allowed=...` |
+
+  **Les chemins.** `/api/admin` ne vaut que pour ce chemin exact ; `/api/admin/*` couvre tout ce qui est dessous.
+  Quand plusieurs permissions correspondent, **la plus précise l'emporte** : `/api/admin/*` passe devant `/*`.
+  `methods=POST,PUT,DELETE` limite une permission à ces verbes : les autres verbes ne sont pas couverts par elle.
+
+  **Ce qui n'est couvert par rien** retombe sur les annotations de l'endpoint, et, sans annotation, reste **ouvert**.
+  D'où le motif ci-dessus : une permission `authenticated` sur `/*`, puis des exceptions publiques.
+
+  **Annotations ou permissions ?** Les deux se combinent. Les permissions posent un **socle** (fermé par défaut, des
+  zones publiques, des préfixes réservés) ; les annotations affinent endpoint par endpoint. Une requête doit passer
+  les deux.
+
+  **Le piège des chemins techniques.** Une permission `authenticated` sur `/*` couvre aussi `/q/health` : les sondes
+  de Kubernetes, sans jeton, reçoivent 401, et les pods ne sont jamais prêts. On ouvre explicitement `/q/health/*`
+  (ou l'on passe la santé sur l'interface de gestion).
+
+  **En entretien** : « Les permissions HTTP protègent des chemins dans la configuration, avant l'endpoint, fichiers
+  statiques et `/q` compris : une politique `permit`, `authenticated`, `deny` ou de rôles par groupe de chemins, la
+  plus précise l'emportant. Je ferme tout par une permission `authenticated` sur `/*`, j'ouvre les chemins publics et
+  la santé, et j'affine avec les annotations. »
+cards:
+  - key: role-des-permissions
+    format: course
+    question: "Que protègent les permissions `quarkus.http.auth.permission.*` ?"
+    choices:
+      - {text: "Des chemins HTTP, vérifiés avant d'atteindre l'endpoint", correct: true}
+      - {text: "Des méthodes Java, vérifiées par un intercepteur CDI", correct: false}
+      - {text: "Des tables de la base, vérifiées par Hibernate", correct: false}
+      - {text: "Des propriétés de configuration, lues au démarrage", correct: false}
+    answer: "Elles s'appliquent à la couche HTTP : endpoints REST, fichiers statiques et chemins sous `/q`. Les annotations, elles, protègent des méthodes."
+  - key: politique-de-roles
+    format: course
+    question: "Comment réserves-tu le chemin `/api/admin/*` aux utilisateurs qui ont le rôle `admin` ?"
+    choices:
+      - {text: "Une politique `roles-allowed=admin`, puis une permission qui la cite", correct: true}
+      - {text: "Une permission `policy=admin`, qui crée la politique d'elle-même", correct: false}
+      - {text: "Une permission `paths=/api/admin/*` avec `roles=admin`", correct: false}
+      - {text: "Une politique `authenticated`, puis `@RolesAllowed` sur la classe", correct: false}
+    answer: "`quarkus.http.auth.policy.role-admin.roles-allowed=admin` déclare la politique ; `quarkus.http.auth.permission.admin.policy=role-admin` l'applique aux chemins."
+  - key: chemin-le-plus-precis
+    format: course
+    question: "`/*` a la politique `authenticated`, et `/api/catalogue/*` la politique `permit`. Qu'arrive-t-il à `GET /api/catalogue/stylos` sans jeton ?"
+    choices:
+      - {text: "Il passe : le chemin le plus précis l'emporte", correct: true}
+      - {text: "Il reçoit 401 : `/*` est déclaré en premier", correct: false}
+      - {text: "Il reçoit 403 : les deux politiques se contredisent", correct: false}
+      - {text: "L'application refuse de démarrer : les chemins se chevauchent", correct: false}
+    answer: "Quarkus retient la permission dont le chemin correspond le plus précisément. Les exceptions publiques s'écrivent donc par-dessus un socle fermé."
+  - key: socle-ferme
+    format: course
+    question: "À quoi sert une permission `paths=/*` avec `policy=authenticated` ?"
+    choices:
+      - {text: "À fermer par défaut tout ce que l'application sert", correct: true}
+      - {text: "À authentifier l'application auprès de Keycloak", correct: false}
+      - {text: "À rendre publics tous les chemins de l'application", correct: false}
+      - {text: "À désactiver les annotations de sécurité des endpoints", correct: false}
+    answer: "Un chemin oublié n'est plus ouvert : il exige une identité. Les chemins publics s'ouvrent explicitement, par des permissions plus précises."
+  - key: vf-fichiers-statiques
+    format: true-false
+    question: "Une permission HTTP s'applique aussi aux chemins qui ne sont pas des endpoints REST, comme les fichiers statiques."
+    truth: true
+    answer: "Elle agit au niveau HTTP, avant tout routage : fichiers statiques, chemins `/q` et WebSockets compris."
+  - key: vf-chemin-exact
+    format: true-false
+    question: "Une permission avec `paths=/admin` protège aussi `/admin/utilisateurs`."
+    truth: false
+    answer: "`/admin` est un chemin exact. Pour tout ce qui est dessous, on écrit `/admin/*`."
+  - key: vf-politiques-integrees
+    format: true-false
+    question: "Les politiques `permit`, `deny` et `authenticated` s'utilisent sans être déclarées."
+    truth: true
+    answer: "Elles sont intégrées. Seules les politiques de rôles se déclarent, sous `quarkus.http.auth.policy.<nom>`."
+  - key: vf-refus-par-defaut
+    format: true-false
+    question: "Une requête qu'aucune permission HTTP ne couvre est refusée par défaut."
+    truth: false
+    answer: "Elle passe au contrôle des annotations ; sans annotation, l'endpoint est ouvert. D'où la permission `authenticated` sur `/*`."
+  - key: qcm-exiger-une-identite
+    format: multiple-choice
+    question: "Quelle politique exige un utilisateur connecté, sans rôle particulier ?"
+    choices:
+      - {text: "`authenticated`", correct: true}
+      - {text: "`permit`", correct: false}
+      - {text: "`deny`", correct: false}
+      - {text: "`user`", correct: false}
+    answer: "`authenticated` demande une identité. `user` n'est pas une politique intégrée : ce serait le nom d'une politique de rôles à déclarer."
+  - key: qcm-declarer-les-roles
+    format: multiple-choice
+    question: "Quelle ligne déclare une politique `role-admin` réservée au rôle `admin` ?"
+    choices:
+      - {text: "`quarkus.http.auth.policy.role-admin.roles-allowed=admin`", correct: true}
+      - {text: "`quarkus.http.auth.permission.role-admin.roles=admin`", correct: false}
+      - {text: "`quarkus.security.roles.role-admin=admin`", correct: false}
+      - {text: "`quarkus.http.auth.role-admin.policy=admin`", correct: false}
+    answer: "Les politiques se déclarent sous `quarkus.http.auth.policy`, les permissions sous `quarkus.http.auth.permission`, qui citent la politique par son nom."
+  - key: qcm-interet-face-aux-annotations
+    format: multiple-choice
+    question: "Qu'apportent les permissions HTTP que les annotations n'apportent pas ?"
+    choices:
+      - {text: "Un socle par chemin, qui couvre aussi les fichiers statiques et `/q`", correct: true}
+      - {text: "Un contrôle de la propriété de chaque ressource, ligne par ligne", correct: false}
+      - {text: "La lecture des rôles dans le jeton, impossible sans elles", correct: false}
+      - {text: "Un chiffrement des réponses envoyées aux clients", correct: false}
+    answer: "Elles protègent par chemin, en un seul endroit, tout ce que l'application sert. Le contrôle de propriété reste dans le code, avec l'identité."
+  - key: qcm-sondes-en-401
+    format: multiple-choice
+    question: "Après l'ajout d'une permission `authenticated` sur `/*`, les pods ne deviennent plus prêts. Pourquoi ?"
+    choices:
+      - {text: "Les sondes, sans jeton, reçoivent 401 sur `/q/health/ready`", correct: true}
+      - {text: "Les sondes de santé ne savent pas suivre les redirections", correct: false}
+      - {text: "La politique `authenticated` désactive SmallRye Health", correct: false}
+      - {text: "Le jeton de Kubernetes n'a pas le rôle `admin`", correct: false}
+    answer: "La permission couvre aussi les chemins techniques. On ajoute une permission `permit` sur `/q/health/*`, plus précise."
+  - key: trous-chemins
+    format: fill-in
+    question: |-
+      Complète pour protéger tout ce qui est sous `/api` :
+      ```properties
+      quarkus.http.auth.permission.prive.___=/api/*
+      quarkus.http.auth.permission.prive.policy=authenticated
+      ```
+    blanks:
+      - [paths]
+    answer: "`paths` liste les chemins couverts, séparés par des virgules ; `/*` couvre tout ce qui est dessous."
+  - key: trous-politique-connecte
+    format: fill-in
+    question: |-
+      Complète pour exiger une identité sur ces chemins :
+      ```properties
+      quarkus.http.auth.permission.prive.paths=/api/*
+      quarkus.http.auth.permission.prive.policy=___
+      ```
+    blanks:
+      - [authenticated]
+    answer: "`authenticated` est l'une des trois politiques intégrées, avec `permit` et `deny`."
+  - key: trous-roles-autorises
+    format: fill-in
+    question: |-
+      Complète la politique de rôles :
+      ```properties
+      quarkus.http.auth.policy.role-admin.___=admin
+      ```
+    blanks:
+      - [roles-allowed]
+    answer: "`roles-allowed` liste les rôles qui passent ; une permission cite ensuite `policy=role-admin`."
+  - key: trous-verbes
+    format: fill-in
+    question: |-
+      Complète pour que la permission ne vise que les écritures :
+      ```properties
+      quarkus.http.auth.permission.ecritures.paths=/api/*
+      quarkus.http.auth.permission.ecritures.___=POST,PUT,PATCH,DELETE
+      quarkus.http.auth.permission.ecritures.policy=role-editeur
+      ```
+    blanks:
+      - [methods]
+    answer: "`methods` limite la permission à ces verbes HTTP."
+  - key: bug-chemin-exact
+    format: bug-fix
+    question: |-
+      Un utilisateur sans rôle `admin` a ouvert `/admin/utilisateurs`. Quelle correction est la bonne ?
+      ```properties
+      quarkus.http.auth.policy.role-admin.roles-allowed=admin
+      quarkus.http.auth.permission.admin.paths=/admin
+      quarkus.http.auth.permission.admin.policy=role-admin
+      ```
+    choices:
+      - {text: "`quarkus.http.auth.permission.admin.paths=/admin/*`", correct: true}
+      - {text: "`quarkus.http.auth.permission.admin.paths=/admin/`", correct: false}
+      - {text: "`quarkus.http.auth.permission.admin.policy=authenticated`", correct: false}
+      - {text: "`quarkus.http.auth.policy.role-admin.roles-allowed=*`", correct: false}
+    answer: |-
+      ```properties
+      quarkus.http.auth.permission.admin.paths=/admin/*
+      ```
+      `/admin` ne couvre que ce chemin exact ; `/admin/*` couvre tout ce qui est dessous. `authenticated` laisserait
+      passer tout utilisateur connecté, et `*` tous les rôles.
+  - key: bug-verbes-oublies
+    format: bug-fix
+    question: |-
+      Un utilisateur sans rôle `editeur` a supprimé un article par `DELETE /api/articles/7`. La création, elle, est
+      bien protégée. Quelle correction est la bonne ?
+      ```properties
+      quarkus.http.auth.policy.role-editeur.roles-allowed=editeur
+      quarkus.http.auth.permission.ecritures.paths=/api/articles/*
+      quarkus.http.auth.permission.ecritures.methods=POST
+      quarkus.http.auth.permission.ecritures.policy=role-editeur
+      ```
+    choices:
+      - {text: "`quarkus.http.auth.permission.ecritures.methods=POST,PUT,PATCH,DELETE`", correct: true}
+      - {text: "`quarkus.http.auth.permission.ecritures.methods=*`, pour les lectures aussi", correct: false}
+      - {text: "`quarkus.http.auth.permission.ecritures.paths=/api/articles`", correct: false}
+      - {text: "`quarkus.http.auth.policy.role-editeur.roles-allowed=editeur,DELETE`", correct: false}
+    answer: |-
+      ```properties
+      quarkus.http.auth.permission.ecritures.methods=POST,PUT,PATCH,DELETE
+      ```
+      La permission ne couvre que les verbes listés : `DELETE` n'était protégé par rien. Couvrir aussi les lectures
+      les réserverait aux éditeurs, et un rôle ne se mélange pas à un verbe.
+  - key: bug-politique-non-utilisee
+    format: bug-fix
+    question: |-
+      Tout utilisateur connecté accède à `/api/admin/*`, alors que la politique `role-admin` existe. Quelle correction
+      est la bonne ?
+      ```properties
+      quarkus.http.auth.policy.role-admin.roles-allowed=admin
+      quarkus.http.auth.permission.admin.paths=/api/admin/*
+      quarkus.http.auth.permission.admin.policy=authenticated
+      ```
+    choices:
+      - {text: "`quarkus.http.auth.permission.admin.policy=role-admin`", correct: true}
+      - {text: "`quarkus.http.auth.permission.admin.policy=admin`", correct: false}
+      - {text: "`quarkus.http.auth.policy.role-admin.roles-allowed=authenticated`", correct: false}
+      - {text: "`quarkus.http.auth.permission.role-admin.paths=/api/admin/*`", correct: false}
+    answer: |-
+      ```properties
+      quarkus.http.auth.permission.admin.policy=role-admin
+      ```
+      Une politique déclarée ne sert que si une permission la cite par son nom. `admin` est le nom du rôle, pas de la
+      politique ; la dernière ligne créerait une permission sans politique.
+  - key: bug-sondes-fermees
+    format: bug-fix
+    question: |-
+      Depuis cette configuration, les pods ne deviennent jamais prêts : la sonde readiness reçoit 401. Quelle
+      correction est la bonne ?
+      ```properties
+      quarkus.http.auth.permission.authentifie.paths=/*
+      quarkus.http.auth.permission.authentifie.policy=authenticated
+      ```
+    choices:
+      - {text: "Ajouter une permission `permit` sur `/q/health/*`", correct: true}
+      - {text: "Passer la permission `authentifie` en politique `permit`", correct: false}
+      - {text: "Donner un jeton d'administrateur à la sonde de Kubernetes", correct: false}
+      - {text: "Retirer l'extension SmallRye Health de l'application", correct: false}
+    answer: |-
+      ```properties
+      quarkus.http.auth.permission.sante.paths=/q/health/*
+      quarkus.http.auth.permission.sante.policy=permit
+      ```
+      `/*` couvre aussi les chemins techniques. Le chemin plus précis de la santé l'emporte et reste public ; le reste
+      demeure fermé. Ouvrir tout, ou donner un jeton aux sondes, affaiblirait la sécurité.

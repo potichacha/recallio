@@ -1,0 +1,201 @@
+notion: component-test
+lesson: |-
+  Entre le test unitaire (rapide, mais sans CDI) et `@QuarkusTest` (complet, mais il démarre toute l'application),
+  Quarkus propose **`@QuarkusComponentTest`** : il démarre **seulement le conteneur CDI**, avec les beans testés, et
+  remplace leurs dépendances par des mocks.
+
+  ```xml
+  <dependency>
+      <groupId>io.quarkus</groupId>
+      <artifactId>quarkus-junit-component</artifactId>
+      <scope>test</scope>
+  </dependency>
+  ```
+
+  ```java
+  @QuarkusComponentTest
+  @TestConfigProperty(key = "remise.taux", value = "0.1")
+  class TarifServiceTest {
+
+      @Inject
+      TarifService tarifs;          // le composant testé
+
+      @InjectMock
+      CatalogueRepository catalogue; // une dépendance, remplacée par un mock
+
+      @Test
+      void appliqueLaRemise() {
+          when(catalogue.prix("SKU-1")).thenReturn(100);
+          assertEquals(90, tarifs.prixRemise("SKU-1"));
+      }
+  }
+  ```
+
+  **Ce qui est démarré.**
+
+  - Les **composants testés** : les beans injectés dans les champs `@Inject` du test, et les classes listées dans
+    l'annotation (`@QuarkusComponentTest(TarifService.class)`).
+  - Leurs **dépendances non satisfaites** sont remplacées **automatiquement par des mocks Mockito** ; `@InjectMock`
+    donne accès à l'un d'eux pour le bouchonner.
+  - Ce que CDI apporte reste vrai : injection, `@PostConstruct`, intercepteurs des composants, événements, et
+    `@ConfigProperty`, dont les valeurs se donnent par `@TestConfigProperty(key = ..., value = ...)`.
+
+  **Ce qui ne l'est pas.** Ni serveur HTTP, ni extensions : pas de RestAssured, pas de base, pas d'`EntityManager`
+  réel. Le test ne vérifie que le bean et sa collaboration avec ses dépendances.
+
+  | Test | Démarre | Pour |
+  |---|---|---|
+  | JUnit ordinaire | rien | une règle pure, des objets créés par `new` |
+  | `@QuarkusComponentTest` | le conteneur CDI et les composants testés | un bean, avec CDI, sans le reste |
+  | `@QuarkusTest` | toute l'application | l'assemblage, HTTP, la base |
+
+  **Pourquoi pas un simple test Mockito ?** Un test unitaire avec `new TarifService(...)` ne voit ni
+  l'injection de la configuration, ni les intercepteurs, ni les callbacks du cycle de vie. `@QuarkusComponentTest`
+  les garde, en restant bien plus rapide qu'un démarrage complet.
+
+  **En entretien** : « `@QuarkusComponentTest` démarre seulement le conteneur CDI, avec les beans que je teste ; leurs
+  dépendances non satisfaites deviennent des mocks, que je configure avec `@InjectMock`, et la configuration se donne
+  par `@TestConfigProperty`. Il n'y a ni HTTP ni base : c'est un test de composant, entre le test unitaire et le
+  `@QuarkusTest`. »
+cards:
+  - key: ce-qui-demarre
+    format: course
+    question: "Que démarre `@QuarkusComponentTest` ?"
+    choices:
+      - {text: "Le conteneur CDI, avec les seuls composants testés", correct: true}
+      - {text: "Toute l'application, sur le port de test 8081", correct: false}
+      - {text: "L'artefact construit, dans un processus séparé", correct: false}
+      - {text: "Rien : il crée les beans testés avec `new`", correct: false}
+    answer: "Il démarre ArC, le conteneur CDI de Quarkus, avec les composants testés et des mocks pour leurs dépendances. Ni HTTP, ni base, ni extensions."
+  - key: dependances-non-satisfaites
+    format: course
+    question: "Dans un `@QuarkusComponentTest`, que deviennent les dépendances du composant testé qui ne sont pas des composants du test ?"
+    choices:
+      - {text: "Elles sont remplacées automatiquement par des mocks", correct: true}
+      - {text: "Elles font échouer le test : dépendance non satisfaite", correct: false}
+      - {text: "Elles sont démarrées avec toute leur extension", correct: false}
+      - {text: "Elles restent `null` dans le composant testé", correct: false}
+    answer: "Le test ne démarre pas leurs vrais beans : Quarkus injecte des mocks Mockito à leur place. `@InjectMock` permet d'en configurer un."
+  - key: configurer-un-mock
+    format: course
+    question: "Comment bouchonnes-tu la dépendance `CatalogueRepository` du composant, dans un `@QuarkusComponentTest` ?"
+    choices:
+      - {text: "Par un champ `@InjectMock CatalogueRepository catalogue`", correct: true}
+      - {text: "Par un champ `@Inject CatalogueRepository catalogue`", correct: false}
+      - {text: "Par un `@TestProfile` qui active une alternative", correct: false}
+      - {text: "Par `QuarkusMock.installMockForType` dans `@BeforeAll`", correct: false}
+    answer: "`@InjectMock` donne le mock que le conteneur a injecté dans le composant ; on l'utilise ensuite avec `when(...)` et `verify(...)`."
+  - key: donner-une-propriete
+    format: course
+    question: "Le composant testé lit `@ConfigProperty(name = \"remise.taux\")`. Comment donnes-tu cette valeur au test ?"
+    choices:
+      - {text: "`@TestConfigProperty(key = \"remise.taux\", value = \"0.1\")`", correct: true}
+      - {text: "`@TestProfile` avec `getConfigOverrides()`, comme un `@QuarkusTest`", correct: false}
+      - {text: "`@InjectMock Config config`, bouchonné dans le test", correct: false}
+      - {text: "`System.setProperty(\"remise.taux\", \"0.1\")` dans le test", correct: false}
+    answer: "`@TestConfigProperty`, sur la classe ou sur une méthode, fournit la propriété au conteneur du test. `@TestProfile` appartient à `@QuarkusTest`."
+  - key: vf-restassured
+    format: true-false
+    question: "Dans un `@QuarkusComponentTest`, on peut appeler les ressources REST avec RestAssured."
+    truth: false
+    answer: "Aucun serveur HTTP ne démarre : seul le conteneur CDI tourne. On appelle les méthodes du composant directement."
+  - key: vf-mocks-automatiques
+    format: true-false
+    question: "Les dépendances non satisfaites du composant testé sont remplacées par des mocks Mockito."
+    truth: true
+    answer: "C'est ce qui permet de tester un bean sans démarrer ses collaborateurs : chaque dépendance absente devient un mock."
+  - key: vf-plus-rapide
+    format: true-false
+    question: "`@QuarkusComponentTest` démarre plus vite qu'un `@QuarkusTest`, car il ne construit pas toute l'application."
+    truth: true
+    answer: "Seul le conteneur CDI démarre, avec quelques beans : pas d'extensions, pas de serveur, pas de base."
+  - key: vf-entitymanager-reel
+    format: true-false
+    question: "Dans un `@QuarkusComponentTest`, un composant qui injecte l'`EntityManager` reçoit celui de Hibernate ORM, branché sur la base."
+    truth: false
+    answer: "Les extensions ne démarrent pas : l'`EntityManager` n'est pas un composant du test, il devient un mock. Pour la base, c'est `@QuarkusTest`."
+  - key: qcm-quel-test
+    format: multiple-choice
+    question: "Tu veux tester `TarifService` (un repository injecté et une propriété), avec CDI, en quelques dixièmes de seconde, sans base. Quel test choisis-tu ?"
+    choices:
+      - {text: "`@QuarkusComponentTest`", correct: true}
+      - {text: "`@QuarkusTest`", correct: false}
+      - {text: "`@QuarkusIntegrationTest`", correct: false}
+      - {text: "`@QuarkusMainTest`", correct: false}
+    answer: "Le test de composant garde CDI (injection, configuration) et remplace le repository par un mock, sans démarrer l'application ni la base."
+  - key: qcm-artefact
+    format: multiple-choice
+    question: "Quelle dépendance de test apporte `@QuarkusComponentTest` ?"
+    choices:
+      - {text: "`quarkus-junit-component`", correct: true}
+      - {text: "`quarkus-junit-mockito`", correct: false}
+      - {text: "`quarkus-arc-test`", correct: false}
+      - {text: "`quarkus-test-cdi`", correct: false}
+    answer: "`quarkus-junit-component` (anciennement `quarkus-junit5-component`). `quarkus-junit-mockito` apporte `@InjectMock` pour `@QuarkusTest`."
+  - key: qcm-lister-les-composants
+    format: multiple-choice
+    question: "Comment ajoutes-tu `Arrondi` aux composants du test, quand aucun champ du test ne l'injecte ?"
+    choices:
+      - {text: "`@QuarkusComponentTest(Arrondi.class)`", correct: true}
+      - {text: "`@InjectMock Arrondi arrondi`", correct: false}
+      - {text: "`@TestConfigProperty(key = \"Arrondi\")`", correct: false}
+      - {text: "`@WithTestResource(Arrondi.class)`", correct: false}
+    answer: "La valeur de l'annotation liste des classes à traiter comme composants : `Arrondi` est alors un vrai bean, pas un mock."
+  - key: qcm-face-a-mockito-seul
+    format: multiple-choice
+    question: "Qu'apporte `@QuarkusComponentTest` par rapport à `new TarifService(mock)` dans un test Mockito ordinaire ?"
+    choices:
+      - {text: "CDI : configuration injectée, intercepteurs, `@PostConstruct`", correct: true}
+      - {text: "Un serveur HTTP pour appeler les ressources du service", correct: false}
+      - {text: "Une vraie base de données, démarrée par les Dev Services", correct: false}
+      - {text: "La compilation native du composant avant le test", correct: false}
+    answer: "Le composant vit dans un vrai conteneur CDI : ce que Quarkus fait autour de lui (injection, configuration, intercepteurs, cycle de vie) est testé aussi."
+  - key: trous-annotation
+    format: fill-in
+    question: |-
+      Complète pour tester `TarifService` dans le seul conteneur CDI :
+      ```java
+      @___
+      class TarifServiceTest {
+
+          @Inject
+          TarifService tarifs;
+      ```
+    blanks:
+      - [QuarkusComponentTest]
+    answer: "`@QuarkusComponentTest` (`io.quarkus.test.component`) démarre le conteneur CDI avec les composants testés."
+  - key: trous-mock-de-dependance
+    format: fill-in
+    question: |-
+      Complète pour récupérer le mock de la dépendance et le bouchonner :
+      ```java
+      @___
+      CatalogueRepository catalogue;
+      ```
+    blanks:
+      - [InjectMock]
+    answer: "`@InjectMock` donne le mock que le conteneur a injecté à la place du vrai repository."
+  - key: trous-propriete-de-test
+    format: fill-in
+    question: |-
+      Complète pour fournir la propriété au composant :
+      ```java
+      @QuarkusComponentTest
+      @___(key = "remise.taux", value = "0.1")
+      class TarifServiceTest {
+      ```
+    blanks:
+      - [TestConfigProperty]
+    answer: "`@TestConfigProperty` donne une valeur de configuration au conteneur du test, pour la classe ou pour une méthode."
+  - key: trous-dependance-maven
+    format: fill-in
+    question: |-
+      Complète la dépendance de test :
+      ```xml
+      <groupId>io.quarkus</groupId>
+      <artifactId>___</artifactId>
+      <scope>test</scope>
+      ```
+    blanks:
+      - [quarkus-junit-component]
+    answer: "`quarkus-junit-component`, l'ancien `quarkus-junit5-component`."

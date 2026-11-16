@@ -1,0 +1,361 @@
+notion: health
+lesson: |-
+  Un orchestrateur comme Kubernetes interroge l'application pour savoir **si elle vit** et **si elle peut recevoir
+  du trafic**. L'extension `quarkus-smallrye-health` (MicroProfile Health) lui répond.
+
+  | Chemin | Question | Si DOWN, Kubernetes... |
+  |---|---|---|
+  | `/q/health/live` | **liveness** : le processus fonctionne-t-il ? | **redémarre** le conteneur |
+  | `/q/health/ready` | **readiness** : peut-il servir des requêtes ? | **retire** le pod du `Service`, sans le redémarrer |
+  | `/q/health/started` | **startup** : a-t-il fini de démarrer ? | attend, et ne lance pas encore les deux autres sondes |
+  | `/q/health` | tout à la fois | (pour un humain ou un outil) |
+
+  La réponse est un JSON, avec le statut **HTTP 200 si tout est UP, 503 si un check est DOWN** :
+
+  ```
+  {"status": "DOWN", "checks": [{"name": "stock", "status": "DOWN", "data": {"erreur": "délai dépassé"}}]}
+  ```
+
+  **Sans écrire de code**, l'extension répond déjà, et les autres extensions ajoutent leurs checks : la source de
+  données ajoute un check de **readiness** qui teste la connexion à la base, comme Kafka ou Redis.
+
+  **Écrire un check.** Un bean qui implémente `HealthCheck`, avec un qualificatif qui dit sa sonde :
+
+  ```java
+  @Readiness
+  @ApplicationScoped
+  public class StockCheck implements HealthCheck {
+
+      @Inject
+      StockClient stock;
+
+      @Override
+      public HealthCheckResponse call() {
+          try {
+              int articles = stock.compter();
+              return HealthCheckResponse.named("stock").withData("articles", articles).up().build();
+          } catch (RuntimeException e) {
+              return HealthCheckResponse.named("stock").withData("erreur", e.getMessage()).down().build();
+          }
+      }
+  }
+  ```
+
+  Les qualificatifs sont `@Liveness`, `@Readiness` et `@Startup` (`org.eclipse.microprofile.health`). Un check sans
+  qualificatif ne compte pour aucune sonde.
+
+  **Que mettre où ?**
+
+  - **Liveness** : seulement l'état du processus lui-même (un blocage interne, un état irrécupérable). **Jamais une
+    dépendance externe** : si la base tombe, redémarrer tous les pods ne la répare pas, et aggrave la panne.
+  - **Readiness** : ce sans quoi l'application ne peut pas servir, comme la base. Une dépendance **facultative**
+    (des recommandations) n'y a pas sa place : la perdre ne doit pas retirer tous les pods.
+  - **Startup** : un démarrage long (un cache à charger), pour que la liveness ne tue pas le pod trop tôt.
+
+  Un check doit répondre **vite** : une sonde Kubernetes a un délai court (une seconde par défaut). Les chemins
+  peuvent passer sur un port séparé avec l'interface de gestion (`quarkus.management.enabled=true`, port 9000), pour
+  ne pas les exposer au public.
+
+  **En entretien** : « SmallRye Health expose `/q/health/live`, `/q/health/ready` et `/q/health/started`, en 200 si
+  tout est UP et en 503 sinon. Liveness DOWN, Kubernetes redémarre ; readiness DOWN, il coupe le trafic sans
+  redémarrer. Je mets la base en readiness, jamais en liveness, et j'écris mes checks avec `HealthCheck` et un
+  qualificatif comme `@Readiness`. »
+cards:
+  - key: sens-de-liveness
+    format: course
+    question: "Que signale la sonde liveness d'une application ?"
+    choices:
+      - {text: "Si le processus fonctionne, ou s'il faut le redémarrer", correct: true}
+      - {text: "Si l'application peut recevoir du trafic en ce moment", correct: false}
+      - {text: "Si l'application a fini de charger ses caches au démarrage", correct: false}
+      - {text: "Si toutes les dépendances externes répondent à temps", correct: false}
+    answer: "Liveness DOWN veut dire « je suis cassé » : Kubernetes redémarre le conteneur. Recevoir du trafic, c'est la readiness ; finir de démarrer, la startup."
+  - key: sens-de-readiness
+    format: course
+    question: "Que fait Kubernetes quand la sonde readiness d'un pod passe DOWN ?"
+    choices:
+      - {text: "Il retire le pod du `Service`, sans le redémarrer", correct: true}
+      - {text: "Il redémarre le conteneur du pod, aussitôt", correct: false}
+      - {text: "Il supprime le pod et en crée un autre ailleurs", correct: false}
+      - {text: "Il ne fait rien : la readiness n'est qu'indicative", correct: false}
+    answer: "Le pod ne reçoit plus de requêtes, mais il continue de tourner ; dès que la readiness repasse UP, le trafic revient."
+  - key: role-de-startup
+    format: course
+    question: "À quoi sert un check `@Startup` ?"
+    choices:
+      - {text: "À dire que le démarrage est fini, avant que la liveness ne compte", correct: true}
+      - {text: "À exécuter du code une fois, au démarrage de l'application", correct: false}
+      - {text: "À redémarrer l'application si elle démarre trop lentement", correct: false}
+      - {text: "À retarder les requêtes HTTP tant qu'un cache n'est pas froid", correct: false}
+    answer: "Tant que la sonde startup n'est pas UP, Kubernetes ne lance pas les sondes liveness et readiness : un démarrage long n'est pas pris pour une panne."
+  - key: statut-http-down
+    format: course
+    question: "Quel statut HTTP `/q/health/ready` renvoie-t-il quand un check de readiness est DOWN ?"
+    choices:
+      - {text: "503 Service Unavailable", correct: true}
+      - {text: "200 OK, avec `DOWN` dans le corps", correct: false}
+      - {text: "500 Internal Server Error", correct: false}
+      - {text: "404 Not Found", correct: false}
+    answer: "UP répond 200, DOWN répond 503 : Kubernetes ne lit que le statut. Le corps JSON détaille chaque check, pour un humain."
+  - key: vf-liveness-redemarre
+    format: true-false
+    question: "Quand la sonde liveness d'un pod échoue, Kubernetes redémarre son conteneur."
+    truth: true
+    answer: "C'est le sens de la liveness : un processus qui ne fonctionne plus est redémarré."
+  - key: vf-readiness-redemarre
+    format: true-false
+    question: "Quand la sonde readiness d'un pod échoue, Kubernetes redémarre son conteneur."
+    truth: false
+    answer: "Il retire seulement le pod du `Service` : plus de trafic, pas de redémarrage. Il lui rend le trafic quand la readiness repasse UP."
+  - key: vf-check-de-la-base
+    format: true-false
+    question: "Avec `quarkus-smallrye-health` et une source de données, un check de readiness de la base existe sans écrire de code."
+    truth: true
+    answer: "L'extension de la source de données ajoute son check, qui teste la connexion. D'autres extensions (Kafka, Redis...) font de même."
+  - key: vf-sans-qualificatif
+    format: true-false
+    question: "Un bean `HealthCheck` sans `@Liveness`, `@Readiness` ni `@Startup` est pris en compte par la sonde readiness."
+    truth: false
+    answer: "C'est le qualificatif qui range le check dans une sonde. Sans lui, `/q/health/ready` ne l'appelle pas."
+  - key: qcm-chemin-readiness
+    format: multiple-choice
+    question: "Sur quel chemin règles-tu la sonde readiness de Kubernetes, pour une application Quarkus ?"
+    choices:
+      - {text: "`/q/health/ready`", correct: true}
+      - {text: "`/q/health/live`", correct: false}
+      - {text: "`/health/readiness`", correct: false}
+      - {text: "`/actuator/health/readiness`", correct: false}
+    answer: "Quarkus range ses chemins techniques sous `/q` : `/q/health/ready` pour la readiness, `/q/health/live` pour la liveness. `/actuator` est le chemin de Spring Boot."
+  - key: qcm-ou-mettre-la-base
+    format: multiple-choice
+    question: "Dans quelle sonde un check de la connexion à la base a-t-il sa place ?"
+    choices:
+      - {text: "Readiness : sans base, le pod ne doit plus recevoir de trafic", correct: true}
+      - {text: "Liveness : sans base, le pod doit être redémarré", correct: false}
+      - {text: "Startup : la base ne compte qu'au démarrage du pod", correct: false}
+      - {text: "Aucune : la base n'a rien à voir avec la santé du pod", correct: false}
+    answer: "Une base en panne ne se répare pas en redémarrant les pods : la readiness coupe le trafic, et le rend quand la base revient."
+  - key: qcm-demarrage-long
+    format: multiple-choice
+    question: "Ton application charge un cache pendant 40 secondes au démarrage. Quel qualificatif donnes-tu au check qui le surveille ?"
+    choices:
+      - {text: "`@Startup`", correct: true}
+      - {text: "`@Liveness`", correct: false}
+      - {text: "`@Readiness`, et rien d'autre", correct: false}
+      - {text: "`@Wellness`", correct: false}
+    answer: "La sonde startup protège un démarrage long : tant qu'elle n'est pas UP, la liveness ne risque pas de tuer le pod. `@Wellness` ne sert à aucune sonde de Kubernetes."
+  - key: qcm-extension
+    format: multiple-choice
+    question: "Quelle extension ajoute les chemins `/q/health` à une application Quarkus ?"
+    choices:
+      - {text: "`quarkus-smallrye-health`", correct: true}
+      - {text: "`quarkus-micrometer`", correct: false}
+      - {text: "`quarkus-kubernetes`", correct: false}
+      - {text: "`quarkus-smallrye-fault-tolerance`", correct: false}
+    answer: "SmallRye Health implémente MicroProfile Health. `quarkus-kubernetes` branche les sondes dans les manifestes, mais ne répond pas lui-même."
+  - key: trous-qualificatif
+    format: fill-in
+    question: |-
+      Complète pour que ce check compte dans la sonde readiness :
+      ```java
+      @___
+      @ApplicationScoped
+      public class StockCheck implements HealthCheck {
+      ```
+    blanks:
+      - [Readiness]
+    answer: "`@Readiness` (`org.eclipse.microprofile.health`) range le check dans `/q/health/ready`."
+  - key: trous-interface
+    format: fill-in
+    question: |-
+      Complète la déclaration du check :
+      ```java
+      @Liveness
+      @ApplicationScoped
+      public class FileCheck implements ___ {
+      ```
+    blanks:
+      - [HealthCheck]
+    answer: "`HealthCheck` n'a qu'une méthode, `call()`, qui renvoie une `HealthCheckResponse`."
+  - key: trous-reponse-up
+    format: fill-in
+    question: |-
+      Complète pour répondre que la base va bien :
+      ```java
+      return HealthCheckResponse.___("base");
+      ```
+    blanks:
+      - [up]
+    answer: "`HealthCheckResponse.up(nom)` ; `down(nom)` signale un échec."
+  - key: trous-reponse-down
+    format: fill-in
+    question: |-
+      Complète pour signaler l'échec, avec la cause :
+      ```java
+      return HealthCheckResponse.named("stock")
+          .withData("erreur", e.getMessage())
+          .___()
+          .build();
+      ```
+    blanks:
+      - [down]
+    answer: "`down()` passe le check à DOWN ; `withData` ajoute des détails au JSON."
+  - key: bug-base-en-liveness
+    format: bug-fix
+    question: |-
+      Pendant une coupure de la base, Kubernetes redémarre tous les pods en boucle, et le service reste indisponible
+      bien après le retour de la base. Quelle correction est la bonne ?
+      ```java
+      @Liveness
+      @ApplicationScoped
+      public class BaseCheck implements HealthCheck {
+          ...
+      }
+      ```
+    choices:
+      - {text: "Remplacer `@Liveness` par `@Readiness`", correct: true}
+      - {text: "Remplacer `@Liveness` par `@Startup`", correct: false}
+      - {text: "Retirer `@ApplicationScoped`, inutile pour un check", correct: false}
+      - {text: "Allonger la période de la sonde liveness à 5 minutes", correct: false}
+    answer: |-
+      ```java
+      @Readiness
+      @ApplicationScoped
+      public class BaseCheck implements HealthCheck {
+      ```
+      Redémarrer un pod ne répare pas la base, et chaque redémarrage ajoute du temps de démarrage. En readiness, les
+      pods attendent sans trafic, et reprennent dès que la base revient.
+  - key: bug-check-sans-qualificatif
+    format: bug-fix
+    question: |-
+      Le service de stock est injoignable, mais la sonde readiness reste UP : ce check n'apparaît pas dans
+      `/q/health/ready`. Quelle correction est la bonne ?
+      ```java
+      @ApplicationScoped
+      public class StockCheck implements HealthCheck {
+          @Override
+          public HealthCheckResponse call() { ... }
+      }
+      ```
+    choices:
+      - {text: "Ajouter `@Readiness` sur la classe", correct: true}
+      - {text: "Renommer la classe en `StockReadiness`", correct: false}
+      - {text: "Ajouter `@Path(\"/q/health/ready\")` sur la classe", correct: false}
+      - {text: "Remplacer `@ApplicationScoped` par `@Singleton`", correct: false}
+    answer: |-
+      ```java
+      @Readiness
+      @ApplicationScoped
+      public class StockCheck implements HealthCheck {
+      ```
+      C'est le qualificatif qui range un check dans une sonde ; ni le nom de la classe ni son scope n'y changent
+      rien.
+  - key: bug-toujours-up
+    format: bug-fix
+    question: |-
+      Le service de stock tombe, les erreurs s'accumulent dans les journaux, mais la readiness reste UP. Quelle
+      correction est la bonne ?
+      ```java
+      @Override
+      public HealthCheckResponse call() {
+          try {
+              stock.ping();
+          } catch (RuntimeException e) {
+              journal.warn("Stock injoignable", e);
+          }
+          return HealthCheckResponse.up("stock");
+      }
+      ```
+    choices:
+      - {text: "Renvoyer `HealthCheckResponse.down(\"stock\")` dans le `catch`", correct: true}
+      - {text: "Relancer l'exception dans le `catch`, sans rien renvoyer", correct: false}
+      - {text: "Remplacer `journal.warn` par `journal.error` dans le `catch`", correct: false}
+      - {text: "Déplacer le `return` avant l'appel à `stock.ping()`", correct: false}
+    answer: |-
+      ```java
+      } catch (RuntimeException e) {
+          journal.warn("Stock injoignable", e);
+          return HealthCheckResponse.down("stock");
+      }
+      return HealthCheckResponse.up("stock");
+      ```
+      L'exception est avalée, puis le check répond UP quoi qu'il arrive. Il doit dire DOWN quand la dépendance ne
+      répond pas : c'est sa seule raison d'être.
+  - key: bug-chemin-de-sonde
+    format: bug-fix
+    question: |-
+      Les pods ne deviennent jamais prêts : la sonde reçoit 404. L'application a bien `quarkus-smallrye-health`.
+      Quelle correction est la bonne ?
+      ```yaml
+      readinessProbe:
+        httpGet:
+          path: /health/ready
+          port: 8080
+      ```
+    choices:
+      - {text: "Utiliser le chemin `/q/health/ready`", correct: true}
+      - {text: "Utiliser le chemin `/q/health/live`", correct: false}
+      - {text: "Utiliser le port 8081 au lieu du 8080", correct: false}
+      - {text: "Utiliser le chemin `/actuator/health`", correct: false}
+    answer: |-
+      ```yaml
+      readinessProbe:
+        httpGet:
+          path: /q/health/ready
+          port: 8080
+      ```
+      Les chemins techniques de Quarkus sont sous `/q`. Le chemin de liveness répondrait, mais pour une autre
+      question ; 8081 est le port des tests. Avec `quarkus-kubernetes`, ces sondes sont générées sans erreur.
+  - key: situation-coupure-de-la-base
+    format: scenario
+    question: |-
+      La base de données tombe dix minutes. Ton service ne peut rien faire sans elle. Comment veux-tu que Kubernetes
+      réagisse ?
+    choices:
+      - {text: "Readiness DOWN : il coupe le trafic, et le rend au retour de la base", correct: true}
+      - {text: "Liveness DOWN : il redémarre les pods, jusqu'au retour de la base", correct: false}
+      - {text: "Rien : les sondes ne doivent jamais dépendre de la base de données", correct: false}
+      - {text: "Startup DOWN : il recrée les pods, qui redémarreront plus tard", correct: false}
+    answer: |-
+      Les pods n'ont pas besoin d'être redémarrés : la base est ailleurs. Hors du `Service`, ils ne reçoivent plus de
+      requêtes vouées à l'échec, et reprennent sans délai de démarrage quand la base revient.
+  - key: situation-dependance-facultative
+    format: scenario
+    question: |-
+      Ta boutique affiche des recommandations venues d'un autre service. Sans elles, les pages s'affichent quand
+      même. Faut-il un check de readiness sur ce service ?
+    choices:
+      - {text: "Non : le perdre retirerait tous les pods, pour une fonction secondaire", correct: true}
+      - {text: "Oui : toute dépendance doit faire partie de la readiness", correct: false}
+      - {text: "Oui, mais en liveness, pour redémarrer quand il revient", correct: false}
+      - {text: "Non : un check ne peut porter que sur la base de données", correct: false}
+    answer: |-
+      La readiness dit « je ne peux pas servir ». Si le service de recommandations tombe, tous les pods passeraient
+      DOWN en même temps : une panne totale pour une fonction facultative. On le surveille par des métriques et des
+      alertes.
+  - key: situation-demarrage-tue
+    format: scenario
+    question: |-
+      Ton application met 50 secondes à charger son catalogue en mémoire. Kubernetes la tue avant la fin, car la
+      liveness ne répond pas encore. Que fais-tu ?
+    choices:
+      - {text: "J'ajoute un check `@Startup` et la sonde startup qui l'interroge", correct: true}
+      - {text: "Je supprime la sonde liveness, qui gêne le démarrage", correct: false}
+      - {text: "Je mets le chargement du catalogue dans le check de liveness", correct: false}
+      - {text: "Je réduis le délai de la liveness à une seconde", correct: false}
+    answer: |-
+      La sonde startup suspend les deux autres tant que le démarrage n'est pas fini. On garde la liveness pour
+      détecter un vrai blocage ensuite.
+  - key: situation-sante-exposee
+    format: scenario
+    question: |-
+      Ton `/q/health` public renvoie le détail des checks, dont les noms des services internes. Le front n'en a pas
+      besoin. Que fais-tu ?
+    choices:
+      - {text: "J'active l'interface de gestion, sur un port séparé non exposé", correct: true}
+      - {text: "Je désactive les checks de santé, inutiles en production", correct: false}
+      - {text: "Je renomme les checks avec des noms sans signification", correct: false}
+      - {text: "Je renvoie toujours UP, pour ne rien révéler aux visiteurs", correct: false}
+    answer: |-
+      Avec `quarkus.management.enabled=true`, la santé et les métriques passent sur un port à part (9000 par défaut),
+      que Kubernetes interroge mais que le `Service` public n'expose pas. Les sondes gardent leur rôle.

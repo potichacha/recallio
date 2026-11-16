@@ -1,0 +1,270 @@
+notion: panache-pagination
+lesson: |-
+  Une liste ne se renvoie jamais en entier : dix mille produits, c'est une réponse lente et une mémoire saturée. On
+  la **pagine**. Avec Panache, la pagination se règle sur la `PanacheQuery` que renvoie `find` (ou `findAll`).
+
+  **1. Paginer une requête.**
+
+  ```java
+  PanacheQuery<Produit> requete = Produit.find("categorie", Sort.by("nom"), categorie);
+  requete.page(Page.of(0, 20));            // la première page, de 20 produits
+
+  List<Produit> premiere = requete.list();
+  List<Produit> seconde = requete.nextPage().list();
+  int nombreDePages = requete.pageCount();
+  boolean encore = requete.hasNextPage();
+  ```
+
+  - Les pages sont **numérotées à partir de 0** : `Page.of(2, 20)` est la troisième page. `page(2, 20)` est un
+    raccourci.
+  - `nextPage()`, `previousPage()`, `firstPage()`, `lastPage()` se déplacent ; `hasNextPage()` et
+    `hasPreviousPage()` disent si l'on peut avancer ou reculer.
+  - `pageCount()` et `count()` envoient un `select count(*)` : le nombre de pages et de résultats.
+
+  **2. Toujours trier.** Sans `order by`, la base ne garantit aucun ordre : d'une page à l'autre, un produit peut
+  apparaître deux fois et un autre jamais. Un tri sur une colonne unique (ou terminé par l'identifiant) rend les pages
+  stables.
+
+  **3. `range` : des bornes plutôt qu'une page.** `range(debut, fin)` prend les résultats d'indice `debut` à `fin`,
+  **les deux compris** : `range(0, 9)` en renvoie dix. Après `range`, les méthodes de page (`nextPage`, `pageCount`...)
+  lèvent une `UnsupportedOperationException` : « Cannot call a page related method, call page(Page) or page(int,
+  int) to initiate pagination first ». Il faut d'abord appeler `page(...)`.
+
+  **4. Côté REST.** La page et sa taille viennent de la requête HTTP ; la taille est **bornée par le serveur**, pour
+  qu'aucun client ne demande un million de lignes.
+
+  ```java
+  private static final int TAILLE_MAX = 100;
+
+  @GET
+  public List<Produit> lister(@QueryParam("page") @DefaultValue("0") int page,
+                              @QueryParam("taille") @DefaultValue("20") int taille) {
+      return Produit.findAll(Sort.by("nom").and("id"))
+              .page(page, Math.min(taille, TAILLE_MAX))
+              .list();
+  }
+  ```
+
+  On renvoie souvent aussi le total (`count()`) ou un lien vers la page suivante, pour que le client sache où il en
+  est.
+
+  **En entretien** : « Je pagine la `PanacheQuery` avec `page(Page.of(index, taille))`, les pages partant de 0, et je
+  lis `list()`, `hasNextPage()` ou `pageCount()`. Je trie toujours, sur une colonne unique, pour que les pages soient
+  stables, et je borne la taille côté serveur. `range` prend des bornes incluses, mais ne se combine pas avec les
+  méthodes de page. »
+cards:
+  - key: premiere-page
+    format: course
+    question: "Quel est l'indice de la première page dans `Page.of(index, taille)` ?"
+    choices:
+      - {text: "0", correct: true}
+      - {text: "1", correct: false}
+      - {text: "-1", correct: false}
+      - {text: "La taille de la page", correct: false}
+    answer: "Les pages de Panache partent de 0. Une API qui numérote ses pages à partir de 1 doit retirer 1 avant d'appeler `page`."
+  - key: role-de-pagecount
+    format: course
+    question: "Que fait `requete.pageCount()` sur une requête paginée ?"
+    choices:
+      - {text: "Elle compte les résultats en base et en déduit le nombre de pages", correct: true}
+      - {text: "Elle renvoie le numéro de la page courante de la requête", correct: false}
+      - {text: "Elle charge toutes les pages en mémoire pour les compter", correct: false}
+      - {text: "Elle renvoie la taille de page choisie dans `Page.of`", correct: false}
+    answer: "Panache envoie un `select count(*)` et divise par la taille de page. Le numéro de la page courante se lit avec `page().index`."
+  - key: pourquoi-trier
+    format: course
+    question: "Pourquoi trier une requête que l'on pagine ?"
+    choices:
+      - {text: "Sans tri, l'ordre n'est pas garanti, et les pages se chevauchent", correct: true}
+      - {text: "Parce que Panache refuse de paginer une requête sans tri", correct: false}
+      - {text: "Parce que le tri rend le `select count(*)` plus rapide", correct: false}
+      - {text: "Parce que la base ne sait pas compter sans `order by`", correct: false}
+    answer: "Sans `order by`, deux requêtes peuvent ranger les lignes autrement : un produit revient sur deux pages, un autre disparaît. Trier sur une colonne unique rend les pages stables."
+  - key: borner-la-taille
+    format: course
+    question: "Pourquoi le serveur borne-t-il la taille de page demandée par le client ?"
+    choices:
+      - {text: "Pour qu'un client ne charge pas toute la table d'un coup", correct: true}
+      - {text: "Parce que Panache refuse une taille de page au-delà de 100", correct: false}
+      - {text: "Parce que le JSON ne peut pas contenir plus de 100 éléments", correct: false}
+      - {text: "Pour que `pageCount()` reste un nombre entier", correct: false}
+    answer: "Avec `taille=1000000`, la requête chargerait tout en mémoire. `Math.min(taille, TAILLE_MAX)` garde la réponse raisonnable, quoi que demande le client."
+  - key: vf-range-bornes-incluses
+    format: true-false
+    question: "`requete.range(0, 9).list()` renvoie au plus dix résultats."
+    truth: true
+    answer: "Les deux bornes de `range` sont comprises : les indices 0 à 9, soit dix résultats."
+  - key: vf-page-un
+    format: true-false
+    question: "`Page.of(1, 20)` désigne les vingt premiers résultats."
+    truth: false
+    answer: "Les pages partent de 0 : `Page.of(1, 20)` est la deuxième page, du 21e au 40e résultat. Les vingt premiers sont `Page.of(0, 20)`."
+  - key: vf-hasnextpage
+    format: true-false
+    question: "`requete.hasNextPage()` dit s'il existe une page après la page courante."
+    truth: true
+    answer: "Elle compare la page courante au nombre de pages. `hasPreviousPage()` fait de même vers l'arrière."
+  - key: vf-nextpage-apres-range
+    format: true-false
+    question: "Après `range(0, 9)`, appeler `nextPage()` sur la même requête lève une exception."
+    truth: true
+    answer: "« Cannot call a page related method, call page(Page) or page(int, int) to initiate pagination first ». `range` et les méthodes de page ne se mélangent pas."
+  - key: qcm-troisieme-page
+    format: multiple-choice
+    question: "Comment obtiens-tu la troisième page de 20 produits ?"
+    choices:
+      - {text: "`requete.page(Page.of(2, 20)).list()`", correct: true}
+      - {text: "`requete.page(Page.of(3, 20)).list()`", correct: false}
+      - {text: "`requete.page(Page.of(40, 20)).list()`", correct: false}
+      - {text: "`requete.range(40, 60).list()`", correct: false}
+    answer: "Les pages partent de 0 : la troisième est d'indice 2. `range(40, 60)` en renverrait 21, ses deux bornes étant comprises."
+  - key: qcm-page-suivante
+    format: multiple-choice
+    question: "Tu as lu la première page d'une requête. Comment lis-tu la suivante ?"
+    choices:
+      - {text: "`requete.nextPage().list()`", correct: true}
+      - {text: "`requete.list().next()`", correct: false}
+      - {text: "`requete.page(+1).list()`", correct: false}
+      - {text: "`requete.stream().skip(1).toList()`", correct: false}
+    answer: "`nextPage()` avance la requête d'une page et la renvoie ; `list()` lit cette page."
+  - key: qcm-total
+    format: multiple-choice
+    question: "Comment obtiens-tu le nombre total de résultats, pour afficher « 432 produits » au-dessus de la page ?"
+    choices:
+      - {text: "`requete.count()`", correct: true}
+      - {text: "`requete.list().size()`", correct: false}
+      - {text: "`requete.page().size`", correct: false}
+      - {text: "`requete.pageCount()`", correct: false}
+    answer: "`count()` envoie un `select count(*)` sur la requête entière. `list().size()` ne compte que la page ; `pageCount()` compte les pages."
+  - key: qcm-tranche
+    format: multiple-choice
+    question: "Quel appel renvoie les résultats d'indice 50 à 59 ?"
+    choices:
+      - {text: "`requete.range(50, 59)`", correct: true}
+      - {text: "`requete.range(50, 60)`", correct: false}
+      - {text: "`requete.page(50, 59)`", correct: false}
+      - {text: "`requete.page(5, 50)`", correct: false}
+    answer: "`range` prend ses bornes comprises : 50 à 59, dix résultats. `page(5, 10)` donnerait les mêmes."
+  - key: trous-page
+    format: fill-in
+    question: |-
+      Complète pour paginer la requête :
+      ```java
+      PanacheQuery<Produit> requete = Produit.findAll(Sort.by("nom"));
+      requete.___(Page.of(index, 20));
+      ```
+    blanks:
+      - [page]
+    answer: "`page(Page)` (ou `page(index, taille)`) règle la page courante de la requête."
+  - key: trous-pagecount
+    format: fill-in
+    question: |-
+      Complète pour obtenir le nombre de pages :
+      ```java
+      int pages = requete.___();
+      ```
+    blanks:
+      - [pageCount]
+    answer: "`pageCount()` compte les résultats et divise par la taille de page."
+  - key: trous-hasnextpage
+    format: fill-in
+    question: |-
+      Complète pour n'afficher le lien « Suivante » que s'il reste une page :
+      ```java
+      if (requete.___()) {
+          liens.add(suivante);
+      }
+      ```
+    blanks:
+      - [hasNextPage]
+    answer: "`hasNextPage()` dit si une page suit la page courante."
+  - key: trous-page-of
+    format: fill-in
+    question: |-
+      Complète pour désigner la première page de 20 produits :
+      ```java
+      requete.page(Page.___(0, 20));
+      ```
+    blanks:
+      - [of]
+    answer: "`Page.of(index, taille)` ; `Page.ofSize(20)` désigne aussi la première page."
+  - key: bug-pages-a-partir-de-un
+    format: bug-fix
+    question: |-
+      L'application mobile numérote ses pages à partir de 1. Les vingt premiers produits n'apparaissent jamais, et la
+      dernière page est toujours vide. Quelle correction est la bonne ?
+      ```java
+      @GET
+      public List<Produit> lister(@QueryParam("page") @DefaultValue("1") int page) {
+          return Produit.findAll(Sort.by("nom")).page(page, 20).list();
+      }
+      ```
+    choices:
+      - {text: "Appeler `page(page - 1, 20)`", correct: true}
+      - {text: "Appeler `page(page + 1, 20)`", correct: false}
+      - {text: "Remplacer le tri par nom par un tri par identifiant", correct: false}
+      - {text: "Mettre `@DefaultValue(\"0\")` sans changer l'appel", correct: false}
+    answer: |-
+      ```java
+      return Produit.findAll(Sort.by("nom")).page(page - 1, 20).list();
+      ```
+      Panache compte les pages à partir de 0 : la page 1 du client est la page 0 de Panache. Changer seulement la
+      valeur par défaut laisserait le décalage pour toutes les autres pages.
+  - key: bug-pagination-sans-tri
+    format: bug-fix
+    question: |-
+      Sur PostgreSQL, certains produits apparaissent sur deux pages, et d'autres jamais. Quelle correction est la
+      bonne ?
+      ```java
+      return Produit.find("categorie", categorie).page(page, 20).list();
+      ```
+    choices:
+      - {text: "Trier la requête, par exemple `Sort.by(\"nom\").and(\"id\")`", correct: true}
+      - {text: "Réduire la taille de page de 20 à 10 produits", correct: false}
+      - {text: "Lire toutes les pages dans la même transaction", correct: false}
+      - {text: "Remplacer `page(page, 20)` par `range(page, 20)`", correct: false}
+    answer: |-
+      ```java
+      return Produit.find("categorie", Sort.by("nom").and("id"), categorie).page(page, 20).list();
+      ```
+      Sans `order by`, rien ne garantit le même ordre d'une requête à l'autre. Terminer le tri par l'identifiant
+      départage les produits de même nom.
+  - key: bug-range-un-de-trop
+    format: bug-fix
+    question: |-
+      Le bandeau « Les 10 meilleures ventes » affiche onze produits. Quelle correction est la bonne ?
+      ```java
+      return Produit.findAll(Sort.by("ventes").descending()).range(0, 10).list();
+      ```
+    choices:
+      - {text: "Appeler `range(0, 9)`", correct: true}
+      - {text: "Appeler `range(1, 10)`", correct: false}
+      - {text: "Appeler `page(0, 9)`", correct: false}
+      - {text: "Retirer le tri par ventes de la requête", correct: false}
+    answer: |-
+      ```java
+      return Produit.findAll(Sort.by("ventes").descending()).range(0, 9).list();
+      ```
+      Les deux bornes de `range` sont comprises : `range(0, 10)` prend onze résultats. `range(1, 10)` en prendrait dix,
+      mais sauterait la meilleure vente ; `page(0, 10)` conviendrait aussi.
+  - key: bug-pagecount-sans-page
+    format: bug-fix
+    question: |-
+      L'appel lève « UnsupportedOperationException: Cannot call a page related method, call page(Page) or page(int,
+      int) to initiate pagination first ». Quelle correction est la bonne ?
+      ```java
+      PanacheQuery<Produit> requete = Produit.findAll(Sort.by("nom")).range(0, 19);
+      int pages = requete.pageCount();
+      ```
+    choices:
+      - {text: "Paginer avec `page(0, 20)` au lieu de `range(0, 19)`", correct: true}
+      - {text: "Appeler `pageCount()` avant `range(0, 19)`", correct: false}
+      - {text: "Remplacer `pageCount()` par `nextPage().pageCount()`", correct: false}
+      - {text: "Retirer le tri par nom de la requête", correct: false}
+    answer: |-
+      ```java
+      PanacheQuery<Produit> requete = Produit.findAll(Sort.by("nom")).page(0, 20);
+      int pages = requete.pageCount();
+      ```
+      Les méthodes de page n'ont de sens qu'une fois la requête paginée par `page(...)`. `range` choisit des bornes,
+      sans notion de page ; `pageCount()` avant `range` lèverait la même exception.

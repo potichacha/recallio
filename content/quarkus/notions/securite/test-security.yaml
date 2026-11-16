@@ -1,0 +1,205 @@
+notion: test-security
+lesson: |-
+  Tester un endpoint protégé demande un appelant authentifié. Fabriquer un vrai jeton à chaque test serait lourd :
+  **`@TestSecurity`** installe directement une identité pour le test.
+
+  ```xml
+  <dependency>
+      <groupId>io.quarkus</groupId>
+      <artifactId>quarkus-test-security</artifactId>
+      <scope>test</scope>
+  </dependency>
+  ```
+
+  ```java
+  @QuarkusTest
+  class ProduitResourceTest {
+
+      @Test
+      void refuseUnAnonyme() {
+          given().post("/produits").then().statusCode(401);
+      }
+
+      @Test
+      @TestSecurity(user = "bob", roles = "user")
+      void refuseUnUtilisateurSansLeRole() {
+          given().contentType(ContentType.JSON).body(json).post("/produits").then().statusCode(403);
+      }
+
+      @Test
+      @TestSecurity(user = "alice", roles = "admin")
+      void laisseUnAdminCreer() {
+          given().contentType(ContentType.JSON).body(json).post("/produits").then().statusCode(201);
+      }
+  }
+  ```
+
+  **Ce que fait l'annotation.** Pendant le test, chaque requête est traitée **comme si** l'utilisateur `alice`, avec les
+  rôles donnés, était authentifié : `SecurityIdentity`, `@RolesAllowed` et `@Authenticated` le voient, sans jeton
+  ni fournisseur. Posée sur la **classe**, elle vaut pour toutes ses méthodes ; sur une **méthode**, elle l'emporte.
+
+  | Attribut | Rôle |
+  |---|---|
+  | `user` | le nom de l'utilisateur |
+  | `roles` | ses rôles |
+  | `authorizationEnabled = false` | désactive les contrôles d'accès, pour tester autre chose |
+  | `attributes` | des attributs de l'identité |
+
+  **Les claims d'un jeton.** Quand l'endpoint lit le `JsonWebToken` (son `sub`, son `email`), on ajoute
+  `@OidcSecurity` (`quarkus-test-security-oidc`) ou `@JwtSecurity` (`quarkus-test-security-jwt`) :
+
+  ```java
+  @Test
+  @TestSecurity(user = "alice", roles = "user")
+  @OidcSecurity(claims = {@Claim(key = "sub", value = "a1b2c3"), @Claim(key = "email", value = "alice@exemple.fr")})
+  void afficheLeProfil() { ... }
+  ```
+
+  **Ce qu'il faut tester.** Pour chaque endpoint protégé : le cas **anonyme** (401), le cas **sans le rôle** (403), le
+  cas **autorisé**, et, pour une ressource personnelle, **l'accès aux données d'un autre** (403 ou 404). Ce sont ces
+  tests qui empêchent une régression de sécurité.
+
+  **Et les vrais jetons ?** `@TestSecurity` ne teste pas la configuration OIDC elle-même (audience, émetteur, chemin
+  des rôles). Quelques tests peuvent demander de vrais jetons au Keycloak des Dev Services, avec `KeycloakTestClient`
+  (`quarkus-test-keycloak-server`), et les envoyer par `given().auth().oauth2(jeton)`.
+
+  **En entretien** : « Avec `@TestSecurity(user = ..., roles = ...)`, je teste un endpoint protégé sans jeton : le test
+  voit une identité installée. J'ajoute `@OidcSecurity` pour les claims que lit le code. Je teste toujours l'anonyme
+  en 401, l'utilisateur sans rôle en 403 et l'accès aux données d'autrui ; et quelques tests avec de vrais jetons des
+  Dev Services vérifient la configuration OIDC. »
+cards:
+  - key: effet-de-testsecurity
+    format: course
+    question: "Que fait `@TestSecurity(user = \"alice\", roles = \"admin\")` sur une méthode de test ?"
+    choices:
+      - {text: "Les requêtes du test sont traitées comme venant d'alice, avec le rôle admin", correct: true}
+      - {text: "Il crée l'utilisatrice alice dans le Keycloak des Dev Services", correct: false}
+      - {text: "Il désactive toute la sécurité de l'application pendant le test", correct: false}
+      - {text: "Il génère un JWT signé, que RestAssured envoie dans l'en-tête", correct: false}
+    answer: "L'identité est installée directement, sans jeton ni fournisseur : `@RolesAllowed` et `SecurityIdentity` la voient. Désactiver les contrôles, c'est `authorizationEnabled = false`."
+  - key: claims-du-jeton
+    format: course
+    question: "L'endpoint lit `jwt.getClaim(\"email\")`. Que faut-il ajouter à `@TestSecurity` pour le tester ?"
+    choices:
+      - {text: "`@OidcSecurity(claims = @Claim(key = \"email\", value = ...))`", correct: true}
+      - {text: "`@TestSecurity(user = \"alice@exemple.fr\")`, le nom servant d'e-mail", correct: false}
+      - {text: "Un `@InjectMock JsonWebToken`, bouchonné dans le test", correct: false}
+      - {text: "Rien : `@TestSecurity` remplit tous les claims habituels", correct: false}
+    answer: "`@OidcSecurity` (ou `@JwtSecurity`) complète l'identité de test par un jeton qui porte ces claims. Le nom de l'utilisateur ne remplit pas le claim `email`."
+  - key: desactiver-l-autorisation
+    format: course
+    question: "À quoi sert `@TestSecurity(authorizationEnabled = false)` ?"
+    choices:
+      - {text: "À tester un endpoint sans que ses contrôles d'accès interviennent", correct: true}
+      - {text: "À tester un endpoint comme un utilisateur anonyme, qui reçoit 401", correct: false}
+      - {text: "À désactiver le chiffrement HTTPS pendant le test", correct: false}
+      - {text: "À désactiver les Dev Services de Keycloak pendant le test", correct: false}
+    answer: "Les annotations et les permissions laissent tout passer : utile pour tester la logique d'un endpoint, pas sa sécurité. Pour l'anonyme, on n'annote pas le test."
+  - key: methode-et-classe
+    format: course
+    question: "La classe porte `@TestSecurity(user = \"bob\")` et une méthode `@TestSecurity(user = \"alice\", roles = \"admin\")`. Qui appelle dans cette méthode ?"
+    choices:
+      - {text: "alice, avec le rôle admin : l'annotation de la méthode l'emporte", correct: true}
+      - {text: "bob : l'annotation de la classe l'emporte toujours", correct: false}
+      - {text: "bob et alice, avec les rôles réunis des deux annotations", correct: false}
+      - {text: "Personne : deux annotations se neutralisent", correct: false}
+    answer: "L'annotation de la classe donne l'identité par défaut ; celle de la méthode la remplace pour ce test."
+  - key: vf-sans-annotation
+    format: true-false
+    question: "Sans `@TestSecurity`, un test qui appelle un endpoint `@RolesAllowed(\"admin\")` sans jeton reçoit 401."
+    truth: true
+    answer: "Le test est anonyme : l'endpoint demande une identité. C'est le premier cas à tester pour un endpoint protégé."
+  - key: vf-utilisateur-sans-role
+    format: true-false
+    question: "`@TestSecurity(user = \"bob\")`, sans rôles, suffit pour appeler un endpoint `@RolesAllowed(\"admin\")`."
+    truth: false
+    answer: "Bob est authentifié, mais sans le rôle : 403. Ce cas se teste justement ainsi."
+  - key: vf-configuration-oidc
+    format: true-false
+    question: "Un test `@TestSecurity` vérifie aussi que la configuration OIDC (audience, émetteur) est correcte."
+    truth: false
+    answer: "Il court-circuite le jeton et son contrôle. La configuration OIDC se teste avec de vrais jetons, par exemple ceux du Keycloak des Dev Services."
+  - key: vf-classe-entiere
+    format: true-false
+    question: "Posée sur la classe de test, `@TestSecurity` s'applique à toutes ses méthodes qui n'en ont pas."
+    truth: true
+    answer: "C'est pratique quand tous les tests d'une classe jouent le même utilisateur ; une méthode peut la remplacer."
+  - key: qcm-cas-a-tester
+    format: multiple-choice
+    question: "Quels cas testes-tu en priorité pour l'endpoint `DELETE /commandes/{id}`, réservé au client propriétaire ?"
+    choices:
+      - {text: "Anonyme (401), commande d'un autre (403 ou 404), sa propre commande", correct: true}
+      - {text: "Sa propre commande seulement, le seul cas qui arrive en production", correct: false}
+      - {text: "Anonyme (401) seulement, puisque l'endpoint est protégé", correct: false}
+      - {text: "Un administrateur seulement, qui a tous les droits", correct: false}
+    answer: "Les failles se cachent dans les refus : un test sur la commande d'un autre attrape une faille IDOR avant la production."
+  - key: qcm-dependance
+    format: multiple-choice
+    question: "Quelle dépendance de test apporte `@TestSecurity` ?"
+    choices:
+      - {text: "`quarkus-test-security`", correct: true}
+      - {text: "`quarkus-junit-mockito`", correct: false}
+      - {text: "`quarkus-test-keycloak-server`", correct: false}
+      - {text: "`quarkus-security-test`", correct: false}
+    answer: "`quarkus-test-security` ; `quarkus-test-security-oidc` et `quarkus-test-security-jwt` ajoutent les claims d'un jeton."
+  - key: qcm-vrai-jeton
+    format: multiple-choice
+    question: "Comment testes-tu que l'API rejette bien un jeton émis pour une autre audience ?"
+    choices:
+      - {text: "Avec un vrai jeton du Keycloak des Dev Services, envoyé par RestAssured", correct: true}
+      - {text: "Avec `@TestSecurity(user = \"alice\")` et un rôle inconnu", correct: false}
+      - {text: "Avec `@TestSecurity(authorizationEnabled = false)`", correct: false}
+      - {text: "Avec `@InjectMock SecurityIdentity`, bouchonnée pour refuser", correct: false}
+    answer: "`@TestSecurity` ne passe pas par la vérification du jeton : il faut un vrai jeton pour tester l'audience. `KeycloakTestClient` en obtient un, que `given().auth().oauth2(jeton)` envoie."
+  - key: qcm-envoyer-un-jeton
+    format: multiple-choice
+    question: "Comment RestAssured envoie-t-il un vrai jeton d'accès dans l'en-tête `Authorization` ?"
+    choices:
+      - {text: "`given().auth().oauth2(jeton)`", correct: true}
+      - {text: "`given().auth().basic(\"alice\", jeton)`", correct: false}
+      - {text: "`given().cookie(\"jeton\", jeton)`", correct: false}
+      - {text: "`given().queryParam(\"token\", jeton)`", correct: false}
+    answer: "`oauth2(jeton)` ajoute `Authorization: Bearer <jeton>`. Basic enverrait un nom et un mot de passe encodés."
+  - key: trous-annotation
+    format: fill-in
+    question: |-
+      Complète pour appeler l'endpoint comme alice, avec le rôle admin :
+      ```java
+      @Test
+      @___(user = "alice", roles = "admin")
+      void laisseUnAdminCreer() {
+      ```
+    blanks:
+      - [TestSecurity]
+    answer: "`@TestSecurity` (`io.quarkus.test.security`) installe l'identité du test."
+  - key: trous-roles
+    format: fill-in
+    question: |-
+      Complète pour donner deux rôles à l'utilisateur du test :
+      ```java
+      @TestSecurity(user = "alice", ___ = {"admin", "user"})
+      ```
+    blanks:
+      - [roles]
+    answer: "`roles` liste les rôles de l'identité de test."
+  - key: trous-sans-controle
+    format: fill-in
+    question: |-
+      Complète pour tester la logique de l'endpoint sans ses contrôles d'accès :
+      ```java
+      @TestSecurity(___ = false)
+      ```
+    blanks:
+      - [authorizationEnabled]
+    answer: "`authorizationEnabled = false` laisse passer toutes les requêtes du test."
+  - key: trous-claims
+    format: fill-in
+    question: |-
+      Complète pour donner un claim `email` au jeton du test :
+      ```java
+      @TestSecurity(user = "alice")
+      @OidcSecurity(___ = @Claim(key = "email", value = "alice@exemple.fr"))
+      ```
+    blanks:
+      - [claims]
+    answer: "`@OidcSecurity(claims = ...)` ajoute les claims que l'endpoint lit dans le `JsonWebToken`."

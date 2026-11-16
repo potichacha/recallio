@@ -1,0 +1,311 @@
+notion: config-mapping
+lesson: |-
+  Quand une fonctionnalité a plusieurs réglages liés, une dizaine de `@ConfigProperty` dispersés deviennent
+  difficiles à suivre. `@ConfigMapping` (de SmallRye Config, `io.smallrye.config.ConfigMapping`) les regroupe sur une
+  **interface** typée :
+
+  ```java
+  @ConfigMapping(prefix = "boutique")
+  public interface BoutiqueConfig {
+
+      String devise();
+
+      @WithDefault("5")
+      int forfaitLivraison();          // boutique.forfait-livraison
+
+      Optional<String> slogan();
+
+      List<String> paysLivres();        // boutique.pays-livres=FR,BE
+
+      @WithName("cle-api")
+      String cleApi();
+
+      Paiement paiement();             // un groupe : boutique.paiement.*
+
+      interface Paiement {
+          String url();                // boutique.paiement.url
+          Duration delai();            // boutique.paiement.delai
+      }
+  }
+  ```
+
+  ```properties
+  boutique.devise=EUR
+  boutique.pays-livres=FR,BE
+  boutique.cle-api=${BOUTIQUE_CLE_API}
+  boutique.paiement.url=https://paiement.example
+  boutique.paiement.delai=PT2S
+  ```
+
+  On l'injecte comme un bean, avec `@Inject` :
+
+  ```java
+  @ApplicationScoped
+  public class Livraison {
+
+      @Inject
+      BoutiqueConfig config;
+
+      int frais(int montant) {
+          return montant >= 50 ? 0 : config.forfaitLivraison();
+      }
+  }
+  ```
+
+  **Les règles.**
+
+  - Chaque méthode est une clé, sous le `prefix`. Son nom passe en **kebab-case** : `forfaitLivraison()` lit
+    `boutique.forfait-livraison`. `@WithName` donne un autre nom.
+  - `@WithDefault("5")` donne une valeur par défaut, toujours sous forme de chaîne.
+  - `Optional<...>` rend une clé facultative ; `List`, `Set`, `Map` et les groupes imbriqués sont permis.
+  - Tout est vérifié **au démarrage** : une clé obligatoire absente, une valeur mal typée, et même une clé inconnue
+    sous le préfixe (comme `boutique.forfaitLivraison`, en camelCase) arrêtent l'application avec la liste des
+    problèmes.
+  - Avec l'extension `quarkus-hibernate-validator`, des contraintes sur les méthodes (`@Min(1) int forfaitLivraison()`)
+    sont vérifiées au démarrage elles aussi.
+  - C'est forcément une interface : SmallRye Config en génère l'implémentation.
+
+  **`@ConfigProperty` ou `@ConfigMapping` ?** Une valeur isolée : `@ConfigProperty`. Un ensemble de réglages
+  cohérent (un client d'API, une fonctionnalité) : `@ConfigMapping`, qui le documente en un seul endroit, se passe
+  facilement à un test et évite les clés répétées. L'ancien `@ConfigProperties` de Quarkus, qui acceptait des
+  classes, a laissé la place à `@ConfigMapping`.
+
+  **En entretien** : « Pour un groupe de réglages, je décris une interface `@ConfigMapping` avec un préfixe : chaque
+  méthode est une clé, en kebab-case, avec `@WithDefault` ou `Optional` quand elle est facultative. Le tout est typé
+  et vérifié au démarrage, clés inconnues comprises. Je garde `@ConfigProperty` pour une valeur isolée. »
+cards:
+  - key: support-du-mapping
+    format: course
+    question: "Sur quel type d'élément pose-t-on `@ConfigMapping` ?"
+    choices:
+      - {text: "Sur une interface, dont SmallRye Config génère l'implémentation", correct: true}
+      - {text: "Sur une classe aux champs publics, remplis par réflexion", correct: false}
+      - {text: "Sur un record, dont les composants deviennent les clés", correct: false}
+      - {text: "Sur une méthode `@Produces` qui construit l'objet", correct: false}
+    answer: "Chaque méthode de l'interface décrit une clé ; l'implémentation est générée. L'ancien `@ConfigProperties`, qui acceptait des classes, a laissé la place à `@ConfigMapping`."
+  - key: nom-de-la-cle
+    format: course
+    question: "Quelle clé lit la méthode `forfaitLivraison()` d'un mapping de préfixe `boutique` ?"
+    choices:
+      - {text: "`boutique.forfait-livraison`", correct: true}
+      - {text: "`boutique.forfaitLivraison`", correct: false}
+      - {text: "`boutique.forfait.livraison`", correct: false}
+      - {text: "`boutique.forfait_livraison`", correct: false}
+    answer: "Les noms de méthodes passent en kebab-case. `@WithName(\"...\")` donne un autre nom quand il le faut."
+  - key: valeur-par-defaut-mapping
+    format: course
+    question: "Comment donnes-tu une valeur par défaut à une méthode d'un `@ConfigMapping` ?"
+    choices:
+      - {text: "Avec `@WithDefault(\"5\")` sur la méthode", correct: true}
+      - {text: "Avec une méthode `default` qui renvoie 5", correct: false}
+      - {text: "Avec `@ConfigProperty(defaultValue = \"5\")`", correct: false}
+      - {text: "Avec `@DefaultValue(\"5\")` de Jakarta REST", correct: false}
+    answer: "`@WithDefault` prend une chaîne, convertie dans le type de retour de la méthode."
+  - key: cle-facultative-mapping
+    format: course
+    question: Comment rends-tu une clé facultative dans un `@ConfigMapping` ?
+    choices:
+      - {text: "En renvoyant un `Optional<String>`", correct: true}
+      - {text: "En annotant la méthode `@Nullable`", correct: false}
+      - {text: "En la déclarant `default` dans l'interface", correct: false}
+      - {text: "Avec `@WithName(optional = true)`", correct: false}
+    answer: "Une méthode qui renvoie `Optional` accepte l'absence de la clé. Sans `Optional` ni `@WithDefault`, la clé est obligatoire."
+  - key: vf-cle-absente-mapping
+    format: true-false
+    question: "Une clé obligatoire d'un `@ConfigMapping`, absente de la configuration, fait échouer le démarrage."
+    truth: true
+    answer: "SmallRye Config vérifie tout le mapping au démarrage : « SRCFG00014: The config property boutique.devise is required but it could not be found in any config source »."
+  - key: vf-mapping-sur-classe
+    format: true-false
+    question: "`@ConfigMapping` s'applique aussi bien à une classe qu'à une interface."
+    truth: false
+    answer: "Seulement à une interface : SmallRye Config en génère l'implémentation. Une classe relevait de l'ancien `@ConfigProperties`, qu'il remplace."
+  - key: vf-groupe-imbrique
+    format: true-false
+    question: "Dans un `@ConfigMapping`, un groupe de clés comme `boutique.paiement.*` s'écrit comme une interface renvoyée par une méthode."
+    truth: true
+    answer: "`Paiement paiement();` décrit le groupe ; ses propres méthodes, `url()` ou `delai()`, lisent `boutique.paiement.url` et `boutique.paiement.delai`."
+  - key: vf-contraintes-au-demarrage
+    format: true-false
+    question: "Avec l'extension `quarkus-hibernate-validator`, une contrainte comme `@Min(1)` sur une méthode d'un `@ConfigMapping` est vérifiée au démarrage."
+    truth: true
+    answer: "La configuration est validée comme un bean : une valeur hors des bornes arrête l'application avant la première requête."
+  - key: qcm-interet-du-mapping
+    format: multiple-choice
+    question: "Qu'apporte un `@ConfigMapping` par rapport à dix `@ConfigProperty` sur le même préfixe ?"
+    choices:
+      - {text: "Les réglages réunis et typés en un seul endroit, vérifiés au démarrage", correct: true}
+      - {text: "Des valeurs relues à chaque appel, qui changent sans redémarrage", correct: false}
+      - {text: "Une configuration chiffrée, illisible dans `application.properties`", correct: false}
+      - {text: "Des clés que les variables d'environnement ne peuvent plus surcharger", correct: false}
+    answer: "Le mapping documente la fonctionnalité en une interface, se passe facilement à un test, et refuse même les clés inconnues sous son préfixe."
+  - key: qcm-injecter-le-mapping
+    format: multiple-choice
+    question: "Comment un bean obtient-il le mapping `BoutiqueConfig` ?"
+    choices:
+      - {text: "`@Inject BoutiqueConfig config;`", correct: true}
+      - {text: "`BoutiqueConfig config = new BoutiqueConfig();`", correct: false}
+      - {text: "`@ConfigProperty BoutiqueConfig config;`", correct: false}
+      - {text: "`BoutiqueConfig.load(\"boutique\")`", correct: false}
+    answer: "Le mapping est un bean, injecté comme les autres. On ne peut pas instancier une interface, et `@ConfigProperty` lit une seule valeur."
+  - key: qcm-withname
+    format: multiple-choice
+    question: "La méthode `nom()` doit lire la clé `boutique.nom-court`. Que lui ajoutes-tu ?"
+    choices:
+      - {text: "`@WithName(\"nom-court\")`", correct: true}
+      - {text: "`@WithDefault(\"nom-court\")`", correct: false}
+      - {text: "`@JsonProperty(\"nom-court\")`", correct: false}
+      - {text: "`@Named(\"nom-court\")`", correct: false}
+    answer: "`@WithName` remplace le nom déduit de la méthode. `@WithDefault` donnerait une valeur par défaut, et `@Named` sert à CDI."
+  - key: qcm-liste-mapping
+    format: multiple-choice
+    question: "Quelle méthode lit `boutique.devises=EUR,USD` sous forme de deux éléments ?"
+    choices:
+      - {text: "`List<String> devises();`", correct: true}
+      - {text: "`String devises();`, à découper soi-même", correct: false}
+      - {text: "`Map<String, String> devises();`", correct: false}
+      - {text: "`String[] devises() default {};`", correct: false}
+    answer: "Les virgules séparent les éléments ; une `List` les reçoit convertis. Un `String` recevrait le texte entier."
+  - key: trous-prefix
+    format: fill-in
+    question: |-
+      Complète pour que les méthodes lisent les clés `boutique.*` :
+      ```java
+      @ConfigMapping(___ = "boutique")
+      public interface BoutiqueConfig {
+          String devise();
+      }
+      ```
+    blanks:
+      - [prefix]
+    answer: "`prefix` donne la racine commune ; `devise()` lit alors `boutique.devise`."
+  - key: trous-withdefault
+    format: fill-in
+    question: |-
+      Complète pour que le forfait vaille 5 quand la clé manque :
+      ```java
+      @___("5")
+      int forfaitLivraison();
+      ```
+    blanks:
+      - [WithDefault]
+    answer: "`@WithDefault` prend une chaîne, convertie en `int`."
+  - key: trous-withname
+    format: fill-in
+    question: |-
+      Complète pour que la méthode lise `boutique.cle-api` :
+      ```java
+      @___("cle-api")
+      String cle();
+      ```
+    blanks:
+      - [WithName]
+    answer: "Sans `@WithName`, `cle()` lirait `boutique.cle`."
+  - key: trous-optional-mapping
+    format: fill-in
+    question: |-
+      Complète pour que l'absence de `boutique.slogan` ne soit pas une erreur :
+      ```java
+      ___<String> slogan();
+      ```
+    blanks:
+      - [Optional, java.util.Optional]
+    answer: "Une méthode qui renvoie `Optional` accepte l'absence de sa clé."
+  - key: bug-cle-en-camelcase-mapping
+    format: bug-fix
+    question: |-
+      Le démarrage échoue : « SRCFG00014: The config property boutique.max-size is required but it could not be
+      found in any config source », puis « SRCFG00050: boutique.maxSize ... does not map to any root ». Quelle
+      correction est la bonne ?
+      ```java
+      @ConfigMapping(prefix = "boutique")
+      public interface BoutiqueConfig {
+          int maxSize();
+      }
+      ```
+      ```properties
+      boutique.maxSize=3
+      ```
+    choices:
+      - {text: "Écrire `boutique.max-size=3` dans le fichier", correct: true}
+      - {text: "Renommer la méthode en `max_size()`", correct: false}
+      - {text: "Ajouter `@Inject` devant la méthode `maxSize()`", correct: false}
+      - {text: "Écrire `boutique.MAXSIZE=3` dans le fichier", correct: false}
+    answer: |-
+      ```properties
+      boutique.max-size=3
+      ```
+      La méthode `maxSize()` lit la clé en kebab-case. La clé en camelCase ne correspond à rien : SmallRye Config la
+      signale comme inconnue sous le préfixe, en plus de la clé attendue qui manque.
+  - key: bug-mapping-sans-inject
+    format: bug-fix
+    question: |-
+      `frais` lève une `NullPointerException` : `config` vaut `null`. Quelle correction est la bonne ?
+      ```java
+      @ApplicationScoped
+      public class Livraison {
+
+          BoutiqueConfig config;
+
+          int frais(int montant) {
+              return montant >= 50 ? 0 : config.forfaitLivraison();
+          }
+      }
+      ```
+    choices:
+      - {text: "Annoter le champ `config` avec `@Inject`", correct: true}
+      - {text: "Annoter le champ avec `@ConfigMapping`", correct: false}
+      - {text: "Déclarer le champ `config` en `final`", correct: false}
+      - {text: "Annoter `Livraison` avec `@ConfigMapping`", correct: false}
+    answer: |-
+      ```java
+      @Inject
+      BoutiqueConfig config;
+      ```
+      Sans `@Inject` ni qualificateur, le champ n'est qu'un champ ordinaire : le conteneur ne le remplit pas.
+      `@ConfigMapping` se pose sur l'interface, pas sur le point d'injection.
+  - key: bug-cle-facultative-obligatoire
+    format: bug-fix
+    question: |-
+      Le démarrage échoue en production : « SRCFG00014: The config property boutique.slogan is required but it
+      could not be found in any config source ». Le slogan est facultatif. Quelle correction est la bonne ?
+      ```java
+      @ConfigMapping(prefix = "boutique")
+      public interface BoutiqueConfig {
+          String slogan();
+      }
+      ```
+    choices:
+      - {text: "Faire renvoyer `Optional<String>` à `slogan()`", correct: true}
+      - {text: "Ajouter `@WithName(\"slogan\")` sur la méthode", correct: false}
+      - {text: "Écrire `default String slogan() { return null; }`", correct: false}
+      - {text: "Annoter la méthode `slogan()` avec `@Nullable`", correct: false}
+    answer: |-
+      ```java
+      Optional<String> slogan();
+      ```
+      Sans `Optional` ni `@WithDefault`, toute clé du mapping est obligatoire. `@WithName` ne fait que changer le
+      nom de la clé.
+  - key: bug-withdefault-non-convertible
+    format: bug-fix
+    question: |-
+      Le démarrage échoue : « SRCFG00029: Expected an integer value, got "cinq" ». Quelle correction est la bonne ?
+      ```java
+      @ConfigMapping(prefix = "boutique")
+      public interface BoutiqueConfig {
+          @WithDefault("cinq")
+          int forfaitLivraison();
+      }
+      ```
+    choices:
+      - {text: "Écrire `@WithDefault(\"5\")`", correct: true}
+      - {text: "Écrire `@WithDefault(5)`", correct: false}
+      - {text: "Faire renvoyer `String` à la méthode", correct: false}
+      - {text: "Faire renvoyer `Integer` à la méthode", correct: false}
+    answer: |-
+      ```java
+      @WithDefault("5")
+      int forfaitLivraison();
+      ```
+      La valeur par défaut est une chaîne convertie dans le type de retour : elle doit être un entier valide.
+      `@WithDefault(5)` ne compilerait pas, et un `String` repousserait le problème à chaque appelant.

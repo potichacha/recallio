@@ -1,0 +1,285 @@
+notion: journalisation
+lesson: |-
+  Quarkus journalise avec **JBoss Log Manager**. Ton code peut écrire avec l'API de ton choix : JBoss Logging (celle
+  de Quarkus), SLF4J, java.util.logging ou l'API de Log4j ; tout arrive au même endroit, réglé par
+  `application.properties`.
+
+  **Trois façons d'obtenir un logger.**
+
+  ```java
+  // 1. La plus courte : la classe statique Log de Quarkus
+  import io.quarkus.logging.Log;
+
+  @ApplicationScoped
+  public class CommandeService {
+      void valider(Commande commande) {
+          Log.infof("Commande %s validée", commande.id());
+      }
+  }
+  ```
+
+  ```java
+  // 2. L'injection : la catégorie est la classe qui déclare le champ
+  @Inject
+  Logger log;   // org.jboss.logging.Logger
+
+  // 3. La forme classique, valable partout
+  private static final Logger LOG = Logger.getLogger(CommandeService.class);
+  ```
+
+  Avec `Log`, Quarkus réécrit l'appel au build : la catégorie est la classe qui appelle. Cela ne marche que dans le
+  code de l'application.
+
+  **Les messages.** `info(message)` écrit un texte ; `infof("Commande %s", id)` le met en forme comme
+  `String.format` ; `infov("Commande {0}", id)` comme `MessageFormat`. Une exception se passe en dernier argument,
+  pour avoir sa pile : `Log.error("Échec du paiement", e)`. Les arguments sont évalués **avant** l'appel, même si le
+  niveau est désactivé : un calcul coûteux se protège par `if (LOG.isDebugEnabled())`.
+
+  **Les niveaux et les catégories.** Du plus grave au plus bavard : FATAL, ERROR, WARN, INFO, DEBUG, TRACE. Une
+  **catégorie** est un nom, en général celui d'une classe ou d'un paquet.
+
+  ```properties
+  # La catégorie racine : INFO par défaut
+  quarkus.log.level=INFO
+  # Ton paquet, plus bavard (le nom entre guillemets, à cause des points)
+  quarkus.log.category."boutique.commande".level=DEBUG
+  # Une bibliothèque, plus discrète
+  quarkus.log.category."org.apache.kafka".level=WARN
+  ```
+
+  **Le niveau minimal.** `quarkus.log.min-level` vaut DEBUG par défaut, et se fixe **au build**. Pour voir du TRACE,
+  le niveau d'une catégorie ne suffit pas :
+
+  ```properties
+  quarkus.log.min-level=TRACE
+  quarkus.log.category."boutique.commande".level=TRACE
+  ```
+
+  **La sortie.** La console par défaut, avec un format réglable (`quarkus.log.console.format`). En production, on
+  préfère souvent du **JSON**, une ligne par message, que l'outil de collecte (Loki, Elasticsearch) découpe en
+  champs : c'est l'extension `quarkus-logging-json`, qui passe la console en JSON dès qu'elle est présente. Le MDC
+  (`MDC.put("commande", id)`) ajoute un champ à tous les messages d'une requête.
+
+  **Ce qu'on ne journalise pas** : mots de passe, jetons, données personnelles. Et on ne journalise pas deux fois la
+  même exception, à chaque couche.
+
+  **En entretien** : « J'écris avec `Log` ou un `Logger` JBoss injecté, avec `infof` et ses `%s`. Je règle les
+  niveaux par catégorie dans `application.properties` ; pour descendre sous DEBUG, il faut aussi `min-level`, fixé
+  au build. En production, des journaux JSON pour l'outil de collecte, et jamais de secret ni de donnée
+  personnelle. »
+cards:
+  - key: categorie-de-log
+    format: course
+    question: "Quelle est la catégorie d'un message écrit par `Log.info(...)` (classe `io.quarkus.logging.Log`) dans `boutique.CommandeService` ?"
+    choices:
+      - {text: "`boutique.CommandeService`, la classe qui appelle", correct: true}
+      - {text: "`io.quarkus.logging.Log`, la classe statique", correct: false}
+      - {text: "La catégorie racine, faute de logger déclaré", correct: false}
+      - {text: "`boutique`, le paquet de la classe appelante", correct: false}
+    answer: "Quarkus réécrit l'appel au build pour utiliser un logger au nom de la classe appelante. On règle donc son niveau comme celui d'un logger classique."
+  - key: niveau-minimal-par-defaut
+    format: course
+    question: "Pourquoi `quarkus.log.category.\"boutique\".level=TRACE` seul n'affiche-t-il aucun message TRACE ?"
+    choices:
+      - {text: "Le niveau minimal, `min-level`, vaut DEBUG par défaut et se fixe au build", correct: true}
+      - {text: "Le niveau TRACE est réservé au code de Quarkus et de ses extensions", correct: false}
+      - {text: "Le nom de la catégorie doit être écrit sans guillemets autour", correct: false}
+      - {text: "Le niveau TRACE ne s'active qu'en mode dev, jamais ailleurs", correct: false}
+    answer: "Aucune catégorie ne descend sous `quarkus.log.min-level`, qui vaut DEBUG par défaut. Pour du TRACE, on le règle aussi, avant le build."
+  - key: niveau-d-un-paquet
+    format: course
+    question: "Comment passes-tu le paquet `boutique.commande` en DEBUG, sans toucher au reste ?"
+    choices:
+      - {text: "`quarkus.log.category.\"boutique.commande\".level=DEBUG`", correct: true}
+      - {text: "`quarkus.log.level=DEBUG`, pour toutes les catégories", correct: false}
+      - {text: "`quarkus.log.boutique.commande=DEBUG`", correct: false}
+      - {text: "`logging.level.boutique.commande=DEBUG`", correct: false}
+    answer: "Une catégorie se règle par `quarkus.log.category.\"<nom>\".level`, le nom entre guillemets à cause de ses points. `logging.level.*` est la syntaxe de Spring Boot."
+  - key: journaux-json
+    format: course
+    question: Comment obtiens-tu des journaux en JSON, une ligne par message ?
+    choices:
+      - {text: "Avec l'extension `quarkus-logging-json`", correct: true}
+      - {text: "Avec `quarkus.log.level=JSON`", correct: false}
+      - {text: "En sérialisant chaque message avec Jackson", correct: false}
+      - {text: "En remplaçant `Log` par SLF4J", correct: false}
+    answer: "Dès qu'elle est présente, la console écrit du JSON, que l'outil de collecte découpe en champs : niveau, catégorie, message, MDC."
+  - key: vf-infof-format
+    format: true-false
+    question: "`Log.infof` met en forme son message comme `String.format`, avec des `%s`."
+    truth: true
+    answer: "`infof` suit `String.format` ; `infov` suit `MessageFormat`, avec `{0}`, `{1}`. Les `{}` de SLF4J ne sont remplacés par aucun des deux."
+  - key: vf-slf4j-interdit
+    format: true-false
+    question: "Avec Quarkus, un code qui journalise avec SLF4J ne fonctionne pas : JBoss Logging est obligatoire."
+    truth: false
+    answer: "Quarkus redirige SLF4J, java.util.logging et l'API de Log4j vers JBoss Log Manager. Tout se règle alors par les mêmes propriétés."
+  - key: vf-niveau-racine
+    format: true-false
+    question: "`quarkus.log.level` règle le niveau de la catégorie racine."
+    truth: true
+    answer: "Il vaut INFO par défaut ; chaque catégorie peut s'en écarter avec `quarkus.log.category.\"<nom>\".level`."
+  - key: vf-debug-par-defaut
+    format: true-false
+    question: "Sans configuration, un message de niveau DEBUG s'affiche dans les journaux de production."
+    truth: false
+    answer: "La catégorie racine est en INFO par défaut : DEBUG et TRACE ne s'affichent pas."
+  - key: qcm-infov
+    format: multiple-choice
+    question: "Quelle méthode met en forme `\"Commande {0} validée\"` avec son argument ?"
+    choices:
+      - {text: "`Log.infov`", correct: true}
+      - {text: "`Log.infof`", correct: false}
+      - {text: "`Log.info`", correct: false}
+      - {text: "`Log.infoln`", correct: false}
+    answer: "`infov` suit `MessageFormat`, avec `{0}` ; `infof` suit `String.format`, avec `%s`."
+  - key: qcm-logger-injecte
+    format: multiple-choice
+    question: "Quelle catégorie a le logger injecté par `@Inject Logger log;` dans `boutique.Paiement` ?"
+    choices:
+      - {text: "`boutique.Paiement`, la classe qui déclare le champ", correct: true}
+      - {text: "La catégorie racine, celle de toute l'application", correct: false}
+      - {text: "`org.jboss.logging.Logger`, la classe du logger", correct: false}
+      - {text: "`log`, le nom du champ injecté", correct: false}
+    answer: "Quarkus produit un logger au nom de la classe qui déclare le point d'injection. `@LoggerName` donne un autre nom."
+  - key: qcm-journaliser-une-exception
+    format: multiple-choice
+    question: "Comment journalises-tu une exception avec sa pile d'appels ?"
+    choices:
+      - {text: "`Log.error(\"Échec du paiement\", e)`", correct: true}
+      - {text: "`Log.error(\"Échec du paiement\" + e)`", correct: false}
+      - {text: "`Log.errorf(\"Échec du paiement %s\", e.getMessage())`", correct: false}
+      - {text: "`Log.error(e.getStackTrace())`", correct: false}
+    answer: "L'exception passée à part est écrite avec sa pile. Concaténée ou réduite à son message, elle perd la pile qui dit où elle est née."
+  - key: qcm-niveau-par-defaut
+    format: multiple-choice
+    question: "Quel est le niveau par défaut de la catégorie racine dans une application Quarkus ?"
+    choices:
+      - {text: "INFO", correct: true}
+      - {text: "DEBUG", correct: false}
+      - {text: "WARN", correct: false}
+      - {text: "TRACE", correct: false}
+    answer: "INFO pour la racine ; DEBUG est le niveau minimal possible par défaut, pas le niveau affiché."
+  - key: trous-level-categorie
+    format: fill-in
+    question: |-
+      Complète pour passer le paquet `boutique` en DEBUG :
+      ```properties
+      quarkus.log.category."boutique".___=DEBUG
+      ```
+    blanks:
+      - [level]
+    answer: "`quarkus.log.category.\"<nom>\".level` règle le niveau d'une catégorie."
+  - key: trous-infof
+    format: fill-in
+    question: |-
+      Complète pour mettre en forme le message avec `%s` :
+      ```java
+      Log.___("Commande %s validée", commande.id());
+      ```
+    blanks:
+      - [infof]
+    answer: "Le suffixe `f` suit `String.format` ; `infov` suivrait `MessageFormat`."
+  - key: trous-min-level
+    format: fill-in
+    question: |-
+      Complète pour que les messages TRACE puissent s'afficher :
+      ```properties
+      quarkus.log.___=TRACE
+      quarkus.log.category."boutique".level=TRACE
+      ```
+    blanks:
+      - [min-level]
+    answer: "`quarkus.log.min-level` vaut DEBUG par défaut et se fixe au build."
+  - key: trous-getlogger
+    format: fill-in
+    question: |-
+      Complète la déclaration classique d'un logger JBoss :
+      ```java
+      private static final Logger LOG = Logger.___(CommandeService.class);
+      ```
+    blanks:
+      - [getLogger]
+    answer: "`Logger.getLogger` prend une classe ou un nom de catégorie."
+  - key: bug-trace-invisible
+    format: bug-fix
+    question: |-
+      Les messages `LOG.trace(...)` du paquet `boutique` n'apparaissent pas, même en mode dev. Quelle correction est
+      la bonne ?
+      ```properties
+      quarkus.log.category."boutique".level=TRACE
+      ```
+    choices:
+      - {text: "Ajouter `quarkus.log.min-level=TRACE`", correct: true}
+      - {text: "Retirer les guillemets autour de `boutique`", correct: false}
+      - {text: "Ajouter `quarkus.log.level=TRACE` pour la racine", correct: false}
+      - {text: "Écrire `ALL` à la place de `TRACE`", correct: false}
+    answer: |-
+      ```properties
+      quarkus.log.min-level=TRACE
+      quarkus.log.category."boutique".level=TRACE
+      ```
+      Aucune catégorie ne descend sous le niveau minimal, DEBUG par défaut. Passer la racine en TRACE ne change rien
+      à ce plancher.
+  - key: bug-accolades-slf4j
+    format: bug-fix
+    question: |-
+      Le journal affiche « Commande {} validée », sans le numéro. Quelle correction est la bonne ?
+      ```java
+      Log.infof("Commande {} validée", commande.id());
+      ```
+    choices:
+      - {text: "Écrire `Log.infof(\"Commande %s validée\", commande.id())`", correct: true}
+      - {text: "Écrire `Log.info(\"Commande {} validée\", commande.id())`", correct: false}
+      - {text: "Écrire `Log.infof(\"Commande {0} validée\", commande.id())`", correct: false}
+      - {text: "Écrire `Log.infof(\"Commande {} validée\", commande)`", correct: false}
+    answer: |-
+      ```java
+      Log.infof("Commande %s validée", commande.id());
+      ```
+      `infof` suit `String.format` : `{}` n'y signifie rien, et l'argument en trop est ignoré. `{0}` irait avec
+      `infov`, pas avec `infof`.
+  - key: bug-mauvaise-classe-de-logger
+    format: bug-fix
+    question: |-
+      `quarkus.log.category."boutique.commande".level=DEBUG` est réglé, mais les messages DEBUG de cette classe du
+      paquet `boutique.commande` n'apparaissent pas. Quelle correction est la bonne ?
+      ```java
+      package boutique.commande;
+
+      public class CommandeService {
+          private static final Logger LOG = Logger.getLogger(ProduitService.class);  // boutique.produit
+      }
+      ```
+    choices:
+      - {text: "Créer le logger avec `CommandeService.class`", correct: true}
+      - {text: "Déclarer le logger sans `static` ni `final`", correct: false}
+      - {text: "Passer la racine en DEBUG avec `quarkus.log.level`", correct: false}
+      - {text: "Retirer les guillemets autour de la catégorie", correct: false}
+    answer: |-
+      ```java
+      private static final Logger LOG = Logger.getLogger(CommandeService.class);
+      ```
+      Le logger, copié d'une autre classe, écrit dans la catégorie `boutique.produit.ProduitService`, que le réglage
+      ne vise pas. `Log` ou un logger injecté évitent ce piège.
+  - key: bug-argument-couteux
+    format: bug-fix
+    question: |-
+      Le niveau DEBUG est désactivé en production, et pourtant chaque commande paie le coût de `detailler()`, qui
+      parcourt tout le panier. Quelle correction est la bonne ?
+      ```java
+      LOG.debug("Panier : " + panier.detailler());
+      ```
+    choices:
+      - {text: "Entourer l'appel de `if (LOG.isDebugEnabled())`", correct: true}
+      - {text: "Écrire `LOG.debugf(\"Panier : %s\", panier.detailler())`", correct: false}
+      - {text: "Écrire `LOG.debugv(\"Panier : {0}\", panier.detailler())`", correct: false}
+      - {text: "Remplacer `debug` par `trace`, plus fin encore", correct: false}
+    answer: |-
+      ```java
+      if (LOG.isDebugEnabled()) {
+          LOG.debug("Panier : " + panier.detailler());
+      }
+      ```
+      Java évalue les arguments avant l'appel : `detailler()` s'exécute même si le message est ensuite jeté.
+      `debugf` évite la concaténation, pas l'appel de `detailler()`.

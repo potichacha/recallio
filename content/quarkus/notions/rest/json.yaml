@@ -1,0 +1,311 @@
+notion: json
+lesson: |-
+  Avec l'extension `quarkus-rest-jackson`, Quarkus REST convertit en JSON ce que renvoient les méthodes, et convertit
+  le JSON reçu en objet Java : c'est **Jackson** qui travaille, avec un `ObjectMapper` que Quarkus configure.
+
+  ```java
+  public record NouveauProduit(String nom, int prix) {}
+
+  public record ProduitVue(long id, String nom, int prix, LocalDate ajouteLe) {}
+
+  @POST
+  public ProduitVue creer(NouveauProduit nouveau) { ... }
+  ```
+
+  ```
+  POST /produits      {"nom": "stylo", "prix": 2}
+  200                 {"id": 7, "nom": "stylo", "prix": 2, "ajouteLe": "2026-01-15"}
+  ```
+
+  **Ce que Jackson sait faire, et ce qu'il lui faut.**
+
+  - Les **records** marchent tels quels, dans les deux sens : c'est la forme idéale d'un DTO.
+  - Une classe est sérialisée par ses champs publics et ses getters. Une classe aux champs privés, sans getter, n'a
+    aucune propriété visible : la réponse échoue en 500.
+  - Pour lire une classe, Jackson a besoin d'un constructeur sans argument (ou de `@JsonCreator`).
+  - Les annotations de Jackson s'appliquent : `@JsonProperty("prix_ttc")` renomme, `@JsonIgnore` cache un champ.
+
+  **Les réglages par défaut de Quarkus.** Ils diffèrent un peu de ceux de Jackson seul :
+
+  | Réglage | Avec Quarkus |
+  |---|---|
+  | Une propriété inconnue dans le JSON reçu | ignorée, sans erreur |
+  | Les dates `java.time` | des chaînes ISO-8601 (`"2026-01-15"`), pas des nombres |
+  | Un JSON mal formé, ou un type faux (`"dix"` pour un `int`) | 400 Bad Request |
+
+  **Changer les réglages.** Par des propriétés, pour les cas courants :
+
+  ```properties
+  quarkus.jackson.fail-on-unknown-properties=true
+  quarkus.jackson.property-naming-strategy=SNAKE_CASE
+  quarkus.jackson.serialization-inclusion=non_null
+  ```
+
+  Ou par un bean `ObjectMapperCustomizer`, qui reçoit l'`ObjectMapper` de Quarkus avant son premier usage :
+
+  ```java
+  @Singleton
+  public class PersonnalisationJson implements ObjectMapperCustomizer {
+      @Override
+      public void customize(ObjectMapper mapper) {
+          mapper.enable(SerializationFeature.WRITE_ENUMS_USING_TO_STRING);
+      }
+  }
+  ```
+
+  Quand ton code a besoin de Jackson, il **injecte** cet `ObjectMapper` (`@Inject ObjectMapper mapper`) au lieu d'en
+  créer un avec `new` : un `ObjectMapper` neuf ignore tous ces réglages.
+
+  **Des DTO, pas des entités.** Renvoyer une entité JPA expose le schéma de la base, et ses relations
+  bidirectionnelles font boucler la sérialisation : la réponse part en 200, puis le JSON s'arrête net, tronqué. Des
+  records dédiés découplent l'API de la base.
+
+  **En entretien** : « `quarkus-rest-jackson` convertit les corps en JSON avec un `ObjectMapper` configuré par
+  Quarkus : propriétés inconnues ignorées, dates en ISO. Je le règle par `quarkus.jackson.*` ou par un
+  `ObjectMapperCustomizer`, et je l'injecte plutôt que d'en créer un. Mes entrées et sorties sont des records, jamais
+  des entités. »
+cards:
+  - key: extension-json
+    format: course
+    question: Quelle extension convertit en JSON les objets renvoyés par une ressource Quarkus REST ?
+    choices:
+      - {text: "`quarkus-rest-jackson`", correct: true}
+      - {text: "`quarkus-jackson` seule", correct: false}
+      - {text: "`quarkus-rest-client-jackson`", correct: false}
+      - {text: "`quarkus-resteasy-jackson`", correct: false}
+    answer: "`quarkus-rest-jackson` branche Jackson sur Quarkus REST, côté serveur. `quarkus-rest-client-jackson` fait de même pour le client REST ; `quarkus-resteasy-jackson` vise l'ancienne pile."
+  - key: propriete-inconnue
+    format: course
+    question: "Que fait Quarkus, par défaut, d'une propriété du JSON reçu qui n'existe pas dans le record cible ?"
+    choices:
+      - {text: "Il l'ignore, et la requête aboutit", correct: true}
+      - {text: "Il répond 400 Bad Request", correct: false}
+      - {text: "Il répond 500, faute de champ", correct: false}
+      - {text: "Il l'ajoute à une `Map` du record", correct: false}
+    answer: "Quarkus désactive `FAIL_ON_UNKNOWN_PROPERTIES` : un client plus récent peut envoyer des champs en plus. `quarkus.jackson.fail-on-unknown-properties=true` rétablit l'erreur."
+  - key: format-des-dates
+    format: course
+    question: "Comment Quarkus sérialise-t-il par défaut un `LocalDate` du 15 janvier 2026 ?"
+    choices:
+      - {text: "`\"2026-01-15\"`, une chaîne ISO-8601", correct: true}
+      - {text: "`[2026,1,15]`, un tableau de nombres", correct: false}
+      - {text: "`1768435200000`, en millisecondes", correct: false}
+      - {text: "`\"15/01/2026\"`, au format français", correct: false}
+    answer: "Quarkus enregistre le module `java.time` de Jackson et écrit les dates en chaînes ISO, lisibles et triables."
+  - key: personnaliser-le-mapper
+    format: course
+    question: "Comment modifies-tu un réglage de l'`ObjectMapper` que Quarkus utilise ?"
+    choices:
+      - {text: "Avec un bean qui implémente `ObjectMapperCustomizer`", correct: true}
+      - {text: "En créant un `new ObjectMapper()` dans la ressource", correct: false}
+      - {text: "En annotant la ressource avec `@JsonFormat`", correct: false}
+      - {text: "En sous-classant `ObjectMapper` sans le déclarer", correct: false}
+    answer: "Chaque `ObjectMapperCustomizer` reçoit l'`ObjectMapper` de Quarkus avant son premier usage. Les cas courants ont aussi leurs propriétés `quarkus.jackson.*`."
+  - key: vf-records
+    format: true-false
+    question: "Avec `quarkus-rest-jackson`, un record sert de corps de requête et de réponse sans annotation."
+    truth: true
+    answer: "Jackson lit et écrit les records par leurs composants. C'est la forme la plus simple d'un DTO."
+  - key: vf-json-mal-forme
+    format: true-false
+    question: "Un corps JSON mal formé, envoyé à un `@POST` qui attend un record, donne une réponse 500."
+    truth: false
+    answer: "C'est une erreur du client : Quarkus répond 400 Bad Request. Un type faux (`\"dix\"` pour un `int`) aussi."
+  - key: vf-champs-prives
+    format: true-false
+    question: "Une classe aux seuls champs privés, sans getter ni annotation, est sérialisée en JSON sans erreur."
+    truth: false
+    answer: "Jackson ne voit aucune propriété : la sérialisation échoue, et la réponse est une 500. Un record, des getters ou des champs publics règlent le problème."
+  - key: vf-new-objectmapper
+    format: true-false
+    question: "Un `new ObjectMapper()` créé dans ton code applique les propriétés `quarkus.jackson.*` de l'application."
+    truth: false
+    answer: "Seul l'`ObjectMapper` produit par Quarkus est configuré. On l'injecte avec `@Inject ObjectMapper mapper`."
+  - key: qcm-renommer-propriete
+    format: multiple-choice
+    question: "Le JSON doit dire `prix_ttc` pour le composant `prixTtc` d'un seul record. Que fais-tu ?"
+    choices:
+      - {text: "J'annote le composant avec `@JsonProperty(\"prix_ttc\")`", correct: true}
+      - {text: "Je renomme le composant Java en `prix_ttc`", correct: false}
+      - {text: "J'annote le composant avec `@JsonIgnore`", correct: false}
+      - {text: "J'annote le record avec `@RestQuery(\"prix_ttc\")`", correct: false}
+    answer: "`@JsonProperty` renomme une propriété. Pour toute l'API, `quarkus.jackson.property-naming-strategy=SNAKE_CASE` le ferait partout."
+  - key: qcm-omettre-les-null
+    format: multiple-choice
+    question: "Quelle propriété retire des réponses JSON tous les champs qui valent `null` ?"
+    choices:
+      - {text: "`quarkus.jackson.serialization-inclusion=non_null`", correct: true}
+      - {text: "`quarkus.jackson.fail-on-unknown-properties=true`", correct: false}
+      - {text: "`quarkus.jackson.write-dates-as-timestamps=false`", correct: false}
+      - {text: "`quarkus.rest.json.null=skip`", correct: false}
+    answer: "L'inclusion `non_null` n'écrit que les champs renseignés. `@JsonInclude(NON_NULL)` fait de même sur une seule classe."
+  - key: qcm-entite-renvoyee
+    format: multiple-choice
+    question: "Pourquoi éviter de renvoyer directement une entité JPA depuis une ressource ?"
+    choices:
+      - {text: "Elle expose le schéma, et ses relations bidirectionnelles font boucler Jackson", correct: true}
+      - {text: "Jackson ne sait pas sérialiser une classe annotée `@Entity`", correct: false}
+      - {text: "Quarkus REST refuse au build toute méthode qui renvoie une entité", correct: false}
+      - {text: "Une entité ne peut pas être lue en dehors d'une transaction", correct: false}
+    answer: "Un DTO découple l'API de la base : on renomme une colonne sans casser les clients, et l'on choisit ce qui sort. Une relation dans les deux sens fait tourner la sérialisation en rond, et le JSON arrive tronqué."
+  - key: qcm-mauvais-type
+    format: multiple-choice
+    question: "Un client envoie `{\"quantite\": \"dix\"}` à un `@POST` qui attend `record Ligne(int quantite)`. Que reçoit-il ?"
+    choices:
+      - {text: "400 Bad Request", correct: true}
+      - {text: "200, avec `quantite` à 0", correct: false}
+      - {text: "415 Unsupported Media Type", correct: false}
+      - {text: "500 Internal Server Error", correct: false}
+    answer: "Le JSON est bien formé mais ne se convertit pas : c'est une erreur du client, donc 400. 415 viserait un `Content-Type` refusé."
+  - key: trous-customizer
+    format: fill-in
+    question: |-
+      Complète pour personnaliser l'`ObjectMapper` de Quarkus :
+      ```java
+      @Singleton
+      public class PersonnalisationJson implements ___ {
+          @Override
+          public void customize(ObjectMapper mapper) { ... }
+      }
+      ```
+    blanks:
+      - [ObjectMapperCustomizer]
+    answer: "`io.quarkus.jackson.ObjectMapperCustomizer` : Quarkus appelle chaque bean de ce type en construisant son `ObjectMapper`."
+  - key: trous-jsonproperty
+    format: fill-in
+    question: |-
+      Complète pour que le JSON nomme ce composant `prix_ttc` :
+      ```java
+      public record Produit(String nom, @___("prix_ttc") int prixTtc) {}
+      ```
+    blanks:
+      - [JsonProperty]
+    answer: "`@JsonProperty` donne le nom de la propriété JSON, en lecture comme en écriture."
+  - key: trous-fail-on-unknown
+    format: fill-in
+    question: |-
+      Complète pour refuser les propriétés inconnues dans le JSON reçu :
+      ```properties
+      quarkus.jackson.___=true
+      ```
+    blanks:
+      - [fail-on-unknown-properties]
+    answer: "Quarkus les ignore par défaut ; `fail-on-unknown-properties=true` répond alors 400."
+  - key: trous-injecter-mapper
+    format: fill-in
+    question: |-
+      Complète pour utiliser l'`ObjectMapper` configuré par Quarkus :
+      ```java
+      @___
+      ObjectMapper mapper;
+      ```
+    blanks:
+      - [Inject]
+    answer: "Injecté, l'`ObjectMapper` porte les réglages `quarkus.jackson.*` et ceux des `ObjectMapperCustomizer`."
+  - key: bug-champs-prives
+    format: bug-fix
+    question: |-
+      `GET /produits/7` répond 500 : Jackson ne trouve aucune propriété à sérialiser. Quelle correction est la
+      bonne ?
+      ```java
+      public class ProduitVue {
+          private final String nom;
+          private final int prix;
+
+          public ProduitVue(String nom, int prix) {
+              this.nom = nom;
+              this.prix = prix;
+          }
+      }
+      ```
+    choices:
+      - {text: "En faire un record : `public record ProduitVue(String nom, int prix) {}`", correct: true}
+      - {text: "Ajouter un constructeur sans argument à la classe", correct: false}
+      - {text: "Annoter la classe avec `@RegisterForReflection`", correct: false}
+      - {text: "Ajouter `@Produces(MediaType.APPLICATION_JSON)` à la méthode", correct: false}
+    answer: |-
+      ```java
+      public record ProduitVue(String nom, int prix) {}
+      ```
+      Jackson écrit les champs publics et les getters ; ici, rien n'est visible. Un record expose ses composants.
+      Un constructeur sans argument aiderait à lire du JSON, pas à en écrire.
+  - key: bug-objectmapper-neuf
+    format: bug-fix
+    question: |-
+      L'application a `quarkus.jackson.property-naming-strategy=SNAKE_CASE`. Les réponses REST sont bien en
+      snake_case, mais le JSON écrit par ce service sort en camelCase. Quelle correction est la bonne ?
+      ```java
+      @ApplicationScoped
+      public class Export {
+          String enJson(Produit produit) throws JsonProcessingException {
+              return new ObjectMapper().writeValueAsString(produit);
+          }
+      }
+      ```
+    choices:
+      - {text: "Injecter l'`ObjectMapper` de Quarkus avec `@Inject`", correct: true}
+      - {text: "Annoter le record `Produit` avec `@JsonFormat`", correct: false}
+      - {text: "Appeler `new ObjectMapper().findAndRegisterModules()`", correct: false}
+      - {text: "Déclarer la méthode `enJson` en `static`", correct: false}
+    answer: |-
+      ```java
+      @Inject
+      ObjectMapper mapper;
+
+      String enJson(Produit produit) throws JsonProcessingException {
+          return mapper.writeValueAsString(produit);
+      }
+      ```
+      Un `ObjectMapper` neuf ne connaît aucun réglage de Quarkus. Celui qu'on injecte porte les propriétés
+      `quarkus.jackson.*` et les `ObjectMapperCustomizer`.
+  - key: bug-relation-bidirectionnelle
+    format: bug-fix
+    question: |-
+      `GET /commandes/3` répond 200, mais le client reçoit un JSON tronqué, qui répète la commande dans ses lignes,
+      puis les lignes dans la commande, jusqu'à s'arrêter net. Quelle correction est la bonne ?
+      ```java
+      @GET
+      @Path("/{id}")
+      public Commande trouver(@RestPath long id) {
+          return Commande.findById(id);   // entité : lignes -> commande -> lignes...
+      }
+      ```
+    choices:
+      - {text: "Renvoyer un record `CommandeVue`, construit depuis l'entité", correct: true}
+      - {text: "Augmenter la taille de la pile de la JVM avec `-Xss`", correct: false}
+      - {text: "Ajouter `@Transactional` sur la méthode `trouver`", correct: false}
+      - {text: "Passer les relations en chargement `EAGER`", correct: false}
+    answer: |-
+      ```java
+      public record LigneVue(String produit, int quantite) {}
+      public record CommandeVue(long id, List<LigneVue> lignes) {}
+
+      @GET
+      @Path("/{id}")
+      public CommandeVue trouver(@RestPath long id) {
+          Commande commande = Commande.findById(id);
+          return new CommandeVue(commande.id, commande.lignes.stream()
+                  .map(l -> new LigneVue(l.produit, l.quantite)).toList());
+      }
+      ```
+      Chaque ligne renvoie à sa commande, qui renvoie à ses lignes : la sérialisation ne finit jamais, et échoue
+      une fois la réponse commencée. Un DTO ne porte que ce que l'API doit montrer, sans cycle.
+  - key: bug-champs-inconnus-toleres
+    format: bug-fix
+    question: |-
+      Le contrat de l'API exige un 400 quand le client envoie un champ inconnu, comme `{"nom": "stylo", "prixx": 2}`.
+      Aujourd'hui, la requête est acceptée et le prix vaut 0. Quelle correction est la bonne ?
+      ```properties
+      # application.properties : rien sur Jackson
+      ```
+    choices:
+      - {text: "Ajouter `quarkus.jackson.fail-on-unknown-properties=true`", correct: true}
+      - {text: "Ajouter `quarkus.jackson.serialization-inclusion=non_null`", correct: false}
+      - {text: "Annoter le record avec `@JsonIgnoreProperties(ignoreUnknown = true)`", correct: false}
+      - {text: "Ajouter `@Consumes(MediaType.APPLICATION_JSON)` à la méthode", correct: false}
+    answer: |-
+      ```properties
+      quarkus.jackson.fail-on-unknown-properties=true
+      ```
+      Quarkus ignore les propriétés inconnues par défaut. Réglé à `true`, Jackson échoue sur `prixx`, et le client
+      reçoit 400. `ignoreUnknown = true` ferait exactement l'inverse.

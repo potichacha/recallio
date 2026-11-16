@@ -1,0 +1,318 @@
+notion: relations
+lesson: |-
+  Une commande a des lignes, une ligne appartient à une commande : les **relations** entre entités se déclarent par
+  des annotations JPA, et c'est là que naissent la plupart des problèmes de performance d'Hibernate.
+
+  **1. Déclarer une relation bidirectionnelle.**
+
+  ```java
+  @Entity
+  public class Commande extends PanacheEntity {
+      public String client;
+
+      @OneToMany(mappedBy = "commande", cascade = CascadeType.ALL, orphanRemoval = true)
+      public List<Ligne> lignes = new ArrayList<>();
+
+      public void ajouter(Ligne ligne) {
+          lignes.add(ligne);
+          ligne.commande = this;
+      }
+  }
+
+  @Entity
+  public class Ligne extends PanacheEntity {
+      public String article;
+
+      @ManyToOne(fetch = FetchType.LAZY)
+      public Commande commande;
+  }
+  ```
+
+  - Le côté `@ManyToOne` **possède** la relation : c'est lui qui porte la clé étrangère (`commande_id`). Le côté
+    `mappedBy` n'est qu'un miroir : remplir seulement `commande.lignes` laisse la clé étrangère à `null`. D'où la
+    méthode `ajouter`, qui tient les deux côtés à jour.
+  - `cascade = CascadeType.ALL` propage `persist` et `delete` de la commande à ses lignes ; `orphanRemoval = true`
+    supprime une ligne retirée de la liste. On les réserve à une vraie composition (une ligne n'existe pas sans sa
+    commande), jamais vers une entité partagée, comme un client.
+
+  **2. Paresseux ou immédiat.** Par défaut, `@OneToMany` et `@ManyToMany` sont **paresseux** (`LAZY`) : chargés au
+  premier accès. `@ManyToOne` et `@OneToOne` sont **immédiats** (`EAGER`) : on les passe en `LAZY`, pour ne charger
+  que ce dont on a besoin.
+
+  **3. `LazyInitializationException`.** Un chargement paresseux a besoin d'une session ouverte. Dans Quarkus, une
+  méthode `@Transactional` ferme sa session au commit ; si le JSON est écrit ensuite et touche une collection jamais
+  chargée : « Cannot lazily initialize collection of role 'Commande.lignes' with key '1' (no session) », et une
+  réponse 500. Remède : construire la réponse (un DTO) **dans** la transaction, ou charger la collection par la
+  requête.
+
+  **4. Le problème N+1.** Lister 100 commandes, puis lire les lignes de chacune : 1 requête pour la liste, puis 1 par
+  commande. Quarkus l'atténue d'office : il charge les collections paresseuses **par lots**
+  (`quarkus.hibernate-orm.fetch.batch-size`), plusieurs commandes à la fois. Mais le plus sûr reste de dire ce qu'on
+  veut, en une requête :
+
+  ```java
+  List<Commande> commandes = Commande.list("select c from Commande c left join fetch c.lignes where c.client = ?1",
+          client);
+  ```
+
+  Depuis Hibernate 6, chaque commande n'y apparaît qu'une fois, sans `distinct`. Attention : `join fetch` sur une
+  collection et pagination ne vont pas ensemble, Hibernate paginerait alors en mémoire. On pagine d'abord les
+  commandes, puis on charge leurs lignes.
+
+  **5. Le voir.** `quarkus.hibernate-orm.log.sql=true` en dev : une rafale de `select` identiques trahit un N+1.
+
+  **6. Les entités en JSON.** Une relation bidirectionnelle sérialisée telle quelle boucle (la commande contient ses
+  lignes, qui contiennent leur commande...). On renvoie des DTO, ou l'on coupe la boucle avec `@JsonIgnore` sur le
+  côté retour.
+
+  **En entretien** : « Le `@ManyToOne` possède la clé étrangère ; je tiens les deux côtés à jour, et je passe les
+  `@ManyToOne` en `LAZY`. Le N+1, c'est une requête par élément d'une liste : je le repère dans le journal SQL et je le
+  règle par un `join fetch` ou une projection, même si Quarkus charge déjà par lots. Je ne sérialise pas d'entités
+  paresseuses hors de leur transaction : je construis des DTO. »
+cards:
+  - key: cote-proprietaire
+    format: course
+    question: "Dans une relation `Commande` 1-N `Ligne`, quel côté porte la clé étrangère en base ?"
+    choices:
+      - {text: "Le `@ManyToOne` de `Ligne`, qui possède la relation", correct: true}
+      - {text: "Le `@OneToMany(mappedBy)` de `Commande`", correct: false}
+      - {text: "Les deux, chacun avec sa propre colonne", correct: false}
+      - {text: "Une table de jointure, créée d'office", correct: false}
+    answer: "`Ligne` a la colonne `commande_id` : c'est le côté propriétaire. `mappedBy` dit que la liste de `Commande` n'est qu'un reflet de ce champ."
+  - key: chargement-manytoone
+    format: course
+    question: "Quel est le mode de chargement par défaut d'un `@ManyToOne` ?"
+    choices:
+      - {text: "Immédiat (`EAGER`)", correct: true}
+      - {text: "Paresseux (`LAZY`)", correct: false}
+      - {text: "Par lots, toujours par 16", correct: false}
+      - {text: "Aucun : il faut le préciser", correct: false}
+    answer: "JPA rend `@ManyToOne` et `@OneToOne` immédiats, `@OneToMany` et `@ManyToMany` paresseux. On passe les `@ManyToOne` en `LAZY`, pour ne pas charger d'office tout un graphe."
+  - key: definition-n-plus-un
+    format: course
+    question: "Qu'appelle-t-on le problème N+1 ?"
+    choices:
+      - {text: "Une requête pour la liste, puis une par élément pour sa relation", correct: true}
+      - {text: "Une requête de trop à chaque `persist`, pour lire l'identifiant", correct: false}
+      - {text: "Une transaction ouverte pour chaque élément d'une liste", correct: false}
+      - {text: "Une colonne de trop dans chaque table de jointure", correct: false}
+    answer: "Lister N commandes coûte 1 requête ; lire les lignes de chacune en ajoute N. Le coût grandit avec la liste, et passe inaperçu sur une base de dev presque vide."
+  - key: lots-par-defaut
+    format: course
+    question: "Dans Quarkus, tu lis les lignes de 5 commandes chargées par `Commande.listAll()`. Combien de requêtes, sans réglage ?"
+    choices:
+      - {text: "2 : les commandes, puis leurs lignes chargées par lots", correct: true}
+      - {text: "6 : les commandes, puis une requête par commande", correct: false}
+      - {text: "1 : les lignes viennent avec les commandes", correct: false}
+      - {text: "5 : une requête par commande, lignes comprises", correct: false}
+    answer: "Quarkus charge les collections paresseuses par lots (`quarkus.hibernate-orm.fetch.batch-size`) : les lignes de plusieurs commandes viennent ensemble. Un `join fetch` ferait tout en une requête."
+  - key: vf-onetomany-paresseux
+    format: true-false
+    question: "Une collection `@OneToMany` est chargée paresseusement par défaut."
+    truth: true
+    answer: "Elle n'est lue qu'au premier accès, ce qui exige une session encore ouverte."
+  - key: vf-join-fetch-sans-distinct
+    format: true-false
+    question: "Avec Hibernate 6 et plus, `select c from Commande c left join fetch c.lignes` renvoie chaque commande une seule fois, sans `distinct`."
+    truth: true
+    answer: "Hibernate 6 déduplique les entités racines d'un `join fetch`. Avec Hibernate 5, il fallait `distinct`, sans quoi une commande revenait une fois par ligne."
+  - key: vf-cote-inverse-suffit
+    format: true-false
+    question: "Ajouter une ligne à `commande.lignes` suffit pour que sa colonne `commande_id` soit remplie en base."
+    truth: false
+    answer: "La liste est le côté `mappedBy`, ignoré pour la clé étrangère. Il faut aussi `ligne.commande = commande` : une méthode `ajouter` tient les deux côtés."
+  - key: vf-lazy-apres-commit
+    format: true-false
+    question: "Lire une collection paresseuse jamais chargée, après le commit de sa transaction, lève une `LazyInitializationException`."
+    truth: true
+    answer: "La session est fermée au commit : plus rien ne peut charger la collection. On la charge avant, par la requête ou en construisant un DTO dans la transaction."
+  - key: qcm-tout-en-une-requete
+    format: multiple-choice
+    question: "Comment charges-tu les commandes d'un client et leurs lignes en une seule requête ?"
+    choices:
+      - {text: "`select c from Commande c left join fetch c.lignes where c.client = ?1`", correct: true}
+      - {text: "`select c from Commande c join c.lignes where c.client = ?1`", correct: false}
+      - {text: "`Commande.list(\"client\", client)` avec `lignes` en `EAGER`", correct: false}
+      - {text: "`Commande.list(\"client\", client)`, puis `lignes.size()` sur chacune", correct: false}
+    answer: "`join fetch` remplit la collection dans la même requête. Un `join` simple filtre sans charger la collection ; `EAGER` la charge, mais par d'autres requêtes."
+  - key: qcm-manytoone-paresseux
+    format: multiple-choice
+    question: "Comment rends-tu paresseux le `@ManyToOne` de `Ligne` vers `Commande` ?"
+    choices:
+      - {text: "`@ManyToOne(fetch = FetchType.LAZY)`", correct: true}
+      - {text: "`@ManyToOne(lazy = true)`", correct: false}
+      - {text: "`@ManyToOne @Lazy`", correct: false}
+      - {text: "`@ManyToOne(cascade = CascadeType.DETACH)`", correct: false}
+    answer: "L'attribut `fetch` règle le chargement. `@Lazy` vient de Spring, et la cascade ne change rien au chargement."
+  - key: qcm-orphelins
+    format: multiple-choice
+    question: "Une ligne retirée de `commande.lignes` doit être supprimée en base. Que déclares-tu sur la collection ?"
+    choices:
+      - {text: "`orphanRemoval = true`", correct: true}
+      - {text: "`fetch = FetchType.EAGER`", correct: false}
+      - {text: "`cascade = CascadeType.PERSIST`", correct: false}
+      - {text: "`mappedBy = \"lignes\"`", correct: false}
+    answer: "`orphanRemoval` supprime l'entité retirée de la collection. `CascadeType.PERSIST` ne propage que l'enregistrement."
+  - key: qcm-boucle-json
+    format: multiple-choice
+    question: "Le JSON d'un auteur contient ses livres, qui contiennent leur auteur, et ainsi de suite. Que fais-tu ?"
+    choices:
+      - {text: "Renvoyer un DTO, ou mettre `@JsonIgnore` sur `Livre.auteur`", correct: true}
+      - {text: "Passer la collection `livres` en `EAGER`", correct: false}
+      - {text: "Retirer `mappedBy` de la collection `livres`", correct: false}
+      - {text: "Annoter la ressource avec `@Transactional`", correct: false}
+    answer: "Jackson suit chaque champ : la relation bidirectionnelle boucle. Un DTO choisit ce qui sort ; `@JsonIgnore` coupe le côté retour. Le mode de chargement n'y change rien."
+  - key: bug-lazy-apres-transaction
+    format: bug-fix
+    question: |-
+      `GET /commandes` répond 500 : « Cannot lazily initialize collection of role 'Commande.lignes' with key '1' (no
+      session) ». Quelle correction est la bonne ?
+      ```java
+      @GET
+      @Transactional
+      public List<Commande> lister() {
+          return Commande.listAll();
+      }
+      ```
+    choices:
+      - {text: "Charger les lignes par la requête : `left join fetch c.lignes`", correct: true}
+      - {text: "Passer `@ManyToOne` de `Ligne` en `FetchType.LAZY`", correct: false}
+      - {text: "Ajouter `cascade = CascadeType.ALL` sur la collection", correct: false}
+      - {text: "Rattraper l'exception et renvoyer une liste vide", correct: false}
+    answer: |-
+      ```java
+      @GET
+      @Transactional
+      public List<Commande> lister() {
+          return Commande.list("select c from Commande c left join fetch c.lignes");
+      }
+      ```
+      La transaction se termine au retour de la méthode, et sa session avec elle ; Jackson écrit le JSON ensuite et
+      touche une collection jamais chargée. Un DTO construit dans la méthode réglerait aussi le problème.
+  - key: bug-cle-etrangere-nulle
+    format: bug-fix
+    question: |-
+      Les lignes sont bien enregistrées, mais leur colonne `commande_id` est vide, et `commande.lignes` revient vide
+      au chargement suivant. Quelle correction est la bonne ?
+      ```java
+      Commande commande = new Commande();
+      Ligne ligne = new Ligne();
+      ligne.article = "stylo";
+      commande.lignes.add(ligne);
+      commande.persist();
+      ```
+    choices:
+      - {text: "Remplir aussi `ligne.commande = commande`", correct: true}
+      - {text: "Appeler `ligne.persist()` avant `commande.persist()`", correct: false}
+      - {text: "Passer la collection `lignes` en `FetchType.EAGER`", correct: false}
+      - {text: "Retirer `mappedBy` de la collection `lignes`", correct: false}
+    answer: |-
+      ```java
+      commande.lignes.add(ligne);
+      ligne.commande = commande;
+      ```
+      Hibernate lit la clé étrangère sur le côté propriétaire, `Ligne.commande`. La liste `mappedBy` est ignorée pour
+      l'écriture ; une méthode `commande.ajouter(ligne)` évite d'oublier un côté.
+  - key: bug-boucle-json
+    format: bug-fix
+    question: |-
+      `GET /auteurs` renvoie un JSON qui imbrique l'auteur dans ses livres et les livres dans l'auteur, sans fin,
+      jusqu'à l'erreur. Quelle correction est la bonne ?
+      ```java
+      @Entity
+      public class Livre extends PanacheEntity {
+          public String titre;
+
+          @ManyToOne
+          public Auteur auteur;
+      }
+      ```
+    choices:
+      - {text: "Annoter `Livre.auteur` avec `@JsonIgnore`, ou renvoyer des DTO", correct: true}
+      - {text: "Passer `Livre.auteur` en `FetchType.LAZY`", correct: false}
+      - {text: "Ajouter `orphanRemoval = true` sur `Auteur.livres`", correct: false}
+      - {text: "Annoter la méthode de la ressource avec `@Transactional`", correct: false}
+    answer: |-
+      ```java
+      @ManyToOne
+      @JsonIgnore
+      public Auteur auteur;
+      ```
+      Jackson suit chaque champ de chaque objet : `auteur.livres[0].auteur.livres...` ne s'arrête jamais. Un DTO
+      choisit exactement ce qui sort, et ne dépend plus du modèle JPA.
+  - key: bug-n-plus-un-dans-une-boucle
+    format: bug-fix
+    question: |-
+      Le rapport des ventes d'un client ouvre des centaines de requêtes `select ... from Ligne`, visibles dans le
+      journal SQL. Quelle correction est la bonne ?
+      ```java
+      List<Commande> commandes = Commande.list("client", client);
+      for (Commande commande : commandes) {
+          total += commande.lignes.stream().mapToInt(ligne -> ligne.prix).sum();
+      }
+      ```
+    choices:
+      - {text: "Charger les lignes avec les commandes, par un `left join fetch`", correct: true}
+      - {text: "Passer `@ManyToOne` de `Ligne` vers `Commande` en `EAGER`", correct: false}
+      - {text: "Ouvrir une transaction pour chaque commande de la boucle", correct: false}
+      - {text: "Remplacer la boucle `for` par un `forEach` en parallèle", correct: false}
+    answer: |-
+      ```java
+      List<Commande> commandes = Commande.list(
+              "select c from Commande c left join fetch c.lignes where c.client = ?1", client);
+      ```
+      Chaque accès à `commande.lignes` déclenche un chargement paresseux. Le `join fetch` ramène tout en une requête ;
+      une requête `select sum(...)` ferait mieux encore, si seul le total compte.
+  - key: situation-endpoint-lent
+    format: scenario
+    question: |-
+      `GET /commandes` met trois secondes en production, alors qu'il est instantané en dev. Comment commences-tu ?
+    choices:
+      - {text: "J'active le journal SQL et je cherche une rafale de requêtes identiques", correct: true}
+      - {text: "J'agrandis le pool de connexions de la base de production", correct: false}
+      - {text: "Je passe toutes les relations des entités en `EAGER`", correct: false}
+      - {text: "J'ajoute un cache devant l'endpoint, sans chercher plus loin", correct: false}
+    answer: |-
+      Rapide en dev, lent avec les vraies données : le signe d'un N+1. `quarkus.hibernate-orm.log.sql=true` le montre ;
+      un `join fetch` ou un DTO le règle. Passer en `EAGER` ajoute des requêtes partout ailleurs.
+  - key: situation-paginer-avec-collection
+    format: scenario
+    question: |-
+      Il faut une liste paginée des commandes, chacune avec ses lignes. Un collègue propose `join fetch c.lignes` avec
+      `page(...)`. Que lui réponds-tu ?
+    choices:
+      - {text: "Paginer d'abord les commandes, puis charger leurs lignes à part", correct: true}
+      - {text: "C'est la bonne solution : une seule requête, déjà paginée", correct: false}
+      - {text: "Passer la collection `lignes` en `EAGER` et paginer", correct: false}
+      - {text: "Charger toutes les commandes, et paginer la liste en Java", correct: false}
+    answer: |-
+      Avec un `join fetch` sur une collection, la base renvoie une ligne par ligne de commande : Hibernate ne peut pas
+      paginer en SQL, et pagine en mémoire après avoir tout chargé. On pagine les commandes, puis on charge les lignes
+      de cette page (par lots ou par une seconde requête).
+  - key: situation-entites-en-json
+    format: scenario
+    question: |-
+      Les endpoints renvoient directement les entités JPA, et chaque nouvelle relation casse un JSON ou en grossit un
+      autre. Que proposes-tu ?
+    choices:
+      - {text: "Renvoyer des DTO, construits dans la transaction", correct: true}
+      - {text: "Mettre toutes les relations en `EAGER`", correct: false}
+      - {text: "Annoter chaque relation avec `@JsonIgnore`", correct: false}
+      - {text: "Écrire le JSON à la main dans chaque endpoint", correct: false}
+    answer: |-
+      Un DTO fixe le contrat de l'API, indépendamment du modèle JPA : plus de chargement paresseux hors session, plus
+      de boucle, plus de champ interne exposé par accident.
+  - key: situation-cascade-vers-client
+    format: scenario
+    question: |-
+      Supprimer la seule commande d'un client a supprimé le client lui-même ; pour un client qui en a plusieurs, la
+      suppression échoue sur une clé étrangère. Le `@ManyToOne` de `Commande` vers `Client` a
+      `cascade = CascadeType.ALL`. Que fais-tu ?
+    choices:
+      - {text: "Je retire la cascade de ce `@ManyToOne` : un client est partagé", correct: true}
+      - {text: "Je remplace `CascadeType.ALL` par `CascadeType.REMOVE`", correct: false}
+      - {text: "J'ajoute `orphanRemoval = true` sur le `@ManyToOne`", correct: false}
+      - {text: "Je passe le `@ManyToOne` en `FetchType.LAZY`", correct: false}
+    answer: |-
+      La cascade propage la suppression de la commande à son client. Elle n'a de sens que pour une composition, de la
+      commande vers ses lignes ; jamais vers une entité que d'autres partagent.

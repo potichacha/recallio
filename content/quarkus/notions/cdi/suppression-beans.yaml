@@ -1,0 +1,302 @@
+notion: suppression-beans
+lesson: |-
+  Au build, ArC connaît tout le graphe des beans. Il en profite pour **retirer les beans que personne n'utilise** :
+  moins de classes à charger, moins de mémoire, un démarrage plus rapide, et un exécutable natif plus petit.
+
+  **Un bean est retiré** s'il remplit toutes ces conditions :
+
+  - aucun point d'injection ne peut le recevoir (ni `@Inject Rapport`, ni `@Inject Instance<Rapport>`, ni
+    `@All List<Rapport>`) ;
+  - il n'a pas de nom (`@Named`) ;
+  - il ne déclare pas de méthode observatrice (`@Observes`) ;
+  - il n'est ni `@Startup`, ni `@Unremovable`, ni gardé par une extension (une ressource REST, par exemple, ne l'est
+    jamais).
+
+  **Le piège : la recherche programmatique.** ArC n'analyse pas les appels `CDI.current().select(Rapport.class)` ou
+  `Arc.container().instance(Rapport.class)`. Un bean qu'on n'obtient que par ce moyen est retiré, et à l'exécution :
+
+  - `CDI.current().select(Rapport.class).get()` lève « UnsatisfiedResolutionException: No bean found for required
+    type [class fr.boutique.Rapport] » ;
+  - `Arc.container().instance(Rapport.class).get()` renvoie `null` ;
+  - `CDI.current().select(Gestionnaire.class).stream()` renvoie un flux **vide**.
+
+  **Les remèdes**, du meilleur au moins bon :
+
+  ```java
+  @Inject
+  Instance<Gestionnaire> gestionnaires;    // 1. un point d'injection : visible, vérifié, garde les beans
+
+  @Unremovable                             // 2. garder ce bean, explicitement
+  @ApplicationScoped
+  public class Rapport { ... }
+  ```
+
+  ```properties
+  # 3. garder des types par leur nom, ou par un motif
+  quarkus.arc.unremovable-types=fr.boutique.strategies.*
+  # en dernier recours : ne plus rien retirer
+  quarkus.arc.remove-unused-beans=none
+  ```
+
+  Les beans injectés dans une classe de test `@QuarkusTest` comptent comme utilisés. La Dev UI liste les beans retirés
+  (page ArC) : c'est le premier endroit où regarder quand un bean manque à l'exécution.
+
+  **En entretien** : « Quarkus retire au build les beans que rien n'injecte, n'observe ni ne nomme : l'application
+  démarre plus vite et consomme moins. Le piège est la recherche programmatique, `CDI.current()` ou
+  `Arc.container()`, qu'ArC ne voit pas : le bean est retiré et la recherche échoue. Je préfère alors injecter
+  `Instance<T>` ; sinon, `@Unremovable` ou `quarkus.arc.unremovable-types`. »
+cards:
+  - key: beans-retires
+    format: course
+    question: "Quels beans ArC retire-t-il au build ?"
+    choices:
+      - {text: "Ceux que rien n'injecte, qui n'ont pas de nom et n'observent aucun événement", correct: true}
+      - {text: "Ceux qui n'ont pas été appelés pendant les tests de l'application", correct: false}
+      - {text: "Ceux dont la classe n'a pas été modifiée depuis le dernier build", correct: false}
+      - {text: "Ceux qui ont la portée `@Dependent`, jugés trop coûteux", correct: false}
+    answer: "Un bean est gardé s'il peut être injecté, s'il a un nom, s'il observe un événement, s'il est `@Startup` ou `@Unremovable`, ou si une extension le réclame. Sinon, il est retiré."
+  - key: pourquoi-la-recherche-echoue
+    format: course
+    question: "Pourquoi `CDI.current().select(Rapport.class).get()` peut-il échouer alors que `Rapport` est un bean `@ApplicationScoped` ?"
+    choices:
+      - {text: "ArC n'analyse pas cette recherche : sans injection, `Rapport` a été retiré", correct: true}
+      - {text: "`CDI.current()` n'est disponible qu'en mode dev, jamais en production", correct: false}
+      - {text: "Un bean `@ApplicationScoped` ne se cherche que par son nom, avec `@Named`", correct: false}
+      - {text: "La recherche doit se faire dans un bloc `static` pour trouver le bean", correct: false}
+    answer: "La suppression se décide au build, d'après les points d'injection. Un appel à `CDI.current()` n'en est pas un : le bean, jugé inutile, n'existe plus à l'exécution."
+  - key: garder-un-bean
+    format: course
+    question: "Quelle annotation garde un bean qu'on n'obtient que par recherche programmatique ?"
+    choices:
+      - {text: "`@Unremovable`", correct: true}
+      - {text: "`@Startup`", correct: false}
+      - {text: "`@Singleton`", correct: false}
+      - {text: "`@Default`", correct: false}
+    answer: "`io.quarkus.arc.Unremovable` dit à ArC de ne jamais retirer ce bean. `@Startup` le garde aussi, mais le crée en plus au démarrage, ce qui n'est pas toujours voulu."
+  - key: apport-de-la-suppression
+    format: course
+    question: "Qu'apporte la suppression des beans inutilisés ?"
+    choices:
+      - {text: "Moins de classes chargées : démarrage plus rapide, moins de mémoire", correct: true}
+      - {text: "Une détection des bugs de logique dans les beans gardés", correct: false}
+      - {text: "Un code source nettoyé des classes jamais appelées", correct: false}
+      - {text: "Des tests plus courts, limités aux beans utilisés", correct: false}
+    answer: "Les beans retirés ne sont ni générés ni chargés. L'effet est plus net encore en natif, où leur code n'entre pas dans l'exécutable. Le code source, lui, n'est pas touché."
+  - key: vf-named-garde
+    format: true-false
+    question: "Un bean annoté `@Named` n'est pas retiré, même si rien ne l'injecte."
+    truth: true
+    answer: "Un nom suggère une recherche par ce nom (un gabarit, une expression) qu'ArC ne peut pas voir : le bean est gardé par prudence."
+  - key: vf-instance-garde
+    format: true-false
+    question: "Un point d'injection `Instance<Gestionnaire>` garde les beans qui implémentent `Gestionnaire`."
+    truth: true
+    answer: "Tout bean qui peut répondre à un point d'injection est utilisé, et `Instance<Gestionnaire>` en est un. C'est le moyen le plus propre de garder des beans choisis à l'exécution."
+  - key: vf-observateur-retire
+    format: true-false
+    question: "Un bean qui déclare une méthode `@Observes` est retiré s'il n'est injecté nulle part."
+    truth: false
+    answer: "Une méthode observatrice suffit à garder le bean : l'événement peut l'appeler sans aucune injection. C'est le cas d'un bean qui observe `StartupEvent`."
+  - key: vf-arc-get-null
+    format: true-false
+    question: "Pour un bean retiré, `Arc.container().instance(Rapport.class).get()` renvoie `null`."
+    truth: true
+    answer: "`isAvailable()` renvoie `false`, et `get()` renvoie `null` : l'erreur apparaît plus loin, en `NullPointerException`. `CDI.current().select(...).get()`, lui, lève une `UnsatisfiedResolutionException`."
+  - key: qcm-garder-un-package
+    format: multiple-choice
+    question: "Quelle propriété garde tous les beans d'un package, cherchés par recherche programmatique ?"
+    choices:
+      - {text: "`quarkus.arc.unremovable-types=fr.boutique.strategies.*`", correct: true}
+      - {text: "`quarkus.arc.keep-beans=fr.boutique.strategies`", correct: false}
+      - {text: "`quarkus.index-dependency.strategies.unremovable=true`", correct: false}
+      - {text: "`quarkus.arc.remove-unused-beans=fr.boutique.strategies.*`", correct: false}
+    answer: "`quarkus.arc.unremovable-types` accepte des noms de classes et des motifs. Utile quand les classes à garder sont nombreuses, ou viennent d'une bibliothèque qu'on ne peut pas annoter."
+  - key: qcm-exception-bean-retire
+    format: multiple-choice
+    question: "Que lève `CDI.current().select(Rapport.class).get()` quand le bean `Rapport` a été retiré ?"
+    choices:
+      - {text: "`UnsatisfiedResolutionException`", correct: true}
+      - {text: "`AmbiguousResolutionException`", correct: false}
+      - {text: "`ContextNotActiveException`", correct: false}
+      - {text: "`ClassNotFoundException`", correct: false}
+    answer: "« No bean found for required type [class fr.boutique.Rapport] » : la classe existe toujours, mais plus aucun bean ne lui correspond."
+  - key: qcm-desactiver-la-suppression
+    format: multiple-choice
+    question: "Quelle valeur de `quarkus.arc.remove-unused-beans` désactive toute suppression de beans ?"
+    choices:
+      - {text: "`none`", correct: true}
+      - {text: "`keep`", correct: false}
+      - {text: "`disabled`", correct: false}
+      - {text: "`off`", correct: false}
+    answer: "`none` garde tous les beans, au prix du démarrage et de la mémoire. Le défaut, `all`, retire tous les beans inutilisés. On préfère garder les seuls beans concernés."
+  - key: qcm-lequel-est-retire
+    format: multiple-choice
+    question: "Lequel de ces beans `@ApplicationScoped` ArC retire-t-il au build ?"
+    choices:
+      - {text: "Un bean obtenu seulement par `CDI.current().select(...)`", correct: true}
+      - {text: "Un bean injecté dans une ressource REST", correct: false}
+      - {text: "Un bean qui observe `StartupEvent`", correct: false}
+      - {text: "Un bean annoté `@Named(\"rapport\")`", correct: false}
+    answer: "L'injection, l'observation d'un événement et le nom gardent un bean. La recherche programmatique, invisible au build, ne le garde pas."
+  - key: bug-registre-par-cdi-current
+    format: bug-fix
+    question: |-
+      En test comme en production, l'export lève « UnsatisfiedResolutionException: No bean found for required type
+      [class fr.boutique.ExportCsv] ». `ExportCsv` n'est injecté nulle part. Quelle correction est la bonne ?
+      ```java
+      @ApplicationScoped
+      public class ExportCsv implements Export { ... }
+
+      // ailleurs
+      Export export = CDI.current().select(ExportCsv.class).get();
+      ```
+    choices:
+      - {text: "Annoter `ExportCsv` avec `@Unremovable`", correct: true}
+      - {text: "Remplacer `@ApplicationScoped` par `@Dependent` sur `ExportCsv`", correct: false}
+      - {text: "Appeler `CDI.current()` dans un bloc `synchronized`", correct: false}
+      - {text: "Remplacer `get()` par `stream().findFirst().get()`", correct: false}
+    answer: |-
+      ```java
+      @Unremovable
+      @ApplicationScoped
+      public class ExportCsv implements Export { ... }
+      ```
+      ArC ne voit pas la recherche par `CDI.current()` : jugé inutile, le bean est retiré au build. `@Unremovable` le
+      garde. Mieux encore : injecter `Instance<Export>` à l'endroit de la recherche.
+  - key: bug-arc-container-null
+    format: bug-fix
+    question: |-
+      L'envoi des relevés lève « NullPointerException: Cannot invoke "fr.banque.Releves.envoyer()" because the return
+      value of "io.quarkus.arc.InstanceHandle.get()" is null ». Quelle correction est la bonne ?
+      ```java
+      @ApplicationScoped
+      public class Releves { ... }
+
+      // dans une classe utilitaire
+      Arc.container().instance(Releves.class).get().envoyer();
+      ```
+    choices:
+      - {text: "Annoter `Releves` avec `@Unremovable`, ou l'injecter là où il sert", correct: true}
+      - {text: "Remplacer `Arc.container()` par `Arc.initialize()` avant l'appel", correct: false}
+      - {text: "Remplacer `@ApplicationScoped` par `@RequestScoped` sur `Releves`", correct: false}
+      - {text: "Vérifier `isAvailable()` et ne rien envoyer quand il est faux", correct: false}
+    answer: |-
+      ```java
+      @Unremovable
+      @ApplicationScoped
+      public class Releves { ... }
+      ```
+      Pour un bean retiré, `instance(...)` renvoie un descripteur indisponible, dont `get()` vaut `null`. Tester
+      `isAvailable()` éviterait l'exception, mais les relevés ne partiraient jamais.
+  - key: bug-flux-vide
+    format: bug-fix
+    question: |-
+      Aucun gestionnaire ne traite les commandes : la boucle ne fait jamais un tour, sans erreur. Trois beans
+      `@ApplicationScoped` implémentent pourtant `Gestionnaire`. Quelle correction est la bonne ?
+      ```java
+      void traiter(Commande commande) {
+          CDI.current().select(Gestionnaire.class).stream()
+                  .forEach(gestionnaire -> gestionnaire.traiter(commande));
+      }
+      ```
+    choices:
+      - {text: "Injecter `Instance<Gestionnaire>` et parcourir son `stream()`", correct: true}
+      - {text: "Remplacer `stream()` par `iterator()` pour forcer la création", correct: false}
+      - {text: "Appeler `CDI.current()` une seule fois, dans un champ `static`", correct: false}
+      - {text: "Annoter la méthode `traiter` avec `@ActivateRequestContext`", correct: false}
+    answer: |-
+      ```java
+      @Inject
+      Instance<Gestionnaire> gestionnaires;
+
+      void traiter(Commande commande) {
+          gestionnaires.stream().forEach(gestionnaire -> gestionnaire.traiter(commande));
+      }
+      ```
+      Personne n'injectait les gestionnaires : les trois ont été retirés, et la recherche ne trouve rien. Le point
+      d'injection `Instance<Gestionnaire>` les rend utilisés, donc gardés.
+  - key: bug-recherche-dans-un-test
+    format: bug-fix
+    question: |-
+      Ce test échoue par une `NullPointerException` sur `calcul.taux()`, alors que `CalculInterets` est un bean
+      `@ApplicationScoped` que rien d'autre n'utilise encore. Quelle correction est la bonne ?
+      ```java
+      @QuarkusTest
+      class CalculInteretsTest {
+          @Test
+          void calculeLeTaux() {
+              CalculInterets calcul = Arc.container().instance(CalculInterets.class).get();
+              assertEquals(3, calcul.taux());
+          }
+      }
+      ```
+    choices:
+      - {text: "Injecter `CalculInterets` dans le test avec `@Inject`", correct: true}
+      - {text: "Annoter la classe de test avec `@Unremovable`", correct: false}
+      - {text: "Appeler `Arc.container()` dans une méthode `@BeforeEach`", correct: false}
+      - {text: "Remplacer `@QuarkusTest` par `@QuarkusIntegrationTest`", correct: false}
+    answer: |-
+      ```java
+      @Inject
+      CalculInterets calcul;
+
+      @Test
+      void calculeLeTaux() {
+          assertEquals(3, calcul.taux());
+      }
+      ```
+      Les points d'injection des classes `@QuarkusTest` comptent : le bean est alors gardé. La recherche par
+      `Arc.container()`, elle, ne le garde pas, et renvoie `null` pour un bean retiré.
+  - key: situation-plugins-par-nom-de-classe
+    format: scenario
+    question: |-
+      Une vingtaine de stratégies de calcul, dans `fr.boutique.strategies`, sont choisies par leur nom de classe, lu en
+      configuration, puis cherchées avec `CDI.current()`. Comment les garder toutes ?
+    choices:
+      - {text: "Avec `quarkus.arc.unremovable-types=fr.boutique.strategies.*`", correct: true}
+      - {text: "Avec `quarkus.arc.remove-unused-beans=none`, pour tout garder", correct: false}
+      - {text: "En les annotant `@Startup`, pour qu'elles soient créées au démarrage", correct: false}
+      - {text: "En les déclarant toutes dans un fichier `beans.xml`", correct: false}
+    answer: |-
+      Le motif garde exactement ces classes, y compris celles qu'on ajoutera. Tout garder coûterait au démarrage pour
+      rien ; `@Startup` les créerait toutes sans besoin ; `beans.xml` est ignoré. Injecter `Instance<Strategie>` serait
+      plus propre encore.
+  - key: situation-tout-garder
+    format: scenario
+    question: |-
+      Après un bean introuvable à l'exécution, un collègue propose `quarkus.arc.remove-unused-beans=none` « pour ne
+      plus jamais avoir le problème ». Que réponds-tu ?
+    choices:
+      - {text: "Qu'on garde plutôt le seul bean concerné, sans renoncer à l'optimisation", correct: true}
+      - {text: "Qu'il a raison : la suppression des beans n'apporte rien de mesurable", correct: false}
+      - {text: "Qu'il faut plutôt recompiler en natif, qui ne retire aucun bean", correct: false}
+      - {text: "Qu'il faut plutôt désactiver ArC et revenir à un conteneur classique", correct: false}
+    answer: |-
+      Tout garder alourdit le démarrage et la mémoire, surtout avec beaucoup d'extensions. `@Unremovable` sur le bean,
+      ou mieux une injection d'`Instance<T>`, règle le cas sans coût global.
+  - key: situation-bean-introuvable-en-dev
+    format: scenario
+    question: |-
+      En mode dev, une recherche de bean échoue à l'exécution avec « No bean found for required type ». Par où
+      commences-tu l'enquête ?
+    choices:
+      - {text: "Par la liste des beans retirés, dans la page ArC de la Dev UI", correct: true}
+      - {text: "Par les journaux de Docker, au cas où un conteneur manquerait", correct: false}
+      - {text: "Par une relance de `quarkus dev`, pour vider le cache du build", correct: false}
+      - {text: "Par le `pom.xml`, pour vérifier la version de chaque extension", correct: false}
+    answer: |-
+      La Dev UI montre les beans retirés au build. S'il y figure, c'est qu'aucune injection ne le gardait : on ajoute
+      une injection, ou `@Unremovable`.
+  - key: situation-bibliotheque-de-gestionnaires
+    format: scenario
+    question: |-
+      Une bibliothèque fournit des beans `Gestionnaire` que ton application découvre par `CDI.current()`. Tu ne peux
+      pas modifier leurs classes. Comment les garder ?
+    choices:
+      - {text: "En injectant `Instance<Gestionnaire>` là où ils servent", correct: true}
+      - {text: "En copiant leurs classes dans l'application pour les annoter", correct: false}
+      - {text: "En désactivant l'index Jandex de la bibliothèque", correct: false}
+      - {text: "En ajoutant `@Unremovable` à la classe qui fait la recherche", correct: false}
+    answer: |-
+      Le point d'injection garde tous les beans `Gestionnaire`, sans toucher à la bibliothèque, et remplace la
+      recherche. `quarkus.arc.unremovable-types` marcherait aussi. `@Unremovable` ne garde que la classe annotée.

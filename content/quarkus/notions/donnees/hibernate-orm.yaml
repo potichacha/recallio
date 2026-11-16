@@ -1,0 +1,321 @@
+notion: hibernate-orm
+lesson: |-
+  **Hibernate ORM** est l'implémentation de JPA (Jakarta Persistence) de Quarkus : il traduit des objets Java, les
+  **entités**, en lignes de tables. L'extension `quarkus-hibernate-orm`, avec celle du pilote, suffit : pas de
+  `persistence.xml`, Quarkus trouve les entités au build et prépare Hibernate à ce moment-là.
+
+  **1. Une entité.**
+
+  ```java
+  @Entity
+  public class Produit {
+
+      @Id
+      @GeneratedValue
+      public Long id;
+
+      public String nom;
+      public int prix;
+  }
+  ```
+
+  Une classe `@Entity`, un identifiant `@Id`, un constructeur sans argument (implicite ici). La table s'appelle comme
+  l'entité, `Produit` ; `@Table(name = "produit")` la renomme.
+
+  **2. L'`EntityManager`.** On l'injecte, et il fait le travail : `find`, `persist`, `remove`, `createQuery`.
+
+  ```java
+  @ApplicationScoped
+  public class Catalogue {
+
+      @Inject
+      EntityManager em;
+
+      @Transactional
+      public Produit ajouter(String nom, int prix) {
+          Produit produit = new Produit();
+          produit.nom = nom;
+          produit.prix = prix;
+          em.persist(produit);
+          return produit;
+      }
+
+      public List<Produit> moinsChersQue(int prix) {
+          return em.createQuery("from Produit where prix < :prix", Produit.class)
+                  .setParameter("prix", prix)
+                  .getResultList();
+      }
+  }
+  ```
+
+  **3. Les écritures demandent une transaction.** `persist`, `remove` ou une requête `update` hors transaction lèvent
+  `TransactionRequiredException` : « Transaction is not active, consider adding @Transactional to your method to
+  automatically activate one. » La lecture, elle, marche sans transaction. Piège plus sournois : modifier une entité
+  chargée hors transaction ne lève rien, mais **n'écrit rien** en base. Dans une transaction, au contraire, une entité
+  chargée est suivie (*dirty checking*) : la modifier suffit, elle est écrite au commit, sans appel à `persist`.
+
+  **4. La gestion du schéma.** Hibernate peut créer les tables d'après les entités :
+
+  ```properties
+  quarkus.hibernate-orm.schema-management.strategy=drop-and-create
+  quarkus.hibernate-orm.log.sql=true
+  ```
+
+  | Valeur | Effet au démarrage |
+  |---|---|
+  | `none` | rien (la valeur par défaut) |
+  | `create` | crée le schéma |
+  | `drop-and-create` | supprime puis recrée tout : les données sont perdues |
+  | `drop` | supprime le schéma |
+  | `update` | ajoute ce qui manque, sans rien supprimer |
+  | `validate` | vérifie que le schéma correspond aux entités, et refuse de démarrer sinon |
+
+  Avec les Dev Services, Quarkus passe de lui-même à `drop-and-create` en dev et en test. En production, on garde
+  `none` ou `validate`, et le schéma évolue par des **migrations** (Flyway) : `update` ne sait ni renommer ni
+  supprimer une colonne. L'ancien nom de la propriété, `quarkus.hibernate-orm.database.generation`, est déprécié.
+
+  **5. `import.sql`.** Un fichier `src/main/resources/import.sql` est exécuté après la création du schéma, en dev et en
+  test : pratique pour des données d'essai. En production, il n'est pas chargé par défaut
+  (`quarkus.hibernate-orm.sql-load-script`).
+
+  **En entretien** : « J'annote mes entités `@Entity`, Quarkus les trouve au build, sans `persistence.xml`, et
+  j'injecte l'`EntityManager`. Toute écriture se fait dans une transaction, où les entités chargées sont suivies et
+  écrites au commit. En dev, `drop-and-create` et `import.sql` ; en production, `validate` et des migrations Flyway. »
+cards:
+  - key: pas-de-persistence-xml
+    format: course
+    question: "Comment Quarkus trouve-t-il les entités d'une application, sans `persistence.xml` ?"
+    choices:
+      - {text: "Il repère au build les classes annotées `@Entity`", correct: true}
+      - {text: "Il parcourt le classpath au démarrage, par réflexion", correct: false}
+      - {text: "Il lit la liste des classes dans `application.properties`", correct: false}
+      - {text: "Il lit chaque classe déclarée dans `beans.xml`", correct: false}
+    answer: "Quarkus indexe les classes au build et y prépare Hibernate : le démarrage n'a plus rien à chercher. `persistence.xml` reste possible, mais inutile."
+  - key: modifier-sans-persist
+    format: course
+    question: "Dans une méthode `@Transactional`, tu charges un produit avec `em.find` puis tu changes son prix. Que faut-il encore pour l'écrire en base ?"
+    choices:
+      - {text: "Rien : l'entité est suivie, et écrite au commit", correct: true}
+      - {text: "Un appel à `em.persist(produit)` après la modification", correct: false}
+      - {text: "Un appel à `em.merge(produit)` après la modification", correct: false}
+      - {text: "Un appel à `em.flush()`, sans quoi rien n'est écrit", correct: false}
+    answer: "Une entité chargée dans une transaction est gérée : Hibernate compare son état au commit (dirty checking) et écrit les changements. `flush` ne ferait qu'avancer l'écriture."
+  - key: strategie-en-production
+    format: course
+    question: "Quelle stratégie de gestion du schéma conviens-tu de garder en production ?"
+    choices:
+      - {text: "`validate`, avec des migrations qui font évoluer le schéma", correct: true}
+      - {text: "`update`, pour suivre les entités sans effort", correct: false}
+      - {text: "`drop-and-create`, pour repartir d'un schéma propre", correct: false}
+      - {text: "`create`, pour créer les tables qui manquent", correct: false}
+    answer: "`validate` vérifie sans rien toucher ; Flyway applique des migrations relues. `update` ne sait ni renommer ni supprimer une colonne, et `drop-and-create` efface les données."
+  - key: import-sql-en-production
+    format: course
+    question: "Ton fichier `import.sql` remplit la base en dev. Que se passe-t-il en production, sans configuration particulière ?"
+    choices:
+      - {text: "Il n'est pas exécuté : il ne sert qu'en dev et en test", correct: true}
+      - {text: "Il est exécuté à chaque démarrage, après le schéma", correct: false}
+      - {text: "Il est exécuté une seule fois, au premier démarrage", correct: false}
+      - {text: "L'application refuse de démarrer tant qu'il existe", correct: false}
+    answer: "`quarkus.hibernate-orm.sql-load-script` vaut `import.sql` en dev et en test, et rien en production. Les données de référence de production passent par des migrations."
+  - key: vf-lecture-sans-transaction
+    format: true-false
+    question: "Dans Quarkus, lire des entités avec l'`EntityManager` est possible sans transaction."
+    truth: true
+    answer: "Les lectures marchent hors transaction. Ce sont les écritures (`persist`, `remove`, requêtes `update` et `delete`) qui exigent une transaction."
+  - key: vf-modification-hors-transaction
+    format: true-false
+    question: "Hors transaction, modifier le champ d'une entité chargée lève une exception."
+    truth: false
+    answer: "Rien n'est levé, et rien n'est écrit : sans transaction, aucun commit ne déclenche le dirty checking. C'est un bug silencieux, d'où `@Transactional` sur toute méthode qui modifie."
+  - key: vf-update-renomme
+    format: true-false
+    question: "Avec la stratégie `update`, renommer un champ d'entité renomme la colonne en base."
+    truth: false
+    answer: "`update` ajoute une nouvelle colonne et laisse l'ancienne, avec ses données. Il ne renomme ni ne supprime : c'est le travail d'une migration."
+  - key: vf-dev-services-drop-and-create
+    format: true-false
+    question: "Avec les Dev Services et sans stratégie configurée, Quarkus recrée le schéma à chaque démarrage en dev."
+    truth: true
+    answer: "Quarkus passe alors à `drop-and-create` en dev et en test : la base des Dev Services est jetable. Hors Dev Services, la valeur par défaut est `none`."
+  - key: qcm-valider-le-schema
+    format: multiple-choice
+    question: "Quelle stratégie fait échouer le démarrage quand une table manque, sans rien modifier en base ?"
+    choices:
+      - {text: "`validate`", correct: true}
+      - {text: "`update`", correct: false}
+      - {text: "`none`", correct: false}
+      - {text: "`create`", correct: false}
+    answer: "`validate` compare entités et schéma : « Schema validation: missing table [Produit] ». `none` ne vérifie rien ; `update` et `create` modifient la base."
+  - key: qcm-propriete-du-schema
+    format: multiple-choice
+    question: "Quelle propriété règle la gestion du schéma dans un Quarkus 3 récent ?"
+    choices:
+      - {text: "`quarkus.hibernate-orm.schema-management.strategy`", correct: true}
+      - {text: "`quarkus.hibernate-orm.database.generation`", correct: false}
+      - {text: "`spring.jpa.hibernate.ddl-auto`", correct: false}
+      - {text: "`quarkus.datasource.schema.strategy`", correct: false}
+    answer: "`schema-management.strategy` remplace `database.generation`, dépréciée. `ddl-auto` est la propriété de Spring Boot."
+  - key: qcm-voir-le-sql
+    format: multiple-choice
+    question: "Comment vois-tu dans le journal les requêtes SQL qu'Hibernate envoie ?"
+    choices:
+      - {text: "`quarkus.hibernate-orm.log.sql=true`", correct: true}
+      - {text: "`quarkus.log.level=TRACE` pour toute l'application", correct: false}
+      - {text: "`quarkus.datasource.log-queries=true`", correct: false}
+      - {text: "`hibernate.show_sql` dans `persistence.xml`", correct: false}
+    answer: "La propriété active le journal des requêtes, en dev surtout. Tout passer en `TRACE` noierait le journal ; on peut aussi la limiter au profil `%dev`."
+  - key: qcm-ou-mettre-transactional
+    format: multiple-choice
+    question: "Ta méthode `ajouter` appelle `em.persist(produit)`. Que lui faut-il ?"
+    choices:
+      - {text: "`@Transactional`, pour ouvrir une transaction autour de l'appel", correct: true}
+      - {text: "`@Blocking`, pour s'exécuter sur un thread de travail", correct: false}
+      - {text: "`@Lock`, pour verrouiller la table pendant l'écriture", correct: false}
+      - {text: "Rien : `persist` ouvre sa propre transaction", correct: false}
+    answer: "Sans transaction, `persist` lève `TransactionRequiredException`. `@Transactional` ouvre la transaction, la valide au retour et l'annule sur une exception non vérifiée."
+  - key: trous-annotation-entite
+    format: fill-in
+    question: |-
+      Complète pour faire de `Produit` une entité, avec un identifiant généré :
+      ```java
+      @___
+      public class Produit {
+          @Id
+          @___
+          public Long id;
+      ```
+    blanks:
+      - [Entity]
+      - [GeneratedValue]
+    answer: "`@Entity` déclare l'entité ; `@Id` et `@GeneratedValue` donnent un identifiant attribué par Hibernate."
+  - key: trous-injecter-entitymanager
+    format: fill-in
+    question: |-
+      Complète pour obtenir l'`EntityManager` dans un bean :
+      ```java
+      @___
+      EntityManager em;
+      ```
+    blanks:
+      - [Inject]
+    answer: "Quarkus produit l'`EntityManager` comme un bean : `@Inject` suffit. `@PersistenceContext` est accepté aussi."
+  - key: trous-strategie-dev
+    format: fill-in
+    question: |-
+      Complète pour recréer le schéma à chaque démarrage, en dev seulement :
+      ```properties
+      %dev.quarkus.hibernate-orm.schema-management.strategy=___
+      ```
+    blanks:
+      - [drop-and-create]
+    answer: "`drop-and-create` supprime et recrée les tables à chaque démarrage : pratique en dev, désastreux en production."
+  - key: trous-persister
+    format: fill-in
+    question: |-
+      Complète pour enregistrer le nouveau produit :
+      ```java
+      @Transactional
+      public void ajouter(Produit produit) {
+          em.___(produit);
+      }
+      ```
+    blanks:
+      - [persist]
+    answer: "`persist` rend l'entité gérée ; l'`INSERT` part au plus tard au commit."
+  - key: bug-persist-sans-transaction
+    format: bug-fix
+    question: |-
+      `POST /produits` répond 500 : « TransactionRequiredException: Transaction is not active, consider adding
+      @Transactional to your method to automatically activate one. » Quelle correction est la bonne ?
+      ```java
+      @ApplicationScoped
+      public class Catalogue {
+          @Inject
+          EntityManager em;
+
+          public void ajouter(Produit produit) {
+              em.persist(produit);
+          }
+      }
+      ```
+    choices:
+      - {text: "Annoter la méthode `ajouter` avec `@Transactional`", correct: true}
+      - {text: "Appeler `em.flush()` juste après `persist`", correct: false}
+      - {text: "Remplacer `@ApplicationScoped` par `@RequestScoped`", correct: false}
+      - {text: "Remplacer `em.persist(produit)` par `em.merge(produit)`", correct: false}
+    answer: |-
+      ```java
+      @Transactional
+      public void ajouter(Produit produit) {
+          em.persist(produit);
+      }
+      ```
+      Une écriture exige une transaction. `flush` et `merge` en exigent une aussi ; la portée du bean n'y change rien.
+  - key: bug-modification-perdue
+    format: bug-fix
+    question: |-
+      `PUT /produits/7/prix` répond 204, mais le prix ne change pas en base, et rien n'apparaît dans le journal.
+      Quelle correction est la bonne ?
+      ```java
+      public void changerPrix(Long id, int prix) {
+          Produit produit = em.find(Produit.class, id);
+          produit.prix = prix;
+      }
+      ```
+    choices:
+      - {text: "Annoter la méthode `changerPrix` avec `@Transactional`", correct: true}
+      - {text: "Ajouter `em.persist(produit)` à la fin, sans transaction", correct: false}
+      - {text: "Déclarer le champ `prix` en `private` avec un setter", correct: false}
+      - {text: "Remplacer `em.find` par une requête `from Produit`", correct: false}
+    answer: |-
+      ```java
+      @Transactional
+      public void changerPrix(Long id, int prix) {
+          Produit produit = em.find(Produit.class, id);
+          produit.prix = prix;
+      }
+      ```
+      Hors transaction, la lecture marche mais aucun commit n'écrit la modification. Dans une transaction, l'entité est
+      suivie : le changement part au commit, sans `persist`.
+  - key: bug-drop-and-create-partout
+    format: bug-fix
+    question: |-
+      Après chaque redéploiement, la base de production est vide. Le fichier de configuration contient ceci.
+      Quelle correction est la bonne ?
+      ```properties
+      quarkus.hibernate-orm.schema-management.strategy=drop-and-create
+      ```
+    choices:
+      - {text: "Préfixer la ligne par `%dev.`, et garder `validate` en production", correct: true}
+      - {text: "Remplacer `drop-and-create` par `update`, partout", correct: false}
+      - {text: "Ajouter un `import.sql` qui recharge les données", correct: false}
+      - {text: "Sauvegarder la base avant chaque redéploiement", correct: false}
+    answer: |-
+      ```properties
+      %dev.quarkus.hibernate-orm.schema-management.strategy=drop-and-create
+      %prod.quarkus.hibernate-orm.schema-management.strategy=validate
+      ```
+      Sans préfixe, la propriété vaut dans tous les profils : chaque démarrage supprime et recrée les tables. `update`
+      épargnerait les données, mais ferait évoluer le schéma sans contrôle.
+  - key: bug-table-manquante-en-validate
+    format: bug-fix
+    question: |-
+      Après l'ajout d'une entité `Avis`, la production refuse de démarrer : « Schema validation: missing table
+      [Avis] ». La stratégie de production est `validate`, et le schéma évolue par Flyway. Quelle correction est la
+      bonne ?
+      ```properties
+      %prod.quarkus.hibernate-orm.schema-management.strategy=validate
+      ```
+    choices:
+      - {text: "Ajouter une migration Flyway qui crée la table `Avis`", correct: true}
+      - {text: "Passer la stratégie de production à `update`", correct: false}
+      - {text: "Passer la stratégie de production à `none`", correct: false}
+      - {text: "Créer la table à la main sur le serveur de production", correct: false}
+    answer: |-
+      ```
+      -- V7__creer_avis.sql
+      create table Avis (id bigint primary key, note int not null, produit_id bigint references Produit);
+      ```
+      `validate` a joué son rôle : il a vu l'écart avant la première requête. La migration le comble, relue et
+      rejouée partout ; `none` ne ferait que repousser l'erreur à la première requête.

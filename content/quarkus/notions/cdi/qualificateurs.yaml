@@ -1,0 +1,377 @@
+notion: qualificateurs
+lesson: |-
+  Quand deux beans implémentent la même interface, `@Inject Paiement paiement;` ne sait pas lequel choisir, et le
+  build échoue :
+
+  ```
+  Ambiguous dependencies for type fr.boutique.Paiement and qualifiers [@Default]
+  	- injection target: fr.boutique.Caisse#paiement
+  	- available beans:
+  		- CLASS bean [... target=fr.boutique.Especes]
+  		- CLASS bean [... target=fr.boutique.Carte]
+  ```
+
+  Un **qualificatif** distingue les beans d'un même type. Chaque bean en porte au moins deux, implicites :
+  **`@Any`**, et **`@Default`** tant qu'il n'a pas d'autre qualificatif que `@Named`.
+
+  **1. `@Named`**, le plus simple, par une chaîne :
+
+  ```java
+  @ApplicationScoped @Named("carte")
+  public class Carte implements Paiement { ... }
+
+  @Inject @Named("carte") Paiement paiement;     // la casse compte : "Carte" ne trouverait rien
+  @Inject @Named Paiement virement;               // sans valeur : le nom du champ, "virement"
+  ```
+
+  Attention : un bean qui n'a que `@Named` **garde `@Default`**. Deux beans `@Named` restent ambigus pour un simple
+  `@Inject Paiement`.
+
+  **2. Un qualificatif maison**, typé, que le compilateur vérifie :
+
+  ```java
+  @Qualifier
+  @Retention(RetentionPolicy.RUNTIME)
+  @Target({ElementType.TYPE, ElementType.METHOD, ElementType.FIELD, ElementType.PARAMETER})
+  public @interface Rapide { }
+
+  @ApplicationScoped @Rapide
+  public class Express implements Livraison { ... }   // n'a plus @Default
+
+  @Inject @Rapide Livraison livraison;
+  ```
+
+  Sans `@Qualifier`, l'annotation n'est qu'une annotation ordinaire : ArC l'ignore, et l'ambiguïté demeure.
+
+  **3. Choisir à l'exécution : `Instance<T>`.** Au lieu d'un bean, on injecte un accès programmatique :
+
+  ```java
+  @Inject Instance<Paiement> paiements;
+
+  paiements.isAmbiguous();          // plusieurs candidats ?
+  paiements.stream();               // tous les candidats @Default
+  paiements.get();                  // un seul candidat attendu, sinon AmbiguousResolutionException
+  ```
+
+  **4. Tous les beans d'un type : `@All`** (propre à Quarkus) injecte une liste, **quels que soient leurs
+  qualificatifs** : `@Inject @All List<Paiement> tous;`.
+
+  **Dans Quarkus**, un champ `@Named` est injecté même sans `@Inject`.
+
+  **En entretien** : « Quand deux beans ont le même type, l'injection est ambiguë et le build échoue. Je les distingue
+  par un qualificatif : `@Named` pour aller vite, un qualificatif maison annoté `@Qualifier` pour la sûreté du typage ;
+  un bean qui n'a que `@Named` garde `@Default`. Pour choisir à l'exécution, j'injecte `Instance<T>`, ou `@All List<T>`
+  dans Quarkus. »
+cards:
+  - key: deux-implementations
+    format: course
+    question: "Deux beans implémentent `Paiement`, sans qualificatif. Que se passe-t-il avec `@Inject Paiement paiement;` ?"
+    choices:
+      - {text: "Le build échoue : « Ambiguous dependencies » liste les deux beans", correct: true}
+      - {text: "ArC injecte le premier bean trouvé dans l'ordre alphabétique", correct: false}
+      - {text: "ArC injecte une liste qui contient les deux beans", correct: false}
+      - {text: "Le champ reste à `null` jusqu'à ce qu'un bean soit choisi", correct: false}
+    answer: "ArC exige exactement un bean par point d'injection. L'erreur, au build, nomme le type, les qualificatifs demandés et les candidats."
+  - key: declarer-un-qualificatif
+    format: course
+    question: "Que faut-il pour qu'une annotation maison, comme `@Rapide`, soit un qualificatif ?"
+    choices:
+      - {text: "La méta-annoter `@Qualifier`, avec une rétention `RUNTIME`", correct: true}
+      - {text: "La nommer avec le suffixe `Qualifier`, comme `@RapideQualifier`", correct: false}
+      - {text: "La déclarer dans `application.properties`, sous `quarkus.arc`", correct: false}
+      - {text: "Rien : toute annotation posée sur un bean est un qualificatif", correct: false}
+    answer: "`@Qualifier` (`jakarta.inject`) fait d'une annotation un qualificatif. Sans lui, ArC l'ignore pour la résolution, et l'ambiguïté reste."
+  - key: contenu-de-all
+    format: course
+    question: "Que contient `@Inject @All List<Paiement> tous;` dans Quarkus ?"
+    choices:
+      - {text: "Tous les beans `Paiement`, quels que soient leurs qualificatifs", correct: true}
+      - {text: "Seulement les beans `Paiement` qui portent `@Default`", correct: false}
+      - {text: "Seulement les beans `Paiement` déjà créés par le conteneur", correct: false}
+      - {text: "Une liste vide, à remplir par `Instance<Paiement>`", correct: false}
+    answer: "`@All` (`io.quarkus.arc.All`) rassemble tous les beans du type, qualifiés ou non. `Instance<Paiement>`, lui, se limite par défaut aux beans `@Default`."
+  - key: named-et-default
+    format: course
+    question: "Un bean annoté seulement `@Named(\"carte\")` porte-t-il encore le qualificatif `@Default` ?"
+    choices:
+      - {text: "Oui : `@Named` seul ne retire pas `@Default`", correct: true}
+      - {text: "Non : tout qualificatif retire `@Default`", correct: false}
+      - {text: "Non : `@Named` remplace `@Default` par `@Any`", correct: false}
+      - {text: "Seulement si la classe porte aussi `@Default`", correct: false}
+    answer: "C'est une règle de CDI : `@Named` ne compte pas pour retirer `@Default`. Deux beans `@Named` restent donc ambigus pour un `@Inject` sans qualificatif."
+  - key: vf-casse-de-named
+    format: true-false
+    question: "Les noms donnés par `@Named` sont sensibles à la casse : `@Named(\"Carte\")` ne trouve pas un bean `@Named(\"carte\")`."
+    truth: true
+    answer: "Le build échoue : « Unsatisfied dependency for type fr.boutique.Paiement and qualifiers [@Named(\"Carte\")] », et le message montre le bean `@Named(\"carte\")` qui correspond par le type."
+  - key: vf-qualificatif-maison-et-default
+    format: true-false
+    question: "Un bean qui porte un qualificatif maison, comme `@Rapide`, garde aussi le qualificatif `@Default`."
+    truth: false
+    answer: "Un qualificatif autre que `@Named` (et `@Any`) retire `@Default`. Le bean n'est alors injecté que là où l'on demande `@Rapide`."
+  - key: vf-instance-get-ambigu
+    format: true-false
+    question: "`Instance<Paiement>.get()` lève une exception quand plusieurs beans correspondent."
+    truth: true
+    answer: "`AmbiguousResolutionException`, à l'exécution. On teste `isAmbiguous()`, on parcourt `stream()`, ou l'on restreint avec `select(...)`."
+  - key: vf-named-sans-inject
+    format: true-false
+    question: "Dans Quarkus, un champ annoté `@Named(\"carte\")` est injecté même sans `@Inject`."
+    truth: true
+    answer: "Quarkus ajoute `@Inject` aux champs annotés `@Named`, comme à ceux annotés `@ConfigProperty`. L'écrire reste permis, et plus explicite."
+  - key: qcm-plusieurs-candidats
+    format: multiple-choice
+    question: "Quelle méthode d'`Instance<Paiement>` dit s'il y a plusieurs beans candidats ?"
+    choices:
+      - {text: "`isAmbiguous()`", correct: true}
+      - {text: "`isResolvable()`", correct: false}
+      - {text: "`isUnsatisfied()`", correct: false}
+      - {text: "`isEmpty()`", correct: false}
+    answer: "`isAmbiguous()` : plusieurs candidats. `isUnsatisfied()` : aucun. `isResolvable()` : exactement un, donc `get()` réussira."
+  - key: qcm-tous-les-beans
+    format: multiple-choice
+    question: "Dans Quarkus, comment injecter d'un coup tous les beans qui implémentent `Paiement` ?"
+    choices:
+      - {text: "`@Inject @All List<Paiement> paiements;`", correct: true}
+      - {text: "`@Inject List<Paiement> paiements;`", correct: false}
+      - {text: "`@Inject Paiement[] paiements;`", correct: false}
+      - {text: "`@Inject @Any Paiement paiements;`", correct: false}
+    answer: "`@All` est propre à Quarkus. En CDI standard, on injecte `@Any Instance<Paiement>` et l'on parcourt `stream()`. `@Any Paiement` serait ambigu."
+  - key: qcm-qualificatifs-implicites
+    format: multiple-choice
+    question: "Quels qualificatifs porte un bean qui n'en déclare aucun ?"
+    choices:
+      - {text: "`@Default` et `@Any`", correct: true}
+      - {text: "`@Named` et `@Default`", correct: false}
+      - {text: "Aucun qualificatif", correct: false}
+      - {text: "`@Any` seulement", correct: false}
+    answer: "Tout bean porte `@Any` ; sans autre qualificatif que `@Named`, il porte aussi `@Default`, celui qu'attend un `@Inject` sans qualificatif."
+  - key: qcm-named-sans-valeur
+    format: multiple-choice
+    question: "Avec `@Inject @Named Paiement virement;`, quel nom de bean est cherché ?"
+    choices:
+      - {text: "`virement`, le nom du champ", correct: true}
+      - {text: "`paiement`, le nom du type en minuscules", correct: false}
+      - {text: "Aucun : `@Named` sans valeur ne compile pas", correct: false}
+      - {text: "Le nom de la classe qui déclare le champ", correct: false}
+    answer: "Sur un champ, `@Named` sans valeur prend le nom du champ. Sur une classe, il prend le nom simple de la classe, première lettre en minuscule."
+  - key: trous-qualifier
+    format: fill-in
+    question: |-
+      Complète pour faire de `@Rapide` un qualificatif :
+      ```java
+      @___
+      @Retention(RetentionPolicy.RUNTIME)
+      @Target({ElementType.TYPE, ElementType.FIELD, ElementType.PARAMETER, ElementType.METHOD})
+      public @interface Rapide {
+      }
+      ```
+    blanks:
+      - [Qualifier]
+    answer: "`@Qualifier` (de `jakarta.inject`) : sans lui, `@Rapide` ne compte pas dans la résolution."
+  - key: trous-named
+    format: fill-in
+    question: |-
+      Complète pour injecter le bean nommé `carte` :
+      ```java
+      @Inject
+      @___("carte")
+      Paiement paiement;
+      ```
+    blanks:
+      - [Named]
+    answer: "`@Named(\"carte\")` désigne le bean par son nom, en respectant la casse."
+  - key: trous-instance
+    format: fill-in
+    question: |-
+      Complète pour choisir le moyen de paiement à l'exécution, parmi les beans disponibles :
+      ```java
+      @Inject
+      ___<Paiement> paiements;
+      ```
+    blanks:
+      - [Instance]
+    answer: "`Instance<T>` (de `jakarta.enterprise.inject`) donne un accès programmatique : `stream()`, `select(...)`, `isAmbiguous()`, `get()`."
+  - key: trous-all
+    format: fill-in
+    question: |-
+      Complète pour recevoir tous les beans `Paiement`, qualifiés ou non :
+      ```java
+      @Inject
+      @___
+      List<Paiement> paiements;
+      ```
+    blanks:
+      - [All]
+    answer: "`@All` (`io.quarkus.arc.All`) injecte la liste de tous les beans du type, sans tenir compte de leurs qualificatifs."
+  - key: bug-deux-implementations
+    format: bug-fix
+    question: |-
+      Depuis l'ajout de `Especes`, le build échoue : « Ambiguous dependencies for type fr.boutique.Paiement and
+      qualifiers [@Default] ». La caisse doit garder le paiement par carte. Quelle correction est la bonne ?
+      ```java
+      @ApplicationScoped
+      public class Carte implements Paiement { ... }
+
+      @ApplicationScoped
+      public class Especes implements Paiement { ... }
+
+      @ApplicationScoped
+      public class Caisse {
+          @Inject
+          Paiement paiement;
+      }
+      ```
+    choices:
+      - {text: "Marquer `Especes` d'un qualificatif maison, `@EnEspeces`", correct: true}
+      - {text: "Annoter le champ `paiement` de `Caisse` avec `@Any`", correct: false}
+      - {text: "Annoter `Especes` avec `@Named(\"especes\")`, sans autre changement", correct: false}
+      - {text: "Rendre le champ `paiement` de `Caisse` `private`", correct: false}
+    answer: |-
+      ```java
+      @ApplicationScoped
+      @EnEspeces          // une annotation marquée @Qualifier
+      public class Especes implements Paiement { ... }
+      ```
+      `Especes` perd `@Default` : la caisse reçoit de nouveau `Carte`, et `@Inject @EnEspeces Paiement` donne
+      l'autre. `@Named` seul garderait `@Default`, et `@Any` élargirait encore le choix : l'ambiguïté resterait.
+  - key: bug-qualificatif-sans-qualifier
+    format: bug-fix
+    question: |-
+      Le build échoue : « Ambiguous dependencies for type fr.boutique.Livraison and qualifiers [@Default] », alors que
+      le point d'injection demande `@Rapide`. Quelle correction est la bonne ?
+      ```java
+      @Retention(RetentionPolicy.RUNTIME)
+      @Target({ElementType.TYPE, ElementType.FIELD})
+      public @interface Rapide { }
+
+      @ApplicationScoped @Rapide
+      public class Express implements Livraison { ... }
+
+      @ApplicationScoped
+      public class Standard implements Livraison { ... }
+
+      // dans Expedition
+      @Inject @Rapide Livraison livraison;
+      ```
+    choices:
+      - {text: "Annoter la déclaration de `Rapide` avec `@Qualifier`", correct: true}
+      - {text: "Passer la rétention de `Rapide` à `RetentionPolicy.CLASS`", correct: false}
+      - {text: "Annoter `Standard` avec `@Default` pour l'écarter", correct: false}
+      - {text: "Retirer `@Rapide` du point d'injection d'`Expedition`", correct: false}
+    answer: |-
+      ```java
+      @Qualifier
+      @Retention(RetentionPolicy.RUNTIME)
+      @Target({ElementType.TYPE, ElementType.FIELD})
+      public @interface Rapide { }
+      ```
+      Sans `@Qualifier`, ArC ignore `@Rapide` : il cherche un `Livraison` `@Default`, et en trouve deux (le message dit
+      bien `qualifiers [@Default]`). Avec `@Qualifier`, `Express` perd `@Default` et seul lui répond à `@Rapide`.
+  - key: bug-instance-get-ambigu
+    format: bug-fix
+    question: |-
+      Le paiement lève à l'exécution « AmbiguousResolutionException: Beans: [CLASS bean [class=fr.boutique.Virement,
+      ...], CLASS bean [class=fr.boutique.Carte, ...]] ». Le moyen dépend du choix du client. Quelle correction est la
+      bonne ?
+      ```java
+      @Inject
+      Instance<Paiement> paiements;
+
+      void payer(String moyen, int montant) {
+          paiements.get().payer(montant);
+      }
+      ```
+    choices:
+      - {text: "Parcourir `paiements.stream()` et garder le bean qui accepte ce moyen", correct: true}
+      - {text: "Remplacer `paiements.get()` par `paiements.iterator().next()`", correct: false}
+      - {text: "Remplacer `Instance<Paiement>` par `@Any Instance<Paiement>`", correct: false}
+      - {text: "Appeler `paiements.get()` dans un bloc `synchronized`", correct: false}
+    answer: |-
+      ```java
+      void payer(String moyen, int montant) {
+          paiements.stream()
+                  .filter(paiement -> paiement.accepte(moyen))
+                  .findFirst()
+                  .orElseThrow(() -> new MoyenInconnuException(moyen))
+                  .payer(montant);
+      }
+      ```
+      `get()` attend un seul candidat ; ici, deux beans conviennent. On choisit soi-même parmi eux. Prendre le premier
+      de l'itérateur choisirait au hasard ; `@Any` ajouterait encore des candidats.
+  - key: bug-casse-du-nom
+    format: bug-fix
+    question: |-
+      Le build échoue : « Unsatisfied dependency for type fr.boutique.Paiement and qualifiers [@Named("Carte")] ...
+      The following beans match by type, but none has matching qualifiers ». Quelle correction est la bonne ?
+      ```java
+      @ApplicationScoped
+      @Named("carte")
+      public class Carte implements Paiement { ... }
+
+      // dans Caisse
+      @Inject @Named("Carte") Paiement paiement;
+      ```
+    choices:
+      - {text: "Écrire `@Named(\"carte\")` au point d'injection, avec la même casse", correct: true}
+      - {text: "Retirer `@Inject`, inutile devant `@Named` dans Quarkus", correct: false}
+      - {text: "Ajouter `@Default` au point d'injection, à côté de `@Named`", correct: false}
+      - {text: "Annoter la classe `Carte` avec `@Singleton` au lieu d'`@ApplicationScoped`", correct: false}
+    answer: |-
+      ```java
+      @Inject @Named("carte") Paiement paiement;
+      ```
+      Les noms sont comparés à la lettre : `Carte` et `carte` diffèrent. Le message le montre, en listant le bean qui
+      correspond par le type mais pas par le qualificatif. Un qualificatif maison éviterait ce genre de faute.
+  - key: situation-choix-du-client
+    format: scenario
+    question: |-
+      Le client choisit à chaque commande son moyen de paiement : carte, virement ou PayPal, trois beans de type
+      `Paiement`. Comment la caisse obtient-elle le bon ?
+    choices:
+      - {text: "Elle reçoit tous les beans `Paiement` et choisit à l'exécution", correct: true}
+      - {text: "Elle injecte les trois par `@Named` et les compare avec des `if`", correct: false}
+      - {text: "Elle crée le bon objet avec `new`, selon le choix du client", correct: false}
+      - {text: "Elle relance l'application avec le moyen voulu en configuration", correct: false}
+    answer: |-
+      `@Inject @All List<Paiement>` (ou `Instance<Paiement>`) donne tous les moyens ; une méthode `accepte(moyen)` sur
+      chacun permet de choisir. Ajouter un moyen ne demande alors qu'un nouveau bean, sans toucher à la caisse.
+  - key: situation-chaines-et-fautes-de-frappe
+    format: scenario
+    question: |-
+      Le projet distingue ses beans par `@Named`, et une faute de frappe dans un nom a déjà cassé le build deux fois.
+      Que proposes-tu ?
+    choices:
+      - {text: "Des qualificatifs maison : le compilateur vérifie leur nom", correct: true}
+      - {text: "Des constantes `String` partagées pour tous les noms des beans", correct: false}
+      - {text: "Retirer les qualificatifs et injecter les classes concrètes", correct: false}
+      - {text: "Désactiver la validation de l'injection au build", correct: false}
+    answer: |-
+      Une annotation `@Rapide` mal écrite ne compile pas ; une chaîne mal écrite passe la compilation. Les
+      constantes aident un peu, mais n'empêchent pas d'en utiliser une mauvaise.
+  - key: situation-nouvelle-implementation
+    format: scenario
+    question: |-
+      Tu ajoutes une seconde implémentation de `Notification`, par SMS, utile à un seul service. Une dizaine de beans
+      injectent déjà `Notification`, et doivent garder l'envoi par mail. Que fais-tu ?
+    choices:
+      - {text: "Je marque l'implémentation SMS d'un qualificatif maison, demandé par ce seul service", correct: true}
+      - {text: "J'ajoute `@Named(\"mail\")` aux dix points d'injection existants", correct: false}
+      - {text: "J'annote l'implémentation SMS avec `@Named(\"sms\")`, sans rien changer d'autre", correct: false}
+      - {text: "Je fusionne les deux implémentations en une seule classe à paramètre", correct: false}
+    answer: |-
+      Avec un qualificatif maison, le bean SMS perd `@Default` : les dix points d'injection existants reçoivent
+      toujours le mail, sans être modifiés. `@Named` seul garderait `@Default` et rendrait les dix injections ambiguës.
+  - key: situation-lookup-cdi-current
+    format: scenario
+    question: |-
+      En revue, tu trouves `CDI.current().select(Paiement.class, NamedLiteral.of(moyen)).get()` dans plusieurs
+      services. Que proposes-tu ?
+    choices:
+      - {text: "D'injecter `Instance<Paiement>` (ou `@All List`) dans ces services", correct: true}
+      - {text: "De garder ce code : c'est la manière standard de choisir un bean", correct: false}
+      - {text: "De mettre ce code dans un bloc `static`, exécuté une seule fois", correct: false}
+      - {text: "De remplacer les noms par des index entiers dans une liste", correct: false}
+    answer: |-
+      Un point d'injection est visible et vérifié au build, et il garde les beans concernés, alors qu'une recherche par
+      `CDI.current()` échappe à cette analyse. Le service devient aussi plus facile à tester.

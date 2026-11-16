@@ -1,0 +1,332 @@
+notion: flyway
+lesson: |-
+  En production, le schéma de la base ne se recrée pas : il **évolue**, par des scripts versionnés, relus comme du
+  code, appliqués dans l'ordre et une seule fois. C'est le rôle de **Flyway** (extension `quarkus-flyway`).
+
+  **1. Les migrations.** Des fichiers SQL dans `src/main/resources/db/migration`, nommés
+  `V<version>__<description>.sql`, avec **deux** soulignés :
+
+  ```
+  db/migration/
+  ├── V1__creer_produit.sql
+  ├── V2__ajouter_stock.sql
+  └── V3__creer_index_categorie.sql
+  ```
+
+  ```
+  -- V2__ajouter_stock.sql
+  alter table Produit add column stock integer not null default 0;
+  ```
+
+  Les versions se comparent comme des nombres : `V10` passe après `V9`. Un fichier mal nommé (`V2_ajouter_stock.sql`,
+  un seul souligné) n'est pas reconnu comme une migration : il est ignoré, sans erreur. Les fichiers `R__vues.sql`
+  sont **répétables** : rejoués chaque fois que leur contenu change.
+
+  **2. Les appliquer au démarrage.**
+
+  ```properties
+  quarkus.flyway.migrate-at-start=true
+  quarkus.hibernate-orm.schema-management.strategy=validate
+  ```
+
+  Sans `migrate-at-start` (faux par défaut), Flyway n'applique rien tout seul. Hibernate, lui, ne touche plus au
+  schéma : `validate` vérifie seulement qu'il correspond aux entités. On peut aussi injecter `Flyway` et appeler
+  `flyway.migrate()` soi-même.
+
+  **3. L'historique.** Flyway note chaque migration appliquée dans la table `flyway_schema_history` : sa version, et la
+  **somme de contrôle** (checksum) de son contenu. Au démarrage suivant, il n'applique que les nouvelles, et vérifie
+  que les anciennes n'ont pas changé. Modifier une migration déjà appliquée fait échouer cette vérification :
+  « Migration checksum mismatch for migration version 1 ». La règle : **une migration appliquée ne se modifie
+  jamais** ; on en écrit une nouvelle.
+
+  **4. Une base existante.** Une base qui a déjà des tables mais pas d'historique est refusée : Flyway ne sait pas ce
+  qui y est déjà. `quarkus.flyway.baseline-on-migrate=true` crée l'historique en considérant l'existant comme la
+  version de départ (`baseline-version`), puis applique les suivantes.
+
+  **5. En dev.** Avec les Dev Services, la base est neuve à chaque démarrage, et les migrations s'y appliquent : le dev
+  teste le même schéma que la production. `%dev.quarkus.flyway.clean-at-start=true` vide la base avant de migrer ;
+  jamais en production.
+
+  **6. Déployer sans coupure.** Pendant un déploiement progressif, l'ancienne et la nouvelle version de l'application
+  tournent ensemble sur le nouveau schéma. Une migration doit donc rester compatible avec la version précédente :
+  **ajouter avant de supprimer**. Renommer une colonne se fait en plusieurs déploiements : ajouter la nouvelle,
+  écrire dans les deux, migrer les données, lire la nouvelle, puis supprimer l'ancienne.
+
+  **En entretien** : « Le schéma évolue par des migrations Flyway versionnées, `V1__...sql`, appliquées au démarrage
+  avec `migrate-at-start`, et Hibernate ne fait que `validate`. Flyway garde l'historique et les sommes de contrôle :
+  une migration appliquée ne se modifie jamais, on en ajoute une. Pour un déploiement sans coupure, chaque migration
+  reste compatible avec la version précédente du code : on ajoute avant de supprimer. »
+cards:
+  - key: emplacement-des-migrations
+    format: course
+    question: "Où Flyway cherche-t-il les migrations d'une application Quarkus, par défaut ?"
+    choices:
+      - {text: "Dans `src/main/resources/db/migration`", correct: true}
+      - {text: "Dans `src/main/resources/import.sql`", correct: false}
+      - {text: "Dans `src/main/java/db/migration`", correct: false}
+      - {text: "Dans la table `flyway_schema_history`", correct: false}
+    answer: "Le dossier `db/migration` du classpath (`quarkus.flyway.locations`). La table `flyway_schema_history` garde l'historique de ce qui a été appliqué, pas les scripts."
+  - key: role-de-migrate-at-start
+    format: course
+    question: "Que fait `quarkus.flyway.migrate-at-start=true` ?"
+    choices:
+      - {text: "Il applique les migrations en attente au démarrage de l'application", correct: true}
+      - {text: "Il recrée la base depuis zéro à chaque démarrage de l'application", correct: false}
+      - {text: "Il génère des migrations d'après les entités JPA", correct: false}
+      - {text: "Il vérifie les migrations sans jamais les appliquer", correct: false}
+    answer: "Au démarrage, Flyway compare les fichiers à l'historique et applique ceux qui manquent, dans l'ordre. Il ne génère rien : les scripts sont écrits à la main."
+  - key: contenu-de-l-historique
+    format: course
+    question: "Que garde la table `flyway_schema_history` pour chaque migration appliquée ?"
+    choices:
+      - {text: "Sa version, sa description et la somme de contrôle de son contenu", correct: true}
+      - {text: "Une copie des données d'avant la migration", correct: false}
+      - {text: "Le script SQL inverse, pour annuler la migration", correct: false}
+      - {text: "La liste des entités JPA touchées par la migration", correct: false}
+    answer: "La somme de contrôle permet de détecter une migration modifiée après coup. Flyway ne garde ni sauvegarde ni script d'annulation."
+  - key: modifier-une-migration-appliquee
+    format: course
+    question: "Que se passe-t-il au démarrage si quelqu'un a modifié `V1__creer_produit.sql`, déjà appliquée ?"
+    choices:
+      - {text: "La validation échoue : la somme de contrôle ne correspond plus", correct: true}
+      - {text: "Flyway rejoue la migration modifiée sur la base", correct: false}
+      - {text: "Flyway ignore la modification sans rien signaler", correct: false}
+      - {text: "Flyway annule V1 puis l'applique à nouveau", correct: false}
+    answer: "« Migration checksum mismatch for migration version 1 ». Une migration appliquée ne se modifie pas : le changement va dans une nouvelle migration."
+  - key: vf-migrate-at-start-defaut
+    format: true-false
+    question: "Sans configuration, Flyway applique les migrations au démarrage d'une application Quarkus."
+    truth: false
+    answer: "`quarkus.flyway.migrate-at-start` vaut `false` par défaut : il faut l'activer, ou appeler `flyway.migrate()`."
+  - key: vf-versions-numeriques
+    format: true-false
+    question: "Flyway applique `V10__...sql` après `V9__...sql`."
+    truth: true
+    answer: "Les versions se comparent comme des nombres, pas comme du texte. `V1_1__...sql` est la version 1.1, entre 1 et 2."
+  - key: vf-repetable
+    format: true-false
+    question: "Une migration `R__vues.sql` est rejouée chaque fois que son contenu change."
+    truth: true
+    answer: "Les migrations répétables n'ont pas de version : Flyway les rejoue quand leur somme de contrôle change, après les migrations versionnées. Utiles pour des vues ou des fonctions."
+  - key: vf-drop-and-create-avec-flyway
+    format: true-false
+    question: "Avec Flyway, on garde `drop-and-create` comme stratégie de schéma d'Hibernate en production."
+    truth: false
+    answer: "Hibernate effacerait les tables à chaque démarrage. Avec Flyway, Hibernate est en `validate` (ou `none`) : seul Flyway modifie le schéma."
+  - key: qcm-nom-de-fichier
+    format: multiple-choice
+    question: "Quel nom de fichier Flyway reconnaît-il comme la migration de version 3 ?"
+    choices:
+      - {text: "`V3__ajouter_stock.sql`", correct: true}
+      - {text: "`V3_ajouter_stock.sql`", correct: false}
+      - {text: "`3__ajouter_stock.sql`", correct: false}
+      - {text: "`v3-ajouter-stock.sql`", correct: false}
+    answer: "Un `V` majuscule, la version, **deux** soulignés, puis la description. Les autres noms sont ignorés, sans erreur."
+  - key: qcm-base-existante
+    format: multiple-choice
+    question: "Tu ajoutes Flyway à une application dont la base de production a déjà ses tables. Que configures-tu ?"
+    choices:
+      - {text: "`quarkus.flyway.baseline-on-migrate=true`", correct: true}
+      - {text: "`quarkus.flyway.clean-at-start=true`", correct: false}
+      - {text: "`quarkus.hibernate-orm.schema-management.strategy=update`", correct: false}
+      - {text: "Rien : Flyway détecte les tables déjà créées", correct: false}
+    answer: "Sans historique, Flyway refuse une base non vide. `baseline-on-migrate` marque l'existant comme version de départ, et applique les suivantes. `clean-at-start` effacerait tout."
+  - key: qcm-hibernate-avec-flyway
+    format: multiple-choice
+    question: "Quelle stratégie de schéma d'Hibernate associes-tu à Flyway en production ?"
+    choices:
+      - {text: "`validate`", correct: true}
+      - {text: "`update`", correct: false}
+      - {text: "`drop-and-create`", correct: false}
+      - {text: "`create`", correct: false}
+    answer: "Flyway fait évoluer le schéma ; Hibernate vérifie seulement qu'il correspond aux entités, et refuse de démarrer sinon."
+  - key: qcm-extension
+    format: multiple-choice
+    question: "Quelle extension ajoutes-tu pour utiliser Flyway dans Quarkus ?"
+    choices:
+      - {text: "`quarkus-flyway`", correct: true}
+      - {text: "`quarkus-liquibase`", correct: false}
+      - {text: "`quarkus-hibernate-orm-migrations`", correct: false}
+      - {text: "`quarkus-jdbc-flyway`", correct: false}
+    answer: "`quarkus-flyway`, avec l'extension du pilote JDBC. Liquibase est l'autre outil de migration pris en charge, avec sa propre extension."
+  - key: trous-migrate-at-start
+    format: fill-in
+    question: |-
+      Complète pour appliquer les migrations au démarrage :
+      ```properties
+      quarkus.flyway.___=true
+      ```
+    blanks:
+      - [migrate-at-start]
+    answer: "`migrate-at-start`, faux par défaut."
+  - key: trous-strategie-avec-flyway
+    format: fill-in
+    question: |-
+      Complète pour qu'Hibernate vérifie le schéma créé par Flyway, sans le modifier :
+      ```properties
+      quarkus.hibernate-orm.schema-management.strategy=___
+      ```
+    blanks:
+      - [validate]
+    answer: "`validate` compare entités et schéma, et refuse de démarrer en cas d'écart."
+  - key: trous-baseline
+    format: fill-in
+    question: |-
+      Complète pour adopter Flyway sur une base qui a déjà ses tables :
+      ```properties
+      quarkus.flyway.___=true
+      ```
+    blanks:
+      - [baseline-on-migrate]
+    answer: "`baseline-on-migrate` crée l'historique, en considérant l'existant comme la version de départ."
+  - key: trous-injecter-flyway
+    format: fill-in
+    question: |-
+      Complète pour appliquer les migrations par programme :
+      ```java
+      @Inject
+      ___ flyway;
+
+      void migrer() {
+          flyway.migrate();
+      }
+      ```
+    blanks:
+      - [Flyway]
+    answer: "Quarkus produit un bean `Flyway` (`org.flywaydb.core.Flyway`), configuré d'après `application.properties`."
+  - key: bug-migration-modifiee
+    format: bug-fix
+    question: |-
+      Après le déploiement, l'application refuse de démarrer : « Validate failed: Migrations have failed validation.
+      Migration checksum mismatch for migration version 2 ». Un collègue a corrigé une faute dans
+      `V2__ajouter_stock.sql`, déjà en production. Quelle correction est la bonne ?
+      ```
+      -- V2__ajouter_stock.sql, modifiée après coup
+      alter table Produit add column stock integer not null default 0;
+      ```
+    choices:
+      - {text: "Rétablir V2 telle quelle, et écrire la correction dans V3", correct: true}
+      - {text: "Supprimer la ligne de V2 dans `flyway_schema_history`", correct: false}
+      - {text: "Activer `clean-at-start` pour réappliquer toutes les migrations", correct: false}
+      - {text: "Renommer le fichier corrigé en `V2_1__ajouter_stock.sql`", correct: false}
+    answer: |-
+      ```
+      -- V3__corriger_stock.sql
+      alter table Produit alter column stock set default 0;
+      ```
+      La somme de contrôle de V2 ne correspond plus à celle de l'historique. Une migration appliquée est figée : la
+      correction va dans une nouvelle migration. `clean-at-start` effacerait les données.
+  - key: bug-un-seul-souligne
+    format: bug-fix
+    question: |-
+      Après le déploiement, l'application refuse de démarrer : « Schema validation: missing column [stock] in table
+      [Produit] ». La migration existe pourtant dans `db/migration`. Quelle correction est la bonne ?
+      ```
+      db/migration/
+      ├── V1__creer_produit.sql
+      └── V2_ajouter_stock.sql
+      ```
+    choices:
+      - {text: "Renommer le fichier en `V2__ajouter_stock.sql`", correct: true}
+      - {text: "Passer Hibernate en stratégie `update`", correct: false}
+      - {text: "Renommer le fichier en `v2__ajouter_stock.sql`", correct: false}
+      - {text: "Déplacer le fichier dans `src/main/java`", correct: false}
+    answer: |-
+      ```
+      db/migration/V2__ajouter_stock.sql
+      ```
+      Avec un seul souligné, le nom n'est pas celui d'une migration : Flyway l'ignore, sans erreur, et la colonne n'est
+      jamais créée. `validate` le découvre au démarrage.
+  - key: bug-migrations-jamais-appliquees
+    format: bug-fix
+    question: |-
+      Sur une base de production neuve, l'application refuse de démarrer : « Schema validation: missing table
+      [Produit] ». Les migrations sont dans `db/migration`, et la configuration ne contient que ceci. Quelle correction
+      est la bonne ?
+      ```properties
+      quarkus.hibernate-orm.schema-management.strategy=validate
+      ```
+    choices:
+      - {text: "Ajouter `quarkus.flyway.migrate-at-start=true`", correct: true}
+      - {text: "Passer la stratégie d'Hibernate à `create`", correct: false}
+      - {text: "Ajouter `quarkus.flyway.baseline-on-migrate=true`", correct: false}
+      - {text: "Renommer les migrations en `import.sql`", correct: false}
+    answer: |-
+      ```properties
+      quarkus.flyway.migrate-at-start=true
+      quarkus.hibernate-orm.schema-management.strategy=validate
+      ```
+      Sans `migrate-at-start`, Flyway n'applique rien : la base reste vide. `baseline-on-migrate` sert à adopter une
+      base existante, pas à créer les tables.
+  - key: bug-hibernate-ecrase
+    format: bug-fix
+    question: |-
+      Les migrations Flyway s'appliquent bien, mais à chaque redémarrage de la production, toutes les données
+      disparaissent. Quelle correction est la bonne ?
+      ```properties
+      quarkus.flyway.migrate-at-start=true
+      quarkus.hibernate-orm.schema-management.strategy=drop-and-create
+      ```
+    choices:
+      - {text: "Passer la stratégie d'Hibernate à `validate`", correct: true}
+      - {text: "Retirer `quarkus.flyway.migrate-at-start`", correct: false}
+      - {text: "Ajouter `quarkus.flyway.baseline-on-migrate=true`", correct: false}
+      - {text: "Passer la stratégie d'Hibernate à `create`", correct: false}
+    answer: |-
+      ```properties
+      quarkus.flyway.migrate-at-start=true
+      quarkus.hibernate-orm.schema-management.strategy=validate
+      ```
+      Hibernate supprime et recrée ses tables à chaque démarrage, par-dessus le travail de Flyway. Un seul outil doit
+      modifier le schéma ; Hibernate se contente de vérifier.
+  - key: situation-renommer-colonne
+    format: scenario
+    question: |-
+      Il faut renommer la colonne `libelle` en `nom`. L'application est déployée progressivement : l'ancienne et la
+      nouvelle version tournent ensemble quelques minutes. Que fais-tu ?
+    choices:
+      - {text: "J'ajoute `nom`, j'écris dans les deux, puis je supprime `libelle` plus tard", correct: true}
+      - {text: "Une migration `alter table ... rename column`, dans le même déploiement", correct: false}
+      - {text: "J'arrête toute l'application pendant le déploiement", correct: false}
+      - {text: "Je laisse Hibernate en `update` renommer la colonne", correct: false}
+    answer: |-
+      Un renommage direct casse l'ancienne version, qui lit encore `libelle`. On ajoute d'abord, on supprime en dernier,
+      sur plusieurs déploiements : chaque migration reste compatible avec le code précédent.
+  - key: situation-adopter-flyway
+    format: scenario
+    question: |-
+      L'application tourne depuis deux ans avec un schéma créé à la main. Tu veux passer à Flyway, sans toucher aux
+      données. Que fais-tu ?
+    choices:
+      - {text: "J'écris le schéma actuel en V1 et j'active `baseline-on-migrate`", correct: true}
+      - {text: "Je vide la base, puis j'applique toutes les migrations", correct: false}
+      - {text: "Je garde Hibernate en `update` à côté de Flyway", correct: false}
+      - {text: "J'écris V1, et je laisse Flyway l'appliquer sur la base existante", correct: false}
+    answer: |-
+      V1 décrit l'existant, pour les bases neuves (dev, test). Sur la production, `baseline-on-migrate` marque V1 comme
+      déjà appliquée ; seules les migrations suivantes s'y exécutent.
+  - key: situation-deux-v5
+    format: scenario
+    question: |-
+      Deux branches ajoutent chacune une migration `V5__...sql`. Les deux doivent être fusionnées cette semaine. Que
+      fais-tu ?
+    choices:
+      - {text: "Je renumérote la seconde en V6 avant la fusion", correct: true}
+      - {text: "Je fusionne les deux : Flyway les appliquera dans l'ordre alphabétique", correct: false}
+      - {text: "Je fusionne le contenu des deux dans une V5 déjà appliquée en dev", correct: false}
+      - {text: "Je désactive la validation de Flyway en production", correct: false}
+    answer: |-
+      Deux migrations de même version font échouer Flyway. Tant qu'aucune n'est appliquée hors d'un poste de dev, on
+      renumérote ; une fois appliquée quelque part, une migration ne change plus.
+  - key: situation-base-propre-en-dev
+    format: scenario
+    question: |-
+      En dev, tu veux repartir d'une base vide à chaque démarrage, puis rejouer toutes tes migrations. Que configures-tu ?
+    choices:
+      - {text: "`%dev.quarkus.flyway.clean-at-start=true`, réservé au profil dev", correct: true}
+      - {text: "`quarkus.flyway.clean-at-start=true`, sans préfixe de profil", correct: false}
+      - {text: "La stratégie `drop-and-create` d'Hibernate, à côté de Flyway", correct: false}
+      - {text: "Une migration `V0__tout_supprimer.sql`", correct: false}
+    answer: |-
+      `clean-at-start` vide la base avant de migrer. Limité au profil `%dev`, il ne peut pas effacer la production ;
+      sans préfixe, il le ferait au premier démarrage.

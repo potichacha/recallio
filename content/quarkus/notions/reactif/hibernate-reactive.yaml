@@ -1,0 +1,212 @@
+notion: hibernate-reactive
+lesson: |-
+  Hibernate ORM et JDBC sont **bloquants** : chaque requête tient un thread pendant que la base répond. Dans une
+  application entièrement réactive, on leur préfère **Hibernate Reactive** : le même mapping JPA, mais des requêtes
+  non bloquantes, qui renvoient des `Uni`.
+
+  **1. Les extensions et la configuration.** `quarkus-hibernate-reactive-panache`, et un **client SQL réactif** de
+  Vert.x à la place du pilote JDBC : `quarkus-reactive-pg-client` (ou `-mysql-client`...).
+
+  ```properties
+  quarkus.datasource.db-kind=postgresql
+  quarkus.datasource.reactive.url=postgresql://localhost:5432/boutique
+  ```
+
+  En dev et en test, les Dev Services démarrent la base, comme en JDBC.
+
+  **2. Panache réactif : la même API, en `Uni`.** L'entité hérite de
+  `io.quarkus.hibernate.reactive.panache.PanacheEntity` (ou l'on écrit un `PanacheRepository` réactif).
+
+  | Panache classique | Panache réactif |
+  |---|---|
+  | `List<Produit> listAll()` | `Uni<List<Produit>> listAll()` |
+  | `Produit findById(id)` | `Uni<Produit> findById(id)` |
+  | `void persist()` | `Uni<Produit> persist()` |
+  | `long count()` | `Uni<Long> count()` |
+
+  **3. Les sessions et les transactions.** `@Transactional` (JTA) ne s'applique pas : il est bloquant. On annote la
+  méthode qui renvoie le `Uni` :
+
+  ```java
+  @POST
+  @WithTransaction
+  public Uni<Produit> creer(NouveauProduit nouveau) {
+      Produit produit = new Produit();
+      produit.nom = nouveau.nom();
+      return produit.persist();
+  }
+
+  @GET
+  @WithSession
+  public Uni<List<Produit>> tous() {
+      return Produit.listAll();
+  }
+  ```
+
+  `@WithTransaction` ouvre une session et une transaction, validée quand le `Uni` réussit, annulée s'il échoue.
+  `@WithSession` n'ouvre qu'une session, pour lire. Par programme : `Panache.withTransaction(() -> ...)`.
+
+  **4. Les contraintes.**
+
+  - Tout se passe sur la **boucle d'événements** de Vert.x : pas de `await()` dans un endpoint, on enchaîne.
+  - Une session ne supporte pas deux opérations **en parallèle** : on enchaîne les requêtes d'une même session au
+    lieu de les combiner.
+  - **Pas de chargement paresseux transparent** : lire une association non chargée lève une exception. On la charge
+    explicitement, avec `Mutiny.fetch(commande.lignes)`, qui renvoie un `Uni`, ou par un `join fetch`.
+
+  **5. Les tests.** `@RunOnVertxContext` et `UniAsserter` exécutent un test sur le contexte de Vert.x ;
+  `@TestReactiveTransaction` annule ses écritures à la fin.
+
+  **Quand le choisir ?** Quand le reste de la chaîne est réactif (REST qui renvoie des `Uni`, messagerie, clients non
+  bloquants) et que la concurrence le justifie. Pour un service ordinaire, Hibernate ORM est plus simple, et les
+  threads virtuels tiennent déjà une forte concurrence.
+
+  **En entretien** : « Hibernate Reactive garde le mapping JPA mais parle à la base par un client SQL réactif de
+  Vert.x : Panache réactif renvoie des `Uni`, et `@WithTransaction` remplace `@Transactional`. Pas de chargement
+  paresseux transparent ni d'opérations parallèles sur une session, et rien ne doit bloquer la boucle. Je le choisis
+  quand toute la chaîne est réactive ; sinon, Hibernate ORM reste plus simple. »
+cards:
+  - key: extensions-reactives
+    format: course
+    question: "Que faut-il pour utiliser Panache réactif avec PostgreSQL ?"
+    choices:
+      - {text: "`quarkus-hibernate-reactive-panache` et `quarkus-reactive-pg-client`", correct: true}
+      - {text: "`quarkus-hibernate-orm-panache` et `quarkus-jdbc-postgresql`", correct: false}
+      - {text: "`quarkus-hibernate-reactive-panache` et `quarkus-jdbc-postgresql`", correct: false}
+      - {text: "`quarkus-hibernate-orm-panache` et `quarkus-mutiny`", correct: false}
+    answer: "Hibernate Reactive ne passe pas par JDBC, qui est bloquant : il utilise un client SQL réactif de Vert.x."
+  - key: retour-de-listall
+    format: course
+    question: "Que renvoie `Produit.listAll()` quand `Produit` hérite du `PanacheEntity` réactif ?"
+    choices:
+      - {text: "Un `Uni<List<Produit>>`", correct: true}
+      - {text: "Une `List<Produit>`", correct: false}
+      - {text: "Un `Multi<Produit>`", correct: false}
+      - {text: "Une `CompletionStage<List<Produit>>`", correct: false}
+    answer: "Panache réactif garde les noms de méthodes, mais chaque résultat arrive dans un `Uni` : la liste entière, une fois la requête terminée."
+  - key: transaction-reactive
+    format: course
+    question: "Comment ouvres-tu une transaction autour d'un endpoint Hibernate Reactive qui renvoie un `Uni` ?"
+    choices:
+      - {text: "Avec `@WithTransaction` sur la méthode", correct: true}
+      - {text: "Avec `@Transactional` sur la méthode", correct: false}
+      - {text: "Avec `QuarkusTransaction.requiringNew().run(...)`", correct: false}
+      - {text: "Avec `@Blocking` sur la méthode", correct: false}
+    answer: "`@WithTransaction` ouvre la session et la transaction réactives, validées quand le `Uni` réussit. `@Transactional` et `QuarkusTransaction` sont des outils JTA, bloquants."
+  - key: pas-de-transactional
+    format: course
+    question: "Pourquoi `@Transactional` ne convient-il pas à Hibernate Reactive ?"
+    choices:
+      - {text: "Les transactions JTA sont bloquantes et liées à un thread", correct: true}
+      - {text: "Il ne gère pas les exceptions non vérifiées", correct: false}
+      - {text: "Il n'existe pas dans l'espace de noms `jakarta`", correct: false}
+      - {text: "Il impose une base H2 en mémoire", correct: false}
+    answer: "JTA suppose qu'une transaction suit un thread qui attend. En réactif, une requête change de thread et n'attend jamais : Hibernate Reactive gère ses transactions lui-même."
+  - key: vf-url-reactive
+    format: true-false
+    question: "Avec Hibernate Reactive, l'URL de la base se donne par `quarkus.datasource.reactive.url`."
+    truth: true
+    answer: "Par exemple `postgresql://localhost:5432/boutique`, sans le préfixe `jdbc:`. `quarkus.datasource.jdbc.url` sert à la source JDBC."
+  - key: vf-paresseux-transparent
+    format: true-false
+    question: "Avec Hibernate Reactive, une collection paresseuse se charge toute seule au premier accès, comme avec Hibernate ORM."
+    truth: false
+    answer: "Un chargement transparent bloquerait. On la charge explicitement, avec `Mutiny.fetch(commande.lignes)`, ou par un `join fetch`."
+  - key: vf-withsession
+    format: true-false
+    question: "`@WithSession` ouvre une session réactive sans transaction, pour des lectures."
+    truth: true
+    answer: "Pour écrire, `@WithTransaction` ouvre en plus une transaction, validée quand le `Uni` réussit."
+  - key: vf-pilote-jdbc
+    format: true-false
+    question: "Hibernate Reactive utilise le pilote JDBC de la base, appelé sur un thread de travail."
+    truth: false
+    answer: "Il utilise un client SQL réactif de Vert.x, non bloquant, sur la boucle d'événements. JDBC est bloquant par nature."
+  - key: qcm-annotation-ecriture
+    format: multiple-choice
+    question: "Quelle annotation mets-tu sur un endpoint réactif qui enregistre un produit avec Panache réactif ?"
+    choices:
+      - {text: "`@WithTransaction`", correct: true}
+      - {text: "`@WithSession`", correct: false}
+      - {text: "`@Transactional`", correct: false}
+      - {text: "`@TestReactiveTransaction`", correct: false}
+    answer: "`@WithTransaction` ouvre session et transaction. `@WithSession` suffit pour lire ; `@TestReactiveTransaction` sert dans les tests."
+  - key: qcm-configurer-url
+    format: multiple-choice
+    question: "Quelle ligne configure la base PostgreSQL d'Hibernate Reactive ?"
+    choices:
+      - {text: "`quarkus.datasource.reactive.url=postgresql://localhost:5432/boutique`", correct: true}
+      - {text: "`quarkus.datasource.jdbc.url=jdbc:postgresql://localhost:5432/boutique`", correct: false}
+      - {text: "`quarkus.hibernate-reactive.url=postgresql://localhost:5432/boutique`", correct: false}
+      - {text: "`quarkus.vertx.datasource.url=jdbc:postgresql://localhost/boutique`", correct: false}
+    answer: "La source réactive a sa propre clé, `reactive.url`, lue par le client SQL de Vert.x."
+  - key: qcm-enregistrer-reactif
+    format: multiple-choice
+    question: "Comment enregistres-tu un produit dans un endpoint réactif annoté `@WithTransaction` ?"
+    choices:
+      - {text: "`return produit.persist();`, qui renvoie un `Uni<Produit>`", correct: true}
+      - {text: "`produit.persist(); return Uni.createFrom().item(produit);`", correct: false}
+      - {text: "`produit.persist().await().indefinitely(); return produit;`", correct: false}
+      - {text: "`produit.persist().subscribe().with(p -> {}); return null;`", correct: false}
+    answer: "On renvoie le `Uni` de `persist()` : Quarkus s'y abonne, puis la transaction est validée. Ignorer ce `Uni` n'enregistrerait rien ; `await()` bloquerait la boucle."
+  - key: qcm-charger-association
+    format: multiple-choice
+    question: "Comment charges-tu les lignes, paresseuses, d'une commande obtenue par Hibernate Reactive ?"
+    choices:
+      - {text: "`Mutiny.fetch(commande.lignes)`, qui renvoie un `Uni`", correct: true}
+      - {text: "`commande.lignes.size()`, comme avec Hibernate ORM", correct: false}
+      - {text: "`Hibernate.initialize(commande.lignes)`", correct: false}
+      - {text: "En annotant la méthode avec `@Blocking`", correct: false}
+    answer: "`Mutiny.fetch` charge l'association sans bloquer. Les deux appels d'Hibernate ORM bloqueraient, et `@Blocking` ne rend pas le chargement transparent."
+  - key: situation-migrer-pour-la-performance
+    format: scenario
+    question: |-
+      Un service CRUD tourne bien sur Hibernate ORM, sous une charge modeste. Un collègue veut passer à Hibernate
+      Reactive « pour la performance ». Que lui réponds-tu ?
+    choices:
+      - {text: "Le gain serait faible pour un coût élevé : on garde Hibernate ORM", correct: true}
+      - {text: "Bonne idée : le réactif est toujours plus rapide", correct: false}
+      - {text: "On peut migrer en gardant `@Transactional` partout", correct: false}
+      - {text: "On peut migrer en ajoutant `await()` dans chaque endpoint", correct: false}
+    answer: |-
+      Le réactif aide sous forte concurrence d'E/S, pas sous charge modeste. La migration toucherait chaque requête,
+      chaque transaction et chaque test ; les threads virtuels sont une marche bien plus petite si la charge monte.
+  - key: situation-chaine-reactive
+    format: scenario
+    question: |-
+      Un nouveau service consomme Kafka, appelle des services distants avec un client REST qui renvoie des `Uni`, et
+      doit enregistrer ses résultats sous forte charge. Comment accèdes-tu à la base ?
+    choices:
+      - {text: "Avec Hibernate Reactive et Panache réactif, pour rester non bloquant", correct: true}
+      - {text: "Avec Hibernate ORM, appelé depuis la boucle d'événements", correct: false}
+      - {text: "Avec JDBC, en appelant `await()` sur chaque message", correct: false}
+      - {text: "Sans base : les résultats restent dans Kafka", correct: false}
+    answer: |-
+      Toute la chaîne est réactive : un accès bloquant à la base y créerait un goulet. Hibernate Reactive garde le
+      mapping JPA, sans bloquer.
+  - key: situation-tester-reactif
+    format: scenario
+    question: |-
+      Tu dois tester une méthode de repository Panache réactif dans un `@QuarkusTest`, sans bloquer la boucle
+      d'événements. Comment écris-tu le test ?
+    choices:
+      - {text: "Avec `@RunOnVertxContext` et un `UniAsserter`", correct: true}
+      - {text: "Avec `@Transactional` sur la méthode de test", correct: false}
+      - {text: "En appelant `await().indefinitely()` sur la boucle d'événements", correct: false}
+      - {text: "Avec `@InjectMock` sur le client SQL de Vert.x", correct: false}
+    answer: |-
+      `@RunOnVertxContext` exécute le test sur le contexte de Vert.x, où Hibernate Reactive doit tourner ; `UniAsserter`
+      enchaîne les `Uni` et vérifie leurs résultats. `@TestReactiveTransaction` annule les écritures à la fin.
+  - key: situation-requetes-en-parallele
+    format: scenario
+    question: |-
+      Pour aller plus vite, un collègue lance deux requêtes Panache réactives en parallèle avec `Uni.combine()`, dans
+      la même méthode `@WithSession`. Les tests échouent par intermittence. Que proposes-tu ?
+    choices:
+      - {text: "Enchaîner les deux requêtes, une session n'acceptant qu'une opération à la fois", correct: true}
+      - {text: "Ajouter `@Blocking` sur la méthode, pour sérialiser les appels", correct: false}
+      - {text: "Remplacer `@WithSession` par `@Transactional`", correct: false}
+      - {text: "Ajouter un `retry()` sur la combinaison", correct: false}
+    answer: |-
+      Une session réactive n'est pas faite pour deux opérations simultanées. On les enchaîne avec `transformToUni` ;
+      pour un vrai parallélisme, chaque requête aurait besoin de sa propre session.

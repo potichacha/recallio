@@ -1,0 +1,312 @@
+notion: producteurs
+lesson: |-
+  On ne peut pas toujours annoter une classe pour en faire un bean : elle vient d'une bibliothèque (`Clock`,
+  `ObjectMapper`, un client d'API), ou sa construction demande du code (des paramètres de configuration, un choix). Une
+  **méthode productrice** fournit alors le bean.
+
+  ```java
+  @ApplicationScoped
+  public class Fabriques {
+
+      @Produces                        // jakarta.enterprise.inject.Produces
+      @Singleton                       // la portée du bean produit
+      Clock horloge() {
+          return Clock.systemUTC();
+      }
+
+      @Produces
+      @ApplicationScoped
+      ClientMeteo clientMeteo(@ConfigProperty(name = "meteo.url") String url) {   // paramètres injectés
+          return new ClientMeteo(url);
+      }
+
+      void fermer(@Disposes ClientMeteo client) {   // appelé quand le bean produit est détruit
+          client.close();
+      }
+  }
+  ```
+
+  `@Inject Clock horloge;` reçoit alors ce que renvoie la méthode. Un **champ** peut aussi être producteur :
+  `@Produces Clock horloge = Clock.systemUTC();`.
+
+  **Les règles.**
+
+  - **La portée par défaut est `@Dependent`** : sans annotation, la méthode est appelée **pour chaque point
+    d'injection**. Un objet coûteux (un client HTTP, un pool) demande une portée explicite, `@ApplicationScoped` ou
+    `@Singleton`.
+  - **Les paramètres** de la méthode sont des points d'injection : beans, configuration, `InjectionPoint`.
+  - Les **types du bean** sont le type de retour et ses supertypes ; des **qualificatifs** sur la méthode distinguent
+    plusieurs producteurs d'un même type (`@Produces @Named("utc") Clock`).
+  - Une méthode **`@Disposes`** reçoit l'objet produit à sa destruction, pour le libérer.
+  - Pour un type de bibliothèque `final` (une classe du JDK), on préfère `@Singleton` : pas de proxy à générer.
+
+  **Deux pièges.**
+
+  - **Le mauvais `@Produces`** : `jakarta.ws.rs.Produces` (le type de média d'une ressource REST) n'a rien à voir avec
+    `jakarta.enterprise.inject.Produces`. Avec le premier, la méthode n'est pas productrice, et l'injection échoue au
+    build : « Unsatisfied dependency ».
+  - **Deux producteurs du même type**, sans qualificatif : « Ambiguous dependencies ».
+
+  Quarkus découvre une méthode productrice même si sa classe n'a pas d'annotation de portée : la classe est alors
+  traitée comme un bean `@Dependent`.
+
+  **En entretien** : « Une méthode `@Produces` fournit un bean que je ne peux pas annoter, comme une classe de
+  bibliothèque, ou dont la construction demande du code ; ses paramètres sont injectés, et `@Disposes` la libère. Sans
+  annotation, sa portée est `@Dependent`, donc elle est appelée à chaque injection : pour un objet coûteux, je mets
+  `@ApplicationScoped` ou `@Singleton`. »
+cards:
+  - key: role-d-un-producteur
+    format: course
+    question: "À quoi sert une méthode annotée `@Produces` en CDI ?"
+    choices:
+      - {text: "À fournir un bean qu'on ne peut pas annoter, ou qui demande du code pour être construit", correct: true}
+      - {text: "À indiquer le type de média, comme JSON, renvoyé par une ressource REST", correct: false}
+      - {text: "À publier un événement CDI chaque fois que la méthode est appelée", correct: false}
+      - {text: "À exécuter la méthode au démarrage de l'application, une seule fois", correct: false}
+    answer: "La valeur renvoyée devient un bean injectable. C'est le moyen d'injecter une classe de bibliothèque (`Clock`, un client d'API) ou un objet construit à partir de la configuration."
+  - key: portee-par-defaut-producteur
+    format: course
+    question: "Quelle est la portée d'un bean produit par une méthode `@Produces` sans annotation de portée ?"
+    choices:
+      - {text: "`@Dependent` : la méthode est appelée pour chaque point d'injection", correct: true}
+      - {text: "`@ApplicationScoped` : la méthode est appelée une seule fois", correct: false}
+      - {text: "`@Singleton` : la méthode est appelée au démarrage", correct: false}
+      - {text: "`@RequestScoped` : la méthode est appelée une fois par requête", correct: false}
+    answer: "Comme pour une classe, la portée par défaut est `@Dependent`. Deux points d'injection, deux appels, deux objets ; une portée explicite change cela."
+  - key: parametres-du-producteur
+    format: course
+    question: "D'où viennent les valeurs des paramètres d'une méthode `@Produces` ?"
+    choices:
+      - {text: "Du conteneur : chaque paramètre est un point d'injection", correct: true}
+      - {text: "De l'appelant, qui les passe au moment de l'injection", correct: false}
+      - {text: "Des variables d'environnement, lues par leur nom de paramètre", correct: false}
+      - {text: "Ils valent toujours `null` : un producteur n'a pas de paramètre", correct: false}
+    answer: "On y reçoit d'autres beans, des valeurs `@ConfigProperty`, ou l'`InjectionPoint` qui demande le bean. Le producteur assemble ainsi son objet."
+  - key: role-de-disposes
+    format: course
+    question: "À quoi sert un paramètre annoté `@Disposes` ?"
+    choices:
+      - {text: "À recevoir l'objet produit quand il est détruit, pour le libérer", correct: true}
+      - {text: "À refuser l'injection de l'objet dans certains beans", correct: false}
+      - {text: "À recevoir l'objet juste après sa production, pour le configurer", correct: false}
+      - {text: "À rendre l'objet produit disponible pour le ramasse-miettes", correct: false}
+    answer: "La méthode qui déclare `@Disposes ClientMeteo client` est appelée à la destruction du bean produit : à l'arrêt pour un `@ApplicationScoped`, plus tôt pour un `@Dependent`."
+  - key: vf-producteur-dependent-appels
+    format: true-false
+    question: "Sans annotation de portée, une méthode `@Produces` est appelée pour chaque point d'injection de son type."
+    truth: true
+    answer: "Le bean produit est `@Dependent` : chaque injection en demande un nouveau. Pour un objet coûteux, on annote la méthode `@ApplicationScoped` ou `@Singleton`."
+  - key: vf-producteur-classe-nue
+    format: true-false
+    question: "Dans Quarkus, une méthode `@Produces` est découverte même quand sa classe n'a aucune annotation de portée."
+    truth: true
+    answer: "Quarkus traite alors la classe comme un bean `@Dependent`. La spécification CDI, elle, ne découvrirait pas cette classe."
+  - key: vf-produces-jax-rs
+    format: true-false
+    question: "`jakarta.ws.rs.Produces` peut remplacer `jakarta.enterprise.inject.Produces` sur une méthode productrice."
+    truth: false
+    answer: "Le premier indique le type de média d'une ressource REST. Seul le second fait d'une méthode un producteur ; avec l'autre, l'injection échoue au build."
+  - key: vf-champ-producteur
+    format: true-false
+    question: "Un champ annoté `@Produces` peut fournir un bean, comme une méthode productrice."
+    truth: true
+    answer: "`@Produces Clock horloge = Clock.systemUTC();` déclare un bean `Clock`. La méthode reste plus souple : paramètres injectés, logique de construction."
+  - key: qcm-fournir-une-horloge
+    format: multiple-choice
+    question: "Comment rendre injectable une seule `java.time.Clock`, partagée par toute l'application ?"
+    choices:
+      - {text: "`@Produces @Singleton Clock horloge() { return Clock.systemUTC(); }`", correct: true}
+      - {text: "`@ApplicationScoped` posée sur la classe `java.time.Clock`", correct: false}
+      - {text: "`@Inject Clock horloge = Clock.systemUTC();` dans chaque bean", correct: false}
+      - {text: "`@Produces Clock horloge() { return Clock.systemUTC(); }` sans portée", correct: false}
+    answer: "On ne peut pas annoter une classe du JDK : un producteur la fournit. `@Singleton` en fait une instance unique, sans proxy ; sans portée, chaque injection rappellerait la méthode."
+  - key: qcm-package-produces
+    format: multiple-choice
+    question: "Dans quel package se trouve l'annotation `@Produces` des méthodes productrices de CDI ?"
+    choices:
+      - {text: "`jakarta.enterprise.inject`", correct: true}
+      - {text: "`jakarta.ws.rs`", correct: false}
+      - {text: "`jakarta.inject`", correct: false}
+      - {text: "`io.quarkus.arc`", correct: false}
+    answer: "`jakarta.enterprise.inject.Produces`. `jakarta.ws.rs.Produces` sert aux ressources REST ; `jakarta.inject` contient `@Inject`, `@Named` et `@Singleton`."
+  - key: qcm-client-couteux
+    format: multiple-choice
+    question: "Un producteur crée un client HTTP coûteux, injecté dans six beans. Comment n'en créer qu'un ?"
+    choices:
+      - {text: "Annoter la méthode productrice `@ApplicationScoped` ou `@Singleton`", correct: true}
+      - {text: "Déclarer la méthode productrice `static`", correct: false}
+      - {text: "Annoter la méthode productrice `@Startup`", correct: false}
+      - {text: "Déclarer le client en champ `final` dans chaque bean", correct: false}
+    answer: "La portée posée sur le producteur s'applique au bean produit : une instance unique, créée une fois. Sans elle, six injections déclenchent six appels."
+  - key: qcm-producteur-qualifie
+    format: multiple-choice
+    question: "Deux producteurs fournissent une `Clock` : `@Produces @Named(\"utc\") Clock utc()` et `@Produces @Named(\"paris\") Clock horlogeDeParis()`. Comment injecter celle de Paris ?"
+    choices:
+      - {text: "`@Inject @Named(\"paris\") Clock horloge;`", correct: true}
+      - {text: "`@Inject Clock horlogeDeParis;`", correct: false}
+      - {text: "`@Inject @Produces Clock horloge;`", correct: false}
+      - {text: "`@Inject @Default Clock paris;`", correct: false}
+    answer: "Le qualificatif du producteur se retrouve sur le point d'injection. Sans lui, les deux horloges conviennent (un bean qui n'a que `@Named` garde `@Default`) : l'injection est ambiguë. Le nom de la méthode ne compte pas."
+  - key: trous-produces
+    format: fill-in
+    question: |-
+      Complète pour que cette méthode fournisse le bean `Clock` :
+      ```java
+      @___
+      @Singleton
+      Clock horloge() {
+          return Clock.systemUTC();
+      }
+      ```
+    blanks:
+      - [Produces]
+    answer: "`@Produces` (de `jakarta.enterprise.inject`) fait de la méthode un producteur ; `@Singleton` fixe la portée du bean produit."
+  - key: trous-package-produces
+    format: fill-in
+    question: |-
+      Complète l'import de l'annotation des méthodes productrices :
+      ```java
+      import jakarta.___.inject.Produces;
+      ```
+    blanks:
+      - [enterprise]
+    answer: "`jakarta.enterprise.inject.Produces`. Un import de `jakarta.ws.rs.Produces` à la place donnerait une méthode ordinaire."
+  - key: trous-disposes
+    format: fill-in
+    question: |-
+      Complète pour fermer le client produit quand il est détruit :
+      ```java
+      void fermer(@___ ClientMeteo client) {
+          client.close();
+      }
+      ```
+    blanks:
+      - [Disposes]
+    answer: "`@Disposes` désigne la méthode de libération du bean produit. Elle est déclarée dans la même classe que le producteur."
+  - key: trous-portee-du-producteur
+    format: fill-in
+    question: |-
+      Complète pour que le client soit créé une seule fois, et injecté sans proxy client :
+      ```java
+      @Produces
+      @___
+      ClientMeteo clientMeteo() {
+          return new ClientMeteo(url);
+      }
+      ```
+    blanks:
+      - [Singleton]
+    answer: "`@Singleton` donne une instance unique, injectée directement. `@ApplicationScoped` donnerait aussi une instance unique, mais derrière un proxy."
+  - key: bug-mauvais-produces
+    format: bug-fix
+    question: |-
+      Le build échoue : « Unsatisfied dependency for type fr.meteo.ClientMeteo and qualifiers [@Default] ...
+      ClientMeteo has no bean defining annotation ». Quelle correction est la bonne ?
+      ```java
+      import jakarta.ws.rs.Produces;
+
+      @ApplicationScoped
+      public class Fabriques {
+          @Produces
+          @Singleton
+          ClientMeteo clientMeteo() {
+              return new ClientMeteo("https://meteo.example");
+          }
+      }
+      ```
+    choices:
+      - {text: "Importer `jakarta.enterprise.inject.Produces` à la place", correct: true}
+      - {text: "Annoter la classe `ClientMeteo` avec `@ApplicationScoped`", correct: false}
+      - {text: "Déclarer la méthode `clientMeteo` en `public`", correct: false}
+      - {text: "Retirer `@Singleton` de la méthode productrice", correct: false}
+    answer: |-
+      ```java
+      import jakarta.enterprise.inject.Produces;
+      ```
+      `jakarta.ws.rs.Produces` indique un type de média REST : la méthode n'est pas productrice, et rien ne fournit
+      `ClientMeteo`. Annoter `ClientMeteo` serait souvent impossible (une classe de bibliothèque), et ignorerait l'URL.
+  - key: bug-producteur-sans-portee
+    format: bug-fix
+    question: |-
+      Le client HTTP ouvre un pool de connexions à sa création. Au démarrage, on compte huit pools : un par bean qui
+      injecte `ClientMeteo`. Il en faut un seul. Quelle correction est la bonne ?
+      ```java
+      @Produces
+      ClientMeteo clientMeteo(@ConfigProperty(name = "meteo.url") String url) {
+          return new ClientMeteo(url);
+      }
+      ```
+    choices:
+      - {text: "Ajouter `@ApplicationScoped` (ou `@Singleton`) au producteur", correct: true}
+      - {text: "Déclarer la méthode productrice `synchronized`", correct: false}
+      - {text: "Lire l'URL avec `System.getenv` plutôt qu'en paramètre", correct: false}
+      - {text: "Ajouter `@Dependent` au producteur pour fixer sa portée", correct: false}
+    answer: |-
+      ```java
+      @Produces
+      @ApplicationScoped
+      ClientMeteo clientMeteo(@ConfigProperty(name = "meteo.url") String url) {
+          return new ClientMeteo(url);
+      }
+      ```
+      Sans portée, le bean produit est `@Dependent` : la méthode est appelée pour chaque point d'injection. Écrire
+      `@Dependent` ne change rien, c'est déjà la valeur par défaut.
+  - key: bug-deux-producteurs
+    format: bug-fix
+    question: |-
+      Le build échoue : « Ambiguous dependencies for type java.time.Clock and qualifiers [@Default] », avec deux
+      producteurs listés. Le service de facturation veut l'horloge UTC. Quelle correction est la bonne ?
+      ```java
+      @Produces @Singleton
+      Clock utc() { return Clock.systemUTC(); }
+
+      @Produces @Singleton
+      Clock paris() { return Clock.system(ZoneId.of("Europe/Paris")); }
+
+      // dans Facturation
+      @Inject Clock horloge;
+      ```
+    choices:
+      - {text: "Marquer le producteur `paris` d'un qualificatif maison, `@Paris`", correct: true}
+      - {text: "Marquer le producteur `paris` de `@Named(\"paris\")`, sans autre changement", correct: false}
+      - {text: "Renommer la méthode `utc` en `clock`, le nom du type injecté", correct: false}
+      - {text: "Remplacer `@Singleton` par `@ApplicationScoped` sur les deux producteurs", correct: false}
+    answer: |-
+      ```java
+      @Produces @Singleton
+      Clock utc() { return Clock.systemUTC(); }
+
+      @Produces @Singleton @Paris      // @Paris : une annotation marquée @Qualifier
+      Clock paris() { return Clock.system(ZoneId.of("Europe/Paris")); }
+      ```
+      Deux beans de type `Clock` portent `@Default` : ArC ne peut pas choisir. Un qualificatif maison retire `@Default`
+      au producteur `paris` : `@Inject Clock` reçoit l'horloge UTC, `@Inject @Paris Clock` l'autre. `@Named` seul ne
+      suffirait pas : un bean qui n'a que `@Named` garde `@Default`, et l'ambiguïté resterait.
+  - key: bug-disposes-oublie
+    format: bug-fix
+    question: |-
+      À chaque arrêt de l'application, le serveur de messagerie signale une connexion coupée sans fermeture propre.
+      Le client doit être fermé à l'arrêt. Quelle correction est la bonne ?
+      ```java
+      @ApplicationScoped
+      public class Fabriques {
+          @Produces
+          @ApplicationScoped
+          ClientSmtp clientSmtp() {
+              return ClientSmtp.connecter("smtp.example");
+          }
+      }
+      ```
+    choices:
+      - {text: "Ajouter une méthode qui ferme le client, avec un paramètre `@Disposes ClientSmtp`", correct: true}
+      - {text: "Ajouter une méthode `@PreDestroy` qui recrée le client avant l'arrêt", correct: false}
+      - {text: "Passer le producteur en `@Dependent`, détruit après chaque injection", correct: false}
+      - {text: "Fermer le client à la fin de la méthode `clientSmtp`, avant de le renvoyer", correct: false}
+    answer: |-
+      ```java
+      void fermer(@Disposes ClientSmtp client) {
+          client.close();
+      }
+      ```
+      À l'arrêt, le conteneur détruit le bean produit et appelle sa méthode `@Disposes`. Un `@PreDestroy` de
+      `Fabriques` n'aurait pas de référence au client ; le fermer avant de le renvoyer le rendrait inutilisable.

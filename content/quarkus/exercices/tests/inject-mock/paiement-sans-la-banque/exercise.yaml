@@ -1,0 +1,32 @@
+statement: |-
+  La boutique fait payer ses commandes par `Banque`, un client de la banque qui n'est pas joignable depuis les
+  tests : ses méthodes lèvent une exception. Les tests la remplacent donc par un mock, avec `@InjectMock`. Mais ils
+  échouent tous, avant même leur première ligne.
+
+  Corrige le code (pas les tests) pour qu'ils passent :
+
+  - `@InjectMock` doit pouvoir remplacer `Banque` ;
+  - `POST /commandes/{id}/paiement` débite la carte de la commande et répond **200**, avec la commande `PAYEE` et
+    l'identifiant de transaction rendu par la banque ;
+  - si la banque lève `PaiementRefuseException`, la commande passe `REFUSEE` et la réponse est **402 Payment
+    Required**, avec la commande dans le corps ;
+  - une commande déjà payée n'est **jamais débitée deux fois** : la requête répond **409 Conflict**, sans appeler la
+    banque ;
+  - une commande inconnue répond **404**, sans appeler la banque.
+explanation: |-
+  **Le scope de `Banque`.** Les tests échouaient au démarrage : « Invalid use of io.quarkus.test.InjectMock - the
+  injected bean does not declare a CDI normal scope but: jakarta.inject.Singleton ». `@InjectMock` remplace le bean
+  derrière son *client proxy*, le mandataire que Quarkus injecte pour un bean à scope normal (`@ApplicationScoped`,
+  `@RequestScoped`). Un `@Singleton` est injecté sans mandataire : il n'y a rien à rediriger. On passe `Banque` en
+  `@ApplicationScoped` (ou, sans toucher au code, `@MockitoConfig(convertScopes = true)` sur le champ du test).
+
+  **Le refus.** `PaiementRefuseException` remontait jusqu'à Quarkus : 500. On l'attrape dans la ressource, on passe
+  la commande `REFUSEE` et l'on répond 402. L'exception est attrapée dans la méthode `@Transactional` : la transaction
+  n'est pas annulée, et le nouveau statut est bien enregistré.
+
+  **Le double débit.** On teste le statut avant d'appeler la banque. Le test le vérifie sur le mock :
+  `verify(banque, times(1)).debiter(...)` compte les appels, et `verifyNoInteractions(banque)` garantit qu'une
+  commande inconnue ne déclenche rien.
+
+  Chaque méthode de test reçoit un mock neuf : un `when(...)` écrit dans un test ne fuit pas dans le suivant, et les
+  autres classes de test voient la vraie `Banque`.

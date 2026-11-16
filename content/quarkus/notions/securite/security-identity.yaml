@@ -1,0 +1,311 @@
+notion: security-identity
+lesson: |-
+  Les annotations disent qui a le droit d'entrer. Le code a souvent besoin de plus : **qui** appelle, pour lire **ses**
+  commandes, signer **son** commentaire, tracer **son** action. Quarkus donne deux points d'accès.
+
+  **`SecurityIdentity`** (`io.quarkus.security.identity`) : l'identité de l'appelant, **quel que soit le mécanisme**
+  (OIDC, JWT, Basic, formulaire).
+
+  ```java
+  @Path("/commandes")
+  @Authenticated
+  public class CommandeResource {
+
+      @Inject
+      SecurityIdentity identity;
+
+      @GET
+      public List<Commande> mesCommandes() {
+          return commandes.duClient(identity.getPrincipal().getName());
+      }
+  }
+  ```
+
+  | Méthode | Donne |
+  |---|---|
+  | `getPrincipal().getName()` | le nom de l'utilisateur |
+  | `getRoles()`, `hasRole("admin")` | ses rôles |
+  | `isAnonymous()` | `true` sans authentification (sur un endpoint `@PermitAll`) |
+  | `getAttribute(...)` | des attributs posés par le mécanisme |
+
+  **`JsonWebToken`** (`org.eclipse.microprofile.jwt`) : le jeton lui-même, avec tous ses claims, quand
+  l'authentification passe par un JWT.
+
+  ```java
+  @Inject
+  JsonWebToken jwt;
+
+  String sujet = jwt.getSubject();            // "sub" : l'identifiant stable de l'utilisateur
+  String email = jwt.getClaim("email");       // un claim quelconque
+  Set<String> groupes = jwt.getGroups();      // le claim "groups"
+  ```
+
+  **Quel identifiant garder ?** Le **`sub`** (`jwt.getSubject()`) est l'identifiant stable de l'utilisateur chez le
+  fournisseur. Le nom (`preferred_username`, ou ce que donne `getName()`) et l'e-mail peuvent changer : on ne s'en
+  sert pas comme clé en base. Le nom du principal se règle par `quarkus.oidc.token.principal-claim`.
+
+  **La règle d'or de l'autorisation** : l'identité vient **du jeton vérifié**, jamais de la requête. Un identifiant
+  d'utilisateur lu dans l'URL, un en-tête ou le corps peut être modifié par l'appelant : c'est la faille IDOR (accès
+  aux données d'autrui). On lit l'identité, puis on vérifie que la ressource lui appartient.
+
+  ```java
+  @GET
+  @Path("/{id}")
+  public Commande une(@PathParam("id") long id) {
+      Commande commande = commandes.trouver(id);
+      if (!commande.client().equals(jwt.getSubject())) {
+          throw new ForbiddenException();   // 403 : pas la sienne
+      }
+      return commande;
+  }
+  ```
+
+  **Enrichir l'identité.** Un `SecurityIdentityAugmentor` ajoute à l'identité des rôles ou des attributs lus ailleurs
+  (une base, un annuaire), avant les contrôles. Et rien de tout cela ne va dans les journaux : ni jeton, ni claim
+  personnel, seulement le `sub` au besoin.
+
+  **En entretien** : « J'injecte `SecurityIdentity` pour le nom et les rôles, indépendamment du mécanisme, et
+  `JsonWebToken` pour les claims du jeton. Je rattache les données au `sub`, stable, pas au nom ou à l'e-mail. Et
+  l'identité vient toujours du jeton vérifié, jamais d'un identifiant envoyé dans la requête : sinon, c'est une faille
+  IDOR. »
+cards:
+  - key: role-de-securityidentity
+    format: course
+    question: "Que représente `SecurityIdentity` dans une application Quarkus ?"
+    choices:
+      - {text: "L'identité de l'appelant, quel que soit le mécanisme d'authentification", correct: true}
+      - {text: "Le jeton JWT brut, avec tous ses claims et sa signature", correct: false}
+      - {text: "La configuration du fournisseur OIDC, lue au démarrage", correct: false}
+      - {text: "Le compte technique qui exécute l'application sur le serveur", correct: false}
+    answer: "Elle donne le nom, les rôles et les attributs de l'appelant, que l'authentification passe par OIDC, un JWT ou Basic. Le jeton lui-même, c'est `JsonWebToken`."
+  - key: role-de-jsonwebtoken
+    format: course
+    question: "Quand injectes-tu `JsonWebToken` plutôt que `SecurityIdentity` ?"
+    choices:
+      - {text: "Pour lire un claim du jeton, comme `email` ou `sub`", correct: true}
+      - {text: "Pour savoir si l'appelant est anonyme", correct: false}
+      - {text: "Pour vérifier la signature du jeton moi-même", correct: false}
+      - {text: "Pour créer un jeton pour un autre service", correct: false}
+    answer: "`JsonWebToken` donne accès à tous les claims. La signature est déjà vérifiée par l'extension ; l'anonymat se lit sur `SecurityIdentity`."
+  - key: cle-stable
+    format: course
+    question: "Quel claim choisis-tu pour rattacher les commandes d'un utilisateur en base ?"
+    choices:
+      - {text: "`sub`, l'identifiant stable de l'utilisateur", correct: true}
+      - {text: "`preferred_username`, le nom qu'il a choisi", correct: false}
+      - {text: "`email`, unique pour chaque utilisateur", correct: false}
+      - {text: "`jti`, l'identifiant du jeton reçu", correct: false}
+    answer: "Le nom et l'e-mail peuvent changer ; `jti` change à chaque jeton. Le `sub` reste le même pour un utilisateur chez son fournisseur."
+  - key: enrichir-l-identite
+    format: course
+    question: "Tes rôles métier sont en base, pas dans le jeton. Comment les ajoutes-tu à l'identité, avant les contrôles `@RolesAllowed` ?"
+    choices:
+      - {text: "Avec un `SecurityIdentityAugmentor`", correct: true}
+      - {text: "Avec un filtre qui modifie le jeton reçu", correct: false}
+      - {text: "Avec `@RolesAllowed(source = \"base\")`", correct: false}
+      - {text: "Avec un `@Observes` sur l'événement de connexion", correct: false}
+    answer: "Un augmentor reçoit l'identité construite par le mécanisme et en renvoie une version enrichie, que les annotations de sécurité utilisent ensuite. Le jeton signé ne se modifie pas."
+  - key: vf-independant-du-mecanisme
+    format: true-false
+    question: "Le code qui utilise `SecurityIdentity` ne change pas si l'on passe de l'authentification Basic à OIDC."
+    truth: true
+    answer: "C'est son intérêt : chaque mécanisme construit une `SecurityIdentity`, et le code ne lit que celle-ci."
+  - key: vf-sub-stable
+    format: true-false
+    question: "Le claim `sub` identifie l'utilisateur de façon stable chez son fournisseur d'identité."
+    truth: true
+    answer: "C'est sa définition dans OpenID Connect. On s'en sert comme clé ; le nom et l'e-mail sont des attributs qui changent."
+  - key: vf-identifiant-dans-l-url
+    format: true-false
+    question: "Sur un endpoint `@Authenticated`, on peut se fier à l'identifiant d'utilisateur reçu dans l'URL pour choisir les données à renvoyer."
+    truth: false
+    answer: "N'importe quel utilisateur connecté peut changer l'URL : il lirait les données d'un autre (IDOR). L'identité se lit dans le jeton vérifié."
+  - key: vf-anonyme
+    format: true-false
+    question: "Sur un endpoint `@PermitAll` appelé sans jeton, `identity.isAnonymous()` renvoie `true`."
+    truth: true
+    answer: "L'appel est accepté, avec une identité anonyme. Le code peut adapter sa réponse, par exemple masquer les prix réservés aux clients."
+  - key: qcm-verifier-un-role
+    format: multiple-choice
+    question: "Dans le code d'un endpoint, comment vérifies-tu que l'appelant a le rôle `admin` ?"
+    choices:
+      - {text: "`identity.hasRole(\"admin\")`", correct: true}
+      - {text: "`jwt.getClaim(\"admin\") != null`", correct: false}
+      - {text: "`identity.getPrincipal().getName().equals(\"admin\")`", correct: false}
+      - {text: "`request.getHeader(\"X-Role\").equals(\"admin\")`", correct: false}
+    answer: "`hasRole` lit les rôles de l'identité, tels que l'extension les a extraits du jeton. Un nom d'utilisateur n'est pas un rôle, et un en-tête se falsifie."
+  - key: qcm-lire-un-claim
+    format: multiple-choice
+    question: "Comment lis-tu l'e-mail de l'utilisateur dans son jeton ?"
+    choices:
+      - {text: "`jwt.getClaim(\"email\")`", correct: true}
+      - {text: "`identity.getRoles().get(\"email\")`", correct: false}
+      - {text: "`jwt.getName()`", correct: false}
+      - {text: "`identity.getCredential(\"email\")`", correct: false}
+    answer: "`getClaim` lit n'importe quel claim du JWT. `getName()` donne le nom du principal, qui n'est pas forcément l'e-mail."
+  - key: qcm-commandes-d-autrui
+    format: multiple-choice
+    question: "`GET /commandes/{id}` doit refuser la commande d'un autre client. Que fait l'endpoint ?"
+    choices:
+      - {text: "Il compare le client de la commande au `sub` du jeton, et répond 403 s'ils diffèrent", correct: true}
+      - {text: "Il vérifie que l'identifiant de commande est un nombre positif", correct: false}
+      - {text: "Il demande au front de masquer les commandes des autres clients", correct: false}
+      - {text: "Il ajoute `@Authenticated`, qui réserve chaque commande à son client", correct: false}
+    answer: "`@Authenticated` dit seulement que l'appelant est connecté. Le contrôle de propriété se fait dans le code, à partir de l'identité vérifiée."
+  - key: qcm-nom-du-principal
+    format: multiple-choice
+    question: "Quelle propriété choisit le claim qui donne le nom du principal, avec `quarkus-oidc` ?"
+    choices:
+      - {text: "`quarkus.oidc.token.principal-claim`", correct: true}
+      - {text: "`quarkus.oidc.roles.role-claim-path`", correct: false}
+      - {text: "`quarkus.oidc.client-id`", correct: false}
+      - {text: "`quarkus.security.principal.name`", correct: false}
+    answer: "`principal-claim` désigne le claim lu par `getPrincipal().getName()`. `role-claim-path` désigne celui des rôles."
+  - key: trous-injecter-l-identite
+    format: fill-in
+    question: |-
+      Complète pour recevoir l'identité de l'appelant :
+      ```java
+      @Inject
+      ___ identity;
+      ```
+    blanks:
+      - [SecurityIdentity]
+    answer: "`SecurityIdentity` (`io.quarkus.security.identity`)."
+  - key: trous-role
+    format: fill-in
+    question: |-
+      Complète pour vérifier le rôle dans le code :
+      ```java
+      if (!identity.___("admin")) {
+          throw new ForbiddenException();
+      }
+      ```
+    blanks:
+      - [hasRole]
+    answer: "`hasRole` teste un rôle de l'identité, casse comprise."
+  - key: trous-sujet
+    format: fill-in
+    question: |-
+      Complète pour lire l'identifiant stable de l'utilisateur :
+      ```java
+      String client = jwt.___();
+      ```
+    blanks:
+      - [getSubject]
+    answer: "`getSubject()` renvoie le claim `sub`."
+  - key: trous-claim
+    format: fill-in
+    question: |-
+      Complète pour lire le claim `email` du jeton :
+      ```java
+      String email = jwt.___("email");
+      ```
+    blanks:
+      - [getClaim]
+    answer: "`getClaim(nom)` lit un claim quelconque du JWT."
+  - key: bug-idor-dans-l-url
+    format: bug-fix
+    question: |-
+      Un client a lu les commandes d'un autre en changeant l'identifiant dans l'URL. Quelle correction est la bonne ?
+      ```java
+      @GET
+      @Path("/clients/{clientId}/commandes")
+      @Authenticated
+      public List<Commande> commandes(@PathParam("clientId") String clientId) {
+          return commandes.duClient(clientId);
+      }
+      ```
+    choices:
+      - {text: "Lire le client dans le jeton : `commandes.duClient(jwt.getSubject())`", correct: true}
+      - {text: "Remplacer `@Authenticated` par `@RolesAllowed(\"client\")`", correct: false}
+      - {text: "Chiffrer `clientId` dans l'URL, pour qu'il ne soit pas devinable", correct: false}
+      - {text: "Passer `clientId` en paramètre de requête plutôt que de chemin", correct: false}
+    answer: |-
+      ```java
+      @GET
+      @Path("/moi/commandes")
+      @Authenticated
+      public List<Commande> commandes() {
+          return commandes.duClient(jwt.getSubject());
+      }
+      ```
+      L'appelant contrôle l'URL, pas le jeton signé. Un rôle ne dit pas à qui sont les commandes ; un identifiant
+      chiffré ou déplacé reste fourni par l'appelant.
+  - key: bug-auteur-dans-le-corps
+    format: bug-fix
+    question: |-
+      Des commentaires apparaissent sous le nom d'autres utilisateurs. Le front envoie l'auteur dans le corps.
+      Quelle correction est la bonne ?
+      ```java
+      public record NouveauCommentaire(String auteurId, String texte) {}
+
+      @POST
+      @Authenticated
+      public Commentaire publier(NouveauCommentaire nouveau) {
+          return commentaires.creer(nouveau.auteurId(), nouveau.texte());
+      }
+      ```
+    choices:
+      - {text: "Prendre l'auteur dans le jeton, et retirer `auteurId` du corps", correct: true}
+      - {text: "Valider `auteurId` avec `@NotBlank` dans le record", correct: false}
+      - {text: "Vérifier que `auteurId` existe bien en base avant de créer", correct: false}
+      - {text: "Masquer le champ `auteurId` dans le formulaire du front", correct: false}
+    answer: |-
+      ```java
+      public record NouveauCommentaire(String texte) {}
+
+      @POST
+      @Authenticated
+      public Commentaire publier(NouveauCommentaire nouveau) {
+          return commentaires.creer(jwt.getSubject(), nouveau.texte());
+      }
+      ```
+      Tout ce qui vient du corps est choisi par l'appelant. Un identifiant valide et existant reste celui d'un autre ;
+      le masquer dans le front n'empêche pas de forger la requête.
+  - key: bug-nom-comme-cle
+    format: bug-fix
+    question: |-
+      Depuis qu'Alice a changé son nom d'utilisateur chez le fournisseur, elle ne voit plus aucune de ses commandes.
+      Quelle correction est la bonne ?
+      ```java
+      @GET
+      @Authenticated
+      public List<Commande> mesCommandes() {
+          return commandes.duClient(jwt.getName());
+      }
+      ```
+    choices:
+      - {text: "Rattacher les commandes au `sub` : `jwt.getSubject()`", correct: true}
+      - {text: "Rattacher les commandes à l'e-mail : `jwt.getClaim(\"email\")`", correct: false}
+      - {text: "Demander à Alice de reprendre son ancien nom d'utilisateur", correct: false}
+      - {text: "Lire le nom avec `identity.getPrincipal().getName()`", correct: false}
+    answer: |-
+      ```java
+      return commandes.duClient(jwt.getSubject());
+      ```
+      Le nom (et l'e-mail) peuvent changer ; le `sub` est l'identifiant stable de l'utilisateur. Les commandes déjà
+      enregistrées sous l'ancien nom demandent une migration vers le `sub`.
+  - key: bug-jeton-dans-les-journaux
+    format: bug-fix
+    question: |-
+      Un audit trouve des jetons d'accès complets dans les journaux de production. Quelle correction est la bonne ?
+      ```java
+      @POST
+      @Authenticated
+      public Recu payer(Paiement paiement) {
+          journal.infof("Paiement par %s", jwt.getRawToken());
+          return caisse.payer(jwt.getSubject(), paiement);
+      }
+      ```
+    choices:
+      - {text: "Journaliser le `sub` au lieu du jeton brut", correct: true}
+      - {text: "Passer la ligne au niveau `DEBUG`, désactivé en production", correct: false}
+      - {text: "Journaliser seulement les 50 premiers caractères du jeton", correct: false}
+      - {text: "Chiffrer les fichiers de journaux sur le disque", correct: false}
+    answer: |-
+      ```java
+      journal.infof("Paiement par %s", jwt.getSubject());
+      ```
+      Un jeton journalisé peut être rejoué par quiconque lit les journaux, tant qu'il n'a pas expiré. Le début d'un JWT
+      n'identifie personne, et un niveau `DEBUG` peut être activé un jour.

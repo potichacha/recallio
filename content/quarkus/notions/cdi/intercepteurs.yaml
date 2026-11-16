@@ -1,0 +1,330 @@
+notion: intercepteurs
+lesson: |-
+  Un **intercepteur** ajoute un comportement **autour** des méthodes d'un bean, sans toucher à leur code :
+  journaliser, mesurer un temps, vérifier un droit, ouvrir une transaction. `@Transactional` et
+  `@ActivateRequestContext` sont eux-mêmes des intercepteurs.
+
+  **Trois pièces.**
+
+  ```java
+  // 1. La liaison : une annotation marquée @InterceptorBinding
+  @InterceptorBinding
+  @Retention(RetentionPolicy.RUNTIME)
+  @Target({ElementType.TYPE, ElementType.METHOD})
+  public @interface Chronometre { }
+
+  // 2. L'intercepteur : la liaison qu'il sert, @Interceptor, et une priorité
+  @Chronometre
+  @Interceptor
+  @Priority(Interceptor.Priority.APPLICATION)
+  public class ChronometreInterceptor {
+
+      // 3. La méthode @AroundInvoke, appelée à la place de la méthode interceptée
+      @AroundInvoke
+      Object mesurer(InvocationContext contexte) throws Exception {
+          long debut = System.nanoTime();
+          try {
+              return contexte.proceed();          // appelle la méthode (ou l'intercepteur suivant)
+          } finally {
+              LOG.infof("%s : %d µs", contexte.getMethod().getName(), (System.nanoTime() - debut) / 1000);
+          }
+      }
+  }
+
+  // L'usage : sur une méthode, ou sur la classe pour toutes ses méthodes
+  @ApplicationScoped
+  public class Facturation {
+      @Chronometre
+      public Facture facturer(Commande commande) { ... }
+  }
+  ```
+
+  **`InvocationContext`** donne la méthode (`getMethod()`), ses arguments (`getParameters()`, modifiables par
+  `setParameters`), l'objet visé (`getTarget()`). La méthode `@AroundInvoke` doit appeler **`proceed()`** et
+  **renvoyer son résultat** : l'oublier, c'est ne plus exécuter la méthode, ou rendre `null` à l'appelant.
+
+  **L'ordre.** Plusieurs intercepteurs s'enchaînent par `@Priority` **croissante** : `PLATFORM_BEFORE` (0),
+  `LIBRARY_BEFORE` (1000), `APPLICATION` (2000), `LIBRARY_AFTER` (3000), `PLATFORM_AFTER` (4000).
+
+  **Ce qui est propre à ArC.** Il intercepte en générant au build une **sous-classe** du bean. D'où :
+
+  - les **appels internes** (`this.facturer(...)`) passent aussi par l'intercepteur, contrairement aux proxies de
+    Spring ;
+  - les **méthodes statiques** d'un bean peuvent être interceptées ;
+  - une liaison sur une **méthode privée** fait échouer le build : « @Chronometre will have no effect on method ...
+    because the method is private » (on peut en faire un simple avertissement avec
+    `quarkus.arc.fail-on-intercepted-private-method=false`) ;
+  - un objet créé avec `new` n'est jamais intercepté.
+
+  **Les erreurs de déclaration.** Une liaison sans `@InterceptorBinding` fait échouer le build : « Interceptor has no
+  bindings ». Une classe sans `@Interceptor` n'est pas un intercepteur : elle est ignorée, sans erreur.
+
+  **En entretien** : « Un intercepteur, c'est une annotation de liaison marquée `@InterceptorBinding`, une classe
+  `@Interceptor` avec `@Priority`, et une méthode `@AroundInvoke` qui appelle `proceed()` et renvoie son résultat. ArC
+  l'applique au build par une sous-classe : les appels internes sont donc interceptés, mais pas les méthodes privées.
+  `@Transactional` fonctionne exactement ainsi. »
+cards:
+  - key: trois-pieces
+    format: course
+    question: "De quoi un intercepteur CDI a-t-il besoin pour s'appliquer ?"
+    choices:
+      - {text: "D'une liaison `@InterceptorBinding`, d'une classe `@Interceptor` et d'une méthode `@AroundInvoke`", correct: true}
+      - {text: "D'une interface implémentée par le bean, et d'un proxy JDK créé à l'exécution", correct: false}
+      - {text: "D'une déclaration dans `application.properties`, sous `quarkus.arc.interceptors`", correct: false}
+      - {text: "D'un aspect AspectJ et d'un agent Java chargé au démarrage de la JVM", correct: false}
+    answer: "La liaison relie les méthodes à l'intercepteur ; la classe porte la liaison, `@Interceptor` et une `@Priority` ; la méthode `@AroundInvoke` reçoit l'`InvocationContext`."
+  - key: role-de-proceed
+    format: course
+    question: "Que doit faire la méthode `@AroundInvoke` pour que la méthode interceptée s'exécute et rende son résultat ?"
+    choices:
+      - {text: "Appeler `contexte.proceed()` et renvoyer la valeur obtenue", correct: true}
+      - {text: "Appeler `contexte.getMethod().invoke()` sur un nouvel objet", correct: false}
+      - {text: "Renvoyer `null` : le conteneur appelle ensuite la méthode", correct: false}
+      - {text: "Rien : la méthode s'exécute après l'intercepteur, quoi qu'il arrive", correct: false}
+    answer: "`proceed()` passe la main à l'intercepteur suivant, puis à la méthode. Sans lui, la méthode ne s'exécute pas ; sans le `return`, l'appelant reçoit ce que renvoie l'intercepteur."
+  - key: mecanisme-arc
+    format: course
+    question: "Comment ArC applique-t-il un intercepteur aux méthodes d'un bean ?"
+    choices:
+      - {text: "Il génère au build une sous-classe du bean qui enveloppe les méthodes", correct: true}
+      - {text: "Il crée à l'exécution un proxy JDK, qui implémente les interfaces du bean", correct: false}
+      - {text: "Il réécrit le bytecode au chargement des classes, par un agent Java", correct: false}
+      - {text: "Il ajoute un appel à l'intercepteur dans le code source avant la compilation", correct: false}
+    answer: "La sous-classe redéfinit les méthodes interceptées. C'est pourquoi un appel par `this` est intercepté, et pourquoi une méthode privée, qu'on ne peut pas redéfinir, ne l'est pas."
+  - key: ordre-des-intercepteurs
+    format: course
+    question: "Dans quel ordre s'enchaînent plusieurs intercepteurs sur une même méthode ?"
+    choices:
+      - {text: "Par `@Priority` croissante : la plus petite valeur passe en premier", correct: true}
+      - {text: "Par ordre alphabétique du nom de la classe d'intercepteur", correct: false}
+      - {text: "Dans l'ordre où les annotations sont écrites sur la méthode", correct: false}
+      - {text: "Au hasard, l'ordre pouvant changer à chaque démarrage", correct: false}
+    answer: "`Interceptor.Priority.PLATFORM_BEFORE` (0) passe avant `APPLICATION` (2000), qui passe avant `PLATFORM_AFTER` (4000). Le premier entoure tous les suivants."
+  - key: vf-appels-internes
+    format: true-false
+    question: "ArC applique les intercepteurs aux appels qu'un bean fait vers ses propres méthodes."
+    truth: true
+    answer: "La sous-classe générée redéfinit la méthode : `this.facturer(...)` passe donc par elle et par l'intercepteur. Dans Spring, le même appel contourne le proxy."
+  - key: vf-methode-privee
+    format: true-false
+    question: "Une liaison d'intercepteur posée sur une méthode privée fait échouer le build, par défaut."
+    truth: true
+    answer: "« ... will have no effect on method ... because the method is private ». `quarkus.arc.fail-on-intercepted-private-method=false` en fait un avertissement, mais la méthode reste non interceptée."
+  - key: vf-modifier-les-arguments
+    format: true-false
+    question: "Un intercepteur peut modifier les arguments de la méthode avant de l'appeler."
+    truth: true
+    answer: "`contexte.setParameters(...)` remplace les arguments, puis `proceed()` appelle la méthode avec eux. Utile pour normaliser une entrée, à manier avec prudence."
+  - key: vf-objet-new
+    format: true-false
+    question: "Un objet créé avec `new` passe par les intercepteurs liés à sa classe."
+    truth: false
+    answer: "Seuls les beans créés par le conteneur sont des instances de la sous-classe interceptée. Un objet créé avec `new` est une instance de la classe d'origine, sans intercepteur."
+  - key: qcm-signature-around-invoke
+    format: multiple-choice
+    question: "Quelle signature convient à une méthode `@AroundInvoke` ?"
+    choices:
+      - {text: "`Object intercepter(InvocationContext contexte) throws Exception`", correct: true}
+      - {text: "`void intercepter(Method methode, Object[] arguments)`", correct: false}
+      - {text: "`Object intercepter(Object cible) throws Throwable`", correct: false}
+      - {text: "`static void intercepter(InvocationContext contexte)`", correct: false}
+    answer: "Elle reçoit l'`InvocationContext`, renvoie un `Object` (le résultat de `proceed()`), et peut lever `Exception`, comme `proceed()` lui-même."
+  - key: qcm-nom-de-la-methode
+    format: multiple-choice
+    question: "Dans une méthode `@AroundInvoke`, comment obtenir le nom de la méthode interceptée ?"
+    choices:
+      - {text: "`contexte.getMethod().getName()`", correct: true}
+      - {text: "`contexte.getTarget().getName()`", correct: false}
+      - {text: "`contexte.getParameters()[0]`", correct: false}
+      - {text: "`contexte.getContextData().get(\"nom\")`", correct: false}
+    answer: "`getMethod()` renvoie la `java.lang.reflect.Method` appelée. `getTarget()` est l'objet visé, `getParameters()` ses arguments, `getContextData()` une carte partagée entre intercepteurs."
+  - key: qcm-renvoyer-null
+    format: multiple-choice
+    question: "Un intercepteur appelle `contexte.proceed()`, ignore sa valeur et renvoie `null`. Que reçoit l'appelant de la méthode interceptée ?"
+    choices:
+      - {text: "`null`, quelle que soit la valeur calculée par la méthode", correct: true}
+      - {text: "La valeur calculée par la méthode, que le conteneur transmet", correct: false}
+      - {text: "Une `IllegalStateException` levée par le conteneur", correct: false}
+      - {text: "La valeur calculée, mais seulement pour les méthodes `void`", correct: false}
+    answer: "Ce que renvoie l'intercepteur remplace le résultat de la méthode. Pour une méthode qui renvoie un type primitif, `null` provoquerait même une `NullPointerException` au déballage."
+  - key: qcm-sans-annotation-interceptor
+    format: multiple-choice
+    question: "Une classe porte la liaison `@Chronometre` et une méthode `@AroundInvoke`, mais pas `@Interceptor`. Que se passe-t-il ?"
+    choices:
+      - {text: "Elle est ignorée : les méthodes `@Chronometre` ne sont pas interceptées", correct: true}
+      - {text: "Elle est utilisée quand même : `@AroundInvoke` suffit", correct: false}
+      - {text: "Le build échoue : « Interceptor has no bindings »", correct: false}
+      - {text: "Elle intercepte toutes les méthodes de l'application", correct: false}
+    answer: "Sans `@Interceptor`, ArC ne la considère pas comme un intercepteur, et ne dit rien. « Interceptor has no bindings » apparaît dans le cas inverse : `@Interceptor` présent, mais une liaison sans `@InterceptorBinding`."
+  - key: trous-interceptor-binding
+    format: fill-in
+    question: |-
+      Complète pour faire de `@Chronometre` une liaison d'intercepteur :
+      ```java
+      @___
+      @Retention(RetentionPolicy.RUNTIME)
+      @Target({ElementType.TYPE, ElementType.METHOD})
+      public @interface Chronometre {
+      }
+      ```
+    blanks:
+      - [InterceptorBinding]
+    answer: "`@InterceptorBinding` (de `jakarta.interceptor`) : sans elle, un intercepteur qui porte `@Chronometre` fait échouer le build (« Interceptor has no bindings »)."
+  - key: trous-interceptor
+    format: fill-in
+    question: |-
+      Complète pour que cette classe soit un intercepteur :
+      ```java
+      @Chronometre
+      @___
+      @Priority(Interceptor.Priority.APPLICATION)
+      public class ChronometreInterceptor {
+      ```
+    blanks:
+      - [Interceptor]
+    answer: "`@Interceptor` désigne la classe comme intercepteur ; la liaison dit quelles méthodes elle intercepte ; `@Priority` l'ordonne parmi les autres."
+  - key: trous-around-invoke
+    format: fill-in
+    question: |-
+      Complète pour que cette méthode entoure chaque appel intercepté :
+      ```java
+      @___
+      Object mesurer(InvocationContext contexte) throws Exception {
+          return contexte.proceed();
+      }
+      ```
+    blanks:
+      - [AroundInvoke]
+    answer: "`@AroundInvoke` marque la méthode appelée à la place de la méthode interceptée."
+  - key: trous-proceed
+    format: fill-in
+    question: |-
+      Complète pour exécuter la méthode interceptée et rendre son résultat :
+      ```java
+      @AroundInvoke
+      Object journaliser(InvocationContext contexte) throws Exception {
+          LOG.info("Appel de " + contexte.getMethod().getName());
+          return contexte.___();
+      }
+      ```
+    blanks:
+      - [proceed]
+    answer: "`proceed()` appelle l'intercepteur suivant, ou la méthode elle-même, et renvoie son résultat."
+  - key: bug-proceed-oublie
+    format: bug-fix
+    question: |-
+      Depuis l'ajout de l'audit, les commandes ne sont plus enregistrées : `enregistrer` n'est plus exécutée, sans
+      aucune erreur. Quelle correction est la bonne ?
+      ```java
+      @AroundInvoke
+      Object auditer(InvocationContext contexte) throws Exception {
+          journal.ecrire(contexte.getMethod().getName());
+          return null;
+      }
+      ```
+    choices:
+      - {text: "Renvoyer `contexte.proceed()` après avoir écrit dans le journal", correct: true}
+      - {text: "Appeler `contexte.getMethod().invoke(contexte.getTarget())` sans le renvoyer", correct: false}
+      - {text: "Passer la priorité de l'intercepteur à `PLATFORM_AFTER`", correct: false}
+      - {text: "Déclarer la méthode `auditer` en `public`", correct: false}
+    answer: |-
+      ```java
+      @AroundInvoke
+      Object auditer(InvocationContext contexte) throws Exception {
+          journal.ecrire(contexte.getMethod().getName());
+          return contexte.proceed();
+      }
+      ```
+      L'intercepteur remplace l'appel : sans `proceed()`, la méthode ne s'exécute jamais. Appeler la méthode par
+      réflexion contournerait les intercepteurs suivants.
+  - key: bug-resultat-perdu
+    format: bug-fix
+    question: |-
+      Depuis l'ajout de la mesure du temps, `libelle()` renvoie `null` aux appelants, alors qu'elle calcule bien sa
+      valeur. Quelle correction est la bonne ?
+      ```java
+      @AroundInvoke
+      Object mesurer(InvocationContext contexte) throws Exception {
+          long debut = System.nanoTime();
+          contexte.proceed();
+          LOG.infof("%d ns", System.nanoTime() - debut);
+          return null;
+      }
+      ```
+    choices:
+      - {text: "Garder le résultat de `proceed()` et le renvoyer", correct: true}
+      - {text: "Appeler `proceed()` deux fois et renvoyer le second résultat", correct: false}
+      - {text: "Renvoyer `contexte.getTarget()` à la place de `null`", correct: false}
+      - {text: "Renvoyer `contexte.getParameters()` à la place de `null`", correct: false}
+    answer: |-
+      ```java
+      @AroundInvoke
+      Object mesurer(InvocationContext contexte) throws Exception {
+          long debut = System.nanoTime();
+          try {
+              return contexte.proceed();
+          } finally {
+              LOG.infof("%d ns", System.nanoTime() - debut);
+          }
+      }
+      ```
+      La valeur renvoyée par l'intercepteur est celle que reçoit l'appelant. Le `finally` mesure aussi les appels qui
+      échouent ; appeler `proceed()` deux fois exécuterait la méthode deux fois.
+  - key: bug-methode-privee
+    format: bug-fix
+    question: |-
+      Le build échoue : « @Chronometre will have no effect on method fr.boutique.Facturation.calculer() because the
+      method is private ». Le calcul doit être mesuré. Quelle correction est la bonne ?
+      ```java
+      @ApplicationScoped
+      public class Facturation {
+          public Facture facturer(Commande commande) {
+              return new Facture(calculer(commande));
+          }
+
+          @Chronometre
+          private int calculer(Commande commande) { ... }
+      }
+      ```
+    choices:
+      - {text: "Rendre `calculer` package-private (sans `private`)", correct: true}
+      - {text: "Régler `quarkus.arc.fail-on-intercepted-private-method=false`", correct: false}
+      - {text: "Déclarer la méthode `calculer` en `final`", correct: false}
+      - {text: "Déclarer la méthode `calculer` en `synchronized`", correct: false}
+    answer: |-
+      ```java
+      @Chronometre
+      int calculer(Commande commande) { ... }
+      ```
+      La sous-classe générée ne peut pas redéfinir une méthode privée : l'intercepteur ne s'y appliquerait jamais.
+      Sans `private`, elle est redéfinie, et l'appel interne depuis `facturer` est bien intercepté. La propriété ne
+      ferait que taire l'erreur, sans mesurer le calcul.
+  - key: bug-liaison-sans-interceptor-binding
+    format: bug-fix
+    question: |-
+      Le build échoue : « Interceptor has no bindings: fr.boutique.ChronometreInterceptor ». Quelle correction est
+      la bonne ?
+      ```java
+      @Retention(RetentionPolicy.RUNTIME)
+      @Target({ElementType.TYPE, ElementType.METHOD})
+      public @interface Chronometre { }
+
+      @Chronometre
+      @Interceptor
+      @Priority(Interceptor.Priority.APPLICATION)
+      public class ChronometreInterceptor { ... }
+      ```
+    choices:
+      - {text: "Annoter la déclaration de `Chronometre` avec `@InterceptorBinding`", correct: true}
+      - {text: "Retirer `@Interceptor` de la classe `ChronometreInterceptor`", correct: false}
+      - {text: "Annoter la déclaration de `Chronometre` avec `@Qualifier`", correct: false}
+      - {text: "Annoter `ChronometreInterceptor` avec `@ApplicationScoped`", correct: false}
+    answer: |-
+      ```java
+      @InterceptorBinding
+      @Retention(RetentionPolicy.RUNTIME)
+      @Target({ElementType.TYPE, ElementType.METHOD})
+      public @interface Chronometre { }
+      ```
+      Sans `@InterceptorBinding`, `@Chronometre` n'est qu'une annotation ordinaire : l'intercepteur n'a aucune liaison,
+      et ArC le refuse. Retirer `@Interceptor` ferait disparaître l'erreur, et l'intercepteur avec.

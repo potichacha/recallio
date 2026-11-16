@@ -1,0 +1,351 @@
+notion: fault-tolerance
+lesson: |-
+  Un service distant finit toujours par être lent ou absent. Sans protection, ses pannes deviennent les tiennes :
+  des threads bloqués, des requêtes qui s'empilent, une panne en cascade. L'extension
+  `quarkus-smallrye-fault-tolerance` (MicroProfile Fault Tolerance) protège une méthode de bean par des
+  **annotations**.
+
+  ```java
+  @ApplicationScoped
+  public class MeteoService {
+
+      @Inject
+      @RestClient
+      MeteoClient client;
+
+      @Timeout(500)
+      @Retry(maxRetries = 2, delay = 100)
+      @CircuitBreaker(requestVolumeThreshold = 10, failureRatio = 0.5, delay = 30_000)
+      @Fallback(fallbackMethod = "meteoInconnue")
+      public Meteo meteo(String ville) {
+          return client.meteo(ville);
+      }
+
+      Meteo meteoInconnue(String ville) {
+          return Meteo.inconnue(ville);
+      }
+  }
+  ```
+
+  | Annotation | Rôle | Valeurs par défaut |
+  |---|---|---|
+  | `@Timeout` | abandonner un appel trop long : `TimeoutException` | 1000, en **millisecondes** |
+  | `@Retry` | réessayer après un échec | `maxRetries = 3`, `delay = 0` |
+  | `@CircuitBreaker` | couper les appels quand trop échouent | 20 appels, 50 % d'échecs, 5 s d'ouverture |
+  | `@Fallback` | donner une réponse de repli | une méthode aux **mêmes paramètres** et au même retour |
+  | `@Bulkhead` | limiter les appels simultanés : `BulkheadException` | 10 |
+
+  **Le disjoncteur.** **Fermé**, il laisse passer et compte les échecs. Au-delà du taux (`failureRatio`) sur les
+  derniers appels (`requestVolumeThreshold`), il **s'ouvre** : chaque appel échoue aussitôt
+  (`CircuitBreakerOpenException`), sans solliciter le service malade. Après `delay`, il passe **à demi ouvert** et
+  laisse passer quelques essais : réussis, il se referme ; ratés, il se rouvre. Son état est partagé par tous les
+  appels de la méthode.
+
+  **L'ordre des protections.** Le fallback enveloppe tout : il n'est appelé **qu'après l'échec de toutes les
+  tentatives**. Chaque tentative a son propre `@Timeout`, et chacune compte pour le disjoncteur.
+
+  **Les pièges.**
+
+  - **Réessayer une opération qui n'est pas idempotente** : un paiement qui a abouti mais dont la réponse s'est
+    perdue serait débité deux fois. On ne réessaie que ce qui peut être rejoué sans effet (une lecture, un appel
+    avec une clé d'idempotence).
+  - **Réessayer une erreur définitive** (une ressource introuvable) : `abortOn = ProduitIntrouvableException.class`
+    l'arrête tout de suite.
+  - **Oublier l'unité** : `@Timeout(2)` vaut 2 millisecondes ; on écrit `@Timeout(2000)` ou
+    `@Timeout(value = 2, unit = ChronoUnit.SECONDS)`.
+  - **Une méthode de repli à la mauvaise signature** : l'application refuse de démarrer
+    (`FaultToleranceDefinitionException`).
+
+  Ces annotations passent par des intercepteurs CDI : elles s'appliquent aux méthodes non privées d'un bean. SmallRye
+  ajoute aussi `@RateLimit`, pour limiter le nombre d'appels par période.
+
+  **En entretien** : « Je protège chaque appel distant : un `@Timeout` court, un `@Retry` seulement si l'opération est
+  idempotente, un `@CircuitBreaker` pour ne pas marteler un service en panne, et un `@Fallback` pour répondre quand
+  même. Le fallback n'intervient qu'après les tentatives, et chaque tentative a son délai. `@Bulkhead` empêche un
+  appel lent d'accaparer tous les threads. »
+cards:
+  - key: etats-du-disjoncteur
+    format: course
+    question: "Que fait un `@CircuitBreaker` ouvert quand la méthode est appelée ?"
+    choices:
+      - {text: "Il échoue aussitôt, sans appeler le service distant", correct: true}
+      - {text: "Il appelle le service, puis ignore la réponse reçue", correct: false}
+      - {text: "Il met l'appel en attente jusqu'à sa fermeture", correct: false}
+      - {text: "Il réessaie l'appel jusqu'à ce qu'il réussisse", correct: false}
+    answer: "Ouvert, il lève `CircuitBreakerOpenException` sans solliciter le service malade. Après son `delay`, il passe à demi ouvert et laisse passer quelques essais."
+  - key: role-du-bulkhead
+    format: course
+    question: "À quoi sert `@Bulkhead(5)` sur une méthode ?"
+    choices:
+      - {text: "À limiter à 5 le nombre d'appels simultanés", correct: true}
+      - {text: "À réessayer l'appel 5 fois en cas d'échec", correct: false}
+      - {text: "À abandonner l'appel au bout de 5 secondes", correct: false}
+      - {text: "À ouvrir le disjoncteur après 5 échecs", correct: false}
+    answer: "Le sixième appel simultané est refusé (`BulkheadException`) : une dépendance lente ne peut pas accaparer tous les threads de l'application."
+  - key: role-du-fallback
+    format: course
+    question: "Que fait `@Fallback(fallbackMethod = \"meteoInconnue\")` ?"
+    choices:
+      - {text: "Il appelle `meteoInconnue` quand la méthode échoue", correct: true}
+      - {text: "Il appelle `meteoInconnue` avant chaque appel", correct: false}
+      - {text: "Il appelle `meteoInconnue` quand la méthode réussit", correct: false}
+      - {text: "Il remplace la méthode par `meteoInconnue` en test", correct: false}
+    answer: "Quand la méthode échoue (exception, délai dépassé, disjoncteur ouvert), sa réponse de repli est renvoyée à la place. Avec `@Retry`, seulement après la dernière tentative."
+  - key: extension
+    format: course
+    question: "Quelle extension apporte `@Retry`, `@Timeout` et `@CircuitBreaker` à Quarkus ?"
+    choices:
+      - {text: "`quarkus-smallrye-fault-tolerance`", correct: true}
+      - {text: "`quarkus-smallrye-health`", correct: false}
+      - {text: "`quarkus-rest-client`", correct: false}
+      - {text: "`quarkus-resilience4j`", correct: false}
+    answer: "SmallRye Fault Tolerance implémente MicroProfile Fault Tolerance. Resilience4j est une bibliothèque courante dans Spring, pas l'extension de Quarkus."
+  - key: vf-fallback-apres-retry
+    format: true-false
+    question: "Avec `@Retry` et `@Fallback` sur la même méthode, le fallback n'est appelé qu'après l'échec de toutes les tentatives."
+    truth: true
+    answer: "Le fallback enveloppe les autres protections : il ne répond qu'une fois les tentatives épuisées."
+  - key: vf-disjoncteur-ouvert-appelle
+    format: true-false
+    question: "Un disjoncteur ouvert appelle quand même le service à chaque requête, pour vérifier s'il est revenu."
+    truth: false
+    answer: "Ouvert, il n'appelle rien pendant son `delay`. Ensuite, à demi ouvert, il laisse passer quelques essais seulement."
+  - key: vf-signature-du-fallback
+    format: true-false
+    question: "La méthode de repli de `@Fallback(fallbackMethod = ...)` doit avoir les mêmes paramètres et le même type de retour que la méthode protégée."
+    truth: true
+    answer: "Elle reçoit les mêmes arguments, pour répondre à la même question. Sinon, l'application refuse de démarrer : `FaultToleranceDefinitionException`."
+  - key: vf-unite-du-timeout
+    format: true-false
+    question: "`@Timeout(500)` abandonne l'appel au bout de 500 secondes."
+    truth: false
+    answer: "L'unité par défaut est la milliseconde : 500 ms. Un autre `unit` (`ChronoUnit.SECONDS`) change l'unité."
+  - key: qcm-exception-du-disjoncteur
+    format: multiple-choice
+    question: "Quelle exception reçoit l'appelant quand le disjoncteur est ouvert, sans fallback ?"
+    choices:
+      - {text: "`CircuitBreakerOpenException`", correct: true}
+      - {text: "`TimeoutException`", correct: false}
+      - {text: "`BulkheadException`", correct: false}
+      - {text: "`ServiceUnavailableException`", correct: false}
+    answer: "Les trois premières viennent de `org.eclipse.microprofile.faulttolerance.exceptions` : disjoncteur ouvert, délai dépassé, cloison pleine."
+  - key: qcm-ordre-des-protections
+    format: multiple-choice
+    question: "Une méthode porte `@Timeout(500)` et `@Retry(maxRetries = 2)`. Comment le délai s'applique-t-il ?"
+    choices:
+      - {text: "À chaque tentative : 500 ms pour chacune des trois", correct: true}
+      - {text: "À l'ensemble : 500 ms pour les trois tentatives", correct: false}
+      - {text: "À la dernière tentative seulement", correct: false}
+      - {text: "À aucune : `@Retry` désactive `@Timeout`", correct: false}
+    answer: "`@Retry` enveloppe `@Timeout` : chaque tentative est limitée à 500 ms, et un délai dépassé déclenche la suivante. `maxDuration` borne la durée totale des tentatives."
+  - key: qcm-erreur-definitive
+    format: multiple-choice
+    question: "Comment empêches-tu `@Retry` de réessayer quand le service répond « produit introuvable » ?"
+    choices:
+      - {text: "`@Retry(abortOn = ProduitIntrouvableException.class)`", correct: true}
+      - {text: "`@Retry(retryOn = ProduitIntrouvableException.class)`", correct: false}
+      - {text: "`@Retry(maxRetries = 0)` sur toute la méthode", correct: false}
+      - {text: "`@Fallback(skipOn = Retry.class)` à côté de `@Retry`", correct: false}
+    answer: "`abortOn` arrête les tentatives pour ces exceptions : une erreur définitive ne se corrige pas en réessayant. `retryOn` ferait l'inverse ; `maxRetries = 0` couperait tous les essais."
+  - key: qcm-service-qui-tombe
+    format: multiple-choice
+    question: "Un partenaire tombe parfois pendant plusieurs minutes. Quelle protection évite de le solliciter pendant sa panne ?"
+    choices:
+      - {text: "`@CircuitBreaker`", correct: true}
+      - {text: "`@Retry`", correct: false}
+      - {text: "`@Timeout`", correct: false}
+      - {text: "`@Bulkhead`", correct: false}
+    answer: "Le disjoncteur s'ouvre quand les échecs s'accumulent et coupe les appels un moment. `@Retry` multiplierait au contraire les appels vers un service déjà en panne."
+  - key: trous-retry
+    format: fill-in
+    question: |-
+      Complète pour réessayer trois fois, à 200 ms d'intervalle :
+      ```java
+      @___(maxRetries = 3, delay = 200)
+      public Meteo meteo(String ville) {
+      ```
+    blanks:
+      - [Retry]
+    answer: "`@Retry` réessaie après un échec ; `delay` est en millisecondes par défaut."
+  - key: trous-methode-de-repli
+    format: fill-in
+    question: |-
+      Complète pour désigner la méthode de repli :
+      ```java
+      @Fallback(___ = "meteoInconnue")
+      public Meteo meteo(String ville) {
+      ```
+    blanks:
+      - [fallbackMethod]
+    answer: "`fallbackMethod` nomme une méthode du même bean, aux mêmes paramètres et au même retour."
+  - key: trous-taux-d-echec
+    format: fill-in
+    question: |-
+      Complète pour ouvrir le disjoncteur à 50 % d'échecs sur les 10 derniers appels :
+      ```java
+      @CircuitBreaker(requestVolumeThreshold = 10, ___ = 0.5)
+      ```
+    blanks:
+      - [failureRatio]
+    answer: "`failureRatio` est le taux d'échecs, `requestVolumeThreshold` le nombre d'appels observés."
+  - key: trous-delai
+    format: fill-in
+    question: |-
+      Complète pour abandonner l'appel au bout de 500 ms :
+      ```java
+      @___(500)
+      public Stock stock(String sku) {
+      ```
+    blanks:
+      - [Timeout]
+    answer: "`@Timeout(500)` : l'unité par défaut est la milliseconde."
+  - key: bug-signature-du-repli
+    format: bug-fix
+    question: |-
+      L'application refuse de démarrer, sur une `FaultToleranceDefinitionException` qui cite `meteoInconnue`. Quelle
+      correction est la bonne ?
+      ```java
+      @Fallback(fallbackMethod = "meteoInconnue")
+      public Meteo meteo(String ville) {
+          return client.meteo(ville);
+      }
+
+      Meteo meteoInconnue() {
+          return Meteo.INCONNUE;
+      }
+      ```
+    choices:
+      - {text: "Donner à `meteoInconnue` le paramètre `String ville`", correct: true}
+      - {text: "Déclarer `meteoInconnue` en `private static`", correct: false}
+      - {text: "Faire renvoyer `Object` à `meteoInconnue`", correct: false}
+      - {text: "Ajouter `@Retry` sur la méthode `meteoInconnue`", correct: false}
+    answer: |-
+      ```java
+      Meteo meteoInconnue(String ville) {
+          return Meteo.inconnue(ville);
+      }
+      ```
+      La méthode de repli reçoit les mêmes arguments que la méthode protégée, et renvoie le même type. Sans cela,
+      SmallRye Fault Tolerance refuse la définition dès le démarrage.
+  - key: bug-paiement-rejoue
+    format: bug-fix
+    question: |-
+      Des clients sont débités deux fois : la banque a traité le paiement, mais sa réponse est arrivée après le délai.
+      Quelle correction est la bonne ?
+      ```java
+      @Timeout(800)
+      @Retry(maxRetries = 2)
+      public Recu payer(Commande commande) {
+          return banque.debiter(commande.carte(), commande.montant());
+      }
+      ```
+    choices:
+      - {text: "Ne pas réessayer, ou passer une clé d'idempotence à la banque", correct: true}
+      - {text: "Passer `maxRetries` à 1, pour limiter le nombre de doublons", correct: false}
+      - {text: "Remplacer `@Retry` par `@CircuitBreaker` avec les mêmes valeurs", correct: false}
+      - {text: "Réduire le délai à 300 ms, pour réessayer plus tôt", correct: false}
+    answer: |-
+      ```java
+      @Timeout(800)
+      public Recu payer(Commande commande) {
+          return banque.debiter(commande.cleIdempotence(), commande.carte(), commande.montant());
+      }
+      ```
+      Un délai dépassé ne prouve pas que le paiement a échoué. Réessayer une opération non idempotente la rejoue ; avec
+      une clé, la banque reconnaît le doublon. Un délai plus court aggraverait le problème.
+  - key: bug-retry-sur-introuvable
+    format: bug-fix
+    question: |-
+      Pour un produit qui n'existe pas, la page met trois secondes à répondre : le service est appelé quatre fois.
+      Quelle correction est la bonne ?
+      ```java
+      @Retry(maxRetries = 3, delay = 1000)
+      public Produit produit(String sku) {
+          return catalogue.produit(sku);   // lève ProduitIntrouvableException si le sku n'existe pas
+      }
+      ```
+    choices:
+      - {text: "`@Retry(maxRetries = 3, delay = 1000, abortOn = ProduitIntrouvableException.class)`", correct: true}
+      - {text: "`@Retry(maxRetries = 3, delay = 1000, retryOn = ProduitIntrouvableException.class)`", correct: false}
+      - {text: "`@Retry(maxRetries = 3, delay = 100)`, pour réessayer plus vite", correct: false}
+      - {text: "`@Timeout(1000)` à la place de `@Retry`, pour couper plus tôt", correct: false}
+    answer: |-
+      ```java
+      @Retry(maxRetries = 3, delay = 1000, abortOn = ProduitIntrouvableException.class)
+      ```
+      Un produit introuvable le restera : réessayer ne fait que retarder la réponse. `abortOn` arrête les tentatives
+      pour cette exception, et les garde pour les pannes passagères.
+  - key: bug-timeout-en-secondes
+    format: bug-fix
+    question: |-
+      Depuis l'ajout de ce délai, tous les appels échouent en `TimeoutException`, même ceux qui répondent en
+      100 ms. Quelle correction est la bonne ?
+      ```java
+      @Timeout(2)
+      public Stock stock(String sku) {
+          return entrepot.stock(sku);
+      }
+      ```
+    choices:
+      - {text: "`@Timeout(value = 2, unit = ChronoUnit.SECONDS)`", correct: true}
+      - {text: "`@Timeout(value = 2, unit = ChronoUnit.MILLIS)`", correct: false}
+      - {text: "`@Timeout(2)` complété par `@Retry(maxRetries = 3)`", correct: false}
+      - {text: "`@Timeout(0)`, qui laisse le délai à l'appelant", correct: false}
+    answer: |-
+      ```java
+      @Timeout(value = 2, unit = ChronoUnit.SECONDS)
+      ```
+      L'unité par défaut est la milliseconde : `@Timeout(2)` coupe au bout de 2 ms. `@Timeout(2000)` conviendrait aussi.
+      Réessayer avec le même délai échouerait autant.
+  - key: situation-partenaire-lent
+    format: scenario
+    question: |-
+      L'API de météo d'un partenaire répond en 50 ms, mais parfois en 20 s. Ta page d'accueil l'appelle en lecture,
+      et peut s'en passer. Comment protèges-tu l'appel ?
+    choices:
+      - {text: "Un `@Timeout` court, un `@Retry` léger et un `@Fallback` sans météo", correct: true}
+      - {text: "Un `@Retry` de dix tentatives, pour finir par obtenir une réponse", correct: false}
+      - {text: "Aucune protection : le partenaire doit tenir ses délais", correct: false}
+      - {text: "Un `@Bulkhead(1)`, pour n'envoyer qu'une requête à la fois", correct: false}
+    answer: |-
+      Le délai court évite de bloquer la page ; une lecture peut être réessayée sans risque ; le repli affiche la page
+      sans météo. Dix tentatives de 20 s rendraient la page inutilisable.
+  - key: situation-panne-prolongee
+    format: scenario
+    question: |-
+      Quand le service de stock tombe, ton application continue de l'appeler des centaines de fois par seconde, ce
+      qui retarde son redémarrage. Que proposes-tu ?
+    choices:
+      - {text: "Un `@CircuitBreaker` qui coupe les appels un moment, avec un repli", correct: true}
+      - {text: "Un `@Retry` plus long, pour étaler les appels sur la durée", correct: false}
+      - {text: "Un `@Timeout` plus long, pour laisser au stock le temps de répondre", correct: false}
+      - {text: "Une boucle qui appelle le stock jusqu'à ce qu'il réponde", correct: false}
+    answer: |-
+      Ouvert, le disjoncteur échoue aussitôt sans appeler le stock : le service malade respire, et l'application
+      répond vite, par son repli. Il teste le retour du stock par quelques essais, à demi ouvert.
+  - key: situation-rapport-lent
+    format: scenario
+    question: |-
+      Un endpoint de rapport, lent et rarement utilisé, occupe parfois tous les threads de travail : les autres
+      endpoints ne répondent plus. Que fais-tu ?
+    choices:
+      - {text: "Un `@Bulkhead` sur le rapport, qui limite ses appels simultanés", correct: true}
+      - {text: "Un `@Retry` sur le rapport, pour qu'il finisse par passer", correct: false}
+      - {text: "Un `@CircuitBreaker` sur les autres endpoints, pour les protéger", correct: false}
+      - {text: "Plus de mémoire pour la JVM, pour qu'elle crée plus de threads", correct: false}
+    answer: |-
+      La cloison isole le rapport : au-delà de quelques appels simultanés, les suivants sont refusés, et le reste de
+      l'application garde ses threads. C'est le principe des cloisons étanches d'un navire.
+  - key: situation-retry-sur-ecriture
+    format: scenario
+    question: |-
+      En revue, tu vois `@Retry(maxRetries = 3)` sur une méthode qui crée une commande chez un fournisseur, par un
+      `POST`. Que dis-tu ?
+    choices:
+      - {text: "Risqué : un `POST` rejoué peut créer la commande plusieurs fois", correct: true}
+      - {text: "Très bien : plus de tentatives donnent plus de commandes réussies", correct: false}
+      - {text: "Inutile : un `POST` échoue toujours de la même façon", correct: false}
+      - {text: "Il faut remplacer `@Retry` par `@Timeout`, qui fait la même chose", correct: false}
+    answer: |-
+      Une réponse perdue ne veut pas dire une commande ratée. On ne réessaie une écriture que si elle est
+      idempotente (une clé de requête que le fournisseur reconnaît), sinon on signale l'échec et l'on vérifie.
