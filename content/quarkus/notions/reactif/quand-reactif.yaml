@@ -1,0 +1,195 @@
+notion: quand-reactif
+lesson: |-
+  Quarkus a un cœur réactif (Vert.x et ses boucles d'événements), mais il ne t'oblige pas à écrire du code réactif :
+  on choisit **endpoint par endpoint**. Encore faut-il savoir quand le réactif vaut son prix.
+
+  **1. Deux modèles d'exécution.**
+
+  | | Impératif | Réactif |
+  |---|---|---|
+  | Le code | séquentiel, il attend chaque résultat | un pipeline Mutiny, qui réagit aux résultats |
+  | Les threads | un thread de travail (worker) par requête en cours | quelques boucles d'événements pour toutes les requêtes |
+  | Une attente d'E/S | le thread attend, bloqué | le thread passe à autre chose |
+  | Les bibliothèques | JDBC, Hibernate ORM, la plupart des clients | des clients non bloquants : Hibernate Reactive, client SQL réactif... |
+
+  **2. Quarkus lit la signature.**
+
+  ```java
+  @GET
+  public String bonjour() { ... }                 // un worker : executor-thread-1
+
+  @GET
+  public Uni<String> bonjourReactif() { ... }     // la boucle d'événements : vert.x-eventloop-thread-0
+  ```
+
+  `@Blocking` envoie une méthode réactive sur un worker, `@NonBlocking` une méthode impérative sur la boucle
+  d'événements, et `@RunOnVirtualThread` une méthode impérative sur un **thread virtuel**.
+
+  **3. La règle d'or : ne jamais bloquer la boucle d'événements.** Une boucle sert de nombreuses requêtes ; un appel
+  bloquant (JDBC, `Thread.sleep`, un client HTTP synchrone) les fige toutes. Quarkus en détecte une partie : utiliser
+  l'`EntityManager` sur la boucle lève une `BlockingOperationNotAllowedException` ; Vert.x signale aussi dans le
+  journal un thread de boucle bloqué trop longtemps.
+
+  **4. Ce que le réactif apporte.** Des milliers de requêtes en attente d'E/S avec une poignée de threads : moins de
+  mémoire, et une bonne tenue sous forte concurrence. Il brille quand il y a beaucoup d'attente et peu de calcul :
+  une passerelle qui agrège des services lents, du streaming, des messages.
+
+  **5. Ce qu'il coûte.** Un code plus difficile à lire et à déboguer (les traces de pile ne racontent plus l'histoire),
+  et une contrainte forte : **toute** la chaîne doit être non bloquante, sinon l'avantage disparaît.
+
+  **6. Les threads virtuels changent la donne.** Depuis Java 21, un thread virtuel ne coûte presque rien : on peut en
+  avoir un par requête, et écrire du code bloquant ordinaire, lisible, avec une bonne tenue en concurrence.
+  `@RunOnVirtualThread` le permet pour un endpoint.
+
+  **Le choix par défaut** : l'impératif, simple et lisible, avec Hibernate ORM ; les threads virtuels quand la
+  concurrence monte ; le réactif quand l'application est faite d'E/S concurrentes et que toute la chaîne peut l'être.
+
+  **En entretien** : « Quarkus choisit le thread d'après la signature : un `Uni` part sur la boucle d'événements, le
+  reste sur un worker, et `@Blocking` ou `@RunOnVirtualThread` changent ce choix. Le réactif tient beaucoup de
+  requêtes en attente d'E/S avec peu de threads, au prix d'un code plus complexe et d'une chaîne entièrement non
+  bloquante. Par défaut, je reste impératif, avec des threads virtuels si besoin, et je passe au réactif pour une
+  application faite d'E/S concurrentes. »
+cards:
+  - key: la-signature-decide
+    format: course
+    question: "Dans Quarkus REST, qu'est-ce qui décide par défaut du thread d'un endpoint ?"
+    choices:
+      - {text: "Sa signature : un `Uni` part sur la boucle d'événements, le reste sur un worker", correct: true}
+      - {text: "La configuration globale, la même pour tous les endpoints", correct: false}
+      - {text: "Le verbe HTTP : `GET` sur la boucle d'événements, `POST` sur un worker", correct: false}
+      - {text: "La charge du moment, mesurée par Vert.x", correct: false}
+    answer: "Un type réactif (`Uni`, `Multi`, `CompletionStage`) signale un code non bloquant. `@Blocking`, `@NonBlocking` et `@RunOnVirtualThread` changent ce choix."
+  - key: apport-du-reactif
+    format: course
+    question: "Quel est le principal apport du modèle réactif ?"
+    choices:
+      - {text: "Tenir beaucoup de requêtes en attente d'E/S avec peu de threads", correct: true}
+      - {text: "Accélérer les calculs lourds sur le processeur", correct: false}
+      - {text: "Rendre le code plus simple à lire et à déboguer", correct: false}
+      - {text: "Supprimer le besoin d'un pool de connexions", correct: false}
+    answer: "Pendant qu'une requête attend la base ou un service, le thread en sert d'autres. Le calcul pur n'y gagne rien, et le code devient plus complexe."
+  - key: cout-du-reactif
+    format: course
+    question: "Quel est le coût principal du modèle réactif ?"
+    choices:
+      - {text: "Un code plus complexe, et une chaîne entièrement non bloquante", correct: true}
+      - {text: "Une consommation de mémoire bien plus forte", correct: false}
+      - {text: "L'impossibilité d'utiliser une base de données", correct: false}
+      - {text: "Un démarrage de l'application bien plus lent", correct: false}
+    answer: "Pipelines, traces de pile moins parlantes, bibliothèques à choisir non bloquantes : un seul appel bloquant sur la boucle annule l'avantage."
+  - key: jdbc-sur-la-boucle
+    format: course
+    question: "Pourquoi un appel JDBC bloquant sur la boucle d'événements est-il grave ?"
+    choices:
+      - {text: "Il fige toutes les requêtes que sert cette boucle", correct: true}
+      - {text: "Il ouvre une transaction qui n'est jamais validée", correct: false}
+      - {text: "Il fait perdre la connexion au pool Agroal", correct: false}
+      - {text: "Il désactive le cache de second niveau", correct: false}
+    answer: "Une boucle d'événements sert de nombreuses requêtes, une à la fois entre deux attentes. Bloquée, elle ne sert plus personne ; Quarkus refuse d'ailleurs l'`EntityManager` sur ce thread."
+  - key: vf-toujours-plus-rapide
+    format: true-false
+    question: "Une application réactive répond toujours plus vite que son équivalent impératif."
+    truth: false
+    answer: "Le réactif améliore la tenue sous forte concurrence d'E/S, pas la vitesse d'une requête isolée. Pour un calcul ou une faible charge, il n'apporte rien."
+  - key: vf-hibernate-orm-dans-uni
+    format: true-false
+    question: "Une méthode REST qui renvoie un `Uni` peut appeler Hibernate ORM directement, sans `@Blocking`."
+    truth: false
+    answer: "Elle s'exécute sur la boucle d'événements : l'`EntityManager` y lève `BlockingOperationNotAllowedException`. Il faut `@Blocking`, ou Hibernate Reactive."
+  - key: vf-thread-virtuel
+    format: true-false
+    question: "`@RunOnVirtualThread` exécute un endpoint impératif sur un thread virtuel."
+    truth: true
+    answer: "Le code reste bloquant et lisible ; le thread virtuel, presque gratuit, libère son thread porteur pendant les attentes."
+  - key: vf-un-seul-modele
+    format: true-false
+    question: "Quarkus impose de choisir un seul modèle, réactif ou impératif, pour toute l'application."
+    truth: false
+    answer: "Le choix se fait par endpoint, et même par méthode : les deux modèles cohabitent dans la même application."
+  - key: qcm-forcer-un-worker
+    format: multiple-choice
+    question: "Quelle annotation exécute sur un worker une méthode REST qui renvoie un `Uni` ?"
+    choices:
+      - {text: "`@Blocking`", correct: true}
+      - {text: "`@NonBlocking`", correct: false}
+      - {text: "`@Transactional`", correct: false}
+      - {text: "`@Asynchronous`", correct: false}
+    answer: "`@Blocking` (`io.smallrye.common.annotation.Blocking`) envoie la méthode sur un thread de travail, où elle peut bloquer."
+  - key: qcm-thread-d-un-string
+    format: multiple-choice
+    question: "Sur quel thread s'exécute `@GET public String bonjour()`, sans autre annotation ?"
+    choices:
+      - {text: "Un thread de travail (worker)", correct: true}
+      - {text: "La boucle d'événements de Vert.x", correct: false}
+      - {text: "Un thread virtuel", correct: false}
+      - {text: "Le thread principal de l'application", correct: false}
+    answer: "Une signature non réactive suppose un code qui peut bloquer : Quarkus l'exécute sur un worker (`executor-thread-1`)."
+  - key: qcm-regle-d-or
+    format: multiple-choice
+    question: "Quelle est la règle d'or sur la boucle d'événements ?"
+    choices:
+      - {text: "Ne jamais la bloquer", correct: true}
+      - {text: "Y faire tous les accès à la base", correct: false}
+      - {text: "Y faire tous les calculs lourds", correct: false}
+      - {text: "N'y renvoyer que des `Multi`", correct: false}
+    answer: "Une boucle sert de nombreuses requêtes : un appel bloquant les fige toutes. Ce qui bloque part sur un worker ou un thread virtuel."
+  - key: qcm-exception-boucle
+    format: multiple-choice
+    question: "Quelle exception lève l'`EntityManager` utilisé sur la boucle d'événements ?"
+    choices:
+      - {text: "`BlockingOperationNotAllowedException`", correct: true}
+      - {text: "`TransactionRequiredException`", correct: false}
+      - {text: "`LazyInitializationException`", correct: false}
+      - {text: "`RejectedExecutionException`", correct: false}
+    answer: "« You have attempted to perform a blocking operation on a IO thread. » Quarkus protège ainsi la boucle d'événements."
+  - key: situation-back-office-crud
+    format: scenario
+    question: |-
+      Ton équipe construit un back-office CRUD sur PostgreSQL, pour quelques dizaines d'utilisateurs. Personne n'a
+      écrit de code réactif. Quel modèle choisis-tu ?
+    choices:
+      - {text: "L'impératif, avec Hibernate ORM et Panache", correct: true}
+      - {text: "Le réactif, avec Hibernate Reactive, pour être prêt à grossir", correct: false}
+      - {text: "Le réactif pour les lectures, l'impératif pour les écritures", correct: false}
+      - {text: "Des endpoints `Uni` qui appellent Hibernate ORM avec `await()`", correct: false}
+    answer: |-
+      Peu de concurrence, une équipe novice : le réactif n'apporterait que de la complexité. L'impératif reste simple,
+      et les threads virtuels sont là si la charge grandit.
+  - key: situation-passerelle
+    format: scenario
+    question: |-
+      Une passerelle reçoit des milliers de requêtes par seconde ; chacune appelle cinq services distants lents, puis
+      assemble leurs réponses. Quel modèle choisis-tu ?
+    choices:
+      - {text: "Le réactif : des appels non bloquants, combinés avec `Uni.combine()`", correct: true}
+      - {text: "L'impératif, avec un pool de workers de plusieurs milliers de threads", correct: false}
+      - {text: "L'impératif, en appelant les cinq services l'un après l'autre", correct: false}
+      - {text: "Le réactif, en appelant chaque service avec `await()`", correct: false}
+    answer: |-
+      Beaucoup d'attente, peu de calcul, une forte concurrence : le cas idéal du réactif. Les cinq appels partent en
+      parallèle, sans bloquer de thread ; `await()` sur la boucle d'événements serait interdit.
+  - key: situation-threads-virtuels
+    format: scenario
+    question: |-
+      Ton service sur Java 25 doit tenir une forte concurrence d'appels à la base, mais l'équipe veut garder un code
+      bloquant, simple à lire. Que proposes-tu ?
+    choices:
+      - {text: "`@RunOnVirtualThread` sur les endpoints concernés", correct: true}
+      - {text: "Réécrire tout le service avec Mutiny et Hibernate Reactive", correct: false}
+      - {text: "Mettre les endpoints sur la boucle d'événements avec `@NonBlocking`", correct: false}
+      - {text: "Porter le pool de workers à dix mille threads", correct: false}
+    answer: |-
+      Un thread virtuel par requête coûte peu, et libère son thread porteur pendant les attentes : le code reste
+      impératif. `@NonBlocking` ferait bloquer la boucle d'événements.
+  - key: situation-sdk-bloquant
+    format: scenario
+    question: |-
+      Ton endpoint réactif doit appeler un SDK de paiement qui n'existe qu'en version bloquante. Que fais-tu ?
+    choices:
+      - {text: "J'annote l'endpoint `@Blocking`, pour qu'il s'exécute sur un worker", correct: true}
+      - {text: "J'appelle le SDK directement : un seul appel bloquant passe inaperçu", correct: false}
+      - {text: "J'enveloppe l'appel dans `Uni.createFrom().item(...)`", correct: false}
+      - {text: "J'appelle le SDK avec `await().indefinitely()`", correct: false}
+    answer: |-
+      Envelopper un appel bloquant dans un `Uni` ne le rend pas non bloquant : il s'exécuterait toujours sur la
+      boucle. Sur un worker, il peut bloquer sans figer les autres requêtes.

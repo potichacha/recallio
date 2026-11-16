@@ -1,0 +1,403 @@
+notion: panache-repository
+lesson: |-
+  Le second style de Panache, le **repository**, sépare l'entité de sa persistance : l'entité reste une entité JPA
+  ordinaire, et un bean, le repository, porte les requêtes. C'est le modèle de Spring Data, sans interface à
+  implémenter par magie : on écrit une classe.
+
+  **1. L'entité : du JPA pur.**
+
+  ```java
+  @Entity
+  public class Produit {
+
+      @Id
+      @GeneratedValue
+      public Long id;
+
+      public String nom;
+      public int stock;
+  }
+  ```
+
+  **2. Le repository : un bean qui implémente `PanacheRepository<T>`.**
+
+  ```java
+  @ApplicationScoped
+  public class ProduitRepository implements PanacheRepository<Produit> {
+
+      public List<Produit> enRupture() {
+          return list("stock", 0);
+      }
+
+      public Optional<Produit> parNom(String nom) {
+          return find("nom", nom).firstResultOptional();
+      }
+  }
+  ```
+
+  - Il reçoit les mêmes méthodes que l'active record, mais **d'instance** : `findById`, `findByIdOptional`, `list`,
+    `find`, `count`, `persist(entite)`, `delete(entite)`, `deleteById`...
+  - `PanacheRepository<T>` suppose un identifiant `Long`. Pour un autre type :
+    `PanacheRepositoryBase<Pays, String>`.
+  - L'annotation de portée est **obligatoire** : sans `@ApplicationScoped`, la classe n'est pas un bean, et le build
+    échoue dès qu'on l'injecte (« Unsatisfied dependency »).
+
+  **3. On l'injecte, de préférence par le constructeur.**
+
+  ```java
+  @ApplicationScoped
+  public class Reassort {
+
+      private final ProduitRepository produits;
+
+      public Reassort(ProduitRepository produits) {
+          this.produits = produits;
+      }
+
+      @Transactional
+      public void reapprovisionner(Long id, int quantite) {
+          Produit produit = produits.findByIdOptional(id).orElseThrow(NotFoundException::new);
+          produit.stock += quantite;
+      }
+  }
+  ```
+
+  **4. Le grand avantage : les tests.** Un repository est un bean à portée normale : `@InjectMock` le remplace par un
+  mock Mockito dans un `@QuarkusTest`, pour tester le service sans base.
+
+  ```java
+  @InjectMock
+  ProduitRepository produits;
+
+  @Test
+  void reapprovisionneLeStock() {
+      Produit produit = new Produit();
+      when(produits.findByIdOptional(7L)).thenReturn(Optional.of(produit));
+      reassort.reapprovisionner(7L, 5);
+      assertEquals(5, produit.stock);
+  }
+  ```
+
+  `@InjectMock` exige une portée normale, comme `@ApplicationScoped` : sur un bean `@Singleton`, le test échoue avant
+  de commencer.
+
+  **5. Lequel choisir ?**
+
+  | | Active record | Repository |
+  |---|---|---|
+  | Code | le moins de lignes | une classe de plus par entité |
+  | Requêtes | méthodes statiques de l'entité | méthodes d'un bean |
+  | Tests | `PanacheMock`, plus lourd | `@InjectMock`, simple |
+  | Entité | hérite de Panache | entité JPA ordinaire |
+
+  Les deux styles peuvent cohabiter dans une application. L'essentiel est d'en choisir un par entité, et de s'y tenir
+  dans l'équipe.
+
+  **En entretien** : « En repository, l'entité reste du JPA pur et un bean `@ApplicationScoped` qui implémente
+  `PanacheRepository<Produit>` porte les requêtes, en méthodes d'instance. Je l'injecte par le constructeur, et je le
+  remplace par un mock avec `@InjectMock` dans les tests du service. Je le préfère à l'active record dès que le
+  domaine a des règles à tester isolément. »
+cards:
+  - key: entite-en-repository
+    format: course
+    question: "En style repository, à quoi ressemble l'entité `Produit` ?"
+    choices:
+      - {text: "Une entité JPA ordinaire, avec son propre champ `@Id`", correct: true}
+      - {text: "Une classe qui hérite de `PanacheEntity`", correct: false}
+      - {text: "Une interface que Panache implémente au build", correct: false}
+      - {text: "Un record Java, sans annotation JPA", correct: false}
+    answer: "L'entité ne dépend pas de Panache : `@Entity`, `@Id`, `@GeneratedValue`. Toute la persistance passe par le repository."
+  - key: apport-de-panacherepository
+    format: course
+    question: "Que reçoit une classe qui implémente `PanacheRepository<Produit>` ?"
+    choices:
+      - {text: "Des méthodes d'instance : `findById`, `list`, `persist`, `count`...", correct: true}
+      - {text: "Des méthodes statiques, appelées sur `ProduitRepository`", correct: false}
+      - {text: "Une implémentation générée d'après le nom de ses méthodes", correct: false}
+      - {text: "Une table propre, distincte de celle de l'entité", correct: false}
+    answer: "Les mêmes opérations que l'active record, mais sur l'instance du repository. Panache ne devine pas de requête d'après un nom de méthode, à la différence de Spring Data."
+  - key: pourquoi-la-portee
+    format: course
+    question: "Pourquoi un repository Panache doit-il porter `@ApplicationScoped` ?"
+    choices:
+      - {text: "Pour être un bean CDI, qu'on peut injecter", correct: true}
+      - {text: "Pour que ses requêtes s'exécutent dans une transaction", correct: false}
+      - {text: "Pour garder un cache de ses entités entre les requêtes", correct: false}
+      - {text: "Pour que Hibernate trouve l'entité qu'il gère", correct: false}
+    answer: "Sans annotation de portée, la classe n'est pas un bean : le build échoue dès qu'on l'injecte. La transaction vient de `@Transactional`, pas de la portée."
+  - key: avantage-en-test
+    format: course
+    question: "Quel avantage le style repository donne-t-il pour tester un service ?"
+    choices:
+      - {text: "On remplace le repository par un mock avec `@InjectMock`", correct: true}
+      - {text: "Les tests n'ont plus besoin de `@QuarkusTest`", correct: false}
+      - {text: "Les requêtes sont vérifiées à la compilation", correct: false}
+      - {text: "Le repository utilise une base en mémoire en test", correct: false}
+    answer: "Le repository est un bean ordinaire : Mockito le remplace sans base de données. Les méthodes statiques de l'active record demandent `quarkus-panache-mock`, plus lourd."
+  - key: vf-entite-herite-panacheentity
+    format: true-false
+    question: "En style repository, l'entité doit hériter de `PanacheEntity`."
+    truth: false
+    answer: "L'entité est une entité JPA ordinaire. Hériter de `PanacheEntity` la ferait passer en active record."
+  - key: vf-repository-injecte
+    format: true-false
+    question: "Un repository Panache est un bean CDI, que les services reçoivent par injection."
+    truth: true
+    answer: "On l'injecte par `@Inject` ou, mieux, par le constructeur. C'est ce qui permet de le remplacer par un mock."
+  - key: vf-identifiant-non-long
+    format: true-false
+    question: "Pour une entité dont l'identifiant est un `String`, le repository implémente `PanacheRepositoryBase<Entite, String>`."
+    truth: true
+    answer: "`PanacheRepository<T>` fixe l'identifiant à `Long`. `PanacheRepositoryBase<T, Id>` laisse choisir son type, pour `findById` comme pour `deleteById`."
+  - key: vf-deux-styles
+    format: true-false
+    question: "Une même application peut utiliser l'active record pour certaines entités et des repositories pour d'autres."
+    truth: true
+    answer: "Panache accepte les deux styles côte à côte. Mieux vaut pourtant une règle d'équipe, pour qu'on sache où chercher une requête."
+  - key: qcm-declarer-repository
+    format: multiple-choice
+    question: "Quelle déclaration fait de `ProduitRepository` un repository Panache pour `Produit`, identifié par un `Long` ?"
+    choices:
+      - {text: "`@ApplicationScoped class ProduitRepository implements PanacheRepository<Produit>`", correct: true}
+      - {text: "`interface ProduitRepository extends PanacheRepository<Produit>`", correct: false}
+      - {text: "`@Entity class ProduitRepository extends PanacheEntity`", correct: false}
+      - {text: "`@Repository class ProduitRepository extends JpaRepository<Produit>`", correct: false}
+    answer: "Une classe, un bean, qui implémente `PanacheRepository<Produit>`. Une interface ne suffit pas : Panache n'en génère pas l'implémentation, et `JpaRepository` vient de Spring Data."
+  - key: qcm-enregistrer
+    format: multiple-choice
+    question: "Comment enregistres-tu un nouveau produit avec le repository ?"
+    choices:
+      - {text: "`produits.persist(produit);`", correct: true}
+      - {text: "`produit.persist();`", correct: false}
+      - {text: "`produits.save(produit);`", correct: false}
+      - {text: "`ProduitRepository.persist(produit);`", correct: false}
+    answer: "`persist` est une méthode d'instance du repository, appelée dans une transaction. `produit.persist()` est le style active record ; `save` vient de Spring Data."
+  - key: qcm-mocker
+    format: multiple-choice
+    question: "Dans un `@QuarkusTest`, comment remplaces-tu le repository par un mock pour tester ton service ?"
+    choices:
+      - {text: "`@InjectMock ProduitRepository produits;`", correct: true}
+      - {text: "`@Mock ProduitRepository produits;`, sans autre réglage", correct: false}
+      - {text: "`@MockitoBean ProduitRepository produits;`", correct: false}
+      - {text: "`@Inject @Alternative ProduitRepository produits;`", correct: false}
+    answer: "`@InjectMock` (`io.quarkus.test.InjectMock`) remplace le bean dans le conteneur pour ce test. `@MockitoBean` est l'équivalent de Spring ; un `@Mock` seul ne touche pas au conteneur."
+  - key: qcm-requete-metier
+    format: multiple-choice
+    question: "Où écris-tu la requête « produits en rupture » en style repository ?"
+    choices:
+      - {text: "Dans une méthode d'instance de `ProduitRepository`", correct: true}
+      - {text: "Dans une méthode statique de l'entité `Produit`", correct: false}
+      - {text: "Dans une annotation `@Query` sur une interface", correct: false}
+      - {text: "Dans le contrôleur REST qui en a besoin", correct: false}
+    answer: "`public List<Produit> enRupture() { return list(\"stock\", 0); }` : le repository regroupe les requêtes de son entité."
+  - key: trous-implementer
+    format: fill-in
+    question: |-
+      Complète pour déclarer le repository des produits, identifiés par un `Long` :
+      ```java
+      @ApplicationScoped
+      public class ProduitRepository implements ___<Produit> {
+      }
+      ```
+    blanks:
+      - [PanacheRepository]
+    answer: "`PanacheRepository<Produit>` apporte toutes les méthodes de Panache, pour un identifiant `Long`."
+  - key: trous-identifiant-string
+    format: fill-in
+    question: |-
+      Complète pour un repository dont l'entité est identifiée par son code ISO :
+      ```java
+      @ApplicationScoped
+      public class PaysRepository implements PanacheRepositoryBase<Pays, ___> {
+      }
+      ```
+    blanks:
+      - [String]
+    answer: "Le second paramètre de type est celui de l'identifiant : `findById(\"FR\")` compile alors."
+  - key: trous-lister
+    format: fill-in
+    question: |-
+      Complète pour renvoyer les produits dont le stock est à zéro :
+      ```java
+      public List<Produit> enRupture() {
+          return ___("stock", 0);
+      }
+      ```
+    blanks:
+      - [list]
+    answer: "`list` renvoie directement une `List` ; `find` renverrait une `PanacheQuery`."
+  - key: trous-mock
+    format: fill-in
+    question: |-
+      Complète pour remplacer le repository par un mock dans ce test :
+      ```java
+      @QuarkusTest
+      class ReassortTest {
+          @___
+          ProduitRepository produits;
+      ```
+    blanks:
+      - [InjectMock]
+    answer: "`@InjectMock` installe un mock Mockito à la place du bean, pour cette classe de test."
+  - key: bug-repository-sans-portee
+    format: bug-fix
+    question: |-
+      Le build échoue : « Unsatisfied dependency for type ProduitRepository and qualifiers [@Default] ». Le service
+      l'injecte par son constructeur. Quelle correction est la bonne ?
+      ```java
+      public class ProduitRepository implements PanacheRepository<Produit> {
+      }
+      ```
+    choices:
+      - {text: "Annoter la classe `ProduitRepository` avec `@ApplicationScoped`", correct: true}
+      - {text: "Annoter la classe `ProduitRepository` avec `@Entity`", correct: false}
+      - {text: "Faire de `ProduitRepository` une interface", correct: false}
+      - {text: "Injecter le repository par un champ plutôt que par le constructeur", correct: false}
+    answer: |-
+      ```java
+      @ApplicationScoped
+      public class ProduitRepository implements PanacheRepository<Produit> {
+      }
+      ```
+      Sans annotation de portée, la classe n'est pas un bean : rien ne peut satisfaire l'injection. Panache ne génère
+      pas l'implémentation d'une interface.
+  - key: bug-identifiant-string
+    format: bug-fix
+    question: |-
+      Ce code ne compile pas : « incompatible types: String cannot be converted to Long ». L'entité `Pays` a pour
+      identifiant `@Id public String code;`. Quelle correction est la bonne ?
+      ```java
+      @ApplicationScoped
+      public class PaysRepository implements PanacheRepository<Pays> {
+      }
+
+      Pays france = pays.findById("FR");
+      ```
+    choices:
+      - {text: "Implémenter `PanacheRepositoryBase<Pays, String>`", correct: true}
+      - {text: "Appeler `pays.findById(Long.valueOf(\"FR\"))`", correct: false}
+      - {text: "Faire hériter `Pays` de `PanacheEntity`", correct: false}
+      - {text: "Remplacer `findById` par `findByIdOptional`", correct: false}
+    answer: |-
+      ```java
+      @ApplicationScoped
+      public class PaysRepository implements PanacheRepositoryBase<Pays, String> {
+      }
+      ```
+      `PanacheRepository<T>` fixe l'identifiant à `Long`. `Long.valueOf("FR")` compilerait, mais lèverait une
+      `NumberFormatException`.
+  - key: bug-appel-statique
+    format: bug-fix
+    question: |-
+      Ce code ne compile pas : « non-static method listAll() cannot be referenced from a static context ». Quelle
+      correction est la bonne ?
+      ```java
+      @Path("/produits")
+      public class ProduitResource {
+
+          @GET
+          public List<Produit> tous() {
+              return ProduitRepository.listAll();
+          }
+      }
+      ```
+    choices:
+      - {text: "Injecter le repository, et appeler `produits.listAll()`", correct: true}
+      - {text: "Déclarer `listAll()` en `static` dans `ProduitRepository`", correct: false}
+      - {text: "Appeler `Produit.listAll()` sur l'entité JPA ordinaire", correct: false}
+      - {text: "Créer le repository avec `new ProduitRepository()`", correct: false}
+    answer: |-
+      ```java
+      private final ProduitRepository produits;
+
+      public ProduitResource(ProduitRepository produits) {
+          this.produits = produits;
+      }
+
+      @GET
+      public List<Produit> tous() {
+          return produits.listAll();
+      }
+      ```
+      En repository, les méthodes sont d'instance : on passe par le bean injecté. `Produit.listAll()` n'existe que si
+      l'entité hérite de Panache ; `new` contournerait le conteneur.
+  - key: bug-mock-sur-singleton
+    format: bug-fix
+    question: |-
+      Le test échoue avant de commencer : `@InjectMock` refuse de remplacer le repository. Quelle correction est la
+      bonne ?
+      ```java
+      @Singleton
+      public class ProduitRepository implements PanacheRepository<Produit> {
+      }
+
+      @QuarkusTest
+      class ReassortTest {
+          @InjectMock
+          ProduitRepository produits;
+      ```
+    choices:
+      - {text: "Annoter le repository `@ApplicationScoped` plutôt que `@Singleton`", correct: true}
+      - {text: "Remplacer `@InjectMock` par `@Inject` dans le test", correct: false}
+      - {text: "Retirer toute annotation de portée du repository", correct: false}
+      - {text: "Annoter la classe de test avec `@Singleton`", correct: false}
+    answer: |-
+      ```java
+      @ApplicationScoped
+      public class ProduitRepository implements PanacheRepository<Produit> {
+      }
+      ```
+      `@InjectMock` remplace le bean derrière son proxy client, qui n'existe que pour une portée normale.
+      `@Singleton` n'en a pas. Avec `@Inject`, le test utiliserait le vrai repository.
+  - key: situation-tester-sans-base
+    format: scenario
+    question: |-
+      Ton équipe veut tester les règles du service de commandes sans base de données, avec des mocks. Les entités sont
+      en active record. Que proposes-tu ?
+    choices:
+      - {text: "Passer ces entités en repository, et mocker le repository avec `@InjectMock`", correct: true}
+      - {text: "Garder l'active record et démarrer une vraie base pour chaque test unitaire", correct: false}
+      - {text: "Remplacer Panache par des requêtes JDBC écrites à la main", correct: false}
+      - {text: "Ne tester le service qu'à travers ses endpoints REST", correct: false}
+    answer: |-
+      Un repository est un bean : Mockito le remplace sans effort, et le test du service ne dépend plus de la base.
+      `PanacheMock` permettrait de garder l'active record, au prix d'une extension et de tests moins lisibles.
+  - key: situation-petit-crud
+    format: scenario
+    question: |-
+      Un petit service expose quatre tables en CRUD, sans règle métier. Un collègue veut un repository et un service
+      par entité. Que réponds-tu ?
+    choices:
+      - {text: "L'active record suffit ici : moins de classes, aussi lisible", correct: true}
+      - {text: "Il faut toujours un repository, quel que soit le projet", correct: false}
+      - {text: "Il faut un repository par requête, pour les isoler", correct: false}
+      - {text: "Il faut écrire les requêtes dans les contrôleurs", correct: false}
+    answer: |-
+      Sans règle à tester isolément, le repository n'apporte qu'une classe de plus. L'active record garde le code
+      court ; on pourra passer au repository si le domaine s'enrichit.
+  - key: situation-logique-dans-repository
+    format: scenario
+    question: |-
+      En revue, tu vois un repository qui calcule les remises, envoie un e-mail et enregistre la commande. Que
+      proposes-tu ?
+    choices:
+      - {text: "Le repository ne garde que la persistance ; le reste va dans un service", correct: true}
+      - {text: "C'est bien : tout ce qui touche la commande est au même endroit", correct: false}
+      - {text: "Il faut déplacer l'envoi de l'e-mail dans l'entité `Commande`", correct: false}
+      - {text: "Il faut annoter chaque méthode du repository avec `@Transactional`", correct: false}
+    answer: |-
+      Un repository lit et écrit des entités, rien de plus. Le calcul des remises est une règle métier, l'e-mail un
+      effet externe : un service les orchestre, testable avec un repository mocké.
+  - key: situation-entite-sans-framework
+    format: scenario
+    question: |-
+      Ton équipe veut que les classes du domaine dépendent le moins possible de Quarkus. Quel style de Panache
+      choisis-tu ?
+    choices:
+      - {text: "Le repository : l'entité reste du JPA pur, sans classe de Panache", correct: true}
+      - {text: "L'active record : l'entité hérite de `PanacheEntity`", correct: false}
+      - {text: "Les deux à la fois, sur chaque entité", correct: false}
+      - {text: "Aucun : Panache impose une dépendance dans chaque entité", correct: false}
+    answer: |-
+      En repository, l'entité ne connaît que les annotations JPA ; la dépendance à Panache reste dans le repository,
+      une classe d'infrastructure. En active record, l'entité hérite de Panache et porte sa persistance.

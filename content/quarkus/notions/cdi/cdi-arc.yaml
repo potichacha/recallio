@@ -1,0 +1,239 @@
+notion: cdi-arc
+lesson: |-
+  **CDI** (Jakarta Contexts and Dependency Injection) est la spécification Java de l'injection de dépendances : des
+  objets, les **beans**, sont créés par un **conteneur**, qui leur fournit leurs dépendances, gère leur **portée**
+  (combien d'instances, pour combien de temps) et les détruit. Dans Quarkus, ce conteneur s'appelle **ArC**.
+
+  **La particularité d'ArC : tout est résolu au build.**
+
+  | Étape | Un conteneur CDI classique | ArC |
+  |---|---|---|
+  | Trouver les beans | scan du classpath au démarrage | index Jandex, au build |
+  | Relier les injections | au démarrage | au build : une dépendance introuvable fait échouer le build |
+  | Créer les beans | par réflexion | par des classes générées au build (`Panier_Bean`, `Panier_ClientProxy`...) |
+  | Beans inutiles | gardés | retirés au build |
+
+  **Qu'est-ce qu'un bean ?** Dans Quarkus :
+
+  - une classe qui porte une **annotation définissant un bean** : une portée (`@ApplicationScoped`, `@Singleton`,
+    `@RequestScoped`, `@Dependent`) ou un stéréotype ;
+  - ce que produit une méthode ou un champ `@Produces` ;
+  - un bean synthétique, ajouté par une extension (la `DataSource`, l'`EntityManager`...).
+
+  ```java
+  @ApplicationScoped
+  public class Panier {
+
+      private final Catalogue catalogue;
+
+      Panier(Catalogue catalogue) {     // un seul constructeur : @Inject est facultatif dans Quarkus
+          this.catalogue = catalogue;
+      }
+  }
+  ```
+
+  **Ce que Quarkus découvre.** Une classe **sans** annotation de portée n'est pas un bean : l'injecter fait échouer le
+  build, avec un message explicite :
+
+  ```
+  Unsatisfied dependency for type fr.boutique.Tarif and qualifiers [@Default]
+  	- injection target: fr.boutique.Panier#tarif
+  	The following classes match by type, but have been skipped during discovery:
+  	- fr.boutique.Tarif has no bean defining annotation (scope, stereotype, etc.)
+  ```
+
+  Écart avec la spécification : une classe sans annotation qui déclare une méthode `@Produces` ou `@Observes` est
+  découverte quand même, comme un bean `@Dependent`. Le contenu d'un fichier `beans.xml` est ignoré. Les beans des
+  dépendances ne sont trouvés que si leur jar est indexé (un index Jandex, un `beans.xml`, ou
+  `quarkus.index-dependency`).
+
+  **Pourquoi c'est un avantage.** Les erreurs d'injection apparaissent au build (ou au démarrage du mode dev), pas à la
+  première requête en production. Le démarrage n'a ni scan ni réflexion. Et ArC ajoute ses propres facilités :
+  `@Inject` facultatif sur un constructeur unique, suppression des beans inutilisés, `@DefaultBean`, `@All`.
+
+  **En entretien** : « ArC est l'implémentation de CDI dans Quarkus : il découvre les beans, valide toutes les
+  injections et génère le code qui les crée, au build, sans réflexion. Une dépendance introuvable ou ambiguë fait donc
+  échouer le build. Un bean est une classe annotée d'une portée, ou ce que produit une méthode `@Produces` ; une classe
+  sans annotation n'est pas un bean. »
+cards:
+  - key: ce-qu-est-arc
+    format: course
+    question: "Qu'est-ce qu'ArC dans Quarkus ?"
+    choices:
+      - {text: "L'implémentation de CDI de Quarkus, qui résout l'injection au build", correct: true}
+      - {text: "Le serveur HTTP de Quarkus, construit sur Vert.x et Netty", correct: false}
+      - {text: "L'outil qui compile l'application en image native", correct: false}
+      - {text: "La bibliothèque réactive de Quarkus, avec `Uni` et `Multi`", correct: false}
+    answer: "ArC découvre les beans, valide les injections et génère leurs fabriques pendant le build. Le serveur HTTP repose sur Vert.x, l'image native sur GraalVM, le réactif sur Mutiny."
+  - key: quand-l-injection-est-resolue
+    format: course
+    question: "Quand ArC vérifie-t-il que chaque point d'injection a un et un seul bean correspondant ?"
+    choices:
+      - {text: "Au build, pendant l'augmentation", correct: true}
+      - {text: "À la première utilisation de chaque bean", correct: false}
+      - {text: "À chaque requête HTTP, avant d'appeler la ressource", correct: false}
+      - {text: "Jamais : un point non résolu reste à `null`", correct: false}
+    answer: "La résolution complète a lieu au build : une dépendance introuvable (« Unsatisfied dependency ») ou ambiguë (« Ambiguous dependencies ») fait échouer le build, avec la liste des candidats."
+  - key: sans-reflexion
+    format: course
+    question: "Comment ArC crée-t-il les beans au démarrage sans utiliser la réflexion ?"
+    choices:
+      - {text: "Avec des classes générées au build : fabriques des beans, proxies clients", correct: true}
+      - {text: "En sérialisant les beans au build, puis en les relisant depuis le disque", correct: false}
+      - {text: "En demandant à la JVM de créer les objets à partir de leur nom de classe", correct: false}
+      - {text: "En interprétant les annotations à la volée avec un agent Java", correct: false}
+    answer: "Pour chaque bean, ArC génère du bytecode qui l'instancie et l'injecte directement. Dans les traces et le débogueur, on voit ces classes : `Panier_Bean`, `Panier_ClientProxy`."
+  - key: ce-qu-est-un-bean
+    format: course
+    question: "Qu'est-ce qu'un bean CDI ?"
+    choices:
+      - {text: "Un objet dont le conteneur gère la création, les dépendances, la portée et la fin", correct: true}
+      - {text: "Toute classe Java présente dans le classpath de l'application Quarkus", correct: false}
+      - {text: "Un objet sérialisable avec des accesseurs, comme un JavaBean", correct: false}
+      - {text: "Une entité JPA enregistrée dans la base de données par Hibernate", correct: false}
+    answer: "Le conteneur décide quand le créer, quoi lui injecter, combien d'instances garder et quand le détruire. Une classe ordinaire, créée avec `new`, n'en profite pas."
+  - key: vf-ambigu-au-build
+    format: true-false
+    question: "Dans Quarkus, une dépendance ambiguë (deux beans pour un même point d'injection) fait échouer le build."
+    truth: true
+    answer: "« Ambiguous dependencies for type ... and qualifiers [@Default] » liste les beans candidats. L'erreur arrive au build, pas à la première requête."
+  - key: vf-classe-sans-portee
+    format: true-false
+    question: "ArC découvre comme bean une classe qui n'a aucune annotation de portée."
+    truth: false
+    answer: "Sans annotation définissant un bean, la classe est ignorée ; l'injecter donne « Unsatisfied dependency », avec la précision « has no bean defining annotation (scope, stereotype, etc.) »."
+  - key: vf-producteur-dans-classe-nue
+    format: true-false
+    question: "Dans Quarkus, une méthode `@Produces` est découverte même si sa classe ne porte aucune annotation de portée."
+    truth: true
+    answer: "Quarkus traite la classe comme un bean `@Dependent`, ce que la spécification ne fait pas. Il en va de même pour une classe qui déclare une méthode `@Observes`."
+  - key: vf-reflexion-arc
+    format: true-false
+    question: "ArC instancie les beans de l'application par réflexion au démarrage."
+    truth: false
+    answer: "Il génère au build le code qui crée chaque bean et remplit ses points d'injection. C'est plus rapide, et cela se compile tel quel en image native."
+  - key: qcm-message-classe-sans-portee
+    format: multiple-choice
+    question: "On injecte une classe `Tarif` qui n'a aucune annotation de portée. Quel message donne le build ?"
+    choices:
+      - {text: "« Unsatisfied dependency for type Tarif ... has no bean defining annotation »", correct: true}
+      - {text: "« Ambiguous dependencies for type Tarif and qualifiers [@Default] »", correct: false}
+      - {text: "« NullPointerException : Tarif n'a pas encore été initialisé »", correct: false}
+      - {text: "« ContextNotActiveException : aucun contexte actif pour Tarif »", correct: false}
+    answer: "ArC trouve la classe par son type, mais l'a écartée faute d'annotation définissant un bean, et le dit. Une portée comme `@ApplicationScoped` corrige le problème."
+  - key: qcm-annotation-qui-fait-un-bean
+    format: multiple-choice
+    question: "Laquelle de ces annotations, posée sur une classe, en fait un bean pour ArC ?"
+    choices:
+      - {text: "`@ApplicationScoped`", correct: true}
+      - {text: "`@Inject`", correct: false}
+      - {text: "`@Priority(1)`", correct: false}
+      - {text: "`@Qualifier`", correct: false}
+    answer: "Une portée, comme `@ApplicationScoped`, est une annotation définissant un bean. `@Inject` marque un point d'injection ; `@Priority` ordonne ; `@Qualifier` sert à déclarer un qualificatif."
+  - key: qcm-beans-d-une-dependance
+    format: multiple-choice
+    question: "Une bibliothèque interne contient des classes `@ApplicationScoped`, mais Quarkus ne les trouve pas. Pourquoi ?"
+    choices:
+      - {text: "Son jar n'est pas indexé : ni index Jandex, ni `beans.xml`, ni `quarkus.index-dependency`", correct: true}
+      - {text: "Quarkus ne prend jamais de beans dans un jar, seulement dans le code de l'application", correct: false}
+      - {text: "Les classes d'un jar doivent porter `@Singleton`, et non une portée normale", correct: false}
+      - {text: "Il faut déclarer chaque classe de la bibliothèque dans `application.properties`", correct: false}
+    answer: "ArC ne lit que les classes indexées. Le plugin Jandex dans la bibliothèque, un `beans.xml` (même vide), ou `quarkus.index-dependency.<nom>.group-id` et `.artifact-id` règlent le problème."
+  - key: qcm-classe-du-proxy
+    format: multiple-choice
+    question: "Quel nom porte la classe générée par ArC pour le proxy client d'un bean `Panier` ?"
+    choices:
+      - {text: "`Panier_ClientProxy`", correct: true}
+      - {text: "`Panier$$EnhancerBySpringCGLIB`", correct: false}
+      - {text: "`$Proxy42`", correct: false}
+      - {text: "`PanierImpl`", correct: false}
+    answer: "ArC nomme ses classes générées d'après le bean : `_Bean` pour la fabrique, `_ClientProxy` pour le proxy. `$$EnhancerBySpringCGLIB` vient de Spring, `$Proxy42` des proxies dynamiques du JDK."
+  - key: situation-bibliotheque-non-indexee
+    format: scenario
+    question: |-
+      Le build échoue sur « Unsatisfied dependency for type fr.commun.Horloge » : `Horloge` est un bean
+      `@ApplicationScoped` d'une bibliothèque interne, présente dans les dépendances. Que fais-tu ?
+    choices:
+      - {text: "Je fais indexer la bibliothèque, par Jandex ou par `quarkus.index-dependency`", correct: true}
+      - {text: "Je recopie la classe `Horloge` dans le code de l'application, faute de mieux", correct: false}
+      - {text: "Je remplace `@Inject` par `new Horloge()` dans chaque classe qui l'utilise", correct: false}
+      - {text: "Je désactive la validation des injections dans `application.properties`", correct: false}
+    answer: |-
+      ArC ne voit pas les classes d'un jar non indexé. Mieux vaut ajouter le plugin Jandex à la bibliothèque (toutes
+      les applications en profitent) ; sinon, `quarkus.index-dependency` la fait indexer par l'application.
+  - key: situation-echec-au-build
+    format: scenario
+    question: |-
+      Un collègue venu de Spring s'agace : « Avec Quarkus, le build échoue à cause d'une injection ; avant,
+      l'application démarrait quand même. » Que lui réponds-tu ?
+    choices:
+      - {text: "Que c'est voulu : l'erreur arrive au build, au lieu d'arriver en production", correct: true}
+      - {text: "Qu'il peut ignorer l'erreur : Quarkus mettra `null` dans le champ", correct: false}
+      - {text: "Qu'il doit compiler en natif, qui tolère les dépendances manquantes", correct: false}
+      - {text: "Que l'erreur disparaîtra au deuxième build, une fois le cache rempli", correct: false}
+    answer: |-
+      ArC valide tout le graphe des beans au build. Spring échouait aussi, mais au démarrage, et parfois plus tard pour
+      une recherche paresseuse. Plus l'erreur est découverte tôt, moins elle coûte.
+  - key: situation-sans-reflexion-entretien
+    format: scenario
+    question: |-
+      En entretien : « Comment Quarkus fait-il de l'injection de dépendances sans réflexion ? » Quelle réponse est la
+      meilleure ?
+    choices:
+      - {text: "ArC analyse les beans au build et génère le code qui les crée et les relie", correct: true}
+      - {text: "Il n'injecte rien : chaque classe crée ses dépendances avec `new` au démarrage", correct: false}
+      - {text: "La JVM fournit une injection native depuis Java 21, que Quarkus se contente d'appeler", correct: false}
+      - {text: "Il sérialise le contexte d'un premier démarrage, puis le recharge aux suivants", correct: false}
+    answer: |-
+      La réponse nomme le mécanisme (index Jandex, validation et génération de bytecode au build) et ses
+      conséquences : un démarrage rapide, des erreurs détectées au build, une image native sans configuration de
+      réflexion pour les beans.
+  - key: situation-migration-beans-xml
+    format: scenario
+    question: |-
+      Tu migres vers Quarkus une application Jakarta EE dont le `beans.xml` déclare `bean-discovery-mode="all"` : ses
+      services n'ont aucune annotation de portée. Que prévois-tu ?
+    choices:
+      - {text: "D'annoter chaque service d'une portée : Quarkus ignore le contenu de `beans.xml`", correct: true}
+      - {text: "Rien : Quarkus lit `beans.xml` et découvre toutes les classes de l'application", correct: false}
+      - {text: "De déclarer chaque service dans `application.properties`, à la place de `beans.xml`", correct: false}
+      - {text: "De remplacer CDI par Spring, seul capable de découvrir des classes sans annotation", correct: false}
+    answer: |-
+      Quarkus ne découvre que les classes qui portent une annotation définissant un bean. Ajouter `@ApplicationScoped`
+      (ou la portée voulue) rend aussi le code plus explicite.
+  - key: def-bean
+    format: definition
+    question: "Quel terme désigne, en CDI, un objet dont le conteneur gère la création, l'injection, la portée et la destruction ?"
+    choices:
+      - {text: "Un bean", correct: true}
+      - {text: "Une entité", correct: false}
+      - {text: "Un value object", correct: false}
+      - {text: "Un DTO", correct: false}
+    answer: "Une entité est un objet persisté par JPA ; un value object, un objet défini par sa valeur ; un DTO, un objet de transfert. Aucun n'est géré par le conteneur CDI."
+  - key: def-arc
+    format: definition
+    question: "Quel nom porte le conteneur d'injection de dépendances de Quarkus, qui implémente CDI au build ?"
+    choices:
+      - {text: "ArC", correct: true}
+      - {text: "Weld", correct: false}
+      - {text: "OpenWebBeans", correct: false}
+      - {text: "Guice", correct: false}
+    answer: "Weld et OpenWebBeans sont des implémentations de CDI qui travaillent au démarrage ; Guice est un autre conteneur d'injection, hors CDI. ArC a été écrit pour le build time."
+  - key: def-annotation-definissant-un-bean
+    format: definition
+    question: "Quel terme désigne une annotation, comme une portée ou un stéréotype, qui fait d'une classe un bean découvert par le conteneur ?"
+    choices:
+      - {text: "Une annotation définissant un bean (bean defining annotation)", correct: true}
+      - {text: "Un qualificatif (qualifier)", correct: false}
+      - {text: "Une liaison d'intercepteur (interceptor binding)", correct: false}
+      - {text: "Une méta-annotation de rétention", correct: false}
+    answer: "`@ApplicationScoped`, `@Singleton`, `@RequestScoped`, `@Dependent` ou un stéréotype en sont. Un qualificatif distingue des beans ; il ne rend pas une classe découvrable."
+  - key: def-point-d-injection
+    format: definition
+    question: "Quel terme désigne un champ, un paramètre de constructeur ou de méthode que le conteneur doit remplir avec un bean ?"
+    choices:
+      - {text: "Un point d'injection (injection point)", correct: true}
+      - {text: "Un point de coupe (pointcut)", correct: false}
+      - {text: "Un point d'entrée (entry point)", correct: false}
+      - {text: "Un point de contrôle (checkpoint)", correct: false}
+    answer: "Chaque point d'injection a un type et des qualificatifs ; ArC lui cherche exactement un bean au build. Un point de coupe, en programmation par aspects, désigne les méthodes à intercepter."

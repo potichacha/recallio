@@ -1,0 +1,238 @@
+notion: run-on-virtual-thread
+lesson: |-
+  Les **threads virtuels** (Java 21) sont des threads très légers, gérés par la JVM : on peut en créer des millions.
+  Quand l'un d'eux attend une entrée-sortie (une requête SQL, un appel HTTP), la JVM le détache de son **thread
+  porteur**, un thread de la plateforme, qui en exécute un autre pendant ce temps. On écrit donc du code **bloquant**,
+  simple à lire, avec la capacité de tenir beaucoup de requêtes qui attendent.
+
+  **Dans Quarkus**, `@RunOnVirtualThread` (`io.smallrye.common.annotation`) exécute une méthode sur un nouveau thread
+  virtuel, au lieu d'un worker :
+
+  ```java
+  @Path("/commandes")
+  public class CommandeResource {
+
+      @GET
+      @RunOnVirtualThread
+      public List<CommandeVue> lister() {
+          // du code bloquant ordinaire : JDBC, Hibernate ORM, un client REST synchrone
+          return service.commandesDuJour();
+      }
+  }
+  ```
+
+  Le thread s'appelle `quarkus-virtual-thread-N`, et `Thread.currentThread().isVirtual()` vaut `true`.
+  L'annotation se pose sur une méthode à signature ordinaire (pas un `Uni`), ou sur toute la classe.
+
+  **Worker, boucle ou thread virtuel ?**
+
+  | | Worker | Boucle d'événements | Thread virtuel |
+  |---|---|---|---|
+  | Style de code | bloquant | réactif (`Uni`) | bloquant |
+  | Requêtes qui attendent en même temps | autant que de workers | très nombreuses | très nombreuses |
+  | Coût d'une attente | un thread de la plateforme | aucun thread | presque rien |
+
+  **Ce qu'ils ne font pas.**
+
+  - Ils n'accélèrent **pas le calcul** : un traitement qui occupe le processeur ne gagne rien, il reste borné par le
+    nombre de cœurs.
+  - Ils ne multiplient pas les **ressources** : mille threads virtuels se partagent toujours le pool de connexions à
+    la base, qui devient le goulet d'étranglement.
+  - Ils peuvent rester **épinglés** à leur porteur pendant un appel de code natif. Avant Java 24, un bloc
+    `synchronized` les épinglait aussi ; depuis Java 24 (JEP 491), ce n'est plus le cas.
+  - Ils n'aiment pas les gros objets rangés dans des `ThreadLocal` : chaque thread virtuel aurait le sien.
+
+  **En entretien** : « `@RunOnVirtualThread` exécute une méthode sur un thread virtuel : j'écris du code bloquant
+  ordinaire, mais une attente ne coûte presque rien, ce qui tient beaucoup de requêtes lentes sans passer au réactif.
+  Ça n'accélère pas le calcul, et le pool de connexions reste la limite. Avec Java 25, `synchronized` n'épingle plus
+  le thread porteur. »
+cards:
+  - key: effet-de-run-on-virtual-thread
+    format: course
+    question: "Que fait `@RunOnVirtualThread` sur une méthode de ressource ?"
+    choices:
+      - {text: "Elle s'exécute sur un nouveau thread virtuel, au lieu d'un worker", correct: true}
+      - {text: "Elle s'exécute sur la boucle d'événements, comme un `Uni`", correct: false}
+      - {text: "Elle s'exécute dans un processus séparé de la JVM", correct: false}
+      - {text: "Elle s'exécute au build, et son résultat est mis en cache", correct: false}
+    answer: "Chaque appel reçoit son thread virtuel, `quarkus-virtual-thread-N`. Le code peut bloquer, comme sur un worker."
+  - key: version-de-java
+    format: course
+    question: "À partir de quelle version de Java les threads virtuels sont-ils disponibles en version finale ?"
+    choices:
+      - {text: "Java 21", correct: true}
+      - {text: "Java 17", correct: false}
+      - {text: "Java 11", correct: false}
+      - {text: "Java 25", correct: false}
+    answer: "Les threads virtuels (JEP 444) sont finaux depuis Java 21, une version LTS. Java 24 a levé l'épinglage par `synchronized`."
+  - key: interet-principal
+    format: course
+    question: "Quel est l'intérêt principal de `@RunOnVirtualThread` ?"
+    choices:
+      - {text: "Écrire du code bloquant, tout en tenant beaucoup de requêtes qui attendent", correct: true}
+      - {text: "Accélérer les calculs qui occupent le processeur", correct: false}
+      - {text: "Supprimer le besoin d'un pool de connexions à la base", correct: false}
+      - {text: "Rendre réactif, sans le modifier, un code écrit en `Uni`", correct: false}
+    answer: "Une attente libère le thread porteur : le style impératif garde la capacité du modèle réactif pour les entrées-sorties."
+  - key: sans-gain-sur-le-calcul
+    format: course
+    question: "Pour quel traitement les threads virtuels n'apportent-ils rien ?"
+    choices:
+      - {text: "Un calcul qui occupe le processeur, comme un redimensionnement d'image", correct: true}
+      - {text: "Une requête SQL qui attend la réponse de la base", correct: false}
+      - {text: "Un appel HTTP synchrone à un service distant lent", correct: false}
+      - {text: "La lecture d'un fichier sur un disque réseau", correct: false}
+    answer: "Les threads virtuels rentabilisent l'attente. Un calcul reste borné par le nombre de cœurs, quel que soit le nombre de threads."
+  - key: vf-jdbc-et-porteur
+    format: true-false
+    question: "Sur un thread virtuel, une requête JDBC qui attend la base libère le thread porteur pendant l'attente."
+    truth: true
+    answer: "La JVM détache le thread virtuel de son porteur pendant l'entrée-sortie ; le porteur exécute un autre thread virtuel."
+  - key: vf-synchronized-java-24
+    format: true-false
+    question: "Depuis Java 24, un bloc `synchronized` n'épingle plus un thread virtuel à son thread porteur."
+    truth: true
+    answer: "La JEP 491 l'a corrigé. Un appel de code natif peut encore épingler le thread virtuel."
+  - key: vf-calcul-accelere
+    format: true-false
+    question: "`@RunOnVirtualThread` accélère une méthode qui fait un calcul intensif en processeur."
+    truth: false
+    answer: "Le calcul ne libère jamais le porteur : il reste borné par le nombre de cœurs, comme sur un worker."
+  - key: vf-nom-du-thread
+    format: true-false
+    question: "Dans une méthode `@RunOnVirtualThread`, le nom du thread courant commence par `quarkus-virtual-thread`."
+    truth: true
+    answer: "Quarkus nomme ainsi ses threads virtuels ; `Thread.currentThread().isVirtual()` vaut `true`."
+  - key: qcm-pool-de-connexions
+    format: multiple-choice
+    question: "Mille requêtes `@RunOnVirtualThread` arrivent en même temps, et le pool de connexions à la base en compte vingt. Que se passe-t-il ?"
+    choices:
+      - {text: "Elles attendent leur tour pour une connexion : le pool devient la limite", correct: true}
+      - {text: "La JVM ouvre mille connexions, une par thread virtuel", correct: false}
+      - {text: "Les requêtes en trop basculent sur la boucle d'événements", correct: false}
+      - {text: "Quarkus refuse les requêtes au-delà de la vingtième, avec un 503", correct: false}
+    answer: "Les threads virtuels ne créent pas de ressources : ils attendent, sans coût, une connexion libre. Le dimensionnement du pool et de la base reste à faire."
+  - key: qcm-signature-compatible
+    format: multiple-choice
+    question: "Quelle méthode peut porter `@RunOnVirtualThread` ?"
+    choices:
+      - {text: "`public List<CommandeVue> lister()`", correct: true}
+      - {text: "`public Uni<List<CommandeVue>> lister()`", correct: false}
+      - {text: "`public Multi<CommandeVue> flux()`", correct: false}
+      - {text: "`private List<CommandeVue> lister()`", correct: false}
+    answer: "L'annotation vise une méthode de ressource à signature ordinaire, où l'on écrit du code bloquant. Une méthode réactive tourne déjà sans bloquer de thread."
+  - key: qcm-difference-avec-le-worker
+    format: multiple-choice
+    question: "Quelle différence entre un thread worker et un thread virtuel, pour une requête qui attend la base ?"
+    choices:
+      - {text: "Le worker reste occupé pendant l'attente ; le thread virtuel libère son porteur", correct: true}
+      - {text: "Le worker libère son porteur pendant l'attente ; le thread virtuel reste occupé", correct: false}
+      - {text: "Le worker peut appeler JDBC ; le thread virtuel ne le peut pas", correct: false}
+      - {text: "Aucune : un thread virtuel n'est qu'un autre nom du worker", correct: false}
+    answer: "Le pool de workers est limité : quand tous attendent, les requêtes suivantes patientent. Les threads virtuels, eux, ne coûtent presque rien en attendant."
+  - key: qcm-epinglage-restant
+    format: multiple-choice
+    question: "Sur Java 25, qu'est-ce qui peut encore épingler un thread virtuel à son porteur ?"
+    choices:
+      - {text: "Un appel de code natif", correct: true}
+      - {text: "Un bloc `synchronized`", correct: false}
+      - {text: "Un appel JDBC qui attend", correct: false}
+      - {text: "Une `ReentrantLock`", correct: false}
+    answer: "Depuis Java 24, `synchronized` n'épingle plus. Pendant un appel de code natif, le thread virtuel ne peut pas quitter son porteur."
+  - key: trous-run-on-virtual-thread
+    format: fill-in
+    question: |-
+      Complète pour exécuter cette méthode sur un thread virtuel :
+      ```java
+      @GET
+      @___
+      public List<CommandeVue> lister() {
+      ```
+    blanks:
+      - [RunOnVirtualThread]
+    answer: "`@RunOnVirtualThread` vient de `io.smallrye.common.annotation`, comme `@Blocking`."
+  - key: trous-is-virtual
+    format: fill-in
+    question: |-
+      Complète pour savoir si le code tourne sur un thread virtuel :
+      ```java
+      boolean virtuel = Thread.currentThread().___();
+      ```
+    blanks:
+      - [isVirtual]
+    answer: "`Thread.isVirtual()` existe depuis Java 21."
+  - key: trous-executor-virtuel
+    format: fill-in
+    question: |-
+      Complète pour lancer chaque tâche sur un nouveau thread virtuel, sans Quarkus :
+      ```java
+      try (ExecutorService executor = Executors.___()) {
+          executor.submit(() -> appelerLeFournisseur());
+      }
+      ```
+    blanks:
+      - [newVirtualThreadPerTaskExecutor]
+    answer: "`Executors.newVirtualThreadPerTaskExecutor()` crée un thread virtuel par tâche ; Quarkus le fait pour toi avec l'annotation."
+  - key: trous-sur-la-classe
+    format: fill-in
+    question: |-
+      Complète pour que toutes les méthodes de la ressource tournent sur des threads virtuels :
+      ```java
+      @Path("/rapports")
+      @___
+      public class RapportResource {
+      ```
+    blanks:
+      - [RunOnVirtualThread]
+    answer: "Posée sur la classe, l'annotation vaut pour toutes ses méthodes."
+  - key: situation-workers-satures
+    format: scenario
+    question: |-
+      Ton API appelle surtout des services lents ; en pic, tous les workers attendent et les requêtes s'empilent.
+      L'équipe ne veut pas réécrire le code en `Uni`. Que proposes-tu ?
+    choices:
+      - {text: "`@RunOnVirtualThread` sur les ressources qui attendent ces services", correct: true}
+      - {text: "Un pool de workers de plusieurs milliers de threads de la plateforme", correct: false}
+      - {text: "`@NonBlocking` sur les ressources, pour libérer les workers", correct: false}
+      - {text: "Un `Thread.sleep` aléatoire pour étaler les requêtes", correct: false}
+    answer: |-
+      Le code reste bloquant et lisible ; chaque attente libère son porteur. Des milliers de threads de la plateforme
+      coûteraient beaucoup de mémoire, et `@NonBlocking` gèlerait les boucles d'événements.
+  - key: situation-calcul-d-images
+    format: scenario
+    question: |-
+      Un collègue veut passer en threads virtuels un service qui redimensionne des images, pour le rendre plus
+      rapide. Que réponds-tu ?
+    choices:
+      - {text: "Le calcul reste borné par les cœurs : les threads virtuels n'y gagnent rien", correct: true}
+      - {text: "Bonne idée : chaque image aura son thread, et ira beaucoup plus vite", correct: false}
+      - {text: "Bonne idée, à condition de passer aussi la méthode en `Uni`", correct: false}
+      - {text: "Mauvaise idée : les threads virtuels ne savent pas manipuler d'images", correct: false}
+    answer: |-
+      Les threads virtuels rentabilisent l'attente, pas le calcul. Pour un traitement lourd, un pool borné au nombre
+      de cœurs, ou une file de travaux, convient mieux.
+  - key: situation-connexions-epuisees
+    format: scenario
+    question: |-
+      Après le passage aux threads virtuels, des erreurs « délai d'attente d'une connexion dépassé » apparaissent en
+      pic. Que comprends-tu ?
+    choices:
+      - {text: "Plus de requêtes arrivent jusqu'au pool de connexions, devenu le goulet", correct: true}
+      - {text: "Les threads virtuels ne savent pas utiliser un pool de connexions JDBC", correct: false}
+      - {text: "La base refuse les connexions venues de threads virtuels", correct: false}
+      - {text: "Il faut revenir à Java 17, où ce problème n'existe pas", correct: false}
+    answer: |-
+      Les workers limitaient la concurrence sans qu'on le voie ; les threads virtuels la laissent passer. On dimensionne
+      le pool et la base, ou on borne le nombre d'appels simultanés.
+  - key: situation-java-17
+    format: scenario
+    question: |-
+      L'équipe veut utiliser `@RunOnVirtualThread`, mais l'application tourne encore sur Java 17. Que fais-tu ?
+    choices:
+      - {text: "Je propose de passer à Java 21 ou plus, la version minimale des threads virtuels", correct: true}
+      - {text: "J'ajoute l'annotation : Quarkus émule les threads virtuels sur Java 17", correct: false}
+      - {text: "J'utilise `@NonBlocking` à la place, qui fait la même chose", correct: false}
+      - {text: "J'active un drapeau de la JVM 17 qui débloque les threads virtuels", correct: false}
+    answer: |-
+      Les threads virtuels sont finaux depuis Java 21. Une version récente, comme Java 25, évite aussi l'épinglage
+      par `synchronized`, levé par Java 24.

@@ -1,0 +1,283 @@
+notion: validation
+lesson: |-
+  Une API ne fait pas confiance à ce qu'elle reçoit. L'extension `quarkus-hibernate-validator` apporte **Bean
+  Validation** : des contraintes déclarées sur les données, vérifiées avant d'entrer dans la méthode.
+
+  **Des contraintes sur le DTO** (`jakarta.validation.constraints`) :
+
+  ```java
+  public record NouveauProduit(
+          @NotBlank @Size(max = 50) String nom,
+          @Positive int prix,
+          @Pattern(regexp = "[A-Z]{3}-\\d{3}") String reference,
+          @Valid @NotEmpty List<Variante> variantes) {}
+
+  public record Variante(@NotBlank String couleur, @Min(0) int stock) {}
+  ```
+
+  | Contrainte | Refuse |
+  |---|---|
+  | `@NotNull` | `null` (mais accepte `""`) |
+  | `@NotEmpty` | `null` et une chaîne ou une collection vide |
+  | `@NotBlank` | `null`, `""` et `"   "` |
+  | `@Size(min, max)` | une longueur ou une taille hors des bornes |
+  | `@Min`, `@Max`, `@Positive` | un nombre hors des bornes |
+  | `@Email`, `@Pattern` | un format invalide |
+
+  **`@Valid` déclenche la validation** d'un objet reçu, et la fait **descendre** dans ses objets imbriqués :
+
+  ```java
+  @POST
+  @ResponseStatus(201)
+  public ProduitVue creer(@NotNull @Valid NouveauProduit nouveau) { ... }
+
+  @GET
+  public List<ProduitVue> lister(@RestQuery @DefaultValue("20") @Min(1) @Max(100) int taille) { ... }
+  ```
+
+  - Sans `@Valid` sur le paramètre, les contraintes du record ne sont **pas** vérifiées : la requête passe.
+  - Sans `@Valid` sur `variantes` (ou `List<@Valid Variante>`), les variantes ne sont pas vérifiées.
+  - Une requête sans corps donne `nouveau == null` : `@Valid` seul l'accepte, `@NotNull` la refuse.
+  - Une contrainte posée directement sur un paramètre simple (`@Min(1) int taille`) est vérifiée sans `@Valid`.
+
+  **La réponse.** Une entrée invalide répond **400**, avec la liste des violations ; chaque champ est désigné par son
+  chemin (méthode, paramètre, propriété) :
+
+  ```
+  400  {"title": "Constraint Violation", "status": 400,
+        "violations": [{"field": "creer.nouveau.nom", "message": "must not be blank"}]}
+  ```
+
+  Le message se choisit dans l'annotation : `@NotBlank(message = "Le nom est obligatoire")`.
+
+  **Ailleurs que dans les ressources.** Les mêmes annotations sur les paramètres d'une méthode d'un bean CDI sont
+  vérifiées à l'appel, et lèvent une `ConstraintViolationException`. Venue d'un service, elle répond **500** : c'est
+  l'entrée de l'API qui doit être validée, à la frontière. Pour valider à la main, on injecte un `Validator` :
+  `validator.validate(objet)` renvoie l'ensemble des violations.
+
+  **En entretien** : « Je pose des contraintes Bean Validation sur mes DTO, et `@Valid` sur le paramètre de la
+  ressource : une entrée invalide répond 400 avec la liste des champs fautifs, avant d'atteindre le métier. Je pense
+  à `@Valid` sur les objets imbriqués et à `@NotNull` pour un corps absent. Les paramètres simples se contraignent
+  directement, `@Min(1) int page`. »
+cards:
+  - key: extension-validation
+    format: course
+    question: Quelle extension apporte Bean Validation à une application Quarkus ?
+    choices:
+      - {text: "`quarkus-hibernate-validator`", correct: true}
+      - {text: "`quarkus-hibernate-orm`", correct: false}
+      - {text: "`quarkus-rest-validation`", correct: false}
+      - {text: "`quarkus-jakarta-constraints`", correct: false}
+    answer: "Hibernate Validator est l'implémentation de référence de Bean Validation. Hibernate ORM, lui, gère la persistance."
+  - key: declencher-la-validation
+    format: course
+    question: "Qu'est-ce qui déclenche la validation du record `NouveauProduit` reçu par un `@POST` ?"
+    choices:
+      - {text: "`@Valid` sur le paramètre de la méthode", correct: true}
+      - {text: "La seule présence de contraintes dans le record", correct: false}
+      - {text: "`@Consumes(MediaType.APPLICATION_JSON)` sur la méthode", correct: false}
+      - {text: "Un appel à `nouveau.validate()` en début de méthode", correct: false}
+    answer: "Les contraintes du record ne sont vérifiées que si le paramètre porte `@Valid`. Sans lui, la requête passe telle quelle."
+  - key: statut-entree-invalide
+    format: course
+    question: "Que répond Quarkus quand le corps reçu viole une contrainte d'un paramètre annoté `@Valid` ?"
+    choices:
+      - {text: "400, avec la liste des champs fautifs et leurs messages", correct: true}
+      - {text: "422, avec le premier champ fautif seulement", correct: false}
+      - {text: "500, avec une `ConstraintViolationException`", correct: false}
+      - {text: "200, la méthode recevant les violations", correct: false}
+    answer: "Le corps décrit chaque violation : `field` (méthode, paramètre, propriété) et `message`. La méthode n'est pas appelée."
+  - key: notnull-notblank
+    format: course
+    question: "Quelle contrainte refuse à la fois `null`, `\"\"` et `\"   \"` ?"
+    choices:
+      - {text: "`@NotBlank`", correct: true}
+      - {text: "`@NotNull`", correct: false}
+      - {text: "`@NotEmpty`", correct: false}
+      - {text: "`@Size(min = 0)`", correct: false}
+    answer: "`@NotNull` accepte la chaîne vide ; `@NotEmpty` accepte les espaces ; `@NotBlank` exige au moins un caractère qui n'est pas un espace."
+  - key: vf-sans-valid
+    format: true-false
+    question: "Sans `@Valid` sur le paramètre, les contraintes du record reçu ne sont pas vérifiées."
+    truth: true
+    answer: "Les contraintes décrivent les règles ; `@Valid` demande de les appliquer à ce paramètre. Oublié, un nom vide entre dans le métier."
+  - key: vf-contrainte-sur-parametre
+    format: true-false
+    question: "Une contrainte posée directement sur un paramètre, comme `@RestQuery @Min(1) int page`, est vérifiée sans `@Valid`."
+    truth: true
+    answer: "La validation de méthode s'applique aux contraintes des paramètres eux-mêmes. `@Valid` sert à descendre dans un objet."
+  - key: vf-violation-dans-un-service
+    format: true-false
+    question: "Une `ConstraintViolationException` levée par un service, appelé depuis la ressource, répond 400 elle aussi."
+    truth: false
+    answer: "Elle répond 500 : seule la validation des paramètres de la ressource est traduite en 400. On valide l'entrée à la frontière de l'API."
+  - key: vf-notnull-chaine-vide
+    format: true-false
+    question: "`@NotNull` refuse une chaîne vide."
+    truth: false
+    answer: "`\"\"` n'est pas `null` : `@NotNull` l'accepte. Pour un texte obligatoire, `@NotBlank`."
+  - key: qcm-corps-de-la-400
+    format: multiple-choice
+    question: "Que contient le corps d'une réponse 400 pour violation de contraintes, avec Quarkus REST ?"
+    choices:
+      - {text: "Un titre, le statut et une liste `violations` de champs et de messages", correct: true}
+      - {text: "Le message de la première violation, en texte brut, sans le champ", correct: false}
+      - {text: "La pile d'appels de la `ConstraintViolationException`", correct: false}
+      - {text: "Rien : une 400 de validation n'a jamais de corps", correct: false}
+    answer: "Par exemple `{\"title\": \"Constraint Violation\", \"status\": 400, \"violations\": [{\"field\": \"creer.nouveau.nom\", \"message\": \"must not be blank\"}]}`."
+  - key: qcm-objets-imbriques
+    format: multiple-choice
+    question: "Comment fais-tu vérifier les contraintes de chaque `Variante` de `List<Variante> variantes` ?"
+    choices:
+      - {text: "J'annote le composant `@Valid List<Variante> variantes`", correct: true}
+      - {text: "Rien : `@Valid` sur le paramètre descend partout", correct: false}
+      - {text: "J'annote la liste avec `@NotEmpty` seulement", correct: false}
+      - {text: "J'annote le record `Variante` avec `@Valid`", correct: false}
+    answer: "La validation ne descend que là où `@Valid` le demande : sur le composant, ou sur le type des éléments (`List<@Valid Variante>`)."
+  - key: qcm-valider-a-la-main
+    format: multiple-choice
+    question: "Comment valides-tu un objet à la main, dans un service ?"
+    choices:
+      - {text: "J'injecte un `Validator` et j'appelle `validator.validate(objet)`", correct: true}
+      - {text: "J'appelle `objet.isValid()`, ajoutée par l'extension", correct: false}
+      - {text: "J'annote la variable locale avec `@Valid`", correct: false}
+      - {text: "Je sérialise l'objet en JSON, puis je le relis", correct: false}
+    answer: "`validate` renvoie l'ensemble des violations, vide si tout va bien. `@Valid` n'a pas d'effet sur une variable locale."
+  - key: qcm-corps-absent
+    format: multiple-choice
+    question: "Un `@POST` reçoit `@Valid NouveauProduit nouveau`, et un client l'appelle sans corps. Que reçoit la méthode ?"
+    choices:
+      - {text: "`null` : `@Valid` seul accepte un corps absent", correct: true}
+      - {text: "Rien : Quarkus répond 400 avant l'appel", correct: false}
+      - {text: "Un `NouveauProduit` aux composants vides", correct: false}
+      - {text: "Rien : Quarkus répond 415 avant l'appel", correct: false}
+    answer: "`@Valid` valide l'objet s'il existe ; `null` passe. `@NotNull @Valid` répond 400 à une requête sans corps."
+  - key: trous-valid
+    format: fill-in
+    question: |-
+      Complète pour que les contraintes du record soient vérifiées :
+      ```java
+      @POST
+      public ProduitVue creer(@___ NouveauProduit nouveau) {
+      ```
+    blanks:
+      - [Valid]
+    answer: "`@Valid` (`jakarta.validation.Valid`) déclenche la validation du paramètre."
+  - key: trous-notblank
+    format: fill-in
+    question: |-
+      Complète pour refuser un nom absent, vide ou fait d'espaces :
+      ```java
+      public record NouveauProduit(@___ String nom, @Positive int prix) {}
+      ```
+    blanks:
+      - [NotBlank]
+    answer: "`@NotBlank` exige au moins un caractère qui n'est pas un espace."
+  - key: trous-size
+    format: fill-in
+    question: |-
+      Complète pour limiter le nom à 50 caractères :
+      ```java
+      @NotBlank @___(max = 50) String nom
+      ```
+    blanks:
+      - [Size]
+    answer: "`@Size` borne la longueur d'une chaîne ou la taille d'une collection."
+  - key: trous-min-parametre
+    format: fill-in
+    question: |-
+      Complète pour refuser une page inférieure à 1 :
+      ```java
+      @GET
+      public List<ProduitVue> lister(@RestQuery @DefaultValue("1") @___(1) int page) {
+      ```
+    blanks:
+      - [Min]
+    answer: "Une contrainte sur un paramètre simple est vérifiée sans `@Valid` : `?page=0` répond 400."
+  - key: bug-valid-oublie
+    format: bug-fix
+    question: |-
+      `POST /produits` avec `{"nom": "", "prix": -3}` répond 201, et le produit est enregistré. Quelle correction est
+      la bonne ?
+      ```java
+      public record NouveauProduit(@NotBlank String nom, @Positive int prix) {}
+
+      @POST
+      @ResponseStatus(201)
+      public ProduitVue creer(NouveauProduit nouveau) { ... }
+      ```
+    choices:
+      - {text: "Annoter le paramètre : `creer(@Valid NouveauProduit nouveau)`", correct: true}
+      - {text: "Annoter le record `NouveauProduit` avec `@Valid`", correct: false}
+      - {text: "Ajouter `@Consumes(MediaType.APPLICATION_JSON)`", correct: false}
+      - {text: "Remplacer `@Positive` par `@Min(0)` sur le prix", correct: false}
+    answer: |-
+      ```java
+      public ProduitVue creer(@Valid NouveauProduit nouveau) { ... }
+      ```
+      Les contraintes du record ne sont vérifiées que si le paramètre porte `@Valid`. Avec lui, la requête répond 400
+      et ne touche pas au catalogue.
+  - key: bug-notnull-chaine-vide
+    format: bug-fix
+    question: |-
+      Des produits au nom vide (`""`) apparaissent dans le catalogue, malgré la validation. Quelle correction est la
+      bonne ?
+      ```java
+      public record NouveauProduit(@NotNull String nom, @Positive int prix) {}
+      ```
+    choices:
+      - {text: "Remplacer `@NotNull` par `@NotBlank`", correct: true}
+      - {text: "Ajouter `@Valid` sur le composant `nom`", correct: false}
+      - {text: "Remplacer `@NotNull` par `@Size(max = 50)`", correct: false}
+      - {text: "Remplacer `String` par `Optional<String>`", correct: false}
+    answer: |-
+      ```java
+      public record NouveauProduit(@NotBlank String nom, @Positive int prix) {}
+      ```
+      `@NotNull` n'interdit que `null` ; `""` le respecte. `@NotBlank` refuse aussi le vide et les espaces.
+  - key: bug-imbriques-non-valides
+    format: bug-fix
+    question: |-
+      Une commande dont une ligne a une quantité de 0 est acceptée, alors que `Ligne` porte `@Min(1)`. Quelle
+      correction est la bonne ?
+      ```java
+      public record Ligne(@NotBlank String produit, @Min(1) int quantite) {}
+      public record NouvelleCommande(@NotEmpty List<Ligne> lignes) {}
+
+      @POST
+      public CommandeVue passer(@Valid NouvelleCommande commande) { ... }
+      ```
+    choices:
+      - {text: "Annoter le composant : `@Valid @NotEmpty List<Ligne> lignes`", correct: true}
+      - {text: "Annoter le record `Ligne` lui-même avec `@Valid`", correct: false}
+      - {text: "Remplacer `@NotEmpty` par `@NotNull` sur la liste", correct: false}
+      - {text: "Ajouter un second `@Valid` sur le paramètre `commande`", correct: false}
+    answer: |-
+      ```java
+      public record NouvelleCommande(@Valid @NotEmpty List<Ligne> lignes) {}
+      ```
+      La validation s'arrête à la commande : `@NotEmpty` vérifie que la liste a des éléments, pas ce qu'ils
+      contiennent. `@Valid` sur la liste fait descendre la validation dans chaque ligne.
+  - key: bug-corps-absent
+    format: bug-fix
+    question: |-
+      Un `POST /produits` sans corps fait lever une `NullPointerException` dans le service, et répond 500. Le client
+      devrait recevoir 400. Quelle correction est la bonne ?
+      ```java
+      @POST
+      @ResponseStatus(201)
+      public ProduitVue creer(@Valid NouveauProduit nouveau) {
+          return catalogue.ajouter(nouveau);
+      }
+      ```
+    choices:
+      - {text: "Écrire `creer(@NotNull @Valid NouveauProduit nouveau)`", correct: true}
+      - {text: "Écrire `creer(@Valid @NotBlank NouveauProduit nouveau)`", correct: false}
+      - {text: "Ajouter `@Consumes(MediaType.APPLICATION_JSON)`", correct: false}
+      - {text: "Écrire `creer(@Valid Optional<NouveauProduit> nouveau)`", correct: false}
+    answer: |-
+      ```java
+      public ProduitVue creer(@NotNull @Valid NouveauProduit nouveau) {
+      ```
+      Sans corps, le paramètre vaut `null`, que `@Valid` laisse passer. `@NotNull` répond 400 avant l'appel.
+      `@NotBlank` ne s'applique qu'aux chaînes.

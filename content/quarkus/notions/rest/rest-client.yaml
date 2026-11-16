@@ -1,0 +1,352 @@
+notion: rest-client
+lesson: |-
+  Pour appeler une autre API, Quarkus propose le **REST Client** (extension `quarkus-rest-client-jackson`) : on décrit
+  l'API distante par une **interface** annotée comme une ressource Jakarta REST, et Quarkus en génère
+  l'implémentation au build.
+
+  ```java
+  @RegisterRestClient(configKey = "fournisseur")
+  @Path("/api/produits")
+  public interface FournisseurClient {
+
+      @GET
+      @Path("/{reference}")
+      ProduitFournisseur trouver(@PathParam("reference") String reference);
+
+      @GET
+      List<ProduitFournisseur> chercher(@QueryParam("q") String recherche);
+  }
+  ```
+
+  ```properties
+  quarkus.rest-client.fournisseur.url=${FOURNISSEUR_URL:http://localhost:9000}
+  quarkus.rest-client.fournisseur.connect-timeout=2000
+  quarkus.rest-client.fournisseur.read-timeout=5000
+  ```
+
+  On l'injecte avec le qualificateur **`@RestClient`** :
+
+  ```java
+  @ApplicationScoped
+  public class Approvisionnement {
+
+      private final FournisseurClient fournisseur;
+
+      Approvisionnement(@RestClient FournisseurClient fournisseur) {
+          this.fournisseur = fournisseur;
+      }
+  }
+  ```
+
+  **L'URL en configuration.** `configKey` relie l'interface à ses propriétés `quarkus.rest-client.<clé>.*` : l'URL
+  change d'un environnement à l'autre sans toucher au code. Écrire l'URL en dur (`baseUri` dans l'annotation) la fige
+  dans le jar. Sans URL du tout, l'appel échoue : « Unable to determine the proper baseUrl/baseUri ».
+
+  **Les délais.** `connect-timeout` et `read-timeout`, en millisecondes, bornent l'attente. Sans eux, un fournisseur
+  qui ralentit retient les threads de l'application bien plus longtemps qu'un utilisateur n'attend.
+
+  **Les erreurs.**
+
+  | Ce qui arrive | Ce que lève l'appel |
+  |---|---|
+  | La réponse a un statut d'erreur (4xx, 5xx) | `WebApplicationException`, avec la réponse |
+  | Le serveur est injoignable, ou trop lent | `ProcessingException` |
+
+  On les rattrape là où l'on sait quoi faire : un 404 du fournisseur devient un `Optional.empty()`, une panne une
+  exception métier. Quarkus permet aussi une méthode statique `@ClientExceptionMapper` dans l'interface, qui traduit
+  une réponse en exception.
+
+  **D'autres possibilités.** Une méthode qui renvoie `Uni<T>` fait un appel non bloquant ; `@ClientHeaderParam`
+  ajoute un en-tête à chaque appel (un jeton tiré de la configuration) ; les annotations de SmallRye Fault Tolerance
+  (`@Timeout`, `@Retry`, `@CircuitBreaker`, `@Fallback`) protègent contre un service instable.
+
+  **En test**, `@InjectMock @RestClient FournisseurClient fournisseur;` remplace le client par un mock Mockito dans
+  un `@QuarkusTest` : le test ne dépend pas du réseau.
+
+  **En entretien** : « Je décris l'API distante par une interface `@RegisterRestClient` avec un `configKey`, l'URL et
+  les délais dans `quarkus.rest-client.<clé>.*`, et je l'injecte avec `@RestClient`. Un statut d'erreur lève une
+  `WebApplicationException`, une panne réseau une `ProcessingException` : je les traduis en cas métier. Et je pose
+  toujours des délais, voire un disjoncteur. »
+cards:
+  - key: extension-rest-client
+    format: course
+    question: "Quelle extension apporte le REST Client, avec Jackson, à Quarkus 3 ?"
+    choices:
+      - {text: "`quarkus-rest-client-jackson`", correct: true}
+      - {text: "`quarkus-rest-jackson`", correct: false}
+      - {text: "`quarkus-http-client`", correct: false}
+      - {text: "`quarkus-spring-webclient`", correct: false}
+    answer: "`quarkus-rest-client-jackson` sert à appeler une API ; `quarkus-rest-jackson` sert à en exposer une."
+  - key: decrire-l-api-distante
+    format: course
+    question: "Comment décrit-on l'API distante avec le REST Client de Quarkus ?"
+    choices:
+      - {text: "Par une interface annotée `@RegisterRestClient` et les annotations Jakarta REST", correct: true}
+      - {text: "Par une classe qui construit chaque requête HTTP à la main", correct: false}
+      - {text: "Par un fichier OpenAPI obligatoire, lu au démarrage", correct: false}
+      - {text: "Par une classe abstraite qui hérite de `HttpClient`", correct: false}
+    answer: "Les mêmes `@Path`, `@GET`, `@PathParam` que côté serveur, sur une interface ; Quarkus génère l'implémentation au build."
+  - key: role-du-configkey
+    format: course
+    question: "À quoi sert `configKey = \"fournisseur\"` dans `@RegisterRestClient` ?"
+    choices:
+      - {text: "À lire l'URL et les délais dans `quarkus.rest-client.fournisseur.*`", correct: true}
+      - {text: "À nommer le bean, pour l'injecter avec `@Named(\"fournisseur\")`", correct: false}
+      - {text: "À choisir le chemin de base, ajouté devant chaque `@Path`", correct: false}
+      - {text: "À définir le jeton envoyé dans l'en-tête `Authorization`", correct: false}
+    answer: "La clé relie l'interface à sa configuration : l'URL change d'un environnement à l'autre, sans recompiler."
+  - key: injection-du-client
+    format: course
+    question: "Avec quel qualificateur injectes-tu un client `@RegisterRestClient` ?"
+    choices:
+      - {text: "`@RestClient`", correct: true}
+      - {text: "`@Named(\"client\")`", correct: false}
+      - {text: "`@ConfigProperty`", correct: false}
+      - {text: "`@Default`", correct: false}
+    answer: "`org.eclipse.microprofile.rest.client.inject.RestClient` désigne l'implémentation générée de l'interface."
+  - key: vf-statut-erreur
+    format: true-false
+    question: "Par défaut, une réponse 404 de l'API distante fait lever une `WebApplicationException` à l'appel du client."
+    truth: true
+    answer: "Le client traduit tout statut d'erreur en `WebApplicationException`, qui porte la réponse. On la rattrape là où un 404 a un sens métier."
+  - key: vf-delais-en-millisecondes
+    format: true-false
+    question: "`quarkus.rest-client.fournisseur.read-timeout=5000` limite l'attente de la réponse à 5 secondes."
+    truth: true
+    answer: "Les délais du client s'expriment en millisecondes : `connect-timeout` pour la connexion, `read-timeout` pour la réponse."
+  - key: vf-serveur-injoignable
+    format: true-false
+    question: "Quand le serveur distant est injoignable, l'appel du client lève une `WebApplicationException` avec le statut 503."
+    truth: false
+    answer: "Sans réponse, il n'y a pas de statut : l'appel lève une `ProcessingException`. `WebApplicationException` suppose une réponse reçue."
+  - key: vf-mock-du-client
+    format: true-false
+    question: "Dans un `@QuarkusTest`, `@InjectMock @RestClient FournisseurClient fournisseur` remplace le client par un mock Mockito."
+    truth: true
+    answer: "Le test règle les réponses du mock (`when(...)`) et ne dépend ni du réseau ni du fournisseur."
+  - key: qcm-url-en-configuration
+    format: multiple-choice
+    question: "Quelle propriété donne l'URL du client déclaré `@RegisterRestClient(configKey = \"fournisseur\")` ?"
+    choices:
+      - {text: "`quarkus.rest-client.fournisseur.url`", correct: true}
+      - {text: "`quarkus.rest.fournisseur.base-path`", correct: false}
+      - {text: "`fournisseur.rest-client.url`", correct: false}
+      - {text: "`quarkus.http.fournisseur.url`", correct: false}
+    answer: "Les propriétés d'un client se rangent sous `quarkus.rest-client.<configKey>` : `url`, `connect-timeout`, `read-timeout`..."
+  - key: qcm-appel-non-bloquant
+    format: multiple-choice
+    question: "Comment déclares-tu un appel non bloquant dans l'interface du client ?"
+    choices:
+      - {text: "La méthode renvoie `Uni<ProduitFournisseur>`", correct: true}
+      - {text: "La méthode porte `@Blocking`", correct: false}
+      - {text: "La méthode renvoie `Optional<ProduitFournisseur>`", correct: false}
+      - {text: "L'interface étend `Runnable`", correct: false}
+    answer: "Avec `Uni` (ou `CompletionStage`), l'appel rend la main tout de suite ; le résultat arrive plus tard, sans bloquer de thread."
+  - key: qcm-en-tete-a-chaque-appel
+    format: multiple-choice
+    question: "Comment envoies-tu un jeton, lu dans la configuration, à chaque appel du client ?"
+    choices:
+      - {text: "`@ClientHeaderParam(name = \"Authorization\", value = \"Bearer ${fournisseur.jeton}\")`", correct: true}
+      - {text: "`@ResponseHeader(name = \"Authorization\", value = \"Bearer ${fournisseur.jeton}\")`", correct: false}
+      - {text: "`@RestHeader(\"Authorization\")` sur l'interface, sans valeur", correct: false}
+      - {text: "`quarkus.http.auth.header=${fournisseur.jeton}` dans le fichier", correct: false}
+    answer: "`@ClientHeaderParam` ajoute un en-tête à chaque requête, et sa valeur peut citer une propriété. `@ResponseHeader` concerne les réponses d'un serveur."
+  - key: qcm-proteger-du-fournisseur-instable
+    format: multiple-choice
+    question: "Le fournisseur tombe souvent en panne pendant quelques minutes. Que poses-tu sur l'appel ?"
+    choices:
+      - {text: "Un délai, puis `@CircuitBreaker` et `@Fallback` de Fault Tolerance", correct: true}
+      - {text: "Un `@Retry` sans limite, jusqu'à ce que le fournisseur réponde", correct: false}
+      - {text: "Un délai de lecture d'une heure, pour lui laisser le temps", correct: false}
+      - {text: "Un `Thread.sleep` avant chaque appel, pour l'épargner", correct: false}
+    answer: "Le disjoncteur cesse d'appeler un service en panne et le laisse se rétablir ; le repli donne une réponse dégradée. Des essais sans fin aggravent la panne."
+  - key: trous-registerrestclient
+    format: fill-in
+    question: |-
+      Complète pour déclarer ce client et sa clé de configuration :
+      ```java
+      @___(configKey = "fournisseur")
+      @Path("/api/produits")
+      public interface FournisseurClient {
+      ```
+    blanks:
+      - [RegisterRestClient]
+    answer: "`@RegisterRestClient` demande à Quarkus de générer l'implémentation de l'interface."
+  - key: trous-restclient
+    format: fill-in
+    question: |-
+      Complète pour injecter le client :
+      ```java
+      Approvisionnement(@___ FournisseurClient fournisseur) {
+          this.fournisseur = fournisseur;
+      }
+      ```
+    blanks:
+      - [RestClient]
+    answer: "Le qualificateur `@RestClient` désigne l'implémentation générée."
+  - key: trous-url-client
+    format: fill-in
+    question: |-
+      Complète l'URL du client de clé `fournisseur` :
+      ```properties
+      quarkus.rest-client.fournisseur.___=https://api.fournisseur.example
+      ```
+    blanks:
+      - [url]
+    answer: "`url` donne l'adresse de base ; chaque `@Path` de l'interface s'y ajoute."
+  - key: trous-read-timeout
+    format: fill-in
+    question: |-
+      Complète pour n'attendre la réponse que 5 secondes :
+      ```properties
+      quarkus.rest-client.fournisseur.___=5000
+      ```
+    blanks:
+      - [read-timeout]
+    answer: "`read-timeout`, en millisecondes ; `connect-timeout` borne l'établissement de la connexion."
+  - key: bug-configkey-different
+    format: bug-fix
+    question: |-
+      L'appel au fournisseur échoue : « Unable to determine the proper baseUrl/baseUri ». Quelle correction est la
+      bonne ?
+      ```java
+      @RegisterRestClient(configKey = "fournisseur")
+      public interface FournisseurClient { ... }
+      ```
+      ```properties
+      quarkus.rest-client.fournisseur-api.url=https://api.fournisseur.example
+      ```
+    choices:
+      - {text: "Écrire `quarkus.rest-client.fournisseur.url=...`", correct: true}
+      - {text: "Écrire `quarkus.rest-client.fournisseur-api.base-url=...`", correct: false}
+      - {text: "Ajouter `@Path(\"https://api.fournisseur.example\")`", correct: false}
+      - {text: "Injecter le client avec `@Named(\"fournisseur-api\")`", correct: false}
+    answer: |-
+      ```properties
+      quarkus.rest-client.fournisseur.url=https://api.fournisseur.example
+      ```
+      La propriété doit porter la clé déclarée par `configKey`. Sous un autre nom, elle ne concerne aucun client, et
+      celui-ci n'a pas d'URL.
+  - key: bug-url-en-dur
+    format: bug-fix
+    question: |-
+      En production, chaque appel échoue sur « Connection refused » vers `localhost:9000`. Quelle correction est la
+      bonne ?
+      ```java
+      @RegisterRestClient(baseUri = "http://localhost:9000")
+      public interface FournisseurClient { ... }
+      ```
+    choices:
+      - {text: "Déclarer `configKey = \"fournisseur\"` et l'URL dans `quarkus.rest-client.fournisseur.url`", correct: true}
+      - {text: "Remplacer `localhost` par `127.0.0.1` dans l'annotation", correct: false}
+      - {text: "Ajouter `quarkus.http.port=9000` dans `application.properties`", correct: false}
+      - {text: "Allonger `read-timeout` pour laisser au serveur le temps de répondre", correct: false}
+    answer: |-
+      ```java
+      @RegisterRestClient(configKey = "fournisseur")
+      public interface FournisseurClient { ... }
+      ```
+      ```properties
+      quarkus.rest-client.fournisseur.url=${FOURNISSEUR_URL:http://localhost:9000}
+      ```
+      L'URL écrite dans l'annotation est figée dans le jar : en production, rien n'écoute sur `localhost:9000`. En
+      configuration, chaque environnement donne la sienne.
+  - key: bug-404-du-fournisseur
+    format: bug-fix
+    question: |-
+      Quand une référence n'existe pas chez le fournisseur, `trouver` ne renvoie pas `Optional.empty()` : une
+      `WebApplicationException` remonte jusqu'à l'appelant. Quelle correction est la bonne ?
+      ```java
+      Optional<ProduitFournisseur> trouver(String reference) {
+          return Optional.ofNullable(fournisseur.trouver(reference));
+      }
+      ```
+    choices:
+      - {text: "Rattraper la `WebApplicationException` et renvoyer vide si son statut est 404", correct: true}
+      - {text: "Rattraper la `ProcessingException` et renvoyer `Optional.empty()`", correct: false}
+      - {text: "Remplacer `Optional.ofNullable` par `Optional.of` sur le résultat", correct: false}
+      - {text: "Allonger `read-timeout`, le temps que le fournisseur trouve la référence", correct: false}
+    answer: |-
+      ```java
+      try {
+          return Optional.of(fournisseur.trouver(reference));
+      } catch (WebApplicationException e) {
+          if (e.getResponse().getStatus() == 404) {
+              return Optional.empty();
+          }
+          throw e;
+      }
+      ```
+      Le client ne renvoie jamais `null` pour un 404 : il lève une `WebApplicationException`. Seul ce statut a ici
+      un sens métier ; les autres erreurs remontent.
+  - key: bug-sans-delai
+    format: bug-fix
+    question: |-
+      Quand le fournisseur ralentit, toutes les pages qui l'appellent restent bloquées, puis l'application cesse de
+      répondre. Quelle correction est la bonne ?
+      ```properties
+      quarkus.rest-client.fournisseur.url=https://api.fournisseur.example
+      ```
+    choices:
+      - {text: "Ajouter `connect-timeout` et `read-timeout` au client", correct: true}
+      - {text: "Augmenter le nombre de threads du pool de workers", correct: false}
+      - {text: "Ajouter un `@Retry` sans limite sur la méthode", correct: false}
+      - {text: "Passer l'URL du fournisseur en `http://`", correct: false}
+    answer: |-
+      ```properties
+      quarkus.rest-client.fournisseur.connect-timeout=2000
+      quarkus.rest-client.fournisseur.read-timeout=5000
+      ```
+      Chaque appel lent retient un thread. Avec des délais courts, l'appel échoue vite (`ProcessingException`) et
+      libère son thread ; plus de threads ne ferait que retarder la saturation.
+  - key: situation-appeler-une-api
+    format: scenario
+    question: |-
+      Ton service doit interroger l'API de prix d'un partenaire, dont l'adresse diffère en recette et en
+      production. Que proposes-tu ?
+    choices:
+      - {text: "Une interface `@RegisterRestClient` avec un `configKey`, l'URL en configuration", correct: true}
+      - {text: "Un `HttpURLConnection` construit à la main, l'URL dans une constante", correct: false}
+      - {text: "Une interface `@RegisterRestClient(baseUri = ...)`, une branche par environnement", correct: false}
+      - {text: "Une ressource REST locale qui recopie chaque nuit les prix du partenaire", correct: false}
+    answer: |-
+      L'interface décrit l'API, Quarkus génère le code, et `quarkus.rest-client.<clé>.url` change par
+      environnement, ou par variable `QUARKUS_REST_CLIENT_<CLE>_URL`.
+  - key: situation-tester-sans-le-partenaire
+    format: scenario
+    question: |-
+      Les tests du service d'approvisionnement échouent dès que l'API du partenaire est indisponible. Que fais-tu ?
+    choices:
+      - {text: "Je remplace le client par un mock avec `@InjectMock @RestClient`", correct: true}
+      - {text: "Je relance les tests jusqu'à ce que le partenaire réponde", correct: false}
+      - {text: "Je désactive ces tests tant que le partenaire est instable", correct: false}
+      - {text: "Je fais appeler la production du partenaire, plus stable", correct: false}
+    answer: |-
+      Le test fixe les réponses du client, cas d'erreur compris (une `WebApplicationException` 404, une
+      `ProcessingException`) : il vérifie ton code, pas la disponibilité du partenaire.
+  - key: situation-jeton-du-partenaire
+    format: scenario
+    question: |-
+      Chaque appel au partenaire doit porter `Authorization: Bearer <jeton>`, et le jeton change selon
+      l'environnement. Que proposes-tu ?
+    choices:
+      - {text: "`@ClientHeaderParam` sur l'interface, la valeur tirée de la configuration", correct: true}
+      - {text: "Un paramètre `jeton` ajouté à chaque méthode, passé par chaque appelant", correct: false}
+      - {text: "Le jeton écrit en dur dans l'annotation, changé à chaque déploiement", correct: false}
+      - {text: "Le jeton ajouté à l'URL, en paramètre de requête `?token=`", correct: false}
+    answer: |-
+      `@ClientHeaderParam(name = "Authorization", value = "Bearer ${partenaire.jeton}")` ajoute l'en-tête partout ;
+      le jeton arrive par une variable d'environnement. Dans l'URL, il finirait dans les journaux.
+  - key: situation-partenaire-en-panne
+    format: scenario
+    question: |-
+      L'API du partenaire tombe plusieurs fois par jour, et ses pannes rendent ta page produit inutilisable. Que
+      proposes-tu ?
+    choices:
+      - {text: "Des délais courts, un disjoncteur et un repli qui affiche la page sans le prix", correct: true}
+      - {text: "Des tentatives répétées sans limite, jusqu'à obtenir une réponse", correct: false}
+      - {text: "Un délai d'attente très long, pour laisser le partenaire répondre", correct: false}
+      - {text: "Un message demandant à l'utilisateur de revenir plus tard", correct: false}
+    answer: |-
+      `@CircuitBreaker` cesse d'appeler un service en panne, `@Fallback` donne une réponse dégradée : la page reste
+      utilisable. Des tentatives sans limite aggraveraient la charge du partenaire.

@@ -1,0 +1,302 @@
+notion: evenements
+lesson: |-
+  Les **événements CDI** découplent celui qui annonce un fait de ceux qui y réagissent. La commande est passée : le
+  service de commande l'annonce, et ne sait pas qui envoie le mail, qui met à jour le stock, qui calcule les points
+  de fidélité.
+
+  ```java
+  public record CommandePassee(long id, String client) { }
+
+  @ApplicationScoped
+  public class ServiceCommande {
+      @Inject
+      Event<CommandePassee> commandes;              // jakarta.enterprise.event.Event
+
+      public void passer(Commande commande) {
+          ...
+          commandes.fire(new CommandePassee(commande.id(), commande.client()));
+      }
+  }
+
+  @ApplicationScoped
+  public class Courriels {
+      void confirmer(@Observes CommandePassee evenement) { ... }        // synchrone
+  }
+
+  @ApplicationScoped
+  public class Statistiques {
+      void compter(@ObservesAsync CommandePassee evenement) { ... }     // asynchrone
+  }
+  ```
+
+  **Synchrone ou asynchrone.**
+
+  | Envoi | Observateurs notifiés | Thread | Exception d'un observateur |
+  |---|---|---|---|
+  | `fire(evenement)` | les seuls `@Observes` | celui de l'appelant, avant que `fire` rende la main | remonte jusqu'à l'appel de `fire` |
+  | `fireAsync(evenement)` | les seuls `@ObservesAsync` | un autre thread | termine en échec le `CompletionStage` renvoyé |
+
+  `fire` n'appelle jamais un observateur `@ObservesAsync`, et `fireAsync` jamais un `@Observes` : un observateur du
+  mauvais genre n'est simplement pas appelé, sans erreur.
+
+  **Qualificatifs.** On peut qualifier un événement : `@Inject @Annulee Event<Commande> annulations;` (ou
+  `commandes.select(...)`). Un observateur `@Observes @Annulee Commande` ne reçoit que les événements qualifiés
+  `@Annulee` ; un observateur **sans** qualificatif reçoit **tous** les événements de son type, qualifiés ou non.
+
+  **Autres réglages.**
+
+  - L'ordre des observateurs synchrones : `@Observes @Priority(10)`, la plus petite valeur d'abord.
+  - Après la transaction : `@Observes(during = TransactionPhase.AFTER_SUCCESS)` n'est appelé qu'après un commit
+    réussi, pour ne pas envoyer de mail pour une commande annulée par un rollback.
+  - Dans Quarkus, une classe qui déclare une méthode `@Observes` est découverte même sans portée, et son bean n'est
+    jamais retiré. Les événements de Quarkus (`StartupEvent`, `ShutdownEvent`) s'observent de la même façon.
+
+  **En entretien** : « J'injecte `Event<T>` et j'appelle `fire` : les observateurs `@Observes` s'exécutent dans le même
+  thread, et leurs exceptions remontent à l'émetteur. `fireAsync` notifie les seuls `@ObservesAsync`, sur un autre
+  thread. Les événements découplent le métier de ses effets secondaires ; pour un effet qui ne doit suivre qu'un commit,
+  j'utilise un observateur transactionnel. »
+cards:
+  - key: fire-synchrone
+    format: course
+    question: "Que se passe-t-il quand un bean appelle `commandes.fire(evenement)` ?"
+    choices:
+      - {text: "Les observateurs `@Observes` s'exécutent dans le même thread, avant le retour de `fire`", correct: true}
+      - {text: "L'événement est mis en file, et traité plus tard par un thread du conteneur", correct: false}
+      - {text: "Tous les observateurs, synchrones et asynchrones, s'exécutent en parallèle", correct: false}
+      - {text: "L'événement est envoyé sur le bus d'événements de Vert.x, vers d'autres JVM", correct: false}
+    answer: "`fire` est un appel synchrone déguisé : chaque observateur s'exécute à tour de rôle, dans le thread et la transaction de l'appelant. `fire` rend la main quand tous ont fini."
+  - key: fire-asynchrone
+    format: course
+    question: "Quels observateurs `fireAsync(evenement)` notifie-t-il ?"
+    choices:
+      - {text: "Les seuls observateurs `@ObservesAsync`, sur un autre thread", correct: true}
+      - {text: "Tous les observateurs, `@Observes` compris, sur un autre thread", correct: false}
+      - {text: "Les seuls observateurs `@Observes`, après le retour de l'appelant", correct: false}
+      - {text: "Aucun, tant que l'appelant n'a pas attendu le `CompletionStage`", correct: false}
+    answer: "Les deux mondes sont séparés : `fire` pour `@Observes`, `fireAsync` pour `@ObservesAsync`. Le `CompletionStage` renvoyé se termine quand les observateurs asynchrones ont fini."
+  - key: observateur-sans-qualificatif
+    format: course
+    question: "Un observateur `@Observes Commande`, sans qualificatif, reçoit-il un événement envoyé avec le qualificatif `@Annulee` ?"
+    choices:
+      - {text: "Oui : sans qualificatif, il reçoit tous les événements de son type", correct: true}
+      - {text: "Non : il ne reçoit que les événements envoyés sans qualificatif", correct: false}
+      - {text: "Non : un événement qualifié ne va qu'aux observateurs asynchrones", correct: false}
+      - {text: "Oui, mais seulement si l'observateur porte aussi `@Any`", correct: false}
+    answer: "Un observateur ne filtre que sur les qualificatifs qu'il déclare. `@Observes @Annulee Commande` ne reçoit que les annulations ; `@Observes Commande` reçoit tout."
+  - key: ordre-des-observateurs
+    format: course
+    question: "Comment fixer l'ordre de plusieurs observateurs synchrones d'un même événement ?"
+    choices:
+      - {text: "Avec `@Priority` sur le paramètre observé : la plus petite valeur d'abord", correct: true}
+      - {text: "Par l'ordre alphabétique du nom de leurs classes", correct: false}
+      - {text: "Par l'ordre de déclaration des beans dans le code source", correct: false}
+      - {text: "On ne peut pas : l'ordre change à chaque envoi", correct: false}
+    answer: "`void reserver(@Observes @Priority(10) CommandePassee e)` passe avant un observateur de priorité 20. Sans `@Priority`, aucun ordre n'est garanti."
+  - key: vf-exception-remonte
+    format: true-false
+    question: "Une exception levée par un observateur `@Observes` remonte jusqu'à l'appel de `fire`."
+    truth: true
+    answer: "L'observateur s'exécute dans l'appel de `fire` : son exception interrompt les observateurs suivants et remonte chez l'émetteur, qui peut voir sa transaction annulée."
+  - key: vf-fire-async-et-observes
+    format: true-false
+    question: "`fireAsync` notifie aussi les observateurs synchrones `@Observes`."
+    truth: false
+    answer: "`fireAsync` ne notifie que les `@ObservesAsync`. Un observateur `@Observes` n'est appelé que par `fire`, sans aucune erreur dans l'autre cas."
+  - key: vf-observateur-qualifie
+    format: true-false
+    question: "Un observateur `@Observes @Annulee Commande` reçoit les commandes envoyées par `fire` sans qualificatif."
+    truth: false
+    answer: "Il ne reçoit que les événements qualifiés `@Annulee`. C'est l'inverse qui est vrai : un observateur sans qualificatif reçoit aussi les événements qualifiés."
+  - key: vf-observateur-classe-nue
+    format: true-false
+    question: "Dans Quarkus, une méthode `@Observes` est appelée même si sa classe ne porte aucune annotation de portée."
+    truth: true
+    answer: "Quarkus découvre la classe comme un bean `@Dependent`, ce que la spécification ne fait pas. Pour un état partagé entre notifications, on lui donne quand même une portée explicite."
+  - key: qcm-retour-de-fire-async
+    format: multiple-choice
+    question: "Que renvoie `commandes.fireAsync(evenement)` ?"
+    choices:
+      - {text: "Un `CompletionStage`, terminé quand les observateurs asynchrones ont fini", correct: true}
+      - {text: "Rien : la méthode est `void`, comme `fire`", correct: false}
+      - {text: "Un `Uni` de Mutiny, à souscrire pour lancer l'envoi", correct: false}
+      - {text: "Le nombre d'observateurs qui ont reçu l'événement", correct: false}
+    answer: "Le `CompletionStage` permet d'attendre la fin des observateurs, ou de réagir à leur échec. L'envoi a lieu même si personne ne l'attend."
+  - key: qcm-envoyer-un-evenement-qualifie
+    format: multiple-choice
+    question: "Comment envoyer un événement `Commande` avec le qualificatif `@Annulee` ?"
+    choices:
+      - {text: "Injecter `@Annulee Event<Commande> annulations` et appeler `fire`", correct: true}
+      - {text: "Annoter la classe `Commande` avec `@Annulee` et appeler `fire`", correct: false}
+      - {text: "Appeler `fire(new Commande(id), \"Annulee\")` avec le nom en texte", correct: false}
+      - {text: "Créer un `Event` avec `new Event<Commande>(Annulee.class)`", correct: false}
+    answer: "Le qualificatif posé sur le point d'injection d'`Event` qualifie tout ce qu'il envoie. `commandes.select(litteral)` donne le même résultat, à partir d'un `Event` non qualifié."
+  - key: qcm-apres-le-commit
+    format: multiple-choice
+    question: "Quel observateur n'est appelé qu'après le commit réussi de la transaction en cours ?"
+    choices:
+      - {text: "`@Observes(during = TransactionPhase.AFTER_SUCCESS)`", correct: true}
+      - {text: "`@ObservesAsync`", correct: false}
+      - {text: "`@Observes @Priority(Integer.MAX_VALUE)`", correct: false}
+      - {text: "`@Observes(notifyObserver = Reception.IF_EXISTS)`", correct: false}
+    answer: "Un observateur transactionnel attend la fin de la transaction : pas de mail pour une commande annulée par un rollback. `IF_EXISTS` concerne l'existence du bean observateur, pas la transaction."
+  - key: qcm-pourquoi-des-evenements
+    format: multiple-choice
+    question: "Pourquoi annoncer « commande passée » par un événement plutôt qu'appeler directement le mail, le stock et la fidélité ?"
+    choices:
+      - {text: "Le service ignore qui réagit : on ajoute une réaction sans le modifier", correct: true}
+      - {text: "Un événement s'exécute toujours plus vite qu'un appel de méthode", correct: false}
+      - {text: "Un événement garantit que chaque réaction s'exécute une seule fois", correct: false}
+      - {text: "Un événement est enregistré en base, et rejoué après une panne", correct: false}
+    answer: "Le couplage passe de « le service connaît chaque réaction » à « chaque réaction connaît l'événement ». Mais un événement CDI reste en mémoire : rien n'est rejoué après un arrêt."
+  - key: trous-event
+    format: fill-in
+    question: |-
+      Complète pour pouvoir envoyer des événements `CommandePassee` :
+      ```java
+      @Inject
+      ___<CommandePassee> commandes;
+      ```
+    blanks:
+      - [Event]
+    answer: "`Event<T>` (de `jakarta.enterprise.event`) envoie des événements de type `T`, par `fire` ou `fireAsync`."
+  - key: trous-observes
+    format: fill-in
+    question: |-
+      Complète pour que cette méthode soit appelée, dans le même thread, à chaque `fire` :
+      ```java
+      void confirmer(@___ CommandePassee evenement) {
+          courriels.envoyer(evenement.client());
+      }
+      ```
+    blanks:
+      - [Observes]
+    answer: "`@Observes` déclare un observateur synchrone : `fire` l'appelle avant de rendre la main."
+  - key: trous-observes-async
+    format: fill-in
+    question: |-
+      Complète pour que cette méthode soit appelée sur un autre thread, par `fireAsync` :
+      ```java
+      void compter(@___ CommandePassee evenement) {
+          statistiques.ajouter(evenement);
+      }
+      ```
+    blanks:
+      - [ObservesAsync]
+    answer: "`@ObservesAsync` déclare un observateur asynchrone, que seul `fireAsync` appelle."
+  - key: trous-fire-async
+    format: fill-in
+    question: |-
+      Complète pour envoyer l'événement sans attendre ses observateurs asynchrones :
+      ```java
+      commandes.___(new CommandePassee(id, client));
+      ```
+    blanks:
+      - [fireAsync]
+    answer: "`fireAsync` renvoie aussitôt un `CompletionStage`, et notifie les observateurs `@ObservesAsync` sur un autre thread."
+  - key: bug-fire-async-observateur-synchrone
+    format: bug-fix
+    question: |-
+      Depuis que l'envoi est passé à `fireAsync`, plus aucun courriel de confirmation ne part, sans erreur. Quelle
+      correction est la bonne ?
+      ```java
+      commandes.fireAsync(new CommandePassee(id, client));
+
+      // dans Courriels
+      void confirmer(@Observes CommandePassee evenement) { ... }
+      ```
+    choices:
+      - {text: "Remplacer `@Observes` par `@ObservesAsync` dans `Courriels`", correct: true}
+      - {text: "Attendre le `CompletionStage` avec `toCompletableFuture().join()`", correct: false}
+      - {text: "Annoter la méthode `confirmer` avec `@Priority(1)`", correct: false}
+      - {text: "Passer la classe `Courriels` en `@RequestScoped`", correct: false}
+    answer: |-
+      ```java
+      void confirmer(@ObservesAsync CommandePassee evenement) { ... }
+      ```
+      `fireAsync` ne notifie que les observateurs asynchrones : un `@Observes` n'est jamais appelé. Attendre le
+      `CompletionStage` n'y change rien, puisqu'aucun observateur asynchrone n'existe.
+  - key: bug-fire-observateur-asynchrone
+    format: bug-fix
+    question: |-
+      Les statistiques ne comptent aucune commande. L'observateur n'est jamais appelé, et aucune erreur n'apparaît.
+      Quelle correction est la bonne ?
+      ```java
+      commandes.fire(new CommandePassee(id, client));
+
+      // dans Statistiques
+      void compter(@ObservesAsync CommandePassee evenement) { ... }
+      ```
+    choices:
+      - {text: "Envoyer aussi l'événement par `fireAsync`, ou observer avec `@Observes`", correct: true}
+      - {text: "Annoter la méthode `compter` avec `@Startup`", correct: false}
+      - {text: "Rendre la méthode `compter` publique et statique", correct: false}
+      - {text: "Injecter `Event<Object>` au lieu d'`Event<CommandePassee>`", correct: false}
+    answer: |-
+      ```java
+      commandes.fireAsync(new CommandePassee(id, client));
+      ```
+      `fire` ne notifie que les observateurs `@Observes`. Soit l'émetteur passe à `fireAsync`, soit l'observateur
+      devient synchrone ; on choisit selon que le comptage doit, ou non, retarder la commande.
+  - key: bug-exception-d-un-observateur
+    format: bug-fix
+    question: |-
+      Quand le serveur de courriels est en panne, les clients ne peuvent plus commander : `passer` échoue avec
+      l'exception levée par `Courriels`. Le courriel ne doit pas bloquer la commande. Quelle correction est la bonne ?
+      ```java
+      public void passer(Commande commande) {
+          enregistrer(commande);
+          commandes.fire(new CommandePassee(commande.id(), commande.client()));
+      }
+
+      // dans Courriels
+      void confirmer(@Observes CommandePassee evenement) {
+          serveurSmtp.envoyer(evenement.client());
+      }
+      ```
+    choices:
+      - {text: "Envoyer par `fireAsync` et observer avec `@ObservesAsync`", correct: true}
+      - {text: "Appeler `fire` avant `enregistrer` dans `passer`", correct: false}
+      - {text: "Annoter l'observateur avec `@Priority(Integer.MAX_VALUE)`", correct: false}
+      - {text: "Passer la classe `Courriels` en `@Dependent`", correct: false}
+    answer: |-
+      ```java
+      commandes.fireAsync(new CommandePassee(commande.id(), commande.client()));
+
+      // dans Courriels
+      void confirmer(@ObservesAsync CommandePassee evenement) { ... }
+      ```
+      Un observateur synchrone s'exécute dans l'appel de `fire` : son exception remonte dans `passer`. En asynchrone,
+      elle termine seulement le `CompletionStage` en échec. Rattraper l'exception dans l'observateur marcherait aussi.
+  - key: bug-observateur-qualifie
+    format: bug-fix
+    question: |-
+      Le stock doit être remis à jour à chaque annulation, mais l'observateur n'est jamais appelé. Quelle correction
+      est la bonne ?
+      ```java
+      @Inject
+      Event<Commande> commandes;
+
+      void annuler(Commande commande) {
+          commandes.fire(commande);
+      }
+
+      // dans Stock
+      void restituer(@Observes @Annulee Commande commande) { ... }
+      ```
+    choices:
+      - {text: "Envoyer l'annulation avec un `Event` qualifié `@Annulee`", correct: true}
+      - {text: "Retirer `@Annulee` de la déclaration du qualificatif", correct: false}
+      - {text: "Remplacer `@Observes` par `@ObservesAsync` dans `Stock`", correct: false}
+      - {text: "Annoter la classe `Commande` avec `@Annulee`", correct: false}
+    answer: |-
+      ```java
+      @Inject
+      @Annulee
+      Event<Commande> annulations;
+
+      void annuler(Commande commande) {
+          annulations.fire(commande);
+      }
+      ```
+      L'observateur ne reçoit que les événements qualifiés `@Annulee` ; un `fire` sans qualificatif ne lui parvient
+      pas. Les observateurs non qualifiés de `Commande` reçoivent, eux, les deux.

@@ -1,0 +1,333 @@
+notion: injection
+lesson: |-
+  Un bean ne crée pas ses dépendances : il les **reçoit** du conteneur. On marque l'endroit à remplir, le **point
+  d'injection**, avec `@Inject` (`jakarta.inject.Inject`) ; ArC y met le bean qui correspond à son type (et à ses
+  qualificatifs).
+
+  **Trois façons d'injecter.**
+
+  ```java
+  @ApplicationScoped
+  public class Caisse {
+
+      // 1. Par constructeur : la forme à préférer
+      private final Catalogue catalogue;
+
+      Caisse(Catalogue catalogue) {            // constructeur unique : @Inject facultatif dans Quarkus
+          this.catalogue = catalogue;
+      }
+
+      // 2. Par champ : package-private plutôt que private
+      @Inject
+      Remises remises;
+
+      // 3. Par méthode (initializer) : rare
+      @Inject
+      void brancher(Journal journal) { ... }
+  }
+  ```
+
+  | Forme | Atouts | Limites |
+  |---|---|---|
+  | Constructeur | champs `final`, dépendances visibles, testable sans conteneur (`new Caisse(faux)`) | un peu plus de code |
+  | Champ | concis | champ modifiable, classe plus dure à construire hors du conteneur |
+  | Méthode | logique à l'injection | rarement utile |
+
+  **Les règles propres à Quarkus.**
+
+  - Un **constructeur unique** n'a pas besoin de `@Inject`. Avec **plusieurs** constructeurs, il faut annoter celui
+    à utiliser ; sinon, ArC prend le constructeur sans paramètre, et la dépendance reste `null`.
+  - Un champ injecté peut être `private`, mais ArC doit alors passer par la réflexion : on préfère un champ
+    **package-private** (sans modificateur), qu'il remplit directement.
+  - Un champ annoté `@ConfigProperty` ou `@Named` est injecté même sans `@Inject`.
+
+  **Les pièges.**
+
+  - **Un objet créé avec `new`** n'est pas un bean : rien n'est injecté dans ses champs, aucune configuration n'est
+    lue, et une doublure de test (`@InjectMock`) ne le remplace pas.
+  - **Les champs injectés n'existent pas encore dans le constructeur** : le conteneur construit l'objet, puis remplit
+    ses champs. Les utiliser dans le constructeur lève une `NullPointerException` ; on passe par l'injection par
+    constructeur, ou par une méthode `@PostConstruct`.
+  - **Une classe sans annotation de portée** n'est pas un bean : l'injecter fait échouer le build
+    (« Unsatisfied dependency ... has no bean defining annotation »).
+
+  Pour un bean `@ApplicationScoped`, ce qui est injecté est un **proxy client** : il crée le bean au premier appel et
+  lui délègue chaque méthode (voir « proxies clients »).
+
+  **En entretien** : « J'injecte par constructeur : des champs `final`, des dépendances visibles, et une classe que je
+  teste avec `new`, sans conteneur. Dans Quarkus, un constructeur unique n'a pas besoin de `@Inject`, et l'injection
+  par champ se fait plutôt sur des champs package-private, pour éviter la réflexion. Un objet créé avec `new` ne reçoit
+  rien du conteneur. »
+cards:
+  - key: forme-a-privilegier
+    format: course
+    question: "Quelle forme d'injection privilégier pour les dépendances obligatoires d'un bean ?"
+    choices:
+      - {text: "Par constructeur : champs `final`, et classe testable sans conteneur", correct: true}
+      - {text: "Par champ `private` : la forme la plus courte, et la plus rapide pour ArC", correct: false}
+      - {text: "Par méthode `@Inject`, appelée après tous les autres points d'injection", correct: false}
+      - {text: "Par recherche `CDI.current()`, au moment où la dépendance sert", correct: false}
+    answer: "Le constructeur rend les dépendances visibles et immuables ; un test unitaire construit la classe avec `new Caisse(faux)`. Un champ `private` force ArC à passer par la réflexion."
+  - key: inject-facultatif
+    format: course
+    question: "Dans Quarkus, un bean n'a qu'un seul constructeur, qui prend ses dépendances. Faut-il l'annoter `@Inject` ?"
+    choices:
+      - {text: "Non : Quarkus utilise d'office un constructeur unique", correct: true}
+      - {text: "Oui : sans `@Inject`, le build échoue sur ce constructeur", correct: false}
+      - {text: "Oui : sans `@Inject`, les paramètres reçoivent `null`", correct: false}
+      - {text: "Non, mais seulement si le bean est `@Singleton`", correct: false}
+    answer: "C'est une facilité d'ArC, au-delà de la spécification CDI. Avec plusieurs constructeurs, en revanche, il faut désigner le bon avec `@Inject`."
+  - key: champ-package-private
+    format: course
+    question: "Pourquoi Quarkus recommande-t-il des champs injectés package-private plutôt que `private` ?"
+    choices:
+      - {text: "ArC les remplit directement, sans passer par la réflexion", correct: true}
+      - {text: "Un champ `private` n'est jamais injecté et reste à `null`", correct: false}
+      - {text: "Un champ `private` empêche le bean d'avoir un proxy client", correct: false}
+      - {text: "La spécification CDI interdit d'injecter un champ `private`", correct: false}
+    answer: "Le code généré par ArC, dans le même package, accède à un champ package-private sans réflexion. Un champ `private` marche aussi, mais au prix de la réflexion."
+  - key: ce-qui-est-injecte
+    format: course
+    question: "Qu'est-ce qui est injecté dans un champ dont le type est un bean `@ApplicationScoped` ?"
+    choices:
+      - {text: "Un proxy client, qui délègue chaque appel à l'instance du bean", correct: true}
+      - {text: "Une copie de l'instance, faite au moment de l'injection", correct: false}
+      - {text: "L'instance elle-même, créée au démarrage de l'application", correct: false}
+      - {text: "Une fabrique, dont il faut appeler `get()` pour obtenir le bean", correct: false}
+    answer: "Le proxy client crée le bean au premier appel de méthode, puis lui transmet chaque appel. C'est ce qui permet la création paresseuse et le remplacement par une doublure en test."
+  - key: vf-objet-cree-avec-new
+    format: true-false
+    question: "Un objet créé avec `new` reçoit quand même ses dépendances `@Inject` du conteneur."
+    truth: false
+    answer: "Le conteneur ne connaît que les objets qu'il crée. Avec `new`, les champs `@Inject` et `@ConfigProperty` gardent leur valeur par défaut : `null`, ou 0."
+  - key: vf-deux-constructeurs
+    format: true-false
+    question: "Avec deux constructeurs, l'un sans paramètre et l'autre avec les dépendances, aucun n'étant annoté `@Inject`, ArC utilise le constructeur sans paramètre."
+    truth: true
+    answer: "Sans `@Inject` pour le désigner, ArC prend le constructeur sans paramètre : les dépendances restent à `null`. Annoter le second avec `@Inject` corrige le choix."
+  - key: vf-champ-private
+    format: true-false
+    question: "Quarkus injecte un champ `private` annoté `@Inject`."
+    truth: true
+    answer: "Il le fait, par réflexion. On préfère un champ package-private, que le code généré remplit directement, ou l'injection par constructeur."
+  - key: vf-champs-dans-le-constructeur
+    format: true-false
+    question: "Dans le constructeur d'un bean, ses champs annotés `@Inject` sont déjà remplis."
+    truth: false
+    answer: "Le conteneur construit l'objet, puis remplit ses champs : dans le constructeur, ils valent encore `null`. On utilise une méthode `@PostConstruct`, ou l'injection par constructeur."
+  - key: qcm-package-d-inject
+    format: multiple-choice
+    question: "D'où vient l'annotation `@Inject` utilisée dans Quarkus 3 ?"
+    choices:
+      - {text: "`jakarta.inject.Inject`", correct: true}
+      - {text: "`javax.inject.Inject`", correct: false}
+      - {text: "`io.quarkus.arc.Inject`", correct: false}
+      - {text: "`jakarta.enterprise.inject.Inject`", correct: false}
+    answer: "`jakarta.inject` (Jakarta Dependency Injection) fournit `@Inject`, `@Named`, `@Singleton`, `@Qualifier`. `javax.inject` est l'ancien package, avant Jakarta EE 9."
+  - key: qcm-deux-dependances-obligatoires
+    format: multiple-choice
+    question: "Un service a besoin de deux dépendances obligatoires. Quelle écriture choisis-tu ?"
+    choices:
+      - {text: "Deux champs `final`, remplis par un constructeur à deux paramètres", correct: true}
+      - {text: "Deux champs `private` annotés `@Inject`, sans constructeur", correct: false}
+      - {text: "Deux champs remplis avec `new` dans leur déclaration", correct: false}
+      - {text: "Deux champs statiques, remplis au démarrage par un `@Startup`", correct: false}
+    answer: "Le constructeur garantit que les deux dépendances existent dès la construction, et les rend immuables. Des champs remplis avec `new` échappent au conteneur."
+  - key: qcm-test-unitaire
+    format: multiple-choice
+    question: "Comment tester unitairement, sans démarrer Quarkus, une classe `Caisse` injectée par constructeur ?"
+    choices:
+      - {text: "En écrivant `new Caisse(fauxCatalogue)` dans le test", correct: true}
+      - {text: "En annotant le test avec `@QuarkusTest` et `@Inject`", correct: false}
+      - {text: "En remplissant ses champs privés par réflexion", correct: false}
+      - {text: "C'est impossible : un bean ne se crée que dans le conteneur", correct: false}
+    answer: "L'injection par constructeur rend la classe ordinaire : on lui passe une implémentation de test ou un mock Mockito, et le test dure quelques millisecondes."
+  - key: qcm-configproperty-sans-inject
+    format: multiple-choice
+    question: "Dans un bean, que vaut un champ `@ConfigProperty(name = \"boutique.remise\") int remise;` écrit sans `@Inject` ?"
+    choices:
+      - {text: "La valeur de la propriété : Quarkus ajoute lui-même `@Inject`", correct: true}
+      - {text: "0 : sans `@Inject`, le champ n'est jamais rempli", correct: false}
+      - {text: "Rien : le build échoue, faute d'`@Inject`", correct: false}
+      - {text: "La valeur, mais seulement dans le profil `dev`", correct: false}
+    answer: "Quarkus ajoute `@Inject` aux champs annotés `@ConfigProperty` ou `@Named`. C'est une facilité propre à Quarkus ; l'écrire reste permis."
+  - key: trous-inject-champ
+    format: fill-in
+    question: |-
+      Complète pour que le conteneur remplisse ce champ :
+      ```java
+      @___
+      Remises remises;
+      ```
+    blanks:
+      - [Inject]
+    answer: "`@Inject` marque le point d'injection. Le champ est package-private : ArC le remplit sans réflexion."
+  - key: trous-package-inject
+    format: fill-in
+    question: |-
+      Complète l'import de l'annotation d'injection :
+      ```java
+      import jakarta.___.Inject;
+      ```
+    blanks:
+      - [inject]
+    answer: "`jakarta.inject.Inject`. Le package `jakarta.enterprise.inject` contient d'autres annotations de CDI, comme `@Produces` ou `@Default`."
+  - key: trous-designer-le-constructeur
+    format: fill-in
+    question: |-
+      La classe a deux constructeurs. Complète pour que le conteneur utilise le second :
+      ```java
+      public Caisse() {
+      }
+
+      @___
+      public Caisse(Catalogue catalogue) {
+          this.catalogue = catalogue;
+      }
+      ```
+    blanks:
+      - [Inject]
+    answer: "Avec plusieurs constructeurs, `@Inject` désigne celui que le conteneur appelle. Sans lui, ArC prendrait le constructeur sans paramètre."
+  - key: trous-faire-un-bean
+    format: fill-in
+    question: |-
+      Complète pour que `Catalogue` devienne un bean, partagé par toute l'application, et injectable ailleurs :
+      ```java
+      @___
+      public class Catalogue {
+      ```
+    blanks:
+      - [ApplicationScoped, Singleton]
+    answer: "Une portée fait de la classe un bean. `@ApplicationScoped` (une instance, derrière un proxy client) est le choix courant ; `@Singleton` donne aussi une instance unique, sans proxy."
+  - key: bug-classe-sans-portee
+    format: bug-fix
+    question: |-
+      Le build échoue : « Unsatisfied dependency for type fr.boutique.Tarif and qualifiers [@Default] ... Tarif has
+      no bean defining annotation (scope, stereotype, etc.) ». Quelle correction est la bonne ?
+      ```java
+      public class Tarif {
+          public int prix(String article) { ... }
+      }
+
+      @ApplicationScoped
+      public class Panier {
+          @Inject
+          Tarif tarif;
+      }
+      ```
+    choices:
+      - {text: "Annoter `Tarif` avec `@ApplicationScoped`", correct: true}
+      - {text: "Rendre le champ `tarif` de `Panier` `private`", correct: false}
+      - {text: "Ajouter un constructeur sans paramètre à `Tarif`", correct: false}
+      - {text: "Annoter le champ `tarif` avec `@Named(\"tarif\")`", correct: false}
+    answer: |-
+      ```java
+      @ApplicationScoped
+      public class Tarif {
+          public int prix(String article) { ... }
+      }
+      ```
+      Une classe sans annotation définissant un bean n'est pas découverte : rien ne peut l'injecter. Une portée en fait
+      un bean, que le build relie au champ de `Panier`.
+  - key: bug-dependance-creee-avec-new
+    format: bug-fix
+    question: |-
+      Un test remplace `Catalogue` par une doublure avec `@InjectMock`, mais `Caisse` utilise toujours les vrais prix,
+      et la remise configurée ne s'applique jamais. Quelle correction est la bonne ?
+      ```java
+      @ApplicationScoped
+      public class Caisse {
+          private final Catalogue catalogue = new Catalogue();
+          private final Remises remises = new Remises();
+          ...
+      }
+      ```
+    choices:
+      - {text: "Recevoir `Catalogue` et `Remises` par le constructeur de `Caisse`", correct: true}
+      - {text: "Annoter les deux champs avec `@Inject`, en gardant les `new`", correct: false}
+      - {text: "Rendre `Catalogue` et `Remises` statiques, partagés par toutes les caisses", correct: false}
+      - {text: "Annoter `Caisse` avec `@Singleton` au lieu de `@ApplicationScoped`", correct: false}
+    answer: |-
+      ```java
+      private final Catalogue catalogue;
+      private final Remises remises;
+
+      Caisse(Catalogue catalogue, Remises remises) {
+          this.catalogue = catalogue;
+          this.remises = remises;
+      }
+      ```
+      Avec `new`, la caisse fabrique des objets que le conteneur ignore : pas de configuration injectée dans
+      `Remises`, pas de doublure derrière `Catalogue`. Reçues du conteneur, les dépendances sont les vrais beans.
+  - key: bug-deux-constructeurs-sans-inject
+    format: bug-fix
+    question: |-
+      Le premier appel lève « NullPointerException: Cannot invoke "fr.boutique.Tarif.prix()" because "this.tarif" is null ».
+      Quelle correction est la bonne ?
+      ```java
+      @ApplicationScoped
+      public class Devis {
+          private Tarif tarif;
+
+          public Devis() {
+          }
+
+          public Devis(Tarif tarif) {
+              this.tarif = tarif;
+          }
+
+          public int montant() {
+              return tarif.prix();
+          }
+      }
+      ```
+    choices:
+      - {text: "Annoter le constructeur `Devis(Tarif tarif)` avec `@Inject`", correct: true}
+      - {text: "Déclarer le champ `tarif` en `final` pour le rendre obligatoire", correct: false}
+      - {text: "Rendre public le constructeur sans paramètre", correct: false}
+      - {text: "Remplacer `@ApplicationScoped` par `@Dependent` sur la classe", correct: false}
+    answer: |-
+      ```java
+      public Devis() {
+      }
+
+      @Inject
+      public Devis(Tarif tarif) {
+          this.tarif = tarif;
+      }
+      ```
+      Avec deux constructeurs et aucun `@Inject`, ArC appelle le constructeur sans paramètre : `tarif` reste `null`.
+      Si le constructeur vide ne sert à rien d'autre, le plus simple est de le supprimer.
+  - key: bug-champ-dans-le-constructeur
+    format: bug-fix
+    question: |-
+      La création du bean échoue : « NullPointerException: Cannot invoke "fr.boutique.Catalogue.charger()" because
+      "this.catalogue" is null ». Quelle correction est la bonne ?
+      ```java
+      @ApplicationScoped
+      public class Vitrine {
+          @Inject
+          Catalogue catalogue;
+
+          public Vitrine() {
+              catalogue.charger();
+          }
+      }
+      ```
+    choices:
+      - {text: "Appeler `catalogue.charger()` dans une méthode `@PostConstruct`", correct: true}
+      - {text: "Rendre le champ `catalogue` `private` pour qu'il soit injecté plus tôt", correct: false}
+      - {text: "Annoter le constructeur sans paramètre avec `@Inject`", correct: false}
+      - {text: "Remplacer `@ApplicationScoped` par `@Singleton` sur la classe", correct: false}
+    answer: |-
+      ```java
+      @Inject
+      Catalogue catalogue;
+
+      @PostConstruct
+      void initialiser() {
+          catalogue.charger();
+      }
+      ```
+      Le conteneur construit l'objet avant de remplir ses champs. `@PostConstruct` s'exécute après l'injection ; on
+      peut aussi recevoir `Catalogue` par le constructeur et l'utiliser aussitôt.

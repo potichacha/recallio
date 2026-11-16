@@ -1,0 +1,308 @@
+notion: rest-assured
+lesson: |-
+  **RestAssured** teste une API comme un client : une vraie requête HTTP, puis des vérifications sur le statut, les
+  en-têtes et le JSON. Dans un `@QuarkusTest`, il est déjà réglé sur l'adresse de l'application de test : on n'écrit
+  que le chemin.
+
+  ```java
+  import static io.restassured.RestAssured.given;
+  import static org.hamcrest.Matchers.*;
+
+  @QuarkusTest
+  class ProduitResourceTest {
+
+      @Test
+      void creeUnProduit() {
+          given()
+              .contentType(ContentType.JSON)
+              .body("{\"nom\": \"stylo\", \"prix\": 2}")
+          .when()
+              .post("/produits")
+          .then()
+              .statusCode(201)
+              .header("Location", containsString("/produits/"))
+              .body("nom", is("stylo"))
+              .body("id", notNullValue());
+      }
+  }
+  ```
+
+  **La forme `given` / `when` / `then`.**
+
+  | Partie | Ce qu'on y met |
+  |---|---|
+  | `given()` | ce qu'on envoie : `contentType`, `body`, `header`, `queryParam`, `pathParam`, `auth()` |
+  | `when()` | le verbe et le chemin : `get("/produits/{id}", 42)`, `post("/produits")` ; `when()` est facultatif |
+  | `then()` | les vérifications : `statusCode`, `header`, `body(chemin, matcher)` |
+  | `extract()` | après `then()`, pour garder une valeur : `.extract().path("id")`, `.extract().as(Produit.class)` |
+
+  **Lire le JSON.** Le premier argument de `body` est un chemin GPath, à la Groovy :
+
+  - `"nom"` : un champ ; `"client.adresse.ville"` : un champ imbriqué ;
+  - sur une liste, `"nom"` donne la liste des noms : on la vérifie avec `hasItem("stylo")` ou
+    `hasItems("stylo", "gomme")`, et `"size()"` donne sa taille ;
+  - `"find { it.nom == 'stylo' }.prix"` cherche un élément, `"[0].nom"` lit le premier.
+
+  Le second argument est un **matcher Hamcrest** : `is`, `equalTo`, `hasItem`, `containsString`, `notNullValue`,
+  `greaterThan`...
+
+  **Le piège des nombres.** RestAssured lit un nombre entier en `Integer` et un nombre décimal en `Float`, quel que
+  soit le type Java côté serveur :
+
+  ```java
+  .body("prix", is(9.99))      // échoue : Expected: is <9.99>, Actual: <9.99F>
+  .body("prix", is(9.99f))     // réussit
+  .body("id", is(produitId))   // échoue si produitId est un Long : <8L> contre <8>
+  .body("id", is(produitId.intValue()))
+  ```
+
+  **Les autres pièges.**
+
+  - Un corps JSON envoyé en texte, sans `contentType(ContentType.JSON)`, est refusé : **415 Unsupported Media Type**.
+  - Une création répond **201**, pas 200 : `statusCode(200)` échoue avec « Expected status code <200> but was
+    <201> ».
+  - `body("nom", is("stylo"))` sur une liste compare une liste à une chaîne : « Expected: is "stylo", Actual:
+    <[stylo]> ».
+  - Une erreur de validation de Quarkus se lit dans `violations` : `body("violations[0].field",
+    containsString("nom"))`.
+
+  **Raccourcis de Quarkus.** `@TestHTTPEndpoint(ProduitResource.class)` sur la classe préfixe les chemins par le
+  `@Path` de la ressource : `given().get()` appelle alors `/produits`. `@TestHTTPResource("/produits") URL url` injecte
+  l'URL complète, pour un autre client HTTP.
+
+  **En entretien** : « Dans un `@QuarkusTest`, j'appelle l'API avec RestAssured, en `given` / `when` / `then`, et je
+  vérifie le statut, les en-têtes et les champs du JSON avec des matchers Hamcrest. Je garde un identifiant avec
+  `extract().path`, pour enchaîner les appels. Je fais attention aux nombres, lus en `Integer` et en `Float`, et au
+  `contentType` des requêtes qui envoient du JSON. »
+cards:
+  - key: lire-un-champ-du-json
+    format: course
+    question: "Dans un test RestAssured, que vérifie `.then().body(\"nom\", is(\"stylo\"))` ?"
+    choices:
+      - {text: "Que le champ `nom` du JSON reçu vaut `stylo`", correct: true}
+      - {text: "Que le corps envoyé contient bien un champ `nom`", correct: false}
+      - {text: "Que la réponse contient le texte `stylo` n'importe où", correct: false}
+      - {text: "Que l'en-tête `nom` de la réponse vaut `stylo`", correct: false}
+    answer: "Après `then()`, `body(chemin, matcher)` lit le chemin dans le JSON de la réponse et lui applique le matcher Hamcrest. Pour un texte n'importe où, on écrirait `body(containsString(\"stylo\"))`."
+  - key: role-de-extract-path
+    format: course
+    question: "À quoi sert `.extract().path(\"id\")` en fin de chaîne RestAssured ?"
+    choices:
+      - {text: "À garder l'`id` du JSON reçu, pour la suite du test", correct: true}
+      - {text: "À vérifier que le JSON reçu contient un champ `id`", correct: false}
+      - {text: "À ajouter l'`id` en paramètre de la requête suivante", correct: false}
+      - {text: "À lire l'`id` dans l'URL qui vient d'être appelée", correct: false}
+    answer: "`extract()` sort de la vérification pour récupérer une valeur : on crée une ressource, on garde son `id`, puis on la relit avec `get(\"/produits/{id}\", id)`."
+  - key: type-d-un-decimal
+    format: course
+    question: "Quel type Java RestAssured donne-t-il au nombre `9.99` d'un JSON, lu par `body(\"prix\", ...)` ?"
+    choices:
+      - {text: "`Float`", correct: true}
+      - {text: "`Double`", correct: false}
+      - {text: "`BigDecimal`", correct: false}
+      - {text: "`String`", correct: false}
+    answer: "Par défaut, RestAssured lit les décimaux en `Float` et les entiers en `Integer`. `is(9.99)` compare donc un `Double` à un `Float`, et échoue : on écrit `is(9.99f)`."
+  - key: effet-de-testhttpendpoint
+    format: course
+    question: "Que fait `@TestHTTPEndpoint(ProduitResource.class)` posé sur une classe de test ?"
+    choices:
+      - {text: "Il préfixe les chemins RestAssured par le `@Path` de la ressource", correct: true}
+      - {text: "Il démarre seulement cette ressource, sans le reste de l'application", correct: false}
+      - {text: "Il remplace la ressource par un mock pendant les tests de la classe", correct: false}
+      - {text: "Il génère un test RestAssured pour chaque méthode de la ressource", correct: false}
+    answer: "Avec `@Path(\"/produits\")` sur la ressource, `given().get()` appelle `/produits` et `get(\"/{id}\", 3)` appelle `/produits/3`. Changer le chemin de la ressource ne casse plus les tests."
+  - key: vf-adresse-reglee-d-office
+    format: true-false
+    question: "Dans un `@QuarkusTest`, RestAssured appelle l'application de test sans qu'on lui donne l'hôte ni le port."
+    truth: true
+    answer: "Quarkus règle RestAssured sur le port de test (8081 par défaut) au démarrage. Le test n'écrit que le chemin : `get(\"/produits\")`."
+  - key: vf-entier-compare-a-un-long
+    format: true-false
+    question: "`body(\"id\", is(8L))` réussit quand le JSON reçu contient `\"id\": 8`."
+    truth: false
+    answer: "RestAssured lit `8` en `Integer`, et `Integer` 8 n'est pas égal à `Long` 8 : « Expected: is <8L>, Actual: <8> ». On compare à `8`, ou à `id.intValue()`."
+  - key: vf-json-sans-content-type
+    format: true-false
+    question: "Un `POST` d'un corps JSON écrit en chaîne, sans `contentType(ContentType.JSON)`, vers une ressource qui attend du JSON, répond 415."
+    truth: true
+    answer: "Sans `contentType`, RestAssured envoie une chaîne en `text/plain`. La ressource ne sait pas lire ce type : 415 Unsupported Media Type."
+  - key: vf-when-obligatoire
+    format: true-false
+    question: "L'appel `when()` est obligatoire entre `given()` et `get(\"/produits\")`."
+    truth: false
+    answer: "`when()` ne sert qu'à la lisibilité : `given().get(\"/produits\").then()...` fait exactement la même requête."
+  - key: qcm-taille-d-une-liste
+    format: multiple-choice
+    question: "Le JSON reçu est une liste de produits. Quelle vérification s'assure qu'elle en contient trois ?"
+    choices:
+      - {text: "`body(\"size()\", is(3))`", correct: true}
+      - {text: "`body(\"length\", is(3))`", correct: false}
+      - {text: "`body(\"$.count\", is(3))`", correct: false}
+      - {text: "`body(\"[3]\", notNullValue())`", correct: false}
+    answer: "Les chemins de RestAssured suivent GPath : `size()` donne la taille de la liste. `[3]` lirait le quatrième élément, qui ne doit justement pas exister."
+  - key: qcm-un-nom-parmi-d-autres
+    format: multiple-choice
+    question: "Comment vérifies-tu que la liste reçue contient un produit nommé `stylo`, parmi d'autres ?"
+    choices:
+      - {text: "`body(\"nom\", hasItem(\"stylo\"))`", correct: true}
+      - {text: "`body(\"nom\", is(\"stylo\"))`", correct: false}
+      - {text: "`body(\"stylo\", notNullValue())`", correct: false}
+      - {text: "`body(\"nom\", equalTo(\"[stylo]\"))`", correct: false}
+    answer: "Sur une liste, le chemin `nom` donne la liste de tous les noms ; `hasItem` y cherche `stylo`. `is(\"stylo\")` comparerait toute la liste à une chaîne."
+  - key: qcm-champ-fautif-en-validation
+    format: multiple-choice
+    question: "`POST /produits` répond 400 quand le nom est vide. Quel chemin lit le champ fautif dans la réponse de Quarkus ?"
+    choices:
+      - {text: "`violations[0].field`", correct: true}
+      - {text: "`errors[0].field`", correct: false}
+      - {text: "`detail.field`", correct: false}
+      - {text: "`fieldErrors[0].name`", correct: false}
+    answer: "Quarkus répond `{\"title\": \"Constraint Violation\", \"status\": 400, \"violations\": [{\"field\": \"creer.nouveau.nom\", \"message\": \"must not be blank\"}]}`. Le champ porte le nom de la méthode et du paramètre : on le vérifie avec `containsString(\"nom\")`."
+  - key: qcm-parametre-de-chemin
+    format: multiple-choice
+    question: "Comment appelles-tu `/produits/42` avec RestAssured, l'identifiant étant dans une variable ?"
+    choices:
+      - {text: "`get(\"/produits/{id}\", id)`", correct: true}
+      - {text: "`get(\"/produits/:id\", id)`", correct: false}
+      - {text: "`queryParam(\"id\", id).get(\"/produits\")`", correct: false}
+      - {text: "`body(id).get(\"/produits/{id}\")`", correct: false}
+    answer: "Les valeurs passées après le chemin remplacent ses `{...}` dans l'ordre. `queryParam` appellerait `/produits?id=42`, une autre URL."
+  - key: trous-given-then
+    format: fill-in
+    question: |-
+      Complète la chaîne RestAssured :
+      ```java
+      ___()
+          .when().get("/produits")
+          .___().statusCode(200);
+      ```
+    blanks:
+      - [given]
+      - [then]
+    answer: "`given()` prépare la requête, `when()` l'envoie, `then()` ouvre les vérifications."
+  - key: trous-type-du-corps
+    format: fill-in
+    question: |-
+      Complète pour que le corps soit envoyé en JSON :
+      ```java
+      given().contentType(ContentType.___)
+          .body("{\"nom\": \"stylo\", \"prix\": 2}")
+          .post("/produits");
+      ```
+    blanks:
+      - [JSON]
+    answer: "`ContentType.JSON` envoie l'en-tête `Content-Type: application/json` ; sans lui, la ressource répond 415."
+  - key: trous-garder-l-identifiant
+    format: fill-in
+    question: |-
+      Complète pour garder l'identifiant du produit créé :
+      ```java
+      Integer id = given().contentType(ContentType.JSON).body(json)
+          .post("/produits")
+          .then().statusCode(201)
+          .___().path("id");
+      ```
+    blanks:
+      - [extract]
+    answer: "`extract()` sort des vérifications pour lire une valeur de la réponse ; un entier du JSON arrive en `Integer`."
+  - key: trous-plusieurs-noms
+    format: fill-in
+    question: |-
+      Complète pour vérifier que la liste contient au moins ces deux noms, parmi d'autres :
+      ```java
+      given().get("/produits").then()
+          .body("nom", ___("stylo", "gomme"));
+      ```
+    blanks:
+      - [hasItems]
+    answer: "`hasItems` vérifie que chaque valeur est présente, quel que soit l'ordre et quels que soient les autres éléments."
+  - key: bug-prix-decimal
+    format: bug-fix
+    question: |-
+      Le produit a bien un prix de 9.99, mais ce test échoue : « JSON path prix doesn't match. Expected: is <9.99>
+      Actual: <9.99F> ». Quelle correction est la bonne ?
+      ```java
+      given().get("/produits/{id}", id)
+          .then()
+          .body("prix", is(9.99));
+      ```
+    choices:
+      - {text: "Comparer à un `float` : `is(9.99f)`", correct: true}
+      - {text: "Comparer à une chaîne : `is(\"9.99\")`", correct: false}
+      - {text: "Passer le champ `prix` de l'entité en `float`", correct: false}
+      - {text: "Ajouter `.contentType(ContentType.JSON)`", correct: false}
+    answer: |-
+      ```java
+      .body("prix", is(9.99f));
+      ```
+      RestAssured lit les décimaux en `Float`, quel que soit le type côté serveur : changer l'entité ne change rien au
+      JSON. Pour des montants exacts, on configure RestAssured en `BigDecimal`, ou l'on compare à `closeTo`.
+  - key: bug-identifiant-long
+    format: bug-fix
+    question: |-
+      Ce test échoue : « JSON path id doesn't match. Expected: is <8L> Actual: <8> ». Quelle correction est la
+      bonne ?
+      ```java
+      Long id = commandes.creer("stylo").id;
+      given().get("/commandes/{id}", id)
+          .then()
+          .body("id", is(id));
+      ```
+    choices:
+      - {text: "Comparer à un `Integer` : `is(id.intValue())`", correct: true}
+      - {text: "Passer l'identifiant en chaîne : `is(id.toString())`", correct: false}
+      - {text: "Déclarer l'identifiant de l'entité en `Integer`", correct: false}
+      - {text: "Remplacer `is(id)` par `sameInstance(id)`", correct: false}
+    answer: |-
+      ```java
+      .body("id", is(id.intValue()));
+      ```
+      RestAssured lit un entier du JSON en `Integer`, et `Integer.equals(Long)` est toujours faux. Changer l'entité
+      serait une mauvaise raison de modifier le modèle ; `sameInstance` comparerait des références.
+  - key: bug-post-sans-content-type
+    format: bug-fix
+    question: |-
+      Ce test échoue : « Expected status code <201> but was <415> ». Quelle correction est la bonne ?
+      ```java
+      given()
+          .body("{\"nom\": \"stylo\", \"prix\": 2}")
+          .post("/produits")
+          .then()
+          .statusCode(201);
+      ```
+    choices:
+      - {text: "Ajouter `.contentType(ContentType.JSON)` dans `given()`", correct: true}
+      - {text: "Ajouter `.accept(ContentType.TEXT)` dans `given()`", correct: false}
+      - {text: "Attendre `statusCode(415)`, le statut d'une création", correct: false}
+      - {text: "Annoter la ressource avec `@Produces(MediaType.TEXT_PLAIN)`", correct: false}
+    answer: |-
+      ```java
+      given()
+          .contentType(ContentType.JSON)
+          .body("{\"nom\": \"stylo\", \"prix\": 2}")
+      ```
+      Une chaîne part en `text/plain` par défaut ; la ressource n'accepte que du JSON et répond 415 Unsupported Media
+      Type. `@Produces` règle ce que la ressource renvoie, pas ce qu'elle accepte.
+  - key: bug-creation-attendue-en-200
+    format: bug-fix
+    question: |-
+      La ressource suit les conventions REST, mais ce test échoue : « Expected status code <200> but was <201> ».
+      Quelle correction est la bonne ?
+      ```java
+      given().contentType(ContentType.JSON).body(json)
+          .post("/produits")
+          .then()
+          .statusCode(200);
+      ```
+    choices:
+      - {text: "Attendre `statusCode(201)`, le statut d'une création", correct: true}
+      - {text: "Faire répondre la ressource avec `Response.ok()`", correct: false}
+      - {text: "Remplacer `post` par `put` pour obtenir un 200", correct: false}
+      - {text: "Ajouter `.accept(ContentType.JSON)` dans `given()`", correct: false}
+    answer: |-
+      ```java
+      .then()
+          .statusCode(201);
+      ```
+      Une création répond 201 Created, avec l'adresse de la ressource dans `Location`. C'est le test qui se trompe :
+      le modifier pour coller au code changerait le contrat de l'API.

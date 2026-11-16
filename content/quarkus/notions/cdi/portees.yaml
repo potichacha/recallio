@@ -1,0 +1,355 @@
+notion: portees
+lesson: |-
+  La **portée** d'un bean dit **combien d'instances** le conteneur en crée et **combien de temps** elles vivent. C'est
+  l'annotation posée sur la classe (ou sur la méthode productrice).
+
+  | Portée | Instances | Création | Proxy client |
+  |---|---|---|---|
+  | `@ApplicationScoped` | une pour toute l'application | **au premier appel de méthode** | oui |
+  | `@Singleton` | une pour toute l'application | à la première injection | non |
+  | `@RequestScoped` | une par requête (HTTP, ou contexte de requête activé) | au premier appel dans la requête | oui |
+  | `@Dependent` | **une par point d'injection** | avec le bean qui la reçoit | non |
+
+  **Portées normales et pseudo-portées.** `@ApplicationScoped` et `@RequestScoped` sont des portées **normales** :
+  on injecte un **proxy client**, qui retrouve à chaque appel la bonne instance (celle de l'application, celle de la
+  requête en cours). `@Singleton` et `@Dependent` sont des **pseudo-portées** : on injecte l'objet lui-même.
+
+  **`@ApplicationScoped` ou `@Singleton` ?** Tous deux donnent une instance unique. `@ApplicationScoped` est le choix
+  par défaut : création paresseuse, remplacement par une doublure (`@InjectMock`) dans les tests, dépendances
+  circulaires possibles. `@Singleton` économise le proxy, mais `@InjectMock` le refuse : « Invalid use of
+  io.quarkus.test.InjectMock - the injected bean does not declare a CDI normal scope but: jakarta.inject.Singleton ».
+
+  **`@Dependent`** : chaque point d'injection reçoit **sa propre** instance, qui vit et meurt avec le bean qui la
+  contient. Deux beans qui injectent le même `@Dependent` ne partagent rien.
+
+  **`@RequestScoped`** : l'endroit des données propres à une requête (l'utilisateur courant, un identifiant de
+  corrélation). Hors d'une requête, le proxy échoue : dans un autre thread (un `CompletableFuture.supplyAsync`, un
+  exécuteur), on obtient « ContextNotActiveException: RequestScoped context was not active... ». On passe alors la
+  **valeur** à la tâche, plutôt que le bean ; `@ActivateRequestContext` active un contexte, mais **neuf**, vide des
+  données de la requête d'origine.
+
+  **La règle des beans partagés.** Une instance `@ApplicationScoped` ou `@Singleton` sert **toutes les requêtes en
+  même temps**, sur plusieurs threads. Elle ne garde pas d'état propre à une requête ; un état partagé (un cache, un
+  compteur) passe par des structures sûres (`ConcurrentHashMap`, `AtomicLong`).
+
+  ```java
+  @ApplicationScoped
+  public class Tarifs { ... }            // sans état : partagé par tous
+
+  @RequestScoped
+  public class UtilisateurCourant {      // propre à la requête en cours
+      String identifiant;
+  }
+  ```
+
+  **En entretien** : « `@ApplicationScoped` donne une instance unique, créée au premier appel, derrière un proxy client ;
+  c'est mon choix par défaut. `@Singleton` évite le proxy mais ne se remplace pas par un mock ; `@RequestScoped` vit le
+  temps d'une requête ; `@Dependent` crée une instance par point d'injection. Un bean partagé ne garde jamais l'état
+  d'une requête. »
+cards:
+  - key: application-scoped-ou-singleton
+    format: course
+    question: "Qu'est-ce qui distingue `@ApplicationScoped` de `@Singleton` dans Quarkus ?"
+    choices:
+      - {text: "`@ApplicationScoped` passe par un proxy client et se crée au premier appel", correct: true}
+      - {text: "`@Singleton` crée une instance par thread, `@ApplicationScoped` une seule", correct: false}
+      - {text: "`@ApplicationScoped` ne vaut qu'en mode dev, `@Singleton` partout", correct: false}
+      - {text: "Rien : les deux annotations sont de simples synonymes", correct: false}
+    answer: "Les deux donnent une instance unique. `@ApplicationScoped`, portée normale, est injecté par un proxy : création paresseuse, doublures de test, dépendances circulaires. `@Singleton` est injecté directement."
+  - key: creation-application-scoped
+    format: course
+    question: "Quand l'instance d'un bean `@ApplicationScoped` est-elle créée ?"
+    choices:
+      - {text: "Au premier appel d'une de ses méthodes, à travers le proxy", correct: true}
+      - {text: "Au démarrage de l'application, avant la première requête", correct: false}
+      - {text: "Au moment du build, puis enregistrée dans l'application", correct: false}
+      - {text: "À chaque injection, comme un bean `@Dependent`", correct: false}
+    answer: "L'injection ne fournit que le proxy ; l'instance naît au premier appel. Pour la créer au démarrage, on ajoute `@Startup`."
+  - key: dependent
+    format: course
+    question: "Combien d'instances d'un bean `@Dependent` le conteneur crée-t-il ?"
+    choices:
+      - {text: "Une par point d'injection, qui vit avec le bean qui la reçoit", correct: true}
+      - {text: "Une seule, partagée par toute l'application", correct: false}
+      - {text: "Une par requête HTTP, détruite à la fin de la requête", correct: false}
+      - {text: "Une par thread, gardée tant que le thread existe", correct: false}
+    answer: "Chaque injection reçoit sa propre instance. Deux beans qui injectent le même `@Dependent` ne partagent donc aucun état."
+  - key: request-scoped
+    format: course
+    question: "Qu'arrive-t-il quand on appelle un bean `@RequestScoped` hors de tout contexte de requête ?"
+    choices:
+      - {text: "Le proxy lève une `ContextNotActiveException`", correct: true}
+      - {text: "Le bean est créé une fois et partagé par tous les appels", correct: false}
+      - {text: "L'appel attend qu'une requête HTTP arrive pour s'exécuter", correct: false}
+      - {text: "Le proxy renvoie `null` pour chaque méthode appelée", correct: false}
+    answer: "« RequestScoped context was not active when trying to obtain a bean instance for a client proxy ». Le message propose `@ActivateRequestContext`, qui active un contexte neuf."
+  - key: vf-dependent-deux-instances
+    format: true-false
+    question: "Deux points d'injection d'un même bean `@Dependent` reçoivent deux instances distinctes."
+    truth: true
+    answer: "C'est la définition de `@Dependent` : une instance par point d'injection. Pour une instance partagée, on choisit `@ApplicationScoped`."
+  - key: vf-singleton-proxy
+    format: true-false
+    question: "Un bean `@Singleton` est injecté à travers un proxy client."
+    truth: false
+    answer: "`@Singleton` est une pseudo-portée : on injecte l'instance elle-même, créée à la première injection. Seules les portées normales passent par un proxy."
+  - key: vf-request-scoped-autre-thread
+    format: true-false
+    question: "Appeler un bean `@RequestScoped` depuis une tâche lancée par `CompletableFuture.supplyAsync` lève une `ContextNotActiveException`."
+    truth: true
+    answer: "Le contexte de requête est lié au thread de la requête ; la tâche tourne sur un autre thread. On lit la valeur avant de lancer la tâche, et on la lui passe."
+  - key: vf-singleton-portee-normale
+    format: true-false
+    question: "`@Singleton` est une portée normale de CDI, comme `@ApplicationScoped`."
+    truth: false
+    answer: "C'est une pseudo-portée, comme `@Dependent` : pas de proxy client. D'où ses limites : pas de création paresseuse, pas de remplacement par `@InjectMock`."
+  - key: qcm-service-sans-etat
+    format: multiple-choice
+    question: "Quelle portée donnes-tu à un service de calcul de prix, sans état, utilisé partout ?"
+    choices:
+      - {text: "`@ApplicationScoped`", correct: true}
+      - {text: "`@RequestScoped`", correct: false}
+      - {text: "`@Dependent`", correct: false}
+      - {text: "`@SessionScoped`", correct: false}
+    answer: "Une seule instance suffit, puisqu'il n'a pas d'état. `@RequestScoped` ou `@Dependent` créeraient des instances inutiles."
+  - key: qcm-utilisateur-courant
+    format: multiple-choice
+    question: "Quelle portée donnes-tu à un bean qui garde l'identifiant de l'utilisateur de la requête en cours ?"
+    choices:
+      - {text: "`@RequestScoped`", correct: true}
+      - {text: "`@ApplicationScoped`", correct: false}
+      - {text: "`@Singleton`", correct: false}
+      - {text: "`@Startup`", correct: false}
+    answer: "Une instance par requête : chaque utilisateur voit la sienne. Dans un bean `@ApplicationScoped`, l'identifiant serait écrasé par les requêtes concurrentes."
+  - key: qcm-activer-le-contexte
+    format: multiple-choice
+    question: "Quelle annotation active un contexte de requête le temps d'un appel de méthode ?"
+    choices:
+      - {text: "`@ActivateRequestContext`", correct: true}
+      - {text: "`@RequestScoped`", correct: false}
+      - {text: "`@Transactional`", correct: false}
+      - {text: "`@Startup`", correct: false}
+    answer: "C'est une liaison d'intercepteur : le contexte est actif pendant la méthode, puis détruit. Il est neuf : il ne contient pas les beans d'une requête HTTP en cours ailleurs."
+  - key: qcm-portee-classe-decouverte
+    format: multiple-choice
+    question: "Quelle portée Quarkus donne-t-il à une classe sans annotation de portée, découverte parce qu'elle déclare une méthode `@Produces` ?"
+    choices:
+      - {text: "`@Dependent`", correct: true}
+      - {text: "`@ApplicationScoped`", correct: false}
+      - {text: "`@Singleton`", correct: false}
+      - {text: "`@RequestScoped`", correct: false}
+    answer: "`@Dependent` est la portée par défaut de CDI. La méthode productrice, elle, a sa propre portée : `@Dependent` aussi, sauf annotation."
+  - key: trous-application-scoped
+    format: fill-in
+    question: |-
+      Complète pour un service partagé par toute l'application, créé à sa première utilisation :
+      ```java
+      @___
+      public class Tarifs {
+      ```
+    blanks:
+      - [ApplicationScoped]
+    answer: "`@ApplicationScoped` : une instance, derrière un proxy client, créée au premier appel."
+  - key: trous-request-scoped
+    format: fill-in
+    question: |-
+      Complète pour une instance par requête :
+      ```java
+      @___
+      public class UtilisateurCourant {
+          String identifiant;
+      }
+      ```
+    blanks:
+      - [RequestScoped]
+    answer: "`@RequestScoped` : chaque requête a son instance, détruite à la fin de la requête."
+  - key: trous-singleton
+    format: fill-in
+    question: |-
+      Complète pour une instance unique, injectée directement, sans proxy client :
+      ```java
+      @___
+      public class Horloge {
+      ```
+    blanks:
+      - [Singleton]
+    answer: "`@Singleton` (de `jakarta.inject`) : pas de proxy, donc pas de création paresseuse ni de `@InjectMock`."
+  - key: trous-activer-contexte
+    format: fill-in
+    question: |-
+      Complète pour que cette méthode, appelée hors d'une requête HTTP, dispose d'un contexte de requête :
+      ```java
+      @___
+      void traiterLeLot() {
+          compteurRequete.incrementer();
+      }
+      ```
+    blanks:
+      - [ActivateRequestContext]
+    answer: "`@ActivateRequestContext` active un contexte de requête le temps de la méthode : les beans `@RequestScoped` y sont créés, puis détruits à la sortie."
+  - key: bug-request-scoped-dans-un-thread
+    format: bug-fix
+    question: |-
+      L'export lève « ContextNotActiveException: RequestScoped context was not active when trying to obtain a bean
+      instance for a client proxy ». Quelle correction est la bonne ?
+      ```java
+      @GET
+      @Path("/export")
+      public CompletionStage<String> exporter() {
+          return CompletableFuture.supplyAsync(() -> exports.generer(utilisateurCourant.identifiant()));
+      }
+      ```
+    choices:
+      - {text: "Lire l'identifiant dans la requête, puis le passer à la tâche", correct: true}
+      - {text: "Passer `UtilisateurCourant` en `@ApplicationScoped`", correct: false}
+      - {text: "Annoter la méthode `exporter` avec `@Singleton`", correct: false}
+      - {text: "Remplacer `supplyAsync` par `runAsync`", correct: false}
+    answer: |-
+      ```java
+      String identifiant = utilisateurCourant.identifiant();
+      return CompletableFuture.supplyAsync(() -> exports.generer(identifiant));
+      ```
+      La tâche tourne sur un autre thread, sans contexte de requête : le proxy de `UtilisateurCourant` n'y trouve
+      rien. Lire la valeur avant de lancer la tâche règle le problème. `@ApplicationScoped` mélangerait les
+      utilisateurs.
+  - key: bug-compteur-dependent
+    format: bug-fix
+    question: |-
+      Deux services incrémentent un compteur de visites commun, mais chacun affiche son propre total, jamais la somme.
+      Quelle correction est la bonne ?
+      ```java
+      @Dependent
+      public class CompteurVisites {
+          private final AtomicLong visites = new AtomicLong();
+
+          public long incrementer() {
+              return visites.incrementAndGet();
+          }
+      }
+      ```
+    choices:
+      - {text: "Remplacer `@Dependent` par `@ApplicationScoped`", correct: true}
+      - {text: "Remplacer `AtomicLong` par un simple `long`", correct: false}
+      - {text: "Déclarer la méthode `incrementer` en `synchronized`", correct: false}
+      - {text: "Remplacer `@Dependent` par `@RequestScoped`", correct: false}
+    answer: |-
+      ```java
+      @ApplicationScoped
+      public class CompteurVisites {
+      ```
+      Avec `@Dependent`, chaque service reçoit sa propre instance, donc son propre compteur. `@ApplicationScoped` donne
+      une instance unique ; l'`AtomicLong` reste nécessaire, car plusieurs threads l'incrémentent en même temps.
+  - key: bug-etat-de-requete-dans-un-bean-partage
+    format: bug-fix
+    question: |-
+      Sous charge, des utilisateurs voient parfois le panier d'un autre. Quelle correction est la bonne ?
+      ```java
+      @ApplicationScoped
+      public class PanierService {
+          private String utilisateur;
+
+          public void ouvrir(String utilisateur) {
+              this.utilisateur = utilisateur;
+          }
+
+          public Panier panier() {
+              return paniers.trouver(utilisateur);
+          }
+      }
+      ```
+    choices:
+      - {text: "Passer l'utilisateur en paramètre de `panier`, sans le garder en champ", correct: true}
+      - {text: "Déclarer le champ `utilisateur` en `volatile`", correct: false}
+      - {text: "Remplacer `@ApplicationScoped` par `@Singleton`", correct: false}
+      - {text: "Déclarer le champ `utilisateur` en `static`", correct: false}
+    answer: |-
+      ```java
+      @ApplicationScoped
+      public class PanierService {
+          public Panier panier(String utilisateur) {
+              return paniers.trouver(utilisateur);
+          }
+      }
+      ```
+      Une seule instance sert toutes les requêtes en parallèle : entre `ouvrir` et `panier`, une autre requête écrase
+      le champ. Un bean partagé ne garde pas l'état d'une requête ; sinon, cet état va dans un bean `@RequestScoped`.
+  - key: bug-panier-request-scoped
+    format: bug-fix
+    question: |-
+      Le client ajoute un article par `POST /panier`, puis le consulte par `GET /panier` : le panier est toujours vide.
+      Quelle correction est la bonne ?
+      ```java
+      @RequestScoped
+      public class Panier {
+          private final List<String> articles = new ArrayList<>();
+
+          public void ajouter(String article) { articles.add(article); }
+          public List<String> articles() { return articles; }
+      }
+      ```
+    choices:
+      - {text: "Enregistrer le panier en base, rattaché au client, à chaque ajout", correct: true}
+      - {text: "Remplacer `ArrayList` par `CopyOnWriteArrayList`", correct: false}
+      - {text: "Remplacer `@RequestScoped` par `@Dependent`", correct: false}
+      - {text: "Déclarer la liste `articles` en `volatile`", correct: false}
+    answer: |-
+      ```java
+      @Transactional
+      public void ajouter(String client, String article) {
+          paniers.trouverOuCreer(client).ajouter(article);
+      }
+      ```
+      Un bean `@RequestScoped` meurt à la fin de chaque requête : le `GET` en reçoit un neuf. Un état qui dure d'une
+      requête à l'autre se garde en base (ou côté client). `@ApplicationScoped` le partagerait entre tous les clients.
+  - key: situation-calcul-de-prix
+    format: scenario
+    question: |-
+      Tu écris un service qui calcule le prix d'une commande à partir de ses lignes, sans rien garder entre deux appels.
+      Quelle portée choisis-tu ?
+    choices:
+      - {text: "`@ApplicationScoped` : une instance sans état suffit à tous", correct: true}
+      - {text: "`@RequestScoped` : une instance par requête, par prudence", correct: false}
+      - {text: "`@Dependent` : une instance par injection, pour isoler les appelants", correct: false}
+      - {text: "Aucune : la classe sera créée avec `new` là où elle sert", correct: false}
+    answer: |-
+      Sans état, rien à isoler : une instance partagée est la plus économe. `@ApplicationScoped` garde aussi la
+      possibilité de la remplacer par une doublure dans les tests.
+  - key: situation-tache-asynchrone
+    format: scenario
+    question: |-
+      Une tâche lancée en arrière-plan depuis une requête a besoin de l'identifiant de l'utilisateur, gardé dans un bean
+      `@RequestScoped`. Que fais-tu ?
+    choices:
+      - {text: "Je lis l'identifiant dans la requête et je le passe à la tâche", correct: true}
+      - {text: "J'injecte le bean `@RequestScoped` dans la tâche, qui le lira plus tard", correct: false}
+      - {text: "Je passe le bean en `@ApplicationScoped`, visible depuis tous les threads", correct: false}
+      - {text: "J'annote la tâche avec `@ActivateRequestContext` pour retrouver la requête", correct: false}
+    answer: |-
+      La tâche s'exécute hors du contexte de la requête, parfois après sa fin. Un contexte activé par
+      `@ActivateRequestContext` serait neuf, sans l'identifiant. La valeur, copiée, reste valable.
+  - key: situation-singleton-partout
+    format: scenario
+    question: |-
+      Un collègue a remplacé tous les `@ApplicationScoped` par `@Singleton` « pour la performance ». Depuis, les tests
+      qui utilisent `@InjectMock` échouent. Que lui dis-tu ?
+    choices:
+      - {text: "Que `@InjectMock` exige une portée normale : revenir à `@ApplicationScoped`", correct: true}
+      - {text: "Que les tests sont en cause : `@InjectMock` ne marche avec aucune portée", correct: false}
+      - {text: "Qu'il faut ajouter `@Startup` à chaque bean pour que les mocks marchent", correct: false}
+      - {text: "Qu'il faut garder `@Singleton` et supprimer ces tests devenus inutiles", correct: false}
+    answer: |-
+      « Invalid use of io.quarkus.test.InjectMock - the injected bean does not declare a CDI normal scope ». Le gain
+      du `@Singleton` (un appel de proxy en moins) est rarement mesurable ; la testabilité, elle, l'est.
+  - key: situation-cache-partage
+    format: scenario
+    question: |-
+      Tu veux un cache en mémoire des taux de change, rempli au fil des requêtes et partagé par toutes. Comment
+      l'écris-tu ?
+    choices:
+      - {text: "Un bean `@ApplicationScoped` qui garde une `ConcurrentHashMap`", correct: true}
+      - {text: "Un bean `@RequestScoped` qui garde une `HashMap`", correct: false}
+      - {text: "Un bean `@Dependent` injecté dans chaque ressource REST", correct: false}
+      - {text: "Un bean `@ApplicationScoped` qui garde une `HashMap` ordinaire", correct: false}
+    answer: |-
+      Une instance unique pour partager, et une structure sûre, car plusieurs threads lisent et écrivent en même
+      temps. Une `HashMap` ordinaire peut perdre des entrées sous accès concurrents.

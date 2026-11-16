@@ -1,0 +1,241 @@
+notion: packaging
+lesson: |-
+  `./mvnw package` (ou `quarkus build`) construit l'application. Par défaut, Quarkus ne produit pas un gros jar
+  unique, mais un **fast-jar** : un dossier, `target/quarkus-app/`.
+
+  ```
+  target/quarkus-app/
+  ├── quarkus-run.jar     le lanceur : java -jar quarkus-run.jar
+  ├── app/                le jar du code de l'application
+  ├── lib/
+  │   ├── boot/           ce qu'il faut pour démarrer
+  │   └── main/           les dépendances : Quarkus, Jackson, Hibernate...
+  └── quarkus/            ce que Quarkus a généré au build, et l'index des classes
+  ```
+
+  On le lance avec `java -jar target/quarkus-app/quarkus-run.jar`. **Tout le dossier** est nécessaire :
+  `quarkus-run.jar` seul ne contient presque rien.
+
+  **Pourquoi ce format ?**
+
+  - **Le démarrage** : au build, Quarkus a calculé où se trouve chaque classe ; au démarrage, il ne parcourt pas
+    tous les jar pour les chercher.
+  - **Les images de conteneur** : les dépendances (`lib/`) changent rarement, le code (`app/`) à chaque version. Le
+    `Dockerfile.jvm` généré dans `src/main/docker/` les copie dans des couches séparées : une nouvelle version ne
+    pousse que la couche du code, et la couche des dépendances reste en cache.
+
+  **Les autres formats**, choisis par `quarkus.package.jar.type` :
+
+  | Valeur | Résultat | Quand |
+  |---|---|---|
+  | `fast-jar` (défaut) | le dossier `quarkus-app/` | presque toujours, et dans une image |
+  | `uber-jar` | un seul `target/<nom>-runner.jar`, dépendances comprises | un hébergement qui veut un fichier unique |
+  | `mutable-jar` | un fast-jar modifiable | le développement à distance |
+  | `legacy-jar` | l'ancien format, `-runner.jar` et `lib/` | la compatibilité |
+
+  L'exécutable **natif** n'est pas un format de jar : il se demande par `quarkus.native.enabled=true`, que le profil
+  Maven `native` active (`./mvnw package -Dnative`).
+
+  **Ce qui est figé, et ce qui ne l'est pas.** Le build fixe la configuration de build (les extensions, le type de
+  base, ce qui change le code généré). La configuration d'exécution se lit encore au démarrage : variables
+  d'environnement (`QUARKUS_DATASOURCE_JDBC_URL`), propriétés système (`-Dquarkus.http.port=9090`), ou un fichier
+  `config/application.properties` placé dans le dossier de travail, qui l'emporte sur celui du jar.
+
+  ```bash
+  ./mvnw package
+  QUARKUS_DATASOURCE_JDBC_URL=jdbc:postgresql://db:5432/boutique java -jar target/quarkus-app/quarkus-run.jar
+  ```
+
+  **En entretien** : « Par défaut, Quarkus produit un fast-jar : un dossier `quarkus-app` avec un lanceur,
+  `quarkus-run.jar`, le code dans `app/` et les dépendances dans `lib/`. Il démarre vite grâce à l'index calculé au
+  build, et se prête aux images en couches, puisque les dépendances changent rarement. Un uber-jar existe pour qui
+  veut un fichier unique, et la configuration d'exécution se change sans reconstruire. »
+cards:
+  - key: resultat-par-defaut
+    format: course
+    question: "Que produit `./mvnw package` dans un projet Quarkus, sans réglage particulier ?"
+    choices:
+      - {text: "Le dossier `target/quarkus-app/`, un lanceur et ses dépendances à part", correct: true}
+      - {text: "Un seul jar exécutable, avec toutes les dépendances à l'intérieur", correct: false}
+      - {text: "Un exécutable natif, compilé par GraalVM pour la machine courante", correct: false}
+      - {text: "Une image de conteneur, poussée dans le registre local de Docker", correct: false}
+    answer: "Le format par défaut est le fast-jar : `quarkus-run.jar`, le code dans `app/`, les dépendances dans `lib/` et les classes générées dans `quarkus/`."
+  - key: lancer-le-fast-jar
+    format: course
+    question: "Comment lances-tu une application empaquetée en fast-jar ?"
+    choices:
+      - {text: "`java -jar target/quarkus-app/quarkus-run.jar`", correct: true}
+      - {text: "`java -jar target/quarkus-app/app/boutique.jar`", correct: false}
+      - {text: "`java -cp target/quarkus-app/lib/* Main`", correct: false}
+      - {text: "`./mvnw quarkus:run -Dfast-jar`", correct: false}
+    answer: "`quarkus-run.jar` est le lanceur : il lit l'index calculé au build et charge `app/` et `lib/`. Le jar de `app/` seul n'a ni dépendances ni classes générées."
+  - key: obtenir-un-jar-unique
+    format: course
+    question: "Quel réglage produit un seul jar exécutable, dépendances comprises ?"
+    choices:
+      - {text: "`quarkus.package.jar.type=uber-jar`", correct: true}
+      - {text: "`quarkus.package.jar.type=fast-jar`", correct: false}
+      - {text: "`quarkus.native.enabled=true`", correct: false}
+      - {text: "`quarkus.package.jar.compress=true`", correct: false}
+    answer: "L'uber-jar regroupe tout dans `target/<nom>-runner.jar`. `fast-jar` est le défaut en dossier ; `quarkus.native.enabled` produit un exécutable natif, pas un jar."
+  - key: interet-des-couches
+    format: course
+    question: "Pourquoi le fast-jar range-t-il les dépendances dans `lib/`, à part du code de l'application ?"
+    choices:
+      - {text: "Pour que l'image garde les dépendances dans une couche en cache", correct: true}
+      - {text: "Pour que les dépendances soient chargées après le code", correct: false}
+      - {text: "Pour que l'on puisse remplacer une dépendance en production", correct: false}
+      - {text: "Pour que le jar du code tienne sous la taille maximale d'un jar", correct: false}
+    answer: "Les dépendances changent rarement, le code à chaque version. Copiées dans deux couches, seule celle du code est reconstruite et poussée."
+  - key: vf-copier-le-lanceur-seul
+    format: true-false
+    question: "Pour déployer un fast-jar, il suffit de copier `quarkus-run.jar` sur le serveur."
+    truth: false
+    answer: "`quarkus-run.jar` n'est qu'un lanceur : il lui faut `app/`, `lib/` et `quarkus/`. On copie tout le dossier `quarkus-app/`."
+  - key: vf-format-par-defaut
+    format: true-false
+    question: "Le format de packaging par défaut de Quarkus est le fast-jar."
+    truth: true
+    answer: "`quarkus.package.jar.type` vaut `fast-jar` par défaut. Les autres valeurs (`uber-jar`, `mutable-jar`, `legacy-jar`) se choisissent explicitement."
+  - key: vf-configuration-externe
+    format: true-false
+    question: "Un fichier `config/application.properties` placé dans le dossier de travail l'emporte, au démarrage, sur l'`application.properties` du jar."
+    truth: true
+    answer: "Quarkus lit ce fichier externe avec une priorité plus haute que celui du jar. Les variables d'environnement et les propriétés système passent encore devant."
+  - key: vf-natif-par-defaut
+    format: true-false
+    question: "`./mvnw package` produit un exécutable natif par défaut."
+    truth: false
+    answer: "Le natif se demande : `./mvnw package -Dnative`, qui active `quarkus.native.enabled=true`. Par défaut, c'est un fast-jar."
+  - key: qcm-contenu-de-lib
+    format: multiple-choice
+    question: "Dans `target/quarkus-app/`, que contient le dossier `lib/` ?"
+    choices:
+      - {text: "Les dépendances : Quarkus et les bibliothèques tierces", correct: true}
+      - {text: "Le code compilé de l'application, dans un jar", correct: false}
+      - {text: "Les classes que Quarkus a générées pendant le build", correct: false}
+      - {text: "Les fichiers de configuration lus au démarrage", correct: false}
+    answer: "`lib/` contient les dépendances (`boot/` pour démarrer, `main/` pour le reste). Le code est dans `app/`, les classes générées dans `quarkus/`."
+  - key: qcm-propriete-du-format
+    format: multiple-choice
+    question: "Quelle propriété choisit le format du jar produit par Quarkus ?"
+    choices:
+      - {text: "`quarkus.package.jar.type`", correct: true}
+      - {text: "`quarkus.jar.format`", correct: false}
+      - {text: "`quarkus.build.packaging`", correct: false}
+      - {text: "`quarkus.package.layout`", correct: false}
+    answer: "`quarkus.package.jar.type` accepte `fast-jar` (défaut), `uber-jar`, `mutable-jar` et `legacy-jar`."
+  - key: qcm-defaut-de-l-uber-jar
+    format: multiple-choice
+    question: "Quel est l'inconvénient d'un uber-jar dans une image de conteneur, face au fast-jar ?"
+    choices:
+      - {text: "Code et dépendances forment une seule couche, refaite à chaque version", correct: true}
+      - {text: "Il ne démarre pas sans la variable d'environnement `QUARKUS_UBER`", correct: false}
+      - {text: "Il ne peut pas lire de configuration au démarrage, tout est figé", correct: false}
+      - {text: "Il exige une JVM compilée en natif dans l'image de base", correct: false}
+    answer: "Une ligne de code changée, et tout le jar (dépendances comprises) part dans une nouvelle couche. Le fast-jar sépare `lib/` et `app/`."
+  - key: qcm-changer-la-base-sans-reconstruire
+    format: multiple-choice
+    question: "L'exploitation doit pointer l'application vers une autre base, sans reconstruire le jar. Que fait-elle ?"
+    choices:
+      - {text: "Elle définit `QUARKUS_DATASOURCE_JDBC_URL` au démarrage", correct: true}
+      - {text: "Elle modifie `application.properties` dans `app/`", correct: false}
+      - {text: "Elle relance `./mvnw package` avec la nouvelle URL", correct: false}
+      - {text: "Elle remplace le dossier `quarkus/` par une copie", correct: false}
+    answer: "L'URL de la base est une configuration d'exécution : une variable d'environnement la change au démarrage. Seule la configuration de build (comme le type de base) impose de reconstruire."
+  - key: trous-lanceur
+    format: fill-in
+    question: |-
+      Complète la commande qui lance l'application empaquetée :
+      ```bash
+      java -jar target/quarkus-app/___
+      ```
+    blanks:
+      - [quarkus-run.jar]
+    answer: "`quarkus-run.jar`, le lanceur du fast-jar."
+  - key: trous-format-uber
+    format: fill-in
+    question: |-
+      Complète pour produire un seul jar exécutable :
+      ```properties
+      quarkus.package.jar.type=___
+      ```
+    blanks:
+      - [uber-jar]
+    answer: "`uber-jar` : un fichier `target/<nom>-runner.jar`, dépendances comprises."
+  - key: trous-commande-de-build
+    format: fill-in
+    question: |-
+      Complète la commande Maven qui construit le dossier `target/quarkus-app/` :
+      ```bash
+      ./mvnw ___
+      ```
+    blanks:
+      - [package, clean package, verify, install]
+    answer: "`./mvnw package` construit l'application ; `verify` et `install` passent aussi par `package`."
+  - key: trous-couche-des-dependances
+    format: fill-in
+    question: |-
+      Complète la ligne du `Dockerfile.jvm` qui copie les dépendances dans leur propre couche :
+      ```
+      COPY target/quarkus-app/___/ /deployments/lib/
+      COPY target/quarkus-app/*.jar /deployments/
+      COPY target/quarkus-app/app/ /deployments/app/
+      COPY target/quarkus-app/quarkus/ /deployments/quarkus/
+      ```
+    blanks:
+      - [lib]
+    answer: "`lib/` d'abord : cette couche change rarement et reste en cache ; le code (`app/`) arrive ensuite."
+  - key: situation-image-lourde
+    format: scenario
+    question: |-
+      À chaque version, la CI pousse 90 Mo d'image, alors que seul ton code a changé. Le Dockerfile copie un
+      uber-jar. Que proposes-tu ?
+    choices:
+      - {text: "Revenir au fast-jar, et copier `lib/` dans sa propre couche avant le code", correct: true}
+      - {text: "Compresser l'uber-jar plus fort avec `quarkus.package.jar.compress`", correct: false}
+      - {text: "Retirer des dépendances du `pom.xml` pour réduire la taille de l'image", correct: false}
+      - {text: "Passer l'image de base en version `latest`, toujours mieux optimisée", correct: false}
+    answer: |-
+      Avec un fast-jar copié en couches, une nouvelle version ne reconstruit que la couche du code, quelques
+      centaines de Ko ; la couche des dépendances est déjà dans le registre. C'est ce que fait le `Dockerfile.jvm`
+      généré.
+  - key: situation-copie-incomplete
+    format: scenario
+    question: |-
+      Ton collègue a copié `target/quarkus-app/quarkus-run.jar` seul sur le serveur. L'application refuse de
+      démarrer. Que lui dis-tu ?
+    choices:
+      - {text: "Copie tout le dossier `quarkus-app/` : le lanceur a besoin de `lib/`, `app/` et `quarkus/`", correct: true}
+      - {text: "Reconstruis en mode natif : le fast-jar ne fonctionne que dans une image Docker", correct: false}
+      - {text: "Lance-le avec `java -cp quarkus-run.jar` plutôt qu'avec `java -jar`", correct: false}
+      - {text: "Renomme-le en `-runner.jar` : c'est le nom que la JVM attend sur un serveur", correct: false}
+    answer: |-
+      Le fast-jar est un dossier : `quarkus-run.jar` ne fait que lancer, avec l'index de `quarkus/`, le code de `app/`
+      et les dépendances de `lib/`. Pour un fichier unique, il faut construire un uber-jar.
+  - key: situation-hebergeur-un-fichier
+    format: scenario
+    question: |-
+      Ton hébergeur, sans conteneur, attend un unique fichier `.jar` qu'il lance avec `java -jar`. Que construis-tu ?
+    choices:
+      - {text: "Un uber-jar, avec `quarkus.package.jar.type=uber-jar`", correct: true}
+      - {text: "Un fast-jar, dont je n'envoie que `quarkus-run.jar`", correct: false}
+      - {text: "Un exécutable natif, renommé avec l'extension `.jar`", correct: false}
+      - {text: "Un fast-jar zippé, que l'hébergeur décompressera seul", correct: false}
+    answer: |-
+      L'uber-jar contient tout dans un seul fichier, lançable par `java -jar`. Le fast-jar a besoin de son dossier, et
+      un exécutable natif n'est pas un jar.
+  - key: situation-config-par-environnement
+    format: scenario
+    question: |-
+      Le même artefact part en recette puis en production, avec des bases et des secrets différents. Comment fournis-tu
+      leur configuration ?
+    choices:
+      - {text: "Par des variables d'environnement au démarrage, sur un artefact unique", correct: true}
+      - {text: "Par un build par environnement, chacun avec son `application.properties`", correct: false}
+      - {text: "Par des valeurs codées en dur, choisies selon le nom de la machine", correct: false}
+      - {text: "Par le profil `%dev.` en recette et le profil `%prod.` en production", correct: false}
+    answer: |-
+      On construit une fois et l'on promeut le même artefact ; ce qui change d'un environnement à l'autre arrive au
+      démarrage, comme `QUARKUS_DATASOURCE_JDBC_URL`. Un build par environnement ne garantit plus que l'on livre ce
+      qu'on a testé.

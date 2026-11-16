@@ -276,7 +276,8 @@ Les sujets s'ajoutent un par un, au rythme de la rédaction, indépendamment des
 | Java | Langages | ✅ rédigé, migré vers son dossier de notions (ADR 0026), complet : 347 notions, 7 072 cartes, 39 exercices |
 | Go | Langages | ✅ rédigé, migré vers son dossier de notions (ADR 0026), complet : 223 notions, 4 893 cartes, 21 exercices jugés dans le bac à sable Go (ADR 0033) |
 | Spring Boot | Frameworks | ✅ rédigé en dossier de notions, en brouillon, pour Spring Boot 4.1 : 99 notions, 2 004 cartes, 11 exercices jugés dans le bac à sable Java (ADR 0060) ; à relire dans l'application avant de le publier |
-| Quarkus, Jakarta EE, JPA & Hibernate | Frameworks | sortis du document Java (ADR 0025), en brouillon jusqu'à leur réécriture en dossier de notions (ADR 0050) |
+| Quarkus | Frameworks | ✅ rédigé en dossier de notions, en brouillon, pour Quarkus 3 : 91 notions, 1 780 cartes, 12 exercices jugés par `@QuarkusTest` dans le bac à sable Java (ADR 0061) ; à relire dans l'application avant de le publier |
+| Jakarta EE, JPA & Hibernate | Frameworks | sortis du document Java (ADR 0025), en brouillon jusqu'à leur réécriture en dossier de notions (ADR 0050) |
 | SQL, Kafka, Cache | Données | sortis du document Java, en brouillon jusqu'à leur réécriture |
 | Docker, Kubernetes, CI/CD, Observabilité, Cloud, Git | Cloud & DevOps | sortis du document Java, en brouillon jusqu'à leur réécriture |
 | API REST, Réseau & Linux, Algorithmes, Conception, Entretien comportemental | Fondamentaux | sortis du document Java, en brouillon jusqu'à leur réécriture |
@@ -531,7 +532,7 @@ Le propriétaire a testé l'application en local avant de la déployer ; ses ret
 6. ✅ **Relier le Tour à la révision** (ADR 0059) : en parcours « apprendre », une notion qui a des pages dans le Tour n'entre en révision qu'une fois validée dans le Tour.
 7. **Quatre nouveaux sujets complets**, prêts à l'emploi (référentiel, leçons, cartes à choix, exercices), livrés par priorité :
    1. ✅ **C++** : son bac à sable (GCC 14, doctest, ADR 0053) ; son référentiel (335 notions) ; toutes les notions, des priorités 1 à 4, avec le Tour et les exercices (7 656 cartes) ; reste à le relire dans l'application, puis à le publier.
-   2. **Spring Boot**, puis **Quarkus** : des exercices jugés par `@SpringBootTest` et `@QuarkusTest`, dans un bac à sable qui embarque le framework (✅ Spring Boot dans le bac à sable Java, ADR 0060 ; ✅ son contenu : 99 notions, 2 004 cartes, 11 exercices ; puis Quarkus).
+   2. ✅ **Spring Boot**, puis **Quarkus** : des exercices jugés par `@SpringBootTest` et `@QuarkusTest`, dans un bac à sable qui embarque le framework (✅ Spring Boot dans le bac à sable Java, ADR 0060 ; ✅ son contenu : 99 notions, 2 004 cartes, 11 exercices ; ✅ Quarkus dans le bac à sable Java, ADR 0061 ; ✅ son contenu : 91 notions, 1 780 cartes, 12 exercices). Les deux restent à relire dans l'application avant d'être publiés.
    3. **Python** : son bac à sable, puis le contenu et le Tour.
 8. **Retours de l'audit** du 2026-11-10 (`docs/audit-2026-11.md`, où chaque numéro ci-dessous est détaillé), une PR par étape :
    1. ✅ **Correctifs d'interface** (1 à 4) : débordement sur mobile, « API : UP », libellé du Tour, éditeur du Tour remonté sur mobile.

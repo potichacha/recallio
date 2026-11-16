@@ -1,0 +1,366 @@
+notion: reactive-messaging
+lesson: |-
+  Pour échanger des événements entre services (une commande passée, un paiement reçu), Quarkus s'appuie sur
+  **SmallRye Reactive Messaging** : on annote des méthodes, et la configuration les relie à un broker, le plus souvent
+  **Kafka**. Extension : `quarkus-messaging-kafka` (anciennement `quarkus-smallrye-reactive-messaging-kafka`).
+
+  **1. Des canaux, reliés à des topics.** Le code ne parle que de **canaux** (channels), des noms logiques ; la
+  configuration dit à quel topic Kafka chacun correspond.
+
+  ```java
+  @ApplicationScoped
+  public class Expedition {
+
+      @Incoming("commandes")              // consomme le canal « commandes »
+      @Outgoing("expeditions")            // produit sur le canal « expeditions »
+      public Expedition preparer(Commande commande) {
+          return new Expedition(commande.id(), commande.adresse());
+      }
+  }
+  ```
+
+  ```properties
+  mp.messaging.incoming.commandes.topic=commandes
+  mp.messaging.outgoing.expeditions.topic=expeditions
+  %prod.kafka.bootstrap.servers=kafka:9092
+  ```
+
+  - `@Incoming` : la méthode reçoit chaque message du canal. `@Outgoing` : ce qu'elle renvoie part sur le canal.
+    Les deux : un processeur, qui transforme un flux en un autre.
+  - Sans clé `topic`, le topic porte le nom du canal. Avec un seul connecteur présent, Quarkus l'attache tout seul.
+  - En dev et en test, les **Dev Services** démarrent un broker Kafka ; Quarkus choisit aussi, le plus souvent, les
+    sérialiseurs d'après les types (JSON avec Jackson pour un record).
+
+  **2. Envoyer depuis du code ordinaire : l'`Emitter`.** Un endpoint REST ne renvoie pas ses messages : il les émet.
+
+  ```java
+  @Inject
+  @Channel("commandes")
+  Emitter<Commande> commandes;
+
+  @POST
+  public Response passer(Commande commande) {
+      commandes.send(commande);           // CompletionStage<Void>, terminé quand Kafka a accusé réception
+      return Response.accepted().build();
+  }
+  ```
+
+  `MutinyEmitter<T>` fait de même avec des `Uni`.
+
+  **3. Le thread.** Quarkus le choisit d'après la signature, comme pour un endpoint REST :
+
+  | Signature | Thread par défaut |
+  |---|---|
+  | `void traiter(Commande c)`, ou un type ordinaire en retour | un worker : la méthode peut bloquer (JDBC, Hibernate ORM) |
+  | `Uni<Void> traiter(Commande c)`, ou un `CompletionStage` | la boucle d'événements : rien ne doit y bloquer |
+
+  `@Blocking`, `@NonBlocking` et `@RunOnVirtualThread` changent ce choix, et `@Transactional` rend la méthode
+  bloquante. Les messages d'un canal sont traités un par un, dans l'ordre.
+
+  **4. Les garanties de Kafka.**
+
+  - L'**ordre** n'est garanti qu'**au sein d'une partition**. Les messages de même **clé** vont dans la même
+    partition : on donne pour clé l'identifiant de l'objet (la commande), avec `Record.of(cle, valeur)`.
+  - La livraison est **au moins une fois** : après une panne ou un rééquilibrage, un message peut être relu. Le
+    traitement doit être **idempotent** (rejouer un message ne change rien de plus).
+  - Un message est acquitté quand la méthode a fini : une exception le refuse (*nack*), et la stratégie d'échec
+    décide de la suite (voir l'acquittement).
+
+  **En entretien** : « Je décris des canaux avec `@Incoming` et `@Outgoing`, et la configuration les relie aux topics
+  Kafka ; depuis un endpoint, j'émets avec un `Emitter`. Une méthode synchrone s'exécute sur un worker, une méthode
+  qui renvoie un `Uni` sur la boucle d'événements, où rien ne doit bloquer. Kafka ne garantit
+  l'ordre que par partition, donc je donne une clé, et il livre au moins une fois, donc mes consommateurs sont
+  idempotents. »
+cards:
+  - key: role-d-un-canal
+    format: course
+    question: "Qu'est-ce qu'un canal (channel) dans Reactive Messaging ?"
+    choices:
+      - {text: "Un nom logique, relié par la configuration à un topic du broker", correct: true}
+      - {text: "Une connexion TCP ouverte vers le broker Kafka", correct: false}
+      - {text: "Un thread réservé au traitement d'un topic", correct: false}
+      - {text: "Une file en mémoire, propre à l'application", correct: false}
+    answer: "Le code ne connaît que le canal (`@Incoming(\"commandes\")`) ; `mp.messaging.incoming.commandes.topic` dit quel topic il lit. Changer de topic ne touche pas au code."
+  - key: incoming-et-outgoing
+    format: course
+    question: "Que fait une méthode annotée à la fois `@Incoming(\"commandes\")` et `@Outgoing(\"expeditions\")` ?"
+    choices:
+      - {text: "Elle reçoit chaque commande et envoie sa valeur de retour sur `expeditions`", correct: true}
+      - {text: "Elle copie chaque message de `commandes` vers `expeditions`, sans l'appeler", correct: false}
+      - {text: "Elle choisit, pour chaque message, l'un des deux canaux", correct: false}
+      - {text: "Elle ne compile pas : une méthode n'a qu'une seule annotation de canal", correct: false}
+    answer: "C'est un processeur : il transforme le flux d'un canal en un flux sur un autre."
+  - key: emettre-depuis-rest
+    format: course
+    question: "Comment un endpoint REST envoie-t-il un message sur le canal `commandes` ?"
+    choices:
+      - {text: "Avec un `Emitter<Commande>` injecté par `@Channel(\"commandes\")`", correct: true}
+      - {text: "En annotant l'endpoint avec `@Outgoing(\"commandes\")`", correct: false}
+      - {text: "En créant un `KafkaProducer` à chaque requête", correct: false}
+      - {text: "En renvoyant la commande dans la réponse HTTP", correct: false}
+    answer: "L'`Emitter` fait le pont entre du code impératif et un canal. `@Outgoing` sur un endpoint ne le relierait pas au canal : c'est un mécanisme à part."
+  - key: dev-services-kafka
+    format: course
+    question: "Que font les Dev Services de Kafka, en dev et en test ?"
+    choices:
+      - {text: "Ils démarrent un broker dans un conteneur et y branchent l'application", correct: true}
+      - {text: "Ils remplacent Kafka par une file en mémoire, sans conteneur", correct: false}
+      - {text: "Ils se connectent au broker de production, en lecture seule", correct: false}
+      - {text: "Ils enregistrent les messages dans des fichiers locaux", correct: false}
+    answer: "Sans `kafka.bootstrap.servers` configuré et avec Docker disponible, un broker démarre tout seul. En production, on donne l'adresse du vrai."
+  - key: vf-topic-par-defaut
+    format: true-false
+    question: "Sans clé `topic` configurée, un canal lit ou écrit le topic qui porte son nom."
+    truth: true
+    answer: "`@Incoming(\"commandes\")` lit le topic `commandes`. La clé `mp.messaging.incoming.commandes.topic` choisit un autre topic."
+  - key: vf-ordre-global
+    format: true-false
+    question: "Kafka garantit l'ordre des messages sur l'ensemble d'un topic."
+    truth: false
+    answer: "L'ordre n'est garanti que dans une partition. Les messages d'une même clé vont dans la même partition : c'est ainsi qu'on garde l'ordre des événements d'une commande."
+  - key: vf-processeur
+    format: true-false
+    question: "Une méthode annotée `@Incoming` et `@Outgoing` transforme les messages d'un canal en messages d'un autre."
+    truth: true
+    answer: "C'est un processeur : sa valeur de retour part sur le canal de `@Outgoing`."
+  - key: vf-deux-fois
+    format: true-false
+    question: "Avec Kafka, un même message peut être traité deux fois par le même consommateur."
+    truth: true
+    answer: "La livraison est au moins une fois : après une panne ou un rééquilibrage, les messages non validés sont relus. Le traitement doit être idempotent."
+  - key: qcm-choisir-le-topic
+    format: multiple-choice
+    question: "Le canal `commandes` doit lire le topic `commandes-v2`. Quelle ligne écris-tu ?"
+    choices:
+      - {text: "`mp.messaging.incoming.commandes.topic=commandes-v2`", correct: true}
+      - {text: "`mp.messaging.outgoing.commandes.topic=commandes-v2`", correct: false}
+      - {text: "`quarkus.kafka.commandes.topic=commandes-v2`", correct: false}
+      - {text: "`kafka.topic.commandes=commandes-v2`", correct: false}
+    answer: "`incoming` pour un canal qu'on lit, `outgoing` pour un canal sur lequel on écrit, puis le nom du canal et la propriété."
+  - key: qcm-extension-kafka
+    format: multiple-choice
+    question: "Quelle extension ajoutes-tu pour consommer et produire des messages Kafka avec Reactive Messaging ?"
+    choices:
+      - {text: "`quarkus-messaging-kafka`", correct: true}
+      - {text: "`quarkus-kafka-streams`", correct: false}
+      - {text: "`quarkus-kafka-client` seule", correct: false}
+      - {text: "`quarkus-vertx`", correct: false}
+    answer: "`quarkus-messaging-kafka` (l'ancien `quarkus-smallrye-reactive-messaging-kafka`). Kafka Streams sert au traitement de flux à état ; le client seul n'apporte pas les annotations."
+  - key: qcm-adresse-du-broker
+    format: multiple-choice
+    question: "Quelle propriété donne l'adresse du broker Kafka de production ?"
+    choices:
+      - {text: "`kafka.bootstrap.servers`", correct: true}
+      - {text: "`quarkus.kafka.url`", correct: false}
+      - {text: "`mp.messaging.broker.url`", correct: false}
+      - {text: "`quarkus.messaging.host`", correct: false}
+    answer: "`kafka.bootstrap.servers` vaut pour tous les canaux Kafka ; un canal peut la surcharger. En dev et en test, les Dev Services la fournissent."
+  - key: qcm-retour-de-send
+    format: multiple-choice
+    question: "Que renvoie `emitter.send(commande)` sur un `Emitter<Commande>` ?"
+    choices:
+      - {text: "Un `CompletionStage<Void>`, terminé quand l'envoi est acquitté", correct: true}
+      - {text: "Rien : la méthode est `void`", correct: false}
+      - {text: "L'offset Kafka du message envoyé", correct: false}
+      - {text: "Un `Uni<Commande>` qu'il faut s'abonner à envoyer", correct: false}
+    answer: "Le `CompletionStage` se termine quand le broker a accusé réception, ou échoue. `MutinyEmitter` renvoie un `Uni<Void>`."
+  - key: trous-incoming
+    format: fill-in
+    question: |-
+      Complète pour recevoir chaque message du canal `commandes` :
+      ```java
+      @___("commandes")
+      public void traiter(Commande commande) {
+      ```
+    blanks:
+      - [Incoming]
+    answer: "`@Incoming` relie la méthode au canal qu'elle consomme."
+  - key: trous-emitter
+    format: fill-in
+    question: |-
+      Complète pour pouvoir envoyer des prix sur le canal `prix` :
+      ```java
+      @Inject
+      @Channel("prix")
+      ___<Double> emetteur;
+      ```
+    blanks:
+      - [Emitter, MutinyEmitter]
+    answer: "Un `Emitter` (ou un `MutinyEmitter`) injecté par `@Channel` envoie sur ce canal."
+  - key: trous-outgoing-config
+    format: fill-in
+    question: |-
+      Complète pour que le canal `confirmations`, sur lequel l'application écrit, aille dans le topic du même nom :
+      ```properties
+      mp.messaging.___.confirmations.topic=confirmations
+      ```
+    blanks:
+      - [outgoing]
+    answer: "`outgoing` pour un canal produit, `incoming` pour un canal consommé."
+  - key: trous-blocking
+    format: fill-in
+    question: |-
+      Complète pour que ce traitement, qui renvoie un `Uni` mais appelle du code bloquant, s'exécute sur un worker :
+      ```java
+      @Incoming("commandes")
+      @___
+      public Uni<Void> enregistrer(Commande commande) {
+          stock.reserver(commande);   // un appel JDBC, bloquant
+          return Uni.createFrom().voidItem();
+      ```
+    blanks:
+      - [Blocking]
+    answer: "Une méthode qui renvoie un `Uni` s'exécute sur la boucle d'événements ; `@Blocking` la déplace sur un worker, où l'appel bloquant est permis."
+  - key: bug-traitement-bloquant
+    format: bug-fix
+    question: |-
+      Chaque message échoue : « BlockingOperationNotAllowedException: You have attempted to perform a blocking
+      operation on a IO thread ». Quelle correction est la bonne ?
+      ```java
+      @Incoming("commandes")
+      public Uni<Void> compter(Commande commande) {
+          long deja = Commande.count("client", commande.client);
+          journal.info("Client vu {} fois", deja);
+          return Uni.createFrom().voidItem();
+      }
+      ```
+    choices:
+      - {text: "Annoter la méthode avec `@Blocking`", correct: true}
+      - {text: "Annoter la méthode avec `@NonBlocking`", correct: false}
+      - {text: "Renvoyer un `CompletionStage<Void>` à la place de l'`Uni`", correct: false}
+      - {text: "Acquitter le message avant le traitement (`PRE_PROCESSING`)", correct: false}
+    answer: |-
+      ```java
+      @Incoming("commandes")
+      @Blocking
+      public Uni<Void> compter(Commande commande) {
+      ```
+      Une méthode qui renvoie un `Uni` (ou un `CompletionStage`) reçoit les messages sur la boucle d'événements, où
+      l'`EntityManager` refuse de bloquer. `@Blocking` la déplace sur un worker. Une méthode `void`, synchrone, y
+      serait allée d'elle-même.
+  - key: bug-message-jamais-acquitte
+    format: bug-fix
+    question: |-
+      Les commandes sont traitées, mais après une minute le connecteur signale un message en attente d'acquittement,
+      la vérification de santé passe au rouge, et au redémarrage tout est relu. Quelle correction est la bonne ?
+      ```java
+      @Incoming("commandes")
+      public CompletionStage<Void> traiter(Message<Commande> message) {
+          stock.reserver(message.getPayload());
+          return CompletableFuture.completedFuture(null);
+      }
+      ```
+    choices:
+      - {text: "Renvoyer `message.ack()` une fois le traitement fini", correct: true}
+      - {text: "Remplacer le type `Message<Commande>` par `Object`", correct: false}
+      - {text: "Renvoyer `message.nack(null)` une fois le traitement fini", correct: false}
+      - {text: "Annoter la méthode avec `@Outgoing(\"commandes\")`", correct: false}
+    answer: |-
+      ```java
+      stock.reserver(message.getPayload());
+      return message.ack();
+      ```
+      Avec un `Message` en paramètre, l'acquittement est manuel. Jamais acquittés, les messages bloquent la validation
+      des offsets : le connecteur finit par se déclarer malade, et tout est relu. Recevoir la `Commande` seule
+      rendrait l'acquittement automatique.
+  - key: bug-message-empoisonne
+    format: bug-fix
+    question: |-
+      Un message mal formé fait lever une exception à `traiter`. Depuis, l'application ne consomme plus rien sur ce
+      canal, et sa vérification de santé est au rouge. Quelle correction est la bonne ?
+      ```properties
+      mp.messaging.incoming.commandes.topic=commandes
+      ```
+    choices:
+      - {text: "Ajouter `mp.messaging.incoming.commandes.failure-strategy=dead-letter-queue`", correct: true}
+      - {text: "Ajouter `mp.messaging.incoming.commandes.failure-strategy=fail`", correct: false}
+      - {text: "Redémarrer l'application à chaque message mal formé", correct: false}
+      - {text: "Supprimer le topic et le recréer, pour repartir de zéro", correct: false}
+    answer: |-
+      ```properties
+      mp.messaging.incoming.commandes.failure-strategy=dead-letter-queue
+      ```
+      La stratégie par défaut, `fail`, arrête la consommation au premier refus. La file des lettres mortes met le
+      message fautif de côté, dans un autre topic, et la consommation continue. Redémarrer relirait le même message.
+  - key: bug-ordre-des-evenements
+    format: bug-fix
+    question: |-
+      Le service de suivi reçoit parfois « commande expédiée » avant « commande payée », pour la même commande. Le
+      topic a plusieurs partitions. Quelle correction est la bonne ?
+      ```java
+      @Inject
+      @Channel("evenements")
+      Emitter<Evenement> evenements;
+
+      void publier(Evenement evenement) {
+          evenements.send(evenement);
+      }
+      ```
+    choices:
+      - {text: "Envoyer avec l'identifiant de la commande pour clé : `Record.of(id, evenement)`", correct: true}
+      - {text: "Envoyer chaque événement deux fois, pour qu'au moins un arrive dans l'ordre", correct: false}
+      - {text: "Ajouter un `Thread.sleep` entre deux envois sur le même canal", correct: false}
+      - {text: "Consommer les messages avec `@Blocking` du côté du suivi", correct: false}
+    answer: |-
+      ```java
+      @Inject
+      @Channel("evenements")
+      Emitter<Record<Long, Evenement>> evenements;
+
+      void publier(Evenement evenement) {
+          evenements.send(Record.of(evenement.commandeId(), evenement));
+      }
+      ```
+      Sans clé, les événements se répartissent sur les partitions, et l'ordre n'est garanti que dans une partition. Avec
+      la commande pour clé, tous ses événements suivent la même partition, dans l'ordre.
+  - key: situation-publier-depuis-rest
+    format: scenario
+    question: |-
+      `POST /commandes` enregistre la commande, puis doit prévenir le service d'expédition, qui lit Kafka. Comment
+      publies-tu l'événement ?
+    choices:
+      - {text: "Avec un `Emitter` injecté par `@Channel`, après l'enregistrement", correct: true}
+      - {text: "En appelant le service d'expédition en HTTP, puis en attendant sa réponse", correct: false}
+      - {text: "En écrivant l'événement dans une table que l'expédition relit", correct: false}
+      - {text: "Avec `@Outgoing` sur la méthode REST, qui renvoie la commande", correct: false}
+    answer: |-
+      L'`Emitter` relie le code impératif au canal. Pour ne jamais publier un événement d'une commande annulée, ni en
+      perdre un, on publie après le commit ; un outbox (une table d'événements relayée vers Kafka) va plus loin.
+  - key: situation-doublons
+    format: scenario
+    question: |-
+      Après un rééquilibrage du groupe de consommateurs, quelques clients ont été débités deux fois. Que fais-tu ?
+    choices:
+      - {text: "Je rends le traitement idempotent, par exemple en notant les identifiants traités", correct: true}
+      - {text: "Je passe à une livraison « exactement une fois » en réglant le délai de session", correct: false}
+      - {text: "Je réduis le topic à une seule partition", correct: false}
+      - {text: "J'interdis les rééquilibrages dans la configuration", correct: false}
+    answer: |-
+      Kafka livre au moins une fois : un message peut revenir. Le consommateur doit pouvoir le rejouer sans effet de
+      plus, en refusant un paiement déjà enregistré pour ce message.
+  - key: situation-bus-ou-kafka
+    format: scenario
+    question: |-
+      Deux services doivent échanger des événements de commande, sans en perdre un seul si l'un d'eux redémarre.
+      Que choisis-tu ?
+    choices:
+      - {text: "Kafka, avec Reactive Messaging : les messages sont conservés et relus", correct: true}
+      - {text: "Le bus d'événements de Vert.x, qui relie les beans entre eux", correct: false}
+      - {text: "Des événements CDI, observés avec `@ObservesAsync`", correct: false}
+      - {text: "Un appel HTTP synchrone par événement, sans file", correct: false}
+    answer: |-
+      Kafka garde les messages sur disque et chaque consommateur reprend à son offset. Le bus de Vert.x et les
+      événements CDI vivent en mémoire, dans une seule application : un redémarrage les perd.
+  - key: situation-renommer-topic
+    format: scenario
+    question: |-
+      L'équipe des données renomme le topic `orders` en `commandes-v2`. Ton code lit le canal `commandes` avec
+      `@Incoming`. Que changes-tu ?
+    choices:
+      - {text: "Seulement la configuration : `mp.messaging.incoming.commandes.topic`", correct: true}
+      - {text: "Le nom du canal dans `@Incoming`, partout dans le code", correct: false}
+      - {text: "Le nom de la classe qui consomme les messages", correct: false}
+      - {text: "Rien : Quarkus suit le renommage tout seul", correct: false}
+    answer: |-
+      Le canal est un nom logique ; le topic est une affaire de configuration. On change une ligne, sans toucher au
+      code ni aux tests.

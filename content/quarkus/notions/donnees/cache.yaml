@@ -1,0 +1,293 @@
+notion: cache
+lesson: |-
+  Un calcul coûteux ou un appel lent dont le résultat change rarement (un taux de change, une configuration
+  distante) gagne à être **mis en cache** : le premier appel calcule, les suivants relisent le résultat. L'extension
+  `quarkus-cache` le fait par annotations, avec Caffeine en mémoire.
+
+  **1. Mettre en cache le résultat d'une méthode.**
+
+  ```java
+  @ApplicationScoped
+  public class Taux {
+
+      @CacheResult(cacheName = "taux")
+      public BigDecimal taux(String devise) {
+          return clientBanque.lireTaux(devise);       // un appel lent
+      }
+
+      @CacheInvalidate(cacheName = "taux")
+      public void oublier(String devise) {
+      }
+
+      @CacheInvalidateAll(cacheName = "taux")
+      public void toutOublier() {
+      }
+  }
+  ```
+
+  - `@CacheResult` : au premier appel avec une clé, la méthode s'exécute et son résultat est rangé ; ensuite, il est
+    renvoyé **sans exécuter la méthode**. Une exception n'est pas mise en cache : l'appel suivant réessaie.
+  - La **clé** est faite de **tous les paramètres** de la méthode ; sans paramètre, une seule entrée.
+    `@CacheKey` sur certains paramètres les choisit seuls comme clé.
+  - `@CacheInvalidate` retire l'entrée dont la clé correspond aux paramètres de la méthode annotée ;
+    `@CacheInvalidateAll` vide tout le cache nommé. Le nom (`cacheName`) doit être **le même** partout.
+
+  **2. Borner le cache.** Par défaut, une entrée ne vieillit pas et le cache n'a pas de taille maximale. On règle
+  chaque cache :
+
+  ```properties
+  quarkus.cache.caffeine."taux".expire-after-write=10M
+  quarkus.cache.caffeine."taux".maximum-size=1000
+  ```
+
+  **3. Les pièges.**
+
+  - C'est un **intercepteur** : comme `@Transactional`, il ne s'applique qu'aux beans (pas à un objet créé par `new`).
+  - La clé doit contenir **tout** ce dont dépend le résultat. Un résultat qui dépend de l'utilisateur connecté, sans
+    l'utilisateur dans la clé, sert à chacun les données du premier.
+  - Pour invalider après une mise à jour, la clé de `@CacheInvalidate` doit être celle de `@CacheResult` : si la
+    méthode de mise à jour prend `(id, produit)`, on marque `@CacheKey` sur `id`.
+  - Le cache est **local à chaque instance**. Avec trois instances, une invalidation n'atteint que l'une d'elles ;
+    un cache partagé demande une autre solution (Redis, par une extension dédiée).
+
+  **4. Par programme.** `@CacheName("taux") Cache cache` donne accès au cache lui-même, pour `invalidate(cle)` ou
+  `invalidateAll()`.
+
+  **En entretien** : « Avec `quarkus-cache`, `@CacheResult` range le résultat d'une méthode, sous une clé faite de ses
+  paramètres, et `@CacheInvalidate` ou `@CacheInvalidateAll` le retire après une modification. Je borne chaque cache
+  par une durée et une taille, je mets dans la clé tout ce dont dépend le résultat, et je me souviens qu'il est local à
+  chaque instance. »
+cards:
+  - key: effet-de-cacheresult
+    format: course
+    question: "Que fait `@CacheResult(cacheName = \"taux\")` au deuxième appel de la méthode avec le même paramètre ?"
+    choices:
+      - {text: "Il renvoie le résultat rangé, sans exécuter la méthode", correct: true}
+      - {text: "Il exécute la méthode et met à jour le résultat rangé", correct: false}
+      - {text: "Il exécute la méthode et compare avec le résultat rangé", correct: false}
+      - {text: "Il renvoie le résultat rangé, puis rafraîchit le cache en arrière-plan", correct: false}
+    answer: "La méthode ne s'exécute qu'au premier appel pour une clé. Ensuite, l'intercepteur répond seul, tant que l'entrée n'est ni expirée ni invalidée."
+  - key: cle-par-defaut
+    format: course
+    question: "De quoi est faite la clé de cache d'une méthode `@CacheResult` à deux paramètres, sans `@CacheKey` ?"
+    choices:
+      - {text: "Des deux paramètres réunis", correct: true}
+      - {text: "Du premier paramètre seulement", correct: false}
+      - {text: "Du nom de la méthode seulement", correct: false}
+      - {text: "De l'instant de l'appel", correct: false}
+    answer: "Tous les paramètres forment une clé composée. `@CacheKey` sur certains paramètres les choisit seuls."
+  - key: expiration-par-defaut
+    format: course
+    question: "Sans configuration, quand une entrée du cache expire-t-elle ?"
+    choices:
+      - {text: "Jamais : il faut régler `expire-after-write` ou invalider", correct: true}
+      - {text: "Après dix minutes, la durée par défaut", correct: false}
+      - {text: "À la fin de la requête HTTP qui l'a créée", correct: false}
+      - {text: "À la fin de la transaction en cours", correct: false}
+    answer: "Ni durée ni taille maximale par défaut. On borne chaque cache : `quarkus.cache.caffeine.\"taux\".expire-after-write=10M`, `maximum-size=1000`."
+  - key: plusieurs-instances
+    format: course
+    question: "L'application tourne en trois instances. Que voit une instance quand une autre invalide une entrée ?"
+    choices:
+      - {text: "Rien : chaque instance a son propre cache en mémoire", correct: true}
+      - {text: "L'invalidation, propagée par le bus d'événements", correct: false}
+      - {text: "L'invalidation, propagée par la base de données", correct: false}
+      - {text: "L'invalidation, au bout de quelques secondes", correct: false}
+    answer: "Caffeine vit dans la mémoire de chaque instance. Pour un cache partagé, il faut un cache distribué, comme Redis."
+  - key: vf-exception-en-cache
+    format: true-false
+    question: "Quand une méthode `@CacheResult` lève une exception, l'exception est mise en cache pour les appels suivants."
+    truth: false
+    answer: "Rien n'est rangé : l'appel suivant exécute de nouveau la méthode. Une panne passagère ne reste donc pas en cache."
+  - key: vf-invalidate-all
+    format: true-false
+    question: "`@CacheInvalidateAll(cacheName = \"taux\")` vide toutes les entrées du cache `taux`."
+    truth: true
+    answer: "Quels que soient les paramètres de la méthode annotée. `@CacheInvalidate` ne retire, lui, qu'une entrée."
+  - key: vf-cache-partage
+    format: true-false
+    question: "Par défaut, le cache de `quarkus-cache` est partagé entre toutes les instances de l'application."
+    truth: false
+    answer: "Le cache Caffeine est en mémoire, propre à chaque instance. Une invalidation sur l'une ne touche pas les autres."
+  - key: vf-sans-parametre
+    format: true-false
+    question: "Une méthode `@CacheResult` sans paramètre n'occupe qu'une seule entrée dans son cache."
+    truth: true
+    answer: "Sans paramètre, la clé est toujours la même : une configuration lue à distance, par exemple."
+  - key: qcm-retirer-une-entree
+    format: multiple-choice
+    question: "Quelle annotation retire du cache l'entrée qui correspond aux paramètres de la méthode ?"
+    choices:
+      - {text: "`@CacheInvalidate`", correct: true}
+      - {text: "`@CacheInvalidateAll`", correct: false}
+      - {text: "`@CacheEvict`", correct: false}
+      - {text: "`@CacheResult(refresh = true)`", correct: false}
+    answer: "`@CacheInvalidate(cacheName = ...)` retire une entrée ; `@CacheInvalidateAll` les retire toutes. `@CacheEvict` est l'annotation de Spring."
+  - key: qcm-choisir-la-cle
+    format: multiple-choice
+    question: "Seul le premier paramètre de `prix(Long id, Locale langue)` doit servir de clé. Que fais-tu ?"
+    choices:
+      - {text: "J'annote `id` avec `@CacheKey`", correct: true}
+      - {text: "J'annote `langue` avec `@CacheIgnore`", correct: false}
+      - {text: "J'écris `@CacheResult(key = \"id\")`", correct: false}
+      - {text: "Rien : seul le premier paramètre compte", correct: false}
+    answer: "`@CacheKey` désigne les paramètres de la clé ; les autres sont ignorés. Encore faut-il que le résultat ne dépende pas d'eux."
+  - key: qcm-expiration
+    format: multiple-choice
+    question: "Comment fais-tu expirer les entrées du cache `taux` dix minutes après leur écriture ?"
+    choices:
+      - {text: "`quarkus.cache.caffeine.\"taux\".expire-after-write=10M`", correct: true}
+      - {text: "`@CacheResult(cacheName = \"taux\", ttl = 600)`", correct: false}
+      - {text: "`quarkus.cache.taux.ttl=600`", correct: false}
+      - {text: "`@Scheduled(every = \"10m\")` sur la méthode", correct: false}
+    answer: "Chaque cache Caffeine se règle par son nom : `expire-after-write`, `expire-after-access`, `maximum-size`. L'annotation n'a pas d'attribut de durée."
+  - key: qcm-extension-cache
+    format: multiple-choice
+    question: "Quelle extension apporte `@CacheResult` à une application Quarkus ?"
+    choices:
+      - {text: "`quarkus-cache`", correct: true}
+      - {text: "`quarkus-caffeine`", correct: false}
+      - {text: "`quarkus-hibernate-orm`", correct: false}
+      - {text: "`quarkus-redis-client`", correct: false}
+    answer: "`quarkus-cache`, dont Caffeine est l'implémentation en mémoire. Le client Redis seul n'apporte pas les annotations de cache."
+  - key: trous-cacheresult
+    format: fill-in
+    question: |-
+      Complète pour ranger les taux dans le cache `taux` :
+      ```java
+      @CacheResult(___ = "taux")
+      public BigDecimal taux(String devise) {
+      ```
+    blanks:
+      - [cacheName]
+    answer: "`cacheName` nomme le cache ; les annotations d'invalidation doivent reprendre le même nom."
+  - key: trous-invalidate-all
+    format: fill-in
+    question: |-
+      Complète pour vider tout le cache `taux` après un import de taux :
+      ```java
+      @___(cacheName = "taux")
+      public void importer(List<Taux> nouveaux) {
+      ```
+    blanks:
+      - [CacheInvalidateAll]
+    answer: "`@CacheInvalidateAll` retire toutes les entrées du cache nommé."
+  - key: trous-cachekey
+    format: fill-in
+    question: |-
+      Complète pour que seule `id` serve de clé à l'invalidation :
+      ```java
+      @CacheInvalidate(cacheName = "produits")
+      public void modifier(@___ Long id, Produit nouveau) {
+      ```
+    blanks:
+      - [CacheKey]
+    answer: "Avec `@CacheKey` sur `id`, la clé est celle de `@CacheResult` sur `produit(Long id)` : la bonne entrée est retirée."
+  - key: trous-expire
+    format: fill-in
+    question: |-
+      Complète pour faire expirer les taux une heure après leur écriture :
+      ```properties
+      quarkus.cache.caffeine."taux".___=1H
+      ```
+    blanks:
+      - [expire-after-write]
+    answer: "`expire-after-write` part de l'écriture ; `expire-after-access` repartirait de chaque lecture."
+  - key: bug-nom-de-cache-different
+    format: bug-fix
+    question: |-
+      Après une modification de prix, `GET /produits/7` renvoie encore l'ancien prix, jusqu'au redémarrage. Quelle
+      correction est la bonne ?
+      ```java
+      @CacheResult(cacheName = "produits")
+      public Produit produit(Long id) { ... }
+
+      @CacheInvalidate(cacheName = "produit")
+      public void changerPrix(Long id) { ... }
+      ```
+    choices:
+      - {text: "Utiliser le même nom, `produits`, dans les deux annotations", correct: true}
+      - {text: "Remplacer `@CacheInvalidate` par `@CacheResult`", correct: false}
+      - {text: "Annoter `changerPrix` avec `@Transactional`", correct: false}
+      - {text: "Ajouter `expire-after-write` au cache `produit`", correct: false}
+    answer: |-
+      ```java
+      @CacheInvalidate(cacheName = "produits")
+      public void changerPrix(Long id) { ... }
+      ```
+      L'invalidation vise le cache `produit`, qui n'est pas celui qu'on lit. Une durée sur ce cache-là n'y changerait
+      rien.
+  - key: bug-cle-d-invalidation
+    format: bug-fix
+    question: |-
+      Après `modifier(7L, nouveau)`, `produit(7L)` renvoie encore l'ancien produit. Le nom du cache est pourtant le
+      même. Quelle correction est la bonne ?
+      ```java
+      @CacheResult(cacheName = "produits")
+      public Produit produit(Long id) { ... }
+
+      @CacheInvalidate(cacheName = "produits")
+      public void modifier(Long id, Produit nouveau) { ... }
+      ```
+    choices:
+      - {text: "Annoter `id` avec `@CacheKey` dans la méthode `modifier`", correct: true}
+      - {text: "Annoter `nouveau` avec `@CacheKey` dans la méthode `modifier`", correct: false}
+      - {text: "Ajouter un paramètre `Produit` à la méthode `produit`", correct: false}
+      - {text: "Déclarer `modifier` en `private`", correct: false}
+    answer: |-
+      ```java
+      @CacheInvalidate(cacheName = "produits")
+      public void modifier(@CacheKey Long id, Produit nouveau) { ... }
+      ```
+      Sans `@CacheKey`, la clé d'invalidation est le couple `(7, nouveau)` : elle ne correspond à aucune entrée. Avec
+      `@CacheKey` sur `id`, c'est `7`, la clé de `produit(7L)`.
+  - key: bug-donnees-d-un-autre-utilisateur
+    format: bug-fix
+    question: |-
+      Des utilisateurs voient le panier d'un autre : le premier à appeler `panier()` après le démarrage. Quelle
+      correction est la bonne ?
+      ```java
+      @Inject
+      SecurityIdentity identite;
+
+      @CacheResult(cacheName = "paniers")
+      public Panier panier() {
+          return Panier.duClient(identite.getPrincipal().getName());
+      }
+      ```
+    choices:
+      - {text: "Passer le client en paramètre, pour qu'il fasse partie de la clé", correct: true}
+      - {text: "Régler `expire-after-write` du cache `paniers` à une minute", correct: false}
+      - {text: "Annoter la méthode `panier` avec `@RequestScoped`", correct: false}
+      - {text: "Limiter le cache `paniers` à une seule entrée", correct: false}
+    answer: |-
+      ```java
+      @CacheResult(cacheName = "paniers")
+      public Panier panier(String client) {
+          return Panier.duClient(client);
+      }
+      ```
+      Sans paramètre, la clé est unique : tout le monde reçoit le panier rangé au premier appel. La clé doit contenir
+      tout ce dont dépend le résultat ; une durée courte ne ferait que réduire la fuite.
+  - key: bug-taux-jamais-rafraichi
+    format: bug-fix
+    question: |-
+      Les taux de change publiés chaque matin ne sont jamais pris en compte : l'application garde ceux de son
+      démarrage, parfois vieux d'une semaine. Quelle correction est la bonne ?
+      ```java
+      @CacheResult(cacheName = "taux")
+      public BigDecimal taux(String devise) {
+          return clientBanque.lireTaux(devise);
+      }
+      ```
+    choices:
+      - {text: "Régler `quarkus.cache.caffeine.\"taux\".expire-after-write`", correct: true}
+      - {text: "Régler `quarkus.cache.caffeine.\"taux\".maximum-size`", correct: false}
+      - {text: "Ajouter `@CacheKey` sur le paramètre `devise`", correct: false}
+      - {text: "Renommer le cache `taux` en `taux-du-jour`", correct: false}
+    answer: |-
+      ```properties
+      quarkus.cache.caffeine."taux".expire-after-write=1H
+      ```
+      Par défaut, une entrée n'expire jamais. Une durée borne l'âge des taux ; une invalidation à l'import du matin
+      (`@CacheInvalidateAll`) serait encore plus précise. `maximum-size` borne le nombre d'entrées, pas leur âge.

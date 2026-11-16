@@ -1,0 +1,210 @@
+notion: dev-services-tests
+lesson: |-
+  Un test d'intégration a besoin de vraies dépendances : une base PostgreSQL, un Kafka, un Keycloak. Quarkus les
+  fournit de deux façons : les **Dev Services**, automatiques, et les **ressources de test**, écrites à la main.
+
+  **Les Dev Services en test.** Comme sous `quarkus dev`, Quarkus démarre un conteneur pour chaque extension qui en
+  a besoin, **avant le premier `@QuarkusTest`**, puis configure l'application pour s'y connecter et l'arrête à la
+  fin. Il s'appuie sur **Testcontainers**. Trois conditions :
+
+  1. l'extension est présente (`quarkus-jdbc-postgresql`, `quarkus-oidc`, un connecteur Kafka...) ;
+  2. **aucune URL n'est configurée** pour le profil courant (`quarkus.datasource.jdbc.url`, `kafka.bootstrap.servers`,
+     `quarkus.oidc.auth-server-url`...) ;
+  3. un moteur de conteneurs (Docker ou Podman) est disponible.
+
+  D'où la règle : l'adresse de production s'écrit avec **`%prod.`**. Écrite sans préfixe, elle vaut aussi en test :
+  les Dev Services ne démarrent pas, et les tests se connectent à cette adresse.
+
+  ```properties
+  %prod.quarkus.datasource.jdbc.url=${DATABASE_URL}
+  # en dev et en test : un PostgreSQL de la même version qu'en production
+  quarkus.datasource.devservices.image-name=postgres:17
+  ```
+
+  `quarkus.devservices.enabled=false` les coupe tous ; `quarkus.datasource.devservices.enabled=false` coupe celui de
+  la base seulement. Tester sur le même moteur qu'en production (PostgreSQL plutôt que H2) évite les surprises de
+  dialecte SQL.
+
+  **Les ressources de test.** Pour ce que les Dev Services ne couvrent pas (une API externe simulée par WireMock, un
+  conteneur particulier), on écrit un `QuarkusTestResourceLifecycleManager` :
+
+  ```java
+  public class FauxPaiement implements QuarkusTestResourceLifecycleManager {
+
+      private WireMockServer serveur;
+
+      @Override
+      public Map<String, String> start() {
+          serveur = new WireMockServer(0);
+          serveur.start();
+          return Map.of("quarkus.rest-client.paiement.url", serveur.baseUrl());
+      }
+
+      @Override
+      public void stop() {
+          serveur.stop();
+      }
+  }
+  ```
+
+  `start()` s'exécute **avant le démarrage de l'application** et renvoie des propriétés de configuration, qui
+  l'emportent sur `application.properties`. La classe doit être publique, avec un constructeur sans argument.
+
+  | Annotation | Portée |
+  |---|---|
+  | `@WithTestResource(FauxPaiement.class)` | par défaut `MATCHING_RESOURCES` : les classes qui déclarent les mêmes ressources partagent l'application |
+  | `@WithTestResource(value = ..., scope = RESTRICTED_TO_CLASS)` | la seule classe annotée |
+  | `@WithTestResource(value = ..., scope = GLOBAL)` | toutes les classes de test |
+  | `@QuarkusTestResource(FauxPaiement.class)` | la forme ancienne : globale, sauf `restrictToAnnotatedClass = true` |
+
+  Comme un profil de test, un jeu de ressources différent **redémarre l'application**.
+
+  **En entretien** : « En test, les Dev Services démarrent les conteneurs dont l'application a besoin, avec
+  Testcontainers, tant qu'aucune URL n'est configurée : c'est pour cela que j'écris l'adresse de production en
+  `%prod.`. Pour le reste, j'écris une ressource de test, dont `start()` démarre la dépendance et renvoie sa
+  configuration. Chaque jeu de ressources différent coûte un redémarrage. »
+cards:
+  - key: outil-sous-les-dev-services
+    format: course
+    question: "Sur quelle bibliothèque les Dev Services s'appuient-ils pour démarrer leurs conteneurs pendant les tests ?"
+    choices:
+      - {text: "Testcontainers", correct: true}
+      - {text: "Docker Compose", correct: false}
+      - {text: "WireMock", correct: false}
+      - {text: "Kubernetes", correct: false}
+    answer: "Quarkus pilote Testcontainers : il démarre le conteneur, lit son adresse et configure l'application. Il faut donc un moteur de conteneurs (Docker ou Podman) sur la machine."
+  - key: role-de-start
+    format: course
+    question: "Que renvoie la méthode `start()` d'une ressource de test (`QuarkusTestResourceLifecycleManager`) ?"
+    choices:
+      - {text: "Des propriétés de configuration, appliquées à l'application", correct: true}
+      - {text: "Le conteneur démarré, que le test reçoit par injection", correct: false}
+      - {text: "Un booléen qui dit si la ressource a bien démarré", correct: false}
+      - {text: "La liste des classes de test qui utilisent la ressource", correct: false}
+    answer: "`start()` démarre la dépendance avant l'application, puis renvoie une `Map` de propriétés (son URL, ses identifiants), qui l'emportent sur `application.properties`."
+  - key: pourquoi-prefixe-prod
+    format: course
+    question: "Pourquoi écrire l'URL de la base de production sous la forme `%prod.quarkus.datasource.jdbc.url=...` ?"
+    choices:
+      - {text: "Pour que dev et tests, sans URL, gardent leur base des Dev Services", correct: true}
+      - {text: "Pour que l'URL soit chiffrée dans l'artefact construit", correct: false}
+      - {text: "Parce qu'une URL sans préfixe est refusée au démarrage", correct: false}
+      - {text: "Pour que la CI lise l'URL depuis ses propres secrets", correct: false}
+    answer: "Les Dev Services ne démarrent que si aucune URL n'est configurée pour le profil courant. Sans préfixe, l'URL vaudrait aussi en test : pas de conteneur, et les tests viseraient cette base."
+  - key: portee-restricted
+    format: course
+    question: "Avec `@WithTestResource(value = FauxPaiement.class, scope = TestResourceScope.RESTRICTED_TO_CLASS)`, où la ressource s'applique-t-elle ?"
+    choices:
+      - {text: "À la seule classe de test annotée", correct: true}
+      - {text: "À toutes les classes de test du projet", correct: false}
+      - {text: "Aux classes qui ont le même `@TestProfile`", correct: false}
+      - {text: "Aux classes du même paquet que la classe annotée", correct: false}
+    answer: "`RESTRICTED_TO_CLASS` limite la ressource à la classe annotée. La portée par défaut, `MATCHING_RESOURCES`, partage l'application entre les classes qui déclarent les mêmes ressources ; `GLOBAL` l'étend à toutes."
+  - key: vf-url-de-test-renseignee
+    format: true-false
+    question: "Les Dev Services démarrent une base pour les tests même quand `%test.quarkus.datasource.jdbc.url` est renseignée."
+    truth: false
+    answer: "Une URL configurée pour le profil courant désactive le Dev Service correspondant : Quarkus suppose que la base existe déjà, et s'y connecte."
+  - key: vf-quarkustestresource-globale
+    format: true-false
+    question: "Une ressource déclarée par `@QuarkusTestResource`, sans autre option, s'applique à toutes les classes de test, pas seulement à la classe annotée."
+    truth: true
+    answer: "C'est la forme ancienne, globale par défaut ; `restrictToAnnotatedClass = true` la limite. `@WithTestResource` est plus prévisible : par défaut, seules les classes qui la déclarent l'utilisent."
+  - key: vf-desactiver-tous
+    format: true-false
+    question: "`quarkus.devservices.enabled=false` désactive tous les Dev Services de l'application."
+    truth: true
+    answer: "C'est le réglage global. Chaque extension a aussi le sien, comme `quarkus.datasource.devservices.enabled`, pour n'en couper qu'un."
+  - key: vf-ressource-redemarre
+    format: true-false
+    question: "Une classe de test avec un jeu de ressources de test différent des autres réutilise l'application déjà démarrée."
+    truth: false
+    answer: "Les ressources changent la configuration : Quarkus arrête l'application et la redémarre, comme pour un profil de test différent."
+  - key: qcm-conditions-de-demarrage
+    format: multiple-choice
+    question: "Quand les Dev Services démarrent-ils un PostgreSQL pour tes tests ?"
+    choices:
+      - {text: "Extension présente, aucune URL configurée, Docker disponible", correct: true}
+      - {text: "Toujours, dès qu'un test est annoté `@QuarkusTest`", correct: false}
+      - {text: "Seulement si `%test.quarkus.devservices.start=true` est écrit", correct: false}
+      - {text: "Seulement quand les tests sont lancés depuis `quarkus dev`", correct: false}
+    answer: "Les trois conditions doivent être réunies. Il n'y a rien à activer : les Dev Services sont actifs par défaut en dev et en test."
+  - key: qcm-version-de-l-image
+    format: multiple-choice
+    question: "La production tourne sur PostgreSQL 17. Comment imposes-tu cette version au conteneur des Dev Services ?"
+    choices:
+      - {text: "`quarkus.datasource.devservices.image-name=postgres:17`", correct: true}
+      - {text: "`quarkus.datasource.db-version=postgres:17`", correct: false}
+      - {text: "`quarkus.devservices.postgresql.tag=17`", correct: false}
+      - {text: "`%test.quarkus.datasource.jdbc.url=postgres:17`", correct: false}
+    answer: "`image-name` choisit l'image du conteneur. Une URL `%test.` désactiverait au contraire le Dev Service."
+  - key: qcm-api-externe-simulee
+    format: multiple-choice
+    question: "Tes tests doivent parler à une fausse API de paiement (un serveur WireMock). Comment branches-tu l'application dessus ?"
+    choices:
+      - {text: "Une ressource de test : `start()` lance WireMock et renvoie l'URL", correct: true}
+      - {text: "Un Dev Service : Quarkus démarre WireMock pour chaque client REST", correct: false}
+      - {text: "Une ligne `%test.` qui pointe vers l'API de paiement réelle", correct: false}
+      - {text: "Un `@BeforeEach` qui lance WireMock et change la configuration", correct: false}
+    answer: "`start()` s'exécute avant le démarrage de l'application : l'URL renvoyée est lue comme une propriété. Un `@BeforeEach` arrive trop tard, la configuration est déjà lue."
+  - key: qcm-portee-par-defaut
+    format: multiple-choice
+    question: "Quelle est la portée par défaut de `@WithTestResource` ?"
+    choices:
+      - {text: "`MATCHING_RESOURCES` : les classes aux mêmes ressources partagent l'application", correct: true}
+      - {text: "`GLOBAL` : la ressource s'applique à toutes les classes de test", correct: false}
+      - {text: "`RESTRICTED_TO_CLASS` : la classe annotée seule, et ses sous-classes", correct: false}
+      - {text: "`PER_METHOD` : la ressource redémarre avant chaque méthode de test", correct: false}
+    answer: "Les classes qui déclarent le même jeu de ressources partagent une application ; un jeu différent impose un redémarrage. `PER_METHOD` n'existe pas."
+  - key: situation-ci-sans-docker
+    format: scenario
+    question: |-
+      Les tests passent sur ton poste, mais échouent en CI dès le démarrage : les Dev Services ne trouvent pas de
+      moteur de conteneurs. Que fais-tu ?
+    choices:
+      - {text: "Je fais tourner le job de tests sur un agent qui dispose de Docker", correct: true}
+      - {text: "Je remplace PostgreSQL par H2 en test, seulement pour la CI", correct: false}
+      - {text: "Je désactive les tests d'intégration en CI, qui restent locaux", correct: false}
+      - {text: "J'ajoute `quarkus.devservices.enabled=true`, pour les forcer", correct: false}
+    answer: |-
+      Les Dev Services ont besoin d'un moteur de conteneurs : la CI doit en fournir un (les agents Linux de GitHub
+      Actions ont Docker). Passer à H2 en CI testerait un autre dialecte SQL que celui de la production.
+  - key: situation-url-sans-prefixe
+    format: scenario
+    question: |-
+      Un collègue a écrit `quarkus.datasource.jdbc.url=jdbc:postgresql://db-recette:5432/boutique`, sans préfixe.
+      Depuis, les tests écrivent dans la base de recette. Que corriges-tu ?
+    choices:
+      - {text: "Je préfixe la ligne par `%prod.`, et les tests retrouvent leur Dev Service", correct: true}
+      - {text: "J'ajoute `@TestTransaction` partout, pour annuler les écritures des tests", correct: false}
+      - {text: "J'ajoute `quarkus.devservices.enabled=true` dans `application.properties`", correct: false}
+      - {text: "Je donne aux tests un compte en lecture seule sur la base de recette", correct: false}
+    answer: |-
+      Sans préfixe, l'URL vaut pour tous les profils : le Dev Service ne démarre pas, puisqu'une URL existe. Avec
+      `%prod.`, dev et test n'ont plus d'URL, et retrouvent leur conteneur jetable.
+  - key: situation-h2-ou-postgresql
+    format: scenario
+    question: |-
+      Pour accélérer les tests, ton équipe propose H2 en mémoire à la place du PostgreSQL des Dev Services. La
+      production utilise des requêtes natives et des types propres à PostgreSQL. Que réponds-tu ?
+    choices:
+      - {text: "Je garde PostgreSQL : les tests doivent parler le même SQL que la production", correct: true}
+      - {text: "J'accepte : H2 imite parfaitement PostgreSQL avec son mode de compatibilité", correct: false}
+      - {text: "J'accepte, et je teste les requêtes natives en production, à la main", correct: false}
+      - {text: "Je propose MySQL, plus rapide à démarrer que PostgreSQL dans un conteneur", correct: false}
+    answer: |-
+      Le mode de compatibilité de H2 ne couvre ni les types (`jsonb`, tableaux) ni toutes les fonctions de PostgreSQL.
+      Le conteneur démarre une fois pour toute la suite : son coût reste faible, et les tests restent fidèles.
+  - key: situation-conteneur-non-couvert
+    format: scenario
+    question: |-
+      Ton application lit des fichiers dans un stockage compatible S3. Aucune extension n'en fournit un Dev Service.
+      Comment le fournis-tu aux tests ?
+    choices:
+      - {text: "Une ressource de test qui démarre un conteneur S3 et renvoie son URL", correct: true}
+      - {text: "Un faux stockage écrit dans `src/main/java`, activé en production aussi", correct: false}
+      - {text: "Le bucket de production, avec un préfixe de dossier propre aux tests", correct: false}
+      - {text: "Un `@BeforeAll` qui démarre le conteneur et appelle `System.setProperty`", correct: false}
+    answer: |-
+      `start()` démarre le conteneur (avec Testcontainers) avant l'application et lui donne son adresse ; `stop()`
+      l'arrête. Un `@BeforeAll` s'exécute après le démarrage : la configuration est déjà lue.

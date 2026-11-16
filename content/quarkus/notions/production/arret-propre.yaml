@@ -1,0 +1,199 @@
+notion: arret-propre
+lesson: |-
+  Un déploiement remplace les pods un à un : chaque ancien pod reçoit **SIGTERM**, puis, s'il n'est pas arrêté au bout
+  de `terminationGracePeriodSeconds` (30 secondes par défaut), **SIGKILL**. Un arrêt brutal coupe les requêtes en
+  cours : des erreurs pour les clients, à chaque déploiement. L'**arrêt propre** les évite.
+
+  **Ce que fait Quarkus sur SIGTERM.** Il lance son arrêt : les observateurs de `ShutdownEvent` et les méthodes
+  `@Shutdown` s'exécutent, puis les extensions ferment leurs ressources (connexions, consommateurs). Par défaut, il
+  **n'attend pas** les requêtes en cours.
+
+  **`quarkus.shutdown.timeout`** active l'attente : à l'arrêt, les **nouvelles requêtes reçoivent 503**, et Quarkus
+  attend que celles en cours finissent, jusqu'au délai donné.
+
+  ```properties
+  quarkus.shutdown.timeout=20s
+  # à la construction, puis à l'exécution : un délai avant de commencer l'arrêt
+  quarkus.shutdown.delay-enabled=true
+  quarkus.shutdown.delay=5s
+  ```
+
+  **Le délai avant l'arrêt.** Kubernetes envoie SIGTERM et retire le pod du `Service` **en parallèle** : pendant
+  quelques instants, des requêtes arrivent encore à un pod qui s'arrête. `quarkus.shutdown.delay` (avec
+  `quarkus.shutdown.delay-enabled=true` au build) fait patienter Quarkus avant l'arrêt proprement dit : la sonde
+  **readiness passe DOWN** (un check « Graceful Shutdown » de SmallRye Health), le trafic se détourne, puis l'attente des
+  requêtes en cours commence. Un `preStop` qui patiente quelques secondes, dans le manifeste, joue le même rôle.
+
+  ```
+  SIGTERM ─► délai (readiness DOWN, le trafic part) ─► 503 aux nouvelles, attente des requêtes en cours ─► arrêt
+             quarkus.shutdown.delay                    quarkus.shutdown.timeout
+  ```
+
+  **Les règles.**
+
+  - La somme du délai et du timeout doit rester **sous `terminationGracePeriodSeconds`**, sinon SIGKILL tombe avant la
+    fin.
+  - Ces délais sont **ignorés en mode dev**, pour que l'application redémarre vite.
+  - Ce qui doit être fait à l'arrêt (vider un tampon, libérer un verrou) va dans une méthode `@Shutdown` ou un
+    observateur de `ShutdownEvent`, court et sans dépendance lente.
+
+  ```java
+  @ApplicationScoped
+  public class Tampon {
+
+      @Shutdown
+      void vider() {
+          ecrire(enAttente);   // les derniers événements, avant la fermeture des connexions
+      }
+  }
+  ```
+
+  **En entretien** : « Kubernetes envoie SIGTERM et retire le pod du `Service` en même temps. Avec
+  `quarkus.shutdown.delay`, la readiness passe DOWN et je laisse le trafic se détourner ; avec
+  `quarkus.shutdown.timeout`, Quarkus refuse les nouvelles requêtes en 503 et finit celles en cours. Le tout doit
+  tenir dans `terminationGracePeriodSeconds`, et le travail de fin va dans une méthode `@Shutdown`. »
+cards:
+  - key: sans-reglage
+    format: course
+    question: "Sans réglage d'arrêt, que fait Quarkus des requêtes en cours quand il reçoit SIGTERM ?"
+    choices:
+      - {text: "Il ne les attend pas : l'arrêt peut les couper", correct: true}
+      - {text: "Il les attend toutes, aussi longtemps qu'il le faut", correct: false}
+      - {text: "Il les attend 30 secondes, puis les coupe", correct: false}
+      - {text: "Il les renvoie à un autre pod du même service", correct: false}
+    answer: "L'attente des requêtes en cours ne s'active qu'avec `quarkus.shutdown.timeout`. Les 30 secondes sont le délai de Kubernetes avant SIGKILL, pas celui de Quarkus."
+  - key: effet-du-timeout
+    format: course
+    question: "Que fait `quarkus.shutdown.timeout=20s` à l'arrêt de l'application ?"
+    choices:
+      - {text: "Il refuse les nouvelles requêtes en 503 et attend les autres jusqu'à 20 s", correct: true}
+      - {text: "Il retarde de 20 s l'arrêt, en continuant d'accepter des requêtes", correct: false}
+      - {text: "Il coupe toute requête qui dure plus de 20 s, même hors de l'arrêt", correct: false}
+      - {text: "Il demande à Kubernetes 20 s de plus avant d'envoyer SIGKILL", correct: false}
+    answer: "Les requêtes en cours ont jusqu'à 20 s pour finir ; les nouvelles reçoivent 503. Le délai de Kubernetes ne change pas : il doit rester plus long."
+  - key: role-du-delay
+    format: course
+    question: "À quoi sert `quarkus.shutdown.delay` ?"
+    choices:
+      - {text: "À passer la readiness à DOWN et laisser le trafic partir avant l'arrêt", correct: true}
+      - {text: "À retarder le démarrage de l'application, le temps de charger les caches", correct: false}
+      - {text: "À attendre la fin des requêtes en cours, après le début de l'arrêt", correct: false}
+      - {text: "À espacer les redémarrages des pods pendant un déploiement", correct: false}
+    answer: "Kubernetes retire le pod du `Service` en même temps qu'il envoie SIGTERM : le délai couvre ce moment. Attendre les requêtes en cours, c'est le rôle de `quarkus.shutdown.timeout`."
+  - key: travail-de-fin
+    format: course
+    question: "Où places-tu le code qui vide un tampon d'événements quand l'application s'arrête ?"
+    choices:
+      - {text: "Dans une méthode `@Shutdown`, ou un observateur de `ShutdownEvent`", correct: true}
+      - {text: "Dans le `finalize()` du bean qui garde le tampon", correct: false}
+      - {text: "Dans un check de santé `@Liveness` qui passe DOWN", correct: false}
+      - {text: "Dans une méthode `@Scheduled` qui tourne chaque seconde", correct: false}
+    answer: "Quarkus appelle ces méthodes à l'arrêt, avant de fermer les ressources des extensions. `finalize()` est déprécié et n'est jamais garanti."
+  - key: vf-attente-par-defaut
+    format: true-false
+    question: "Par défaut, Quarkus attend la fin des requêtes en cours avant de s'arrêter."
+    truth: false
+    answer: "Il faut `quarkus.shutdown.timeout` pour qu'il les attende, et refuse les nouvelles en 503."
+  - key: vf-mode-dev
+    format: true-false
+    question: "En mode dev, `quarkus.shutdown.timeout` et `quarkus.shutdown.delay` sont ignorés."
+    truth: true
+    answer: "Le mode dev redémarre l'application à chaque modification : attendre à chaque fois le ralentirait. Les délais valent en production."
+  - key: vf-sigterm-et-service
+    format: true-false
+    question: "Kubernetes attend que le pod soit retiré du `Service` avant de lui envoyer SIGTERM."
+    truth: false
+    answer: "Les deux se font en parallèle : des requêtes peuvent encore arriver juste après SIGTERM. D'où le délai avant l'arrêt, ou un `preStop` qui patiente."
+  - key: vf-readiness-a-l-arret
+    format: true-false
+    question: "Avec SmallRye Health et un délai d'arrêt, la sonde readiness passe DOWN au début de l'arrêt."
+    truth: true
+    answer: "Un check « Graceful Shutdown » passe DOWN : la readiness répond 503, et Kubernetes cesse d'envoyer du trafic au pod."
+  - key: qcm-somme-des-delais
+    format: multiple-choice
+    question: "`terminationGracePeriodSeconds` vaut 30. Quels réglages d'arrêt choisis-tu ?"
+    choices:
+      - {text: "`delay=5s` et `timeout=20s`, soit 25 s au total", correct: true}
+      - {text: "`delay=10s` et `timeout=30s`, soit 40 s au total", correct: false}
+      - {text: "`delay=30s` seul, pour profiter de tout le délai", correct: false}
+      - {text: "`timeout=60s`, pour ne jamais couper une requête", correct: false}
+    answer: "Délai et timeout doivent tenir sous le délai de Kubernetes, avec une marge ; au-delà, SIGKILL coupe tout. Un `delay` de 30 s n'attendrait aucune requête en cours."
+  - key: qcm-nouvelles-requetes
+    format: multiple-choice
+    question: "Pendant l'attente de `quarkus.shutdown.timeout`, que reçoit une nouvelle requête ?"
+    choices:
+      - {text: "503 Service Unavailable", correct: true}
+      - {text: "Une réponse normale, comme avant l'arrêt", correct: false}
+      - {text: "404 Not Found", correct: false}
+      - {text: "Aucune réponse : la connexion reste ouverte", correct: false}
+    answer: "Le 503 dit au client (ou à la passerelle) de réessayer ailleurs ; seules les requêtes déjà en cours sont menées à terme."
+  - key: qcm-deux-proprietes
+    format: multiple-choice
+    question: "Quelles propriétés activent le délai avant l'arrêt ?"
+    choices:
+      - {text: "`quarkus.shutdown.delay-enabled=true` au build, et `quarkus.shutdown.delay`", correct: true}
+      - {text: "`quarkus.shutdown.delay` seule, lue au démarrage", correct: false}
+      - {text: "`quarkus.shutdown.timeout`, dont le délai est la première moitié", correct: false}
+      - {text: "`quarkus.kubernetes.termination-delay` dans les manifestes", correct: false}
+    answer: "Le délai se prépare au build (`delay-enabled`), puis se règle à l'exécution (`delay`). `timeout` gère l'attente des requêtes en cours, après le délai."
+  - key: qcm-signal-de-kubernetes
+    format: multiple-choice
+    question: "Quel signal Kubernetes envoie-t-il d'abord au conteneur qu'il arrête ?"
+    choices:
+      - {text: "SIGTERM, puis SIGKILL après le délai de grâce", correct: true}
+      - {text: "SIGKILL directement, puis SIGTERM s'il résiste", correct: false}
+      - {text: "SIGHUP, pour recharger la configuration", correct: false}
+      - {text: "SIGINT, comme un Ctrl+C dans un terminal", correct: false}
+    answer: "SIGTERM demande un arrêt propre ; si le processus vit encore après `terminationGracePeriodSeconds`, SIGKILL l'arrête sans condition."
+  - key: situation-erreurs-au-deploiement
+    format: scenario
+    question: |-
+      À chaque déploiement, la passerelle voit quelques dizaines d'erreurs de connexion, toujours vers les pods qui
+      s'arrêtent. Que règles-tu ?
+    choices:
+      - {text: "Un délai avant l'arrêt, puis `quarkus.shutdown.timeout` pour finir les requêtes", correct: true}
+      - {text: "Plus de répliques, pour que chaque pod reçoive moins de requêtes", correct: false}
+      - {text: "Un `@Retry` dans la passerelle, sur toutes les requêtes", correct: false}
+      - {text: "Un `terminationGracePeriodSeconds` à zéro, pour arrêter plus vite", correct: false}
+    answer: |-
+      Le délai laisse Kubernetes détourner le trafic (la readiness passe DOWN) ; le timeout termine les requêtes en
+      cours. Réessayer partout masquerait le problème, et pourrait rejouer des écritures.
+  - key: situation-sigkill-premature
+    format: scenario
+    question: |-
+      Tu as réglé `quarkus.shutdown.timeout=60s`, mais certaines requêtes longues sont toujours coupées au bout de
+      30 secondes. Pourquoi, et que fais-tu ?
+    choices:
+      - {text: "Kubernetes envoie SIGKILL après 30 s : je relève son délai de grâce", correct: true}
+      - {text: "Le timeout est ignoré en production : je le règle en `%dev.`", correct: false}
+      - {text: "Le timeout est en millisecondes : j'écris `60000s`", correct: false}
+      - {text: "Les requêtes longues sont exclues : je les déclare `@Blocking`", correct: false}
+    answer: |-
+      Le délai de grâce de Kubernetes (30 s par défaut) l'emporte : après lui, SIGKILL. `terminationGracePeriodSeconds`
+      doit dépasser le délai et le timeout de Quarkus réunis.
+  - key: situation-tampon-perdu
+    format: scenario
+    question: |-
+      Ton service regroupe des événements en mémoire et les écrit toutes les 10 secondes. À chaque déploiement, les
+      derniers sont perdus. Que fais-tu ?
+    choices:
+      - {text: "J'écris le tampon dans une méthode `@Shutdown`, appelée à l'arrêt", correct: true}
+      - {text: "J'écris les événements une seconde plus tôt, toutes les 9 secondes", correct: false}
+      - {text: "Je passe la sonde liveness à DOWN dès que le tampon se remplit", correct: false}
+      - {text: "Je désactive SIGTERM, pour que le pod ne s'arrête jamais en cours", correct: false}
+    answer: |-
+      Quarkus appelle les méthodes `@Shutdown` lors d'un arrêt propre : le tampon est écrit avant la fermeture. Un
+      intervalle plus court réduit la perte sans la supprimer.
+  - key: situation-race-du-service
+    format: scenario
+    question: |-
+      Même avec `quarkus.shutdown.timeout`, des requêtes reçoivent 503 juste après SIGTERM : la passerelle ne sait
+      pas encore que le pod s'arrête. Que proposes-tu ?
+    choices:
+      - {text: "Un délai avant l'arrêt, ou un `preStop` qui patiente quelques secondes", correct: true}
+      - {text: "Un timeout plus long, pour que les nouvelles requêtes soient acceptées", correct: false}
+      - {text: "Un check de liveness qui passe DOWN à la réception de SIGTERM", correct: false}
+      - {text: "Un redémarrage du pod au lieu de son arrêt, pour garder le trafic", correct: false}
+    answer: |-
+      Le retrait du `Service` met quelques instants à se propager. Pendant le délai, le pod sert encore les requêtes
+      et sa readiness est DOWN ; quand l'arrêt commence, le trafic est déjà parti ailleurs.

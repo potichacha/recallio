@@ -1,0 +1,144 @@
+notion: event-bus
+lesson: |-
+  Vert.x, sous Quarkus, fournit un **bus d'événements** : des beans s'envoient des messages par une **adresse** (une
+  simple chaîne), sans se connaître. C'est un bus **en mémoire**, dans l'application : un outil de découplage interne,
+  pas un broker comme Kafka.
+
+  **1. Consommer : `@ConsumeEvent`.**
+
+  ```java
+  @ApplicationScoped
+  public class Salutations {
+
+      @ConsumeEvent("saluer")                       // io.quarkus.vertx.ConsumeEvent
+      public String saluer(String nom) {
+          return "Bonjour " + nom;                  // la valeur renvoyée sert de réponse
+      }
+
+      @ConsumeEvent(value = "archiver", blocking = true)
+      public void archiver(Commande commande) {
+          archive.enregistrer(commande);            // bloquant : sur un worker
+      }
+  }
+  ```
+
+  Par défaut, la méthode s'exécute sur la **boucle d'événements** : elle ne doit pas bloquer. `blocking = true` (ou
+  `@Blocking`) l'envoie sur un worker. Une méthode qui renvoie un `Uni` répond quand le `Uni` se termine.
+
+  **2. Envoyer : trois façons.** On injecte `io.vertx.mutiny.core.eventbus.EventBus` :
+
+  | Appel | Livraison |
+  |---|---|
+  | `bus.send("archiver", commande)` | **un seul** consommateur de l'adresse (à tour de rôle s'il y en a plusieurs) |
+  | `bus.publish("commande-passee", commande)` | **tous** les consommateurs de l'adresse |
+  | `bus.request("saluer", "Léa")` | un consommateur, dont on attend la **réponse** : un `Uni<Message<T>>` |
+
+  ```java
+  Uni<String> salut = bus.<String>request("saluer", "Léa").onItem().transform(Message::body);
+  ```
+
+  **3. Les échecs.** Une requête vers une adresse sans consommateur échoue : « No handlers for address saluer ». Une
+  exception levée par le consommateur revient au demandeur, sous forme de `ReplyException`. Sans réponse, la requête
+  échoue après un délai (30 secondes par défaut).
+
+  **4. Ses limites.** Les messages vivent en mémoire : un redémarrage perd ceux en cours, et rien n'est relu. Pour
+  échanger entre services, ou pour ne rien perdre, on passe par un broker (Kafka, avec Reactive Messaging). Le bus
+  convient pour découpler des parties d'une même application, ou décharger un travail vers un worker.
+
+  **En entretien** : « Le bus d'événements de Vert.x relie des beans par des adresses, en mémoire : `@ConsumeEvent`
+  consomme, `send` livre à un seul consommateur, `publish` à tous, et `request` attend une réponse. Par défaut, le
+  consommateur tourne sur la boucle d'événements, sauf avec `blocking = true`. Ce n'est pas un broker : rien n'est
+  conservé, donc entre services j'utilise Kafka. »
+cards:
+  - key: send-ou-publish
+    format: course
+    question: "Quelle différence entre `bus.send(adresse, m)` et `bus.publish(adresse, m)` ?"
+    choices:
+      - {text: "`send` livre à un seul consommateur, `publish` à tous", correct: true}
+      - {text: "`send` attend une réponse, `publish` n'en attend pas", correct: false}
+      - {text: "`send` est synchrone, `publish` est asynchrone", correct: false}
+      - {text: "`send` passe par Kafka, `publish` reste en mémoire", correct: false}
+    answer: "Avec deux consommateurs sur l'adresse, `send` en choisit un, à tour de rôle ; `publish` les sert tous. Pour attendre une réponse, c'est `request`."
+  - key: comment-repondre
+    format: course
+    question: "Comment un consommateur `@ConsumeEvent` répond-il à une requête (`bus.request`) ?"
+    choices:
+      - {text: "En renvoyant une valeur, ou un `Uni` qui la produit", correct: true}
+      - {text: "En appelant `bus.send` vers l'adresse du demandeur", correct: false}
+      - {text: "En levant une exception qui porte la réponse", correct: false}
+      - {text: "En écrivant la réponse dans un champ partagé", correct: false}
+    answer: "La valeur renvoyée par la méthode devient la réponse. Une exception, elle, revient au demandeur comme un échec (`ReplyException`)."
+  - key: thread-du-consommateur
+    format: course
+    question: "Sur quel thread s'exécute par défaut une méthode `@ConsumeEvent(\"archiver\")` qui renvoie `void` ?"
+    choices:
+      - {text: "La boucle d'événements de Vert.x", correct: true}
+      - {text: "Un thread de travail (worker)", correct: false}
+      - {text: "Le thread de celui qui a envoyé le message", correct: false}
+      - {text: "Un thread virtuel, créé pour chaque message", correct: false}
+    answer: "Le consommateur ne doit donc pas bloquer. `@ConsumeEvent(value = \"archiver\", blocking = true)`, ou `@Blocking`, l'envoie sur un worker."
+  - key: limites-du-bus
+    format: course
+    question: "Pourquoi le bus d'événements ne remplace-t-il pas Kafka entre deux services ?"
+    choices:
+      - {text: "Il vit en mémoire, dans une application : rien n'est conservé ni relu", correct: true}
+      - {text: "Il ne sait transporter que des chaînes de caractères", correct: false}
+      - {text: "Il ne fonctionne qu'en mode dev, avec les Dev Services", correct: false}
+      - {text: "Il impose un seul consommateur par adresse", correct: false}
+    answer: "Un redémarrage perd les messages en cours, et un service arrêté ne reçoit rien. Kafka garde les messages sur disque, et chaque consommateur reprend où il en était."
+  - key: vf-publish-tous
+    format: true-false
+    question: "`bus.publish(\"commande-passee\", commande)` livre le message à tous les consommateurs de cette adresse."
+    truth: true
+    answer: "C'est la diffusion (publish-subscribe). `send` n'en sert qu'un."
+  - key: vf-send-deux-consommateurs
+    format: true-false
+    question: "Avec deux consommateurs sur la même adresse, `bus.send(...)` livre le message aux deux."
+    truth: false
+    answer: "`send` est point à point : un seul consommateur reçoit chaque message, à tour de rôle. `publish` les servirait tous."
+  - key: vf-aucun-consommateur
+    format: true-false
+    question: "Une requête (`bus.request`) vers une adresse sans aucun consommateur échoue."
+    truth: true
+    answer: "Le demandeur reçoit une `ReplyException` : « No handlers for address ... »."
+  - key: vf-survit-au-redemarrage
+    format: true-false
+    question: "Les messages en attente sur le bus d'événements sont conservés quand l'application redémarre."
+    truth: false
+    answer: "Le bus est en mémoire : un arrêt perd les messages en cours. Pour ne rien perdre, il faut un broker durable."
+  - key: qcm-consommer
+    format: multiple-choice
+    question: "Quelle annotation fait d'une méthode de bean le consommateur de l'adresse `commandes` ?"
+    choices:
+      - {text: "`@ConsumeEvent(\"commandes\")`", correct: true}
+      - {text: "`@Incoming(\"commandes\")`", correct: false}
+      - {text: "`@Observes(\"commandes\")`", correct: false}
+      - {text: "`@Channel(\"commandes\")`", correct: false}
+    answer: "`@ConsumeEvent` (`io.quarkus.vertx.ConsumeEvent`) relie la méthode à une adresse du bus. `@Incoming` et `@Channel` servent à Reactive Messaging, `@Observes` aux événements CDI."
+  - key: qcm-consommateur-bloquant
+    format: multiple-choice
+    question: "Ton consommateur écrit en base avec Hibernate ORM. Comment le déclares-tu ?"
+    choices:
+      - {text: "`@ConsumeEvent(value = \"archiver\", blocking = true)`", correct: true}
+      - {text: "`@ConsumeEvent(\"archiver\")`, sans autre réglage", correct: false}
+      - {text: "`@ConsumeEvent(value = \"archiver\", ordered = false)`", correct: false}
+      - {text: "`@ConsumeEvent(\"archiver\")` avec `@NonBlocking`", correct: false}
+    answer: "`blocking = true` (ou `@Blocking`) exécute le consommateur sur un worker, où Hibernate ORM peut bloquer. Sinon, il tournerait sur la boucle d'événements."
+  - key: qcm-attendre-reponse
+    format: multiple-choice
+    question: "Quel appel envoie un message à l'adresse `saluer` et donne sa réponse, sans bloquer ?"
+    choices:
+      - {text: "`bus.request(\"saluer\", \"Léa\")`, qui renvoie un `Uni<Message<T>>`", correct: true}
+      - {text: "`bus.send(\"saluer\", \"Léa\")`, qui renvoie la réponse", correct: false}
+      - {text: "`bus.publish(\"saluer\", \"Léa\")`, qui renvoie les réponses", correct: false}
+      - {text: "`bus.consumer(\"saluer\").await()`, qui attend le message", correct: false}
+    answer: "`request` attend la réponse d'un consommateur ; `body()` en donne le contenu. `send` et `publish` n'attendent rien."
+  - key: qcm-exception-du-consommateur
+    format: multiple-choice
+    question: "Le consommateur d'une requête lève une `IllegalStateException`. Que reçoit le demandeur ?"
+    choices:
+      - {text: "Un échec : une `ReplyException` qui porte le message de l'exception", correct: true}
+      - {text: "Une réponse `null`, comme si tout allait bien", correct: false}
+      - {text: "Rien : la requête attend indéfiniment", correct: false}
+      - {text: "La même `IllegalStateException`, levée dans son propre thread", correct: false}
+    answer: "Quarkus renvoie l'échec au demandeur : le `Uni` de `request` échoue avec une `ReplyException`."

@@ -1,0 +1,233 @@
+notion: oidc
+lesson: |-
+  Une API moderne ne gère pas elle-même les mots de passe : un **fournisseur d'identité** OpenID Connect (Keycloak,
+  Auth0, Zitadel...) authentifie l'utilisateur et lui délivre un **jeton d'accès**, un JWT signé. L'API se contente de
+  **vérifier ce jeton** à chaque requête. C'est le rôle de l'extension `quarkus-oidc`.
+
+  ```properties
+  quarkus.oidc.auth-server-url=https://sso.exemple.fr/realms/boutique
+  quarkus.oidc.client-id=boutique-api
+  quarkus.oidc.application-type=service
+  quarkus.oidc.token.audience=boutique-api
+  ```
+
+  Le client envoie le jeton dans l'en-tête `Authorization: Bearer eyJhbGciOi...`.
+
+  **Comment la vérification fonctionne.**
+
+  1. Au démarrage, Quarkus lit la **découverte** du fournisseur (`<auth-server-url>/.well-known/openid-configuration`) :
+     l'émetteur, l'adresse des clés publiques (JWKS), celle de l'introspection.
+  2. Il télécharge les **clés publiques** (JWKS) et les garde en cache. Il les recharge quand un jeton cite une clé
+     inconnue (rotation).
+  3. Pour chaque requête, il **vérifie le JWT localement** : la signature, l'émetteur (`iss`), l'expiration (`exp`),
+     et l'audience (`aud`) si `quarkus.oidc.token.audience` est réglé. **Aucun appel au fournisseur** par requête.
+  4. Il construit l'identité : le nom de l'utilisateur et ses **rôles**, lus dans le claim `groups`, ou dans
+     `realm_access.roles` d'un jeton Keycloak ; `quarkus.oidc.roles.role-claim-path` désigne un autre claim.
+
+  Un jeton absent, mal signé ou expiré donne **401**. Un jeton **opaque** (pas un JWT) se vérifie par un appel à
+  l'**introspection** du fournisseur, à chaque requête ou presque : plus lent.
+
+  **Les types d'application.**
+
+  | `application-type` | Pour | Comment |
+  |---|---|---|
+  | `service` | une API appelée avec un jeton | vérifie le bearer |
+  | `web-app` | une application web rendue par le serveur | redirige vers le fournisseur (code flow), garde une session en cookie |
+  | `hybrid` | les deux | selon la requête |
+
+  Une SPA (React, Angular) obtient elle-même son jeton auprès du fournisseur, et appelle une API en mode `service`.
+
+  **En dev et en test**, si `quarkus.oidc.auth-server-url` n'est pas réglée, les **Dev Services** démarrent un
+  Keycloak, avec un royaume et des utilisateurs de test ; `quarkus.keycloak.devservices.realm-path` importe son propre
+  royaume. D'où l'habitude : `%prod.quarkus.oidc.auth-server-url=${OIDC_URL}`.
+
+  **L'audience compte.** Sans contrôle de `aud`, un jeton émis par le même fournisseur pour **une autre application**
+  serait accepté. `quarkus.oidc.token.audience` l'exige.
+
+  **En entretien** : « En mode `service`, `quarkus-oidc` vérifie le JWT bearer localement : il lit la découverte du
+  fournisseur, met ses clés publiques en cache, puis contrôle signature, émetteur, expiration et audience, sans
+  appeler le fournisseur à chaque requête. Les rôles viennent d'un claim du jeton. En dev et en test, les Dev Services
+  démarrent un Keycloak ; en production, l'URL du fournisseur arrive par l'environnement. »
+cards:
+  - key: role-en-mode-service
+    format: course
+    question: "Que fait `quarkus-oidc` en mode `service` ?"
+    choices:
+      - {text: "Il vérifie le jeton bearer de chaque requête et en tire l'identité", correct: true}
+      - {text: "Il affiche une page de connexion et garde une session en cookie", correct: false}
+      - {text: "Il émet lui-même des jetons pour les utilisateurs de l'API", correct: false}
+      - {text: "Il stocke les mots de passe des utilisateurs dans la base", correct: false}
+    answer: "Une API en mode `service` ne fait que vérifier les jetons émis par le fournisseur. La page de connexion et la session, c'est le mode `web-app`."
+  - key: verification-locale
+    format: course
+    question: "Comment `quarkus-oidc` vérifie-t-il un JWT sans appeler Keycloak à chaque requête ?"
+    choices:
+      - {text: "Avec les clés publiques du fournisseur, téléchargées et gardées en cache", correct: true}
+      - {text: "Avec le mot de passe du client, partagé entre l'API et le fournisseur", correct: false}
+      - {text: "En comparant le jeton à une copie gardée en base de données", correct: false}
+      - {text: "En décodant le jeton sans vérifier sa signature, jugée inutile", correct: false}
+    answer: "Le fournisseur signe avec sa clé privée ; l'API vérifie avec la clé publique, obtenue une fois (JWKS) et rechargée quand une clé inconnue apparaît."
+  - key: decouverte
+    format: course
+    question: "Où `quarkus-oidc` trouve-t-il l'adresse des clés publiques et l'émetteur attendu ?"
+    choices:
+      - {text: "Dans `<auth-server-url>/.well-known/openid-configuration`", correct: true}
+      - {text: "Dans le jeton lui-même, qui contient sa clé de vérification", correct: false}
+      - {text: "Dans `application.properties`, où il faut tout recopier", correct: false}
+      - {text: "Dans un fichier `keys.json` à placer dans `src/main/resources`", correct: false}
+    answer: "Le document de découverte d'OpenID Connect décrit le fournisseur : émetteur, JWKS, introspection. Quarkus le lit au démarrage."
+  - key: controle-de-l-audience
+    format: course
+    question: "Que vérifie `quarkus.oidc.token.audience=boutique-api` ?"
+    choices:
+      - {text: "Que le jeton a bien été émis pour l'API `boutique-api`", correct: true}
+      - {text: "Que l'utilisateur a le rôle `boutique-api`", correct: false}
+      - {text: "Que le jeton a été émis par le royaume `boutique-api`", correct: false}
+      - {text: "Que la requête vient du domaine `boutique-api`", correct: false}
+    answer: "Le claim `aud` doit contenir `boutique-api`. Sans ce contrôle, un jeton du même fournisseur, émis pour une autre application, serait accepté."
+  - key: vf-appel-a-chaque-requete
+    format: true-false
+    question: "En mode `service`, `quarkus-oidc` appelle le fournisseur d'identité à chaque requête pour valider un JWT."
+    truth: false
+    answer: "La signature se vérifie localement, avec les clés publiques en cache. Seul un jeton opaque demande un appel d'introspection."
+  - key: vf-keycloak-en-dev
+    format: true-false
+    question: "Sans `quarkus.oidc.auth-server-url`, les Dev Services démarrent un Keycloak en dev et en test."
+    truth: true
+    answer: "Avec un moteur de conteneurs, Quarkus démarre Keycloak, crée un royaume et des utilisateurs de test, et configure l'application pour s'y fier."
+  - key: vf-jeton-expire
+    format: true-false
+    question: "Un jeton expiré envoyé à une API en mode `service` reçoit 401."
+    truth: true
+    answer: "L'expiration (`exp`) fait partie des contrôles : un jeton expiré ne donne pas d'identité. Le client doit en obtenir un nouveau."
+  - key: vf-web-app-pour-une-api
+    format: true-false
+    question: "`quarkus.oidc.application-type=web-app` convient à une API appelée par une SPA avec un jeton bearer."
+    truth: false
+    answer: "`web-app` redirige vers la page de connexion et gère une session par cookie. Une API appelée avec un bearer est en mode `service`."
+  - key: qcm-adresse-du-fournisseur
+    format: multiple-choice
+    question: "Quelle propriété donne l'adresse du fournisseur OIDC (le royaume Keycloak) ?"
+    choices:
+      - {text: "`quarkus.oidc.auth-server-url`", correct: true}
+      - {text: "`quarkus.oidc.issuer-url`", correct: false}
+      - {text: "`quarkus.oidc.keycloak-url`", correct: false}
+      - {text: "`quarkus.oidc.jwks-url`", correct: false}
+    answer: "`auth-server-url` vaut par exemple `https://sso.exemple.fr/realms/boutique` ; la découverte donne le reste, dont l'adresse des clés."
+  - key: qcm-en-tete
+    format: multiple-choice
+    question: "Comment le client transmet-il son jeton d'accès à une API en mode `service` ?"
+    choices:
+      - {text: "`Authorization: Bearer <jeton>`", correct: true}
+      - {text: "`Cookie: q_session=<jeton>`", correct: false}
+      - {text: "`?access_token=<jeton>` dans l'URL", correct: false}
+      - {text: "`X-Token: <jeton>`", correct: false}
+    answer: "Le schéma Bearer est le standard. Un jeton dans l'URL finirait dans les journaux et l'historique ; le cookie de session est celui du mode `web-app`."
+  - key: qcm-roles-ailleurs
+    format: multiple-choice
+    question: "Ton fournisseur place les rôles dans le claim `permissions`. Comment Quarkus les lit-il ?"
+    choices:
+      - {text: "`quarkus.oidc.roles.role-claim-path=permissions`", correct: true}
+      - {text: "`quarkus.oidc.token.roles=permissions`", correct: false}
+      - {text: "`@RolesAllowed(claim = \"permissions\")` sur chaque endpoint", correct: false}
+      - {text: "Il ne peut pas : les rôles doivent être dans `groups`", correct: false}
+    answer: "Par défaut, Quarkus lit `groups`, ou `realm_access.roles` d'un jeton Keycloak. `role-claim-path` désigne un autre claim, même imbriqué."
+  - key: qcm-jeton-d-une-autre-application
+    format: multiple-choice
+    question: "Un jeton émis par le même Keycloak pour l'application de facturation est accepté par ton API. Que règles-tu ?"
+    choices:
+      - {text: "`quarkus.oidc.token.audience` avec l'identifiant de ton API", correct: true}
+      - {text: "`quarkus.oidc.client-id` avec l'identifiant de la facturation", correct: false}
+      - {text: "`quarkus.oidc.application-type=hybrid`", correct: false}
+      - {text: "Un royaume Keycloak par endpoint de l'API", correct: false}
+    answer: "Le contrôle du claim `aud` rejette les jetons destinés à une autre application du même fournisseur."
+  - key: trous-adresse
+    format: fill-in
+    question: |-
+      Complète l'adresse du fournisseur :
+      ```properties
+      quarkus.oidc.___=https://sso.exemple.fr/realms/boutique
+      ```
+    blanks:
+      - [auth-server-url]
+    answer: "`quarkus.oidc.auth-server-url` : l'URL du royaume, d'où Quarkus lit la découverte."
+  - key: trous-type
+    format: fill-in
+    question: |-
+      Complète pour une API qui vérifie des jetons bearer :
+      ```properties
+      quarkus.oidc.application-type=___
+      ```
+    blanks:
+      - [service]
+    answer: "`service` vérifie le jeton bearer ; `web-app` gère une connexion par redirection et une session."
+  - key: trous-audience
+    format: fill-in
+    question: |-
+      Complète pour n'accepter que les jetons émis pour cette API :
+      ```properties
+      quarkus.oidc.token.___=boutique-api
+      ```
+    blanks:
+      - [audience]
+    answer: "`quarkus.oidc.token.audience` contrôle le claim `aud`."
+  - key: trous-chemin-des-roles
+    format: fill-in
+    question: |-
+      Complète pour lire les rôles dans le claim `permissions` :
+      ```properties
+      quarkus.oidc.roles.___=permissions
+      ```
+    blanks:
+      - [role-claim-path]
+    answer: "`role-claim-path` dit où chercher les rôles dans le jeton."
+  - key: situation-spa-et-api
+    format: scenario
+    question: |-
+      Une application React appelle ton API Quarkus. Comment répartis-tu l'authentification entre les deux ?
+    choices:
+      - {text: "Le front obtient le jeton auprès du fournisseur ; l'API, en `service`, le vérifie", correct: true}
+      - {text: "L'API, en `web-app`, affiche la connexion et renvoie le mot de passe au front", correct: false}
+      - {text: "Le front envoie identifiant et mot de passe à chaque appel de l'API", correct: false}
+      - {text: "L'API émet ses propres jetons, signés avec une clé écrite dans le front", correct: false}
+    answer: |-
+      La SPA suit le flux d'autorisation avec PKCE auprès du fournisseur, puis envoie le jeton en bearer. L'API ne voit
+      jamais de mot de passe : elle vérifie des jetons signés.
+  - key: situation-autre-fournisseur
+    format: scenario
+    question: |-
+      L'entreprise passe de Keycloak à un fournisseur OIDC managé. Que dois-tu changer dans ton API Quarkus ?
+    choices:
+      - {text: "L'URL du fournisseur, et l'emplacement des rôles s'il diffère", correct: true}
+      - {text: "Toutes les annotations `@RolesAllowed`, propres à Keycloak", correct: false}
+      - {text: "L'extension : `quarkus-oidc` ne fonctionne qu'avec Keycloak", correct: false}
+      - {text: "Rien du tout : les jetons des deux fournisseurs sont identiques", correct: false}
+    answer: |-
+      `quarkus-oidc` parle le standard OpenID Connect, quel que soit le fournisseur. Ce qui change : `auth-server-url`,
+      l'audience, et le claim des rôles (`role-claim-path`), qui varie d'un fournisseur à l'autre.
+  - key: situation-url-en-production
+    format: scenario
+    question: |-
+      Tu dois configurer l'URL du Keycloak de production, sans gêner le développement ni les tests. Comment
+      l'écris-tu ?
+    choices:
+      - {text: "`%prod.quarkus.oidc.auth-server-url=${OIDC_URL}`, lue dans l'environnement", correct: true}
+      - {text: "`quarkus.oidc.auth-server-url=https://sso.prod...`, sans préfixe", correct: false}
+      - {text: "Codée en dur dans une classe Java, choisie selon le nom de la machine", correct: false}
+      - {text: "`%dev.quarkus.oidc.auth-server-url=https://sso.prod...`, pour tester", correct: false}
+    answer: |-
+      Limitée à `prod`, l'URL laisse dev et test sans adresse : les Dev Services y démarrent leur Keycloak. La valeur
+      vient de l'environnement, sans rien de propre à la production dans le dépôt.
+  - key: situation-jetons-opaques
+    format: scenario
+    question: |-
+      Ton fournisseur délivre des jetons opaques (pas des JWT). La latence de l'API a augmenté. Pourquoi, et que
+      proposes-tu ?
+    choices:
+      - {text: "Chaque jeton opaque passe par l'introspection : je demande des JWT au fournisseur", correct: true}
+      - {text: "Les jetons opaques sont plus longs à déchiffrer : je passe en `web-app`", correct: false}
+      - {text: "Les clés publiques sont rechargées à chaque requête : je les copie dans le code", correct: false}
+      - {text: "Les rôles sont recalculés à chaque requête : je désactive les rôles", correct: false}
+    answer: |-
+      Un jeton opaque ne se vérifie pas localement : l'API doit appeler l'introspection du fournisseur. Un JWT se
+      vérifie avec les clés publiques en cache, sans aller-retour.

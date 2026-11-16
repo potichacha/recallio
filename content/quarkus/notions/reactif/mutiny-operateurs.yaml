@@ -1,0 +1,286 @@
+notion: mutiny-operateurs
+lesson: |-
+  Un pipeline Mutiny se construit avec quelques familles d'opérateurs. Les connaître, c'est surtout savoir lequel
+  prendre : la plupart des bugs réactifs viennent d'un opérateur voisin du bon.
+
+  **1. Transformer et enchaîner.**
+
+  | Opérateur | Quand |
+  |---|---|
+  | `onItem().transform(x -> y)` | une fonction **synchrone** : `x` donne `y` |
+  | `onItem().transformToUni(x -> unAutreUni)` | une opération **asynchrone** qui renvoie un `Uni` (le *flatMap*) |
+  | `onItem().transformToMulti(x -> unMulti)` | un élément donne un flux |
+  | `replaceWith(valeur)` | ignorer l'élément, émettre autre chose |
+
+  ```java
+  Uni<Facture> facture = commandes.chercher(id)                         // Uni<Commande>
+          .onItem().transformToUni(commande -> factures.creer(commande));   // Uni<Facture>
+  ```
+
+  Avec `transform`, la fonction qui renvoie un `Uni` donnerait un `Uni<Uni<Facture>>`, qui ne compile pas là où l'on
+  attend un `Uni<Facture>`. Une exception levée dans `transform` devient un échec du pipeline.
+
+  **2. Les effets de bord.** `onItem().invoke(x -> journal.info(...))` exécute un effet synchrone sans changer
+  l'élément ; `onItem().call(x -> audit.enregistrer(x))` exécute un effet **asynchrone** (un `Uni`) et l'attend avant
+  de continuer.
+
+  **3. Les flux.** Sur un `Multi`, `transformToUniAndConcatenate` traite les éléments un par un, **dans l'ordre** ;
+  `transformToUniAndMerge` les traite en parallèle, et émet les résultats **dans l'ordre où ils arrivent**.
+  `select().where(...)`, `select().first(n)`, `select().distinct()`, `skip().first(n)` filtrent ;
+  `collect().asList()` rassemble.
+
+  **4. Réagir à un échec.**
+
+  ```java
+  Uni<Taux> taux = banque.taux(devise)
+          .ifNoItem().after(Duration.ofSeconds(2)).fail()                 // TimeoutException après 2 s
+          .onFailure().retry().withBackOff(Duration.ofMillis(100)).atMost(2)
+          .onFailure().recoverWithItem(Taux.PAR_DEFAUT);
+  ```
+
+  - `onFailure().recoverWithItem(v)` remplace l'échec par une valeur ; `recoverWithUni(...)` par un autre `Uni`.
+  - `onFailure().retry().atMost(2)` **réessaie** deux fois : trois tentatives en tout. `withBackOff(...)` espace
+    les tentatives.
+  - `onFailure(IOException.class)` ne réagit qu'à ce type d'échec ; les autres passent.
+  - `onFailure().invoke(e -> journal.warn(...))` journalise, **sans** rattraper : l'échec continue.
+  - `ifNoItem().after(...)` traite l'absence de réponse : `.fail()` ou `.recoverWithItem(...)`.
+
+  **5. Combiner.** `Uni.combine().all().unis(a, b).with((x, y) -> ...)` lance les deux `Uni` en même temps et
+  combine leurs éléments ; si l'un échoue, la combinaison échoue. `asTuple()` donne un `Tuple2`.
+
+  **6. Le `null`.** `onItem().ifNull().failWith(new NotFoundException())` transforme un élément `null` en échec ;
+  sinon, `transform` reçoit `null`, et lève vite une `NullPointerException`.
+
+  **En entretien** : « `transform` pour une fonction synchrone, `transformToUni` pour enchaîner une opération
+  asynchrone ; `invoke` et `call` pour les effets de bord. Sur un échec : `recoverWithItem`, `retry().atMost(n)` qui
+  fait n tentatives de plus, et `ifNoItem().after(...)` contre l'absence de réponse. `Uni.combine()` lance des appels
+  en parallèle, et `Concatenate` garde l'ordre là où `Merge` ne le garde pas. »
+cards:
+  - key: transform-ou-transformtouni
+    format: course
+    question: "Quand utilises-tu `onItem().transformToUni(...)` plutôt que `onItem().transform(...)` ?"
+    choices:
+      - {text: "Quand la fonction renvoie un `Uni`, pour une opération asynchrone", correct: true}
+      - {text: "Quand la fonction renvoie `null`, pour éviter une exception", correct: false}
+      - {text: "Quand la fonction est lente, pour la passer sur un worker", correct: false}
+      - {text: "Quand l'élément est une liste, pour la parcourir", correct: false}
+    answer: "`transformToUni` enchaîne une opération asynchrone et aplatit le résultat (le *flatMap*). `transform` avec une telle fonction donnerait un `Uni<Uni<T>>`."
+  - key: invoke-ou-call
+    format: course
+    question: "Quelle différence entre `onItem().invoke(...)` et `onItem().call(...)` ?"
+    choices:
+      - {text: "`invoke` fait un effet synchrone ; `call` attend un effet asynchrone", correct: true}
+      - {text: "`invoke` change l'élément ; `call` le laisse intact", correct: false}
+      - {text: "`invoke` s'exécute à la construction ; `call` à l'abonnement", correct: false}
+      - {text: "`invoke` rattrape les échecs ; `call` les laisse passer", correct: false}
+    answer: "Les deux laissent passer l'élément. `call` prend une fonction qui renvoie un `Uni`, et attend qu'il se termine avant de continuer."
+  - key: merge-ou-concatenate
+    format: course
+    question: "Sur un `Multi`, quelle différence entre `transformToUniAndMerge` et `transformToUniAndConcatenate` ?"
+    choices:
+      - {text: "`Merge` traite en parallèle sans garder l'ordre ; `Concatenate` le garde", correct: true}
+      - {text: "`Merge` garde l'ordre ; `Concatenate` traite en parallèle", correct: false}
+      - {text: "`Merge` fusionne deux flux ; `Concatenate` les met bout à bout", correct: false}
+      - {text: "Aucune : ce sont deux noms de la même méthode", correct: false}
+    answer: "`Merge` émet chaque résultat dès qu'il arrive : `[3, 1, 2]` peut sortir `[1, 2, 3]`. `Concatenate` attend chaque `Uni` avant le suivant, et garde l'ordre."
+  - key: nombre-de-tentatives
+    format: course
+    question: "Combien d'appels fait `appel.onFailure().retry().atMost(2)` quand l'appel échoue toujours ?"
+    choices:
+      - {text: "3 : l'appel initial, puis deux nouvelles tentatives", correct: true}
+      - {text: "2 : l'appel initial, puis une seule nouvelle tentative", correct: false}
+      - {text: "1 : `atMost` borne le nombre total d'appels", correct: false}
+      - {text: "Autant qu'il faut, tant que le délai n'est pas écoulé", correct: false}
+    answer: "`atMost(n)` compte les nouvelles tentatives : n + 1 appels. Le dernier échec ressort ensuite du pipeline."
+  - key: vf-exception-dans-transform
+    format: true-false
+    question: "Une exception levée dans la fonction de `onItem().transform(...)` devient un échec du pipeline."
+    truth: true
+    answer: "Mutiny la rattrape et la propage comme un échec : `onFailure()` peut ensuite y réagir."
+  - key: vf-onfailure-invoke
+    format: true-false
+    question: "`onFailure().invoke(e -> journal.warn(...))` rattrape l'échec : le pipeline continue avec un élément."
+    truth: false
+    answer: "`invoke` exécute un effet de bord et laisse passer l'échec. Pour rattraper, `recoverWithItem` ou `recoverWithUni`."
+  - key: vf-combine-echec
+    format: true-false
+    question: "`Uni.combine().all().unis(a, b)` échoue si l'un des deux `Uni` échoue."
+    truth: true
+    answer: "La combinaison a besoin des deux éléments : un échec la fait échouer. Chaque `Uni` peut se protéger avant, avec son propre `recoverWithItem`."
+  - key: vf-filtre-de-type
+    format: true-false
+    question: "`onFailure(IllegalStateException.class).recoverWithItem(...)` rattrape aussi une `IOException`."
+    truth: false
+    answer: "Le filtre ne réagit qu'aux échecs de ce type (et de ses sous-types) ; l'`IOException` traverse."
+  - key: qcm-deux-appels-en-parallele
+    format: multiple-choice
+    question: "Comment lances-tu en même temps deux appels indépendants, `client()` et `commandes()`, puis combines-tu leurs résultats ?"
+    choices:
+      - {text: "`Uni.combine().all().unis(client(), commandes()).with((c, l) -> ...)`", correct: true}
+      - {text: "`client().onItem().transformToUni(c -> commandes())`", correct: false}
+      - {text: "`client().await().indefinitely()`, puis `commandes()`", correct: false}
+      - {text: "`client().onItem().call(c -> commandes())`", correct: false}
+    answer: "`combine` s'abonne aux deux à la fois. `transformToUni` et `call` les enchaînent l'un après l'autre ; `await` bloquerait."
+  - key: qcm-delai-et-secours
+    format: multiple-choice
+    question: "Comment renvoies-tu une valeur de secours si le service ne répond pas en deux secondes ?"
+    choices:
+      - {text: "`.ifNoItem().after(Duration.ofSeconds(2)).recoverWithItem(secours)`", correct: true}
+      - {text: "`.onFailure().recoverWithItem(secours)` seul", correct: false}
+      - {text: "`.await().atMost(Duration.ofSeconds(2))`", correct: false}
+      - {text: "`.onItem().delayIt().by(Duration.ofSeconds(2))`", correct: false}
+    answer: "`ifNoItem().after(...)` réagit à l'absence de réponse, sans bloquer. `recoverWithItem` seul n'agit que sur un échec ; `delayIt` retarde l'élément."
+  - key: qcm-retry-espace
+    format: multiple-choice
+    question: "Comment réessaies-tu trois fois, avec un délai croissant entre les tentatives ?"
+    choices:
+      - {text: "`.onFailure().retry().withBackOff(Duration.ofMillis(100)).atMost(3)`", correct: true}
+      - {text: "`.onFailure().retry().atMost(3).delay(100)`", correct: false}
+      - {text: "`.onFailure().recoverWithItem(3)`", correct: false}
+      - {text: "`.ifNoItem().after(Duration.ofMillis(100)).retry(3)`", correct: false}
+    answer: "`withBackOff` fixe le délai initial, qui grandit à chaque tentative ; `atMost(3)` borne les nouvelles tentatives."
+  - key: qcm-element-null
+    format: multiple-choice
+    question: "Le dépôt renvoie un `Uni` dont l'élément est `null` quand le produit n'existe pas. Comment en fais-tu un échec ?"
+    choices:
+      - {text: "`.onItem().ifNull().failWith(new NotFoundException())`", correct: true}
+      - {text: "`.onFailure().recoverWithItem(new NotFoundException())`", correct: false}
+      - {text: "`.ifNoItem().after(Duration.ZERO).fail()`", correct: false}
+      - {text: "`.onItem().transform(p -> p)`", correct: false}
+    answer: "Un `null` est un élément, pas un échec : `ifNull()` y réagit. `ifNoItem()` traite l'absence d'élément dans le temps."
+  - key: trous-transformtouni
+    format: fill-in
+    question: |-
+      Complète pour enchaîner la création de la facture, qui renvoie un `Uni<Facture>` :
+      ```java
+      Uni<Facture> facture = commande.onItem().___(c -> factures.creer(c));
+      ```
+    blanks:
+      - [transformToUni]
+    answer: "`transformToUni` enchaîne une opération asynchrone et renvoie un `Uni<Facture>`, pas un `Uni<Uni<Facture>>`."
+  - key: trous-recoverwithitem
+    format: fill-in
+    question: |-
+      Complète pour renvoyer « inconnu » en cas d'échec :
+      ```java
+      Uni<String> nom = annuaire.nom(id).onFailure().___("inconnu");
+      ```
+    blanks:
+      - [recoverWithItem]
+    answer: "`recoverWithItem` remplace l'échec par une valeur."
+  - key: trous-atmost
+    format: fill-in
+    question: |-
+      Complète pour réessayer au plus trois fois :
+      ```java
+      Uni<Taux> taux = banque.taux(devise).onFailure().retry().___(3);
+      ```
+    blanks:
+      - [atMost]
+    answer: "`atMost(3)` : trois nouvelles tentatives, quatre appels au plus."
+  - key: trous-concatenate
+    format: fill-in
+    question: |-
+      Complète pour charger chaque produit du flux en gardant l'ordre des identifiants :
+      ```java
+      Multi<Produit> produits = identifiants.onItem().___(id -> catalogue.charger(id));
+      ```
+    blanks:
+      - [transformToUniAndConcatenate]
+    answer: "`transformToUniAndConcatenate` attend chaque `Uni` avant le suivant ; `transformToUniAndMerge` perdrait l'ordre."
+  - key: bug-uni-d-uni
+    format: bug-fix
+    question: |-
+      Ce code ne compile pas : le type de l'expression est un `Uni<Uni<Facture>>`, pas un `Uni<Facture>`. Quelle
+      correction est la bonne ?
+      ```java
+      public Uni<Facture> facturer(Long id) {
+          return commandes.chercher(id)
+                  .onItem().transform(commande -> factures.creer(commande));
+      }
+      ```
+    choices:
+      - {text: "Remplacer `transform` par `transformToUni`", correct: true}
+      - {text: "Remplacer `transform` par `invoke`", correct: false}
+      - {text: "Appeler `factures.creer(commande).await().indefinitely()`", correct: false}
+      - {text: "Changer le type de retour en `Uni<Object>`", correct: false}
+    answer: |-
+      ```java
+      return commandes.chercher(id)
+              .onItem().transformToUni(commande -> factures.creer(commande));
+      ```
+      `factures.creer` renvoie un `Uni` : `transform` l'emballe dans un autre `Uni`. `transformToUni` l'enchaîne et
+      aplatit. `invoke` garderait la commande, et `await` bloquerait la boucle d'événements.
+  - key: bug-await-dans-un-uni
+    format: bug-fix
+    question: |-
+      `GET /factures/7` répond 500 : « IllegalStateException: The current thread cannot be blocked:
+      vert.x-eventloop-thread-0 ». Quelle correction est la bonne ?
+      ```java
+      @GET
+      @Path("/{id}")
+      public Uni<Facture> facture(Long id) {
+          Commande commande = commandes.chercher(id).await().indefinitely();
+          return factures.creer(commande);
+      }
+      ```
+    choices:
+      - {text: "Enchaîner : `commandes.chercher(id).onItem().transformToUni(factures::creer)`", correct: true}
+      - {text: "Remplacer `await().indefinitely()` par `await().atMost(Duration.ofSeconds(5))`", correct: false}
+      - {text: "Lancer l'attente dans un `new Thread(...)`, puis rejoindre ce thread", correct: false}
+      - {text: "Remplacer le type de retour par `Facture`, en gardant `await()`", correct: false}
+    answer: |-
+      ```java
+      return commandes.chercher(id).onItem().transformToUni(factures::creer);
+      ```
+      Un endpoint qui renvoie un `Uni` s'exécute sur la boucle d'événements, qui ne doit jamais bloquer. Enchaîner
+      garde tout asynchrone. Renvoyer `Facture` marcherait (sur un worker), mais en bloquant un thread pour rien.
+  - key: bug-pipeline-jamais-abonne
+    format: bug-fix
+    question: |-
+      Aucune notification n'est jamais envoyée, et rien n'apparaît dans le journal, pas même une erreur. Quelle
+      correction est la bonne ?
+      ```java
+      public void notifier(Commande commande) {
+          messagerie.envoyer(commande.client, "Commande expédiée")
+                  .onItem().invoke(() -> journal.info("Notification envoyée"));
+      }
+      ```
+    choices:
+      - {text: "Renvoyer le `Uni`, pour que l'appelant s'y abonne", correct: true}
+      - {text: "Remplacer `invoke` par `call`", correct: false}
+      - {text: "Ajouter `.onFailure().recoverWithNull()` à la fin", correct: false}
+      - {text: "Annoter la méthode `notifier` avec `@NonBlocking`", correct: false}
+    answer: |-
+      ```java
+      public Uni<Void> notifier(Commande commande) {
+          return messagerie.envoyer(commande.client, "Commande expédiée")
+                  .onItem().invoke(() -> journal.info("Notification envoyée"))
+                  .replaceWithVoid();
+      }
+      ```
+      Le pipeline est construit, puis jeté : personne ne s'y abonne, donc rien ne s'exécute. Renvoyé jusqu'à un
+      endpoint, Quarkus s'y abonnera ; ailleurs, `subscribe().with(...)` le déclencherait.
+  - key: bug-ordre-perdu
+    format: bug-fix
+    question: |-
+      Le relevé doit lister les opérations dans l'ordre des identifiants reçus, mais elles sortent mélangées, dans un
+      ordre différent à chaque appel. Quelle correction est la bonne ?
+      ```java
+      return identifiants
+              .onItem().transformToUniAndMerge(id -> operations.charger(id))
+              .collect().asList();
+      ```
+    choices:
+      - {text: "Remplacer `transformToUniAndMerge` par `transformToUniAndConcatenate`", correct: true}
+      - {text: "Remplacer `collect().asList()` par `collect().asSet()`", correct: false}
+      - {text: "Ajouter `.select().distinct()` avant `collect()`", correct: false}
+      - {text: "Remplacer `transformToUniAndMerge` par `transform`", correct: false}
+    answer: |-
+      ```java
+      return identifiants
+              .onItem().transformToUniAndConcatenate(id -> operations.charger(id))
+              .collect().asList();
+      ```
+      `Merge` émet chaque opération dès qu'elle arrive : l'ordre dépend des temps de réponse. `Concatenate` les
+      traite une à une, dans l'ordre ; si l'on garde `Merge` pour la vitesse, on trie ensuite.

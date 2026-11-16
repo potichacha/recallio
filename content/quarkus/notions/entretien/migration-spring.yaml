@@ -1,0 +1,228 @@
+notion: migration-spring
+lesson: |-
+  Beaucoup de projets Quarkus naissent d'une application Spring Boot. La migration est surtout une **traduction** :
+  presque chaque notion de Spring a son équivalent, souvent standard (Jakarta EE, MicroProfile).
+
+  | Spring Boot | Quarkus |
+  |---|---|
+  | `@Component`, `@Service` | `@ApplicationScoped` |
+  | `@Autowired` | `@Inject` (ou le constructeur) |
+  | `@Value("${tva}")` | `@ConfigProperty(name = "tva")` |
+  | `@ConfigurationProperties` | `@ConfigMapping` |
+  | `@RestController`, `@GetMapping` | `@Path`, `@GET` (Jakarta REST) |
+  | `@PathVariable`, `@RequestParam` | `@PathParam` / `@RestPath`, `@QueryParam` / `@RestQuery` |
+  | `ResponseEntity<T>` | `Response` ou `RestResponse<T>` |
+  | `@RestControllerAdvice` + `@ExceptionHandler` | `@ServerExceptionMapper`, ou un `ExceptionMapper` |
+  | `JpaRepository` | `PanacheRepository<T>`, ou une entité Panache |
+  | `@Transactional` (Spring) | `@Transactional` (`jakarta.transaction`) |
+  | `@Scheduled` (Spring) | `@Scheduled` (`io.quarkus.scheduler`) |
+  | `spring.profiles.active`, `application-prod.yml` | `quarkus.profile`, lignes `%prod.` |
+  | `@SpringBootTest`, `@MockitoBean` | `@QuarkusTest`, `@InjectMock` |
+  | Actuator : `/actuator/health` | SmallRye Health : `/q/health` |
+  | Actuator : métriques Micrometer | Micrometer aussi : `/q/metrics` |
+  | `RestTemplate`, `WebClient`, OpenFeign | REST Client (`@RegisterRestClient`) |
+  | Spring Security | `@RolesAllowed`, `quarkus-oidc`, permissions HTTP |
+
+  **Les extensions de compatibilité.** Pour migrer pas à pas, Quarkus comprend une partie des annotations de Spring :
+  `quarkus-spring-di` (`@Component`, `@Autowired`), `quarkus-spring-web` (`@RestController`, `@GetMapping`),
+  `quarkus-spring-data-jpa` (les interfaces `JpaRepository`), `quarkus-spring-boot-properties`
+  (`@ConfigurationProperties`), et d'autres (sécurité, cache, planification). Elles **n'embarquent pas Spring** :
+  Quarkus traduit ces annotations en ses propres mécanismes, au build. D'où leurs limites : pas de
+  `BeanPostProcessor`, pas d'auto-configuration Spring, pas de bibliothèque qui dépend des classes internes de Spring.
+
+  **Les différences qui surprennent.**
+
+  - Un bean `@ApplicationScoped` est **créé à la première utilisation**, pas au démarrage (`@Startup` le force).
+  - Les intercepteurs s'appliquent aussi aux **appels internes** (`this.methode()`) : pas le piège du proxy de Spring.
+  - L'injection se résout **au build** : une dépendance manquante arrête le build, pas le démarrage.
+  - Une injection dans un champ `private` marche, mais Quarkus préfère un champ package-private (sans réflexion).
+  - `application.yml` ne se lit qu'avec l'extension `quarkus-config-yaml`, et les clés changent : `quarkus.*`.
+
+  **Une stratégie.** Des tests d'abord (ils vérifient la migration), les extensions de compatibilité pour démarrer
+  vite, puis la réécriture vers les API natives de Quarkus, module par module. On mesure avant et après.
+
+  **En entretien** : « La migration est surtout une traduction : `@ApplicationScoped` et `@Inject`, `@ConfigProperty`,
+  Jakarta REST, Panache, `@QuarkusTest`. Les extensions de compatibilité Spring permettent d'avancer pas à pas, sans
+  embarquer Spring, avec des limites. Je fais attention à ce qui change de comportement : beans créés à la demande,
+  injection résolue au build, intercepteurs sur les appels internes. »
+cards:
+  - key: equivalent-autowired
+    format: course
+    question: "Lors d'une migration depuis Spring, par quoi remplaces-tu `@Autowired` sur un champ ?"
+    choices:
+      - {text: "`@Inject`, l'annotation standard de CDI", correct: true}
+      - {text: "`@Resource`, l'annotation de Jakarta EE", correct: false}
+      - {text: "`@Produces`, qui crée le bean injecté", correct: false}
+      - {text: "`@ConfigProperty`, qui lit le bean en configuration", correct: false}
+    answer: "`@Inject` (`jakarta.inject`) demande l'injection ; l'injection par constructeur marche aussi, sans annotation quand il n'y a qu'un constructeur."
+  - key: equivalent-value
+    format: course
+    question: "Lors d'une migration depuis Spring, que devient `@Value(\"${boutique.tva}\") double tva` ?"
+    choices:
+      - {text: "`@ConfigProperty(name = \"boutique.tva\") double tva`", correct: true}
+      - {text: "`@Inject @Named(\"boutique.tva\") double tva`", correct: false}
+      - {text: "`@ConfigMapping(prefix = \"boutique.tva\") double tva`", correct: false}
+      - {text: "`@Value(\"boutique.tva\") double tva`, sans `${}`", correct: false}
+    answer: "`@ConfigProperty` de MicroProfile Config lit une propriété. `@ConfigMapping` remplace `@ConfigurationProperties`, sur une interface, pas sur un champ."
+  - key: equivalent-controleur
+    format: course
+    question: "Lors d'une migration depuis Spring, comment s'écrit un `@RestController` avec `@GetMapping(\"/produits\")` ?"
+    choices:
+      - {text: "Une classe `@Path(\"/produits\")`, et une méthode `@GET`", correct: true}
+      - {text: "Une classe `@ApplicationScoped`, et une méthode `@Route`", correct: false}
+      - {text: "Une classe `@RestController` gardée telle quelle, sans extension", correct: false}
+      - {text: "Une classe `@WebServlet(\"/produits\")`, et une méthode `doGet`", correct: false}
+    answer: "Quarkus REST suit Jakarta REST : `@Path` sur la classe ou la méthode, `@GET`, `@POST`... Garder `@RestController` demande l'extension `quarkus-spring-web`."
+  - key: equivalent-controller-advice
+    format: course
+    question: "Lors d'une migration depuis Spring, que devient un `@RestControllerAdvice` qui traduit les exceptions en réponses ?"
+    choices:
+      - {text: "Des méthodes `@ServerExceptionMapper`, ou des classes `ExceptionMapper`", correct: true}
+      - {text: "Un filtre `ContainerRequestFilter` qui attrape toutes les exceptions", correct: false}
+      - {text: "Un `try`/`catch` dans chaque méthode de ressource", correct: false}
+      - {text: "Un intercepteur CDI `@AroundInvoke` sur chaque ressource", correct: false}
+    answer: "`@ServerExceptionMapper` (Quarkus REST) ou un `ExceptionMapper<E>` (Jakarta REST) traduisent une exception en statut et en corps, en un seul endroit."
+  - key: vf-compatibilite-embarque-spring
+    format: true-false
+    question: "Les extensions de compatibilité Spring embarquent le framework Spring dans l'application Quarkus."
+    truth: false
+    answer: "Elles ne fournissent que les annotations et interfaces, que Quarkus traduit au build en CDI, Jakarta REST ou Panache. Le conteneur de Spring n'est pas là."
+  - key: vf-appel-interne-intercepte
+    format: true-false
+    question: "Dans Quarkus, un appel interne `this.methode()` passe par les intercepteurs de `methode`, contrairement à un proxy de Spring."
+    truth: true
+    answer: "ArC intercepte par une sous-classe générée : un appel interne à une méthode non privée est intercepté. Avec le proxy de Spring, `this` contourne les intercepteurs."
+  - key: vf-micrometer-commun
+    format: true-false
+    question: "Le code de métriques Micrometer d'une application Spring Boot se porte presque tel quel dans Quarkus."
+    truth: true
+    answer: "Quarkus utilise aussi Micrometer : `MeterRegistry`, `@Timed` et `@Counted` restent ; seuls l'extension et le chemin d'exposition (`/q/metrics`) changent."
+  - key: vf-application-yml
+    format: true-false
+    question: "Quarkus lit le `application.yml` de Spring Boot tel quel, sans extension ni changement de clés."
+    truth: false
+    answer: "Le YAML demande l'extension `quarkus-config-yaml`, et les clés de Spring (`spring.datasource.url`) deviennent celles de Quarkus (`quarkus.datasource.jdbc.url`)."
+  - key: qcm-springboottest
+    format: multiple-choice
+    question: "Lors d'une migration, par quoi remplaces-tu `@SpringBootTest` ?"
+    choices:
+      - {text: "`@QuarkusTest`", correct: true}
+      - {text: "`@QuarkusComponentTest`", correct: false}
+      - {text: "`@QuarkusIntegrationTest`", correct: false}
+      - {text: "`@ExtendWith(QuarkusExtension.class)`", correct: false}
+    answer: "`@QuarkusTest` démarre l'application dans le profil `test`, comme `@SpringBootTest`. Le test de composant ne démarre que CDI ; le test d'intégration lance l'artefact."
+  - key: qcm-mockitobean
+    format: multiple-choice
+    question: "Lors d'une migration, quel est l'équivalent Quarkus de `@MockitoBean` ?"
+    choices:
+      - {text: "`@InjectMock`", correct: true}
+      - {text: "`@InjectSpy`", correct: false}
+      - {text: "`@Mock` de Mockito", correct: false}
+      - {text: "`@TestProfile`", correct: false}
+    answer: "`@InjectMock` remplace un bean par un mock dans l'application, pour la classe de test. `@InjectSpy` correspond plutôt à `@MockitoSpyBean`."
+  - key: qcm-jparepository
+    format: multiple-choice
+    question: "Lors d'une migration, quelle API native de Quarkus remplace un `JpaRepository<Produit, Long>` ?"
+    choices:
+      - {text: "`PanacheRepository<Produit>`", correct: true}
+      - {text: "`HibernateRepository<Produit, Long>`", correct: false}
+      - {text: "`EntityManagerFactory<Produit>`", correct: false}
+      - {text: "`RestRepository<Produit>`", correct: false}
+    answer: "Panache donne les mêmes services (`findById`, `listAll`, `persist`, requêtes simplifiées). Pour garder l'interface Spring le temps de migrer : `quarkus-spring-data-jpa`."
+  - key: qcm-actuator-health
+    format: multiple-choice
+    question: "Lors d'une migration, que devient le `/actuator/health` de Spring Boot ?"
+    choices:
+      - {text: "`/q/health`, avec l'extension SmallRye Health", correct: true}
+      - {text: "`/actuator/health`, gardé par une extension Quarkus", correct: false}
+      - {text: "`/health`, fourni sans extension par Quarkus", correct: false}
+      - {text: "`/q/metrics`, qui donne aussi l'état de santé", correct: false}
+    answer: "SmallRye Health expose `/q/health`, `/q/health/live` et `/q/health/ready` ; les sondes Kubernetes changent donc de chemin."
+  - key: situation-grosse-application
+    format: scenario
+    question: |-
+      Tu dois migrer une grosse application Spring Boot vers Quarkus, sans arrêter les livraisons. Comment t'y
+      prends-tu ?
+    choices:
+      - {text: "Des tests d'abord, la compatibilité Spring pour démarrer, puis l'API native module par module", correct: true}
+      - {text: "Je réécris tout d'un coup, sur une branche, puis je bascule le jour J", correct: false}
+      - {text: "Je garde Spring Boot et j'ajoute Quarkus à côté, dans la même JVM", correct: false}
+      - {text: "Je commence par le natif, pour mesurer tout de suite le gain", correct: false}
+    answer: |-
+      Les tests disent si le comportement est conservé ; les extensions de compatibilité réduisent le premier pas ; la
+      réécriture progressive garde chaque étape livrable. Une grande bascule cumule les risques.
+  - key: situation-bibliotheque-spring
+    format: scenario
+    question: |-
+      Ton application utilise une bibliothèque qui enregistre un `BeanPostProcessor` et sa propre auto-configuration
+      Spring. Les extensions de compatibilité suffiront-elles ?
+    choices:
+      - {text: "Non : elles ne gèrent pas ces mécanismes, il faut remplacer la bibliothèque", correct: true}
+      - {text: "Oui : elles embarquent tout le conteneur de Spring pour ces cas", correct: false}
+      - {text: "Oui, à condition de compiler l'application en natif", correct: false}
+      - {text: "Oui, si j'ajoute `@SpringBootApplication` sur une classe de Quarkus", correct: false}
+    answer: |-
+      Les extensions traduisent des annotations courantes ; elles n'exécutent pas le cycle de vie de Spring. Une
+      bibliothèque qui en dépend se remplace par une extension Quarkus équivalente, ou se réécrit.
+  - key: situation-bean-cree-tard
+    format: scenario
+    question: |-
+      Après migration, un bean qui chargeait un cache dans son constructeur ne le fait plus qu'à la première requête,
+      qui est lente. Que fais-tu ?
+    choices:
+      - {text: "J'annote le bean `@Startup`, pour qu'il soit créé au démarrage", correct: true}
+      - {text: "Je passe le bean en `@RequestScoped`, créé à chaque requête", correct: false}
+      - {text: "J'ajoute un `Thread.sleep` au démarrage, le temps du chargement", correct: false}
+      - {text: "Je remets `@Component` sur la classe, comme dans Spring", correct: false}
+    answer: |-
+      Un bean `@ApplicationScoped` est créé à sa première utilisation, alors que Spring crée ses singletons au
+      démarrage. `@Startup` (ou un observateur de `StartupEvent`) rétablit le chargement anticipé.
+  - key: situation-profils-spring
+    format: scenario
+    question: |-
+      L'application Spring choisissait sa configuration par `spring.profiles.active=prod` et un fichier
+      `application-prod.yml`. Comment le traduis-tu ?
+    choices:
+      - {text: "Des lignes `%prod.` dans `application.properties`, le profil venant de `quarkus.profile`", correct: true}
+      - {text: "Une variable `SPRING_PROFILES_ACTIVE`, que Quarkus lit aussi", correct: false}
+      - {text: "Un module Maven par profil, chacun avec sa configuration", correct: false}
+      - {text: "Une classe Java qui charge le bon fichier selon le nom de l'hôte", correct: false}
+    answer: |-
+      Les profils de Quarkus sont des préfixes : `%prod.quarkus.datasource.jdbc.url=...`. Le profil actif vient de
+      `quarkus.profile` (ou `QUARKUS_PROFILE`), et `prod` est déjà celui d'une application construite.
+  - key: def-quarkus-spring-di
+    format: definition
+    question: "Que désigne l'extension `quarkus-spring-di` ?"
+    choices:
+      - {text: "La compatibilité avec `@Component` et `@Autowired`, traduits en CDI", correct: true}
+      - {text: "Le conteneur de Spring, embarqué dans l'application Quarkus", correct: false}
+      - {text: "Un outil qui réécrit le code Spring en code Quarkus", correct: false}
+      - {text: "Le pont qui fait appeler un service Spring par un service Quarkus", correct: false}
+    answer: "Elle permet de garder les annotations d'injection de Spring : Quarkus les traduit au build en beans CDI gérés par ArC."
+  - key: def-quarkus-spring-web
+    format: definition
+    question: "Que désigne l'extension `quarkus-spring-web` ?"
+    choices:
+      - {text: "La compatibilité avec `@RestController` et `@GetMapping`", correct: true}
+      - {text: "Le serveur Tomcat de Spring, utilisé à la place de Vert.x", correct: false}
+      - {text: "Le client `WebClient` de Spring, pour appeler d'autres services", correct: false}
+      - {text: "Les pages Thymeleaf de Spring MVC, rendues par Quarkus", correct: false}
+    answer: "Les contrôleurs annotés à la manière de Spring MVC sont servis par Quarkus REST. Le serveur reste celui de Quarkus."
+  - key: def-quarkus-spring-data-jpa
+    format: definition
+    question: "Que désigne l'extension `quarkus-spring-data-jpa` ?"
+    choices:
+      - {text: "La compatibilité avec les interfaces `JpaRepository`, sur Hibernate ORM", correct: true}
+      - {text: "La version complète de Spring Data, avec tous ses modules", correct: false}
+      - {text: "Un outil qui convertit les repositories Spring en entités Panache", correct: false}
+      - {text: "Le pilote JDBC de Spring, utilisé par Hibernate dans Quarkus", correct: false}
+    answer: "Les interfaces de repository de Spring Data sont implémentées au build sur Hibernate ORM ; seule une partie des fonctions de Spring Data est couverte."
+  - key: def-quarkus-spring-boot-properties
+    format: definition
+    question: "Que désigne l'extension `quarkus-spring-boot-properties` ?"
+    choices:
+      - {text: "La compatibilité avec `@ConfigurationProperties`", correct: true}
+      - {text: "La lecture des fichiers `application.yml` de Spring Boot", correct: false}
+      - {text: "La conversion des clés `spring.*` en clés `quarkus.*`", correct: false}
+      - {text: "Le serveur de configuration Spring Cloud Config", correct: false}
+    answer: "Une classe ou une interface annotée `@ConfigurationProperties` est alimentée par la configuration de Quarkus. Les clés `spring.*` ne sont pas traduites."

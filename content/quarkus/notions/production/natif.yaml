@@ -1,0 +1,267 @@
+notion: natif
+lesson: |-
+  Une application Java tourne d'habitude sur une JVM : elle charge ses classes au démarrage, les interprète, puis
+  le JIT compile les méthodes chaudes. La **compilation native** fait tout ce travail **avant** : l'outil
+  `native-image` de **GraalVM** compile l'application, ses dépendances et la partie du JDK qu'elle utilise en un
+  **exécutable** pour un système donné, qui embarque son propre runtime (SubstrateVM, avec son ramasse-miettes).
+
+  ```bash
+  ./mvnw package -Dnative                                           # GraalVM ou Mandrel installé
+  ./mvnw package -Dnative -Dquarkus.native.container-build=true     # dans un conteneur, sans rien installer
+  ./target/boutique-1.0.0-runner                                    # un exécutable Linux
+  ```
+
+  **Mandrel** est une distribution de GraalVM Community maintenue par Red Hat, réduite à `native-image` pour Java :
+  c'est l'outil recommandé par Quarkus, et celui de l'image de construction par défaut.
+
+  **Le monde clos.** `native-image` part du `main` et suit tout ce qui est **atteignable** ; le reste est retiré.
+  Il suppose que rien d'autre n'apparaîtra à l'exécution : pas de classe chargée dynamiquement, pas de réflexion,
+  de proxy dynamique ou de ressource qu'on ne lui ait déclarés.
+
+  **Pourquoi Quarkus s'y prête.** Le gros du travail de Quarkus (lire les annotations, construire les beans,
+  préparer Hibernate) est déjà fait au build. Ce qui reste est petit, statique, et déclare de lui-même à
+  `native-image` ce qui passe par la réflexion. Les extensions sont écrites pour le natif.
+
+  | | JVM | Natif |
+  |---|---|---|
+  | démarrage | de l'ordre de la seconde | de l'ordre de quelques dizaines de millisecondes |
+  | mémoire au repos | plus élevée | nettement plus faible |
+  | débit sous forte charge | le meilleur, grâce au JIT | souvent un peu inférieur, sans JIT |
+  | construction | quelques secondes | plusieurs minutes, et plusieurs Go de mémoire |
+  | outillage | agents, profilers, débogage habituels | plus limité |
+
+  **Quand le choisir ?** Quand le démarrage et la mémoire comptent plus que le débit de pointe : fonctions
+  serverless, mise à l'échelle jusqu'à zéro, beaucoup de petites instances, outils en ligne de commande. Pour un
+  service qui tourne en continu sous forte charge, la JVM reste souvent le meilleur choix.
+
+  **Les réglages utiles** : `quarkus.native.container-build=true` (construire sans GraalVM local, pour un
+  exécutable Linux), `quarkus.native.native-image-xmx` (la mémoire de la construction),
+  `quarkus.native.resources.includes` (des fichiers à embarquer), `quarkus.native.additional-build-args` (des options
+  de `native-image`). On teste l'exécutable avec `@QuarkusIntegrationTest` : `./mvnw verify -Dnative`.
+
+  **En entretien** : « La compilation native, avec GraalVM ou Mandrel, produit un exécutable qui démarre en quelques
+  dizaines de millisecondes et consomme peu de mémoire, au prix d'une construction longue et d'un débit de pointe
+  souvent un peu plus faible, sans JIT. Elle repose sur le monde clos : la réflexion et les ressources doivent être
+  connues au build, ce que Quarkus fait pour ses extensions. Je la choisis pour le serverless ou les petites
+  instances, et je teste l'exécutable avec `@QuarkusIntegrationTest`. »
+cards:
+  - key: ce-que-produit-native-image
+    format: course
+    question: "Que produit la compilation native d'une application Quarkus ?"
+    choices:
+      - {text: "Un exécutable pour un système donné, qui tourne sans JVM installée", correct: true}
+      - {text: "Un jar optimisé, qui démarre plus vite sur n'importe quelle JVM", correct: false}
+      - {text: "Une image Docker contenant une JVM réduite aux modules utilisés", correct: false}
+      - {text: "Du bytecode précompilé par le JIT, chargé au premier démarrage", correct: false}
+    answer: "`native-image` compile l'application, ses dépendances et la partie utile du JDK en un exécutable (Linux, macOS ou Windows), avec son propre runtime. Il ne faut plus de JVM pour le lancer."
+  - key: commande-native
+    format: course
+    question: "Quelle commande construit l'exécutable natif d'un projet Quarkus avec Maven ?"
+    choices:
+      - {text: "`./mvnw package -Dnative`", correct: true}
+      - {text: "`./mvnw native:compile`", correct: false}
+      - {text: "`./mvnw quarkus:dev -Dnative`", correct: false}
+      - {text: "`./mvnw package -Pjvm-native`", correct: false}
+    answer: "`-Dnative` active le profil Maven `native` du pom généré, qui passe `quarkus.native.enabled=true`. `quarkus build --native` fait de même avec la CLI."
+  - key: construire-sans-graalvm
+    format: course
+    question: "Comment construis-tu un exécutable natif Linux sur un poste qui n'a ni GraalVM ni Mandrel ?"
+    choices:
+      - {text: "Avec `quarkus.native.container-build=true`, dans un conteneur", correct: true}
+      - {text: "Avec `quarkus.native.enabled=false`, qui émule la compilation", correct: false}
+      - {text: "Avec un JDK 25 ordinaire, qui inclut `native-image`", correct: false}
+      - {text: "Avec `quarkus.package.jar.type=native`, sans autre outil", correct: false}
+    answer: "Quarkus lance la compilation dans une image de construction (Mandrel par défaut) : il ne faut qu'un moteur de conteneurs. Le résultat est un exécutable Linux, prêt pour une image."
+  - key: compromis-du-natif
+    format: course
+    question: "Quel compromis fait-on en passant de la JVM au natif ?"
+    choices:
+      - {text: "Démarrage et mémoire meilleurs, contre un build long et moins de débit de pointe", correct: true}
+      - {text: "Débit de pointe meilleur, contre un démarrage plus lent et plus de mémoire", correct: false}
+      - {text: "Aucun : le natif est meilleur que la JVM sur tous les points", correct: false}
+      - {text: "Un artefact plus petit, contre l'abandon de toutes les extensions Quarkus", correct: false}
+    answer: "Sans JIT, l'exécutable n'optimise pas le code d'après son usage réel : le débit sous forte charge est souvent un peu inférieur. La construction prend des minutes et plusieurs Go de mémoire."
+  - key: vf-classe-chargee-dynamiquement
+    format: true-false
+    question: "Un exécutable natif peut charger à l'exécution une classe qu'il n'a jamais vue au build."
+    truth: false
+    answer: "C'est l'hypothèse du monde clos : tout ce qui s'exécute doit être connu au build. Une classe absente de l'analyse n'existe pas dans l'exécutable."
+  - key: vf-mandrel
+    format: true-false
+    question: "Mandrel est une distribution de GraalVM Community, réduite à la compilation native de Java."
+    truth: true
+    answer: "Red Hat la maintient pour Quarkus : `native-image` et le JDK, sans le reste de GraalVM. C'est l'image de construction par défaut de Quarkus."
+  - key: vf-natif-toujours-plus-rapide
+    format: true-false
+    question: "Sous une forte charge continue, un exécutable natif a toujours un meilleur débit que la même application sur la JVM."
+    truth: false
+    answer: "Le JIT de la JVM optimise le code d'après son usage réel ; le natif, compilé d'avance, ne le fait pas. Son avantage est au démarrage et en mémoire, pas en débit de pointe."
+  - key: vf-tests-quarkustest-natif
+    format: true-false
+    question: "Avec `./mvnw verify -Dnative`, les classes `@QuarkusTest` s'exécutent contre l'exécutable natif."
+    truth: false
+    answer: "`@QuarkusTest` tourne toujours sur la JVM. Ce sont les classes `@QuarkusIntegrationTest` qui lancent l'exécutable natif et le testent en HTTP."
+  - key: qcm-cas-favorable
+    format: multiple-choice
+    question: "Dans quel cas la compilation native apporte-t-elle le plus ?"
+    choices:
+      - {text: "Une fonction serverless, démarrée à chaque requête après une pause", correct: true}
+      - {text: "Un calcul intensif qui tourne des jours sur une machine dédiée", correct: false}
+      - {text: "Une application qui charge des greffons jar à l'exécution", correct: false}
+      - {text: "Un service qu'on profile avec un agent Java en production", correct: false}
+    answer: "Le démarrage quasi instantané et la faible mémoire comptent quand les instances naissent et meurent souvent. Le calcul long profite du JIT ; les greffons et les agents se heurtent au monde clos."
+  - key: qcm-memoire-du-build
+    format: multiple-choice
+    question: "La compilation native est tuée en CI faute de mémoire. Quel réglage donne plus de mémoire à `native-image` ?"
+    choices:
+      - {text: "`quarkus.native.native-image-xmx`", correct: true}
+      - {text: "`quarkus.native.additional-memory`", correct: false}
+      - {text: "`quarkus.package.jar.xmx`", correct: false}
+      - {text: "`quarkus.native.heap-size`", correct: false}
+    answer: "`native-image-xmx` fixe le tas de la compilation, qui demande plusieurs Go. L'agent de CI doit aussi en avoir assez."
+  - key: qcm-fichier-a-embarquer
+    format: multiple-choice
+    question: "Ton code lit `taux.csv` dans le classpath. En natif, le fichier est introuvable. Que règles-tu ?"
+    choices:
+      - {text: "`quarkus.native.resources.includes=taux.csv`", correct: true}
+      - {text: "`quarkus.native.additional-build-args=taux.csv`", correct: false}
+      - {text: "`@RegisterForReflection` sur la classe qui lit le fichier", correct: false}
+      - {text: "`quarkus.package.jar.type=uber-jar` avant le build natif", correct: false}
+    answer: "Une ressource n'est embarquée que si elle est déclarée : `resources.includes` accepte des motifs (`data/*.csv`). La réflexion n'a rien à voir avec les fichiers."
+  - key: qcm-pourquoi-quarkus-convient
+    format: multiple-choice
+    question: "Pourquoi Quarkus se compile-t-il en natif plus facilement que beaucoup de frameworks Java ?"
+    choices:
+      - {text: "Il fait son travail de démarrage au build, et déclare ce qu'il passe par la réflexion", correct: true}
+      - {text: "Il n'utilise jamais la réflexion, même dans ses extensions et leurs bibliothèques", correct: false}
+      - {text: "Il embarque une JVM dans l'exécutable, qui comble ce que `native-image` ignore", correct: false}
+      - {text: "Il interdit les dépendances tierces dans les projets compilés en natif", correct: false}
+    answer: "L'analyse des annotations et la création des métadonnées sont faites au build ; il reste peu de dynamique à l'exécution, et les extensions déclarent à `native-image` ce qu'il doit garder."
+  - key: trous-profil-native
+    format: fill-in
+    question: |-
+      Complète la commande qui construit l'exécutable natif :
+      ```bash
+      ./mvnw package -D___
+      ```
+    blanks:
+      - [native]
+    answer: "`-Dnative` active le profil Maven `native` du pom généré."
+  - key: trous-construction-en-conteneur
+    format: fill-in
+    question: |-
+      Complète pour construire l'exécutable dans un conteneur, sans GraalVM local :
+      ```properties
+      quarkus.native.___=true
+      ```
+    blanks:
+      - [container-build]
+    answer: "`quarkus.native.container-build=true` lance `native-image` dans l'image de construction Mandrel."
+  - key: trous-activer-le-natif
+    format: fill-in
+    question: |-
+      Complète la propriété que le profil Maven `native` active :
+      ```properties
+      quarkus.native.___=true
+      ```
+    blanks:
+      - [enabled]
+    answer: "`quarkus.native.enabled=true` demande un exécutable natif au lieu d'un jar."
+  - key: trous-ressources-natives
+    format: fill-in
+    question: |-
+      Complète pour embarquer les fichiers CSV du dossier `data` dans l'exécutable :
+      ```properties
+      quarkus.native.resources.___=data/*.csv
+      ```
+    blanks:
+      - [includes]
+    answer: "`resources.includes` liste les ressources à embarquer ; `excludes` en retire."
+  - key: situation-serverless
+    format: scenario
+    question: |-
+      Ta fonction Quarkus tourne sur une plateforme serverless qui l'arrête après chaque pause. Les utilisateurs se
+      plaignent d'une seconde d'attente au premier appel. Que proposes-tu ?
+    choices:
+      - {text: "La compiler en natif, pour un démarrage en quelques dizaines de millisecondes", correct: true}
+      - {text: "Augmenter la mémoire de la fonction, pour que la JVM démarre plus vite", correct: false}
+      - {text: "Passer en uber-jar, qui démarre plus vite que le fast-jar sur la JVM", correct: false}
+      - {text: "Appeler la fonction toutes les minutes pour qu'elle ne s'arrête jamais", correct: false}
+    answer: |-
+      Le démarrage à froid est exactement le cas du natif : plus de chargement de classes ni de préchauffage. Garder
+      la fonction éveillée coûte de l'argent et contourne le problème au lieu de le régler.
+  - key: situation-service-a-forte-charge
+    format: scenario
+    question: |-
+      Un service de calcul tourne en continu, sur des machines dédiées, sous une charge forte et régulière. Ton
+      collègue veut le passer en natif « parce que c'est plus rapide ». Que réponds-tu ?
+    choices:
+      - {text: "Mesurons d'abord : sous charge continue, le JIT de la JVM l'emporte souvent", correct: true}
+      - {text: "D'accord : le natif est toujours plus rapide, en démarrage comme en débit", correct: false}
+      - {text: "Impossible : Quarkus refuse de compiler en natif les services de calcul", correct: false}
+      - {text: "D'accord, mais en gardant la JVM dans l'image pour les méthodes chaudes", correct: false}
+    answer: |-
+      Le natif gagne au démarrage et en mémoire. Pour un service long et chargé, le JIT optimise le code d'après son
+      usage réel ; on compare les deux sur un banc de charge avant de décider.
+  - key: situation-ci-sans-graalvm
+    format: scenario
+    question: |-
+      Ton agent de CI n'a pas GraalVM, mais il a Docker. Tu veux y construire l'exécutable natif de l'image de
+      production. Que fais-tu ?
+    choices:
+      - {text: "Je construis avec `-Dquarkus.native.container-build=true`", correct: true}
+      - {text: "J'installe GraalVM à chaque build, depuis le script de CI", correct: false}
+      - {text: "Je construis l'exécutable sur mon poste et je le pousse dans Git", correct: false}
+      - {text: "Je renonce au natif : il exige GraalVM sur l'agent de CI", correct: false}
+    answer: |-
+      La construction en conteneur utilise l'image Mandrel : rien à installer, et la même version d'outil partout.
+      Un binaire construit sur un poste et versionné échappe à la CI.
+  - key: situation-build-trop-long
+    format: scenario
+    question: |-
+      La compilation native prend douze minutes, et l'équipe la lance à chaque commit. Les retours de la CI arrivent
+      trop tard. Que proposes-tu ?
+    choices:
+      - {text: "Les tests JVM à chaque commit, le natif avant la fusion ou chaque nuit", correct: true}
+      - {text: "Réduire `quarkus.native.native-image-xmx`, pour compiler plus vite", correct: false}
+      - {text: "Abandonner les tests du natif, puisque les tests JVM passent déjà", correct: false}
+      - {text: "Compiler en natif seulement les classes modifiées depuis le commit", correct: false}
+    answer: |-
+      Les tests JVM donnent un retour rapide sur la logique ; le natif vérifie l'artefact aux étapes qui comptent.
+      Moins de mémoire rendrait la compilation plus lente, voire impossible, et elle ne se fait pas classe par classe.
+  - key: def-native-image
+    format: definition
+    question: "Que désigne `native-image` ?"
+    choices:
+      - {text: "L'outil de GraalVM qui compile une application Java en exécutable", correct: true}
+      - {text: "L'image Docker de base des applications Quarkus en mode JVM", correct: false}
+      - {text: "Le format de jar produit par défaut par `./mvnw package`", correct: false}
+      - {text: "Le cache des classes que la JVM partage entre deux démarrages", correct: false}
+    answer: "`native-image` analyse ce qui est atteignable depuis le `main` et le compile, avec un runtime minimal, en un exécutable autonome."
+  - key: def-mandrel
+    format: definition
+    question: "Qu'est-ce que Mandrel ?"
+    choices:
+      - {text: "Une distribution de GraalVM, réduite à `native-image`", correct: true}
+      - {text: "Le ramasse-miettes des exécutables natifs de Quarkus", correct: false}
+      - {text: "L'extension Quarkus qui construit les images Docker", correct: false}
+      - {text: "Le JIT de GraalVM, utilisé à la place de celui de HotSpot", correct: false}
+    answer: "Mandrel, maintenue par Red Hat, part de GraalVM Community et ne garde que la compilation native de Java. Quarkus l'utilise pour ses constructions en conteneur."
+  - key: def-monde-clos
+    format: definition
+    question: "Que signifie l'hypothèse du « monde clos » de la compilation native ?"
+    choices:
+      - {text: "Tout le code exécuté doit être connu au build", correct: true}
+      - {text: "L'exécutable ne peut ouvrir aucune connexion réseau", correct: false}
+      - {text: "L'application ne peut pas lire de configuration externe", correct: false}
+      - {text: "L'exécutable ne tourne que sur la machine qui l'a construit", correct: false}
+    answer: "`native-image` ne garde que ce qu'il voit atteignable. Réflexion, proxies et ressources doivent lui être déclarés ; aucune classe ne peut apparaître à l'exécution."
+  - key: def-aot
+    format: definition
+    question: "Que désigne la compilation AOT (ahead-of-time) ?"
+    choices:
+      - {text: "La compilation en code machine avant l'exécution, et non pendant", correct: true}
+      - {text: "La compilation du code Java en bytecode par `javac`", correct: false}
+      - {text: "L'optimisation des méthodes chaudes pendant l'exécution", correct: false}
+      - {text: "Le chargement des classes à la demande, au premier usage", correct: false}
+    answer: "AOT s'oppose au JIT, qui compile pendant l'exécution les méthodes les plus utilisées. La compilation native de GraalVM est une compilation AOT."

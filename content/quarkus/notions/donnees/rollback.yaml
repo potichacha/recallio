@@ -1,0 +1,289 @@
+notion: rollback
+lesson: |-
+  `@Transactional` valide la transaction au retour de la méthode, et l'annule quand une exception en sort. Mais pas
+  n'importe laquelle : les **règles de rollback** de JTA décident, et elles surprennent souvent.
+
+  **1. La règle par défaut.**
+
+  | Ce qui sort de la méthode | Effet |
+  |---|---|
+  | rien (retour normal) | commit |
+  | une `RuntimeException` ou une `Error` | rollback |
+  | une exception **vérifiée** (`Exception`, `IOException`...) | **commit**, puis l'exception remonte |
+  | une exception rattrapée dans la méthode | commit : l'intercepteur ne l'a pas vue |
+
+  L'idée de JTA : une exception vérifiée est une issue métier prévue, pas une panne. Dans les faits, c'est un piège
+  classique.
+
+  **2. Changer la règle.**
+
+  ```java
+  @Transactional(rollbackOn = PaiementRefuseException.class)
+  public void payer(Commande commande) throws PaiementRefuseException { ... }
+
+  @Transactional(dontRollbackOn = AvertissementImport.class)
+  public void importer(Fichier fichier) { ... }
+  ```
+
+  - `rollbackOn` : ces exceptions (et leurs sous-classes) annulent aussi la transaction ;
+  - `dontRollbackOn` : ces exceptions (et leurs sous-classes) la laissent se valider, même si ce sont des
+    `RuntimeException` ;
+  - si une exception correspond aux deux, `dontRollbackOn` l'emporte.
+
+  **3. Annuler sans exception.** Quand on veut répondre normalement mais tout annuler :
+
+  ```java
+  @Transactional
+  public Rapport simuler(Commande commande) {
+      Rapport rapport = traiter(commande);
+      QuarkusTransaction.setRollbackOnly();     // la transaction sera annulée au retour
+      return rapport;
+  }
+  ```
+
+  `TransactionManager.setRollbackOnly()` (injecté) fait de même. La méthode se termine normalement, l'appelant ne
+  reçoit aucune exception, et rien n'est écrit.
+
+  **4. Rattraper une exception, c'est valider.** Un `try`/`catch` qui journalise et continue laisse
+  l'intercepteur croire que tout va bien : les écritures faites avant l'erreur sont validées. Si l'opération doit
+  être annulée, on relance l'exception, ou l'on marque la transaction avec `setRollbackOnly()`.
+
+  **5. Le délai dépassé.** Une transaction qui dépasse son délai est annulée par le gestionnaire ; l'appelant reçoit
+  une exception à la fin de la méthode (« ARJUNA016102: The transaction is not active! »), et rien n'est écrit.
+
+  **En entretien** : « Par défaut, JTA annule sur une `RuntimeException` ou une `Error`, mais valide sur une exception
+  vérifiée, ce qui surprend. `rollbackOn` ajoute des exceptions qui annulent, `dontRollbackOn` en retire, et il
+  l'emporte quand les deux s'appliquent. Une exception rattrapée dans la méthode ne déclenche rien : je la relance,
+  ou j'appelle `setRollbackOnly()`. »
+cards:
+  - key: regle-par-defaut
+    format: course
+    question: "Quelles exceptions annulent une transaction `@Transactional` sans réglage particulier ?"
+    choices:
+      - {text: "Les `RuntimeException` et les `Error`", correct: true}
+      - {text: "Toutes les exceptions, vérifiées ou non", correct: false}
+      - {text: "Seulement les exceptions vérifiées", correct: false}
+      - {text: "Seulement les exceptions de persistance", correct: false}
+    answer: "C'est la règle de JTA. Une exception vérifiée qui sort de la méthode laisse la transaction se valider."
+  - key: effet-de-rollbackon
+    format: course
+    question: "Que fait `@Transactional(rollbackOn = PaiementRefuseException.class)`, `PaiementRefuseException` étant vérifiée ?"
+    choices:
+      - {text: "Cette exception et ses sous-classes annulent aussi la transaction", correct: true}
+      - {text: "Seule cette exception annule ; les `RuntimeException` ne le font plus", correct: false}
+      - {text: "La méthode est relancée une fois quand cette exception survient", correct: false}
+      - {text: "L'exception est rattrapée, et la méthode renvoie `null`", correct: false}
+    answer: "`rollbackOn` s'ajoute à la règle par défaut : les `RuntimeException` annulent toujours, et `PaiementRefuseException` aussi."
+  - key: les-deux-attributs
+    format: course
+    question: "Une exception correspond à la fois à `rollbackOn` et à `dontRollbackOn`. Que devient la transaction ?"
+    choices:
+      - {text: "Elle est validée : `dontRollbackOn` l'emporte", correct: true}
+      - {text: "Elle est annulée : `rollbackOn` l'emporte", correct: false}
+      - {text: "Le build échoue sur une configuration ambiguë", correct: false}
+      - {text: "Cela dépend de l'ordre des attributs dans l'annotation", correct: false}
+    answer: "JTA donne la priorité à `dontRollbackOn`. `rollbackOn = Exception.class, dontRollbackOn = Avertissement.class` annule tout, sauf sur un avertissement."
+  - key: annuler-sans-exception
+    format: course
+    question: "Comment annules-tu la transaction d'une méthode `@Transactional` qui doit pourtant se terminer normalement ?"
+    choices:
+      - {text: "Avec `QuarkusTransaction.setRollbackOnly()` avant le retour", correct: true}
+      - {text: "En renvoyant `null` à la fin de la méthode", correct: false}
+      - {text: "En appelant `em.clear()` avant le retour", correct: false}
+      - {text: "En levant une exception vérifiée, rattrapée juste après", correct: false}
+    answer: "La transaction est marquée : l'intercepteur l'annule au retour, sans exception pour l'appelant. `em.clear()` détache les entités, mais une écriture déjà envoyée resterait."
+  - key: vf-sous-classes
+    format: true-false
+    question: "`rollbackOn = MetierException.class` s'applique aussi aux sous-classes de `MetierException`."
+    truth: true
+    answer: "Les deux attributs valent pour la classe désignée et pour toutes ses sous-classes."
+  - key: vf-exception-rattrapee
+    format: true-false
+    question: "Une exception levée puis rattrapée dans la méthode `@Transactional` annule quand même la transaction."
+    truth: false
+    answer: "L'intercepteur ne voit que ce qui sort de la méthode. Rattrapée, l'exception laisse la transaction se valider, avec tout ce qui a été écrit avant."
+  - key: vf-dontrollbackon-runtime
+    format: true-false
+    question: "`dontRollbackOn` peut empêcher le rollback sur une `RuntimeException`."
+    truth: true
+    answer: "`@Transactional(dontRollbackOn = IllegalArgumentException.class)` valide la transaction même quand cette exception sort de la méthode."
+  - key: vf-setrollbackonly-valide
+    format: true-false
+    question: "Après `QuarkusTransaction.setRollbackOnly()`, si la méthode se termine normalement, ses écritures sont validées."
+    truth: false
+    answer: "La transaction est marquée pour l'annulation : au retour de la méthode, l'intercepteur l'annule, sans lever d'exception."
+  - key: qcm-exception-verifiee
+    format: multiple-choice
+    question: "`StockInsuffisantException` est une exception vérifiée. Comment obtiens-tu un rollback quand elle sort de la méthode ?"
+    choices:
+      - {text: "`@Transactional(rollbackOn = StockInsuffisantException.class)`", correct: true}
+      - {text: "`@Transactional(dontRollbackOn = StockInsuffisantException.class)`", correct: false}
+      - {text: "`@Transactional(TxType.REQUIRES_NEW)`", correct: false}
+      - {text: "Rien : toute exception provoque déjà un rollback", correct: false}
+    answer: "Une exception vérifiée laisse la transaction se valider. `rollbackOn` la fait annuler ; la faire hériter de `RuntimeException` marcherait aussi."
+  - key: qcm-exception-tolere
+    format: multiple-choice
+    question: "Une `LigneIgnoreeException` (non vérifiée) signale une ligne d'import ignorée ; les autres lignes doivent être gardées. Que déclares-tu ?"
+    choices:
+      - {text: "`@Transactional(dontRollbackOn = LigneIgnoreeException.class)`", correct: true}
+      - {text: "`@Transactional(rollbackOn = LigneIgnoreeException.class)`", correct: false}
+      - {text: "`@Transactional(TxType.NEVER)`", correct: false}
+      - {text: "`@Transactional(TxType.MANDATORY)`", correct: false}
+    answer: "`dontRollbackOn` laisse la transaction se valider quand cette exception sort de la méthode."
+  - key: qcm-error
+    format: multiple-choice
+    question: "Une `OutOfMemoryError` sort d'une méthode `@Transactional`. Que devient la transaction ?"
+    choices:
+      - {text: "Elle est annulée", correct: true}
+      - {text: "Elle est validée, comme pour une exception vérifiée", correct: false}
+      - {text: "Elle reste ouverte jusqu'au délai", correct: false}
+      - {text: "Elle est validée, puis l'erreur remonte", correct: false}
+    answer: "Les `Error` annulent la transaction, comme les `RuntimeException`."
+  - key: qcm-delai-depasse
+    format: multiple-choice
+    question: "Une méthode `@Transactional` dépasse le délai de sa transaction. Que se passe-t-il ?"
+    choices:
+      - {text: "La transaction est annulée, et une exception sort à la fin de la méthode", correct: true}
+      - {text: "La méthode est interrompue au milieu, sans aucune exception", correct: false}
+      - {text: "La transaction est validée, avec un avertissement dans le journal", correct: false}
+      - {text: "Le délai est prolongé tant que la méthode s'exécute", correct: false}
+    answer: "Le gestionnaire annule la transaction ; la méthode continue, mais au retour l'intercepteur ne peut plus valider : « ARJUNA016102: The transaction is not active! »."
+  - key: trous-rollbackon
+    format: fill-in
+    question: |-
+      Complète pour annuler la transaction quand ce paiement refusé (exception vérifiée) sort de la méthode :
+      ```java
+      @Transactional(___ = PaiementRefuseException.class)
+      public void payer(Commande commande) throws PaiementRefuseException {
+      ```
+    blanks:
+      - [rollbackOn]
+    answer: "`rollbackOn` ajoute des exceptions à celles qui annulent."
+  - key: trous-dontrollbackon
+    format: fill-in
+    question: |-
+      Complète pour valider la transaction malgré un avertissement d'import :
+      ```java
+      @Transactional(___ = AvertissementImport.class)
+      public void importer(Fichier fichier) {
+      ```
+    blanks:
+      - [dontRollbackOn]
+    answer: "`dontRollbackOn` retire des exceptions de celles qui annulent, et l'emporte sur `rollbackOn`."
+  - key: trous-setrollbackonly
+    format: fill-in
+    question: |-
+      Complète pour tout annuler au retour, sans lever d'exception :
+      ```java
+      QuarkusTransaction.___();
+      return rapport;
+      ```
+    blanks:
+      - [setRollbackOnly]
+    answer: "`setRollbackOnly()` marque la transaction en cours : elle sera annulée au lieu d'être validée."
+  - key: trous-exception-non-verifiee
+    format: fill-in
+    question: |-
+      Complète pour que cette exception annule la transaction sans aucun réglage :
+      ```java
+      public class StockEpuiseException extends ___ {
+      ```
+    blanks:
+      - [RuntimeException]
+    answer: "Une `RuntimeException` annule la transaction par défaut ; une sous-classe d'`Exception` ne le ferait pas."
+  - key: bug-exception-verifiee
+    format: bug-fix
+    question: |-
+      Quand le paiement est refusé, le stock reste réservé en base : la réservation n'est pas annulée. Quelle
+      correction est la bonne ?
+      ```java
+      public class PaiementRefuseException extends Exception { ... }
+
+      @Transactional
+      public void commander(Commande commande) throws PaiementRefuseException {
+          stock.reserver(commande);
+          paiement.payer(commande);     // lève PaiementRefuseException
+      }
+      ```
+    choices:
+      - {text: "Ajouter `rollbackOn = PaiementRefuseException.class`", correct: true}
+      - {text: "Ajouter `dontRollbackOn = PaiementRefuseException.class`", correct: false}
+      - {text: "Passer la méthode en `TxType.REQUIRES_NEW`", correct: false}
+      - {text: "Rattraper l'exception et renvoyer `false`", correct: false}
+    answer: |-
+      ```java
+      @Transactional(rollbackOn = PaiementRefuseException.class)
+      public void commander(Commande commande) throws PaiementRefuseException {
+      ```
+      Une exception vérifiée laisse la transaction se valider : la réservation est écrite. `rollbackOn` change la
+      règle ; faire hériter l'exception de `RuntimeException` aurait le même effet.
+  - key: bug-exception-avalee
+    format: bug-fix
+    question: |-
+      Quand l'enregistrement des lignes échoue, l'en-tête de la facture reste en base, sans lignes. Quelle correction
+      est la bonne ?
+      ```java
+      @Transactional
+      public void facturer(Facture facture) {
+          facture.persist();
+          try {
+              enregistrerLignes(facture);
+          } catch (RuntimeException e) {
+              journal.error("Lignes non enregistrées", e);
+          }
+      }
+      ```
+    choices:
+      - {text: "Relancer l'exception après l'avoir journalisée", correct: true}
+      - {text: "Ajouter `rollbackOn = RuntimeException.class`", correct: false}
+      - {text: "Passer `enregistrerLignes` en `TxType.REQUIRES_NEW`", correct: false}
+      - {text: "Journaliser l'erreur au niveau `warn` plutôt qu'`error`", correct: false}
+    answer: |-
+      ```java
+      } catch (RuntimeException e) {
+          journal.error("Lignes non enregistrées", e);
+          throw e;
+      }
+      ```
+      Rattrapée, l'exception ne sort pas de la méthode : l'intercepteur valide l'en-tête. `rollbackOn` n'y change
+      rien, puisque l'exception ne sort pas ; `QuarkusTransaction.setRollbackOnly()` dans le `catch` conviendrait aussi.
+  - key: bug-dontrollbackon-trop-large
+    format: bug-fix
+    question: |-
+      Depuis ce changement, une erreur au milieu d'un import laisse en base la moitié des lignes, au lieu de tout
+      annuler. Seul `AvertissementImport` (non vérifiée) devait être toléré. Quelle correction est la bonne ?
+      ```java
+      @Transactional(dontRollbackOn = RuntimeException.class)
+      public void importer(Fichier fichier) { ... }
+      ```
+    choices:
+      - {text: "Écrire `dontRollbackOn = AvertissementImport.class`", correct: true}
+      - {text: "Ajouter `rollbackOn = RuntimeException.class` à côté", correct: false}
+      - {text: "Remplacer `RuntimeException` par `Exception`", correct: false}
+      - {text: "Passer la méthode en `TxType.REQUIRES_NEW`", correct: false}
+    answer: |-
+      ```java
+      @Transactional(dontRollbackOn = AvertissementImport.class)
+      ```
+      `RuntimeException` couvre toutes ses sous-classes : plus aucune erreur n'annule l'import. Ajouter `rollbackOn` sur
+      la même classe n'y changerait rien : `dontRollbackOn` l'emporte.
+  - key: bug-avertissement-annule-tout
+    format: bug-fix
+    question: |-
+      Toute exception doit annuler l'import, sauf `AvertissementImport`, une exception vérifiée qui signale une ligne
+      douteuse. Pourtant, un simple avertissement annule tout. Quelle correction est la bonne ?
+      ```java
+      @Transactional(rollbackOn = Exception.class)
+      public void importer(Fichier fichier) throws Exception { ... }
+      ```
+    choices:
+      - {text: "Ajouter `dontRollbackOn = AvertissementImport.class`", correct: true}
+      - {text: "Retirer `rollbackOn = Exception.class`", correct: false}
+      - {text: "Faire hériter `AvertissementImport` de `RuntimeException`", correct: false}
+      - {text: "Remplacer `Exception.class` par `Throwable.class`", correct: false}
+    answer: |-
+      ```java
+      @Transactional(rollbackOn = Exception.class, dontRollbackOn = AvertissementImport.class)
+      ```
+      `AvertissementImport` est une `Exception` : `rollbackOn` la vise. `dontRollbackOn` l'emporte quand les deux
+      s'appliquent. Retirer `rollbackOn` validerait aussi les autres exceptions vérifiées.

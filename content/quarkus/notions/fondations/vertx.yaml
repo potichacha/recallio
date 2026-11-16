@@ -1,0 +1,184 @@
+notion: vertx
+lesson: |-
+  Sous Quarkus tourne **Eclipse Vert.x**, une boîte à outils réactive construite sur **Netty**. C'est Vert.x qui
+  écoute le port HTTP, lit les requêtes et écrit les réponses. Comprendre son modèle de threads évite le piège le
+  plus coûteux de Quarkus : **bloquer une boucle d'événements**.
+
+  **Deux sortes de threads.**
+
+  | Threads | Nom | Combien | Ce qu'ils font |
+  |---|---|---|---|
+  | Boucles d'événements (I/O) | `vert.x-eventloop-thread-N` | peu : par défaut deux fois le nombre de cœurs | traitent les entrées-sorties de **toutes** les connexions, sans jamais attendre |
+  | Threads de travail (workers) | `executor-thread-N` | un pool qui grandit selon la charge | exécutent le code **bloquant** : JDBC, appels synchrones, calculs longs |
+
+  Une boucle d'événements sert des milliers de connexions à tour de rôle. Si une tâche s'y **bloque** (une requête
+  SQL, un `Thread.sleep`, un appel HTTP synchrone), toutes les connexions qu'elle sert attendent. Vert.x surveille ce
+  cas et journalise un avertissement : `Thread Thread[vert.x-eventloop-thread-0,...] has been blocked for 2345 ms,
+  time limit is 2000 ms`.
+
+  **Quarkus REST choisit le thread d'après la signature de la méthode :**
+
+  ```java
+  @Path("/produits")
+  public class ProduitResource {
+
+      @GET
+      public List<Produit> lister() { ... }          // type ordinaire : thread de travail (bloquant permis)
+
+      @GET
+      @Path("/{id}")
+      public Uni<Produit> trouver(long id) { ... }   // Uni, Multi, CompletionStage : boucle d'événements
+
+      @GET
+      @Path("/stats")
+      @RunOnVirtualThread
+      public Stats stats() { ... }                   // un thread virtuel (Java 21 et plus)
+  }
+  ```
+
+  - `@Blocking` force un thread de travail, même pour une méthode qui renvoie un `Uni` ;
+  - `@NonBlocking` force la boucle d'événements, pour une méthode synchrone qui ne bloque jamais ;
+  - `@RunOnVirtualThread` exécute la méthode sur un **thread virtuel** : du code bloquant, écrit simplement, sans
+    immobiliser un thread de plateforme pendant l'attente.
+
+  **Le style réactif** passe par **Mutiny** (`Uni` pour une valeur, `Multi` pour un flux) : le code décrit ce qu'il
+  faut faire quand le résultat arrivera, sans attendre. Il exige des clients non bloquants (Hibernate Reactive, client
+  Vert.x). Le style impératif, sur threads de travail, reste le choix le plus simple pour la plupart des services.
+
+  **Accéder à Vert.x.** On peut injecter l'instance (`@Inject Vertx vertx`) pour ses minuteries, son client HTTP ou
+  son bus d'événements (`@ConsumeEvent`). C'est rarement nécessaire dans une application ordinaire.
+
+  **En entretien** : « Quarkus repose sur Vert.x : quelques boucles d'événements traitent toutes les entrées-sorties, et
+  un pool de threads de travail exécute le code bloquant. Quarkus REST place une méthode qui renvoie un type ordinaire
+  sur un thread de travail, et une méthode qui renvoie un `Uni` sur la boucle d'événements ; `@Blocking`,
+  `@NonBlocking` et `@RunOnVirtualThread` changent ce choix. La règle d'or : ne jamais bloquer une boucle
+  d'événements. »
+cards:
+  - key: thread-d-une-methode-synchrone
+    format: course
+    question: "Avec Quarkus REST, sur quel thread s'exécute une méthode `@GET` qui renvoie un `List<Produit>` ?"
+    choices:
+      - {text: "Sur un thread de travail, où le code bloquant est permis", correct: true}
+      - {text: "Sur une boucle d'événements, comme toutes les requêtes", correct: false}
+      - {text: "Sur un thread créé pour cette seule requête, puis détruit", correct: false}
+      - {text: "Sur le thread principal `main` de l'application", correct: false}
+    answer: "Un type de retour ordinaire signale un code synchrone : Quarkus REST l'exécute sur un thread de travail (`executor-thread-N`), où un appel JDBC ne gêne personne."
+  - key: thread-d-une-methode-uni
+    format: course
+    question: "Avec Quarkus REST, sur quel thread s'exécute une méthode `@GET` qui renvoie un `Uni<Produit>` ?"
+    choices:
+      - {text: "Sur une boucle d'événements : elle ne doit rien bloquer", correct: true}
+      - {text: "Sur un thread de travail, comme une méthode synchrone", correct: false}
+      - {text: "Sur un thread virtuel, créé automatiquement par Mutiny", correct: false}
+      - {text: "Sur le thread du ramasse-miettes, entre deux collectes", correct: false}
+    answer: "Un `Uni`, un `Multi` ou un `CompletionStage` annoncent un code non bloquant : il reste sur la boucle d'événements. Un appel bloquant y serait une faute ; `@Blocking` corrige le choix si besoin."
+  - key: pourquoi-ne-pas-bloquer
+    format: course
+    question: "Pourquoi ne faut-il jamais bloquer une boucle d'événements de Vert.x ?"
+    choices:
+      - {text: "Elles sont peu nombreuses et servent chacune de nombreuses connexions", correct: true}
+      - {text: "Un blocage arrête immédiatement l'application avec une erreur fatale", correct: false}
+      - {text: "La JVM tue tout thread qui reste bloqué plus d'une seconde", correct: false}
+      - {text: "Une boucle bloquée perd la configuration de l'application", correct: false}
+    answer: "Pendant qu'une boucle attend une base de données, toutes les connexions qui lui sont confiées attendent aussi. Vert.x le détecte et journalise un avertissement, mais ne débloque rien."
+  - key: run-on-virtual-thread
+    format: course
+    question: "Que fait `@RunOnVirtualThread` sur une méthode de ressource REST ?"
+    choices:
+      - {text: "Il l'exécute sur un thread virtuel : du code bloquant, sans immobiliser de thread de plateforme", correct: true}
+      - {text: "Il l'exécute sur la boucle d'événements, en la rendant non bloquante automatiquement", correct: false}
+      - {text: "Il la convertit en méthode réactive qui renvoie un `Uni`, au moment du build", correct: false}
+      - {text: "Il l'exécute dans une JVM séparée, virtualisée dans un conteneur à part", correct: false}
+    answer: "Un thread virtuel (Java 21 et plus) libère son thread porteur pendant une attente. On garde un code impératif simple, avec une grande concurrence. Attention aux blocs `synchronized` longs et aux pools de connexions trop petits."
+  - key: vf-serveur-vertx
+    format: true-false
+    question: "Le serveur HTTP de Quarkus repose sur Vert.x."
+    truth: true
+    answer: "Vert.x, sur Netty, écoute le port et gère les connexions ; Quarkus REST y branche ses routes. Il n'y a ni Tomcat ni servlet par défaut."
+  - key: vf-blocking-sur-uni
+    format: true-false
+    question: "Une méthode annotée `@Blocking` s'exécute sur un thread de travail, même si elle renvoie un `Uni`."
+    truth: true
+    answer: "L'annotation l'emporte sur la signature. Utile quand une méthode renvoie un `Uni` mais appelle quand même du code bloquant."
+  - key: vf-une-boucle-par-requete
+    format: true-false
+    question: "Vert.x crée une boucle d'événements pour chaque requête HTTP reçue."
+    truth: false
+    answer: "Les boucles d'événements sont peu nombreuses et fixes ; chacune traite les événements de nombreuses connexions, à tour de rôle. C'est ce qui rend le modèle économe en threads."
+  - key: vf-avertissement-thread-bloque
+    format: true-false
+    question: "Quarkus journalise un avertissement quand une boucle d'événements reste bloquée au-delà d'un délai."
+    truth: true
+    answer: "Le message `Thread ... vert.x-eventloop-thread-0 ... has been blocked for ... ms` signale le problème, avec une trace qui montre où le code attend."
+  - key: qcm-forcer-la-boucle
+    format: multiple-choice
+    question: "Une méthode REST synchrone, très courte, ne bloque jamais. Comment la faire exécuter sur la boucle d'événements ?"
+    choices:
+      - {text: "L'annoter `@NonBlocking`", correct: true}
+      - {text: "L'annoter `@Blocking`", correct: false}
+      - {text: "L'annoter `@RunOnVirtualThread`", correct: false}
+      - {text: "La déclarer `synchronized`", correct: false}
+    answer: "`@NonBlocking` évite le passage par un thread de travail : un peu moins de latence. À réserver à du code qui n'attend vraiment rien."
+  - key: qcm-nom-des-workers
+    format: multiple-choice
+    question: "Quel nom portent les threads de travail de Quarkus dans les journaux ?"
+    choices:
+      - {text: "`executor-thread-N`", correct: true}
+      - {text: "`vert.x-eventloop-thread-N`", correct: false}
+      - {text: "`http-nio-8080-exec-N`", correct: false}
+      - {text: "`ForkJoinPool.commonPool-worker-N`", correct: false}
+    answer: "`vert.x-eventloop-thread-N` désigne une boucle d'événements ; `http-nio-8080-exec-N` est un thread de Tomcat ; le pool commun de `ForkJoinPool` sert aux flux parallèles."
+  - key: qcm-mutiny
+    format: multiple-choice
+    question: "Quelle bibliothèque réactive Quarkus propose-t-il, avec les types `Uni` et `Multi` ?"
+    choices:
+      - {text: "Mutiny", correct: true}
+      - {text: "Project Reactor", correct: false}
+      - {text: "RxJava", correct: false}
+      - {text: "Akka Streams", correct: false}
+    answer: "Mutiny : `Uni` pour zéro ou une valeur à venir, `Multi` pour un flux. Reactor (`Mono`, `Flux`) est la bibliothèque de Spring WebFlux."
+  - key: qcm-symptome-blocage
+    format: multiple-choice
+    question: "Une méthode qui renvoie un `Uni` appelle JDBC directement. Que constates-tu sous charge ?"
+    choices:
+      - {text: "Des avertissements de thread bloqué, et une latence qui explose", correct: true}
+      - {text: "Une erreur de compilation au build de l'application", correct: false}
+      - {text: "Rien : Quarkus déplace l'appel JDBC sur un thread de travail", correct: false}
+      - {text: "Des réponses plus rapides, grâce à la boucle d'événements", correct: false}
+    answer: "Chaque appel JDBC immobilise une boucle d'événements et toutes ses connexions. Corrections : `@Blocking`, un retour synchrone, ou un client réactif (Hibernate Reactive)."
+  - key: def-boucle-d-evenements
+    format: definition
+    question: "Quel terme désigne un thread qui traite à tour de rôle les événements d'entrée-sortie de nombreuses connexions, sans jamais attendre ?"
+    choices:
+      - {text: "Une boucle d'événements (event loop)", correct: true}
+      - {text: "Un thread de travail (worker)", correct: false}
+      - {text: "Un thread virtuel", correct: false}
+      - {text: "Un thread démon", correct: false}
+    answer: "Vert.x en crée peu, par défaut deux fois le nombre de cœurs. Le code bloquant va sur les threads de travail, ou sur des threads virtuels."
+  - key: def-thread-de-travail
+    format: definition
+    question: "Quel terme désigne, dans Quarkus, un thread d'un pool réservé au code qui peut bloquer, comme un appel JDBC ?"
+    choices:
+      - {text: "Un thread de travail (worker thread)", correct: true}
+      - {text: "Une boucle d'événements (event loop)", correct: false}
+      - {text: "Un thread porteur (carrier thread)", correct: false}
+      - {text: "Un thread de finalisation", correct: false}
+    answer: "Les threads de travail (`executor-thread-N`) peuvent attendre sans gêner les autres connexions. Un thread porteur, lui, exécute des threads virtuels."
+  - key: def-vertx
+    format: definition
+    question: "Quel nom porte la boîte à outils réactive, de la fondation Eclipse, sur laquelle repose la couche réseau de Quarkus ?"
+    choices:
+      - {text: "Vert.x", correct: true}
+      - {text: "Mutiny", correct: false}
+      - {text: "Undertow", correct: false}
+      - {text: "Helidon", correct: false}
+    answer: "Vert.x fournit le serveur HTTP, les boucles d'événements, des clients non bloquants et un bus d'événements. Mutiny est l'API réactive posée dessus ; Undertow, un serveur de servlets."
+  - key: def-netty
+    format: definition
+    question: "Quel nom porte le framework réseau asynchrone, bas niveau, sur lequel Vert.x est construit ?"
+    choices:
+      - {text: "Netty", correct: true}
+      - {text: "Jetty", correct: false}
+      - {text: "Grizzly", correct: false}
+      - {text: "Tomcat", correct: false}
+    answer: "Netty gère les sockets, les tampons et les protocoles, en non bloquant. Jetty et Tomcat sont des conteneurs de servlets ; Grizzly est le moteur réseau de GlassFish."

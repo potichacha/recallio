@@ -1,0 +1,202 @@
+notion: quarkus-transaction
+lesson: |-
+  `@Transactional` couvre une méthode entière. Parfois, on veut une transaction **sur une partie** du code : chaque
+  lot d'un import, une écriture au milieu d'un traitement, une relecture dans un test. Quarkus offre pour cela une API
+  statique, `QuarkusTransaction` (`io.quarkus.narayana.jta.QuarkusTransaction`).
+
+  **1. Une transaction autour d'un lambda.**
+
+  ```java
+  public void importer(List<List<Ligne>> lots) {
+      for (List<Ligne> lot : lots) {
+          QuarkusTransaction.requiringNew().run(() -> lot.forEach(ligne -> ligne.persist()));
+      }
+  }
+  ```
+
+  Chaque lot est validé à la fin de son lambda, et annulé si une exception en sort ; l'exception remonte telle quelle
+  quand elle n'est pas vérifiée. Un échec au cinquième lot laisse les quatre premiers en base : c'est voulu ici.
+
+  `call` fait de même et renvoie une valeur :
+
+  ```java
+  long total = QuarkusTransaction.requiringNew().call(() -> Commande.count("statut", Statut.PAYEE));
+  ```
+
+  Une exception vérifiée levée dans `call` remonte enveloppée dans une `QuarkusTransactionException`.
+
+  **2. Choisir la propagation.**
+
+  | Méthode | Effet |
+  |---|---|
+  | `requiringNew()` | une nouvelle transaction, en suspendant celle en cours |
+  | `joiningExisting()` | rejoint la transaction en cours, ou en ouvre une |
+  | `disallowingExisting()` | échoue si une transaction est en cours |
+  | `suspendingExisting()` | s'exécute sans transaction, en suspendant celle en cours |
+
+  Le constructeur accepte aussi un délai : `QuarkusTransaction.requiringNew().timeout(10).run(...)`.
+
+  **3. La démarcation à la main.**
+
+  ```java
+  QuarkusTransaction.begin();
+  try {
+      commande.persist();
+      QuarkusTransaction.commit();
+  } catch (RuntimeException e) {
+      QuarkusTransaction.rollback();
+      throw e;
+  }
+  ```
+
+  Une transaction ouverte par `begin()` est liée à la requête : si elle n'est ni validée ni annulée quand la requête se
+  termine, Quarkus l'**annule**. On préfère pourtant `run` et `call`, qui ne peuvent rien oublier.
+
+  **4. Les autres outils.** `QuarkusTransaction.isActive()` dit si une transaction est en cours, `setRollbackOnly()` la
+  marque pour l'annulation.
+
+  **Quand l'utiliser ?** `@Transactional` reste le choix par défaut, lisible et déclaratif. `QuarkusTransaction` sert
+  quand la frontière de la transaction ne coïncide pas avec une méthode : des lots indépendants, une boucle, du code de
+  test qui relit la base dans une transaction neuve.
+
+  **En entretien** : « `QuarkusTransaction` démarque une transaction par programme :
+  `requiringNew().run(...)` ou `call(...)` autour d'un lambda, validé à la fin, annulé sur exception. Je m'en sers
+  quand la transaction ne correspond pas à une méthode, par exemple un import par lots où chaque lot est validé seul.
+  Sinon, je garde `@Transactional`. »
+cards:
+  - key: effet-de-requiringnew-run
+    format: course
+    question: "Que fait `QuarkusTransaction.requiringNew().run(() -> lot.forEach(l -> l.persist()))` ?"
+    choices:
+      - {text: "Exécute le lambda dans une nouvelle transaction, validée à la fin", correct: true}
+      - {text: "Exécute le lambda dans un nouveau thread, sans transaction", correct: false}
+      - {text: "Programme le lambda pour la prochaine transaction ouverte", correct: false}
+      - {text: "Exécute le lambda dans la transaction en cours, ou échoue", correct: false}
+    answer: "La transaction s'ouvre avant le lambda, se valide après, et s'annule si une exception en sort. Une transaction en cours est suspendue le temps du lambda."
+  - key: exception-dans-le-lambda
+    format: course
+    question: "Une `IllegalStateException` sort du lambda passé à `requiringNew().run(...)`. Que se passe-t-il ?"
+    choices:
+      - {text: "La transaction est annulée, et l'exception remonte telle quelle", correct: true}
+      - {text: "La transaction est validée, et l'exception est journalisée", correct: false}
+      - {text: "La transaction est annulée, et l'exception est avalée", correct: false}
+      - {text: "Le lambda est relancé jusqu'à ce qu'il réussisse", correct: false}
+    answer: "Le rollback suit la même règle qu'avec `@Transactional`, et l'appelant reçoit l'exception d'origine. Une exception vérifiée levée dans `call` remonte, elle, dans une `QuarkusTransactionException`."
+  - key: begin-sans-commit
+    format: course
+    question: "Une méthode REST appelle `QuarkusTransaction.begin()`, enregistre une entité, puis se termine sans `commit()`. Que devient l'entité ?"
+    choices:
+      - {text: "Elle n'est pas écrite : Quarkus annule la transaction en fin de requête", correct: true}
+      - {text: "Elle est écrite : Quarkus valide la transaction en fin de requête", correct: false}
+      - {text: "La transaction reste ouverte pour la requête suivante", correct: false}
+      - {text: "La requête échoue avec une 500 avant même l'enregistrement", correct: false}
+    answer: "La transaction ouverte par `begin()` est liée à la requête : oubliée, elle est annulée à la fin. `run` et `call` évitent ce genre d'oubli."
+  - key: quand-preferer
+    format: course
+    question: "Dans quel cas `QuarkusTransaction` convient-il mieux que `@Transactional` ?"
+    choices:
+      - {text: "Un import par lots, où chaque lot doit être validé seul", correct: true}
+      - {text: "Une méthode de service qui enregistre une commande", correct: false}
+      - {text: "Une lecture qui n'écrit rien en base", correct: false}
+      - {text: "Toute méthode, puisque l'API est plus explicite", correct: false}
+    answer: "La frontière de chaque transaction est un tour de boucle, pas une méthode : `requiringNew().run(...)` la place exactement. Pour un cas d'usage ordinaire, `@Transactional` reste plus lisible."
+  - key: vf-call-exception-verifiee
+    format: true-false
+    question: "Une `IOException` levée dans le lambda de `QuarkusTransaction.requiringNew().call(...)` remonte enveloppée dans une `QuarkusTransactionException`."
+    truth: true
+    answer: "Un `Callable` peut lever une exception vérifiée ; `call` l'enveloppe dans une exception non vérifiée, `QuarkusTransactionException`, dont elle est la cause."
+  - key: vf-joining-existing
+    format: true-false
+    question: "Dans une méthode `@Transactional`, `QuarkusTransaction.joiningExisting().run(...)` rejoint sa transaction, et en partage le rollback."
+    truth: true
+    answer: "`joiningExisting()` rejoint la transaction en cours, comme `REQUIRED`. Si la méthode échoue ensuite, les écritures du lambda sont annulées avec le reste."
+  - key: vf-begin-oublie
+    format: true-false
+    question: "Une transaction ouverte par `QuarkusTransaction.begin()`, jamais validée, reste ouverte après la fin de la requête HTTP."
+    truth: false
+    answer: "Elle est liée à la requête : Quarkus l'annule à la fin. Les écritures faites dedans sont perdues."
+  - key: vf-isactive
+    format: true-false
+    question: "`QuarkusTransaction.isActive()` dit si une transaction est en cours sur le thread courant."
+    truth: true
+    answer: "Pratique pour un test ou un diagnostic. Pour exiger une transaction, `@Transactional(TxType.MANDATORY)` est plus clair."
+  - key: qcm-renvoyer-une-valeur
+    format: multiple-choice
+    question: "Comment exécutes-tu une requête dans une nouvelle transaction, en récupérant son résultat ?"
+    choices:
+      - {text: "`QuarkusTransaction.requiringNew().call(() -> Produit.count())`", correct: true}
+      - {text: "`QuarkusTransaction.requiringNew().run(() -> Produit.count())`", correct: false}
+      - {text: "`QuarkusTransaction.begin(() -> Produit.count())`", correct: false}
+      - {text: "`QuarkusTransaction.get(() -> Produit.count())`", correct: false}
+    answer: "`call` prend un `Callable` et renvoie sa valeur ; `run` prend un `Runnable` et ne renvoie rien."
+  - key: qcm-rejoindre
+    format: multiple-choice
+    question: "Quelle méthode rejoint la transaction en cours, ou en ouvre une s'il n'y en a pas ?"
+    choices:
+      - {text: "`QuarkusTransaction.joiningExisting()`", correct: true}
+      - {text: "`QuarkusTransaction.requiringNew()`", correct: false}
+      - {text: "`QuarkusTransaction.suspendingExisting()`", correct: false}
+      - {text: "`QuarkusTransaction.disallowingExisting()`", correct: false}
+    answer: "`joiningExisting()` est l'équivalent de `REQUIRED`. `requiringNew()` en ouvre toujours une nouvelle."
+  - key: qcm-a-la-main
+    format: multiple-choice
+    question: "Quel trio d'appels démarque une transaction à la main ?"
+    choices:
+      - {text: "`QuarkusTransaction.begin()`, puis `commit()` ou `rollback()`", correct: true}
+      - {text: "`QuarkusTransaction.open()`, puis `close()` ou `cancel()`", correct: false}
+      - {text: "`QuarkusTransaction.start()`, puis `end()` ou `abort()`", correct: false}
+      - {text: "`QuarkusTransaction.create()`, puis `save()` ou `undo()`", correct: false}
+    answer: "`begin()`, `commit()`, `rollback()`. Les méthodes `run` et `call` font ce travail pour toi, sans oubli possible."
+  - key: qcm-delai-programme
+    format: multiple-choice
+    question: "Comment donnes-tu un délai de 10 secondes à une transaction ouverte par programme ?"
+    choices:
+      - {text: "`QuarkusTransaction.requiringNew().timeout(10).run(...)`", correct: true}
+      - {text: "`QuarkusTransaction.requiringNew().run(..., 10)`", correct: false}
+      - {text: "`QuarkusTransaction.setTimeout(10)` après le `run`", correct: false}
+      - {text: "`@TransactionConfiguration(timeout = 10)` sur le lambda", correct: false}
+    answer: "Le constructeur de `requiringNew()` accepte des options, dont `timeout`, avant `run` ou `call`."
+  - key: trous-requiringnew
+    format: fill-in
+    question: |-
+      Complète pour valider chaque lot dans sa propre transaction :
+      ```java
+      for (List<Ligne> lot : lots) {
+          QuarkusTransaction.___().run(() -> lot.forEach(ligne -> ligne.persist()));
+      }
+      ```
+    blanks:
+      - [requiringNew]
+    answer: "`requiringNew()` ouvre une nouvelle transaction pour chaque lot."
+  - key: trous-call
+    format: fill-in
+    question: |-
+      Complète pour compter les commandes dans une nouvelle transaction :
+      ```java
+      long total = QuarkusTransaction.requiringNew().___(() -> Commande.count());
+      ```
+    blanks:
+      - [call]
+    answer: "`call` renvoie la valeur du lambda ; `run` ne renvoie rien."
+  - key: trous-commit
+    format: fill-in
+    question: |-
+      Complète pour valider la transaction ouverte à la main :
+      ```java
+      QuarkusTransaction.begin();
+      commande.persist();
+      QuarkusTransaction.___();
+      ```
+    blanks:
+      - [commit]
+    answer: "`commit()` valide ; `rollback()` annulerait. Sans l'un ni l'autre, Quarkus annule à la fin de la requête."
+  - key: trous-joining
+    format: fill-in
+    question: |-
+      Complète pour rejoindre la transaction en cours, s'il y en a une :
+      ```java
+      QuarkusTransaction.___().run(() -> audit.persist());
+      ```
+    blanks:
+      - [joiningExisting]
+    answer: "`joiningExisting()` rejoint la transaction en cours, ou en ouvre une."

@@ -1,0 +1,319 @@
+notion: config-property
+lesson: |-
+  `@ConfigProperty` injecte une valeur de configuration dans un bean CDI, convertie dans le type du champ :
+
+  ```java
+  @ApplicationScoped
+  public class FraisDePort {
+
+      @ConfigProperty(name = "boutique.livraison.seuil-gratuit", defaultValue = "50")
+      int seuilGratuit;
+
+      @ConfigProperty(name = "boutique.livraison.pays")
+      List<String> pays;
+
+      @ConfigProperty(name = "boutique.slogan")
+      Optional<String> slogan;
+
+      public int calculer(int montant) {
+          return montant >= seuilGratuit ? 0 : 5;
+      }
+  }
+  ```
+
+  ```properties
+  boutique.livraison.pays=FR,BE,CH
+  ```
+
+  L'annotation vient de MicroProfile Config : `org.eclipse.microprofile.config.inject.ConfigProperty`. Avec Quarkus,
+  `@Inject` est facultatif devant elle : c'est un qualificateur, qui suffit à demander l'injection.
+
+  **Trois façons de traiter l'absence.**
+
+  | Déclaration | Si la propriété manque |
+  |---|---|
+  | `@ConfigProperty(name = "x") String x` | le démarrage échoue |
+  | `@ConfigProperty(name = "x", defaultValue = "EUR") String x` | la valeur par défaut |
+  | `@ConfigProperty(name = "x") Optional<String> x` | `Optional.empty()` |
+
+  Quarkus vérifie toutes les injections **au démarrage** : une propriété obligatoire absente arrête l'application tout
+  de suite, avec « SRCFG00014: The config property boutique.devise is required but it could not be found in any
+  config source », plutôt qu'au premier appel, en pleine nuit. De même, une valeur qui ne se convertit pas
+  (« cinquante » pour un `int`) fait échouer le démarrage. Une valeur vide (`boutique.slogan=`) compte comme absente.
+
+  **Les détails qui comptent.**
+
+  - `defaultValue` est toujours une **chaîne**, convertie comme une valeur lue dans le fichier.
+  - Les types courants sont convertis d'office : nombres, `boolean`, `Duration`, énumérations, `List` et `Set`
+    (valeurs séparées par des virgules), `Optional`.
+  - Sans `name`, la clé est le nom complet de la classe suivi du champ (`boutique.FraisDePort.seuilGratuit`) :
+    mieux vaut toujours la nommer.
+  - Quarkus recommande un champ **package-private** plutôt que `private` : l'injection se fait alors sans réflexion.
+  - L'injection n'a lieu que dans un **bean** : un objet créé par `new` garde ses champs vides. Et un champ injecté
+    est encore vide dans le constructeur ; on lit la valeur dans une méthode `@PostConstruct`, ou on l'injecte par le
+    constructeur :
+
+  ```java
+  @ApplicationScoped
+  public class Livraison {
+
+      private final int seuil;
+
+      Livraison(@ConfigProperty(name = "boutique.livraison.seuil-gratuit") int seuil) {
+          this.seuil = seuil;
+      }
+  }
+  ```
+
+  Dans un test, `@TestProfile` donne d'autres valeurs : sa méthode `getConfigOverrides()` renvoie les propriétés à
+  surcharger.
+
+  **En entretien** : « J'injecte une valeur avec `@ConfigProperty`, en lui donnant une valeur par défaut ou un
+  `Optional` quand elle est facultative. Quarkus vérifie toutes ces injections au démarrage : une valeur absente ou
+  mal typée arrête l'application avant la première requête. Pour plusieurs valeurs liées, je préfère un
+  `@ConfigMapping`. »
+cards:
+  - key: propriete-absente-sans-defaut
+    format: course
+    question: "Un bean déclare `@ConfigProperty(name = \"boutique.devise\") String devise;`, sans valeur par défaut, et la propriété n'existe nulle part. Que se passe-t-il ?"
+    choices:
+      - {text: "Le démarrage échoue : la propriété est requise", correct: true}
+      - {text: "Le champ vaut `null` jusqu'au premier appel", correct: false}
+      - {text: "Le champ reçoit la chaîne vide, sans erreur", correct: false}
+      - {text: "Une exception est levée au premier accès au champ", correct: false}
+    answer: "Quarkus vérifie les injections au démarrage : « SRCFG00014: The config property boutique.devise is required but it could not be found in any config source ». L'erreur se voit tout de suite, pas en pleine nuit."
+  - key: propriete-facultative
+    format: course
+    question: Comment déclares-tu une propriété facultative, dont l'absence n'est pas une erreur ?
+    choices:
+      - {text: "Avec un champ de type `Optional<String>`", correct: true}
+      - {text: "Avec `@ConfigProperty(name = \"x\", required = false)`", correct: false}
+      - {text: "Avec `@Nullable` sur le champ `String`", correct: false}
+      - {text: "Avec `defaultValue = \"null\"` dans l'annotation", correct: false}
+    answer: "Un `Optional` reçoit `Optional.empty()` quand la propriété manque. L'annotation n'a pas d'attribut `required`, et `defaultValue = \"null\"` donnerait la chaîne « null »."
+  - key: nom-par-defaut
+    format: course
+    question: "Quelle clé lit `@ConfigProperty(defaultValue = \"5\") int forfait;`, dans la classe `boutique.FraisDePort`, faute d'attribut `name` ?"
+    choices:
+      - {text: "`boutique.FraisDePort.forfait`", correct: true}
+      - {text: "`forfait`, le nom du champ seul", correct: false}
+      - {text: "`boutique.forfait`, le paquet et le champ", correct: false}
+      - {text: "`frais-de-port.forfait`, en kebab-case", correct: false}
+    answer: "MicroProfile Config prend le nom complet de la classe, puis celui du champ. Une clé si liée au code change au premier renommage : on donne toujours `name`."
+  - key: inject-facultatif
+    format: course
+    question: "Avec Quarkus, faut-il écrire `@Inject` devant `@ConfigProperty` sur un champ ?"
+    choices:
+      - {text: "Non : `@ConfigProperty` est un qualificateur, qui suffit", correct: true}
+      - {text: "Oui : sans `@Inject`, le champ n'est jamais rempli", correct: false}
+      - {text: "Oui, mais seulement si le champ est `private`", correct: false}
+      - {text: "Non, mais seulement dans une ressource REST", correct: false}
+    answer: "Quarkus simplifie CDI : un champ portant un qualificateur est injecté même sans `@Inject`. L'écrire reste permis."
+  - key: vf-defaultvalue-chaine
+    format: true-false
+    question: "`defaultValue` s'écrit toujours comme une chaîne, convertie ensuite dans le type du champ."
+    truth: true
+    answer: "Une annotation n'accepte que des constantes d'un type fixé : `defaultValue = \"50\"` est converti en `int` comme une valeur lue dans le fichier."
+  - key: vf-valeur-vide
+    format: true-false
+    question: "Une valeur vide, comme `boutique.slogan=`, compte comme une propriété absente."
+    truth: true
+    answer: "MicroProfile Config traite la chaîne vide comme une absence : un `Optional` reste vide, et une propriété obligatoire fait échouer le démarrage."
+  - key: vf-objet-cree-par-new
+    format: true-false
+    question: "`@ConfigProperty` remplit aussi les champs d'un objet créé avec `new`."
+    truth: false
+    answer: "Seul le conteneur CDI injecte, et seulement dans les beans qu'il crée. Un objet construit par `new` garde ses champs à `null` ou à zéro."
+  - key: vf-conversion-au-demarrage
+    format: true-false
+    question: "Une valeur qui ne se convertit pas dans le type du champ, comme `cinquante` pour un `int`, fait échouer le démarrage."
+    truth: true
+    answer: "La conversion a lieu à la vérification des injections, au démarrage : « SRCFG00029: Expected an integer value, got \"cinquante\" »."
+  - key: qcm-type-d-une-liste
+    format: multiple-choice
+    question: "Quel type de champ reçoit `boutique.livraison.pays=FR,BE,CH` sous forme de trois éléments ?"
+    choices:
+      - {text: "`List<String>`", correct: true}
+      - {text: "`String[]` uniquement", correct: false}
+      - {text: "`Map<String, String>`", correct: false}
+      - {text: "`String`, à découper soi-même", correct: false}
+    answer: "Les virgules séparent les éléments d'une liste ; `List`, `Set` et les tableaux sont convertis d'office. Un `String` recevrait le texte entier, virgules comprises."
+  - key: qcm-injection-constructeur
+    format: multiple-choice
+    question: Quelle déclaration injecte une valeur de configuration par le constructeur ?
+    choices:
+      - {text: "`Livraison(@ConfigProperty(name = \"boutique.seuil\") int seuil)`", correct: true}
+      - {text: "`@ConfigProperty(name = \"boutique.seuil\") Livraison(int seuil)`", correct: false}
+      - {text: "`Livraison(int seuil) { seuil = config(\"boutique.seuil\"); }`", correct: false}
+      - {text: "`Livraison(@Inject int seuil)`, la clé déduite du paramètre", correct: false}
+    answer: "L'annotation se place sur le paramètre. La valeur est alors disponible dès le constructeur, et le champ peut être `final`."
+  - key: qcm-interet-verification-demarrage
+    format: multiple-choice
+    question: Quel est l'intérêt de vérifier toutes les injections de configuration au démarrage ?
+    choices:
+      - {text: "Une erreur de configuration arrête le déploiement, avant la première requête", correct: true}
+      - {text: "Le démarrage est plus rapide, la configuration n'étant plus jamais relue", correct: false}
+      - {text: "Les valeurs peuvent changer à chaud, sans redémarrer l'application", correct: false}
+      - {text: "Les propriétés deviennent facultatives, avec `null` comme valeur", correct: false}
+    answer: "Échouer vite : une variable oubliée se voit au déploiement, que l'orchestrateur peut annuler, plutôt qu'au premier appel du chemin qui la lit."
+  - key: qcm-visibilite-champ
+    format: multiple-choice
+    question: Quelle visibilité Quarkus recommande-t-il pour un champ injecté ?
+    choices:
+      - {text: "package-private, qui évite la réflexion", correct: true}
+      - {text: "`private`, la seule que CDI accepte", correct: false}
+      - {text: "`public`, sans quoi l'injection échoue", correct: false}
+      - {text: "`protected`, pour les sous-classes", correct: false}
+    answer: "Quarkus génère le code d'injection à la compilation ; un champ `private` l'oblige à passer par la réflexion, plus lente et plus lourde en natif. L'injection marche quand même."
+  - key: trous-name
+    format: fill-in
+    question: |-
+      Complète pour lire la clé `boutique.devise`, avec `EUR` par défaut :
+      ```java
+      @ConfigProperty(___ = "boutique.devise", defaultValue = "EUR")
+      String devise;
+      ```
+    blanks:
+      - [name]
+    answer: "`name` donne la clé ; sans lui, la clé serait le nom complet de la classe suivi du champ."
+  - key: trous-defaultvalue
+    format: fill-in
+    question: |-
+      Complète pour que le seuil vaille 50 quand la propriété manque :
+      ```java
+      @ConfigProperty(name = "boutique.seuil", ___ = "50")
+      int seuil;
+      ```
+    blanks:
+      - [defaultValue]
+    answer: "`defaultValue` est une chaîne, convertie en `int` comme une valeur lue dans le fichier."
+  - key: trous-optional
+    format: fill-in
+    question: |-
+      Complète pour que l'absence du slogan ne soit pas une erreur :
+      ```java
+      @ConfigProperty(name = "boutique.slogan")
+      ___<String> slogan;
+      ```
+    blanks:
+      - [Optional, java.util.Optional]
+    answer: "Un `Optional` reçoit `Optional.empty()` quand la propriété manque, ou qu'elle est vide."
+  - key: trous-import
+    format: fill-in
+    question: |-
+      Complète l'import de l'annotation :
+      ```java
+      import org.eclipse.microprofile.config.inject.___;
+      ```
+    blanks:
+      - [ConfigProperty]
+    answer: "`@ConfigProperty` vient de MicroProfile Config, que Quarkus implémente avec SmallRye Config."
+  - key: bug-objet-cree-par-new
+    format: bug-fix
+    question: |-
+      `calculer` lève une `NullPointerException` : `pays` vaut `null`, alors que `boutique.livraison.pays=FR,BE`
+      est bien dans `application.properties`. Quelle correction est la bonne ?
+      ```java
+      public class Livraison {
+
+          @ConfigProperty(name = "boutique.livraison.pays")
+          List<String> pays;
+
+          public boolean livrable(String code) {
+              return pays.contains(code);
+          }
+      }
+
+      // ailleurs
+      Livraison livraison = new Livraison();
+      ```
+    choices:
+      - {text: "Annoter `Livraison` avec `@ApplicationScoped`, et l'injecter", correct: true}
+      - {text: "Ajouter `@Inject` devant `@ConfigProperty`", correct: false}
+      - {text: "Rendre le champ `pays` statique et `final`", correct: false}
+      - {text: "Écrire la liste avec des points-virgules", correct: false}
+    answer: |-
+      ```java
+      @ApplicationScoped
+      public class Livraison { ... }
+
+      // ailleurs
+      @Inject
+      Livraison livraison;
+      ```
+      Seul le conteneur injecte, et seulement dans les beans qu'il crée. Un objet construit par `new` lui échappe :
+      `@Inject` n'y changerait rien.
+  - key: bug-champ-lu-dans-le-constructeur
+    format: bug-fix
+    question: |-
+      `seuilEnCentimes` vaut toujours 0, alors que `boutique.seuil=50`. Quelle correction est la bonne ?
+      ```java
+      @ApplicationScoped
+      public class Livraison {
+
+          @ConfigProperty(name = "boutique.seuil")
+          int seuil;
+
+          int seuilEnCentimes;
+
+          public Livraison() {
+              seuilEnCentimes = seuil * 100;
+          }
+      }
+      ```
+    choices:
+      - {text: "Faire le calcul dans une méthode annotée `@PostConstruct`", correct: true}
+      - {text: "Donner `defaultValue = \"50\"` à l'annotation", correct: false}
+      - {text: "Déclarer le champ `seuil` en `private`", correct: false}
+      - {text: "Remplacer `@ApplicationScoped` par `@Dependent`", correct: false}
+    answer: |-
+      ```java
+      @PostConstruct
+      void init() {
+          seuilEnCentimes = seuil * 100;
+      }
+      ```
+      L'injection par champ a lieu après le constructeur : il voit encore `seuil` à 0. `@PostConstruct` s'exécute une
+      fois les injections faites. L'injection par le constructeur serait l'autre bonne solution.
+  - key: bug-propriete-requise-absente
+    format: bug-fix
+    question: |-
+      En production, le démarrage échoue : « SRCFG00014: The config property boutique.slogan is required but it
+      could not be found in any config source ». Le slogan est facultatif. Quelle correction est la bonne ?
+      ```java
+      @ConfigProperty(name = "boutique.slogan")
+      String slogan;
+      ```
+    choices:
+      - {text: "Déclarer le champ en `Optional<String>`", correct: true}
+      - {text: "Ajouter `@Inject` devant l'annotation", correct: false}
+      - {text: "Initialiser le champ : `String slogan = \"\";`", correct: false}
+      - {text: "Écrire `boutique.slogan=` dans le fichier", correct: false}
+    answer: |-
+      ```java
+      @ConfigProperty(name = "boutique.slogan")
+      Optional<String> slogan;
+      ```
+      Un `Optional` accepte l'absence. Une valeur vide compterait comme absente, et l'initialisation du champ ne
+      change rien à la vérification du démarrage.
+  - key: bug-defaut-non-convertible
+    format: bug-fix
+    question: |-
+      Le démarrage échoue : « SRCFG00029: Expected an integer value, got "cinquante" ». Quelle correction est la
+      bonne ?
+      ```java
+      @ConfigProperty(name = "boutique.seuil", defaultValue = "cinquante")
+      int seuil;
+      ```
+    choices:
+      - {text: "Écrire `defaultValue = \"50\"`", correct: true}
+      - {text: "Déclarer le champ en `String`, puis le convertir", correct: false}
+      - {text: "Écrire `defaultValue = 50`, sans guillemets", correct: false}
+      - {text: "Déclarer le champ en `Integer` plutôt qu'en `int`", correct: false}
+    answer: |-
+      ```java
+      @ConfigProperty(name = "boutique.seuil", defaultValue = "50")
+      int seuil;
+      ```
+      La valeur par défaut est une chaîne, convertie dans le type du champ ; elle doit donc être un nombre valide.
+      Sans guillemets, `defaultValue = 50` ne compilerait pas.

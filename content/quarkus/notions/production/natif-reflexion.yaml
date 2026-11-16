@@ -1,0 +1,348 @@
+notion: natif-reflexion
+lesson: |-
+  Dans un exécutable natif, la **réflexion ne marche que pour ce qui a été déclaré au build** : `native-image` ne
+  garde que le code atteignable, et ne peut pas deviner quelle classe Jackson va inspecter, ni quel nom
+  `Class.forName` recevra. Sur la JVM tout passe ; en natif, la même ligne échoue.
+
+  **Ce que Quarkus déclare de lui-même.** Les extensions analysent le code au build et enregistrent ce qu'elles
+  utiliseront : les types des paramètres et des retours des méthodes REST (pour Jackson), les entités JPA, les beans
+  CDI, les interfaces de `@ConfigMapping`. Une ressource qui déclare `List<Produit>` en retour fait enregistrer
+  `Produit`.
+
+  **Ce qu'il ne peut pas voir.**
+
+  - Un objet renvoyé dans une `Response` non typée, ou dans une `Map<String, Object>` : le type n'apparaît nulle part.
+  - Une classe passée à un `ObjectMapper` que l'on appelle soi-même (`mapper.readValue(json, Taux.class)`).
+  - Un nom de classe calculé à l'exécution : `Class.forName(config.strategie())`.
+  - Une classe d'une bibliothèque qui crée ses objets par réflexion, sans extension Quarkus.
+
+  Le symptôme typique, sur un objet que Jackson ne peut pas inspecter : une 500 et « No serializer found for class
+  Remise and no properties discovered to create BeanSerializer ». Ou une `ClassNotFoundException`, une
+  `NoSuchMethodException`, là où la JVM n'avait rien dit.
+
+  **`@RegisterForReflection`** (`io.quarkus.runtime.annotations`) déclare une classe, ses constructeurs, ses
+  méthodes et ses champs :
+
+  ```java
+  @RegisterForReflection
+  public record Remise(String code, int pourcentage) {}
+
+  // pour des classes qu'on ne peut pas annoter (une bibliothèque)
+  @RegisterForReflection(targets = {Taux.class, Devise.class})
+  public class ReflexionTiers {}
+  ```
+
+  | Attribut | Rôle |
+  |---|---|
+  | `targets` | d'autres classes à enregistrer, par leur littéral |
+  | `classNames` | d'autres classes, par leur nom (si elles ne sont pas accessibles) |
+  | `serialization = true` | les enregistrer aussi pour la sérialisation Java |
+  | `methods`, `fields` | `false` pour n'enregistrer qu'une partie |
+  | `registerFullHierarchy` | enregistrer aussi les classes mères et les types des champs |
+
+  **Les autres déclarations.** `@RegisterForProxy` pour un proxy dynamique (`java.lang.reflect.Proxy`),
+  `quarkus.native.resources.includes` pour un fichier du classpath, un fichier `reflect-config.json` dans
+  `META-INF/native-image/` pour les cas complexes. L'agent de traçage de GraalVM peut enregistrer, pendant une
+  exécution sur la JVM, tout ce que le code fait par réflexion.
+
+  **Les bonnes habitudes.** Typer les retours (renvoyer `Remise` ou `RestResponse<Remise>` plutôt qu'une `Response`
+  brute), chercher une **extension** Quarkus avant d'ajouter une bibliothèque réflexive, et **tester l'exécutable**
+  avec `@QuarkusIntegrationTest` : c'est le seul test qui voit ces erreurs. Tout enregistrer « au cas où » grossit
+  l'exécutable et ralentit la construction.
+
+  **En entretien** : « En natif, la réflexion ne fonctionne que pour ce qui est déclaré au build. Quarkus déclare ce
+  qu'il voit (types des endpoints, entités, beans), mais pas un objet caché dans une `Response` non typée, ni une
+  classe passée à la main à Jackson : je l'annote `@RegisterForReflection`, ou j'utilise `targets` pour une classe
+  tierce. Ces erreurs n'apparaissent qu'en natif, d'où des tests d'intégration contre l'exécutable. »
+cards:
+  - key: pourquoi-declarer
+    format: course
+    question: "Pourquoi la réflexion doit-elle être déclarée pour un exécutable natif ?"
+    choices:
+      - {text: "`native-image` ne garde que ce qu'il sait utilisé au build", correct: true}
+      - {text: "La réflexion est interdite dans un exécutable natif", correct: false}
+      - {text: "Le natif n'a pas de classes, seulement des fonctions", correct: false}
+      - {text: "Les déclarations accélèrent la réflexion sur la JVM", correct: false}
+    answer: "Le monde clos : une classe ou un membre qu'aucune analyse ne voit utilisé n'a pas de métadonnées dans l'exécutable. La réflexion fonctionne, mais seulement sur ce qui est déclaré."
+  - key: effet-de-registerforreflection
+    format: course
+    question: "Que fait `@RegisterForReflection` posé sur une classe ?"
+    choices:
+      - {text: "Il la déclare pour la réflexion dans l'exécutable natif", correct: true}
+      - {text: "Il en fait un bean CDI, injectable partout", correct: false}
+      - {text: "Il l'exclut de la compilation native, gardée pour la JVM", correct: false}
+      - {text: "Il la sérialise en JSON avec Jackson par défaut", correct: false}
+    answer: "Ses constructeurs, méthodes et champs restent accessibles par réflexion dans l'exécutable natif. Sur la JVM, l'annotation ne change rien."
+  - key: ce-que-quarkus-ne-voit-pas
+    format: course
+    question: "Dans quel cas Quarkus ne peut-il pas enregistrer de lui-même une classe pour la réflexion ?"
+    choices:
+      - {text: "Elle est renvoyée dans une `Response` non typée", correct: true}
+      - {text: "Elle est le type de retour déclaré d'une méthode REST", correct: false}
+      - {text: "Elle est annotée `@Entity` et gérée par Hibernate", correct: false}
+      - {text: "Elle est un bean CDI `@ApplicationScoped`", correct: false}
+    answer: "Avec `Response.ok(remise)`, le type n'apparaît pas dans la signature : l'extension REST ne sait pas que Jackson inspectera `Remise`. `RestResponse<Remise>` ou un retour typé règle le problème."
+  - key: classe-tierce
+    format: course
+    question: "Comment déclares-tu pour la réflexion la classe `Taux` d'une bibliothèque, que tu ne peux pas modifier ?"
+    choices:
+      - {text: "`@RegisterForReflection(targets = Taux.class)` sur une de tes classes", correct: true}
+      - {text: "`@RegisterForReflection` sur la méthode qui utilise `Taux`", correct: false}
+      - {text: "`quarkus.native.resources.includes=Taux.class`", correct: false}
+      - {text: "Impossible : seule la bibliothèque peut se déclarer", correct: false}
+    answer: "`targets` enregistre d'autres classes que celle qui porte l'annotation : on la place sur une classe vide de l'application, dédiée à ces déclarations."
+  - key: vf-types-rest-enregistres
+    format: true-false
+    question: "Quarkus enregistre de lui-même pour la réflexion le type `Produit` d'une méthode REST déclarée `List<Produit> lister()`."
+    truth: true
+    answer: "L'extension REST lit les signatures des endpoints au build, génériques compris, et déclare les types que Jackson sérialisera."
+  - key: vf-erreur-sur-la-jvm
+    format: true-false
+    question: "Une classe oubliée pour la réflexion native provoque déjà une erreur quand l'application tourne sur la JVM."
+    truth: false
+    answer: "Sur la JVM, toute classe chargée est accessible par réflexion : l'oubli ne se voit qu'en natif. D'où les tests `@QuarkusIntegrationTest` contre l'exécutable."
+  - key: vf-targets
+    format: true-false
+    question: "L'attribut `targets` de `@RegisterForReflection` enregistre des classes autres que celle qui porte l'annotation."
+    truth: true
+    answer: "C'est sa raison d'être : déclarer des classes d'une bibliothèque, qu'on ne peut pas annoter."
+  - key: vf-tout-enregistrer
+    format: true-false
+    question: "Annoter toutes les classes du projet avec `@RegisterForReflection` est sans conséquence sur l'exécutable natif."
+    truth: false
+    answer: "Chaque classe déclarée est gardée avec ses membres, même inutilisés : l'exécutable grossit et la construction ralentit. On ne déclare que ce qui passe vraiment par la réflexion."
+  - key: qcm-symptome-natif
+    format: multiple-choice
+    question: "Un endpoint marche sur la JVM ; en natif, il répond 500 avec « No serializer found for class Remise ». Quelle est la cause la plus probable ?"
+    choices:
+      - {text: "`Remise` n'est pas enregistrée pour la réflexion", correct: true}
+      - {text: "`Remise` n'a pas de constructeur sans argument", correct: false}
+      - {text: "Jackson n'est pas compilé dans l'exécutable natif", correct: false}
+      - {text: "La base de données n'est pas joignable en natif", correct: false}
+    answer: "Jackson n'y voit aucune propriété : ni champs ni accesseurs n'ont été déclarés pour la réflexion. Sur la JVM, il les trouvait. `@RegisterForReflection` ou un retour typé corrige."
+  - key: qcm-forname
+    format: multiple-choice
+    question: "Lequel de ces appels fonctionne en natif sans déclaration particulière ?"
+    choices:
+      - {text: "`Class.forName(\"boutique.RemiseFixe\")`, avec une constante", correct: true}
+      - {text: "`Class.forName(config.strategie())`, lue en configuration", correct: false}
+      - {text: "`Class.forName(\"boutique.\" + nom)`, nom reçu en paramètre", correct: false}
+      - {text: "`Class.forName(System.getenv(\"STRATEGIE\"))`", correct: false}
+    answer: "L'analyse de `native-image` reconnaît une constante passée à `Class.forName` et garde la classe. Un nom calculé à l'exécution lui échappe : il faut déclarer les classes possibles."
+  - key: qcm-objectmapper-a-la-main
+    format: multiple-choice
+    question: "Ton service appelle `mapper.readValue(json, Taux.class)` avec l'`ObjectMapper` injecté. Que faut-il pour le natif ?"
+    choices:
+      - {text: "Annoter `Taux` avec `@RegisterForReflection`", correct: true}
+      - {text: "Rien : `Taux.class` suffit à Quarkus pour l'enregistrer", correct: false}
+      - {text: "Remplacer `ObjectMapper` par JSON-B, qui n'utilise pas la réflexion", correct: false}
+      - {text: "Annoter le service avec `@RegisterForReflection`", correct: false}
+    answer: "Quarkus ne suit pas les appels faits à la main à Jackson : `Taux` doit être déclarée. Annoter le service déclarerait le service, pas `Taux`."
+  - key: qcm-premier-reflexe
+    format: multiple-choice
+    question: "Tu veux utiliser une bibliothèque qui crée ses objets par réflexion. Quel est ton premier réflexe pour le natif ?"
+    choices:
+      - {text: "Chercher une extension Quarkus qui l'intègre", correct: true}
+      - {text: "Annoter toutes les classes du projet", correct: false}
+      - {text: "Abandonner le natif pour tout le projet", correct: false}
+      - {text: "Copier la bibliothèque dans `src/main/java`", correct: false}
+    answer: "Une extension (dans Quarkus ou le Quarkiverse) déclare au build ce que la bibliothèque utilise. Sans extension, on déclare soi-même, avec des tests d'intégration natifs."
+  - key: trous-annotation
+    format: fill-in
+    question: |-
+      Complète pour que Jackson puisse lire `Remise` en natif :
+      ```java
+      @___
+      public record Remise(String code, int pourcentage) {}
+      ```
+    blanks:
+      - [RegisterForReflection]
+    answer: "`@RegisterForReflection` déclare la classe et ses membres pour l'exécutable natif."
+  - key: trous-targets
+    format: fill-in
+    question: |-
+      Complète pour déclarer deux classes d'une bibliothèque :
+      ```java
+      @RegisterForReflection(___ = {Taux.class, Devise.class})
+      public class ReflexionTiers {}
+      ```
+    blanks:
+      - [targets]
+    answer: "`targets` liste les classes à déclarer, autres que celle qui porte l'annotation."
+  - key: trous-classnames
+    format: fill-in
+    question: |-
+      Complète pour déclarer une classe qu'on ne peut désigner que par son nom :
+      ```java
+      @RegisterForReflection(___ = "com.fournisseur.interne.Taux")
+      public class ReflexionTiers {}
+      ```
+    blanks:
+      - [classNames]
+    answer: "`classNames` accepte des noms de classes, quand leur littéral n'est pas accessible."
+  - key: trous-serialisation
+    format: fill-in
+    question: |-
+      Complète pour que `Panier` puisse aussi passer par la sérialisation Java en natif :
+      ```java
+      @RegisterForReflection(___ = true)
+      public class Panier implements Serializable {
+      ```
+    blanks:
+      - [serialization]
+    answer: "`serialization = true` enregistre la classe pour la sérialisation Java, en plus de la réflexion."
+  - key: bug-response-non-typee
+    format: bug-fix
+    question: |-
+      Sur la JVM tout passe. En natif, cet endpoint répond 500 : « No serializer found for class Remise and no
+      properties discovered to create BeanSerializer ». Quelle correction est la bonne ?
+      ```java
+      public record Remise(String code, int pourcentage) {}
+
+      @GET
+      @Path("/remise")
+      public Response remise() {
+          return Response.ok(new Remise("ETE", 10)).build();
+      }
+      ```
+    choices:
+      - {text: "Annoter `Remise` avec `@RegisterForReflection`", correct: true}
+      - {text: "Annoter `Remise` avec `@ApplicationScoped`", correct: false}
+      - {text: "Remplacer le record `Remise` par une classe à champs publics", correct: false}
+      - {text: "Ajouter `@Produces(MediaType.APPLICATION_JSON)` sur l'endpoint", correct: false}
+    answer: |-
+      ```java
+      @RegisterForReflection
+      public record Remise(String code, int pourcentage) {}
+      ```
+      `Response` ne dit pas quel type elle transporte : Quarkus n'a pas déclaré `Remise`, et Jackson n'y trouve aucune
+      propriété en natif. Des champs publics ne sont pas plus visibles sans déclaration. Renvoyer `Remise` ou
+      `RestResponse<Remise>` corrigerait aussi, en laissant Quarkus déclarer le type.
+  - key: bug-classe-tierce
+    format: bug-fix
+    question: |-
+      En natif, ce service échoue : Jackson ne sait pas construire `Taux`, une classe de la bibliothèque
+      `fournisseur-api.jar`. Sur la JVM, il passe. Quelle correction est la bonne ?
+      ```java
+      @ApplicationScoped
+      public class TauxService {
+          @Inject
+          ObjectMapper mapper;
+
+          public Taux lire(String json) throws JsonProcessingException {
+              return mapper.readValue(json, Taux.class);
+          }
+      }
+      ```
+    choices:
+      - {text: "Ajouter `@RegisterForReflection(targets = Taux.class)` sur une classe", correct: true}
+      - {text: "Ajouter `@RegisterForReflection` sur la classe `TauxService`", correct: false}
+      - {text: "Déclarer le champ `mapper` en `static final`", correct: false}
+      - {text: "Ajouter `quarkus.native.resources.includes=fournisseur-api.jar`", correct: false}
+    answer: |-
+      ```java
+      @RegisterForReflection(targets = Taux.class)
+      public class ReflexionTiers {}
+      ```
+      `Taux` vient d'un jar qu'on ne peut pas annoter : `targets` la déclare depuis une classe de l'application.
+      Annoter `TauxService` ne déclarerait que le service ; un jar n'est pas une ressource à embarquer.
+  - key: bug-forname-dynamique
+    format: bug-fix
+    question: |-
+      Sur la JVM, la stratégie se charge. En natif : « ClassNotFoundException: boutique.RemiseFidelite ». Quelle
+      correction est la bonne ?
+      ```java
+      @ConfigProperty(name = "remise.strategie")
+      String strategie;   // "boutique.RemiseFidelite"
+
+      Remise charger() throws ReflectiveOperationException {
+          return (Remise) Class.forName(strategie).getDeclaredConstructor().newInstance();
+      }
+      ```
+    choices:
+      - {text: "Annoter chaque classe de stratégie avec `@RegisterForReflection`", correct: true}
+      - {text: "Déclarer le champ `strategie` en `final` pour en faire une constante", correct: false}
+      - {text: "Remplacer `Class.forName` par `ClassLoader.getSystemClassLoader()`", correct: false}
+      - {text: "Ajouter `quarkus.native.resources.includes=boutique/*.class`", correct: false}
+    answer: |-
+      ```java
+      @RegisterForReflection
+      public class RemiseFidelite implements Remise { ... }
+      ```
+      Le nom vient de la configuration : `native-image` ne peut pas savoir quelle classe sera demandée, et ne l'a pas
+      gardée. Déclarée, elle est incluse avec son constructeur. Mieux encore : faire des stratégies des beans CDI
+      qualifiés, sans réflexion.
+  - key: bug-ressource-absente
+    format: bug-fix
+    question: |-
+      En natif, la génération des factures échoue sur une `NullPointerException` : le modèle n'est pas trouvé. Sur
+      la JVM, tout passe. Quelle correction est la bonne ?
+      ```java
+      InputStream modele = getClass().getResourceAsStream("/modeles/facture.html");
+      String html = new String(modele.readAllBytes(), StandardCharsets.UTF_8);
+      ```
+    choices:
+      - {text: "Ajouter `quarkus.native.resources.includes=modeles/*.html`", correct: true}
+      - {text: "Annoter la classe avec `@RegisterForReflection`", correct: false}
+      - {text: "Remplacer `getResourceAsStream` par `Class.forName`", correct: false}
+      - {text: "Passer `quarkus.package.jar.type=uber-jar` avant le build", correct: false}
+    answer: |-
+      ```properties
+      quarkus.native.resources.includes=modeles/*.html
+      ```
+      Un fichier du classpath n'est embarqué dans l'exécutable que s'il est déclaré (ou connu d'une extension). La
+      réflexion concerne les classes, pas les fichiers.
+  - key: situation-tout-annoter
+    format: scenario
+    question: |-
+      Après une erreur en natif, ton équipe propose d'annoter toutes les classes du projet avec
+      `@RegisterForReflection`, « pour être tranquille ». Que réponds-tu ?
+    choices:
+      - {text: "Non : je déclare seulement ce qui passe par la réflexion, et je teste en natif", correct: true}
+      - {text: "Oui : l'annotation n'a aucun coût, et elle évite toute erreur à l'avenir", correct: false}
+      - {text: "Oui, mais seulement sur les beans CDI, qui sont les seuls concernés", correct: false}
+      - {text: "Non : il vaut mieux renoncer au natif dès qu'une classe pose problème", correct: false}
+    answer: |-
+      Tout déclarer grossit l'exécutable et ralentit la construction, sans garantir les ressources ni les proxies.
+      On corrige la vraie cause (souvent un retour non typé), et des `@QuarkusIntegrationTest` natifs gardent la
+      porte fermée.
+  - key: situation-retour-non-type
+    format: scenario
+    question: |-
+      Une revue montre des endpoints qui renvoient tous une `Response` brute, alors que leur corps a toujours le même
+      type. Le projet se compile en natif. Que proposes-tu ?
+    choices:
+      - {text: "Renvoyer le type, ou `RestResponse<T>`, pour que Quarkus le déclare", correct: true}
+      - {text: "Garder `Response`, plus souple, et tout annoter pour la réflexion", correct: false}
+      - {text: "Renvoyer une `String` JSON construite à la main dans chaque endpoint", correct: false}
+      - {text: "Renvoyer `Object`, que Jackson sait sérialiser sans déclaration", correct: false}
+    answer: |-
+      Un retour typé dit à Quarkus ce que Jackson sérialisera : il le déclare de lui-même, et la signature documente
+      l'API (OpenAPI compris). `RestResponse<T>` garde la main sur le statut et les en-têtes.
+  - key: situation-bibliotheque-reflexive
+    format: scenario
+    question: |-
+      Tu dois intégrer une bibliothèque de génération de PDF qui instancie ses classes par réflexion. Aucune extension
+      Quarkus ne l'intègre, et le projet part en natif. Comment t'y prends-tu ?
+    choices:
+      - {text: "J'enregistre ses usages avec l'agent de traçage, et je teste l'exécutable", correct: true}
+      - {text: "J'ajoute la bibliothèque, et j'attends de voir les erreurs en production", correct: false}
+      - {text: "Je recopie ses sources dans le projet, pour que Quarkus les analyse", correct: false}
+      - {text: "J'annote mes propres classes, puisque Quarkus déduira celles de la bibliothèque", correct: false}
+    answer: |-
+      L'agent de traçage de GraalVM, lancé sur la JVM pendant les tests, note ce que la bibliothèque fait par
+      réflexion et produit la configuration. Des `@QuarkusIntegrationTest` natifs vérifient ensuite les parcours qui
+      l'utilisent.
+  - key: situation-erreur-vue-tard
+    format: scenario
+    question: |-
+      Deux fois ce trimestre, une erreur propre au natif n'a été vue qu'après le déploiement. Les tests JVM étaient
+      verts. Que mets-tu en place ?
+    choices:
+      - {text: "Un job de CI qui construit le natif et lance les `@QuarkusIntegrationTest`", correct: true}
+      - {text: "Plus de `@QuarkusTest`, pour couvrir chaque endpoint deux fois", correct: false}
+      - {text: "Un déploiement en JVM d'abord, puis en natif une semaine après", correct: false}
+      - {text: "Une relecture de chaque pull request par un expert de GraalVM", correct: false}
+    answer: |-
+      Les erreurs de réflexion, de ressources ou de proxies n'existent que dans l'exécutable : seuls des tests qui le
+      lancent les voient. Le job peut tourner avant la fusion ou chaque nuit, s'il est long.

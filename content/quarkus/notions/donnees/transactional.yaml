@@ -1,0 +1,370 @@
+notion: transactional
+lesson: |-
+  Une **transaction** regroupe plusieurs écritures en un tout : soit tout est validé (commit), soit rien (rollback).
+  Dans Quarkus, on la déclare avec `@Transactional` (`jakarta.transaction.Transactional`), l'annotation de JTA, la
+  norme des transactions de Jakarta EE. Le gestionnaire de transactions est **Narayana** (extension
+  `quarkus-narayana-jta`, qu'Hibernate ORM apporte).
+
+  **1. Ce que fait l'annotation.** Un intercepteur entoure la méthode :
+
+  ```java
+  @ApplicationScoped
+  public class VirementService {
+
+      @Transactional
+      public void virer(Long de, Long vers, int montant) {
+          Compte cible = Compte.findById(vers);
+          cible.crediter(montant);
+          Compte source = Compte.findById(de);
+          source.debiter(montant);       // peut lever SoldeInsuffisantException
+      }
+  }
+  ```
+
+  - avant la méthode, il ouvre une transaction (ou rejoint celle qui existe) ;
+  - au retour, il la **valide** : les entités modifiées sont écrites ;
+  - si une exception **non vérifiée** (`RuntimeException`, `Error`) sort de la méthode, il l'**annule**. Une exception
+    vérifiée, elle, laisse la transaction se valider : c'est la règle de JTA (voir les règles de rollback).
+
+  **2. La propagation : `TxType`.**
+
+  | Valeur | Sans transaction en cours | Avec une transaction en cours |
+  |---|---|---|
+  | `REQUIRED` (défaut) | en ouvre une | la rejoint |
+  | `REQUIRES_NEW` | en ouvre une | la suspend, en ouvre une autre |
+  | `MANDATORY` | lève `TransactionalException` | la rejoint |
+  | `SUPPORTS` | s'exécute sans | la rejoint |
+  | `NOT_SUPPORTED` | s'exécute sans | la suspend |
+  | `NEVER` | s'exécute sans | lève `TransactionalException` |
+
+  Une méthode `REQUIRES_NEW` valide sa transaction à son retour, même si la transaction appelante échoue ensuite :
+  c'est le cas d'un journal d'audit, qui doit survivre à l'échec de l'opération.
+
+  **3. Ce qui est intercepté dans Quarkus.**
+
+  - Un appel par `this`, d'une méthode à l'autre du même bean, **passe par l'intercepteur** : ArC, le conteneur de
+    Quarkus, sait intercepter ces appels internes. C'est une différence avec Spring, où l'appel par `this` contourne
+    le proxy.
+  - Un objet créé avec `new` n'est pas un bean : aucun intercepteur, donc pas de transaction.
+  - Une méthode `private` annotée fait **échouer le build** (`quarkus.arc.fail-on-intercepted-private-method`) : on
+    la rend au moins package-private.
+
+  **4. Où la mettre.** Sur les méthodes des **services**, une par cas d'usage : la transaction couvre toute
+  l'opération métier. Pas sur chaque méthode de repository (chaque appel validerait sa part), ni dans le domaine.
+  Une transaction tient une connexion du pool : on n'y fait pas d'appel HTTP lent.
+
+  **5. Le délai.** Une transaction trop longue est annulée : 60 secondes par défaut
+  (`quarkus.transaction-manager.default-transaction-timeout`), ou `@TransactionConfiguration(timeout = 30)` pour une
+  méthode.
+
+  **6. Dans les tests.** `@TestTransaction` (`io.quarkus.test.TestTransaction`) ouvre une transaction autour de chaque
+  test et l'annule à la fin : chaque test repart d'une base propre.
+
+  **En entretien** : « `@Transactional` ouvre ou rejoint une transaction JTA, la valide au retour et l'annule sur une
+  exception non vérifiée. Je la mets sur les méthodes de service, une par cas d'usage, en `REQUIRED` par défaut, et en
+  `REQUIRES_NEW` pour ce qui doit survivre à un échec, comme un audit. Dans Quarkus, l'appel par `this` est
+  intercepté, mais pas un objet créé par `new`, et une méthode privée annotée fait échouer le build. »
+cards:
+  - key: comportement-par-defaut
+    format: course
+    question: "Que fait `@Transactional` par défaut sur une méthode de service ?"
+    choices:
+      - {text: "Ouvre ou rejoint une transaction, valide au retour, annule sur une exception non vérifiée", correct: true}
+      - {text: "Ouvre toujours une nouvelle transaction, validée même si une exception sort", correct: false}
+      - {text: "Ouvre une transaction en lecture seule, annulée à la fin de la méthode", correct: false}
+      - {text: "Verrouille les tables lues jusqu'à la fin de la requête HTTP en cours", correct: false}
+    answer: "La propagation par défaut est `REQUIRED` : rejoindre la transaction en cours, ou en ouvrir une. Une `RuntimeException` qui sort de la méthode provoque le rollback."
+  - key: exception-verifiee
+    format: course
+    question: "Une méthode `@Transactional` enregistre une commande, puis lève une `IOException` (vérifiée). Que devient la commande ?"
+    choices:
+      - {text: "Elle est enregistrée : une exception vérifiée n'annule rien", correct: true}
+      - {text: "Elle est annulée, comme pour toute exception", correct: false}
+      - {text: "Elle reste en attente jusqu'au prochain commit", correct: false}
+      - {text: "L'intercepteur relance la méthode une seconde fois", correct: false}
+    answer: "JTA n'annule que sur `RuntimeException` et `Error`. Pour une exception vérifiée, on le demande : `@Transactional(rollbackOn = IOException.class)`."
+  - key: appel-par-this
+    format: course
+    question: "Dans Quarkus, `virerLot` (sans annotation) appelle `this.virer(...)`, annotée `@Transactional`. Que se passe-t-il ?"
+    choices:
+      - {text: "L'intercepteur s'applique : chaque `virer` a sa transaction", correct: true}
+      - {text: "L'annotation est ignorée, comme avec un proxy Spring", correct: false}
+      - {text: "Tout le lot partage une seule transaction", correct: false}
+      - {text: "Le build échoue : un bean ne peut pas s'appeler lui-même", correct: false}
+    answer: "ArC intercepte aussi les appels internes. Chaque `virer` ouvre et valide sa transaction : pour un lot tout ou rien, `virerLot` doit porter `@Transactional` elle-même."
+  - key: requires-new
+    format: course
+    question: "Que fait `@Transactional(TxType.REQUIRES_NEW)` quand une transaction est déjà en cours ?"
+    choices:
+      - {text: "Il la suspend, et ouvre une transaction indépendante", correct: true}
+      - {text: "Il la rejoint, comme `REQUIRED`", correct: false}
+      - {text: "Il lève une exception, faute de pouvoir en ouvrir une", correct: false}
+      - {text: "Il la valide d'abord, puis en ouvre une nouvelle", correct: false}
+    answer: "La nouvelle transaction est validée ou annulée seule ; l'appelante reprend ensuite. Un journal d'audit en `REQUIRES_NEW` survit à l'échec de l'opération."
+  - key: vf-required-par-defaut
+    format: true-false
+    question: "La propagation par défaut de `@Transactional` est `REQUIRED`."
+    truth: true
+    answer: "`REQUIRED` rejoint la transaction en cours, ou en ouvre une s'il n'y en a pas."
+  - key: vf-appel-interne-ignore
+    format: true-false
+    question: "Dans Quarkus, une méthode `@Transactional` appelée par `this` depuis le même bean s'exécute sans transaction."
+    truth: false
+    answer: "ArC intercepte les appels internes : la transaction est bien ouverte. C'est une différence avec Spring, dont le proxy ne voit pas les appels par `this`."
+  - key: vf-objet-new
+    format: true-false
+    question: "Sur un service créé avec `new VirementService()`, `@Transactional` n'ouvre aucune transaction."
+    truth: true
+    answer: "Seuls les beans créés par le conteneur sont interceptés. Un `persist` y lève `TransactionRequiredException` ; on injecte le service au lieu de le créer."
+  - key: vf-methode-privee
+    format: true-false
+    question: "Par défaut, `@Transactional` sur une méthode `private` est ignorée en silence."
+    truth: false
+    answer: "Quarkus fait échouer le build : une méthode privée ne peut pas être interceptée. On la rend package-private, ou on déplace l'annotation."
+  - key: qcm-import
+    format: multiple-choice
+    question: "Quelle annotation `@Transactional` utilises-tu dans Quarkus ?"
+    choices:
+      - {text: "`jakarta.transaction.Transactional`", correct: true}
+      - {text: "`org.springframework.transaction.annotation.Transactional`", correct: false}
+      - {text: "`javax.transaction.Transactional`", correct: false}
+      - {text: "`io.quarkus.transaction.Transactional`", correct: false}
+    answer: "L'annotation de JTA, dans l'espace de noms `jakarta`. `javax` est l'ancien nom, d'avant Jakarta EE 9 ; celle de Spring n'est pas lue par Quarkus."
+  - key: qcm-mandatory
+    format: multiple-choice
+    question: "Que se passe-t-il quand on appelle, sans transaction en cours, une méthode `@Transactional(TxType.MANDATORY)` ?"
+    choices:
+      - {text: "Elle lève `TransactionalException` : une transaction est exigée", correct: true}
+      - {text: "Elle ouvre une transaction, comme `REQUIRED`", correct: false}
+      - {text: "Elle s'exécute sans transaction, comme `SUPPORTS`", correct: false}
+      - {text: "Elle attend qu'une transaction soit ouverte ailleurs", correct: false}
+    answer: "« Transaction is required for invocation ». `MANDATORY` sert aux méthodes qui ne doivent être appelées que dans une transaction ouverte plus haut."
+  - key: qcm-testtransaction
+    format: multiple-choice
+    question: "Que fait `@TestTransaction` sur une méthode de test ?"
+    choices:
+      - {text: "Il l'entoure d'une transaction annulée à la fin du test", correct: true}
+      - {text: "Il valide la transaction à la fin du test, puis vide la base", correct: false}
+      - {text: "Il interdit toute écriture en base pendant le test", correct: false}
+      - {text: "Il démarre une base neuve pour chaque test", correct: false}
+    answer: "Les données écrites par le test disparaissent au rollback : les tests restent indépendants, sans nettoyage à écrire."
+  - key: qcm-delai-d-une-methode
+    format: multiple-choice
+    question: "Comment donnes-tu un délai de 30 secondes à la transaction d'une seule méthode ?"
+    choices:
+      - {text: "`@TransactionConfiguration(timeout = 30)`", correct: true}
+      - {text: "`@Transactional(timeout = 30)`", correct: false}
+      - {text: "`@Timeout(30)` de MicroProfile Fault Tolerance", correct: false}
+      - {text: "`quarkus.datasource.jdbc.acquisition-timeout=30S`", correct: false}
+    answer: "L'annotation de Quarkus complète `@Transactional`, qui n'a pas d'attribut de délai. Le défaut, 60 secondes, se règle par `quarkus.transaction-manager.default-transaction-timeout`."
+  - key: trous-requires-new
+    format: fill-in
+    question: |-
+      Complète pour que le journal d'audit soit enregistré même si l'opération appelante échoue :
+      ```java
+      @Transactional(Transactional.TxType.___)
+      public void journaliser(String evenement) {
+      ```
+    blanks:
+      - [REQUIRES_NEW]
+    answer: "`REQUIRES_NEW` ouvre une transaction indépendante, validée au retour de `journaliser`."
+  - key: trous-testtransaction
+    format: fill-in
+    question: |-
+      Complète pour annuler les écritures de ce test à sa fin :
+      ```java
+      @Test
+      @___
+      void creeUneCommande() {
+      ```
+    blanks:
+      - [TestTransaction]
+    answer: "`@TestTransaction` ouvre une transaction autour du test et l'annule à la fin."
+  - key: trous-import
+    format: fill-in
+    question: |-
+      Complète l'import de l'annotation :
+      ```java
+      import jakarta.___.Transactional;
+      ```
+    blanks:
+      - [transaction]
+    answer: "`jakarta.transaction.Transactional`, l'annotation de JTA."
+  - key: trous-timeout
+    format: fill-in
+    question: |-
+      Complète pour annuler la transaction si elle dure plus de 30 secondes :
+      ```java
+      @Transactional
+      @TransactionConfiguration(___ = 30)
+      public void importer(List<Ligne> lignes) {
+      ```
+    blanks:
+      - [timeout]
+    answer: "`timeout`, en secondes ; sans lui, c'est le délai par défaut du gestionnaire de transactions."
+  - key: bug-service-cree-par-new
+    format: bug-fix
+    question: |-
+      `POST /commandes` répond 500 : « TransactionRequiredException: Transaction is not active ». La méthode
+      `enregistrer` de `CommandeService` porte pourtant `@Transactional`. Quelle correction est la bonne ?
+      ```java
+      @Path("/commandes")
+      public class CommandeResource {
+          private final CommandeService service = new CommandeService();
+
+          @POST
+          public void creer(Commande commande) {
+              service.enregistrer(commande);
+          }
+      }
+      ```
+    choices:
+      - {text: "Injecter `CommandeService` au lieu de le créer avec `new`", correct: true}
+      - {text: "Annoter le champ `service` avec `@Transactional`", correct: false}
+      - {text: "Déclarer le champ `service` en `static`", correct: false}
+      - {text: "Annoter `CommandeResource` avec `@ApplicationScoped`", correct: false}
+    answer: |-
+      ```java
+      private final CommandeService service;
+
+      public CommandeResource(CommandeService service) {
+          this.service = service;
+      }
+      ```
+      Un objet créé par `new` échappe au conteneur : aucun intercepteur ne l'entoure. Injecté, le service est le bean
+      intercepté, et la transaction s'ouvre.
+  - key: bug-methode-privee
+    format: bug-fix
+    question: |-
+      Le build échoue dès qu'on ajoute ce code : Quarkus refuse d'intercepter une méthode privée. Quelle correction
+      est la bonne ?
+      ```java
+      @ApplicationScoped
+      public class Import {
+          public void importer(List<Ligne> lignes) {
+              enregistrer(lignes);
+          }
+
+          @Transactional
+          private void enregistrer(List<Ligne> lignes) { ... }
+      }
+      ```
+    choices:
+      - {text: "Rendre `enregistrer` package-private (ou publique)", correct: true}
+      - {text: "Déclarer `enregistrer` en `private static`", correct: false}
+      - {text: "Déclarer `enregistrer` en `private final`", correct: false}
+      - {text: "Passer `quarkus.arc.fail-on-intercepted-private-method` à `false`", correct: false}
+    answer: |-
+      ```java
+      @Transactional
+      void enregistrer(List<Ligne> lignes) { ... }
+      ```
+      Une méthode privée ne peut pas être interceptée. Désactiver la vérification ferait démarrer l'application, mais
+      sans transaction : `persist` lèverait `TransactionRequiredException`.
+  - key: bug-lot-pas-atomique
+    format: bug-fix
+    question: |-
+      Un lot de trois virements échoue au troisième, mais les deux premiers restent appliqués. Le lot doit être tout
+      ou rien. Quelle correction est la bonne ?
+      ```java
+      public void virerLot(List<Virement> lot) {
+          for (Virement v : lot) {
+              virer(v.de(), v.vers(), v.montant());
+          }
+      }
+
+      @Transactional
+      public void virer(Long de, Long vers, int montant) { ... }
+      ```
+    choices:
+      - {text: "Annoter aussi `virerLot` avec `@Transactional`", correct: true}
+      - {text: "Passer `virer` en `TxType.REQUIRES_NEW`", correct: false}
+      - {text: "Déplacer `virer` dans un autre bean, injecté", correct: false}
+      - {text: "Rattraper l'exception de `virer` dans la boucle", correct: false}
+    answer: |-
+      ```java
+      @Transactional
+      public void virerLot(List<Virement> lot) {
+      ```
+      Quarkus intercepte l'appel par `this` : chaque `virer` ouvre et valide sa propre transaction. Avec une
+      transaction sur `virerLot`, chaque `virer` la rejoint (`REQUIRED`), et le premier échec annule tout.
+  - key: bug-audit-annule
+    format: bug-fix
+    question: |-
+      Le journal d'audit doit garder une trace des tentatives échouées. Pourtant, quand `payer` échoue, la ligne
+      d'audit disparaît aussi. Quelle correction est la bonne ?
+      ```java
+      @Transactional
+      public void payer(Commande commande) {
+          audit.journaliser("paiement de " + commande.id);
+          banque.debiter(commande);          // peut lever PaiementRefuseException
+      }
+
+      // dans le bean Audit
+      @Transactional
+      public void journaliser(String evenement) { ... }
+      ```
+    choices:
+      - {text: "Passer `journaliser` en `TxType.REQUIRES_NEW`", correct: true}
+      - {text: "Passer `journaliser` en `TxType.MANDATORY`", correct: false}
+      - {text: "Retirer `@Transactional` de la méthode `journaliser`", correct: false}
+      - {text: "Appeler `journaliser` après `debiter`", correct: false}
+    answer: |-
+      ```java
+      @Transactional(Transactional.TxType.REQUIRES_NEW)
+      public void journaliser(String evenement) { ... }
+      ```
+      En `REQUIRED`, l'audit rejoint la transaction de `payer` et partage son rollback. `REQUIRES_NEW` le valide dans
+      sa propre transaction, au retour de `journaliser`.
+  - key: situation-ou-mettre-transactional
+    format: scenario
+    question: |-
+      Dans un projet, `@Transactional` est sur chaque méthode de repository, et nulle part ailleurs. Une commande
+      enregistre l'en-tête, puis les lignes, puis le stock. Que proposes-tu en revue ?
+    choices:
+      - {text: "Une transaction sur la méthode de service, qui couvre toute la commande", correct: true}
+      - {text: "C'est bien : chaque écriture est protégée par sa transaction", correct: false}
+      - {text: "Mettre `@Transactional` sur les entités elles-mêmes", correct: false}
+      - {text: "Passer chaque méthode de repository en `REQUIRES_NEW`", correct: false}
+    answer: |-
+      Chaque appel au repository valide sa part : un échec sur le stock laisse une commande sans stock réservé. La
+      transaction suit le cas d'usage, dans le service ; les repositories la rejoignent.
+  - key: situation-appel-http-dans-transaction
+    format: scenario
+    question: |-
+      Une méthode `@Transactional` charge une commande, appelle un service de paiement externe (jusqu'à dix secondes),
+      puis enregistre le résultat. Sous charge, le pool de connexions s'épuise. Que fais-tu ?
+    choices:
+      - {text: "Je sors l'appel externe de la transaction, en deux transactions courtes", correct: true}
+      - {text: "J'augmente le délai de la transaction à cinq minutes", correct: false}
+      - {text: "Je passe la méthode en `TxType.SUPPORTS`", correct: false}
+      - {text: "Je double la taille du pool de connexions", correct: false}
+    answer: |-
+      Une transaction tient sa connexion jusqu'au commit, appel externe compris. On lit et on réserve dans une
+      transaction, on appelle le service hors transaction, puis on enregistre le résultat dans une autre.
+  - key: situation-collegue-venu-de-spring
+    format: scenario
+    question: |-
+      Un collègue venu de Spring déplace une méthode `@Transactional` dans un nouveau bean, parce que « l'appel par
+      `this` contourne la transaction ». Que lui dis-tu ?
+    choices:
+      - {text: "Dans Quarkus, ArC intercepte aussi l'appel par `this` : ce n'est pas nécessaire", correct: true}
+      - {text: "Il a raison : Quarkus utilise les mêmes proxys que Spring", correct: false}
+      - {text: "Il faut plutôt rendre la méthode `private`, pour forcer l'interception", correct: false}
+      - {text: "Il faut plutôt annoter toute la classe avec `@Transactional`", correct: false}
+    answer: |-
+      ArC, le conteneur de Quarkus, intercepte les appels internes d'un bean. Séparer les beans reste un choix de
+      conception possible, mais pas une nécessité pour la transaction.
+  - key: situation-methode-interne
+    format: scenario
+    question: |-
+      Une méthode `reserverStock` ne doit être appelée que depuis une opération déjà transactionnelle. Un appel isolé
+      serait un bug. Quelle propagation choisis-tu ?
+    choices:
+      - {text: "`MANDATORY` : sans transaction en cours, elle lève une exception", correct: true}
+      - {text: "`REQUIRED` : elle ouvrira une transaction s'il en manque une", correct: false}
+      - {text: "`NOT_SUPPORTED` : elle suspendra la transaction en cours", correct: false}
+      - {text: "`NEVER` : elle refusera toute transaction en cours", correct: false}
+    answer: |-
+      `MANDATORY` rend le bug visible tout de suite : « Transaction is required for invocation ». `REQUIRED` le
+      cacherait en ouvrant une transaction de plus.
