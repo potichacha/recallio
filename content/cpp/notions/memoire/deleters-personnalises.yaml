@@ -1,0 +1,437 @@
+notion: deleters-personnalises
+lesson: |-
+  Par défaut, un `std::unique_ptr<T>` libère son objet avec `delete`. Mais beaucoup de ressources ne se libèrent
+  pas ainsi : un `FILE*` se ferme avec `std::fclose`, une mémoire de `std::malloc` se rend avec `std::free`, une
+  poignée d'une bibliothèque C a sa propre fonction de fermeture. Un **suppresseur** (*deleter*) dit au pointeur
+  intelligent **quoi appeler** à la place.
+
+  **Avec `std::unique_ptr` : le suppresseur fait partie du type.**
+
+  ```cpp
+  struct Fermeture {
+      void operator()(std::FILE* fichier) const { std::fclose(fichier); }
+  };
+
+  using Fichier = std::unique_ptr<std::FILE, Fermeture>;
+
+  Fichier fichier{std::fopen("donnees.txt", "r")};
+  if (fichier) {
+      // utiliser fichier.get()
+  }                                        // std::fclose appelé ici, sur tous les chemins
+  ```
+
+  Le suppresseur est le **second paramètre de template**. Écrit comme une petite classe sans membre (un foncteur),
+  il ne coûte **rien** : le `std::unique_ptr` garde la taille d'un pointeur.
+
+  **Les autres formes.**
+
+  ```cpp
+  std::unique_ptr<std::FILE, int (*)(std::FILE*)> f{std::fopen("a.txt", "r"), &std::fclose};
+
+  auto fermer = [](std::FILE* f) { std::fclose(f); };
+  std::unique_ptr<std::FILE, decltype(fermer)> g{std::fopen("a.txt", "r")};
+  ```
+
+  Un **pointeur de fonction** doit être passé au constructeur, et double la taille du `std::unique_ptr`. Une
+  lambda sans capture, depuis C++20, se donne par `decltype` et ne coûte rien.
+
+  **Le pointeur nul.** Le suppresseur d'un `std::unique_ptr` n'est **pas appelé** si le pointeur est nul. Un
+  `std::fopen` qui échoue ne pose donc aucun problème.
+
+  **Avec `std::shared_ptr` : le suppresseur est hors du type.**
+
+  ```cpp
+  std::shared_ptr<std::FILE> fichier{std::fopen("a.txt", "r"), &std::fclose};
+  ```
+
+  Il se passe au constructeur, et il est rangé dans le bloc de contrôle : deux `std::shared_ptr<std::FILE>` aux
+  suppresseurs différents ont le **même type**. Attention : celui d'un `std::shared_ptr` **est appelé même pour un
+  pointeur nul**.
+
+  **`std::make_unique` ne convient plus.** Il crée l'objet avec `new` et utilise le suppresseur par défaut. Avec
+  un suppresseur sur mesure, on construit le pointeur intelligent à partir de la ressource brute.
+
+  **`get()` pour l'API C.** `fichier.get()` donne le `FILE*` à passer aux fonctions C, sans céder la possession.
+
+  **Ce qu'on y gagne.** La ressource suit la règle de zéro : elle est libérée à toute sortie de portée, exception
+  comprise, elle se déplace, et ne se copie pas par accident. C'est RAII, sans écrire de classe.
+
+  **Pour ce qui n'est pas un pointeur** (un descripteur de fichier entier, par exemple), `std::unique_ptr` convient
+  mal : on écrit une petite classe RAII.
+
+  **En entretien** : « Un suppresseur dit à un pointeur intelligent comment libérer sa ressource : `fclose` pour un
+  `FILE*`, `free` pour un `malloc`. Sur `std::unique_ptr`, il fait partie du type, et un foncteur vide ne coûte
+  rien ; sur `std::shared_ptr`, il se passe au constructeur. »
+cards:
+  - key: definition
+    format: course
+    question: "À quoi sert un suppresseur personnalisé sur un pointeur intelligent ?"
+    choices:
+      - {text: "À dire quoi appeler pour libérer la ressource, à la place de `delete`", correct: true}
+      - {text: "À empêcher la ressource d'être libérée avant la fin du programme", correct: false}
+      - {text: "À copier la ressource quand le pointeur intelligent est copié", correct: false}
+      - {text: "À vérifier que le pointeur n'est pas nul avant chaque accès", correct: false}
+    answer: "Un `FILE*` se ferme avec `std::fclose`, pas avec `delete`. Le suppresseur adapte le pointeur intelligent à la ressource."
+  - key: unique-ptr-type
+    format: course
+    question: "Où se déclare le suppresseur d'un `std::unique_ptr` ?"
+    choices:
+      - {text: "Dans le type, comme second paramètre de template", correct: true}
+      - {text: "Dans le constructeur seulement, sans changer le type", correct: false}
+      - {text: "Dans une fonction membre `set_deleter`", correct: false}
+      - {text: "Dans le destructeur de la classe pointée", correct: false}
+    answer: "`std::unique_ptr<std::FILE, Fermeture>`. C'est ce qui permet à un foncteur sans membre de ne rien coûter."
+  - key: shared-ptr
+    format: course
+    question: "Comment donne-t-on un suppresseur à un `std::shared_ptr` ?"
+    choices:
+      - {text: "En second argument du constructeur ; il ne fait pas partie du type", correct: true}
+      - {text: "En second paramètre de template, comme pour `std::unique_ptr`", correct: false}
+      - {text: "En argument de `std::make_shared`", correct: false}
+      - {text: "On ne peut pas : un `std::shared_ptr` libère toujours avec `delete`", correct: false}
+    answer: "Le suppresseur est rangé dans le bloc de contrôle. Le type reste `std::shared_ptr<T>`."
+  - key: cout
+    format: course
+    question: "Quel suppresseur laisse à un `std::unique_ptr` la taille d'un simple pointeur ?"
+    choices:
+      - {text: "Un foncteur sans membre, ou une lambda sans capture", correct: true}
+      - {text: "Un pointeur de fonction, comme `&std::fclose`", correct: false}
+      - {text: "Un `std::function<void(std::FILE*)>`", correct: false}
+      - {text: "Aucun : un suppresseur double toujours la taille", correct: false}
+    answer: "Un objet vide n'occupe pas de place dans le `std::unique_ptr`. Un pointeur de fonction doit, lui, être stocké."
+  - key: vf-nul-unique
+    format: true-false
+    question: "Le suppresseur d'un `std::unique_ptr` est appelé même quand le pointeur est nul."
+    truth: false
+    answer: "Il n'est appelé que pour un pointeur non nul. Un `std::fopen` qui échoue ne provoque donc pas de `std::fclose(nullptr)`."
+  - key: vf-make-unique
+    format: true-false
+    question: "`std::make_unique` accepte un suppresseur personnalisé."
+    truth: false
+    answer: "Il crée l'objet avec `new` et utilise `delete`. Avec un suppresseur, on construit le `std::unique_ptr` depuis la ressource brute."
+  - key: vf-meme-type
+    format: true-false
+    question: "Deux `std::shared_ptr<std::FILE>` créés avec des suppresseurs différents ont le même type."
+    truth: true
+    answer: "Le suppresseur n'apparaît pas dans le type d'un `std::shared_ptr`."
+  - key: vf-get
+    format: true-false
+    question: "`fichier.get()` cède la possession du `FILE*` à l'appelant."
+    truth: false
+    answer: "`get()` prête le pointeur brut. C'est `release()` qui cède la possession."
+  - key: qcm-malloc
+    format: multiple-choice
+    question: "Quel type possède une mémoire obtenue par `std::malloc`, libérée par `std::free` ?"
+    choices:
+      - {text: "`std::unique_ptr<char, void (*)(void*)>`, construit avec `&std::free`", correct: true}
+      - {text: "`std::unique_ptr<char>`, sans suppresseur, construit depuis le pointeur", correct: false}
+      - {text: "`std::unique_ptr<char[]>`, sans suppresseur, construit depuis le pointeur", correct: false}
+      - {text: "`std::vector<char*>`, auquel on ajoute le pointeur obtenu", correct: false}
+    answer: "Sans suppresseur, la mémoire serait rendue par `delete`, qui ne correspond pas à `malloc`."
+  - key: qcm-decltype
+    format: multiple-choice
+    question: "`fermer` est une lambda sans capture. Comment déclares-tu un `std::unique_ptr` qui s'en sert, en C++20 ?"
+    choices:
+      - {text: "`std::unique_ptr<std::FILE, decltype(fermer)>`", correct: true}
+      - {text: "`std::unique_ptr<std::FILE, fermer>`", correct: false}
+      - {text: "`std::unique_ptr<std::FILE, auto>`", correct: false}
+      - {text: "`std::unique_ptr<std::FILE>(fermer)`", correct: false}
+    answer: "Le paramètre de template est un type : `decltype(fermer)` donne celui de la lambda."
+  - key: qcm-fichier
+    format: multiple-choice
+    question: "Quelle fonction passes-tu comme suppresseur d'un `FILE*` ouvert par `std::fopen` ?"
+    choices:
+      - {text: "`std::fclose`", correct: true}
+      - {text: "`std::free`", correct: false}
+      - {text: "`std::remove`", correct: false}
+      - {text: "`std::fflush`", correct: false}
+    answer: "`std::fclose` ferme le fichier et libère ses tampons. `std::remove` supprimerait le fichier du disque."
+  - key: qcm-nul-shared
+    format: multiple-choice
+    question: "Un `std::shared_ptr<std::FILE>` est construit avec `nullptr` et `&std::fclose`. Que fait sa destruction ?"
+    choices:
+      - {text: "Elle appelle le suppresseur avec un pointeur nul", correct: true}
+      - {text: "Elle n'appelle pas le suppresseur", correct: false}
+      - {text: "Elle lance une exception", correct: false}
+      - {text: "Elle appelle `delete` sur le pointeur nul", correct: false}
+    answer: "Contrairement à `std::unique_ptr`, `std::shared_ptr` appelle son suppresseur même pour un pointeur nul : le suppresseur doit le tolérer."
+  - key: trous-operateur
+    format: fill-in
+    question: |-
+      Complète le foncteur qui ferme le fichier :
+      ```cpp
+      struct Fermeture {
+          void ___()(std::FILE* fichier) const { std::fclose(fichier); }
+      };
+      ```
+    blanks:
+      - [operator]
+    answer: "Un suppresseur est un appelable : ici, une classe munie d'`operator()`."
+  - key: trous-type
+    format: fill-in
+    question: |-
+      Complète le type : le suppresseur est le second paramètre.
+      ```cpp
+      std::unique_ptr<std::FILE, ___> fichier{std::fopen("a.txt", "r")};
+      ```
+    blanks:
+      - [Fermeture]
+    answer: "`std::unique_ptr<std::FILE, Fermeture>` appelle `Fermeture` à sa destruction."
+  - key: trous-get
+    format: fill-in
+    question: |-
+      Complète pour passer le `FILE*` à une fonction C, sans céder la possession :
+      ```cpp
+      std::fputs("bonjour", fichier.___());
+      ```
+    blanks:
+      - [get]
+    answer: "`get()` renvoie le pointeur brut."
+  - key: trous-shared
+    format: fill-in
+    question: |-
+      Complète le suppresseur passé au constructeur :
+      ```cpp
+      std::shared_ptr<std::FILE> fichier{std::fopen("a.txt", "r"), &std::___};
+      ```
+    blanks:
+      - [fclose]
+    answer: "Le second argument du constructeur est le suppresseur."
+  - key: code-appel
+    format: code-output
+    question: |-
+      ```cpp
+      #include <memory>
+      #include <print>
+
+      struct Annonce {
+          void operator()(int* p) const {
+              std::print("libère {} ", *p);
+              delete p;
+          }
+      };
+
+      int main() {
+          {
+              std::unique_ptr<int, Annonce> p{new int{7}};
+              std::print("bloc ");
+          }
+          std::println("fin");
+      }
+      ```
+    choices:
+      - {text: "`bloc libère 7 fin`", correct: true}
+      - {text: "`libère 7 bloc fin`", correct: false}
+      - {text: "`bloc fin libère 7`", correct: false}
+      - {text: "`bloc fin`", correct: false}
+    answer: "`bloc libère 7 fin` : le suppresseur est appelé à la destruction du `std::unique_ptr`, à la fin du bloc."
+    check:
+      output: "bloc libère 7 fin"
+  - key: code-nul
+    format: code-output
+    question: |-
+      ```cpp
+      #include <memory>
+      #include <print>
+
+      struct Compte {
+          void operator()(int* p) const {
+              ++appels;
+              delete p;
+          }
+          static inline int appels = 0;
+      };
+
+      int main() {
+          {
+              std::unique_ptr<int, Compte> vide{nullptr};
+              std::unique_ptr<int, Compte> plein{new int{1}};
+          }
+          std::println("{}", Compte::appels);
+      }
+      ```
+    choices:
+      - {text: "`1`", correct: true}
+      - {text: "`2`", correct: false}
+      - {text: "`0`", correct: false}
+      - {text: "Ça ne compile pas", correct: false}
+    answer: "`1` : le suppresseur d'un `std::unique_ptr` n'est pas appelé pour un pointeur nul."
+    check:
+      output: "1"
+  - key: code-taille
+    format: code-output
+    question: |-
+      ```cpp
+      #include <cstdio>
+      #include <memory>
+      #include <print>
+
+      struct Fermeture {
+          void operator()(std::FILE* f) const { std::fclose(f); }
+      };
+
+      int main() {
+          using Leger = std::unique_ptr<std::FILE, Fermeture>;
+          using Lourd = std::unique_ptr<std::FILE, int (*)(std::FILE*)>;
+          std::println("{} {}", sizeof(Leger) == sizeof(void*), sizeof(Lourd) == 2 * sizeof(void*));
+      }
+      ```
+    choices:
+      - {text: "`true true`", correct: true}
+      - {text: "`true false`", correct: false}
+      - {text: "`false true`", correct: false}
+      - {text: "`false false`", correct: false}
+    answer: "`true true` : un foncteur vide ne prend pas de place. Un pointeur de fonction doit être rangé à côté du pointeur : la taille double."
+    check:
+      output: "true true"
+  - key: code-shared
+    format: code-output
+    question: |-
+      ```cpp
+      #include <memory>
+      #include <print>
+
+      int main() {
+          int liberes = 0;
+          {
+              std::shared_ptr<int> a{new int{5}, [&liberes](int* p) {
+                  ++liberes;
+                  delete p;
+              }};
+              const std::shared_ptr<int> b = a;
+              a.reset();
+              std::print("{} ", liberes);
+          }
+          std::println("{}", liberes);
+      }
+      ```
+    choices:
+      - {text: "`0 1`", correct: true}
+      - {text: "`1 1`", correct: false}
+      - {text: "`1 2`", correct: false}
+      - {text: "`0 2`", correct: false}
+    answer: "`0 1` : après `a.reset()`, `b` possède encore l'entier. Le suppresseur est appelé une fois, quand le dernier propriétaire disparaît."
+    check:
+      output: "0 1"
+  - key: bug-delete-sur-malloc
+    format: bug-fix
+    question: |-
+      Ce programme alloue avec `std::malloc`, et laisse un `std::unique_ptr` libérer avec `delete`. Le comportement
+      est indéfini. Quelle correction est la bonne ?
+      ```cpp
+      #include <cstdlib>
+      #include <memory>
+      #include <print>
+
+      int main() {
+          std::unique_ptr<int> p{static_cast<int*>(std::malloc(sizeof(int)))};
+          *p = 4;
+          std::println("{}", *p);
+      }
+      ```
+    choices:
+      - {text: "Déclarer `std::unique_ptr<int, void (*)(void*)>` et passer `&std::free`", correct: true}
+      - {text: "Déclarer `std::unique_ptr<int[]>`, sans rien changer d'autre", correct: false}
+      - {text: "Appeler `p.release();` à la fin de `main`", correct: false}
+      - {text: "Déclarer `std::shared_ptr<int>`, sans rien changer d'autre", correct: false}
+    answer: |-
+      ```cpp
+      std::unique_ptr<int, void (*)(void*)> p{static_cast<int*>(std::malloc(sizeof(int))), &std::free};
+      ```
+      Ce que `malloc` alloue se rend par `free`. Le suppresseur le dit au pointeur intelligent. `release()` ferait
+      fuir la mémoire.
+  - key: bug-suppresseur-oublie
+    format: bug-fix
+    question: |-
+      Le compilateur refuse cette construction : avec un pointeur de fonction pour suppresseur, il faut le fournir.
+      Quelle correction est la bonne ?
+      ```cpp
+      #include <cstdio>
+      #include <memory>
+      #include <print>
+
+      int main() {
+          std::unique_ptr<std::FILE, int (*)(std::FILE*)> fichier{std::fopen("/tmp/essai.txt", "w")};
+          std::println("{}", fichier != nullptr);
+      }
+      ```
+    choices:
+      - {text: "Passer `&std::fclose` en second argument du constructeur", correct: true}
+      - {text: "Passer `&std::fopen` en second argument du constructeur", correct: false}
+      - {text: "Passer `nullptr` en second argument du constructeur", correct: false}
+      - {text: "Retirer le second paramètre de template", correct: false}
+    answer: |-
+      ```cpp
+      std::unique_ptr<std::FILE, int (*)(std::FILE*)> fichier{std::fopen("/tmp/essai.txt", "w"), &std::fclose};
+      ```
+      Le type dit « un pointeur de fonction », pas lequel. Un foncteur, lui, se construit tout seul. Sans
+      suppresseur du tout, le fichier serait « libéré » par `delete`.
+  - key: bug-fuite-fichier
+    format: bug-fix
+    question: |-
+      Cette fonction oublie de fermer le fichier quand elle sort par le premier `return`. Quelle correction est la
+      bonne ?
+      ```cpp
+      #include <cstdio>
+      #include <print>
+
+      bool premiere_lettre_est_a() {
+          std::FILE* fichier = std::fopen("/tmp/absent.txt", "r");
+          if (fichier == nullptr) {
+              return false;
+          }
+          const int lettre = std::fgetc(fichier);
+          if (lettre != 'a') {
+              return false;
+          }
+          std::fclose(fichier);
+          return true;
+      }
+
+      int main() {
+          std::println("{}", premiere_lettre_est_a());
+      }
+      ```
+    choices:
+      - {text: "Tenir le fichier par un `std::unique_ptr` dont le suppresseur appelle `std::fclose`", correct: true}
+      - {text: "Déclarer le pointeur `fichier` avec le mot-clé `static`, pour le garder ouvert", correct: false}
+      - {text: "Appeler `std::fclose(fichier);` une première fois, avant le `std::fopen`", correct: false}
+      - {text: "Appeler `delete fichier;` avant chacun des trois `return` de la fonction", correct: false}
+    answer: |-
+      ```cpp
+      std::unique_ptr<std::FILE, Fermeture> fichier{std::fopen("/tmp/absent.txt", "r")};
+      ```
+      Le `return false` du milieu saute le `std::fclose`. Avec un suppresseur, le fichier est fermé sur tous les
+      chemins de sortie, et jamais par `delete`.
+  - key: bug-make-unique
+    format: bug-fix
+    question: |-
+      Le compilateur refuse de convertir le résultat de `std::make_unique` : il n'a pas le bon suppresseur. Quelle
+      correction est la bonne ?
+      ```cpp
+      #include <memory>
+      #include <print>
+
+      struct Annonce {
+          void operator()(int* p) const {
+              std::println("libéré");
+              delete p;
+          }
+      };
+
+      int main() {
+          std::unique_ptr<int, Annonce> p = std::make_unique<int>(3);
+          std::println("{}", *p);
+      }
+      ```
+    choices:
+      - {text: "Écrire `std::unique_ptr<int, Annonce> p{new int{3}};`", correct: true}
+      - {text: "Écrire `std::make_unique<int, Annonce>(3)`", correct: false}
+      - {text: "Écrire `std::make_unique<Annonce>(3)`", correct: false}
+      - {text: "Écrire `auto p = std::make_unique<int>(3);`", correct: false}
+    answer: |-
+      ```cpp
+      std::unique_ptr<int, Annonce> p{new int{3}};
+      ```
+      `std::make_unique` renvoie toujours un `std::unique_ptr` au suppresseur par défaut. Avec un suppresseur sur
+      mesure, on construit directement à partir du pointeur brut.

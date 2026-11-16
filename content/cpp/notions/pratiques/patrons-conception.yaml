@@ -1,0 +1,372 @@
+notion: patrons-conception
+lesson: |-
+  Les **patrons de conception** sont des solutions nommées à des problèmes récurrents. En C++ moderne, beaucoup
+  s'écrivent plus légèrement que dans leur forme d'origine : une lambda ou un `std::variant` remplacent souvent une
+  hiérarchie de classes.
+
+  **La fabrique : créer sans nommer la classe.** L'appelant demande un objet par une clé, et reçoit une interface.
+
+  ```cpp
+  std::unique_ptr<Forme> creer_forme(std::string_view nom) {
+      if (nom == "cercle") { return std::make_unique<Cercle>(); }
+      if (nom == "carre") { return std::make_unique<Carre>(); }
+      return nullptr;
+  }
+  ```
+
+  Elle renvoie un **`std::unique_ptr`** vers la base : la possession est claire. Le code appelant ne dépend plus
+  des classes concrètes.
+
+  **La stratégie : rendre un algorithme interchangeable.** La forme classique est une interface et une classe par
+  variante. En C++, un **appelable** suffit :
+
+  ```cpp
+  class Panier {
+  public:
+      explicit Panier(std::function<double(double)> remise) : remise_{std::move(remise)} {}
+      double total(double brut) const { return remise_(brut); }
+  private:
+      std::function<double(double)> remise_;
+  };
+
+  Panier noel{[](double prix) { return prix * 0.8; }};
+  ```
+
+  C'est ce que font `std::sort` avec sa comparaison, et tous les algorithmes à prédicat. Quand la stratégie est
+  connue à la compilation, un **paramètre de template** évite même l'appel indirect.
+
+  **L'observateur : prévenir ceux qui se sont abonnés.** Le sujet garde une liste de fonctions à appeler.
+
+  ```cpp
+  class Bouton {
+  public:
+      void abonner(std::function<void()> action) { actions_.push_back(std::move(action)); }
+      void cliquer() { for (const auto& action : actions_) { action(); } }
+  private:
+      std::vector<std::function<void()>> actions_;
+  };
+  ```
+
+  Le piège est la **durée de vie** : un abonné détruit sans s'être désabonné laisse une fonction qui capture un
+  objet mort. On garde un `std::weak_ptr`, ou l'on rend un jeton de désabonnement.
+
+  **Le visiteur : ajouter des opérations à un ensemble fermé de types.** La forme classique demande une fonction
+  `accepter` dans chaque classe et une double répartition. Avec **`std::variant`** et **`std::visit`** :
+
+  ```cpp
+  using Forme = std::variant<Cercle, Carre>;
+
+  double aire(const Forme& forme) {
+      return std::visit([](const auto& f) { return f.aire(); }, forme);
+  }
+  ```
+
+  Si l'on ajoute un type au variant, toute visite qui ne le traite pas **ne compile plus**.
+
+  **Lequel choisir.**
+
+  | Ce qui varie | Patron | Outil C++ |
+  |---|---|---|
+  | la classe à créer | fabrique | fonction renvoyant `std::unique_ptr<Base>` |
+  | un algorithme | stratégie | lambda, `std::function`, template |
+  | qui réagit à un événement | observateur | conteneur de `std::function` |
+  | les opérations sur des types fixes | visiteur | `std::variant` et `std::visit` |
+
+  **Le singleton** garantit une seule instance. En C++, la variable `static` locale d'une fonction s'initialise une
+  seule fois, même avec plusieurs threads. Mais c'est une **variable globale déguisée** : dépendances cachées,
+  tests difficiles. On lui préfère l'injection de dépendance.
+
+  **Avec mesure.** Un patron répond à un besoin de variation **réel**. Appliqué par principe, il n'ajoute que de
+  l'indirection.
+
+  **En entretien** : « La fabrique renvoie un `std::unique_ptr` vers l'interface ; la stratégie et l'observateur
+  passent par des lambdas et `std::function` ; le visiteur par `std::variant` et `std::visit`. J'évite le
+  singleton, qui est un état global, et je n'introduis un patron que si quelque chose varie vraiment. »
+cards:
+  - key: fabrique
+    format: course
+    question: "Quel est le rôle d'une fabrique ?"
+    choices:
+      - {text: "Créer un objet et le rendre par son interface, sans que l'appelant nomme sa classe", correct: true}
+      - {text: "Garantir qu'une classe n'a qu'une seule instance dans le programme", correct: false}
+      - {text: "Prévenir une liste d'objets abonnés quand un événement se produit", correct: false}
+      - {text: "Parcourir une structure pour appliquer une opération à chaque élément", correct: false}
+    answer: "L'appelant ne dépend que de la classe de base. Ajouter une variante ne touche que la fabrique."
+  - key: strategie
+    format: course
+    question: "Comment exprime-t-on le plus simplement une stratégie en C++ moderne ?"
+    choices:
+      - {text: "Par un appelable passé à l'objet : une lambda, rangée dans un `std::function`", correct: true}
+      - {text: "Par une macro qui remplace le nom de l'algorithme à la compilation", correct: false}
+      - {text: "Par une variable globale qui désigne l'algorithme en cours", correct: false}
+      - {text: "Par un `switch` sur une chaîne de caractères, dans chaque fonction", correct: false}
+    answer: "Une interface et une classe par variante restent possibles ; pour un seul comportement, une lambda fait le même travail avec bien moins de code."
+  - key: visiteur
+    format: course
+    question: "Quel outil de C++17 remplace souvent le patron visiteur classique ?"
+    choices:
+      - {text: "`std::variant` avec `std::visit`", correct: true}
+      - {text: "`std::optional` avec `value_or`", correct: false}
+      - {text: "`std::any` avec `std::any_cast`", correct: false}
+      - {text: "`std::tuple` avec `std::get`", correct: false}
+    answer: "Le variant énumère les types possibles ; `std::visit` appelle la bonne surcharge. Un type non traité est une erreur de compilation."
+  - key: singleton
+    format: course
+    question: "Pourquoi se méfie-t-on du patron singleton ?"
+    choices:
+      - {text: "C'est un état global : les dépendances sont cachées, et les tests difficiles", correct: true}
+      - {text: "Il est impossible à écrire correctement en C++, même avec `static`", correct: false}
+      - {text: "Il crée une nouvelle instance à chaque appel, ce qui épuise la mémoire", correct: false}
+      - {text: "Il interdit l'usage des fonctions virtuelles", correct: false}
+    answer: "N'importe quel code peut y accéder sans que sa signature le dise. On lui préfère une dépendance passée explicitement."
+  - key: vf-fabrique-retour
+    format: true-false
+    question: "Une fabrique moderne renvoie un `std::unique_ptr` vers la classe de base."
+    truth: true
+    answer: "L'appelant devient propriétaire, sans `delete` à écrire, et manipule l'objet par son interface."
+  - key: vf-observateur
+    format: true-false
+    question: "Dans le patron observateur, un abonné détruit sans se désabonner ne pose aucun problème."
+    truth: false
+    answer: "Le sujet garde une fonction qui désigne un objet mort : la prochaine notification est un comportement indéfini."
+  - key: vf-visit
+    format: true-false
+    question: "Avec `std::visit`, oublier de traiter l'un des types du variant est une erreur de compilation."
+    truth: true
+    answer: "Le visiteur doit être appelable avec chaque alternative. C'est un avantage sur une cascade de `dynamic_cast`."
+  - key: vf-toujours
+    format: true-false
+    question: "Appliquer un patron de conception améliore toujours le code."
+    truth: false
+    answer: "Sans variation réelle à absorber, il n'ajoute que des classes et de l'indirection."
+  - key: qcm-sort
+    format: multiple-choice
+    question: "Quel patron la comparaison passée à `std::sort` illustre-t-elle ?"
+    choices:
+      - {text: "La stratégie", correct: true}
+      - {text: "La fabrique", correct: false}
+      - {text: "L'observateur", correct: false}
+      - {text: "Le singleton", correct: false}
+    answer: "L'algorithme de tri est fixe ; la façon de comparer est interchangeable, fournie par l'appelant."
+  - key: qcm-observateur
+    format: multiple-choice
+    question: "Quel membre convient à un sujet qui doit prévenir ses abonnés ?"
+    choices:
+      - {text: "`std::vector<std::function<void()>>`", correct: true}
+      - {text: "`std::unique_ptr<std::function<void()>>`", correct: false}
+      - {text: "`std::optional<int>`", correct: false}
+      - {text: "`std::variant<int, double>`", correct: false}
+    answer: "Une liste d'appelables : chaque abonné y ajoute sa fonction, et le sujet les appelle tous."
+  - key: qcm-statique
+    format: multiple-choice
+    question: "Comment obtient-on, en C++, une instance unique initialisée une seule fois, même avec plusieurs threads ?"
+    choices:
+      - {text: "Par une variable `static` locale à une fonction", correct: true}
+      - {text: "Par une variable globale non initialisée", correct: false}
+      - {text: "Par un `new` dans chaque fonction qui en a besoin", correct: false}
+      - {text: "Par une macro définie dans chaque fichier", correct: false}
+    answer: "Depuis C++11, l'initialisation d'une variable `static` locale est garantie unique et sûre entre threads."
+  - key: qcm-choix
+    format: multiple-choice
+    question: "Tu as un ensemble fixe de types, et tu ajoutes souvent de nouvelles opérations. Quel patron convient ?"
+    choices:
+      - {text: "Le visiteur, par `std::variant` et `std::visit`", correct: true}
+      - {text: "La fabrique, par une fonction de création", correct: false}
+      - {text: "Le singleton, par une instance unique", correct: false}
+      - {text: "L'observateur, par une liste d'abonnés", correct: false}
+    answer: "Chaque opération est une fonction à part, sans toucher aux types. Avec une hiérarchie virtuelle, il faudrait modifier toutes les classes."
+  - key: situation-if-en-cascade
+    format: scenario
+    question: |-
+      Le code est parsemé de `if (type == "pdf") ... else if (type == "csv") ...`, à quinze endroits, chacun créant
+      l'exportateur adapté. Ajouter un format demande de modifier les quinze. Que proposes-tu ?
+    choices:
+      - {text: "Une fabrique, seule à connaître les classes concrètes, qui renvoie un `std::unique_ptr<Exportateur>`", correct: true}
+      - {text: "Un singleton par format d'export, accessible depuis les quinze endroits", correct: false}
+      - {text: "Une macro qui recopie la cascade de `if` aux quinze endroits", correct: false}
+      - {text: "Un `switch` à la place de chaque cascade de `if`", correct: false}
+    answer: |-
+      La création est centralisée : un nouveau format ne modifie que la fabrique. Le reste du code ne voit que
+      l'interface.
+  - key: situation-strategie
+    format: scenario
+    question: |-
+      Une classe `Tarif` a trois classes dérivées, `TarifNormal`, `TarifEtudiant` et `TarifSenior`, qui ne
+      diffèrent que par une formule d'une ligne. Un collègue trouve la hiérarchie lourde. Que proposes-tu ?
+    choices:
+      - {text: "Une seule classe, qui reçoit la formule sous forme de lambda", correct: true}
+      - {text: "Trois classes de plus, une par formule intermédiaire", correct: false}
+      - {text: "Une variable globale qui indique le tarif en cours", correct: false}
+      - {text: "Un `dynamic_cast` vers chaque classe dérivée, à l'appel", correct: false}
+    answer: |-
+      Quand seule une fonction varie, la stratégie par appelable suffit. Les classes dérivées n'apportaient que du
+      code de cérémonie.
+  - key: situation-abonne-mort
+    format: scenario
+    question: |-
+      Une fenêtre s'abonne aux changements d'un modèle par une lambda qui capture `this`. Quand la fenêtre est
+      fermée, la modification suivante du modèle fait planter le programme. Que proposes-tu ?
+    choices:
+      - {text: "Désabonner la fenêtre dans son destructeur, par un jeton rendu à l'abonnement", correct: true}
+      - {text: "Capturer `this` par copie, avec `[=]`, à la place de `[this]`", correct: false}
+      - {text: "Interdire la fermeture des fenêtres abonnées à un modèle", correct: false}
+      - {text: "Entourer la notification d'un `catch (...)`", correct: false}
+    answer: |-
+      Le modèle appelle une fonction dont l'objet n'existe plus. L'abonnement doit finir avec l'abonné : un jeton
+      RAII qui désabonne à sa destruction, ou un `std::weak_ptr` testé avant l'appel.
+  - key: situation-singleton
+    format: scenario
+    question: |-
+      Une classe `Configuration` est un singleton, lu partout dans le code. Les tests s'influencent les uns les
+      autres : l'un modifie un réglage, le suivant échoue. Que proposes-tu ?
+    choices:
+      - {text: "Passer la configuration en paramètre aux objets qui en ont besoin", correct: true}
+      - {text: "Lancer les tests toujours dans le même ordre", correct: false}
+      - {text: "Créer un second singleton, réservé aux tests", correct: false}
+      - {text: "Protéger le singleton par un mutex", correct: false}
+    answer: |-
+      L'état global partagé rend les tests dépendants. Injectée, la configuration est propre à chaque test, et les
+      dépendances se lisent dans les signatures.
+  - key: bug-fabrique-brute
+    format: bug-fix
+    question: |-
+      Cette fabrique renvoie un pointeur brut, que l'appelant oublie de libérer : la forme fuit. Quelle correction
+      est la bonne ?
+      ```cpp
+      #include <print>
+
+      struct Forme {
+          virtual ~Forme() = default;
+          virtual double aire() const = 0;
+      };
+
+      struct Carre : Forme {
+          double aire() const override { return 4.0; }
+      };
+
+      Forme* creer() {
+          return new Carre{};
+      }
+
+      int main() {
+          const Forme* forme = creer();
+          std::println("{}", forme->aire());
+      }
+      ```
+    choices:
+      - {text: "Renvoyer `std::unique_ptr<Forme>`, construit avec `std::make_unique<Carre>()`", correct: true}
+      - {text: "Renvoyer `Forme&`, liée à l'objet créé avec `new`", correct: false}
+      - {text: "Renvoyer `const Forme*`, pour que l'objet ne soit pas modifié", correct: false}
+      - {text: "Renvoyer `Carre` par valeur, converti en `Forme` par l'appelant", correct: false}
+    answer: |-
+      ```cpp
+      std::unique_ptr<Forme> creer() {
+          return std::make_unique<Carre>();
+      }
+      ```
+      Le type de retour dit que l'appelant possède la forme, et la libère sans `delete`. Par valeur, la conversion
+      en `Forme` ne compilerait pas : la classe est abstraite.
+  - key: bug-strategie-vide
+    format: bug-fix
+    question: |-
+      Ce programme se termine sur une exception `std::bad_function_call`. Quelle correction est la bonne ?
+      ```cpp
+      #include <functional>
+      #include <print>
+
+      class Panier {
+      public:
+          void definir_remise(std::function<double(double)> remise) { remise_ = std::move(remise); }
+          double total(double brut) const { return remise_(brut); }
+
+      private:
+          std::function<double(double)> remise_;
+      };
+
+      int main() {
+          const Panier panier;
+          std::println("{}", panier.total(100.0));
+      }
+      ```
+    choices:
+      - {text: "Donner à `remise_` une stratégie par défaut, qui renvoie le prix inchangé", correct: true}
+      - {text: "Déclarer la fonction `total` sans le mot-clé `const`", correct: false}
+      - {text: "Déclarer le membre `remise_` avec le mot-clé `mutable`", correct: false}
+      - {text: "Appeler `panier.total(100.0)` deux fois de suite, dans `main`", correct: false}
+    answer: |-
+      ```cpp
+      std::function<double(double)> remise_ = [](double prix) { return prix; };
+      ```
+      Un `std::function` vide lance `std::bad_function_call` quand on l'appelle. Une stratégie par défaut garde
+      l'objet toujours utilisable.
+  - key: bug-observateur-pendant
+    format: bug-fix
+    question: |-
+      L'abonné capture par référence une variable locale d'une fonction terminée. La notification a un comportement
+      indéfini. Quelle correction est la bonne ?
+      ```cpp
+      #include <functional>
+      #include <print>
+      #include <vector>
+
+      std::vector<std::function<void()>> abonnes;
+
+      void abonner_compteur() {
+          int compteur = 0;
+          abonnes.push_back([&compteur] { ++compteur; });
+      }
+
+      int main() {
+          abonner_compteur();
+          for (const auto& abonne : abonnes) {
+              abonne();
+          }
+          std::println("fin");
+      }
+      ```
+    choices:
+      - {text: "Partager le compteur par `std::shared_ptr<int>`, capturé par valeur", correct: true}
+      - {text: "Capturer le compteur avec `[&]` à la place de `[&compteur]`", correct: false}
+      - {text: "Déclarer la lambda avec le mot-clé `mutable`", correct: false}
+      - {text: "Appeler `abonnes.reserve(1);` avant l'abonnement", correct: false}
+    answer: |-
+      ```cpp
+      auto compteur = std::make_shared<int>(0);
+      abonnes.push_back([compteur] { ++*compteur; });
+      ```
+      L'abonné survit à la fonction qui l'a créé : sa référence est pendante. Ce qu'il utilise doit vivre aussi
+      longtemps que lui.
+  - key: bug-visiteur-incomplet
+    format: bug-fix
+    question: |-
+      Le compilateur refuse l'appel de `std::visit` : le visiteur ne sait pas traiter l'une des alternatives du
+      variant. Quelle correction est la bonne ?
+      ```cpp
+      #include <print>
+      #include <variant>
+
+      struct Cercle { double rayon; };
+      struct Carre { double cote; };
+      struct Triangle { double base; double hauteur; };
+
+      struct Aire {
+          double operator()(const Cercle& c) const { return 3.14 * c.rayon * c.rayon; }
+          double operator()(const Carre& c) const { return c.cote * c.cote; }
+      };
+
+      int main() {
+          const std::variant<Cercle, Carre, Triangle> forme = Carre{2.0};
+          std::println("{}", std::visit(Aire{}, forme));
+      }
+      ```
+    choices:
+      - {text: "Ajouter à `Aire` un `operator()` qui reçoit un `Triangle`", correct: true}
+      - {text: "Retirer `const` de la déclaration de `forme`", correct: false}
+      - {text: "Remplacer `std::visit` par `std::get<Carre>`", correct: false}
+      - {text: "Déclarer `Aire` avec le mot-clé `final`", correct: false}
+    answer: |-
+      ```cpp
+      double operator()(const Triangle& t) const { return t.base * t.hauteur / 2; }
+      ```
+      `std::visit` exige que le visiteur accepte chaque alternative. C'est la force du patron ainsi écrit : un type
+      oublié se voit à la compilation.

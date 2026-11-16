@@ -1,0 +1,242 @@
+notion: compilation-croisee
+lesson: |-
+  **Compiler de façon croisée**, c'est produire sur une machine un programme destiné à **une autre** : construire
+  sur un PC Linux x86-64 un binaire pour une carte ARM, un téléphone, ou Windows. On s'en sert quand la cible est
+  trop faible pour compiler elle-même, ou n'a pas de système d'exploitation.
+
+  **Le vocabulaire.**
+
+  | Terme | Sens |
+  |---|---|
+  | **hôte** (*host*) | la machine qui compile |
+  | **cible** (*target*) | la machine qui exécutera le programme |
+  | **chaîne d'outils** (*toolchain*) | le compilateur, l'assembleur, l'éditeur de liens et les bibliothèques pour une cible |
+  | **triplet** | le nom d'une cible : `aarch64-linux-gnu`, `arm-none-eabi`, `x86_64-w64-mingw32` |
+  | **sysroot** | un répertoire qui contient les en-têtes et les bibliothèques **de la cible** |
+
+  Le triplet se lit architecture, système, environnement. `arm-none-eabi` : ARM, **aucun** système (du « bare
+  metal »).
+
+  **Avec GCC**, chaque cible a son compilateur, préfixé par le triplet :
+
+  ```
+  aarch64-linux-gnu-g++ -std=c++23 main.cpp -o programme
+  ```
+
+  **Avec Clang**, un seul compilateur vise toutes les cibles : `clang++ --target=aarch64-linux-gnu
+  --sysroot=/opt/sysroot-arm64 main.cpp`.
+
+  **Le sysroot.** Le programme doit être lié aux bibliothèques **de la cible**, pas à celles de l'hôte. Le sysroot
+  est une copie de l'arborescence de la cible (`usr/include`, `usr/lib`) ; `--sysroot` dit au compilateur d'y
+  chercher.
+
+  **Avec CMake**, tout tient dans un **fichier de chaîne d'outils**, passé une fois :
+
+  ```
+  set(CMAKE_SYSTEM_NAME Linux)
+  set(CMAKE_SYSTEM_PROCESSOR aarch64)
+  set(CMAKE_CXX_COMPILER aarch64-linux-gnu-g++)
+  set(CMAKE_SYSROOT /opt/sysroot-arm64)
+  set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
+  ```
+
+  ```
+  cmake -S . -B build-arm -DCMAKE_TOOLCHAIN_FILE=arm64.cmake
+  ```
+
+  Le `CMakeLists.txt` du projet ne change pas. Définir `CMAKE_SYSTEM_NAME` fait passer CMake en mode croisé.
+
+  **Les pièges.**
+
+  - **On ne peut pas exécuter ce qu'on vient de construire** : les tests tournent sur la cible, ou dans un
+    émulateur comme QEMU. Un générateur de code doit être construit **pour l'hôte**.
+  - **Trouver les bibliothèques de l'hôte par erreur** : `find_package` doit chercher dans le sysroot.
+  - **Les suppositions sur la machine** : la taille de `long` et des pointeurs, l'ordre des octets, le signe de
+    `char` (non signé sur ARM) changent. On utilise les types de taille fixe (`std::int32_t`).
+  - **Les dépendances** doivent être construites pour la cible : vcpkg (par ses « triplets ») et Conan (par ses
+    profils) le gèrent.
+
+  **En entretien** : « La compilation croisée produit sur l'hôte un binaire pour une autre cible, avec une chaîne
+  d'outils nommée par un triplet et un sysroot pour les bibliothèques de la cible. Avec CMake, c'est un fichier de
+  chaîne d'outils ; les tests tournent sur la cible ou sous QEMU. »
+cards:
+  - key: definition-cours
+    format: course
+    question: "En quoi consiste la compilation croisée ?"
+    choices:
+      - {text: "À construire, sur une machine, un programme destiné à une machine d'un autre type", correct: true}
+      - {text: "À compiler le même fichier avec deux compilateurs, pour comparer leurs messages", correct: false}
+      - {text: "À compiler en même temps plusieurs fichiers, sur plusieurs cœurs", correct: false}
+      - {text: "À traduire un programme C++ vers un autre langage de programmation", correct: false}
+    answer: "L'hôte compile, la cible exécute. Exemple : un PC x86-64 qui produit un binaire pour une carte ARM."
+  - key: pourquoi
+    format: course
+    question: "Pourquoi compile-t-on de façon croisée plutôt que sur la cible elle-même ?"
+    choices:
+      - {text: "La cible est souvent trop limitée pour faire tourner un compilateur", correct: true}
+      - {text: "La cible produit toujours des programmes plus lents que l'hôte", correct: false}
+      - {text: "La cible ne peut exécuter que des programmes compilés ailleurs", correct: false}
+      - {text: "La cible n'a jamais de processeur compatible avec le C++", correct: false}
+    answer: "Un microcontrôleur n'a ni la mémoire ni le système pour compiler. Même sur une carte capable, la construction serait bien plus lente que sur un poste de travail."
+  - key: sysroot
+    format: course
+    question: "À quoi sert un sysroot ?"
+    choices:
+      - {text: "À fournir au compilateur les en-têtes et les bibliothèques de la cible", correct: true}
+      - {text: "À ranger les fichiers objets produits pendant la construction", correct: false}
+      - {text: "À donner au programme les droits d'administration sur la cible", correct: false}
+      - {text: "À émuler le processeur de la cible sur la machine hôte", correct: false}
+    answer: "Le programme doit être lié à la bibliothèque standard de la cible, pas à celle de l'hôte. Le sysroot en est une copie, que `--sysroot` désigne."
+  - key: tests
+    format: course
+    question: "Comment exécute-t-on les tests d'un programme compilé de façon croisée ?"
+    choices:
+      - {text: "Sur la cible, ou sur l'hôte dans un émulateur comme QEMU", correct: true}
+      - {text: "Directement sur l'hôte, comme n'importe quel programme", correct: false}
+      - {text: "Nulle part : un tel programme ne peut pas être testé", correct: false}
+      - {text: "Dans le compilateur, pendant l'édition de liens", correct: false}
+    answer: "L'hôte ne sait pas exécuter le jeu d'instructions de la cible. On déploie les tests, ou on émule la cible."
+  - key: vf-executer
+    format: true-false
+    question: "Un binaire produit pour ARM s'exécute directement sur l'hôte x86-64 qui l'a compilé."
+    truth: false
+    answer: "Le processeur de l'hôte ne comprend pas ses instructions. Il faut la cible, ou un émulateur."
+  - key: vf-cmakelists
+    format: true-false
+    question: "Avec CMake, viser une autre cible se fait par un fichier de chaîne d'outils, sans modifier le `CMakeLists.txt`."
+    truth: true
+    answer: "Le fichier, passé par `CMAKE_TOOLCHAIN_FILE`, décrit le compilateur, le système et le sysroot."
+  - key: vf-char
+    format: true-false
+    question: "Le type `char` est signé sur toutes les architectures."
+    truth: false
+    answer: "C'est défini par l'implémentation : signé sur x86, non signé sur ARM. Un code qui le suppose se comporte différemment sur la cible."
+  - key: vf-clang
+    format: true-false
+    question: "Un même exécutable `clang++` peut viser plusieurs cibles, avec l'option `--target`."
+    truth: true
+    answer: "Clang est un compilateur croisé par construction. GCC, lui, a un exécutable par cible, préfixé par le triplet."
+  - key: qcm-triplet
+    format: multiple-choice
+    question: "Que désigne le triplet `arm-none-eabi` ?"
+    choices:
+      - {text: "Une cible ARM sans système d'exploitation", correct: true}
+      - {text: "Une cible ARM sous Linux", correct: false}
+      - {text: "Une cible x86-64 sous Windows", correct: false}
+      - {text: "Une cible ARM sans compilateur", correct: false}
+    answer: "Architecture, système, environnement : `none` signifie « bare metal », un microcontrôleur."
+  - key: qcm-gcc
+    format: multiple-choice
+    question: "Quel compilateur GCC produit un binaire Linux pour ARM 64 bits ?"
+    choices:
+      - {text: "`aarch64-linux-gnu-g++`", correct: true}
+      - {text: "`g++ --arm64`", correct: false}
+      - {text: "`x86_64-linux-gnu-g++`", correct: false}
+      - {text: "`g++-aarch64-windows`", correct: false}
+    answer: "Le compilateur croisé de GCC porte le triplet de sa cible en préfixe."
+  - key: qcm-mode-croise
+    format: multiple-choice
+    question: "Quelle variable, définie dans le fichier de chaîne d'outils, fait passer CMake en mode croisé ?"
+    choices:
+      - {text: "`CMAKE_SYSTEM_NAME`", correct: true}
+      - {text: "`CMAKE_BUILD_TYPE`", correct: false}
+      - {text: "`CMAKE_CXX_STANDARD`", correct: false}
+      - {text: "`CMAKE_INSTALL_PREFIX`", correct: false}
+    answer: "Dès que `CMAKE_SYSTEM_NAME` est fixée à la main, CMake considère que la cible diffère de l'hôte."
+  - key: qcm-taille
+    format: multiple-choice
+    question: "Quel type garantit un entier de 32 bits sur l'hôte comme sur la cible ?"
+    choices:
+      - {text: "`std::int32_t`", correct: true}
+      - {text: "`long`", correct: false}
+      - {text: "`int`", correct: false}
+      - {text: "`std::size_t`", correct: false}
+    answer: "Les types de `<cstdint>` ont une taille fixe. `long` et `std::size_t` changent selon l'architecture."
+  - key: situation-tests
+    format: scenario
+    question: |-
+      La construction croisée pour ARM réussit, mais l'étape `ctest` échoue aussitôt sur le serveur
+      d'intégration continue, un x86-64 : « Exec format error ». Que proposes-tu ?
+    choices:
+      - {text: "Lancer les tests sous QEMU, déclaré comme émulateur dans le fichier de chaîne d'outils", correct: true}
+      - {text: "Recompiler les tests avec `-O0`, pour qu'ils tournent sur le serveur", correct: false}
+      - {text: "Supprimer les tests de la construction croisée, qui ne peut pas en avoir", correct: false}
+      - {text: "Renommer les exécutables de test avec l'extension `.exe`", correct: false}
+    answer: |-
+      Le serveur ne peut pas exécuter un binaire ARM. `CMAKE_CROSSCOMPILING_EMULATOR` fait lancer chaque test par
+      l'émulateur ; l'autre voie est de les déployer sur la cible.
+  - key: situation-mauvaise-bibliotheque
+    format: scenario
+    question: |-
+      L'édition de liens de ta construction croisée échoue : « skipping incompatible /usr/lib/libz.so ». Que se
+      passe-t-il ?
+    choices:
+      - {text: "CMake a trouvé la bibliothèque de l'hôte au lieu de celle du sysroot de la cible", correct: true}
+      - {text: "La bibliothèque est trop ancienne pour le standard C++23", correct: false}
+      - {text: "La bibliothèque a été compilée sans informations de débogage", correct: false}
+      - {text: "L'éditeur de liens ne sait pas lier une bibliothèque dynamique", correct: false}
+    answer: |-
+      `/usr/lib` est celui de l'hôte, d'une autre architecture. Le fichier de chaîne d'outils doit borner la
+      recherche au sysroot, avec `CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY`.
+  - key: situation-generateur
+    format: scenario
+    question: |-
+      Ton projet construit un petit programme qui génère du code source, puis l'exécute pendant la construction.
+      En mode croisé, cette étape échoue. Pourquoi, et que fais-tu ?
+    choices:
+      - {text: "Le générateur a été compilé pour la cible ; il faut le construire pour l'hôte", correct: true}
+      - {text: "Le générateur est trop lent ; il faut le compiler avec `-O3`", correct: false}
+      - {text: "Le générateur n'a pas de fonction `main` ; il faut lui en donner une", correct: false}
+      - {text: "Le générateur doit être lancé après l'édition de liens du projet", correct: false}
+    answer: |-
+      Un outil exécuté pendant la construction tourne sur la machine qui compile. On le construit à part, avec le
+      compilateur de l'hôte, et le projet croisé s'en sert.
+  - key: situation-bug-cible
+    format: scenario
+    question: |-
+      Un calcul de somme de contrôle donne le bon résultat sur ton PC, et un résultat faux sur la carte ARM. Le
+      code additionne des `char` lus dans un tampon. Que soupçonnes-tu ?
+    choices:
+      - {text: "Le signe de `char`, signé sur x86 et non signé sur ARM", correct: true}
+      - {text: "La vitesse du processeur ARM, trop faible pour l'addition", correct: false}
+      - {text: "La taille du tampon, limitée à 255 octets sur ARM", correct: false}
+      - {text: "L'ordre des `#include`, différent sur ARM", correct: false}
+    answer: |-
+      Les octets supérieurs à 127 deviennent négatifs sur x86, pas sur ARM. Pour des octets, on écrit
+      `unsigned char` ou `std::uint8_t`, et le résultat est le même partout.
+  - key: definition-hote
+    format: definition
+    question: "Dans une compilation croisée, qu'appelle-t-on l'hôte ?"
+    choices:
+      - {text: "La machine sur laquelle tourne le compilateur", correct: true}
+      - {text: "La machine sur laquelle tournera le programme", correct: false}
+      - {text: "Le serveur qui héberge le dépôt du code", correct: false}
+      - {text: "Le répertoire des bibliothèques de la cible", correct: false}
+    answer: "L'hôte compile ; la cible exécute."
+  - key: definition-chaine-outils
+    format: definition
+    question: "Qu'est-ce qu'une chaîne d'outils (toolchain) ?"
+    choices:
+      - {text: "Le compilateur, l'éditeur de liens et les bibliothèques pour une cible donnée", correct: true}
+      - {text: "La suite des commandes Git qui mènent à une livraison", correct: false}
+      - {text: "La liste des tests lancés en intégration continue", correct: false}
+      - {text: "L'ensemble des éditeurs de texte installés sur un poste", correct: false}
+    answer: "Tout ce qu'il faut pour passer du code source à un binaire de la cible."
+  - key: definition-triplet
+    format: definition
+    question: "Qu'est-ce qu'un triplet de cible ?"
+    choices:
+      - {text: "Un nom qui décrit l'architecture, le système et l'environnement d'une cible", correct: true}
+      - {text: "Un groupe de trois fichiers objets, liés ensemble en un exécutable", correct: false}
+      - {text: "Un numéro de version en trois parties : majeure, mineure, corrective", correct: false}
+      - {text: "Un ensemble de trois options d'optimisation", correct: false}
+    answer: "Par exemple `aarch64-linux-gnu`. Il nomme les compilateurs croisés de GCC, et sert d'argument à `--target` avec Clang."
+  - key: definition-bare-metal
+    format: definition
+    question: "Que veut dire qu'un programme tourne en « bare metal » ?"
+    choices:
+      - {text: "Qu'il s'exécute directement sur le matériel, sans système d'exploitation", correct: true}
+      - {text: "Qu'il s'exécute dans un conteneur, isolé du système", correct: false}
+      - {text: "Qu'il a été compilé sans aucune optimisation", correct: false}
+      - {text: "Qu'il n'utilise aucune bibliothèque tierce", correct: false}
+    answer: "C'est le cas d'un microcontrôleur : ni fichiers, ni processus, souvent pas de tas. Le triplet le dit par `none`."

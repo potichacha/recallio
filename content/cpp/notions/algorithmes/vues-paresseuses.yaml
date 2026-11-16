@@ -1,0 +1,472 @@
+notion: vues-paresseuses
+lesson: |-
+  Une **vue** (`std::views::filter`, `transform`, `take`...) ne calcule **rien** quand on la construit. Elle décrit
+  un traitement, qui ne s'exécute qu'au moment où l'on **parcourt** la vue, élément par élément. C'est
+  l'**évaluation paresseuse**.
+
+  ```cpp
+  std::vector<int> v{1, 2, 3, 4, 5, 6};
+  auto pairs_doubles = v | std::views::filter([](int x) { return x % 2 == 0; })
+                         | std::views::transform([](int x) { return x * 2; });
+  // aucun élément n'a encore été examiné
+  for (int x : pairs_doubles) { ... }   // le travail se fait ici
+  ```
+
+  **Ce que cela implique.**
+
+  - **Aucun conteneur intermédiaire** : les éléments traversent toute la chaîne un à un.
+  - **On ne paie que ce qu'on lit** : `std::views::take(3)` arrête le parcours après trois éléments, même sur une
+    suite infinie comme `std::views::iota(1)`.
+  - **Le travail est refait à chaque parcours** : parcourir la vue deux fois appelle deux fois les fonctions.
+  - **La vue voit les changements** de la source faits entre sa construction et son parcours.
+
+  **Une vue ne possède pas ses données.** Elle garde une **référence** vers le conteneur d'origine. Si celui-ci est
+  détruit ou réalloue, la vue est **pendante** : la parcourir est un comportement indéfini.
+
+  ```cpp
+  auto premiers() {
+      std::vector<int> v{1, 2, 3};
+      return v | std::views::take(2);    // v est détruit au retour : vue pendante
+  }
+  ```
+
+  Le remède : renvoyer un **conteneur** (`std::ranges::to<std::vector>()`), ou faire vivre la source plus longtemps
+  que la vue.
+
+  **Les temporaires.** Appliquer une vue à un conteneur **temporaire** est permis : la vue en devient
+  **propriétaire** (`std::ranges::owning_view`), et le garde en vie.
+
+  ```cpp
+  auto vue = creer_vecteur() | std::views::filter(est_pair);   // sûr : la vue possède le vecteur
+  ```
+
+  **`std::ranges::dangling`.** Un algorithme appelé sur un temporaire ne peut pas rendre un itérateur valide. Il
+  renvoie alors le type `std::ranges::dangling`, qui ne se déréférence pas : l'erreur est vue **à la
+  compilation**.
+
+  ```cpp
+  auto it = std::ranges::max_element(creer_vecteur());   // it est un std::ranges::dangling
+  ```
+
+  **Les pièges propres aux vues.**
+
+  - `filter` **mémorise** son premier élément au premier appel de `begin()`. Modifier la source ensuite, puis
+    reparcourir, peut donner un résultat incohérent.
+  - Modifier un élément à travers un `filter`, de sorte qu'il **ne vérifie plus** le prédicat, est un comportement
+    indéfini.
+  - Une fonction coûteuse dans un `transform` placé **avant** un `filter` est appelée deux fois par élément gardé :
+    une fois pour le test, une fois pour la lecture.
+
+  **Matérialiser.** Quand on doit parcourir plusieurs fois, ou garder le résultat, on le range dans un conteneur :
+  `std::ranges::to<std::vector>()` (C++23).
+
+  **En entretien** : « Une vue est paresseuse : elle ne calcule qu'au parcours, élément par élément, sans
+  conteneur intermédiaire. Elle ne possède pas ses données : si le conteneur meurt, elle est pendante. Je ne
+  renvoie donc pas une vue sur une locale, je la matérialise avec `std::ranges::to`. »
+cards:
+  - key: paresse
+    format: course
+    question: "Quand une vue comme `v | std::views::transform(f)` appelle-t-elle la fonction `f` ?"
+    choices:
+      - {text: "Au moment où l'on parcourt la vue, pour chaque élément lu", correct: true}
+      - {text: "Au moment où la vue est construite, pour tous les éléments", correct: false}
+      - {text: "Au moment où le vecteur `v` est modifié", correct: false}
+      - {text: "Au moment où la vue est détruite", correct: false}
+    answer: "C'est l'évaluation paresseuse. Construire la vue ne coûte rien ; le travail se fait à la lecture de chaque élément."
+  - key: possession
+    format: course
+    question: "Que contient une vue construite sur un vecteur nommé `v` ?"
+    choices:
+      - {text: "Une référence vers `v` : elle ne possède pas les éléments", correct: true}
+      - {text: "Une copie de tous les éléments de `v`", correct: false}
+      - {text: "Les éléments de `v`, déplacés dans la vue", correct: false}
+      - {text: "Un pointeur intelligent qui prolonge la vie de `v`", correct: false}
+    answer: "La vue est légère : elle désigne la source. Si `v` est détruit ou réalloue, la vue est pendante."
+  - key: pendante
+    format: course
+    question: "Quel est le défaut d'une fonction qui renvoie `v | std::views::take(2)`, où `v` est son vecteur local ?"
+    choices:
+      - {text: "Le vecteur est détruit au retour : la vue désigne une mémoire libérée", correct: true}
+      - {text: "Une vue ne peut pas être copiée, donc pas renvoyée", correct: false}
+      - {text: "Le compilateur refuse tout type de retour `auto` pour une vue", correct: false}
+      - {text: "La vue est évaluée au retour, ce qui coûte trop cher", correct: false}
+    answer: "Une vue ne prolonge pas la vie de sa source. On renvoie un conteneur : `| std::ranges::to<std::vector>()`."
+  - key: reparcours
+    format: course
+    question: "Que se passe-t-il quand on parcourt deux fois une vue `transform` ?"
+    choices:
+      - {text: "La fonction de transformation est appelée de nouveau pour chaque élément", correct: true}
+      - {text: "Le second parcours relit les résultats mis en cache par le premier", correct: false}
+      - {text: "Le second parcours ne trouve aucun élément : la vue est consommée", correct: false}
+      - {text: "Le second parcours lève une exception `std::logic_error`", correct: false}
+    answer: "Une vue ne stocke pas ses résultats. Pour ne calculer qu'une fois, on matérialise dans un conteneur."
+  - key: vf-construction
+    format: true-false
+    question: "Construire une vue `filter` parcourt déjà le conteneur pour trouver les éléments gardés."
+    truth: false
+    answer: "Rien n'est examiné à la construction. Le prédicat n'est appelé qu'au parcours."
+  - key: vf-take-infini
+    format: true-false
+    question: "`std::views::iota(1) | std::views::take(3)` se parcourt sans boucle infinie."
+    truth: true
+    answer: "La suite est infinie, mais `take` arrête le parcours après trois éléments : seuls ceux-là sont produits."
+  - key: vf-temporaire
+    format: true-false
+    question: "Une vue appliquée à un vecteur temporaire devient propriétaire de ce vecteur."
+    truth: true
+    answer: "Elle l'emballe dans un `std::ranges::owning_view`, qui le garde en vie. Ce n'est le cas que pour un temporaire, pas pour une variable."
+  - key: vf-changements
+    format: true-false
+    question: "Une vue voit un élément ajouté à sa source après sa construction, tant qu'elle n'a pas été parcourue."
+    truth: true
+    answer: "Elle lit la source au moment du parcours. Encore faut-il que l'ajout n'ait pas réalloué un vecteur : les vues sur des itérateurs seraient alors pendantes."
+  - key: qcm-dangling
+    format: multiple-choice
+    question: "Que renvoie `std::ranges::max_element(creer())`, où `creer()` renvoie un vecteur temporaire ?"
+    choices:
+      - {text: "Un `std::ranges::dangling`, qui ne se déréférence pas", correct: true}
+      - {text: "Un itérateur valide sur le plus grand élément", correct: false}
+      - {text: "Un itérateur nul, que l'on teste avant usage", correct: false}
+      - {text: "Une copie du plus grand élément", correct: false}
+    answer: "Le vecteur est détruit à la fin de l'instruction : aucun itérateur ne resterait valide. La bibliothèque rend un type marqueur, et l'erreur se voit à la compilation."
+  - key: qcm-materialiser
+    format: multiple-choice
+    question: "Comment gardes-tu le résultat d'une vue pour le parcourir plusieurs fois sans recalcul ?"
+    choices:
+      - {text: "En le rangeant dans un conteneur : `| std::ranges::to<std::vector>()`", correct: true}
+      - {text: "En copiant la vue dans une seconde variable", correct: false}
+      - {text: "En déclarant la vue avec `const auto`", correct: false}
+      - {text: "En ajoutant `std::views::all` à la fin de la chaîne", correct: false}
+    answer: "Copier une vue copie sa description, pas ses résultats. Un conteneur stocke les valeurs calculées."
+  - key: qcm-intermediaire
+    format: multiple-choice
+    question: "Combien de conteneurs intermédiaires crée `v | filter(p) | transform(f) | take(5)` ?"
+    choices:
+      - {text: "Aucun", correct: true}
+      - {text: "Un", correct: false}
+      - {text: "Deux", correct: false}
+      - {text: "Trois", correct: false}
+    answer: "Chaque élément traverse la chaîne entière avant que le suivant soit examiné. C'est l'avantage sur des appels d'algorithmes enchaînés."
+  - key: qcm-filter-modifier
+    format: multiple-choice
+    question: "Que dit le standard si l'on modifie un élément à travers un `filter`, de sorte qu'il ne vérifie plus le prédicat ?"
+    choices:
+      - {text: "C'est un comportement indéfini", correct: true}
+      - {text: "L'élément est retiré de la source", correct: false}
+      - {text: "La vue lève une exception", correct: false}
+      - {text: "La modification est annulée", correct: false}
+    answer: "La vue suppose que les éléments qu'elle a gardés vérifient toujours le prédicat. On peut les modifier, à condition qu'ils le vérifient encore."
+  - key: code-appels
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+      #include <ranges>
+      #include <vector>
+
+      int main() {
+          const std::vector<int> v{1, 2, 3, 4, 5};
+          int appels = 0;
+          auto vue = v | std::views::transform([&appels](int x) {
+              ++appels;
+              return x * 10;
+          });
+          const int avant = appels;
+          int somme = 0;
+          for (int x : vue | std::views::take(2)) {
+              somme += x;
+          }
+          std::println("{} {} {}", avant, appels, somme);
+      }
+      ```
+    choices:
+      - {text: "`0 2 30`", correct: true}
+      - {text: "`5 5 30`", correct: false}
+      - {text: "`0 5 30`", correct: false}
+      - {text: "`5 7 30`", correct: false}
+    answer: "`0 2 30` : construire la vue n'appelle rien. Le parcours ne lit que deux éléments : deux appels, 10 + 20."
+    check:
+      output: "0 2 30"
+  - key: code-source-modifiee
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+      #include <ranges>
+      #include <vector>
+
+      int main() {
+          std::vector<int> v{1, 2, 3};
+          v.reserve(10);
+          auto doubles = v | std::views::transform([](int x) { return x * 2; });
+          v[0] = 50;
+          v.push_back(4);
+          int somme = 0;
+          for (int x : doubles) {
+              somme += x;
+          }
+          std::println("{}", somme);
+      }
+      ```
+    choices:
+      - {text: "`118`", correct: true}
+      - {text: "`12`", correct: false}
+      - {text: "`110`", correct: false}
+      - {text: "`20`", correct: false}
+    answer: "`118` : la vue lit le vecteur au moment du parcours. Elle voit 50, 2, 3 et 4 : 100 + 4 + 6 + 8. La capacité réservée évite toute réallocation."
+    check:
+      output: "118"
+  - key: code-deux-parcours
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+      #include <ranges>
+      #include <vector>
+
+      int main() {
+          const std::vector<int> v{1, 2, 3, 4};
+          int tests = 0;
+          auto pairs = v | std::views::filter([&tests](int x) {
+              ++tests;
+              return x % 2 == 0;
+          });
+          int total = 0;
+          for (int x : pairs) {
+              total += x;
+          }
+          for (int x : pairs) {
+              total += x;
+          }
+          std::println("{} {}", total, tests > 4);
+      }
+      ```
+    choices:
+      - {text: "`12 true`", correct: true}
+      - {text: "`6 false`", correct: false}
+      - {text: "`12 false`", correct: false}
+      - {text: "`6 true`", correct: false}
+    answer: "`12 true` : chaque parcours donne 2 + 4. Le prédicat est rappelé au second parcours : la vue ne garde pas ses résultats."
+    check:
+      output: "12 true"
+  - key: code-iota
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+      #include <ranges>
+
+      int main() {
+          auto carres = std::views::iota(1)
+              | std::views::transform([](int x) { return x * x; })
+              | std::views::filter([](int x) { return x % 2 == 1; })
+              | std::views::take(3);
+          int somme = 0;
+          for (int x : carres) {
+              somme += x;
+          }
+          std::println("{}", somme);
+      }
+      ```
+    choices:
+      - {text: "`35`", correct: true}
+      - {text: "`14`", correct: false}
+      - {text: "`9`", correct: false}
+      - {text: "Rien : la boucle ne se termine pas", correct: false}
+    answer: "`35` : la suite est infinie, mais seuls les éléments demandés sont produits. Les trois premiers carrés impairs sont 1, 9 et 25."
+    check:
+      output: "35"
+  - key: bug-vue-renvoyee
+    format: bug-fix
+    question: |-
+      Cette fonction renvoie une vue sur un vecteur local. Le programme a un comportement indéfini. Quelle
+      correction est la bonne ?
+      ```cpp
+      #include <print>
+      #include <ranges>
+      #include <vector>
+
+      auto pairs() {
+          std::vector<int> v{1, 2, 3, 4};
+          return v | std::views::filter([](int x) { return x % 2 == 0; });
+      }
+
+      int main() {
+          int somme = 0;
+          for (int x : pairs()) {
+              somme += x;
+          }
+          std::println("{}", somme);
+      }
+      ```
+    choices:
+      - {text: "Terminer la chaîne par `| std::ranges::to<std::vector>()`, et renvoyer le vecteur", correct: true}
+      - {text: "Déclarer le vecteur local avec `const`, pour qu'il ne soit plus détruit", correct: false}
+      - {text: "Ajouter `| std::views::all` à la fin de la chaîne, avant le `return`", correct: false}
+      - {text: "Renvoyer la vue par référence : `auto& pairs()`", correct: false}
+    answer: |-
+      ```cpp
+      return v | std::views::filter([](int x) { return x % 2 == 0; }) | std::ranges::to<std::vector>();
+      ```
+      La vue garde une référence vers `v`, détruit au retour. Matérialisée dans un vecteur, elle devient une
+      valeur indépendante. `return std::move(v) | ...` ferait aussi de la vue la propriétaire du vecteur.
+  - key: bug-dangling
+    format: bug-fix
+    question: |-
+      Le compilateur refuse `*it` : « no match for 'operator*' (operand type is 'std::ranges::dangling') ».
+      Quelle correction est la bonne ?
+      ```cpp
+      #include <algorithm>
+      #include <print>
+      #include <vector>
+
+      std::vector<int> creer() {
+          return {3, 9, 4};
+      }
+
+      int main() {
+          const auto it = std::ranges::max_element(creer());
+          std::println("{}", *it);
+      }
+      ```
+    choices:
+      - {text: "Ranger le vecteur dans une variable, puis chercher dedans", correct: true}
+      - {text: "Écrire `it.get()` à la place de `*it`", correct: false}
+      - {text: "Écrire `std::ranges::max_element(std::move(creer()))`", correct: false}
+      - {text: "Déclarer `it` avec `auto&&`", correct: false}
+    answer: |-
+      ```cpp
+      const std::vector<int> v = creer();
+      const auto it = std::ranges::max_element(v);
+      std::println("{}", *it);
+      ```
+      Le vecteur temporaire est détruit à la fin de l'instruction : la bibliothèque rend un marqueur, pas un
+      itérateur. Avec une variable, le vecteur vit assez longtemps. `std::ranges::max(creer())` rendrait la valeur.
+  - key: bug-recalcul
+    format: bug-fix
+    question: |-
+      Ce programme devrait appeler la fonction coûteuse trois fois. Elle est appelée six fois, et le programme
+      affiche `6`. Quelle correction est la bonne ?
+      ```cpp
+      #include <print>
+      #include <ranges>
+      #include <vector>
+
+      int main() {
+          const std::vector<int> v{1, 2, 3};
+          int appels = 0;
+          auto resultats = v | std::views::transform([&appels](int x) {
+              ++appels;
+              return x * x;
+          });
+          int somme = 0;
+          for (int x : resultats) {
+              somme += x;
+          }
+          for (int x : resultats) {
+              somme += x;
+          }
+          std::println("{}", appels);
+      }
+      ```
+    choices:
+      - {text: "Matérialiser : ajouter `| std::ranges::to<std::vector>()` à la définition de `resultats`", correct: true}
+      - {text: "Déclarer `resultats` avec `const auto`, pour que la vue ne soit plus recalculée", correct: false}
+      - {text: "Copier `resultats` dans une seconde vue, et parcourir une vue par boucle", correct: false}
+      - {text: "Capturer `appels` par valeur dans la lambda de la transformation", correct: false}
+    answer: |-
+      ```cpp
+      const auto resultats = v | std::views::transform(...) | std::ranges::to<std::vector>();
+      ```
+      Une vue refait le travail à chaque parcours. Rangés dans un vecteur, les résultats sont calculés une fois,
+      puis relus.
+  - key: bug-source-detruite
+    format: bug-fix
+    question: |-
+      La vue est parcourue après la destruction de son vecteur. Le programme a un comportement indéfini. Quelle
+      correction est la bonne ?
+      ```cpp
+      #include <memory>
+      #include <print>
+      #include <ranges>
+      #include <vector>
+
+      int main() {
+          auto donnees = std::make_unique<std::vector<int>>(std::vector<int>{1, 2, 3});
+          auto doubles = *donnees | std::views::transform([](int x) { return x * 2; });
+          donnees.reset();
+          int somme = 0;
+          for (int x : doubles) {
+              somme += x;
+          }
+          std::println("{}", somme);
+      }
+      ```
+    choices:
+      - {text: "Appeler `donnees.reset();` après la boucle qui parcourt la vue", correct: true}
+      - {text: "Appeler `donnees.reset();` deux fois, avant et après la boucle", correct: false}
+      - {text: "Déclarer `doubles` avec `const auto&`", correct: false}
+      - {text: "Capturer `donnees` par référence dans la lambda", correct: false}
+    answer: |-
+      ```cpp
+      for (int x : doubles) {
+          somme += x;
+      }
+      donnees.reset();
+      ```
+      La vue ne possède pas le vecteur : elle le lit au moment du parcours. Il doit vivre jusque-là.
+  - key: situation-fonction
+    format: scenario
+    question: |-
+      Une fonction `auto actifs(const std::vector<Client>& clients)` renvoie
+      `clients | std::views::filter(est_actif)`. Un appelant écrit `auto vue = actifs(charger());`, puis parcourt
+      `vue`, et le programme plante. Pourquoi ?
+    choices:
+      - {text: "Le vecteur temporaire de `charger()` est détruit après l'appel : la vue est pendante", correct: true}
+      - {text: "Le prédicat `est_actif` est appelé avant que les clients soient chargés", correct: false}
+      - {text: "La vue a été copiée, et une copie de vue ne se parcourt pas", correct: false}
+      - {text: "Le paramètre est une référence constante, qu'une vue ne peut pas filtrer", correct: false}
+    answer: |-
+      La fonction reçoit une référence : la vue désigne le vecteur de l'appelant. Ici, c'est un temporaire, qui
+      disparaît à la fin de l'instruction. L'appelant doit garder le vecteur dans une variable, ou la fonction
+      renvoyer un conteneur.
+  - key: situation-cout
+    format: scenario
+    question: |-
+      Un traitement enchaîne trois algorithmes, chacun produisant un vecteur d'un million d'éléments, pour n'en
+      afficher finalement que les dix premiers. Que proposes-tu ?
+    choices:
+      - {text: "Une chaîne de vues terminée par `take(10)` : seuls les éléments nécessaires sont calculés", correct: true}
+      - {text: "Trois `reserve` d'un million d'éléments avant les algorithmes", correct: false}
+      - {text: "Trois threads, un par algorithme, lancés en parallèle", correct: false}
+      - {text: "Un `shrink_to_fit` après chacun des trois algorithmes", correct: false}
+    answer: |-
+      Les vues ne créent aucun conteneur intermédiaire, et s'arrêtent dès que `take` a ses dix éléments. Le
+      travail passe de trois millions d'opérations à quelques dizaines.
+  - key: situation-incoherence
+    format: scenario
+    question: |-
+      Une vue `filter` sur un vecteur est parcourue une première fois. Le programme modifie ensuite le premier
+      élément du vecteur, puis reparcourt la même vue : le résultat ne correspond pas au nouveau contenu.
+      Pourquoi ?
+    choices:
+      - {text: "`filter` a mémorisé son premier élément au premier parcours", correct: true}
+      - {text: "`filter` a copié le vecteur au premier parcours", correct: false}
+      - {text: "`filter` ne peut être parcourue qu'une seule fois", correct: false}
+      - {text: "`filter` trie le vecteur avant de le parcourir", correct: false}
+    answer: |-
+      Pour que `begin()` reste en temps constant amorti, `filter` garde en cache la position de son premier
+      élément. Après une modification de la source, on reconstruit la vue.
+  - key: situation-revue
+    format: scenario
+    question: |-
+      En revue de code, une classe range dans un membre `auto`-déduit une vue sur un vecteur passé au
+      constructeur par référence. Que demandes-tu ?
+    choices:
+      - {text: "De stocker le résultat dans un conteneur, ou de garantir que le vecteur vit plus longtemps que l'objet", correct: true}
+      - {text: "De déclarer le membre `mutable`, pour que la vue puisse être parcourue plusieurs fois", correct: false}
+      - {text: "De déclarer le membre `static`, pour que la vue soit partagée entre tous les objets", correct: false}
+      - {text: "De ne rien changer : une vue rangée dans un membre prolonge la vie de sa source", correct: false}
+    answer: |-
+      Une vue gardée longtemps est une référence déguisée : elle devient pendante dès que sa source disparaît ou
+      réalloue. Dans un membre, on stocke des données, pas une vue sur celles d'un autre.

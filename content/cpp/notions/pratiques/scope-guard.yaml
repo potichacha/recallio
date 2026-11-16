@@ -1,0 +1,542 @@
+notion: scope-guard
+lesson: |-
+  Un **garde de portée** (*scope guard*) est un petit objet qui exécute une fonction **à sa destruction**, c'est-à-
+  dire à la sortie du bloc, quelle qu'en soit la cause : fin normale, `return`, ou exception. C'est RAII pour une
+  action ponctuelle, sans écrire de classe dédiée.
+
+  **Le besoin.** C++ n'a pas de `finally`. Pour une vraie ressource, on écrit une classe RAII. Mais pour une action
+  unique (« remets ce drapeau à zéro », « annule ce changement »), une classe entière est lourde.
+
+  **Une version minimale.**
+
+  ```cpp
+  template <typename F>
+  class Garde {
+  public:
+      explicit Garde(F action) : action_{std::move(action)} {}
+      ~Garde() { action_(); }
+
+      Garde(const Garde&) = delete;
+      Garde& operator=(const Garde&) = delete;
+
+  private:
+      F action_;
+  };
+  ```
+
+  ```cpp
+  void traiter() {
+      occupe = true;
+      Garde garde{[] { occupe = false; }};     // exécuté à la sortie, même en cas d'exception
+
+      etape_qui_peut_lancer();
+  }
+  ```
+
+  Grâce à la déduction des arguments de classe, `Garde garde{lambda};` suffit.
+
+  **L'ordre.** Plusieurs gardes s'exécutent dans l'**ordre inverse** de leur déclaration, comme tous les objets
+  locaux.
+
+  **Il lui faut un nom.** `Garde{[] { ... }};` sans nom crée un **temporaire**, détruit à la fin de la ligne :
+  l'action s'exécute tout de suite. C'est le même piège que `std::lock_guard` sans nom.
+
+  **Le garde annulable : valider ou annuler.** Pour une opération en plusieurs étapes, on veut **défaire** les
+  premières si une suivante échoue, et **garder** le tout si elles réussissent.
+
+  ```cpp
+  template <typename F>
+  class GardeAnnulable {
+  public:
+      explicit GardeAnnulable(F action) : action_{std::move(action)} {}
+      ~GardeAnnulable() { if (actif_) { action_(); } }
+      void desarmer() { actif_ = false; }
+  private:
+      F action_;
+      bool actif_ = true;
+  };
+
+  void transferer(Compte& source, Compte& cible, int montant) {
+      source.retirer(montant);
+      GardeAnnulable annulation{[&] { source.deposer(montant); }};
+
+      cible.deposer(montant);        // si ceci lance, le retrait est annulé
+      annulation.desarmer();         // succès : on garde
+  }
+  ```
+
+  C'est la façon simple d'obtenir la **garantie forte** : tout ou rien.
+
+  **L'action ne doit pas lancer.** Elle s'exécute dans un destructeur : une exception qui en sort appelle
+  `std::terminate`.
+
+  **Capturer par référence est sûr ici** : le garde ne survit pas à son bloc, donc pas aux variables locales qu'il
+  capture.
+
+  **Dans les bibliothèques.** `std::experimental::scope_exit`, `scope_fail` et `scope_success` (Library
+  Fundamentals TS 3), `gsl::finally` de la GSL, `absl::Cleanup`, Boost.Scope. Le standard lui-même n'en fournit pas
+  encore en C++23.
+
+  **Quand préférer une classe.** Dès que la même ressource revient à plusieurs endroits, une classe RAII nommée
+  (ou un `std::unique_ptr` avec un destructeur sur mesure) est plus claire.
+
+  **En entretien** : « Un garde de portée exécute une lambda à la sortie du bloc, exception comprise : le
+  `finally` du C++. Une version annulable, qu'on désarme en cas de succès, donne la garantie forte. Il doit avoir
+  un nom, et son action ne doit pas lancer. »
+cards:
+  - key: definition
+    format: course
+    question: "Qu'est-ce qu'un garde de portée ?"
+    choices:
+      - {text: "Un objet dont le destructeur exécute une action, à la sortie du bloc", correct: true}
+      - {text: "Un mot-clé du langage qui interdit de sortir d'un bloc", correct: false}
+      - {text: "Un bloc `finally`, exécuté après chaque `try`", correct: false}
+      - {text: "Une fonction appelée au démarrage du programme", correct: false}
+    answer: "C'est RAII appliqué à une action ponctuelle : la lambda rangée dans le garde s'exécute quand il est détruit."
+  - key: sorties
+    format: course
+    question: "Dans quels cas l'action d'un garde de portée s'exécute-t-elle ?"
+    choices:
+      - {text: "À toute sortie du bloc : fin normale, `return` ou exception", correct: true}
+      - {text: "Seulement quand le bloc se termine par une exception", correct: false}
+      - {text: "Seulement quand le bloc se termine sans exception", correct: false}
+      - {text: "Seulement quand on appelle le garde à la main", correct: false}
+    answer: "Le destructeur d'un objet local s'exécute quel que soit le chemin de sortie. C'est ce qui remplace `finally`."
+  - key: annulable
+    format: course
+    question: "À quoi sert un garde annulable, que l'on désarme en cas de succès ?"
+    choices:
+      - {text: "À défaire une étape si la suite échoue, et à la garder si tout réussit", correct: true}
+      - {text: "À exécuter l'action deux fois, une à l'entrée et une à la sortie", correct: false}
+      - {text: "À retarder l'action jusqu'à la fin du programme", correct: false}
+      - {text: "À exécuter l'action dans un autre thread", correct: false}
+    answer: "Tant qu'il n'est pas désarmé, il annule. C'est le moyen simple d'obtenir le « tout ou rien » d'une opération en plusieurs étapes."
+  - key: action-noexcept
+    format: course
+    question: "Pourquoi l'action d'un garde de portée ne doit-elle pas lancer d'exception ?"
+    choices:
+      - {text: "Elle s'exécute dans un destructeur : une exception qui en sort arrête le programme", correct: true}
+      - {text: "Elle s'exécute à la compilation, où les exceptions n'existent pas", correct: false}
+      - {text: "Elle s'exécute avant le bloc, où rien ne peut l'attraper", correct: false}
+      - {text: "Elle s'exécute deux fois quand elle lance une exception", correct: false}
+    answer: "Un destructeur est `noexcept` par défaut : une exception qui s'en échappe appelle `std::terminate`."
+  - key: vf-ordre
+    format: true-false
+    question: "Deux gardes déclarés dans le même bloc s'exécutent dans l'ordre inverse de leur déclaration."
+    truth: true
+    answer: "Comme tous les objets locaux : le dernier construit est le premier détruit."
+  - key: vf-sans-nom
+    format: true-false
+    question: "Un garde créé sans nom, `Garde{action};`, s'exécute à la fin du bloc."
+    truth: false
+    answer: "Sans nom, c'est un temporaire, détruit à la fin de l'instruction : l'action s'exécute aussitôt."
+  - key: vf-standard
+    format: true-false
+    question: "La bibliothèque standard de C++23 fournit `std::scope_exit`."
+    truth: false
+    answer: "Il n'existe que sous `std::experimental` (Library Fundamentals TS 3). On l'écrit soi-même, ou l'on prend la GSL, Abseil ou Boost."
+  - key: vf-capture-reference
+    format: true-false
+    question: "Capturer une variable locale par référence dans la lambda d'un garde de portée est sûr."
+    truth: true
+    answer: "Le garde est détruit à la fin du bloc où il est déclaré, donc avant les variables déclarées plus haut que lui."
+  - key: qcm-gsl
+    format: multiple-choice
+    question: "Quelle fonction de la GSL crée un garde de portée à partir d'une lambda ?"
+    choices:
+      - {text: "`gsl::finally`", correct: true}
+      - {text: "`gsl::not_null`", correct: false}
+      - {text: "`gsl::span`", correct: false}
+      - {text: "`gsl::narrow`", correct: false}
+    answer: "`auto garde = gsl::finally([] { ... });`. Les trois autres servent aux pointeurs non nuls, aux vues et aux conversions vérifiées."
+  - key: qcm-scope-fail
+    format: multiple-choice
+    question: "Dans la proposition de bibliothèque, quel garde ne s'exécute que si le bloc est quitté par une exception ?"
+    choices:
+      - {text: "`scope_fail`", correct: true}
+      - {text: "`scope_exit`", correct: false}
+      - {text: "`scope_success`", correct: false}
+      - {text: "`scope_guard`", correct: false}
+    answer: "`scope_exit` s'exécute toujours, `scope_success` seulement sans exception, `scope_fail` seulement avec."
+  - key: qcm-copie
+    format: multiple-choice
+    question: "Pourquoi supprime-t-on le constructeur de copie d'un garde de portée ?"
+    choices:
+      - {text: "Une copie exécuterait l'action une seconde fois", correct: true}
+      - {text: "Une copie empêcherait l'action de s'exécuter", correct: false}
+      - {text: "Une lambda ne peut jamais être copiée", correct: false}
+      - {text: "Un destructeur ne peut pas être copié", correct: false}
+    answer: "Chaque copie aurait son destructeur. L'action doit s'exécuter exactement une fois."
+  - key: qcm-classe
+    format: multiple-choice
+    question: "Quand vaut-il mieux une classe RAII nommée qu'un garde de portée ?"
+    choices:
+      - {text: "Quand la même ressource est gérée à plusieurs endroits du code", correct: true}
+      - {text: "Quand l'action tient en une seule ligne", correct: false}
+      - {text: "Quand l'action ne sert qu'une fois dans le programme", correct: false}
+      - {text: "Quand le bloc ne peut pas lancer d'exception", correct: false}
+    answer: "Une classe donne un nom au concept, et se réutilise. Le garde convient à l'action unique, locale."
+  - key: trous-destructeur
+    format: fill-in
+    question: |-
+      Complète le destructeur du garde, qui exécute l'action :
+      ```cpp
+      template <typename F>
+      class Garde {
+      public:
+          explicit Garde(F action) : action_{std::move(action)} {}
+          ~Garde() { ___(); }
+
+      private:
+          F action_;
+      };
+      ```
+    blanks:
+      - [action_]
+    answer: "Le destructeur appelle la lambda rangée dans le membre."
+  - key: trous-delete
+    format: fill-in
+    question: |-
+      Complète pour interdire la copie du garde :
+      ```cpp
+      Garde(const Garde&) = ___;
+      ```
+    blanks:
+      - [delete]
+    answer: "`= delete` supprime le constructeur de copie : l'action ne peut pas s'exécuter deux fois."
+  - key: trous-nom
+    format: fill-in
+    question: |-
+      Complète pour que le garde vive jusqu'à la fin du bloc (donne-lui le nom `garde`) :
+      ```cpp
+      Garde ___{[] { occupe = false; }};
+      ```
+    blanks:
+      - [garde]
+    answer: "Un garde nommé est détruit à la fin du bloc. Sans nom, il le serait à la fin de la ligne."
+  - key: trous-desarmer
+    format: fill-in
+    question: |-
+      Complète la fonction qui annule l'action du garde, en cas de succès :
+      ```cpp
+      void desarmer() { actif_ = ___; }
+      ```
+    blanks:
+      - ["false"]
+    answer: "Le destructeur n'exécute l'action que si `actif_` vaut `true`."
+  - key: code-ordre
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+      #include <utility>
+
+      template <typename F>
+      class Garde {
+      public:
+          explicit Garde(F action) : action_{std::move(action)} {}
+          ~Garde() { action_(); }
+
+      private:
+          F action_;
+      };
+
+      int main() {
+          Garde a{[] { std::println("a"); }};
+          Garde b{[] { std::print("b "); }};
+          std::print("corps ");
+      }
+      ```
+    choices:
+      - {text: "`corps b a`", correct: true}
+      - {text: "`corps a b`", correct: false}
+      - {text: "`a b corps`", correct: false}
+      - {text: "`b a corps`", correct: false}
+    answer: "`corps b a` : les actions s'exécutent à la sortie du bloc, dans l'ordre inverse de la déclaration des gardes."
+    check:
+      output: "corps b a"
+  - key: code-exception
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+      #include <stdexcept>
+      #include <utility>
+
+      template <typename F>
+      class Garde {
+      public:
+          explicit Garde(F action) : action_{std::move(action)} {}
+          ~Garde() { action_(); }
+
+      private:
+          F action_;
+      };
+
+      void traiter() {
+          Garde garde{[] { std::print("nettoyage "); }};
+          throw std::runtime_error{"panne"};
+      }
+
+      int main() {
+          try {
+              traiter();
+          } catch (const std::runtime_error& e) {
+              std::println("{}", e.what());
+          }
+      }
+      ```
+    choices:
+      - {text: "`nettoyage panne`", correct: true}
+      - {text: "`panne nettoyage`", correct: false}
+      - {text: "`panne`", correct: false}
+      - {text: "`nettoyage`", correct: false}
+    answer: "`nettoyage panne` : l'exception déroule la pile et détruit le garde, dont l'action s'exécute avant le `catch`."
+    check:
+      output: "nettoyage panne"
+  - key: code-desarmer
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+      #include <utility>
+
+      template <typename F>
+      class GardeAnnulable {
+      public:
+          explicit GardeAnnulable(F action) : action_{std::move(action)} {}
+          ~GardeAnnulable() {
+              if (actif_) {
+                  action_();
+              }
+          }
+          void desarmer() { actif_ = false; }
+
+      private:
+          F action_;
+          bool actif_ = true;
+      };
+
+      int main() {
+          int solde = 100;
+          {
+              solde -= 30;
+              GardeAnnulable annulation{[&solde] { solde += 30; }};
+          }
+          {
+              solde -= 20;
+              GardeAnnulable annulation{[&solde] { solde += 20; }};
+              annulation.desarmer();
+          }
+          std::println("{}", solde);
+      }
+      ```
+    choices:
+      - {text: "`80`", correct: true}
+      - {text: "`100`", correct: false}
+      - {text: "`50`", correct: false}
+      - {text: "`70`", correct: false}
+    answer: "`80` : le premier garde, non désarmé, annule le retrait de 30. Le second est désarmé : le retrait de 20 est gardé."
+    check:
+      output: "80"
+  - key: code-return
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+      #include <utility>
+
+      template <typename F>
+      class Garde {
+      public:
+          explicit Garde(F action) : action_{std::move(action)} {}
+          ~Garde() { action_(); }
+
+      private:
+          F action_;
+      };
+
+      int compteur = 0;
+
+      int lire(bool tot) {
+          Garde garde{[] { ++compteur; }};
+          if (tot) {
+              return 1;
+          }
+          return 2;
+      }
+
+      int main() {
+          const int a = lire(true);
+          const int b = lire(false);
+          std::println("{} {} {}", a, b, compteur);
+      }
+      ```
+    choices:
+      - {text: "`1 2 2`", correct: true}
+      - {text: "`1 2 1`", correct: false}
+      - {text: "`1 2 0`", correct: false}
+      - {text: "`2 2 2`", correct: false}
+    answer: "`1 2 2` : l'action s'exécute à chaque sortie de la fonction, par le `return` précoce comme par le dernier."
+    check:
+      output: "1 2 2"
+  - key: bug-sans-nom
+    format: bug-fix
+    question: |-
+      Ce programme devrait afficher `travail`, puis `nettoyage`. Il affiche `nettoyage`, puis `travail`. Quelle
+      correction est la bonne ?
+      ```cpp
+      #include <print>
+      #include <utility>
+
+      template <typename F>
+      class Garde {
+      public:
+          explicit Garde(F action) : action_{std::move(action)} {}
+          ~Garde() { action_(); }
+
+      private:
+          F action_;
+      };
+
+      int main() {
+          Garde{[] { std::println("nettoyage"); }};
+          std::println("travail");
+      }
+      ```
+    choices:
+      - {text: "Donner un nom au garde : `Garde garde{[] { ... }};`", correct: true}
+      - {text: "Déclarer le garde après la ligne `travail`", correct: false}
+      - {text: "Déclarer le destructeur du garde avec `virtual`", correct: false}
+      - {text: "Capturer avec `[&]` à la place de `[]`", correct: false}
+    answer: |-
+      ```cpp
+      Garde garde{[] { std::println("nettoyage"); }};
+      ```
+      Sans nom, le garde est un temporaire, détruit à la fin de sa ligne. Nommé, il vit jusqu'à la fin du bloc.
+  - key: bug-oubli-desarmer
+    format: bug-fix
+    question: |-
+      Ce transfert réussit, et pourtant le programme affiche `100 0` au lieu de `70 30` : le retrait a été annulé.
+      Quelle correction est la bonne ?
+      ```cpp
+      #include <print>
+      #include <utility>
+
+      template <typename F>
+      class GardeAnnulable {
+      public:
+          explicit GardeAnnulable(F action) : action_{std::move(action)} {}
+          ~GardeAnnulable() {
+              if (actif_) {
+                  action_();
+              }
+          }
+          void desarmer() { actif_ = false; }
+
+      private:
+          F action_;
+          bool actif_ = true;
+      };
+
+      int main() {
+          int source = 100;
+          int cible = 0;
+          {
+              source -= 30;
+              GardeAnnulable annulation{[&] { source += 30; cible = 0; }};
+              cible += 30;
+          }
+          std::println("{} {}", source, cible);
+      }
+      ```
+    choices:
+      - {text: "Appeler `annulation.desarmer();` après la dernière étape réussie", correct: true}
+      - {text: "Déclarer le garde avant la ligne `source -= 30;`", correct: false}
+      - {text: "Capturer `source` et `cible` par valeur dans la lambda", correct: false}
+      - {text: "Initialiser `actif_` à `false` dans la classe", correct: false}
+    answer: |-
+      ```cpp
+      cible += 30;
+      annulation.desarmer();
+      ```
+      Un garde annulable défait par défaut. En cas de succès, il faut le désarmer, en dernière instruction du bloc.
+  - key: bug-action-qui-lance
+    format: bug-fix
+    question: |-
+      Ce programme s'arrête sur « terminate called after throwing an instance of 'std::runtime_error' », malgré le
+      `catch`. Quelle correction est la bonne ?
+      ```cpp
+      #include <print>
+      #include <stdexcept>
+      #include <utility>
+
+      template <typename F>
+      class Garde {
+      public:
+          explicit Garde(F action) : action_{std::move(action)} {}
+          ~Garde() { action_(); }
+
+      private:
+          F action_;
+      };
+
+      int main() {
+          try {
+              Garde garde{[] { throw std::runtime_error{"fermeture impossible"}; }};
+          } catch (const std::runtime_error&) {
+              std::println("erreur");
+          }
+      }
+      ```
+    choices:
+      - {text: "Ne pas lancer dans l'action : y attraper l'erreur, ou la noter", correct: true}
+      - {text: "Attraper `const std::exception&` à la place de `std::runtime_error`", correct: false}
+      - {text: "Déclarer le garde avant le bloc `try`", correct: false}
+      - {text: "Déclarer le destructeur du garde avec `virtual`", correct: false}
+    answer: |-
+      ```cpp
+      Garde garde{[] { std::println(stderr, "fermeture impossible"); }};
+      ```
+      L'action s'exécute dans un destructeur, `noexcept` par défaut : l'exception n'atteint jamais le `catch`, et
+      appelle `std::terminate`.
+  - key: bug-copie
+    format: bug-fix
+    question: |-
+      Ce programme devrait afficher `1` : l'action ne doit s'exécuter qu'une fois. Il affiche `2`. Quelle correction
+      est la bonne ?
+      ```cpp
+      #include <print>
+      #include <utility>
+
+      template <typename F>
+      class Garde {
+      public:
+          explicit Garde(F action) : action_{std::move(action)} {}
+          ~Garde() { action_(); }
+
+      private:
+          F action_;
+      };
+
+      int main() {
+          int appels = 0;
+          {
+              Garde garde{[&appels] { ++appels; }};
+              Garde copie = garde;
+          }
+          std::println("{}", appels);
+      }
+      ```
+    choices:
+      - {text: "Supprimer la copie : `Garde(const Garde&) = delete;` dans la classe", correct: true}
+      - {text: "Capturer `appels` par valeur dans la lambda", correct: false}
+      - {text: "Déclarer le destructeur `~Garde() = default;`", correct: false}
+      - {text: "Déclarer `copie` avec `const`", correct: false}
+    answer: |-
+      ```cpp
+      Garde(const Garde&) = delete;
+      Garde& operator=(const Garde&) = delete;
+      ```
+      La copie a son propre destructeur : l'action s'exécute deux fois. Un garde ne se copie pas ; le compilateur
+      refusera alors la ligne `Garde copie = garde;`.

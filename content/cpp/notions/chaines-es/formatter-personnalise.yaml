@@ -1,0 +1,502 @@
+notion: formatter-personnalise
+lesson: |-
+  `std::format` et `std::print` savent afficher les types fondamentaux et les chaînes. Pour un type à soi, le
+  compilateur refuse `std::println("{}", point)` tant qu'on ne lui a pas appris comment faire : il faut
+  **spécialiser `std::formatter`**.
+
+  **Le minimum.**
+
+  ```cpp
+  struct Point {
+      int x;
+      int y;
+  };
+
+  template <>
+  struct std::formatter<Point> {
+      constexpr auto parse(std::format_parse_context& ctx) {
+          return ctx.begin();
+      }
+
+      auto format(const Point& p, std::format_context& ctx) const {
+          return std::format_to(ctx.out(), "({}, {})", p.x, p.y);
+      }
+  };
+
+  std::println("{}", Point{1, 2});     // (1, 2)
+  ```
+
+  Deux fonctions membres :
+
+  - **`parse`** lit la **spécification**, ce qui suit les deux-points dans `{:...}`. Elle reçoit un contexte dont
+    `begin()` désigne le premier caractère de la spécification, et renvoie un itérateur sur l'accolade fermante
+    `}`. Sans spécification à lire, elle renvoie `ctx.begin()`. Elle est `constexpr` : le modèle est vérifié à la
+    compilation.
+  - **`format`** écrit la valeur. Elle reçoit l'objet et le contexte de sortie, écrit à travers `ctx.out()`, et
+    **renvoie** l'itérateur de sortie avancé. `std::format_to` fait les deux. Elle doit être **`const`**.
+
+  **Hériter d'un formateur existant.** Écrire `parse` à la main pour gérer la largeur et l'alignement serait long.
+  En dérivant du formateur d'un type standard, on hérite de son `parse`, et l'on délègue l'écriture :
+
+  ```cpp
+  enum class Couleur { rouge, vert };
+
+  template <>
+  struct std::formatter<Couleur> : std::formatter<std::string_view> {
+      auto format(Couleur c, std::format_context& ctx) const {
+          const std::string_view nom = c == Couleur::rouge ? "rouge" : "vert";
+          return std::formatter<std::string_view>::format(nom, ctx);
+      }
+  };
+
+  std::println("[{:>8}]", Couleur::rouge);    // [   rouge]
+  ```
+
+  Toutes les spécifications des chaînes (largeur, alignement, remplissage) fonctionnent alors d'office.
+
+  **Sa propre spécification.** `parse` peut reconnaître des caractères à soi, et les mémoriser dans un membre que
+  `format` consultera :
+
+  ```cpp
+  constexpr auto parse(std::format_parse_context& ctx) {
+      auto it = ctx.begin();
+      if (it != ctx.end() && *it == 'c') {
+          court_ = true;
+          ++it;
+      }
+      return it;
+  }
+  ```
+
+  **Ce qu'on y gagne.** Le type s'affiche partout où passe `std::format` : `std::print`, `std::format_to`, les
+  journaux. C'est le remplaçant de l'`operator<<` des flux, sans état global ni manipulateurs.
+
+  **En entretien** : « Je spécialise `std::formatter<T>` avec `parse`, qui lit la spécification et renvoie
+  l'itérateur sur l'accolade fermante, et `format`, `const`, qui écrit dans `ctx.out()` avec `std::format_to`. Pour
+  hériter de la largeur et de l'alignement, je dérive de `std::formatter<std::string_view>`. »
+cards:
+  - key: principe
+    format: course
+    question: "Comment rends-tu ton type `Point` affichable par `std::println(\"{}\", point)` ?"
+    choices:
+      - {text: "En spécialisant `std::formatter<Point>`, avec `parse` et `format`", correct: true}
+      - {text: "En ajoutant à `Point` une fonction membre `to_string()`", correct: false}
+      - {text: "En dérivant `Point` de la classe `std::format`", correct: false}
+      - {text: "En définissant une macro `FORMAT_POINT`", correct: false}
+    answer: "`std::format` cherche la spécialisation de `std::formatter` pour le type de chaque argument. Sans elle, le code ne compile pas."
+  - key: parse
+    format: course
+    question: "Quel est le rôle de la fonction `parse` d'un `std::formatter` ?"
+    choices:
+      - {text: "Lire la spécification écrite après les deux-points, et renvoyer l'itérateur sur l'accolade fermante", correct: true}
+      - {text: "Lire la valeur à afficher, et la convertir en chaîne de caractères", correct: false}
+      - {text: "Lire le texte produit par `format`, et vérifier qu'il n'est pas vide", correct: false}
+      - {text: "Lire le modèle entier, et compter le nombre de champs à remplacer", correct: false}
+    answer: "`parse` traite ce qui se trouve entre `:` et `}`. Quand il n'y a rien à lire, elle renvoie `ctx.begin()`."
+  - key: format
+    format: course
+    question: "Que doit renvoyer la fonction `format` d'un `std::formatter` ?"
+    choices:
+      - {text: "L'itérateur de sortie, avancé après ce qu'elle a écrit", correct: true}
+      - {text: "La chaîne de caractères qu'elle a construite", correct: false}
+      - {text: "Le nombre de caractères qu'elle a écrits", correct: false}
+      - {text: "Rien : elle est déclarée `void`", correct: false}
+    answer: "Elle écrit à travers `ctx.out()`. `std::format_to(ctx.out(), ...)` écrit et renvoie justement cet itérateur."
+  - key: heriter
+    format: course
+    question: "Pourquoi dériver son formateur de `std::formatter<std::string_view>` ?"
+    choices:
+      - {text: "Pour hériter de son `parse` : largeur, alignement et remplissage fonctionnent d'office", correct: true}
+      - {text: "Pour que le type formaté se convertisse implicitement en chaîne", correct: false}
+      - {text: "Pour que `format` s'exécute à la compilation", correct: false}
+      - {text: "Pour éviter d'écrire la fonction `format`", correct: false}
+    answer: "On n'écrit que `format`, qui fabrique un texte puis appelle le `format` de la classe de base. `{:>8}` ou `{:*^10}` marchent sans code supplémentaire."
+  - key: vf-const
+    format: true-false
+    question: "La fonction `format` d'un `std::formatter` doit être déclarée `const`."
+    truth: true
+    answer: "La bibliothèque l'appelle sur un formateur constant. Sans `const`, le code ne compile pas avec GCC 14."
+  - key: vf-automatique
+    format: true-false
+    question: "`std::format` affiche automatiquement les champs d'une `struct`, sans rien écrire."
+    truth: false
+    answer: "Il n'y a pas de formatage automatique des agrégats : chaque type à soi demande une spécialisation de `std::formatter`."
+  - key: vf-print
+    format: true-false
+    question: "Un type muni d'un `std::formatter` s'affiche aussi avec `std::print` et `std::println`."
+    truth: true
+    answer: "Les trois partagent le même mécanisme : `std::print` formate, puis écrit."
+  - key: vf-execution
+    format: true-false
+    question: "Une spécification inconnue du formateur, comme `{:z}`, n'est détectée qu'à l'exécution."
+    truth: false
+    answer: "`parse` est `constexpr` : le modèle est analysé à la compilation, et une spécification refusée est une erreur de compilation."
+  - key: qcm-ecrire
+    format: multiple-choice
+    question: "Dans `format`, quelle expression écrit `(1, 2)` dans la sortie ?"
+    choices:
+      - {text: "`std::format_to(ctx.out(), \"({}, {})\", p.x, p.y)`", correct: true}
+      - {text: "`std::print(\"({}, {})\", p.x, p.y)`", correct: false}
+      - {text: "`ctx.write(\"({}, {})\", p.x, p.y)`", correct: false}
+      - {text: "`std::cout << p.x << p.y`", correct: false}
+    answer: "`std::format_to` écrit à travers l'itérateur de sortie du contexte, et le renvoie avancé. `std::print` écrirait directement sur la sortie standard, hors du texte en construction."
+  - key: qcm-sans-spec
+    format: multiple-choice
+    question: "Ton formateur n'accepte aucune spécification. Que renvoie son `parse` ?"
+    choices:
+      - {text: "`ctx.begin()`", correct: true}
+      - {text: "`ctx.out()`", correct: false}
+      - {text: "`nullptr`", correct: false}
+      - {text: "`ctx.size()`", correct: false}
+    answer: "Pour `{}`, `ctx.begin()` désigne déjà l'accolade fermante : il n'y a rien à consommer."
+  - key: qcm-en-tete
+    format: multiple-choice
+    question: "Quel en-tête déclare `std::formatter` et `std::format_to` ?"
+    choices:
+      - {text: "`<format>`", correct: true}
+      - {text: "`<formatter>`", correct: false}
+      - {text: "`<iomanip>`", correct: false}
+      - {text: "`<string>`", correct: false}
+    answer: "`<format>` déclare toute la machinerie ; `<print>` l'inclut pour `std::print`."
+  - key: qcm-declaration
+    format: multiple-choice
+    question: "Quelle ligne commence la spécialisation du formateur pour `Point` ?"
+    choices:
+      - {text: "`template <> struct std::formatter<Point> {`", correct: true}
+      - {text: "`struct std::formatter : Point {`", correct: false}
+      - {text: "`template <Point> struct std::formatter {`", correct: false}
+      - {text: "`struct Point::formatter {`", correct: false}
+    answer: "C'est une spécialisation totale du template `std::formatter`, l'une des rares choses qu'on a le droit d'ajouter dans `std`."
+  - key: trous-formatter
+    format: fill-in
+    question: |-
+      Complète la spécialisation :
+      ```cpp
+      template <>
+      struct std::___<Point> {
+          constexpr auto parse(std::format_parse_context& ctx) { return ctx.begin(); }
+          auto format(const Point& p, std::format_context& ctx) const {
+              return std::format_to(ctx.out(), "({}, {})", p.x, p.y);
+          }
+      };
+      ```
+    blanks:
+      - [formatter]
+    answer: "On spécialise le template `std::formatter` pour son type."
+  - key: trous-format-to
+    format: fill-in
+    question: |-
+      Complète pour écrire dans la sortie du contexte :
+      ```cpp
+      auto format(const Point& p, std::format_context& ctx) const {
+          return std::___(ctx.out(), "({}, {})", p.x, p.y);
+      }
+      ```
+    blanks:
+      - [format_to]
+    answer: "`std::format_to` écrit à travers un itérateur de sortie, et le renvoie."
+  - key: trous-out
+    format: fill-in
+    question: |-
+      Complète pour obtenir l'itérateur de sortie :
+      ```cpp
+      return std::format_to(ctx.___(), "{}", valeur);
+      ```
+    blanks:
+      - [out]
+    answer: "`ctx.out()` renvoie l'itérateur où écrire."
+  - key: trous-begin
+    format: fill-in
+    question: |-
+      Complète le `parse` d'un formateur sans spécification :
+      ```cpp
+      constexpr auto parse(std::format_parse_context& ctx) {
+          return ctx.___();
+      }
+      ```
+    blanks:
+      - [begin]
+    answer: "`ctx.begin()` désigne le début de la spécification, donc l'accolade fermante quand elle est vide."
+  - key: code-point
+    format: code-output
+    question: |-
+      ```cpp
+      #include <format>
+      #include <print>
+
+      struct Point {
+          int x;
+          int y;
+      };
+
+      template <>
+      struct std::formatter<Point> {
+          constexpr auto parse(std::format_parse_context& ctx) { return ctx.begin(); }
+          auto format(const Point& p, std::format_context& ctx) const {
+              return std::format_to(ctx.out(), "({}, {})", p.x, p.y);
+          }
+      };
+
+      int main() {
+          std::println("{} -> {}", Point{1, 2}, Point{3, 4});
+      }
+      ```
+    choices:
+      - {text: "`(1, 2) -> (3, 4)`", correct: true}
+      - {text: "`1 2 -> 3 4`", correct: false}
+      - {text: "`{1, 2} -> {3, 4}`", correct: false}
+      - {text: "Ça ne compile pas", correct: false}
+    answer: "`(1, 2) -> (3, 4)` : chaque `{}` appelle le `format` du formateur de `Point`, qui écrit les parenthèses et la virgule."
+    check:
+      output: "(1, 2) -> (3, 4)"
+  - key: code-heritage
+    format: code-output
+    question: |-
+      ```cpp
+      #include <format>
+      #include <print>
+      #include <string_view>
+
+      enum class Couleur { rouge, vert };
+
+      template <>
+      struct std::formatter<Couleur> : std::formatter<std::string_view> {
+          auto format(Couleur c, std::format_context& ctx) const {
+              const std::string_view nom = c == Couleur::rouge ? "rouge" : "vert";
+              return std::formatter<std::string_view>::format(nom, ctx);
+          }
+      };
+
+      int main() {
+          std::println("[{:>6}] [{:<6}]", Couleur::rouge, Couleur::vert);
+      }
+      ```
+    choices:
+      - {text: "`[ rouge] [vert  ]`", correct: true}
+      - {text: "`[rouge] [vert]`", correct: false}
+      - {text: "`[rouge ] [  vert]`", correct: false}
+      - {text: "`[     0] [1     ]`", correct: false}
+    answer: "`[ rouge] [vert  ]` : le formateur hérite du `parse` des chaînes. La largeur 6 et l'alignement s'appliquent au nom de la couleur."
+    check:
+      output: "[ rouge] [vert  ]"
+  - key: code-specification
+    format: code-output
+    question: |-
+      ```cpp
+      #include <format>
+      #include <print>
+
+      struct Point {
+          int x;
+          int y;
+      };
+
+      template <>
+      struct std::formatter<Point> {
+          bool court = false;
+
+          constexpr auto parse(std::format_parse_context& ctx) {
+              auto it = ctx.begin();
+              if (it != ctx.end() && *it == 'c') {
+                  court = true;
+                  ++it;
+              }
+              return it;
+          }
+
+          auto format(const Point& p, std::format_context& ctx) const {
+              if (court) {
+                  return std::format_to(ctx.out(), "{},{}", p.x, p.y);
+              }
+              return std::format_to(ctx.out(), "({}, {})", p.x, p.y);
+          }
+      };
+
+      int main() {
+          const Point p{1, 2};
+          std::println("{} {:c}", p, p);
+      }
+      ```
+    choices:
+      - {text: "`(1, 2) 1,2`", correct: true}
+      - {text: "`(1, 2) (1, 2)`", correct: false}
+      - {text: "`1,2 1,2`", correct: false}
+      - {text: "`1,2 (1, 2)`", correct: false}
+    answer: "`(1, 2) 1,2` : `parse` reconnaît le `c` de `{:c}` et le mémorise. Chaque champ a son propre formateur : le premier garde la forme longue."
+    check:
+      output: "(1, 2) 1,2"
+  - key: code-format-taille
+    format: code-output
+    question: |-
+      ```cpp
+      #include <format>
+      #include <print>
+      #include <string>
+
+      struct Duree {
+          int minutes;
+      };
+
+      template <>
+      struct std::formatter<Duree> {
+          constexpr auto parse(std::format_parse_context& ctx) { return ctx.begin(); }
+          auto format(const Duree& d, std::format_context& ctx) const {
+              return std::format_to(ctx.out(), "{}h{:02}", d.minutes / 60, d.minutes % 60);
+          }
+      };
+
+      int main() {
+          const std::string texte = std::format("{}", Duree{125});
+          std::println("{} {}", texte, texte.size());
+      }
+      ```
+    choices:
+      - {text: "`2h05 4`", correct: true}
+      - {text: "`2h5 3`", correct: false}
+      - {text: "`125 3`", correct: false}
+      - {text: "`2h05 5`", correct: false}
+    answer: "`2h05 4` : 125 minutes font 2 heures et 5 minutes ; `{:02}` complète les minutes par un zéro. La chaîne obtenue compte quatre caractères."
+    check:
+      output: "2h05 4"
+  - key: bug-sans-formateur
+    format: bug-fix
+    question: |-
+      Le compilateur refuse ce `println` : il ne sait pas formater un `Point`. Quelle correction est la bonne ?
+      ```cpp
+      #include <print>
+
+      struct Point {
+          int x;
+          int y;
+      };
+
+      int main() {
+          std::println("{}", Point{1, 2});
+      }
+      ```
+    choices:
+      - {text: "Spécialiser `std::formatter<Point>`, avec ses fonctions `parse` et `format`", correct: true}
+      - {text: "Écrire le modèle `{:d}` à la place de `{}`", correct: false}
+      - {text: "Déclarer `Point` avec `class` à la place de `struct`", correct: false}
+      - {text: "Inclure l'en-tête `<string>` en plus de `<print>`", correct: false}
+    answer: |-
+      ```cpp
+      template <>
+      struct std::formatter<Point> {
+          constexpr auto parse(std::format_parse_context& ctx) { return ctx.begin(); }
+          auto format(const Point& p, std::format_context& ctx) const {
+              return std::format_to(ctx.out(), "({}, {})", p.x, p.y);
+          }
+      };
+      ```
+      `std::format` ne devine pas comment afficher une `struct`. Sans spécialisation de `std::formatter`, le type
+      n'est pas formatable.
+  - key: bug-format-non-const
+    format: bug-fix
+    question: |-
+      Le compilateur refuse ce programme : la fonction `format` du formateur ne peut pas être appelée. Quelle
+      correction est la bonne ?
+      ```cpp
+      #include <format>
+      #include <print>
+
+      struct Point {
+          int x;
+          int y;
+      };
+
+      template <>
+      struct std::formatter<Point> {
+          constexpr auto parse(std::format_parse_context& ctx) { return ctx.begin(); }
+          auto format(const Point& p, std::format_context& ctx) {
+              return std::format_to(ctx.out(), "({}, {})", p.x, p.y);
+          }
+      };
+
+      int main() {
+          std::println("{}", Point{1, 2});
+      }
+      ```
+    choices:
+      - {text: "Déclarer `format` avec `const` après ses paramètres", correct: true}
+      - {text: "Déclarer `format` avec `static` devant son type", correct: false}
+      - {text: "Déclarer `format` avec `constexpr` devant son type", correct: false}
+      - {text: "Déclarer `format` avec `virtual` devant son type", correct: false}
+    answer: |-
+      ```cpp
+      auto format(const Point& p, std::format_context& ctx) const {
+      ```
+      La bibliothèque appelle `format` sur un formateur constant. La fonction doit donc être `const` : elle ne
+      modifie pas l'état lu par `parse`.
+  - key: bug-parse-manquant
+    format: bug-fix
+    question: |-
+      Le compilateur refuse ce programme : le formateur est incomplet. Quelle correction est la bonne ?
+      ```cpp
+      #include <format>
+      #include <print>
+
+      struct Point {
+          int x;
+          int y;
+      };
+
+      template <>
+      struct std::formatter<Point> {
+          auto format(const Point& p, std::format_context& ctx) const {
+              return std::format_to(ctx.out(), "({}, {})", p.x, p.y);
+          }
+      };
+
+      int main() {
+          std::println("{}", Point{1, 2});
+      }
+      ```
+    choices:
+      - {text: "Ajouter une fonction `parse`, qui renvoie `ctx.begin()`", correct: true}
+      - {text: "Ajouter une fonction `print`, qui appelle `format`", correct: false}
+      - {text: "Ajouter une fonction `to_string` à la struct `Point`", correct: false}
+      - {text: "Ajouter un constructeur par défaut à la struct `Point`", correct: false}
+    answer: |-
+      ```cpp
+      constexpr auto parse(std::format_parse_context& ctx) { return ctx.begin(); }
+      ```
+      Un formateur a deux fonctions : `parse` pour la spécification, `format` pour l'écriture. Même sans
+      spécification à lire, `parse` doit exister.
+  - key: bug-print-dans-format
+    format: bug-fix
+    question: |-
+      Ce programme devrait afficher `point : (1, 2)`. Il affiche `(1, 2)point : `. Quelle correction est la bonne ?
+      ```cpp
+      #include <format>
+      #include <print>
+
+      struct Point {
+          int x;
+          int y;
+      };
+
+      template <>
+      struct std::formatter<Point> {
+          constexpr auto parse(std::format_parse_context& ctx) { return ctx.begin(); }
+          auto format(const Point& p, std::format_context& ctx) const {
+              std::print("({}, {})", p.x, p.y);
+              return ctx.out();
+          }
+      };
+
+      int main() {
+          std::println("point : {}", Point{1, 2});
+      }
+      ```
+    choices:
+      - {text: "Écrire `return std::format_to(ctx.out(), \"({}, {})\", p.x, p.y);`", correct: true}
+      - {text: "Écrire `std::println` à la place de `std::print` dans `format`", correct: false}
+      - {text: "Écrire `return ctx.begin();` à la place de `return ctx.out();`", correct: false}
+      - {text: "Écrire le modèle `{} : point` dans la fonction `main`", correct: false}
+    answer: |-
+      ```cpp
+      return std::format_to(ctx.out(), "({}, {})", p.x, p.y);
+      ```
+      `format` doit écrire dans le texte en cours de construction, par `ctx.out()`. Avec `std::print`, le point part
+      directement sur la sortie standard, avant le reste de la ligne, et il manquerait dans un `std::format`.

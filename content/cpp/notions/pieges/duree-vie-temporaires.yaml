@@ -1,0 +1,403 @@
+notion: duree-vie-temporaires
+lesson: |-
+  Un **temporaire** est un objet sans nom, créé par une expression : le résultat d'une fonction qui renvoie par
+  valeur, une conversion, `std::string{"a"} + "b"`. La règle de base est simple :
+
+  > Un temporaire est détruit à la **fin de l'expression complète** qui l'a créé, c'est-à-dire, le plus souvent, au
+  > point-virgule.
+
+  ```cpp
+  std::size_t n = nom().size();        // sûr : le temporaire vit jusqu'au point-virgule
+  const char* p = nom().c_str();       // pendant : la chaîne est détruite au point-virgule
+  ```
+
+  Dans la première ligne, on se sert du temporaire **pendant** l'expression. Dans la seconde, on garde un pointeur
+  vers l'intérieur d'un objet qui n'existe plus à la ligne suivante.
+
+  **L'exception : la prolongation.** Quand un temporaire est lié **directement** à une référence constante
+  (`const T&`) ou à une référence à une rvalue (`T&&`), sa vie est **prolongée** jusqu'à la fin de la portée de
+  cette référence.
+
+  ```cpp
+  const std::string& s = nom();        // le temporaire vit aussi longtemps que s
+  ```
+
+  Cela vaut aussi quand on lie la référence à un **membre** du temporaire : `const int& x = creer().valeur;`
+  prolonge l'objet entier.
+
+  **Ce qui ne prolonge pas.** La prolongation ne traverse **pas un appel de fonction**.
+
+  ```cpp
+  const std::string& premier(const std::vector<std::string>& v) { return v[0]; }
+
+  const std::string& s = premier(creer());    // pendant : le vecteur meurt au point-virgule
+  ```
+
+  La référence est liée au résultat de `premier`, qui est déjà une référence, pas au temporaire. De même :
+
+  | Écriture | Résultat |
+  |---|---|
+  | `const T& r = f();` où `f` renvoie par valeur | prolongé |
+  | `const T& r = f().membre;` | prolongé |
+  | `const T& r = f().accesseur();` | **pendant** |
+  | `std::string_view v = f();` où `f` renvoie une `std::string` | **pendant** |
+  | un membre référence initialisé par un temporaire dans un constructeur | **pendant** après le constructeur |
+  | `return` d'une référence vers un temporaire | **pendant** |
+
+  **Le remède** est presque toujours le même : **garder l'objet par valeur**.
+
+  ```cpp
+  const auto v = creer();              // l'objet a un nom, et vit jusqu'à la fin du bloc
+  const std::string& s = premier(v);
+  ```
+
+  Grâce à l'élision de copie, garder par valeur ne coûte rien.
+
+  **Les outils.** GCC signale certains cas (`-Wdangling-reference`, `-Wdangling-pointer`), et AddressSanitizer
+  détecte l'utilisation à l'exécution (`stack-use-after-scope`, `heap-use-after-free`).
+
+  **En entretien** : « Un temporaire meurt à la fin de l'expression complète. Le lier directement à une référence
+  constante prolonge sa vie, mais pas à travers un appel de fonction : une référence renvoyée par un accesseur
+  appelé sur un temporaire est pendante. Dans le doute, je garde l'objet par valeur. »
+cards:
+  - key: regle
+    format: course
+    question: "Quand un objet temporaire est-il détruit, en règle générale ?"
+    choices:
+      - {text: "À la fin de l'expression complète qui l'a créé", correct: true}
+      - {text: "À la fin de la fonction qui l'a créé", correct: false}
+      - {text: "Dès que sa valeur a été lue une première fois", correct: false}
+      - {text: "À la fin du programme, avec les variables globales", correct: false}
+    answer: "Le plus souvent, au point-virgule. On peut donc s'en servir pendant l'expression, mais pas garder un pointeur ou une vue vers lui pour la ligne suivante."
+  - key: prolongation
+    format: course
+    question: "Que se passe-t-il quand on écrit `const std::string& s = nom();`, où `nom` renvoie par valeur ?"
+    choices:
+      - {text: "La vie du temporaire est prolongée jusqu'à la fin de la portée de `s`", correct: true}
+      - {text: "Le temporaire est détruit au point-virgule, et `s` est pendante", correct: false}
+      - {text: "Le temporaire est copié dans `s`, puis détruit au point-virgule", correct: false}
+      - {text: "Le code ne compile pas : une référence ne se lie pas à un temporaire", correct: false}
+    answer: "Lier directement un temporaire à une référence constante, ou à une référence à une rvalue, prolonge sa vie. C'est une règle spéciale du langage."
+  - key: pas-a-travers-fonction
+    format: course
+    question: "Pourquoi `const std::string& s = premier(creer());` est-il dangereux, quand `premier` renvoie une référence vers un élément de son argument ?"
+    choices:
+      - {text: "La prolongation ne traverse pas l'appel : le vecteur temporaire meurt au point-virgule", correct: true}
+      - {text: "La fonction `premier` copie le vecteur, ce qui est trop lent pour un temporaire", correct: false}
+      - {text: "La référence constante interdit d'appeler une fonction sur un temporaire", correct: false}
+      - {text: "La fonction `creer` est appelée deux fois, et renvoie deux vecteurs différents", correct: false}
+    answer: "`s` est liée à la référence renvoyée par `premier`, pas au temporaire lui-même. Après la ligne, elle désigne un élément d'un vecteur détruit."
+  - key: remede
+    format: course
+    question: "Quel est le remède habituel à une référence pendante vers un temporaire ?"
+    choices:
+      - {text: "Garder l'objet par valeur, dans une variable nommée", correct: true}
+      - {text: "Déclarer la référence avec le mot-clé `static`", correct: false}
+      - {text: "Appeler deux fois la fonction qui crée le temporaire", correct: false}
+      - {text: "Remplacer la référence par un pointeur brut", correct: false}
+    answer: "Un objet nommé vit jusqu'à la fin de son bloc. Avec l'élision de copie, `const auto v = creer();` ne coûte rien de plus."
+  - key: vf-c-str
+    format: true-false
+    question: "Après `const char* p = nom().c_str();`, où `nom` renvoie une `std::string` par valeur, `p` reste utilisable à la ligne suivante."
+    truth: false
+    answer: "La chaîne temporaire est détruite au point-virgule : `p` désigne un tampon libéré."
+  - key: vf-pendant-expression
+    format: true-false
+    question: "Dans `std::size_t n = nom().size();`, le temporaire est encore vivant quand `size()` est appelée."
+    truth: true
+    answer: "Il vit jusqu'à la fin de l'expression complète. S'en servir à l'intérieur de l'expression est toujours sûr."
+  - key: vf-rvalue-ref
+    format: true-false
+    question: "Lier un temporaire à une référence à une rvalue, `T&& r = f();`, prolonge aussi sa vie."
+    truth: true
+    answer: "La prolongation vaut pour `const T&` comme pour `T&&`."
+  - key: vf-accesseur
+    format: true-false
+    question: "`const std::string& s = creer().nom();`, où `nom()` renvoie une référence vers un membre, prolonge la vie du temporaire."
+    truth: false
+    answer: "La référence est liée au résultat d'un appel de fonction, pas au temporaire. Celui-ci meurt au point-virgule, et `s` est pendante."
+  - key: qcm-prolonge
+    format: multiple-choice
+    question: "Laquelle de ces lignes prolonge la vie du temporaire renvoyé par `creer()` ?"
+    choices:
+      - {text: "`const Boite& b = creer();`", correct: true}
+      - {text: "`const int* p = &creer().valeur;`", correct: false}
+      - {text: "`const int& x = creer().lire();`", correct: false}
+      - {text: "`std::string_view v = creer().nom();`", correct: false}
+    answer: "Seule une liaison directe à une référence prolonge. Un pointeur, le résultat d'une fonction membre ou une vue ne prolongent rien."
+  - key: qcm-string-view
+    format: multiple-choice
+    question: "Que vaut `v` après `std::string_view v = std::string{\"abc\"} + \"def\";` ?"
+    choices:
+      - {text: "Une vue pendante : la chaîne temporaire est détruite au point-virgule", correct: true}
+      - {text: "Une vue valide sur `abcdef`, dont la vie est prolongée", correct: false}
+      - {text: "Une copie de la chaîne `abcdef`, possédée par la vue", correct: false}
+      - {text: "Une vue vide, de taille zéro", correct: false}
+    answer: "Une `std::string_view` ne possède rien, et n'est pas une référence : aucune prolongation. Elle désigne le tampon d'une chaîne morte."
+  - key: qcm-avertissement
+    format: multiple-choice
+    question: "Quel avertissement de GCC signale une référence liée au résultat d'une fonction appelée sur un temporaire ?"
+    choices:
+      - {text: "`-Wdangling-reference`", correct: true}
+      - {text: "`-Wunused-variable`", correct: false}
+      - {text: "`-Wsign-compare`", correct: false}
+      - {text: "`-Wshadow`", correct: false}
+    answer: "GCC le signale par « possibly dangling reference to a temporary ». Il ne voit pas tous les cas : AddressSanitizer complète à l'exécution."
+  - key: qcm-membre-reference
+    format: multiple-choice
+    question: "Un constructeur initialise un membre `const std::string& nom_` avec un argument temporaire. Que devient ce membre après le constructeur ?"
+    choices:
+      - {text: "Une référence pendante : le temporaire meurt à la fin de l'expression de construction", correct: true}
+      - {text: "Une référence valide : le temporaire vit aussi longtemps que l'objet construit", correct: false}
+      - {text: "Une copie de la chaîne, possédée par l'objet construit", correct: false}
+      - {text: "Une référence nulle, que l'on peut tester avant usage", correct: false}
+    answer: "La prolongation ne s'applique pas à un membre référence lié à un paramètre. Un objet qui doit garder une chaîne la garde par valeur."
+  - key: code-prolongation
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+
+      struct Trace {
+          char nom;
+          ~Trace() { std::print("{} ", nom); }
+      };
+
+      Trace creer(char nom) {
+          return {nom};
+      }
+
+      int main() {
+          {
+              const Trace& r = creer('a');
+              creer('b');
+              std::print("x ");
+          }
+          std::println("fin");
+      }
+      ```
+    choices:
+      - {text: "`b x a fin`", correct: true}
+      - {text: "`a b x fin`", correct: false}
+      - {text: "`a x b fin`", correct: false}
+      - {text: "`x b a fin`", correct: false}
+    answer: "`b x a fin` : le temporaire `b` meurt à son point-virgule. Le temporaire `a`, lié à une référence constante, vit jusqu'à la fin du bloc."
+    check:
+      output: "b x a fin"
+  - key: code-fin-expression
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+
+      struct Trace {
+          char nom;
+          ~Trace() { std::print("{} ", nom); }
+      };
+
+      Trace creer(char nom) {
+          return {nom};
+      }
+
+      int valeur(const Trace&) {
+          std::print("v ");
+          return 1;
+      }
+
+      int main() {
+          std::print("{} ", valeur(creer('a')));
+          std::println("fin");
+      }
+      ```
+    choices:
+      - {text: "`v 1 a fin`", correct: true}
+      - {text: "`v a 1 fin`", correct: false}
+      - {text: "`a v 1 fin`", correct: false}
+      - {text: "`v 1 fin a`", correct: false}
+    answer: "`v 1 a fin` : le temporaire vit jusqu'à la fin de l'expression complète, donc après l'appel de `valeur` et après l'affichage de son résultat."
+    check:
+      output: "v 1 a fin"
+  - key: code-membre
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+
+      struct Trace {
+          int valeur;
+          ~Trace() { std::print("d "); }
+      };
+
+      Trace creer() {
+          return {7};
+      }
+
+      int main() {
+          {
+              const int& x = creer().valeur;
+              std::print("{} ", x);
+          }
+          std::println("fin");
+      }
+      ```
+    choices:
+      - {text: "`7 d fin`", correct: true}
+      - {text: "`d 7 fin`", correct: false}
+      - {text: "`7 fin d`", correct: false}
+      - {text: "`d 0 fin`", correct: false}
+    answer: "`7 d fin` : lier une référence constante à un membre du temporaire prolonge l'objet entier. Il est détruit à la fin du bloc, après l'affichage."
+    check:
+      output: "7 d fin"
+  - key: code-rvalue-ref
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+      #include <string>
+
+      std::string nom() {
+          return "Ada";
+      }
+
+      int main() {
+          std::string&& r = nom();
+          r += " Lovelace";
+          const std::size_t n = nom().size();
+          std::println("{} {}", r.size(), n);
+      }
+      ```
+    choices:
+      - {text: "`12 3`", correct: true}
+      - {text: "`3 3`", correct: false}
+      - {text: "`12 12`", correct: false}
+      - {text: "`3 12`", correct: false}
+    answer: "`12 3` : la référence à une rvalue prolonge le temporaire, que l'on peut même modifier. Le second appel crée un autre temporaire, lu pendant son expression."
+    check:
+      output: "12 3"
+  - key: bug-c-str
+    format: bug-fix
+    question: |-
+      Ce programme devrait afficher le nom. Il affiche des caractères illisibles : le pointeur désigne une chaîne
+      détruite. Quelle correction est la bonne ?
+      ```cpp
+      #include <print>
+      #include <string>
+
+      std::string nom() {
+          return "Ada Lovelace, mathématicienne";
+      }
+
+      int main() {
+          const char* p = nom().c_str();
+          std::println("{}", p);
+      }
+      ```
+    choices:
+      - {text: "Garder la chaîne : `const std::string s = nom();`, et afficher `s`", correct: true}
+      - {text: "Déclarer le pointeur avec `const char* const p`", correct: false}
+      - {text: "Appeler `nom().data()` à la place de `nom().c_str()`", correct: false}
+      - {text: "Déclarer le pointeur avec `static const char* p`", correct: false}
+    answer: |-
+      ```cpp
+      const std::string s = nom();
+      std::println("{}", s);
+      ```
+      La chaîne temporaire meurt au point-virgule, et son tampon avec elle. Gardée par valeur, elle vit jusqu'à la
+      fin du bloc. `data()` renvoie le même pointeur que `c_str()`.
+  - key: bug-accesseur
+    format: bug-fix
+    question: |-
+      GCC avertit : « possibly dangling reference to a temporary ». Le programme lit un élément d'un vecteur détruit.
+      Quelle correction est la bonne ?
+      ```cpp
+      #include <print>
+      #include <vector>
+
+      std::vector<int> creer() {
+          return {10, 20, 30};
+      }
+
+      const int& premier(const std::vector<int>& v) {
+          return v[0];
+      }
+
+      int main() {
+          const int& x = premier(creer());
+          std::println("{}", x);
+      }
+      ```
+    choices:
+      - {text: "Écrire `const int x = premier(creer());`, sans référence", correct: true}
+      - {text: "Écrire `const int&& x = premier(creer());`", correct: false}
+      - {text: "Écrire `static const int& x = premier(creer());`", correct: false}
+      - {text: "Écrire `const int* x = &premier(creer());`", correct: false}
+    answer: |-
+      ```cpp
+      const int x = premier(creer());
+      ```
+      La prolongation ne traverse pas l'appel de `premier` : le vecteur meurt au point-virgule. En copiant l'entier
+      pendant l'expression, on ne garde rien de pendant. L'autre remède : nommer le vecteur.
+  - key: bug-string-view
+    format: bug-fix
+    question: |-
+      Ce programme garde une vue sur une chaîne temporaire. Son comportement est indéfini. Quelle correction est la
+      bonne ?
+      ```cpp
+      #include <print>
+      #include <string>
+      #include <string_view>
+
+      std::string titre() {
+          return "Rapport annuel de la direction générale";
+      }
+
+      int main() {
+          const std::string_view vue = titre();
+          std::println("{}", vue.size());
+      }
+      ```
+    choices:
+      - {text: "Déclarer `const std::string vue = titre();`", correct: true}
+      - {text: "Déclarer `const std::string_view& vue = titre();`", correct: false}
+      - {text: "Déclarer `static const std::string_view vue = titre();`", correct: false}
+      - {text: "Déclarer `const std::string_view vue{titre().data()};`", correct: false}
+    answer: |-
+      ```cpp
+      const std::string vue = titre();
+      ```
+      Une vue ne possède pas ses caractères. La chaîne temporaire meurt au point-virgule, et la vue désigne un tampon
+      libéré, même si sa taille s'affiche encore. On garde la chaîne elle-même.
+  - key: bug-membre-reference
+    format: bug-fix
+    question: |-
+      Cette classe garde une référence vers la chaîne reçue par son constructeur. Construite avec un temporaire, elle
+      affiche des caractères illisibles. Quelle correction est la bonne ?
+      ```cpp
+      #include <print>
+      #include <string>
+
+      class Etiquette {
+      public:
+          explicit Etiquette(const std::string& texte) : texte_{texte} {}
+          void afficher() const { std::println("{}", texte_); }
+
+      private:
+          const std::string& texte_;
+      };
+
+      int main() {
+          const Etiquette etiquette{std::string{"Fragile : ne pas retourner ce colis"}};
+          etiquette.afficher();
+      }
+      ```
+    choices:
+      - {text: "Déclarer le membre `std::string texte_;`, par valeur", correct: true}
+      - {text: "Déclarer le membre `const std::string* texte_;`", correct: false}
+      - {text: "Déclarer le membre `std::string_view texte_;`", correct: false}
+      - {text: "Déclarer le membre `mutable const std::string& texte_;`", correct: false}
+    answer: |-
+      ```cpp
+      std::string texte_;
+      ```
+      Le temporaire meurt à la fin de la ligne de construction : le membre référence devient pendant. Un objet qui
+      doit conserver une chaîne en garde une copie. Un pointeur ou une vue auraient le même défaut.

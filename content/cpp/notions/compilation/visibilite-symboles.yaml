@@ -1,0 +1,250 @@
+notion: visibilite-symboles
+lesson: |-
+  Une bibliothèque partagée (`.so` sous Linux, `.dll` sous Windows) **exporte** des symboles : les fonctions et les
+  variables que les programmes peuvent utiliser. La **visibilité** d'un symbole dit s'il est exporté, ou s'il reste
+  interne à la bibliothèque.
+
+  **Deux défauts opposés.**
+
+  | Plateforme | Par défaut | Pour exporter |
+  |---|---|---|
+  | Linux, macOS (GCC, Clang) | **tout** ce qui a une liaison externe est exporté | rien à faire |
+  | Windows (MSVC) | **rien** n'est exporté | `__declspec(dllexport)` |
+
+  **Pourquoi ne pas tout exporter.**
+
+  - **L'interface fuit** : des clients s'appuient sur des fonctions internes, qu'on ne peut plus modifier.
+  - **Les collisions** : deux bibliothèques qui exportent un symbole de même nom s'interposent ; le programme
+    appelle l'une en croyant appeler l'autre.
+  - **La taille et le temps de chargement** : chaque symbole exporté grossit la table que l'éditeur de liens
+    dynamique résout au démarrage.
+  - **L'optimisation** : un appel à une fonction exportée passe par une indirection, et ne peut pas être inséré.
+
+  **La pratique : tout cacher, exporter ce qu'il faut.**
+
+  1. Compiler la bibliothèque avec `-fvisibility=hidden` (et `-fvisibility-inlines-hidden`).
+  2. Marquer l'interface publique :
+
+  ```cpp
+  #if defined(_WIN32)
+  #  ifdef MALIB_CONSTRUCTION
+  #    define MALIB_API __declspec(dllexport)
+  #  else
+  #    define MALIB_API __declspec(dllimport)
+  #  endif
+  #else
+  #  define MALIB_API __attribute__((visibility("default")))
+  #endif
+
+  MALIB_API int calculer(int n);            // exportée
+  int etape_interne(int n);                 // cachée
+  class MALIB_API Moteur { /* ... */ };     // classe exportée
+  ```
+
+  La macro vaut `dllexport` quand on **construit** la bibliothèque, `dllimport` quand on **l'utilise**. CMake
+  génère cet en-tête avec `generate_export_header`.
+
+  **Visibilité et liaison sont deux choses.**
+
+  | | Portée |
+  |---|---|
+  | liaison interne (`static`, espace anonyme) | le fichier source |
+  | liaison externe, visibilité cachée | toute la bibliothèque, pas au-delà |
+  | liaison externe, visibilité par défaut | la bibliothèque et ses clients |
+
+  **Les pièges.**
+
+  - Une fonction publique **non marquée**, avec `-fvisibility=hidden` : les clients obtiennent « undefined
+    reference ».
+  - Une classe d'**exception**, ou utilisée avec `dynamic_cast`, doit être **exportée** : sinon ses informations
+    de type diffèrent de part et d'autre, et le `catch` du client ne l'attrape pas.
+  - Sous Windows, oublier l'export passe inaperçu sous Linux : on teste sur les deux.
+
+  **Voir ce qui est exporté.** `nm -D --defined-only libmalib.so` liste les symboles dynamiques ; `nm -C` les
+  affiche sous leur forme lisible.
+
+  **En entretien** : « Sous Linux, une bibliothèque partagée exporte tout par défaut ; sous Windows, rien. Je
+  compile avec `-fvisibility=hidden` et je marque l'interface avec une macro d'export : l'interface est maîtrisée,
+  le chargement plus rapide, et il y a moins de collisions de symboles. »
+cards:
+  - key: definition
+    format: course
+    question: "Que désigne la visibilité d'un symbole dans une bibliothèque partagée ?"
+    choices:
+      - {text: "Le fait qu'il soit exporté vers les programmes, ou gardé interne", correct: true}
+      - {text: "Le fait qu'il soit public ou privé dans une classe", correct: false}
+      - {text: "Le fait qu'il apparaisse ou non dans le débogueur", correct: false}
+      - {text: "Le fait qu'il soit défini avant ou après `main`", correct: false}
+    answer: "C'est une propriété de l'édition de liens dynamique, distincte des accès `public` et `private` du langage."
+  - key: defauts
+    format: course
+    question: "Que fait par défaut GCC, sous Linux, des fonctions à liaison externe d'une bibliothèque partagée ?"
+    choices:
+      - {text: "Il les exporte toutes", correct: true}
+      - {text: "Il n'en exporte aucune", correct: false}
+      - {text: "Il n'exporte que celles déclarées dans un en-tête", correct: false}
+      - {text: "Il n'exporte que celles marquées `inline`", correct: false}
+    answer: "C'est l'inverse de Windows, où rien n'est exporté sans `__declspec(dllexport)`."
+  - key: pratique
+    format: course
+    question: "Quelle est la pratique recommandée pour les symboles d'une bibliothèque partagée ?"
+    choices:
+      - {text: "Tout cacher avec `-fvisibility=hidden`, et marquer ce qui est public", correct: true}
+      - {text: "Tout exporter, pour que les clients aient accès à tout", correct: false}
+      - {text: "Tout déclarer `static`, y compris l'interface publique", correct: false}
+      - {text: "Tout définir dans les en-têtes, sans fichier source", correct: false}
+    answer: "On part d'une bibliothèque fermée, et l'on ouvre explicitement l'interface. C'est le comportement de Windows, étendu aux autres plateformes."
+  - key: pourquoi
+    format: course
+    question: "Quel est l'un des inconvénients d'exporter tous les symboles d'une bibliothèque ?"
+    choices:
+      - {text: "Des clients utilisent des fonctions internes, qu'on ne peut plus modifier", correct: true}
+      - {text: "Le compilateur refuse les bibliothèques de plus de mille symboles", correct: false}
+      - {text: "Les fonctions exportées ne peuvent pas être appelées par la bibliothèque", correct: false}
+      - {text: "Les fonctions exportées sont exécutées deux fois", correct: false}
+    answer: "Tout ce qui est exporté devient, de fait, une interface. S'y ajoutent les collisions de noms, un chargement plus lent et des appels moins optimisés."
+  - key: vf-windows
+    format: true-false
+    question: "Sous Windows, une DLL exporte par défaut toutes ses fonctions."
+    truth: false
+    answer: "Rien n'est exporté sans `__declspec(dllexport)`, ou un fichier de définitions."
+  - key: vf-liaison
+    format: true-false
+    question: "Une fonction à visibilité cachée peut être appelée depuis un autre fichier source de la même bibliothèque."
+    truth: true
+    answer: "Elle garde sa liaison externe : toute la bibliothèque la voit. Elle n'est simplement pas exportée au-delà."
+  - key: vf-exception
+    format: true-false
+    question: "Une classe d'exception lancée par la bibliothèque et attrapée par le client doit être exportée."
+    truth: true
+    answer: "Sinon ses informations de type existent en deux exemplaires distincts, et le `catch` du client ne la reconnaît pas."
+  - key: vf-private
+    format: true-false
+    question: "Déclarer une fonction membre `private` suffit à la retirer des symboles exportés."
+    truth: false
+    answer: "`private` est une règle du langage, vérifiée à la compilation. Le symbole est exporté comme les autres, sauf visibilité cachée."
+  - key: qcm-option
+    format: multiple-choice
+    question: "Quelle option de GCC cache par défaut tous les symboles d'une bibliothèque ?"
+    choices:
+      - {text: "`-fvisibility=hidden`", correct: true}
+      - {text: "`-fPIC`", correct: false}
+      - {text: "`-shared`", correct: false}
+      - {text: "`-static`", correct: false}
+    answer: "`-fPIC` produit du code indépendant de la position, `-shared` crée la bibliothèque partagée. Seule `-fvisibility=hidden` change la visibilité par défaut."
+  - key: qcm-attribut
+    format: multiple-choice
+    question: "Avec `-fvisibility=hidden`, comment exportes-tu une fonction sous GCC ?"
+    choices:
+      - {text: "`__attribute__((visibility(\"default\")))`", correct: true}
+      - {text: "`__attribute__((always_inline))`", correct: false}
+      - {text: "`[[nodiscard]]`", correct: false}
+      - {text: "`extern \"C\"`", correct: false}
+    answer: "L'attribut redonne la visibilité par défaut, c'est-à-dire exportée, à cette déclaration seulement."
+  - key: qcm-import
+    format: multiple-choice
+    question: "Sous Windows, que vaut la macro d'export pour le client qui utilise la DLL ?"
+    choices:
+      - {text: "`__declspec(dllimport)`", correct: true}
+      - {text: "`__declspec(dllexport)`", correct: false}
+      - {text: "`static`", correct: false}
+      - {text: "Rien : elle n'est définie que pour la bibliothèque", correct: false}
+    answer: "`dllexport` quand on construit la bibliothèque, `dllimport` quand on la consomme. La macro bascule selon une définition passée à la compilation."
+  - key: qcm-lister
+    format: multiple-choice
+    question: "Quelle commande liste les symboles exportés par `libmalib.so` ?"
+    choices:
+      - {text: "`nm -D --defined-only libmalib.so`", correct: true}
+      - {text: "`ls -l libmalib.so`", correct: false}
+      - {text: "`cat libmalib.so`", correct: false}
+      - {text: "`make libmalib.so`", correct: false}
+    answer: "`-D` affiche la table des symboles dynamiques. Avec `-C`, les noms décorés redeviennent lisibles."
+  - key: situation-undefined
+    format: scenario
+    question: |-
+      Tu passes ta bibliothèque à `-fvisibility=hidden`. Les clients n'arrivent plus à se lier : « undefined
+      reference to `malib::calculer(int)' ». Que manque-t-il ?
+    choices:
+      - {text: "La macro d'export devant la déclaration de `calculer`", correct: true}
+      - {text: "Le mot-clé `static` devant la déclaration de `calculer`", correct: false}
+      - {text: "L'option `-fvisibility=hidden` chez les clients", correct: false}
+      - {text: "Un `#pragma once` dans l'en-tête de la bibliothèque", correct: false}
+    answer: |-
+      Avec la visibilité cachée par défaut, plus rien n'est exporté. Chaque élément de l'interface publique doit
+      être marqué, ici par `MALIB_API`.
+  - key: situation-collision
+    format: scenario
+    question: |-
+      Un programme charge deux bibliothèques partagées qui contiennent chacune une fonction utilitaire
+      `journaliser(const char*)`. L'une d'elles écrit dans le mauvais fichier journal. Que se passe-t-il, et
+      comment l'éviter ?
+    choices:
+      - {text: "Les deux symboles sont exportés, et l'un s'interpose ; il faut cacher ces fonctions internes", correct: true}
+      - {text: "Les deux fonctions sont fusionnées en une seule par le compilateur ; il faut les renommer", correct: false}
+      - {text: "Les deux bibliothèques partagent le même fichier ; il faut le verrouiller", correct: false}
+      - {text: "Les deux fonctions sont appelées à chaque fois ; il faut en supprimer une", correct: false}
+    answer: |-
+      L'éditeur de liens dynamique résout un nom vers le premier symbole exporté qu'il trouve, pour tout le
+      programme. Une fonction interne à visibilité cachée ne participe pas à cette résolution.
+  - key: situation-catch
+    format: scenario
+    question: |-
+      Une bibliothèque compilée avec `-fvisibility=hidden` lance une exception `malib::Erreur`. Le client écrit
+      `catch (const malib::Erreur&)`, mais l'exception lui échappe et arrête le programme. Pourquoi ?
+    choices:
+      - {text: "La classe n'est pas exportée : ses informations de type diffèrent entre la bibliothèque et le client", correct: true}
+      - {text: "Une bibliothèque partagée ne peut pas lancer d'exception vers un client", correct: false}
+      - {text: "Le client doit attraper l'exception par valeur, pas par référence", correct: false}
+      - {text: "La classe `Erreur` doit être déclarée `final`", correct: false}
+    answer: |-
+      Attraper une exception compare des informations de type. Si la classe est cachée, chaque côté a les siennes,
+      et elles ne correspondent pas. On marque la classe avec la macro d'export.
+  - key: situation-windows
+    format: scenario
+    question: |-
+      Ta bibliothèque se construit et fonctionne sous Linux. Sous Windows, les clients ne trouvent aucune de ses
+      fonctions à l'édition de liens. Pourquoi ?
+    choices:
+      - {text: "Sous Windows, rien n'est exporté par défaut : il faut `__declspec(dllexport)` sur l'interface", correct: true}
+      - {text: "Sous Windows, les bibliothèques partagées n'existent pas", correct: false}
+      - {text: "Sous Windows, les fonctions doivent toutes être `inline`", correct: false}
+      - {text: "Sous Windows, les noms de fonctions doivent être en majuscules", correct: false}
+    answer: |-
+      Le défaut de Linux a masqué l'oubli. Une macro d'export, appliquée partout, et `-fvisibility=hidden` sous
+      Linux, donnent le même comportement sur les deux plateformes.
+  - key: definition-export
+    format: definition
+    question: "Que veut dire « exporter » un symbole ?"
+    choices:
+      - {text: "Le rendre utilisable par les programmes qui chargent la bibliothèque partagée", correct: true}
+      - {text: "Le copier dans chaque fichier source du projet", correct: false}
+      - {text: "L'écrire dans un fichier texte lisible", correct: false}
+      - {text: "Le supprimer de la bibliothèque à la fin de la construction", correct: false}
+    answer: "Un symbole exporté figure dans la table des symboles dynamiques de la bibliothèque."
+  - key: definition-visibilite-cachee
+    format: definition
+    question: "Qu'est-ce qu'un symbole à visibilité cachée ?"
+    choices:
+      - {text: "Un symbole utilisable dans la bibliothèque, pas par ses clients", correct: true}
+      - {text: "Un symbole utilisable dans un seul fichier source", correct: false}
+      - {text: "Un symbole supprimé par l'optimiseur", correct: false}
+      - {text: "Un symbole dont le nom est chiffré", correct: false}
+    answer: "Il se situe entre la liaison interne, limitée au fichier, et le symbole exporté, ouvert à tous."
+  - key: definition-interposition
+    format: definition
+    question: "Qu'appelle-t-on l'interposition de symboles ?"
+    choices:
+      - {text: "Le fait qu'un symbole exporté d'un module remplace celui de même nom d'un autre", correct: true}
+      - {text: "Le fait qu'une fonction soit insérée à l'endroit de son appel", correct: false}
+      - {text: "Le fait que deux threads appellent la même fonction", correct: false}
+      - {text: "Le fait qu'un symbole soit déclaré entre deux autres", correct: false}
+    answer: "Sous Linux, le premier symbole trouvé gagne pour tout le programme. Voulu avec `LD_PRELOAD`, c'est un piège entre deux bibliothèques."
+  - key: definition-macro-export
+    format: definition
+    question: "À quoi sert une macro d'export comme `MALIB_API` ?"
+    choices:
+      - {text: "À marquer l'interface publique, selon la plateforme", correct: true}
+      - {text: "À donner un numéro de version à la bibliothèque", correct: false}
+      - {text: "À activer l'optimisation des fonctions marquées", correct: false}
+      - {text: "À traduire les messages de la bibliothèque", correct: false}
+    answer: "Elle vaut `dllexport` ou `dllimport` sous Windows, et l'attribut de visibilité ailleurs. CMake sait la générer."

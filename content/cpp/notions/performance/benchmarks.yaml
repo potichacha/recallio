@@ -1,0 +1,331 @@
+notion: benchmarks
+lesson: |-
+  Un **micro-benchmark** mesure le temps d'un petit morceau de code, isolé. C'est l'outil pour comparer deux
+  implémentations. C'est aussi une mesure très facile à fausser : la plupart des micro-benchmarks écrits à la main
+  mesurent autre chose que ce qu'on croit.
+
+  **Les pièges.**
+
+  1. **Le compilateur supprime le code mesuré.** Si le résultat du calcul n'est pas utilisé, l'optimiseur le retire,
+     et la boucle « prend » zéro nanoseconde. S'il peut calculer le résultat à la compilation, même sort.
+  2. **On mesure la mauvaise construction.** Un benchmark en `-O0` ne dit rien du programme livré.
+  3. **On mesure la préparation.** Créer les données, allouer, lire un fichier dans la zone chronométrée noie ce
+     qu'on voulait mesurer.
+  4. **Une seule mesure.** Le premier passage paie le chargement des caches et des pages ; la machine fait autre
+     chose en même temps. Une mesure unique est du bruit.
+  5. **La mauvaise horloge.** `std::chrono::system_clock` peut reculer ou sauter (synchronisation de l'heure). On
+     mesure une durée avec **`std::chrono::steady_clock`**, qui ne recule jamais.
+  6. **Des données irréalistes.** Trop petites, elles tiennent dans le cache ; toujours les mêmes, elles rendent les
+     branchements parfaitement prévisibles.
+
+  **Utiliser un cadre.** **Google Benchmark** (ou Catch2, nanobench) règle la plupart de ces problèmes : il répète
+  la mesure jusqu'à obtenir un résultat stable, sépare la préparation, et fournit de quoi empêcher l'optimiseur
+  d'effacer le travail.
+
+  ```cpp
+  static void BM_Tri(benchmark::State& etat) {
+      const std::vector<int> source = donnees(etat.range(0));     // préparation, hors mesure
+      for (auto _ : etat) {
+          std::vector<int> copie = source;
+          std::sort(copie.begin(), copie.end());
+          benchmark::DoNotOptimize(copie.data());                 // le résultat est « utilisé »
+      }
+  }
+  BENCHMARK(BM_Tri)->Range(1 << 10, 1 << 20);
+  ```
+
+  - `DoNotOptimize(x)` oblige le compilateur à considérer `x` comme lu : le calcul ne peut pas disparaître.
+  - `Range` fait varier la taille : on voit le comportement quand les données sortent du cache.
+
+  **Mesurer honnêtement.**
+
+  - Construction **optimisée**, la même que la production.
+  - Machine au calme ; plusieurs exécutions ; regarder la **médiane** ou le minimum, et la dispersion.
+  - Comparer les deux versions **dans les mêmes conditions**, en alternance.
+  - Se méfier d'un gain de 2 % : il est souvent dans le bruit.
+
+  **Ne pas en rester là.** Un micro-benchmark isole le code de son contexte : cache froid, autres threads,
+  allocateur chargé. Un gain mesuré en isolation se **vérifie dans le programme réel**, avec un profil.
+
+  **En entretien** : « J'utilise Google Benchmark, en construction optimisée : il répète la mesure et sépare la
+  préparation. J'empêche l'optimiseur d'effacer le code avec `DoNotOptimize`, je mesure avec `steady_clock`, sur
+  des données réalistes de plusieurs tailles, et je confirme le gain dans l'application. »
+cards:
+  - key: definition
+    format: course
+    question: "Qu'est-ce qu'un micro-benchmark ?"
+    choices:
+      - {text: "La mesure du temps d'un petit morceau de code, isolé du reste du programme", correct: true}
+      - {text: "La mesure du temps de démarrage du programme entier, du lancement à l'arrêt", correct: false}
+      - {text: "Un test qui vérifie que le résultat d'une fonction est correct", correct: false}
+      - {text: "Un outil qui compte les lignes de code de chaque fonction", correct: false}
+    answer: "Il sert à comparer deux implémentations d'une même opération. Son isolement est sa force et sa limite : le contexte réel peut tout changer."
+  - key: code-supprime
+    format: course
+    question: "Pourquoi une boucle chronométrée peut-elle afficher un temps nul, en construction optimisée ?"
+    choices:
+      - {text: "Son résultat n'est pas utilisé : le compilateur a supprimé le calcul", correct: true}
+      - {text: "L'horloge de la machine n'est pas assez précise pour une boucle", correct: false}
+      - {text: "La boucle s'est exécutée dans un autre thread, non chronométré", correct: false}
+      - {text: "Le processeur exécute une boucle optimisée en un seul cycle", correct: false}
+    answer: "Un calcul sans effet observable est du code mort pour l'optimiseur. Il faut utiliser le résultat, ou le protéger avec `benchmark::DoNotOptimize`."
+  - key: horloge
+    format: course
+    question: "Pour chronométrer le code d'un benchmark, quelle horloge de `<chrono>` choisis-tu ?"
+    choices:
+      - {text: "`std::chrono::steady_clock`, qui ne recule jamais", correct: true}
+      - {text: "`std::chrono::system_clock`, qui donne l'heure du système", correct: false}
+      - {text: "`std::chrono::utc_clock`, qui donne le temps universel", correct: false}
+      - {text: "`std::chrono::file_clock`, qui date les fichiers", correct: false}
+    answer: "L'horloge système peut être corrigée pendant la mesure : la durée calculée serait fausse, voire négative. `steady_clock` avance toujours."
+  - key: cadre
+    format: course
+    question: "Qu'apporte un cadre comme Google Benchmark par rapport à un chronomètre écrit à la main ?"
+    choices:
+      - {text: "Il répète la mesure jusqu'à un résultat stable, et sépare la préparation du code mesuré", correct: true}
+      - {text: "Il rend le code mesuré plus rapide qu'il ne le sera dans le programme réel", correct: false}
+      - {text: "Il mesure le programme sans qu'on ait besoin de le compiler", correct: false}
+      - {text: "Il corrige automatiquement la version la plus lente du code", correct: false}
+    answer: "Il choisit le nombre d'itérations, donne des statistiques, et fournit `DoNotOptimize` pour empêcher l'optimiseur d'effacer le travail."
+  - key: vf-une-mesure
+    format: true-false
+    question: "Une seule exécution chronométrée suffit pour comparer deux implémentations."
+    truth: false
+    answer: "Le premier passage paie le remplissage des caches, et la machine a d'autres activités. On répète, et l'on regarde la médiane et la dispersion."
+  - key: vf-debug
+    format: true-false
+    question: "Un benchmark compilé en `-O0` prédit bien les performances du programme optimisé."
+    truth: false
+    answer: "Sans optimisation, rien n'est inliné ni vectorisé : les rapports entre deux versions peuvent s'inverser."
+  - key: vf-do-not-optimize
+    format: true-false
+    question: "`benchmark::DoNotOptimize(x)` empêche le compilateur de supprimer le calcul de `x`."
+    truth: true
+    answer: "Il fait comme si la valeur était lue par du code inconnu. Le calcul qui la produit doit donc avoir lieu."
+  - key: vf-contexte
+    format: true-false
+    question: "Un gain mesuré dans un micro-benchmark se retrouve toujours dans le programme réel."
+    truth: false
+    answer: "Dans l'application, le cache est partagé, d'autres threads tournent, les données diffèrent. On confirme par un profil du programme entier."
+  - key: qcm-preparation
+    format: multiple-choice
+    question: "Dans une fonction Google Benchmark, où places-tu la création des données d'entrée ?"
+    choices:
+      - {text: "Avant la boucle `for (auto _ : etat)`", correct: true}
+      - {text: "Dans la boucle `for (auto _ : etat)`, à chaque tour", correct: false}
+      - {text: "Dans le destructeur de l'objet `benchmark::State`", correct: false}
+      - {text: "Dans une variable globale modifiée par la boucle", correct: false}
+    answer: "Seul le corps de la boucle est chronométré. La préparation, placée avant, n'entre pas dans la mesure."
+  - key: qcm-tailles
+    format: multiple-choice
+    question: "Pourquoi mesurer un algorithme sur plusieurs tailles de données ?"
+    choices:
+      - {text: "Son comportement change quand les données ne tiennent plus dans le cache", correct: true}
+      - {text: "Le compilateur refuse d'optimiser un benchmark à taille unique", correct: false}
+      - {text: "L'horloge n'est précise que sur des données de grande taille", correct: false}
+      - {text: "Le cadre de mesure exige au moins trois tailles différentes", correct: false}
+    answer: "Mille éléments tiennent dans le cache L1 ; dix millions, non. Le classement de deux implémentations peut s'inverser entre les deux."
+  - key: qcm-statistique
+    format: multiple-choice
+    question: "Sur dix exécutions d'un benchmark, quelle valeur résume le mieux le temps typique ?"
+    choices:
+      - {text: "La médiane, avec un regard sur la dispersion", correct: true}
+      - {text: "Le maximum, qui montre le pire cas observé", correct: false}
+      - {text: "La première mesure, faite sur une machine fraîche", correct: false}
+      - {text: "La somme des dix mesures", correct: false}
+    answer: "La médiane résiste aux mesures aberrantes dues à une interruption. Une grande dispersion dit que la mesure n'est pas fiable."
+  - key: qcm-bruit
+    format: multiple-choice
+    question: "Un benchmark donne 10,0 ms pour la version A et 9,8 ms pour la version B, avec des mesures qui varient de 5 % d'une exécution à l'autre. Que conclus-tu ?"
+    choices:
+      - {text: "Que l'écart est dans le bruit : on ne peut pas dire que B est plus rapide", correct: true}
+      - {text: "Que B est plus rapide de 2 %, et qu'il faut l'adopter", correct: false}
+      - {text: "Que A est plus rapide, car sa mesure est un nombre rond", correct: false}
+      - {text: "Que le benchmark est faux, car les deux temps sont trop proches", correct: false}
+    answer: "Un écart plus petit que la variation des mesures ne prouve rien. Il faut réduire le bruit, ou accepter que les deux versions se valent."
+  - key: bug-resultat-inutilise
+    format: bug-fix
+    question: |-
+      Compilé avec `-O2`, ce benchmark affiche un temps proche de zéro, quelle que soit la taille : le compilateur a
+      supprimé la boucle. Quelle correction est la bonne ?
+      ```cpp
+      #include <chrono>
+      #include <print>
+
+      int main() {
+          const auto debut = std::chrono::steady_clock::now();
+          long somme = 0;
+          for (long i = 0; i < 100'000'000; ++i) {
+              somme += i % 7;
+          }
+          const auto fin = std::chrono::steady_clock::now();
+          std::println("{}", std::chrono::duration_cast<std::chrono::milliseconds>(fin - debut).count() >= 0);
+      }
+      ```
+    choices:
+      - {text: "Utiliser le résultat : afficher `somme` après la mesure", correct: true}
+      - {text: "Déclarer `debut` et `fin` avec le mot-clé `static`", correct: false}
+      - {text: "Mesurer avec `std::chrono::system_clock`", correct: false}
+      - {text: "Doubler le nombre de tours de la boucle", correct: false}
+    answer: |-
+      ```cpp
+      std::println("{}", somme);
+      ```
+      `somme` n'est jamais lue : le calcul est du code mort, et l'optimiseur le retire. Dès que le résultat est
+      utilisé, la boucle doit être exécutée. Dans Google Benchmark, c'est le rôle de `DoNotOptimize`.
+  - key: bug-preparation-mesuree
+    format: bug-fix
+    question: |-
+      Ce benchmark veut mesurer le tri, mais chronomètre aussi la création du vecteur d'un million d'éléments.
+      Quelle correction est la bonne ?
+      ```cpp
+      #include <algorithm>
+      #include <chrono>
+      #include <print>
+      #include <vector>
+
+      int main() {
+          const auto debut = std::chrono::steady_clock::now();
+          std::vector<int> valeurs(1'000'000);
+          for (std::size_t i = 0; i < valeurs.size(); ++i) {
+              valeurs[i] = static_cast<int>((i * 7919) % 1000);
+          }
+          std::sort(valeurs.begin(), valeurs.end());
+          const auto fin = std::chrono::steady_clock::now();
+          std::println("{}", valeurs.front() <= valeurs.back() && fin >= debut);
+      }
+      ```
+    choices:
+      - {text: "Relever `debut` juste avant `std::sort`, après le remplissage", correct: true}
+      - {text: "Relever `fin` avant `std::sort`, après le remplissage", correct: false}
+      - {text: "Remplir le vecteur après l'appel à `std::sort`", correct: false}
+      - {text: "Déclarer le vecteur avec `reserve` à la place de la taille", correct: false}
+    answer: |-
+      ```cpp
+      const auto debut = std::chrono::steady_clock::now();
+      std::sort(valeurs.begin(), valeurs.end());
+      const auto fin = std::chrono::steady_clock::now();
+      ```
+      La zone chronométrée ne doit contenir que ce qu'on veut mesurer. L'allocation et le remplissage se font
+      avant le premier relevé.
+  - key: bug-mauvaise-horloge
+    format: bug-fix
+    question: |-
+      Ce benchmark donne parfois une durée négative, quand l'heure de la machine est corrigée pendant la mesure.
+      Quelle correction est la bonne ?
+      ```cpp
+      #include <chrono>
+      #include <print>
+
+      int main() {
+          const auto debut = std::chrono::system_clock::now();
+          long somme = 0;
+          for (long i = 0; i < 1'000'000; ++i) {
+              somme += i;
+          }
+          const auto fin = std::chrono::system_clock::now();
+          std::println("{} {}", somme, (fin - debut).count() >= 0);
+      }
+      ```
+    choices:
+      - {text: "Mesurer avec `std::chrono::steady_clock::now()`", correct: true}
+      - {text: "Mesurer avec `std::chrono::utc_clock::now()`", correct: false}
+      - {text: "Mesurer avec `std::time(nullptr)`", correct: false}
+      - {text: "Mesurer avec `std::chrono::file_clock::now()`", correct: false}
+    answer: |-
+      ```cpp
+      const auto debut = std::chrono::steady_clock::now();
+      ```
+      `system_clock` suit l'heure du système, qui peut être avancée ou reculée. `steady_clock` est faite pour les
+      durées : elle ne recule jamais.
+  - key: bug-une-seule-mesure
+    format: bug-fix
+    question: |-
+      Ce benchmark ne mesure la fonction qu'une fois, et ses résultats varient du simple au triple d'un lancement à
+      l'autre. Quelle correction est la bonne ?
+      ```cpp
+      #include <chrono>
+      #include <print>
+      #include <vector>
+
+      long somme(const std::vector<int>& v) {
+          long total = 0;
+          for (int x : v) {
+              total += x;
+          }
+          return total;
+      }
+
+      int main() {
+          const std::vector<int> v(1000, 1);
+          const auto debut = std::chrono::steady_clock::now();
+          const long resultat = somme(v);
+          const auto fin = std::chrono::steady_clock::now();
+          std::println("{} {}", resultat, fin >= debut);
+      }
+      ```
+    choices:
+      - {text: "Répéter l'appel des milliers de fois, plusieurs séries, et garder la médiane par appel", correct: true}
+      - {text: "Réduire le vecteur à dix éléments, pour que la mesure soit plus courte", correct: false}
+      - {text: "Compiler en `-O0`, pour que la mesure soit plus longue et plus stable", correct: false}
+      - {text: "Afficher la durée en secondes à la place des nanosecondes", correct: false}
+    answer: |-
+      ```cpp
+      for (int i = 0; i < 100'000; ++i) {
+          total += somme(v);
+      }
+      ```
+      Un appel de quelques centaines de nanosecondes est plus court que le bruit de la mesure. On répète, on divise,
+      et l'on recommence plusieurs séries : c'est ce qu'un cadre comme Google Benchmark fait seul.
+  - key: situation-zero
+    format: scenario
+    question: |-
+      Un collègue annonce que sa nouvelle fonction de hachage est « un million de fois plus rapide » : son benchmark
+      affiche 0,3 nanoseconde pour hacher un kilo-octet. Que soupçonnes-tu ?
+    choices:
+      - {text: "Que le compilateur a supprimé le calcul, dont le résultat n'était pas utilisé", correct: true}
+      - {text: "Que sa fonction est réellement un million de fois plus rapide", correct: false}
+      - {text: "Que son horloge mesure en heures et non en nanosecondes", correct: false}
+      - {text: "Que sa machine a un processeur beaucoup plus récent", correct: false}
+    answer: |-
+      Aucun calcul ne lit mille octets en moins d'un cycle. Un résultat trop beau désigne presque toujours un
+      benchmark qui ne mesure rien : on regarde l'assembleur, et l'on protège le résultat avec `DoNotOptimize`.
+  - key: situation-petites-donnees
+    format: scenario
+    question: |-
+      Un benchmark sur cent éléments montre que la structure A bat la structure B. En production, sur dix millions
+      d'éléments, B est deux fois plus rapide. Qu'est-ce que le benchmark n'a pas vu ?
+    choices:
+      - {text: "L'effet du cache : cent éléments y tiennent, dix millions non", correct: true}
+      - {text: "L'effet du compilateur : il n'optimise que les grandes boucles", correct: false}
+      - {text: "L'effet de l'horloge : elle est fausse sur les petites durées", correct: false}
+      - {text: "L'effet du langage : C++ est plus lent sur les grands conteneurs", correct: false}
+    answer: |-
+      Tant que tout tient dans le cache L1, la localité mémoire ne compte pas. À grande échelle, elle domine. Un
+      benchmark doit couvrir les tailles réelles.
+  - key: situation-confirmer
+    format: scenario
+    question: |-
+      Ton micro-benchmark montre qu'une fonction réécrite est 30 % plus rapide. Avant de fusionner, que
+      vérifies-tu ?
+    choices:
+      - {text: "Le gain dans l'application réelle, par un profil sur une charge représentative", correct: true}
+      - {text: "Le gain dans le même benchmark, relancé avec moins d'itérations", correct: false}
+      - {text: "Le gain en construction de débogage, où les écarts sont plus visibles", correct: false}
+      - {text: "Rien de plus : un micro-benchmark suffit à décider", correct: false}
+    answer: |-
+      Si la fonction pèse 1 % du temps du programme, 30 % de gain sur elle ne changent rien. Et hors du benchmark,
+      le cache et les données diffèrent. Le profil de l'application tranche.
+  - key: situation-entretien
+    format: scenario
+    question: |-
+      En entretien, on te demande comment tu comparerais deux implémentations d'un tri. Quelle réponse est la plus
+      rigoureuse ?
+    choices:
+      - {text: "Google Benchmark en construction optimisée, plusieurs tailles et répartitions, puis un profil réel", correct: true}
+      - {text: "Un chronomètre autour d'un seul appel de chaque tri, en construction de débogage", correct: false}
+      - {text: "Le comptage des lignes de code de chaque implémentation", correct: false}
+      - {text: "La lecture de leur complexité théorique, sans aucune mesure", correct: false}
+    answer: |-
+      La complexité guide, la mesure décide. Un tri dépend de la taille et de la forme des données (déjà triées,
+      inversées, aléatoires) : le benchmark doit les faire varier.

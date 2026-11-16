@@ -1,0 +1,230 @@
+notion: virtual-cout
+lesson: |-
+  Un appel de fonction **virtuelle** se décide à l'exécution : le programme lit dans l'objet le pointeur vers la
+  **table des fonctions virtuelles** de sa classe, y lit l'adresse de la fonction, puis saute à cette adresse.
+
+  **Le coût direct est faible.** Deux lectures en mémoire et un saut indirect : de l'ordre d'une nanoseconde,
+  parfois moins quand le processeur prédit bien la cible. Pour une fonction qui fait un vrai travail, c'est
+  négligeable.
+
+  **Le coût indirect est le vrai sujet.**
+
+  - **Pas d'inlining.** Le compilateur ne sait pas quelle fonction sera appelée : il ne peut pas recopier son
+    corps chez l'appelant, ni optimiser à travers l'appel. Pour une fonction minuscule (un accesseur, une
+    addition) appelée dans une boucle chaude, c'est cette perte qui coûte, bien plus que le saut.
+  - **La prédiction.** Si la boucle traite des objets de types mélangés, la cible du saut change sans cesse : le
+    processeur prédit mal, et chaque erreur coûte une dizaine de nanosecondes.
+  - **La mémoire.** Chaque objet polymorphe porte un pointeur caché (8 octets), et l'on manipule souvent ces objets
+    par des pointeurs vers le tas, dispersés : des défauts de cache.
+
+  **La dévirtualisation.** Quand le compilateur peut **prouver** le type réel de l'objet, il remplace l'appel
+  virtuel par un appel direct, qu'il peut alors inliner. Cela arrive quand :
+
+  - l'objet est une **variable locale** dont le type est connu : `Cercle c; c.aire();` ;
+  - la classe ou la fonction est marquée **`final`** : aucune classe dérivée ne peut la redéfinir ;
+  - l'optimisation à l'édition de liens (LTO) voit tout le programme, et constate qu'il n'existe qu'une
+    implémentation.
+
+  ```cpp
+  class Cercle final : public Forme {
+  public:
+      double aire() const override;      // appelée à travers un Cercle&, elle est dévirtualisée
+  };
+  ```
+
+  **Quand éviter le virtuel.** Dans le cœur d'une boucle très chaude, sur des fonctions minuscules. Les
+  alternatives :
+
+  - le **polymorphisme statique** : templates, CRTP, concepts ; tout est résolu à la compilation ;
+  - `std::variant` et `std::visit`, quand l'ensemble des types est fermé ;
+  - **trier les objets par type**, ou les ranger dans un conteneur par type : la prédiction devient parfaite, et
+    les données contiguës.
+
+  **Quand ne pas s'en soucier.** Presque partout ailleurs. Une fonction virtuelle qui lit un fichier, interroge une
+  base ou calcule cent lignes ne voit pas la différence. On mesure avant de retirer un `virtual`.
+
+  **En entretien** : « Un appel virtuel coûte une indirection par la vtable, environ une nanoseconde. Le vrai coût
+  est qu'il empêche l'inlining, et qu'il se prédit mal sur des types mélangés. `final` permet la dévirtualisation ;
+  dans une boucle chaude, je préfère des templates ou un `std::variant`. »
+cards:
+  - key: mecanisme
+    format: course
+    question: "Que fait le programme pour exécuter un appel de fonction virtuelle ?"
+    choices:
+      - {text: "Il lit le pointeur de vtable dans l'objet, puis l'adresse de la fonction, et y saute", correct: true}
+      - {text: "Il parcourt la liste des classes dérivées, et compare leur nom à celui de l'objet", correct: false}
+      - {text: "Il recompile la fonction pour le type réel de l'objet, au moment de l'appel", correct: false}
+      - {text: "Il copie l'objet dans un objet de la classe de base, puis appelle la fonction", correct: false}
+    answer: "Deux lectures en mémoire et un saut indirect. Le coût est constant, quel que soit le nombre de classes dérivées."
+  - key: vrai-cout
+    format: course
+    question: "Quel est le principal coût d'un appel virtuel sur une fonction minuscule, dans une boucle chaude ?"
+    choices:
+      - {text: "Il empêche l'inlining, et les optimisations qui en découlent", correct: true}
+      - {text: "Il alloue un objet temporaire sur le tas à chaque appel", correct: false}
+      - {text: "Il verrouille un mutex pour protéger la table virtuelle", correct: false}
+      - {text: "Il copie tous les arguments deux fois avant l'appel", correct: false}
+    answer: "Le saut lui-même coûte peu. Mais un accesseur virtuel ne peut pas être fondu dans la boucle, ni la boucle vectorisée à travers lui."
+  - key: devirtualisation
+    format: course
+    question: "Qu'est-ce que la dévirtualisation ?"
+    choices:
+      - {text: "Le remplacement d'un appel virtuel par un appel direct, quand le type réel est prouvé", correct: true}
+      - {text: "La suppression du mot-clé `virtual` par le préprocesseur, avant la compilation", correct: false}
+      - {text: "La copie de la table virtuelle dans chaque objet, pour gagner une lecture", correct: false}
+      - {text: "La conversion d'une classe polymorphe en `struct` sans fonction membre", correct: false}
+    answer: "C'est une optimisation du compilateur. L'appel direct peut ensuite être inliné, comme une fonction ordinaire."
+  - key: final
+    format: course
+    question: "Pourquoi marquer une classe `final` peut-il accélérer ses appels virtuels ?"
+    choices:
+      - {text: "Aucune classe ne peut en dériver : le compilateur connaît la fonction appelée", correct: true}
+      - {text: "La classe n'a plus de table virtuelle : ses objets sont plus petits", correct: false}
+      - {text: "Les fonctions de la classe sont exécutées dans un autre thread", correct: false}
+      - {text: "Les objets de la classe sont alloués sur la pile, jamais sur le tas", correct: false}
+    answer: "À travers une référence vers la classe finale, la cible de l'appel est certaine : le compilateur le rend direct."
+  - key: vf-nanoseconde
+    format: true-false
+    question: "Le coût direct d'un appel virtuel bien prédit est de l'ordre de la nanoseconde."
+    truth: true
+    answer: "C'est un ordre de grandeur : deux lectures et un saut indirect. Il ne pèse que sur des fonctions très courtes, appelées très souvent."
+  - key: vf-nombre-classes
+    format: true-false
+    question: "Un appel virtuel est d'autant plus lent que la hiérarchie compte de classes dérivées."
+    truth: false
+    answer: "La recherche se fait par un indice fixe dans la vtable. Dix classes ou mille, le coût est le même."
+  - key: vf-locale
+    format: true-false
+    question: "L'appel d'une fonction virtuelle sur une variable locale dont le type est connu peut être dévirtualisé."
+    truth: true
+    answer: "Dans `Cercle c; c.aire();`, le type réel est certain : le compilateur appelle directement `Cercle::aire`."
+  - key: vf-toujours-eviter
+    format: true-false
+    question: "Il faut éviter les fonctions virtuelles dans tout code qui se veut rapide."
+    truth: false
+    answer: "Leur coût ne compte que dans le cœur de boucles très chaudes, sur de petites fonctions. Ailleurs, il est invisible."
+  - key: qcm-types-melanges
+    format: multiple-choice
+    question: "Une boucle appelle une fonction virtuelle sur un vecteur d'objets de types mélangés au hasard. Qu'est-ce qui la ralentit le plus ?"
+    choices:
+      - {text: "Les erreurs de prédiction de la cible du saut", correct: true}
+      - {text: "La taille de la table virtuelle de chaque classe", correct: false}
+      - {text: "Le nombre de fonctions virtuelles de la classe de base", correct: false}
+      - {text: "La longueur du nom des classes dérivées", correct: false}
+    answer: "Le processeur devine la cible d'après les appels précédents. Avec des types qui alternent sans motif, il se trompe souvent, et chaque erreur coûte une dizaine de nanosecondes."
+  - key: qcm-alternative
+    format: multiple-choice
+    question: "Quelle alternative résout l'appel à la compilation, et permet l'inlining ?"
+    choices:
+      - {text: "Un template, ou le CRTP", correct: true}
+      - {text: "Un `dynamic_cast` avant chaque appel", correct: false}
+      - {text: "Un pointeur de fonction rangé dans l'objet", correct: false}
+      - {text: "Une `std::function` à la place de la fonction membre", correct: false}
+    answer: "Le polymorphisme statique fixe le type à la compilation. Un pointeur de fonction ou une `std::function` restent des appels indirects."
+  - key: qcm-tri
+    format: multiple-choice
+    question: "Sans toucher aux classes, comment accélères-tu une boucle d'appels virtuels sur des objets de types mélangés ?"
+    choices:
+      - {text: "En triant les objets par type avant la boucle", correct: true}
+      - {text: "En mélangeant les objets au hasard avant la boucle", correct: false}
+      - {text: "En parcourant le vecteur de la fin vers le début", correct: false}
+      - {text: "En doublant la capacité du vecteur avant la boucle", correct: false}
+    answer: "Des objets du même type à la suite donnent la même cible : la prédiction devient presque parfaite."
+  - key: qcm-octets
+    format: multiple-choice
+    question: "Que coûte en mémoire, sur une machine 64 bits, le fait qu'une classe ait au moins une fonction virtuelle ?"
+    choices:
+      - {text: "Un pointeur de 8 octets dans chaque objet", correct: true}
+      - {text: "Une copie de la table virtuelle dans chaque objet", correct: false}
+      - {text: "Un octet par fonction virtuelle dans chaque objet", correct: false}
+      - {text: "Rien : la table est rangée hors des objets", correct: false}
+    answer: "La table existe une fois par classe ; chaque objet porte un pointeur vers elle. Pour de tout petits objets, ces 8 octets doublent parfois la taille."
+  - key: situation-accesseur
+    format: scenario
+    question: |-
+      Un moteur de calcul appelle un milliard de fois `forme.x()`, un accesseur virtuel d'une ligne. Le profil
+      montre que cet appel domine. La hiérarchie n'a en pratique qu'une classe concrète. Que proposes-tu d'abord ?
+    choices:
+      - {text: "Marquer la classe concrète `final`, et l'utiliser par son type : l'appel est dévirtualisé et inliné", correct: true}
+      - {text: "Ajouter une seconde table virtuelle à la classe, pour accélérer la recherche", correct: false}
+      - {text: "Remplacer l'accesseur par un `dynamic_cast` suivi d'une lecture du membre", correct: false}
+      - {text: "Allouer chaque forme sur le tas, pour que les appels virtuels soient plus rapides", correct: false}
+    answer: |-
+      Pour une fonction d'une ligne, c'est l'inlining manqué qui coûte. Si le compilateur connaît le type réel, il
+      appelle directement et fond l'accesseur dans la boucle. `final` le lui garantit.
+  - key: situation-prematuree
+    format: scenario
+    question: |-
+      Un collègue veut retirer toutes les fonctions virtuelles d'un module d'export de rapports, « pour la
+      performance ». Chaque appel virtuel y déclenche l'écriture d'un fichier. Que lui réponds-tu ?
+    choices:
+      - {text: "Qu'une nanoseconde par appel est invisible à côté d'une écriture de fichier : il faut mesurer d'abord", correct: true}
+      - {text: "Qu'il a raison : un appel virtuel est toujours le premier coût d'un programme", correct: false}
+      - {text: "Qu'il doit plutôt marquer toutes les fonctions du module `inline`", correct: false}
+      - {text: "Qu'il doit remplacer les fonctions virtuelles par des macros", correct: false}
+    answer: |-
+      Une entrée-sortie coûte des microsecondes, voire des millisecondes : mille à un million de fois l'appel
+      virtuel. Retirer le polymorphisme compliquerait le code sans gain mesurable.
+  - key: situation-variant
+    format: scenario
+    question: |-
+      Un interpréteur traite des millions de nœuds, de cinq types connus et figés, par une fonction virtuelle
+      `evaluer()`. Les nœuds sont alloués un par un sur le tas. Quelle conception réduit à la fois les indirections
+      et les défauts de cache ?
+    choices:
+      - {text: "Un `std::vector<std::variant<...>>` des cinq types, parcouru avec `std::visit`", correct: true}
+      - {text: "Un `std::vector<std::shared_ptr<Noeud>>`, avec les mêmes fonctions virtuelles", correct: false}
+      - {text: "Une `std::list<Noeud*>`, avec les mêmes fonctions virtuelles", correct: false}
+      - {text: "Un `std::map<int, Noeud*>`, indexé par le numéro du nœud", correct: false}
+    answer: |-
+      Quand l'ensemble des types est fermé, un variant range les objets par valeur, côte à côte, et la sélection se
+      fait par un simple aiguillage que le compilateur peut inliner.
+  - key: situation-entretien
+    format: scenario
+    question: |-
+      En entretien, on te demande si les fonctions virtuelles ralentissent un programme, et de combien. Quelle
+      réponse est la plus juste ?
+    choices:
+      - {text: "Le saut coûte peu ; ce qui pèse, c'est l'inlining perdu et la prédiction, dans les boucles chaudes", correct: true}
+      - {text: "Oui, toujours : un appel virtuel coûte autant qu'une allocation sur le tas", correct: false}
+      - {text: "Non, jamais : le compilateur transforme tous les appels virtuels en appels directs", correct: false}
+      - {text: "Oui, car la vtable est parcourue en entier à chaque appel", correct: false}
+    answer: |-
+      Une réponse nuancée : un coût direct d'environ une nanoseconde, un coût indirect qui dépend du contexte, et la
+      dévirtualisation quand le type est connu. On mesure avant de conclure.
+  - key: definition-devirtualisation
+    format: definition
+    question: "Que désigne le terme « dévirtualisation », du point de vue du compilateur ?"
+    choices:
+      - {text: "L'optimisation qui change un appel virtuel en appel direct", correct: true}
+      - {text: "La suppression d'une classe de base devenue inutile", correct: false}
+      - {text: "Le passage d'un objet du tas vers la pile", correct: false}
+      - {text: "La conversion d'un pointeur de base en pointeur dérivé", correct: false}
+    answer: "Elle a lieu quand le compilateur peut prouver le type réel de l'objet : variable locale, classe `final`, ou vue d'ensemble du programme."
+  - key: definition-appel-indirect
+    format: definition
+    question: "Qu'est-ce qu'un appel indirect ?"
+    choices:
+      - {text: "Un appel dont l'adresse de la fonction n'est connue qu'à l'exécution", correct: true}
+      - {text: "Un appel fait depuis une fonction elle-même appelée par une autre", correct: false}
+      - {text: "Un appel dont les arguments sont passés par pointeur", correct: false}
+      - {text: "Un appel à une fonction définie dans un autre fichier source", correct: false}
+    answer: "L'adresse est lue dans une table ou une variable : appel virtuel, pointeur de fonction, `std::function`. Le compilateur ne peut pas l'inliner sans connaître la cible."
+  - key: definition-polymorphisme-statique
+    format: definition
+    question: "Qu'est-ce que le polymorphisme statique ?"
+    choices:
+      - {text: "Un polymorphisme résolu à la compilation, par des templates", correct: true}
+      - {text: "Un polymorphisme réservé aux fonctions membres `static`", correct: false}
+      - {text: "Un polymorphisme dont la vtable est rangée sur la pile", correct: false}
+      - {text: "Un polymorphisme limité aux variables globales", correct: false}
+    answer: "Le type est connu du compilateur : pas de vtable, et l'inlining est possible. La contrepartie : on ne peut pas mélanger des types dans un même conteneur."
+  - key: definition-final
+    format: definition
+    question: "Que signifie le mot-clé `final` sur une fonction virtuelle ?"
+    choices:
+      - {text: "Qu'aucune classe dérivée ne peut la redéfinir", correct: true}
+      - {text: "Qu'elle ne peut être appelée qu'une seule fois", correct: false}
+      - {text: "Qu'elle est la dernière déclarée dans la classe", correct: false}
+      - {text: "Qu'elle ne peut pas lancer d'exception", correct: false}
+    answer: "Sur une classe, `final` interdit d'en dériver. Dans les deux cas, le compilateur y gagne une certitude utile à la dévirtualisation."

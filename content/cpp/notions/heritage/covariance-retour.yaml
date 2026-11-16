@@ -1,0 +1,479 @@
+notion: covariance-retour
+lesson: |-
+  Une fonction virtuelle redéfinie doit avoir la **même signature** que celle de la base. Il y a une exception sur
+  le **type de retour** : si la base renvoie un **pointeur ou une référence vers une classe**, la redéfinition peut
+  renvoyer un pointeur ou une référence vers une **classe dérivée** de celle-ci. C'est un type de retour
+  **covariant**.
+
+  ```cpp
+  struct Forme {
+      virtual ~Forme() = default;
+      virtual Forme* clone() const = 0;
+  };
+
+  struct Cercle : Forme {
+      Cercle* clone() const override { return new Cercle{*this}; }    // Cercle* au lieu de Forme*
+  };
+  ```
+
+  **Ce que cela apporte.** Celui qui tient un `Cercle` obtient un `Cercle*`, sans cast :
+
+  ```cpp
+  Cercle c;
+  Cercle* copie = c.clone();          // type exact
+  Forme* f = &c;
+  Forme* autre = f->clone();          // par la base : un Forme*, qui désigne un Cercle
+  ```
+
+  **Les conditions.**
+
+  - Les deux types sont des **pointeurs** ou des **références** vers des classes. Un retour par **valeur** n'est
+    jamais covariant.
+  - La classe renvoyée par la redéfinition **dérive publiquement** de celle que renvoie la base.
+  - Le type dérivé est **complet** au point de la déclaration.
+  - `int*` et `long*`, ou `Forme*` et `void*`, ne sont pas covariants.
+
+  **L'idiome `clone()` : le « constructeur de copie virtuel ».** Un constructeur ne peut pas être virtuel : copier
+  un objet à travers un pointeur de base (`Forme copie = *f;`) le **découpe**. `clone()` demande à l'objet de se
+  copier lui-même, avec son type réel.
+
+  **Avec les pointeurs intelligents.** `std::unique_ptr<Cercle>` et `std::unique_ptr<Forme>` sont deux classes
+  **sans lien d'héritage** : la covariance ne s'applique pas. Deux pratiques :
+
+  1. Toutes les redéfinitions renvoient `std::unique_ptr<Forme>` : simple, et suffisant le plus souvent.
+
+     ```cpp
+     std::unique_ptr<Forme> clone() const override { return std::make_unique<Cercle>(*this); }
+     ```
+
+  2. Une fonction virtuelle **privée** qui renvoie un pointeur brut covariant, et une fonction publique **non
+     virtuelle** dans chaque classe, qui l'emballe dans le bon `std::unique_ptr`.
+
+  La première évite le `new` nu ; on la préfère, sauf besoin réel du type exact.
+
+  **Chaque classe concrète doit redéfinir `clone()`.** Une classe qui l'oublie hérite de la version de son parent,
+  et se clone en objet du **type parent** : un découpage discret. Le CRTP permet de générer `clone()`
+  automatiquement.
+
+  **En entretien** : « Une redéfinition peut renvoyer un pointeur ou une référence vers une classe plus dérivée :
+  c'est la covariance du type de retour. Elle sert surtout à `clone()`, le constructeur de copie virtuel. Elle ne
+  marche ni par valeur ni avec les pointeurs intelligents ; dans ce cas, je renvoie
+  `std::unique_ptr<Base>`. »
+cards:
+  - key: definition
+    format: course
+    question: "Qu'est-ce qu'un type de retour covariant ?"
+    choices:
+      - {text: "Une redéfinition renvoie un pointeur ou une référence vers une classe dérivée de celle que renvoie la base", correct: true}
+      - {text: "Une redéfinition renvoie un type sans rapport avec celui de la base, comme `int` au lieu de `double`", correct: false}
+      - {text: "Une redéfinition prend en paramètre une classe dérivée de celle que prend la base", correct: false}
+      - {text: "Une redéfinition renvoie par valeur un objet d'une classe dérivée de celle de la base", correct: false}
+    answer: "C'est la seule différence de signature permise par `override`. Elle ne vaut que pour les pointeurs et les références vers des classes."
+  - key: clone
+    format: course
+    question: "À quoi sert une fonction virtuelle `clone()` ?"
+    choices:
+      - {text: "À copier un objet avec son type réel, à travers un pointeur ou une référence de base", correct: true}
+      - {text: "À partager un objet entre deux pointeurs, sans le copier", correct: false}
+      - {text: "À convertir un objet de base en objet d'une classe dérivée", correct: false}
+      - {text: "À comparer deux objets de classes dérivées différentes", correct: false}
+    answer: "Un constructeur ne peut pas être virtuel, et `Forme copie = *f;` découperait l'objet. `clone()` laisse l'objet se copier lui-même."
+  - key: par-valeur
+    format: course
+    question: "La covariance s'applique-t-elle à un retour par valeur ?"
+    choices:
+      - {text: "Non : seulement aux pointeurs et aux références vers des classes", correct: true}
+      - {text: "Oui, si la classe dérivée a la même taille que la base", correct: false}
+      - {text: "Oui, si la classe dérivée a un constructeur de copie", correct: false}
+      - {text: "Oui, dans tous les cas", correct: false}
+    answer: "Par valeur, l'appelant réserve la place du type de la base : un objet dérivé, plus gros, n'y tiendrait pas. Le compilateur refuse la redéfinition."
+  - key: pointeurs-intelligents
+    format: course
+    question: "Pourquoi `std::unique_ptr<Cercle> clone() const override` ne peut-il pas redéfinir `std::unique_ptr<Forme> clone() const` ?"
+    choices:
+      - {text: "Les deux `std::unique_ptr` sont des classes sans lien d'héritage : la covariance ne s'applique pas", correct: true}
+      - {text: "Un `std::unique_ptr` ne peut pas être renvoyé par une fonction virtuelle", correct: false}
+      - {text: "Un `std::unique_ptr<Cercle>` ne peut pas être converti en `std::unique_ptr<Forme>`", correct: false}
+      - {text: "Une fonction `const` ne peut pas créer de `std::unique_ptr`", correct: false}
+    answer: "La conversion existe, mais la covariance exige des pointeurs ou des références bruts. On renvoie `std::unique_ptr<Forme>` dans toutes les classes."
+  - key: vf-meme-signature
+    format: true-false
+    question: "Hors de la covariance, une redéfinition doit avoir le même type de retour que la fonction de la base."
+    truth: true
+    answer: "Un autre type de retour, avec les mêmes paramètres, est une erreur de compilation : « conflicting return type »."
+  - key: vf-reference
+    format: true-false
+    question: "La covariance s'applique aussi aux références : `Cercle&` peut remplacer `Forme&`."
+    truth: true
+    answer: "Pointeurs et références suivent la même règle."
+  - key: vf-constructeur-virtuel
+    format: true-false
+    question: "Un constructeur de copie peut être déclaré `virtual`."
+    truth: false
+    answer: "Aucun constructeur ne peut être virtuel : il faut connaître le type exact pour construire. `clone()` en tient lieu."
+  - key: vf-appel-par-base
+    format: true-false
+    question: "Appelée par un pointeur de base, une fonction au retour covariant renvoie le type déclaré dans la base."
+    truth: true
+    answer: "Le type de l'expression est fixé à la compilation, d'après le type du pointeur. L'objet désigné, lui, est bien du type dérivé."
+  - key: qcm-redefinition
+    format: multiple-choice
+    question: "`Forme` déclare `virtual Forme* clone() const = 0;`. Quelle redéfinition, dans `Cercle`, est covariante ?"
+    choices:
+      - {text: "`Cercle* clone() const override;`", correct: true}
+      - {text: "`Cercle clone() const override;`", correct: false}
+      - {text: "`void* clone() const override;`", correct: false}
+      - {text: "`Cercle* clone() override;`", correct: false}
+    answer: "Un pointeur vers une classe dérivée, avec les mêmes paramètres et le même `const`. Sans `const`, ce n'est plus la même fonction."
+  - key: qcm-decoupage
+    format: multiple-choice
+    question: "`f` est un `Forme*` qui désigne un `Cercle`. Quelle ligne copie le cercle en entier ?"
+    choices:
+      - {text: "`Forme* copie = f->clone();`", correct: true}
+      - {text: "`Forme copie = *f;`", correct: false}
+      - {text: "`Forme* copie = f;`", correct: false}
+      - {text: "`Forme* copie = new Forme{*f};`", correct: false}
+    answer: "`clone()` est virtuelle : c'est `Cercle::clone` qui s'exécute. Copier `*f` par valeur découpe, et copier le pointeur ne copie rien."
+  - key: qcm-unique-ptr
+    format: multiple-choice
+    question: "Quel type de retour donnes-tu à `clone()` dans toutes les classes, pour ne pas manipuler de pointeur brut ?"
+    choices:
+      - {text: "`std::unique_ptr<Forme>`", correct: true}
+      - {text: "`std::unique_ptr<Cercle>` dans `Cercle`, `std::unique_ptr<Forme>` dans `Forme`", correct: false}
+      - {text: "`Forme`", correct: false}
+      - {text: "`std::weak_ptr<Forme>`", correct: false}
+    answer: "Le même type partout, puisque la covariance ne joue pas entre pointeurs intelligents. La copie a un propriétaire dès sa création."
+  - key: qcm-oubli
+    format: multiple-choice
+    question: "`CercleColore` dérive de `Cercle` et ne redéfinit pas `clone()`. Que renvoie `clone()` sur un `CercleColore` ?"
+    choices:
+      - {text: "Un `Cercle` : la couleur est perdue", correct: true}
+      - {text: "Un `CercleColore`, copié entièrement", correct: false}
+      - {text: "Un pointeur nul", correct: false}
+      - {text: "Rien : le code ne compile pas", correct: false}
+    answer: "La version héritée construit un `Cercle` à partir de la partie `Cercle` de l'objet. Chaque classe concrète doit écrire son `clone()`."
+  - key: trous-retour
+    format: fill-in
+    question: |-
+      Complète le type de retour covariant :
+      ```cpp
+      struct Cercle : Forme {
+          ___* clone() const override { return new Cercle{*this}; }
+      };
+      ```
+    blanks:
+      - [Cercle, Forme]
+    answer: "`Cercle*` : un pointeur vers la classe dérivée. `Forme*` conviendrait aussi, sans covariance."
+  - key: trous-this
+    format: fill-in
+    question: |-
+      Complète pour copier l'objet courant :
+      ```cpp
+      Cercle* clone() const override { return new Cercle{___}; }
+      ```
+    blanks:
+      - ["*this"]
+    answer: "`*this` est l'objet lui-même : le constructeur de copie de `Cercle` en fait un nouveau."
+  - key: trous-override
+    format: fill-in
+    question: |-
+      Complète pour que le compilateur vérifie que la fonction redéfinit bien celle de la base :
+      ```cpp
+      Cercle* clone() const ___ { return new Cercle{*this}; }
+      ```
+    blanks:
+      - [override]
+    answer: "`override` accepte un retour covariant, et refuse toute autre différence de signature."
+  - key: trous-make-unique
+    format: fill-in
+    question: |-
+      Complète pour créer la copie sans `new` :
+      ```cpp
+      std::unique_ptr<Forme> clone() const override {
+          return std::___<Cercle>(*this);
+      }
+      ```
+    blanks:
+      - [make_unique]
+    answer: "`std::make_unique<Cercle>(*this)` : le `std::unique_ptr<Cercle>` obtenu se convertit en `std::unique_ptr<Forme>` au retour."
+  - key: code-clone
+    format: code-output
+    question: |-
+      ```cpp
+      #include <memory>
+      #include <print>
+
+      struct Forme {
+          virtual ~Forme() = default;
+          virtual std::unique_ptr<Forme> clone() const = 0;
+          virtual const char* nom() const = 0;
+      };
+
+      struct Cercle : Forme {
+          std::unique_ptr<Forme> clone() const override { return std::make_unique<Cercle>(*this); }
+          const char* nom() const override { return "cercle"; }
+      };
+
+      int main() {
+          const std::unique_ptr<Forme> original = std::make_unique<Cercle>();
+          const auto copie = original->clone();
+          std::println("{} {}", copie->nom(), copie != original);
+      }
+      ```
+    choices:
+      - {text: "`cercle true`", correct: true}
+      - {text: "`cercle false`", correct: false}
+      - {text: "`forme true`", correct: false}
+      - {text: "Ça ne compile pas", correct: false}
+    answer: "`cercle true` : `clone()` crée un nouveau `Cercle`, distinct de l'original, à travers un pointeur de base."
+    check:
+      output: "cercle true"
+  - key: code-covariant
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+
+      struct Forme {
+          virtual ~Forme() = default;
+          virtual Forme* clone() const { return new Forme{*this}; }
+      };
+
+      struct Cercle : Forme {
+          Cercle* clone() const override { return new Cercle{*this}; }
+          int rayon = 3;
+      };
+
+      int main() {
+          const Cercle c;
+          const Cercle* copie = c.clone();
+          std::println("{}", copie->rayon);
+          delete copie;
+      }
+      ```
+    choices:
+      - {text: "`3`", correct: true}
+      - {text: "`0`", correct: false}
+      - {text: "Ça ne compile pas", correct: false}
+      - {text: "Rien", correct: false}
+    answer: "`3` : grâce au retour covariant, `c.clone()` est un `Cercle*`. On lit `rayon` sans cast."
+    check:
+      output: "3"
+  - key: code-oubli
+    format: code-output
+    question: |-
+      ```cpp
+      #include <memory>
+      #include <print>
+
+      struct Forme {
+          virtual ~Forme() = default;
+          virtual std::unique_ptr<Forme> clone() const { return std::make_unique<Forme>(*this); }
+          virtual const char* nom() const { return "forme"; }
+      };
+
+      struct Cercle : Forme {
+          std::unique_ptr<Forme> clone() const override { return std::make_unique<Cercle>(*this); }
+          const char* nom() const override { return "cercle"; }
+      };
+
+      struct CercleColore : Cercle {
+          const char* nom() const override { return "cercle coloré"; }
+      };
+
+      int main() {
+          const CercleColore c;
+          std::println("{}", c.clone()->nom());
+      }
+      ```
+    choices:
+      - {text: "`cercle`", correct: true}
+      - {text: "`cercle coloré`", correct: false}
+      - {text: "`forme`", correct: false}
+      - {text: "Ça ne compile pas", correct: false}
+    answer: "`cercle` : `CercleColore` n'a pas redéfini `clone()`. La version de `Cercle` fabrique un `Cercle`."
+    check:
+      output: "cercle"
+  - key: code-decoupage
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+
+      struct Forme {
+          virtual ~Forme() = default;
+          virtual const char* nom() const { return "forme"; }
+      };
+
+      struct Cercle : Forme {
+          const char* nom() const override { return "cercle"; }
+      };
+
+      int main() {
+          const Cercle c;
+          const Forme& reference = c;
+          const Forme copie = reference;
+          std::println("{} {}", reference.nom(), copie.nom());
+      }
+      ```
+    choices:
+      - {text: "`cercle forme`", correct: true}
+      - {text: "`cercle cercle`", correct: false}
+      - {text: "`forme forme`", correct: false}
+      - {text: "`forme cercle`", correct: false}
+    answer: "`cercle forme` : copier par valeur à travers la base ne garde que la partie `Forme`. C'est le découpage que `clone()` évite."
+    check:
+      output: "cercle forme"
+  - key: bug-retour-par-valeur
+    format: bug-fix
+    question: |-
+      Le compilateur répond « invalid covariant return type for 'virtual Cercle Cercle::copie() const' ». Quelle
+      correction est la bonne ?
+      ```cpp
+      #include <print>
+
+      struct Forme {
+          virtual ~Forme() = default;
+          virtual Forme copie() const { return *this; }
+      };
+
+      struct Cercle : Forme {
+          Cercle copie() const override { return *this; }
+      };
+
+      int main() {
+          const Cercle c;
+          c.copie();
+          std::println("fin");
+      }
+      ```
+    choices:
+      - {text: "Renvoyer des `std::unique_ptr<Forme>` dans les deux classes", correct: true}
+      - {text: "Renvoyer `Cercle&&` dans la classe `Cercle`", correct: false}
+      - {text: "Renvoyer `const Cercle` dans la classe `Cercle`", correct: false}
+      - {text: "Retirer `override` de la fonction de `Cercle`", correct: false}
+    answer: |-
+      ```cpp
+      virtual std::unique_ptr<Forme> copie() const { return std::make_unique<Forme>(*this); }
+      // dans Cercle :
+      std::unique_ptr<Forme> copie() const override { return std::make_unique<Cercle>(*this); }
+      ```
+      La covariance ne vaut que pour les pointeurs et les références. Par valeur, les deux types de retour
+      doivent être identiques, et l'objet serait de toute façon découpé.
+  - key: bug-unique-ptr-covariant
+    format: bug-fix
+    question: |-
+      Le compilateur répond « invalid covariant return type » sur `Cercle::clone`. Quelle correction est la bonne ?
+      ```cpp
+      #include <memory>
+      #include <print>
+
+      struct Forme {
+          virtual ~Forme() = default;
+          virtual std::unique_ptr<Forme> clone() const = 0;
+      };
+
+      struct Cercle : Forme {
+          std::unique_ptr<Cercle> clone() const override { return std::make_unique<Cercle>(*this); }
+      };
+
+      int main() {
+          const Cercle c;
+          std::println("{}", c.clone() != nullptr);
+      }
+      ```
+    choices:
+      - {text: "Renvoyer `std::unique_ptr<Forme>` dans `Cercle` aussi", correct: true}
+      - {text: "Renvoyer `std::shared_ptr<Cercle>` dans `Cercle`", correct: false}
+      - {text: "Renvoyer `std::unique_ptr<Cercle>&` dans `Cercle`", correct: false}
+      - {text: "Renvoyer `std::unique_ptr<void>` dans `Forme`", correct: false}
+    answer: |-
+      ```cpp
+      std::unique_ptr<Forme> clone() const override { return std::make_unique<Cercle>(*this); }
+      ```
+      `std::unique_ptr<Cercle>` ne dérive pas de `std::unique_ptr<Forme>` : pas de covariance. Le
+      `std::unique_ptr<Cercle>` créé se convertit au moment du `return`.
+  - key: bug-copie-decoupee
+    format: bug-fix
+    question: |-
+      Ce programme devrait afficher `cercle`. Il affiche `forme` : la copie a perdu son type. Quelle correction est
+      la bonne ?
+      ```cpp
+      #include <memory>
+      #include <print>
+
+      struct Forme {
+          virtual ~Forme() = default;
+          virtual std::unique_ptr<Forme> clone() const { return std::make_unique<Forme>(*this); }
+          virtual const char* nom() const { return "forme"; }
+      };
+
+      struct Cercle : Forme {
+          std::unique_ptr<Forme> clone() const override { return std::make_unique<Cercle>(*this); }
+          const char* nom() const override { return "cercle"; }
+      };
+
+      std::unique_ptr<Forme> dupliquer(const Forme& f) {
+          return std::make_unique<Forme>(f);
+      }
+
+      int main() {
+          const Cercle c;
+          std::println("{}", dupliquer(c)->nom());
+      }
+      ```
+    choices:
+      - {text: "Écrire `return f.clone();` dans `dupliquer`", correct: true}
+      - {text: "Écrire `return std::make_unique<Forme>(&f);` dans `dupliquer`", correct: false}
+      - {text: "Recevoir `Forme f` par valeur dans `dupliquer`", correct: false}
+      - {text: "Écrire `return std::make_unique<Forme>(std::move(f));` dans `dupliquer`", correct: false}
+    answer: |-
+      ```cpp
+      std::unique_ptr<Forme> dupliquer(const Forme& f) {
+          return f.clone();
+      }
+      ```
+      `std::make_unique<Forme>(f)` appelle le constructeur de copie de `Forme` : seule la partie `Forme` est
+      copiée. `clone()` est virtuelle, et copie l'objet avec son type réel.
+  - key: bug-clone-oublie
+    format: bug-fix
+    question: |-
+      Ce programme devrait afficher `carré`. Il affiche `rectangle`. Quelle correction est la bonne ?
+      ```cpp
+      #include <memory>
+      #include <print>
+
+      struct Forme {
+          virtual ~Forme() = default;
+          virtual std::unique_ptr<Forme> clone() const = 0;
+          virtual const char* nom() const = 0;
+      };
+
+      struct Rectangle : Forme {
+          std::unique_ptr<Forme> clone() const override { return std::make_unique<Rectangle>(*this); }
+          const char* nom() const override { return "rectangle"; }
+      };
+
+      struct Carre : Rectangle {
+          const char* nom() const override { return "carré"; }
+      };
+
+      int main() {
+          const Carre c;
+          std::println("{}", c.clone()->nom());
+      }
+      ```
+    choices:
+      - {text: "Redéfinir `clone()` dans `Carre`, avec `std::make_unique<Carre>(*this)`", correct: true}
+      - {text: "Marquer `Rectangle::clone` avec `final`, sans rien ajouter à `Carre`", correct: false}
+      - {text: "Renvoyer `std::unique_ptr<Carre>` dans `Rectangle::clone`", correct: false}
+      - {text: "Appeler `c.Rectangle::clone()` dans `main`", correct: false}
+    answer: |-
+      ```cpp
+      struct Carre : Rectangle {
+          std::unique_ptr<Forme> clone() const override { return std::make_unique<Carre>(*this); }
+          const char* nom() const override { return "carré"; }
+      };
+      ```
+      `Carre` hérite du `clone()` de `Rectangle`, qui fabrique un `Rectangle`. Chaque classe concrète redéfinit
+      `clone()` pour se copier elle-même.

@@ -1,0 +1,535 @@
+notion: crtp
+lesson: |-
+  Le **CRTP** (*Curiously Recurring Template Pattern*) est un idiome où une classe **dérive d'un template
+  instancié avec elle-même**.
+
+  ```cpp
+  template <typename Derivee>
+  struct Forme {
+      double double_aire() const {
+          return 2 * static_cast<const Derivee&>(*this).aire();
+      }
+  };
+
+  struct Carre : Forme<Carre> {
+      double aire() const { return 4; }
+  };
+  ```
+
+  La classe de base connaît, **à la compilation**, le type de sa dérivée : elle peut appeler ses fonctions par un
+  `static_cast`, sans fonction virtuelle. C'est du **polymorphisme statique**.
+
+  **Ce qu'on y gagne.**
+
+  - **Aucun coût à l'exécution** : pas de table virtuelle, pas de pointeur caché dans l'objet, et l'appel peut être
+    intégré (*inlined*).
+  - Du **code factorisé** dans la base, écrit une fois pour toutes les dérivées.
+
+  **Ce qu'on y perd.**
+
+  - `Forme<Carre>` et `Forme<Cercle>` sont deux types **sans rapport** : pas de `std::vector<Forme*>` qui mélange
+    carrés et cercles. Le choix se fait à la compilation, pas à l'exécution.
+  - Tout le code doit être **dans les en-têtes**, et se propage par templates.
+  - Les erreurs sont moins lisibles.
+
+  **Les usages.**
+
+  - **Injecter des fonctions** (*mixin*) : la base définit `operator>` à partir du `operator<` de la dérivée, un
+    compteur d'instances par classe, un `clone()`.
+  - **Une interface statique** : la base expose `aire()`, qui appelle `aire_impl()` de la dérivée.
+  - Dans la bibliothèque : `std::enable_shared_from_this<T>`, `std::ranges::view_interface<T>`.
+
+  **Les pièges.**
+
+  - **Se tromper de dérivée** : `struct Cercle : Forme<Carre>` compile, et le `static_cast` traite un cercle comme
+    un carré : comportement indéfini. Une parade : constructeur privé dans la base, et `friend Derivee;`.
+  - **La récursion infinie** : si la base et la dérivée ont une fonction du **même nom**, et que la dérivée oublie
+    de la définir, la base s'appelle elle-même.
+  - La base ne peut pas utiliser les **types membres** de la dérivée dans sa propre définition : la dérivée est
+    encore incomplète à ce moment-là. Dans le corps des fonctions membres, en revanche, tout est permis.
+
+  **En C++23**, le paramètre objet explicite (*deducing this*) donne le même résultat sans template de classe :
+  `double double_aire(this const auto& self) { return 2 * self.aire(); }`. Et les concepts remplacent souvent le
+  CRTP utilisé comme interface statique.
+
+  **En entretien** : « CRTP : une classe dérive d'un template paramétré par elle-même, ce qui permet à la base
+  d'appeler la dérivée par `static_cast`, sans `virtual`. C'est du polymorphisme résolu à la compilation : pas de
+  table virtuelle, mais pas de conteneur hétérogène non plus. »
+cards:
+  - key: definition
+    format: course
+    question: "Qu'est-ce que le CRTP ?"
+    choices:
+      - {text: "Une classe qui dérive d'un template instancié avec elle-même : `struct Carre : Forme<Carre>`", correct: true}
+      - {text: "Une classe qui dérive deux fois de la même classe de base, par deux chemins différents", correct: false}
+      - {text: "Un template qui se spécialise lui-même pour chacun de ses arguments", correct: false}
+      - {text: "Une fonction virtuelle qui renvoie un pointeur vers sa propre classe", correct: false}
+    answer: "*Curiously Recurring Template Pattern*. La base reçoit le type de la dérivée en paramètre, et peut donc s'en servir à la compilation."
+  - key: appel
+    format: course
+    question: "Comment la classe de base d'un CRTP appelle-t-elle une fonction de sa dérivée ?"
+    choices:
+      - {text: "Par `static_cast<Derivee&>(*this)`, puis l'appel de la fonction", correct: true}
+      - {text: "Par `dynamic_cast<Derivee&>(*this)`, vérifié à l'exécution", correct: false}
+      - {text: "Par une fonction virtuelle pure que la dérivée redéfinit", correct: false}
+      - {text: "Par un pointeur de fonction rangé dans chaque objet", correct: false}
+    answer: "La base sait, par son paramètre, quel est le type réel de l'objet. La conversion est gratuite, et l'appel est résolu à la compilation."
+  - key: avantage
+    format: course
+    question: "Que gagne-t-on avec le CRTP par rapport aux fonctions virtuelles ?"
+    choices:
+      - {text: "Un appel résolu à la compilation : ni table virtuelle, ni pointeur caché dans l'objet", correct: true}
+      - {text: "La possibilité de ranger des objets de types différents dans un même conteneur", correct: false}
+      - {text: "La possibilité de choisir la classe dérivée pendant l'exécution", correct: false}
+      - {text: "Des messages d'erreur plus courts à la compilation", correct: false}
+    answer: "C'est du polymorphisme statique : l'appel peut être intégré par le compilateur. En contrepartie, le type doit être connu à la compilation."
+  - key: limite
+    format: course
+    question: "Pourquoi ne peut-on pas ranger un `Carre` et un `Cercle` CRTP dans un même `std::vector` de pointeurs de base ?"
+    choices:
+      - {text: "`Forme<Carre>` et `Forme<Cercle>` sont deux types de base sans rapport", correct: true}
+      - {text: "Un `std::vector` n'accepte pas les classes issues d'un template", correct: false}
+      - {text: "Les classes CRTP n'ont pas de destructeur", correct: false}
+      - {text: "Les classes CRTP ne peuvent pas être allouées sur le tas", correct: false}
+    answer: "Chaque dérivée a sa propre base. Il n'y a pas de type commun : pour un conteneur hétérogène, il faut des fonctions virtuelles ou un `std::variant`."
+  - key: vf-vtable
+    format: true-false
+    question: "Une classe CRTP sans fonction virtuelle contient un pointeur vers une table virtuelle."
+    truth: false
+    answer: "Aucune table : l'appel est résolu à la compilation. L'objet ne contient que ses propres membres."
+  - key: vf-execution
+    format: true-false
+    question: "Avec le CRTP, la fonction appelée est choisie pendant l'exécution."
+    truth: false
+    answer: "Elle est choisie à la compilation, d'après le paramètre du template."
+  - key: vf-mauvaise-derivee
+    format: true-false
+    question: "`struct Cercle : Forme<Carre> {};` est refusé par le compilateur."
+    truth: false
+    answer: "Le code compile. Mais le `static_cast` de la base traitera un cercle comme un carré : comportement indéfini."
+  - key: vf-standard
+    format: true-false
+    question: "`std::enable_shared_from_this<T>` est un exemple de CRTP dans la bibliothèque standard."
+    truth: true
+    answer: "On écrit `class Session : public std::enable_shared_from_this<Session>` : la classe dérive d'un template paramétré par elle-même."
+  - key: qcm-declaration
+    format: multiple-choice
+    question: "Quelle déclaration fait de `Carre` une classe CRTP de `Forme` ?"
+    choices:
+      - {text: "`struct Carre : Forme<Carre> {};`", correct: true}
+      - {text: "`struct Carre : Forme {};`", correct: false}
+      - {text: "`struct Carre<Forme> {};`", correct: false}
+      - {text: "`template <Carre> struct Forme {};`", correct: false}
+    answer: "La classe se passe elle-même en argument du template dont elle dérive."
+  - key: qcm-mixin
+    format: multiple-choice
+    question: "Quel usage du CRTP consiste à ajouter des fonctions à une classe à partir de celles qu'elle a déjà ?"
+    choices:
+      - {text: "Le *mixin* : la base définit `operator>` à partir du `operator<` de la dérivée", correct: true}
+      - {text: "Le *singleton* : la base garantit qu'un seul objet existe", correct: false}
+      - {text: "La *fabrique* : la base choisit la classe à créer à l'exécution", correct: false}
+      - {text: "Le *visiteur* : la base parcourt une hiérarchie de classes", correct: false}
+    answer: "La base fournit du code écrit une fois, qui s'appuie sur ce que la dérivée définit. C'est l'usage le plus courant."
+  - key: qcm-alternative-cpp23
+    format: multiple-choice
+    question: "Quelle fonctionnalité de C++23 remplace le CRTP dans bien des cas ?"
+    choices:
+      - {text: "Le paramètre objet explicite : `void f(this const auto& self)`", correct: true}
+      - {text: "Les modules, importés par `import std;` au lieu des en-têtes", correct: false}
+      - {text: "Le type `std::expected`, qui porte une valeur ou une erreur", correct: false}
+      - {text: "La fonction `std::print`, qui formate et affiche", correct: false}
+    answer: "Avec *deducing this*, la fonction de la base déduit le type réel de l'objet, sans que la classe de base soit un template."
+  - key: qcm-protection
+    format: multiple-choice
+    question: "Comment empêche-t-on d'écrire par erreur `struct Cercle : Forme<Carre>` ?"
+    choices:
+      - {text: "Par un constructeur privé dans la base, et `friend Derivee;`", correct: true}
+      - {text: "Par un destructeur virtuel dans la base", correct: false}
+      - {text: "Par le mot-clé `final` sur la base", correct: false}
+      - {text: "Par un `dynamic_cast` dans chaque fonction de la base", correct: false}
+    answer: "Seule la classe nommée en paramètre peut alors construire sa base : `Cercle` ne peut pas construire un `Forme<Carre>`."
+  - key: trous-static-cast
+    format: fill-in
+    question: |-
+      Complète pour appeler la fonction de la classe dérivée :
+      ```cpp
+      template <typename Derivee>
+      struct Forme {
+          double double_aire() const {
+              return 2 * ___<const Derivee&>(*this).aire();
+          }
+      };
+      ```
+    blanks:
+      - [static_cast]
+    answer: "`static_cast` : la conversion vers la dérivée est connue du compilateur, et ne coûte rien."
+  - key: trous-argument
+    format: fill-in
+    question: |-
+      Complète pour que `Carre` suive le CRTP :
+      ```cpp
+      struct Carre : Forme<___> {
+          double aire() const { return 4; }
+      };
+      ```
+    blanks:
+      - [Carre]
+    answer: "La classe se donne elle-même en argument du template de base."
+  - key: trous-this
+    format: fill-in
+    question: |-
+      Complète pour convertir l'objet courant vers sa classe dérivée :
+      ```cpp
+      const Derivee& moi() const {
+          return static_cast<const Derivee&>(___);
+      }
+      ```
+    blanks:
+      - ["*this"]
+    answer: "`*this` est l'objet courant, vu comme la base ; le cast le rend à son type réel."
+  - key: trous-parametre
+    format: fill-in
+    question: |-
+      Complète le paramètre du template de base :
+      ```cpp
+      template <___ Derivee>
+      struct Compteur {
+          static inline int instances = 0;
+          Compteur() { ++instances; }
+      };
+      ```
+    blanks:
+      - [typename, class]
+    answer: "La base est un template de classe, paramétré par le type de sa dérivée."
+  - key: code-base
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+
+      template <typename Derivee>
+      struct Forme {
+          double double_aire() const {
+              return 2 * static_cast<const Derivee&>(*this).aire();
+          }
+      };
+
+      struct Carre : Forme<Carre> {
+          double aire() const { return 4; }
+      };
+
+      struct Disque : Forme<Disque> {
+          double aire() const { return 3; }
+      };
+
+      int main() {
+          std::println("{} {}", Carre{}.double_aire(), Disque{}.double_aire());
+      }
+      ```
+    choices:
+      - {text: "`8 6`", correct: true}
+      - {text: "`4 3`", correct: false}
+      - {text: "`8 8`", correct: false}
+      - {text: "Ça ne compile pas", correct: false}
+    answer: "`8 6` : chaque instanciation de `Forme` connaît sa dérivée, et appelle la bonne fonction `aire`, sans `virtual`."
+    check:
+      output: "8 6"
+  - key: code-compteur
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+
+      template <typename Derivee>
+      struct Compte {
+          static inline int instances = 0;
+          Compte() { ++instances; }
+      };
+
+      struct Chat : Compte<Chat> {};
+      struct Chien : Compte<Chien> {};
+
+      int main() {
+          Chat a;
+          Chat b;
+          Chien c;
+          std::println("{} {}", Chat::instances, Chien::instances);
+      }
+      ```
+    choices:
+      - {text: "`2 1`", correct: true}
+      - {text: "`3 3`", correct: false}
+      - {text: "`2 2`", correct: false}
+      - {text: "`1 1`", correct: false}
+    answer: "`2 1` : `Compte<Chat>` et `Compte<Chien>` sont deux classes distinctes, chacune avec son propre compteur statique."
+    check:
+      output: "2 1"
+  - key: code-taille
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+
+      template <typename Derivee>
+      struct BaseStatique {
+          int lire() const { return static_cast<const Derivee&>(*this).valeur; }
+      };
+
+      struct A : BaseStatique<A> {
+          int valeur = 1;
+      };
+
+      struct BaseVirtuelle {
+          virtual ~BaseVirtuelle() = default;
+          virtual int lire() const = 0;
+      };
+
+      struct B : BaseVirtuelle {
+          int valeur = 1;
+          int lire() const override { return valeur; }
+      };
+
+      int main() {
+          std::println("{} {}", sizeof(A), sizeof(B));
+      }
+      ```
+    choices:
+      - {text: "`4 16`", correct: true}
+      - {text: "`4 4`", correct: false}
+      - {text: "`8 16`", correct: false}
+      - {text: "`16 16`", correct: false}
+    answer: "`4 16` : la classe CRTP ne contient que son `int`. La classe polymorphe porte en plus un pointeur vers sa table virtuelle, de 8 octets, et du remplissage."
+    check:
+      output: "4 16"
+  - key: code-mixin
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+
+      template <typename Derivee>
+      struct Ordre {
+          friend bool operator>(const Derivee& a, const Derivee& b) { return b < a; }
+      };
+
+      struct Note : Ordre<Note> {
+          int valeur;
+          explicit Note(int v) : valeur{v} {}
+          friend bool operator<(const Note& a, const Note& b) { return a.valeur < b.valeur; }
+      };
+
+      int main() {
+          std::println("{} {}", Note{15} > Note{12}, Note{9} > Note{12});
+      }
+      ```
+    choices:
+      - {text: "`true false`", correct: true}
+      - {text: "`false true`", correct: false}
+      - {text: "`true true`", correct: false}
+      - {text: "Ça ne compile pas", correct: false}
+    answer: "`true false` : `Note` ne définit que `<`. La base lui fournit `>`, écrit une fois pour toutes les classes qui en dérivent."
+    check:
+      output: "true false"
+  - key: bug-mauvaise-derivee
+    format: bug-fix
+    question: |-
+      Ce programme devrait afficher `6`, le double de l'aire du disque. Il affiche `8`. Quelle correction est la
+      bonne ?
+      ```cpp
+      #include <print>
+
+      template <typename Derivee>
+      struct Forme {
+          double double_aire() const {
+              return 2 * static_cast<const Derivee&>(*this).aire();
+          }
+      };
+
+      struct Carre : Forme<Carre> {
+          double aire() const { return 4; }
+      };
+
+      struct Disque : Forme<Carre> {
+          double aire() const { return 3; }
+      };
+
+      int main() {
+          std::println("{}", Disque{}.double_aire());
+      }
+      ```
+    choices:
+      - {text: "Déclarer `struct Disque : Forme<Disque>`", correct: true}
+      - {text: "Déclarer `struct Disque : Carre`", correct: false}
+      - {text: "Déclarer `aire()` avec `virtual` dans `Disque`", correct: false}
+      - {text: "Déclarer `struct Disque : Forme<Forme<Carre>>`", correct: false}
+    answer: |-
+      ```cpp
+      struct Disque : Forme<Disque> {
+      ```
+      `Disque` a recopié la ligne de `Carre` : la base convertit l'objet en `Carre`, et appelle `Carre::aire`.
+      C'est un comportement indéfini, que le compilateur ne signale pas.
+  - key: bug-cast-oublie
+    format: bug-fix
+    question: |-
+      Le compilateur répond « 'const struct Forme<Carre>' has no member named 'aire' ». Quelle correction est la
+      bonne ?
+      ```cpp
+      #include <print>
+
+      template <typename Derivee>
+      struct Forme {
+          double double_aire() const {
+              return 2 * this->aire();
+          }
+      };
+
+      struct Carre : Forme<Carre> {
+          double aire() const { return 4; }
+      };
+
+      int main() {
+          std::println("{}", Carre{}.double_aire());
+      }
+      ```
+    choices:
+      - {text: "Écrire `static_cast<const Derivee&>(*this).aire()`", correct: true}
+      - {text: "Écrire `Derivee::aire()` sans objet", correct: false}
+      - {text: "Écrire `dynamic_cast<Derivee>(this).aire()`", correct: false}
+      - {text: "Écrire `(*this)->aire()`", correct: false}
+    answer: |-
+      ```cpp
+      return 2 * static_cast<const Derivee&>(*this).aire();
+      ```
+      Dans la base, `this` désigne un `Forme<Carre>`, qui n'a pas de fonction `aire`. Il faut d'abord convertir
+      l'objet vers sa classe dérivée.
+  - key: bug-recursion-infinie
+    format: bug-fix
+    question: |-
+      Ce programme plante sur une erreur de segmentation : la pile déborde. Quelle correction est la bonne ?
+      ```cpp
+      #include <print>
+
+      template <typename Derivee>
+      struct Forme {
+          double aire() const {
+              return static_cast<const Derivee&>(*this).aire();
+          }
+      };
+
+      struct Carre : Forme<Carre> {
+          double cote = 2;
+      };
+
+      int main() {
+          std::println("{}", Carre{}.aire());
+      }
+      ```
+    choices:
+      - {text: "Définir `double aire() const { return cote * cote; }` dans `Carre`", correct: true}
+      - {text: "Déclarer `aire()` avec `virtual` dans la classe `Forme`", correct: false}
+      - {text: "Remplacer `static_cast` par `reinterpret_cast` dans `Forme`", correct: false}
+      - {text: "Déclarer `aire()` avec `noexcept` dans la classe `Forme`", correct: false}
+    answer: |-
+      ```cpp
+      struct Carre : Forme<Carre> {
+          double cote = 2;
+          double aire() const { return cote * cote; }
+      };
+      ```
+      `Carre` ne définit pas `aire` : l'appel sur la dérivée retrouve la fonction héritée de la base, qui s'appelle
+      elle-même sans fin. Donner un autre nom à la fonction de la dérivée, comme `aire_impl`, transforme cet oubli
+      en erreur de compilation.
+  - key: bug-conteneur-heterogene
+    format: bug-fix
+    question: |-
+      Le compilateur refuse `std::vector<Forme*>` : `Forme` est un template, pas un type. Le programme veut ranger
+      des formes différentes dans un même vecteur. Quelle correction est la bonne ?
+      ```cpp
+      #include <print>
+      #include <vector>
+
+      template <typename Derivee>
+      struct Forme {
+          double double_aire() const {
+              return 2 * static_cast<const Derivee&>(*this).aire();
+          }
+      };
+
+      struct Carre : Forme<Carre> {
+          double aire() const { return 4; }
+      };
+
+      int main() {
+          Carre carre;
+          std::vector<Forme*> formes{&carre};
+          std::println("{}", formes.size());
+      }
+      ```
+    choices:
+      - {text: "Donner aux formes une classe de base ordinaire, avec une fonction `aire` virtuelle", correct: true}
+      - {text: "Déclarer le vecteur `std::vector<Forme<>*>`, avec des chevrons vides", correct: false}
+      - {text: "Déclarer le vecteur `std::vector<Forme<auto>*>`, pour déduire le type", correct: false}
+      - {text: "Déclarer le vecteur `std::vector<template Forme*>`", correct: false}
+    answer: |-
+      ```cpp
+      struct Forme {
+          virtual ~Forme() = default;
+          virtual double aire() const = 0;
+      };
+      ```
+      Le CRTP n'offre pas de type de base commun : `Forme<Carre>` et `Forme<Disque>` n'ont rien à voir. Un
+      conteneur hétérogène demande un choix à l'exécution : des fonctions virtuelles, ou un `std::variant`.
+  - key: situation-boucle-chaude
+    format: scenario
+    question: |-
+      Un moteur de calcul appelle des milliards de fois une petite fonction virtuelle, sur des objets dont le type
+      est connu à la compilation. Le profileur montre le coût des appels indirects. Que proposes-tu ?
+    choices:
+      - {text: "Un polymorphisme statique, par CRTP ou par template : l'appel est résolu et intégré à la compilation", correct: true}
+      - {text: "Un `dynamic_cast` avant chaque appel, pour connaître le type réel de l'objet", correct: false}
+      - {text: "Un `std::function` à la place de la fonction virtuelle, pour accélérer l'appel", correct: false}
+      - {text: "Une seconde fonction virtuelle, qui appelle la première", correct: false}
+    answer: |-
+      Quand le type est connu du compilateur, la table virtuelle n'apporte rien et empêche l'intégration de
+      l'appel. Le CRTP, ou un simple template, donne un appel direct. `dynamic_cast` et `std::function` ajoutent un
+      coût au lieu d'en retirer.
+  - key: situation-plugins
+    format: scenario
+    question: |-
+      Une application charge des greffons au démarrage, d'après un fichier de configuration, et les range dans une
+      liste. Un collègue veut les écrire en CRTP « pour la performance ». Que lui réponds-tu ?
+    choices:
+      - {text: "Que le type n'est connu qu'à l'exécution : il faut des fonctions virtuelles, pas le CRTP", correct: true}
+      - {text: "Que le CRTP convient, à condition de compiler avec l'optimisation maximale", correct: false}
+      - {text: "Que le CRTP convient, à condition que chaque greffon ait un destructeur virtuel", correct: false}
+      - {text: "Que le CRTP convient, puisque `Greffon<A>` et `Greffon<B>` ont la même base", correct: false}
+    answer: |-
+      Le CRTP exige que le compilateur connaisse le type. Des greffons choisis par configuration, rangés ensemble,
+      demandent un type commun et un choix à l'exécution : c'est exactement ce que font les fonctions virtuelles.
+  - key: situation-operateurs
+    format: scenario
+    question: |-
+      Vingt petites classes de valeur définissent chacune `==` et `<`, puis recopient les mêmes six lignes pour
+      `!=`, `>`, `<=` et `>=`. Tu es en C++17. Que proposes-tu pour retirer cette duplication ?
+    choices:
+      - {text: "Une base CRTP qui définit les autres opérateurs à partir de `==` et `<`", correct: true}
+      - {text: "Une base à fonctions virtuelles pures pour les six opérateurs", correct: false}
+      - {text: "Une macro qui recopie les six lignes dans chaque classe", correct: false}
+      - {text: "Un `std::function` membre par opérateur, dans chaque classe", correct: false}
+    answer: |-
+      C'est l'usage « mixin » du CRTP : le code commun vit une fois dans la base, qui connaît la dérivée. Aucun
+      coût à l'exécution. En C++20, `operator<=>` rend même cette base inutile.
+  - key: situation-entretien
+    format: scenario
+    question: |-
+      En entretien, on te demande : « Quelle différence entre le polymorphisme par `virtual` et par CRTP ? »
+      Quelle réponse est la plus juste ?
+    choices:
+      - {text: "`virtual` choisit à l'exécution, avec une table ; le CRTP à la compilation, sans conteneur hétérogène", correct: true}
+      - {text: "`virtual` choisit à la compilation ; le CRTP à l'exécution, avec une table", correct: false}
+      - {text: "Aucune : le compilateur transforme le CRTP en fonctions virtuelles", correct: false}
+      - {text: "Le CRTP est toujours préférable : `virtual` est déprécié depuis C++20", correct: false}
+    answer: |-
+      Les deux expriment « une interface, plusieurs réalisations ». Le dynamique paie une indirection et permet de
+      mélanger les types à l'exécution ; le statique ne coûte rien à l'exécution, mais fige les types à la
+      compilation.

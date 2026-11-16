@@ -1,0 +1,497 @@
+notion: relancer-imbriquer
+lesson: |-
+  Attraper une exception ne veut pas toujours dire la traiter. On peut la **relancer** telle quelle, la **mettre de
+  côté** pour plus tard, ou l'**emballer** dans une autre qui ajoute du contexte.
+
+  **Relancer : `throw;`.** Dans un `catch`, `throw;` sans opérande relance **l'exception en cours**, intacte, avec
+  son type d'origine.
+
+  ```cpp
+  try {
+      traiter();
+  } catch (const std::exception& e) {
+      journaliser(e.what());
+      throw;            // la même exception repart
+  }
+  ```
+
+  **Le piège : `throw e;`.** Il lance une **copie** de `e`, du type **déclaré** dans le `catch`. Si l'exception
+  était un `std::out_of_range` attrapé comme `std::exception`, la copie n'est plus qu'un `std::exception` : le type
+  et le message sont perdus. C'est le découpage (*slicing*).
+
+  **Hors d'un `catch`**, `throw;` n'a rien à relancer : le programme appelle `std::terminate`.
+
+  **Mettre de côté : `std::exception_ptr`.** C'est un pointeur partagé vers une exception, de n'importe quel type.
+
+  | Fonction | Rôle |
+  |---|---|
+  | `std::current_exception()` | dans un `catch`, capture l'exception en cours |
+  | `std::rethrow_exception(p)` | la relance, ailleurs, plus tard |
+  | `std::make_exception_ptr(e)` | fabrique un `exception_ptr` sans `throw` |
+
+  Un `std::exception_ptr` vide vaut `nullptr` ; le relancer est un comportement indéfini : on le teste avant.
+
+  **Son usage principal : traverser les threads.** Une exception qui sort de la fonction d'un thread termine le
+  programme. On la capture dans le thread, et on la relance dans celui qui attend :
+
+  ```cpp
+  std::exception_ptr erreur;
+  std::thread t{[&erreur] {
+      try {
+          travailler();
+      } catch (...) {
+          erreur = std::current_exception();
+      }
+  }};
+  t.join();
+  if (erreur) {
+      std::rethrow_exception(erreur);
+  }
+  ```
+
+  C'est ce que font `std::promise::set_exception`, et `std::async` avec `future::get()`.
+
+  **Emballer : les exceptions imbriquées.** Pour ajouter du contexte sans perdre la cause :
+
+  ```cpp
+  try {
+      lire(chemin);
+  } catch (...) {
+      std::throw_with_nested(std::runtime_error{"chargement de la configuration impossible"});
+  }
+  ```
+
+  La nouvelle exception contient l'ancienne. Celui qui l'attrape déroule la chaîne avec
+  `std::rethrow_if_nested(e)`, qui relance l'exception intérieure s'il y en a une.
+
+  **En entretien** : « `throw;` relance l'exception d'origine ; `throw e;` en lance une copie découpée. Pour faire
+  passer une exception d'un thread à un autre, je la capture avec `std::current_exception()` dans un
+  `std::exception_ptr`, et je la relance avec `std::rethrow_exception`. »
+cards:
+  - key: throw-seul
+    format: course
+    question: "Que fait `throw;`, sans opérande, dans un bloc `catch` ?"
+    choices:
+      - {text: "Il relance l'exception en cours, avec son type d'origine", correct: true}
+      - {text: "Il lance une nouvelle exception de type `std::exception`", correct: false}
+      - {text: "Il termine le bloc `catch`, et le programme continue après", correct: false}
+      - {text: "Il lance une copie de l'exception, du type déclaré dans le `catch`", correct: false}
+    answer: "L'objet d'origine repart tel quel vers les `catch` englobants. Aucune copie n'est faite."
+  - key: throw-e
+    format: course
+    question: "Dans `catch (const std::exception& e) { throw e; }`, quel défaut `throw e;` a-t-il ?"
+    choices:
+      - {text: "Il lance une copie de type `std::exception` : le type réel et son message sont perdus", correct: true}
+      - {text: "Il relance l'exception deux fois : une fois par copie, une fois par référence", correct: false}
+      - {text: "Il ne compile pas : une référence constante ne peut pas être lancée", correct: false}
+      - {text: "Il termine le programme : une exception ne se lance pas depuis un `catch`", correct: false}
+    answer: "`throw e;` copie d'après le type statique de `e`. Un `std::out_of_range` attrapé par sa base est découpé. On écrit `throw;`."
+  - key: exception-ptr
+    format: course
+    question: "À quoi sert `std::exception_ptr` ?"
+    choices:
+      - {text: "À garder une exception de n'importe quel type, pour la relancer plus tard ou ailleurs", correct: true}
+      - {text: "À désigner l'objet qui a lancé l'exception, pour le détruire", correct: false}
+      - {text: "À remplacer `try` et `catch` par des tests sur un pointeur", correct: false}
+      - {text: "À convertir une exception en code d'erreur entier", correct: false}
+    answer: "Il se comporte comme un pointeur partagé vers l'exception. `std::current_exception()` le remplit, `std::rethrow_exception` s'en sert."
+  - key: imbriquee
+    format: course
+    question: "Que fait `std::throw_with_nested(std::runtime_error{\"chargement impossible\"})`, appelé dans un `catch` ?"
+    choices:
+      - {text: "Il lance la nouvelle exception, qui garde en elle l'exception en cours", correct: true}
+      - {text: "Il lance la nouvelle exception, et détruit l'exception en cours", correct: false}
+      - {text: "Il relance l'exception en cours, et ignore la nouvelle", correct: false}
+      - {text: "Il lance les deux exceptions l'une après l'autre", correct: false}
+    answer: "On ajoute du contexte sans perdre la cause. `std::rethrow_if_nested` permet ensuite de retrouver l'exception intérieure."
+  - key: vf-hors-catch
+    format: true-false
+    question: "`throw;` exécuté alors qu'aucune exception n'est en cours appelle `std::terminate`."
+    truth: true
+    answer: "Il n'y a rien à relancer. Le programme s'arrête : « terminate called without an active exception »."
+  - key: vf-copie
+    format: true-false
+    question: "`throw;` fait une copie de l'exception avant de la relancer."
+    truth: false
+    answer: "C'est le même objet qui continue sa route. C'est `throw e;` qui copie."
+  - key: vf-vide
+    format: true-false
+    question: "Un `std::exception_ptr` construit par défaut se compare égal à `nullptr`."
+    truth: true
+    answer: "Il ne désigne aucune exception. On le teste avant d'appeler `std::rethrow_exception`."
+  - key: vf-thread
+    format: true-false
+    question: "Une exception lancée dans un `std::thread` remonte d'elle-même vers le thread qui appelle `join()`."
+    truth: false
+    answer: "Elle termine le programme. Il faut la capturer dans le thread avec `std::current_exception()`, et la relancer après le `join()`."
+  - key: qcm-capturer
+    format: multiple-choice
+    question: "Dans un `catch (...)`, quelle fonction donne un `std::exception_ptr` vers l'exception en cours ?"
+    choices:
+      - {text: "`std::current_exception()`", correct: true}
+      - {text: "`std::uncaught_exceptions()`", correct: false}
+      - {text: "`std::rethrow_exception()`", correct: false}
+      - {text: "`std::get_exception()`", correct: false}
+    answer: "Elle fonctionne même dans `catch (...)`, où l'exception n'a pas de nom."
+  - key: qcm-relancer
+    format: multiple-choice
+    question: "Quelle fonction relance l'exception gardée dans le `std::exception_ptr p` ?"
+    choices:
+      - {text: "`std::rethrow_exception(p)`", correct: true}
+      - {text: "`throw p;`", correct: false}
+      - {text: "`throw *p;`", correct: false}
+      - {text: "`p.rethrow()`", correct: false}
+    answer: "`throw p;` lancerait le pointeur lui-même, et un `std::exception_ptr` ne se déréférence pas."
+  - key: qcm-future
+    format: multiple-choice
+    question: "Quel mécanisme de la bibliothèque transporte déjà une exception d'un thread à un autre ?"
+    choices:
+      - {text: "`std::future::get()`, qui relance l'exception de la tâche", correct: true}
+      - {text: "`std::thread::join()`, qui relance l'exception du thread", correct: false}
+      - {text: "`std::mutex::lock()`, qui relance l'exception du propriétaire", correct: false}
+      - {text: "`std::atomic::load()`, qui relance l'exception de l'écrivain", correct: false}
+    answer: "`std::async` et `std::promise::set_exception` rangent l'exception dans l'état partagé ; `get()` la relance chez l'appelant."
+  - key: qcm-derouler
+    format: multiple-choice
+    question: "Quelle fonction relance l'exception contenue dans une exception imbriquée, s'il y en a une ?"
+    choices:
+      - {text: "`std::rethrow_if_nested(e)`", correct: true}
+      - {text: "`std::throw_with_nested(e)`", correct: false}
+      - {text: "`std::current_exception(e)`", correct: false}
+      - {text: "`std::nested_exception(e)`", correct: false}
+    answer: "Si `e` n'emballe rien, elle ne fait rien. On l'appelle dans un `try`, pour attraper la cause."
+  - key: trous-throw
+    format: fill-in
+    question: |-
+      Complète pour relancer l'exception d'origine après l'avoir journalisée :
+      ```cpp
+      catch (const std::exception& e) {
+          journaliser(e.what());
+          ___;
+      }
+      ```
+    blanks:
+      - [throw]
+    answer: "`throw;` seul relance l'exception en cours, sans la copier."
+  - key: trous-current
+    format: fill-in
+    question: |-
+      Complète pour capturer l'exception en cours :
+      ```cpp
+      catch (...) {
+          erreur = std::___();
+      }
+      ```
+    blanks:
+      - [current_exception]
+    answer: "`std::current_exception()` renvoie un `std::exception_ptr`."
+  - key: trous-rethrow
+    format: fill-in
+    question: |-
+      Complète pour relancer l'exception capturée :
+      ```cpp
+      if (erreur) {
+          std::___(erreur);
+      }
+      ```
+    blanks:
+      - [rethrow_exception]
+    answer: "`std::rethrow_exception` relance l'exception que désigne le `std::exception_ptr`."
+  - key: trous-type
+    format: fill-in
+    question: |-
+      Complète le type de la variable qui garde l'exception :
+      ```cpp
+      std::___ erreur;
+      try {
+          traiter();
+      } catch (...) {
+          erreur = std::current_exception();
+      }
+      ```
+    blanks:
+      - [exception_ptr]
+    answer: "`std::exception_ptr` garde une exception de n'importe quel type."
+  - key: code-decoupage
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+      #include <stdexcept>
+
+      int main() {
+          try {
+              try {
+                  throw std::out_of_range{"indice"};
+              } catch (const std::exception& e) {
+                  throw e;
+              }
+          } catch (const std::out_of_range&) {
+              std::println("bornes");
+          } catch (const std::exception&) {
+              std::println("exception");
+          }
+      }
+      ```
+    choices:
+      - {text: "`exception`", correct: true}
+      - {text: "`bornes`", correct: false}
+      - {text: "`bornes`, puis `exception`", correct: false}
+      - {text: "Rien", correct: false}
+    answer: "`exception` : `throw e;` lance une copie de type `std::exception`. Ce n'est plus un `std::out_of_range`. Avec `throw;`, le programme afficherait `bornes`."
+    check:
+      output: "exception"
+  - key: code-exception-ptr
+    format: code-output
+    question: |-
+      ```cpp
+      #include <exception>
+      #include <print>
+      #include <stdexcept>
+
+      int main() {
+          std::exception_ptr p;
+          std::print("{} ", p == nullptr);
+          try {
+              throw std::runtime_error{"panne"};
+          } catch (...) {
+              p = std::current_exception();
+          }
+          std::print("{} ", p == nullptr);
+          try {
+              std::rethrow_exception(p);
+          } catch (const std::runtime_error& e) {
+              std::println("{}", e.what());
+          }
+      }
+      ```
+    choices:
+      - {text: "`true false panne`", correct: true}
+      - {text: "`false true panne`", correct: false}
+      - {text: "`true false`", correct: false}
+      - {text: "`true true panne`", correct: false}
+    answer: "`true false panne` : vide au départ, le pointeur reçoit l'exception dans le `catch`. Relancée plus tard, elle a gardé son type et son message."
+    check:
+      output: "true false panne"
+  - key: code-thread
+    format: code-output
+    question: |-
+      ```cpp
+      #include <exception>
+      #include <print>
+      #include <stdexcept>
+      #include <thread>
+
+      int main() {
+          std::exception_ptr erreur;
+          std::thread t{[&erreur] {
+              try {
+                  throw std::runtime_error{"dans le thread"};
+              } catch (...) {
+                  erreur = std::current_exception();
+              }
+          }};
+          t.join();
+          try {
+              if (erreur) {
+                  std::rethrow_exception(erreur);
+              }
+              std::println("rien");
+          } catch (const std::exception& e) {
+              std::println("{}", e.what());
+          }
+      }
+      ```
+    choices:
+      - {text: "`dans le thread`", correct: true}
+      - {text: "`rien`", correct: false}
+      - {text: "`rien`, puis `dans le thread`", correct: false}
+      - {text: "Rien : le programme est terminé par `std::terminate`", correct: false}
+    answer: "`dans le thread` : l'exception est capturée dans le thread, puis relancée dans `main` après le `join()`."
+    check:
+      output: "dans le thread"
+  - key: code-imbriquee
+    format: code-output
+    question: |-
+      ```cpp
+      #include <exception>
+      #include <print>
+      #include <stdexcept>
+
+      void charger() {
+          try {
+              throw std::runtime_error{"fichier absent"};
+          } catch (...) {
+              std::throw_with_nested(std::runtime_error{"chargement impossible"});
+          }
+      }
+
+      int main() {
+          try {
+              charger();
+          } catch (const std::exception& e) {
+              std::print("{}", e.what());
+              try {
+                  std::rethrow_if_nested(e);
+              } catch (const std::exception& cause) {
+                  std::print(" <- {}", cause.what());
+              }
+              std::println("");
+          }
+      }
+      ```
+    choices:
+      - {text: "`chargement impossible <- fichier absent`", correct: true}
+      - {text: "`fichier absent <- chargement impossible`", correct: false}
+      - {text: "`chargement impossible`", correct: false}
+      - {text: "`fichier absent`", correct: false}
+    answer: "`chargement impossible <- fichier absent` : l'exception extérieure porte le contexte ; `std::rethrow_if_nested` relance la cause qu'elle contient."
+    check:
+      output: "chargement impossible <- fichier absent"
+  - key: bug-throw-e
+    format: bug-fix
+    question: |-
+      Ce programme devrait afficher `indice 7`. Il affiche `std::exception`. Quelle correction est la bonne ?
+      ```cpp
+      #include <print>
+      #include <stdexcept>
+
+      void acceder() {
+          try {
+              throw std::out_of_range{"indice 7"};
+          } catch (const std::exception& e) {
+              throw e;
+          }
+      }
+
+      int main() {
+          try {
+              acceder();
+          } catch (const std::exception& e) {
+              std::println("{}", e.what());
+          }
+      }
+      ```
+    choices:
+      - {text: "Écrire `throw;` à la place de `throw e;`", correct: true}
+      - {text: "Écrire `throw &e;` à la place de `throw e;`", correct: false}
+      - {text: "Écrire `throw std::move(e);` à la place de `throw e;`", correct: false}
+      - {text: "Écrire `return e;` à la place de `throw e;`", correct: false}
+    answer: |-
+      ```cpp
+      } catch (const std::exception& e) {
+          throw;
+      }
+      ```
+      `throw e;` copie l'exception d'après le type de la référence : un simple `std::exception`, sans le message.
+      `throw;` relance l'objet d'origine.
+  - key: bug-throw-hors-catch
+    format: bug-fix
+    question: |-
+      Ce programme affiche `journal`, puis s'arrête sur « terminate called without an active exception ». Quelle
+      correction est la bonne ?
+      ```cpp
+      #include <print>
+
+      void journaliser_et_relancer() {
+          std::println("journal");
+          throw;
+      }
+
+      int main() {
+          try {
+              journaliser_et_relancer();
+          } catch (...) {
+              std::println("attrapée");
+          }
+      }
+      ```
+    choices:
+      - {text: "N'appeler cette fonction que depuis un bloc `catch`, quand une exception est en cours", correct: true}
+      - {text: "Écrire `throw 0;` à la place de `throw;`, sans rien changer d'autre au programme", correct: false}
+      - {text: "Déclarer la fonction `journaliser_et_relancer` avec le mot-clé `noexcept`", correct: false}
+      - {text: "Placer l'appel de `std::println` après le `throw;` dans la fonction", correct: false}
+    answer: |-
+      ```cpp
+      try {
+          traiter();
+      } catch (...) {
+          journaliser_et_relancer();
+      }
+      ```
+      `throw;` relance l'exception en cours de traitement. Appelé sans qu'il y en ait une, il termine le programme.
+      Une telle fonction d'aide n'a de sens que dans un `catch`.
+  - key: bug-exception-dans-thread
+    format: bug-fix
+    question: |-
+      Ce programme s'arrête sur « terminate called after throwing an instance of 'std::runtime_error' » : le
+      `catch` de `main` ne voit pas l'exception du thread. Quelle correction est la bonne ?
+      ```cpp
+      #include <print>
+      #include <stdexcept>
+      #include <thread>
+
+      int main() {
+          try {
+              std::thread t{[] { throw std::runtime_error{"panne"}; }};
+              t.join();
+          } catch (const std::runtime_error& e) {
+              std::println("{}", e.what());
+          }
+      }
+      ```
+    choices:
+      - {text: "Capturer l'exception dans le thread avec `std::current_exception()`, et la relancer après `join()`", correct: true}
+      - {text: "Appeler `t.detach()` à la place de `t.join()`, pour que l'exception remonte vers `main`", correct: false}
+      - {text: "Attraper `const std::exception&` à la place de `const std::runtime_error&` dans `main`", correct: false}
+      - {text: "Déclarer la lambda du thread avec `noexcept`, pour que l'exception soit transmise", correct: false}
+    answer: |-
+      ```cpp
+      std::exception_ptr erreur;
+      std::thread t{[&erreur] {
+          try {
+              throw std::runtime_error{"panne"};
+          } catch (...) {
+              erreur = std::current_exception();
+          }
+      }};
+      t.join();
+      if (erreur) {
+          std::rethrow_exception(erreur);
+      }
+      ```
+      Chaque thread a sa propre pile : une exception ne passe pas de l'une à l'autre. Elle doit être transportée par
+      un `std::exception_ptr`, ou par un `std::future`.
+  - key: bug-ptr-vide
+    format: bug-fix
+    question: |-
+      Aucune exception n'a été lancée, et pourtant ce programme plante au lieu d'afficher `tout va bien`. Quelle
+      correction est la bonne ?
+      ```cpp
+      #include <exception>
+      #include <print>
+
+      int main() {
+          std::exception_ptr erreur;
+          try {
+              std::println("travail");
+          } catch (...) {
+              erreur = std::current_exception();
+          }
+          std::rethrow_exception(erreur);
+          std::println("tout va bien");
+      }
+      ```
+    choices:
+      - {text: "Ne relancer que si le pointeur n'est pas vide : `if (erreur)`", correct: true}
+      - {text: "Relancer avec `throw erreur;` à la place de `std::rethrow_exception`", correct: false}
+      - {text: "Initialiser le pointeur avec `std::current_exception()` avant le `try`", correct: false}
+      - {text: "Déclarer le pointeur `erreur` avec le mot-clé `const`", correct: false}
+    answer: |-
+      ```cpp
+      if (erreur) {
+          std::rethrow_exception(erreur);
+      }
+      ```
+      Relancer un `std::exception_ptr` vide est un comportement indéfini. On le teste : il se convertit en booléen,
+      faux quand il ne désigne aucune exception.

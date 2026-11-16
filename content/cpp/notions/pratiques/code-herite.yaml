@@ -1,0 +1,328 @@
+notion: code-herite
+lesson: |-
+  Beaucoup de code C++ en service date d'avant C++11 : `new` et `delete` à la main, pointeurs bruts, tableaux C,
+  boucles par indice, `NULL`. Le **moderniser**, c'est le rendre plus sûr **sans changer son comportement**, et
+  surtout sans tout réécrire.
+
+  **La règle d'or : par petits pas, sous la protection de tests.** Une réécriture complète jette des années de
+  corrections. On procède par modifications mécaniques, chacune relue et testée.
+
+  **Avant de toucher.**
+
+  1. **Des tests de caractérisation** : ils figent le comportement **actuel**, bugs compris, pour détecter tout
+     changement involontaire.
+  2. **Les outils** : `-Wall -Wextra`, les sanitizers, clang-tidy. Ils montrent où sont les vrais dangers.
+
+  **Les remplacements, du plus rentable au moins urgent.**
+
+  | Ancien | Moderne | Ce qu'on y gagne |
+  |---|---|---|
+  | `new` / `delete` | `std::make_unique`, `std::unique_ptr` | plus de fuite, ni de double libération |
+  | `new T[n]` / `delete[]` | `std::vector<T>` | taille connue, libération automatique |
+  | `char*`, `strcpy`, `strlen` | `std::string`, `std::string_view` | plus de débordement de tampon |
+  | `int t[10]` passé à une fonction | `std::array`, `std::span` | la taille voyage avec les données |
+  | `lock()` / `unlock()` | `std::lock_guard` | libération même en cas d'exception |
+  | `NULL`, `0` | `nullptr` | plus d'ambiguïté avec un entier |
+  | `(int)x` | `static_cast<int>(x)` | un cast visible, et limité |
+  | `typedef` | `using` | lisible, et utilisable avec les templates |
+  | boucle par indice | boucle sur un intervalle, algorithmes | plus d'erreur de borne |
+  | fonction redéfinie sans marque | `override` | une signature fausse ne compile plus |
+  | `#define N 10` | `constexpr int n = 10;` | un type, une portée |
+
+  **L'ordre.** D'abord la **possession** de la mémoire : c'est elle qui cause les plantages. Ensuite les
+  interfaces (`const`, références, `std::span`), puis le style (`auto`, `using`, boucles).
+
+  **clang-tidy fait une partie du travail.** Les vérifications `modernize-*` appliquent seules, avec `--fix`,
+  les changements sans risque : `modernize-use-nullptr`, `modernize-use-override`, `modernize-loop-convert`,
+  `modernize-make-unique`.
+
+  **Aux frontières.** Une API C attend des pointeurs bruts : on garde l'objet moderne, et l'on passe
+  `vecteur.data()`, `chaine.c_str()`, `pointeur.get()` à l'appel. La possession reste du côté sûr.
+
+  **Ce qu'il ne faut pas faire.**
+
+  - **Mélanger** une modernisation et une correction de bug dans la même modification : si quelque chose casse, on
+    ne sait plus pourquoi.
+  - **Tout convertir en `std::shared_ptr`** par facilité : la possession reste floue, avec un coût en plus.
+  - Moderniser du code **qui ne change jamais** et qui marche : l'effort va là où l'on travaille.
+
+  **Monter de norme.** Passer de C++98 à C++17 ou C++23 se fait en changeant l'option du compilateur, puis en
+  corrigeant ce qui ne compile plus (`auto_ptr`, `register`, les spécifications d'exceptions dynamiques ont
+  disparu). Le reste du code continue de fonctionner.
+
+  **En entretien** : « Je modernise par petits pas, avec des tests de caractérisation : d'abord la possession,
+  `unique_ptr` et `vector` à la place de `new` et `delete`, puis `string`, `nullptr`, `override`, les boucles sur
+  un intervalle. clang-tidy `modernize-*` automatise le mécanique. Jamais de grande réécriture. »
+cards:
+  - key: demarche
+    format: course
+    question: "Comment modernise-t-on un code C++ ancien ?"
+    choices:
+      - {text: "Par petites modifications successives, protégées par des tests", correct: true}
+      - {text: "Par une réécriture complète, livrée en une seule fois", correct: false}
+      - {text: "Par un changement de l'option du compilateur, sans toucher au code", correct: false}
+      - {text: "Par la suppression des tests existants, devenus obsolètes", correct: false}
+    answer: "Chaque pas est petit, relu et vérifié. Une réécriture perd toutes les corrections accumulées, et se livre rarement."
+  - key: caracterisation
+    format: course
+    question: "Qu'est-ce qu'un test de caractérisation ?"
+    choices:
+      - {text: "Un test qui fige le comportement actuel du code, avant de le modifier", correct: true}
+      - {text: "Un test qui décrit le comportement que le code devrait avoir", correct: false}
+      - {text: "Un test qui mesure la vitesse du code sur de grandes entrées", correct: false}
+      - {text: "Un test qui vérifie le style et la mise en forme du code", correct: false}
+    answer: "Il constate ce que fait le code aujourd'hui, bugs compris. Toute différence après modernisation est alors visible."
+  - key: priorite
+    format: course
+    question: "Par quoi commence-t-on la modernisation d'un code plein de `new` et de `delete` ?"
+    choices:
+      - {text: "Par la possession de la mémoire : `std::unique_ptr` et `std::vector`", correct: true}
+      - {text: "Par le style : `auto` partout, et `using` à la place de `typedef`", correct: false}
+      - {text: "Par les commentaires : les traduire et les mettre à jour", correct: false}
+      - {text: "Par les noms : renommer toutes les variables du projet", correct: false}
+    answer: "Fuites, doubles libérations et pointeurs pendants causent les plantages. Le style n'apporte que de la lisibilité, et vient après."
+  - key: frontiere-c
+    format: course
+    question: "Une fonction C attend un `char*` et une taille. Que lui passes-tu depuis du code modernisé ?"
+    choices:
+      - {text: "`tampon.data()` et `tampon.size()`, d'un `std::vector<char>` qui reste propriétaire", correct: true}
+      - {text: "Un tableau alloué avec `new char[n]`, libéré par la fonction C", correct: false}
+      - {text: "Le `std::vector<char>` lui-même, converti implicitement", correct: false}
+      - {text: "Un `std::unique_ptr<char>` passé par valeur", correct: false}
+    answer: "Le conteneur garde la possession ; la fonction C reçoit un simple accès. `data()`, `c_str()` et `get()` sont les ponts vers les API en C."
+  - key: vf-reecrire
+    format: true-false
+    question: "La meilleure façon de moderniser un grand projet est de le réécrire entièrement."
+    truth: false
+    answer: "On y perd des années de corrections, et la livraison n'arrive souvent jamais. On avance par petits pas vérifiés."
+  - key: vf-shared-ptr
+    format: true-false
+    question: "Remplacer tous les pointeurs bruts par des `std::shared_ptr` clarifie la possession."
+    truth: false
+    answer: "Elle reste floue : tout le monde possède tout. On cherche le propriétaire unique, tenu par `std::unique_ptr`."
+  - key: vf-clang-tidy
+    format: true-false
+    question: "clang-tidy peut remplacer seul les `NULL` par `nullptr`, avec `--fix`."
+    truth: true
+    answer: "C'est la vérification `modernize-use-nullptr`. Les changements mécaniques se délèguent à l'outil."
+  - key: vf-norme
+    format: true-false
+    question: "Compiler un code C++98 en C++23 oblige à le réécrire en entier."
+    truth: false
+    answer: "Presque tout reste valide. Seules quelques fonctionnalités retirées, comme `std::auto_ptr`, sont à corriger."
+  - key: qcm-tableau
+    format: multiple-choice
+    question: "Par quoi remplaces-tu `int* t = new int[n];` suivi de `delete[] t;` ?"
+    choices:
+      - {text: "`std::vector<int> t(n);`", correct: true}
+      - {text: "`int* t = (int*)malloc(n);`", correct: false}
+      - {text: "`std::shared_ptr<int> t{new int[n]};`", correct: false}
+      - {text: "`int t[n];`", correct: false}
+    answer: "Le vecteur libère sa mémoire, connaît sa taille et se copie proprement. `int t[n]` avec `n` variable est une extension, pas du C++."
+  - key: qcm-override
+    format: multiple-choice
+    question: "Quelle vérification de clang-tidy ajoute `override` aux fonctions redéfinies ?"
+    choices:
+      - {text: "`modernize-use-override`", correct: true}
+      - {text: "`modernize-use-nullptr`", correct: false}
+      - {text: "`modernize-loop-convert`", correct: false}
+      - {text: "`readability-braces-around-statements`", correct: false}
+    answer: "Une fois `override` posé, une redéfinition dont la signature ne correspond plus est refusée par le compilateur."
+  - key: qcm-define
+    format: multiple-choice
+    question: "Par quoi remplaces-tu `#define TAILLE_MAX 100` ?"
+    choices:
+      - {text: "`constexpr int taille_max = 100;`", correct: true}
+      - {text: "`int taille_max = 100;`", correct: false}
+      - {text: "`static TAILLE_MAX = 100;`", correct: false}
+      - {text: "`#undef TAILLE_MAX`", correct: false}
+    answer: "Une constante `constexpr` a un type et une portée, et reste utilisable à la compilation. Une macro ne respecte ni l'un ni l'autre."
+  - key: qcm-cast
+    format: multiple-choice
+    question: "Par quoi remplaces-tu le cast à la mode du C `(int)valeur` ?"
+    choices:
+      - {text: "`static_cast<int>(valeur)`", correct: true}
+      - {text: "`reinterpret_cast<int>(valeur)`", correct: false}
+      - {text: "`const_cast<int>(valeur)`", correct: false}
+      - {text: "`int(valeur)`, sans autre changement", correct: false}
+    answer: "`static_cast` ne fait que les conversions raisonnables, et se repère par une simple recherche. Le cast du C peut tout faire, y compris retirer un `const`."
+  - key: situation-melange
+    format: scenario
+    question: |-
+      Une modification convertit une classe à `std::unique_ptr`, renomme dix fonctions, et corrige au passage un
+      bug de calcul. Après la livraison, une régression apparaît, et personne ne sait d'où elle vient. Qu'aurait-il
+      fallu faire ?
+    choices:
+      - {text: "Trois modifications séparées : la modernisation, les noms, puis la correction", correct: true}
+      - {text: "Une seule modification plus grande encore, pour tout traiter à la fois", correct: false}
+      - {text: "Aucune modernisation : le code ancien ne doit jamais être touché", correct: false}
+      - {text: "Une livraison sans tests, pour gagner du temps", correct: false}
+    answer: |-
+      Une modernisation ne change pas le comportement : si elle le change, on le voit. Mêlée à une correction, on
+      ne peut plus distinguer l'effet voulu de la régression.
+  - key: situation-sans-tests
+    format: scenario
+    question: |-
+      On te confie un module de cinq mille lignes, sans aucun test, plein de `new` et de `delete`. On te demande
+      de le moderniser. Par quoi commences-tu ?
+    choices:
+      - {text: "Par des tests de caractérisation sur ses entrées et sorties, et une passe sous sanitizers", correct: true}
+      - {text: "Par le remplacement de tous les `new` en une seule nuit", correct: false}
+      - {text: "Par la réécriture du module dans un autre langage", correct: false}
+      - {text: "Par le renommage de toutes les variables selon la convention actuelle", correct: false}
+    answer: |-
+      Sans filet, on ne sait pas si l'on casse quelque chose. Les tests fixent le comportement ; les sanitizers
+      montrent où la mémoire est déjà mal gérée, donc par où commencer.
+  - key: situation-api-c
+    format: scenario
+    question: |-
+      Ton module modernisé doit appeler une bibliothèque C : `int lire(char* tampon, int taille)`. Un collègue
+      dit : « donc il faut garder nos `new char[]` ». Que réponds-tu ?
+    choices:
+      - {text: "Qu'un `std::vector<char>` suffit : on passe `tampon.data()` et sa taille", correct: true}
+      - {text: "Qu'il a raison : une API C interdit tout conteneur standard", correct: false}
+      - {text: "Qu'il faut réécrire la bibliothèque C en C++ d'abord", correct: false}
+      - {text: "Qu'il faut passer le vecteur par valeur à la fonction C", correct: false}
+    answer: |-
+      Les conteneurs exposent leur mémoire brute pour ces cas. La possession reste dans le vecteur, qui libère
+      tout seul ; la bibliothèque C ne voit qu'un pointeur prêté.
+  - key: situation-ou-investir
+    format: scenario
+    question: |-
+      Un projet compte un million de lignes anciennes. L'équipe a deux semaines pour « moderniser ». Où
+      proposes-tu de porter l'effort ?
+    choices:
+      - {text: "Sur les modules qu'on modifie souvent, et ceux où les sanitizers trouvent des fautes", correct: true}
+      - {text: "Sur tous les fichiers, par ordre alphabétique", correct: false}
+      - {text: "Sur les modules stables depuis dix ans, que personne ne touche", correct: false}
+      - {text: "Sur la mise en forme du code, avant toute autre chose", correct: false}
+    answer: |-
+      La modernisation rapporte là où l'on travaille et là où sont les bugs. Un code stable et correct peut
+      attendre : le toucher apporte un risque sans bénéfice.
+  - key: bug-new-delete
+    format: bug-fix
+    question: |-
+      Cette fonction ancienne fuit quand le fichier est vide : le `return` précoce saute le `delete[]`. Quelle
+      modernisation corrige le défaut ?
+      ```cpp
+      #include <print>
+
+      int somme(int taille) {
+          int* valeurs = new int[100]{};
+          if (taille == 0) {
+              return 0;
+          }
+          int total = 0;
+          for (int i = 0; i < taille; ++i) {
+              total += valeurs[i];
+          }
+          delete[] valeurs;
+          return total;
+      }
+
+      int main() {
+          std::println("{}", somme(0));
+      }
+      ```
+    choices:
+      - {text: "Déclarer `std::vector<int> valeurs(100);`, et supprimer le `delete[]`", correct: true}
+      - {text: "Ajouter un second `delete[] valeurs;` après le dernier `return`", correct: false}
+      - {text: "Remplacer `delete[] valeurs;` par `delete valeurs;`", correct: false}
+      - {text: "Déclarer `valeurs` avec le mot-clé `static`", correct: false}
+    answer: |-
+      ```cpp
+      std::vector<int> valeurs(100);
+      ```
+      Le vecteur libère sa mémoire à toute sortie de la fonction. Plus de `delete[]` à placer sur chaque chemin.
+  - key: bug-null
+    format: bug-fix
+    question: |-
+      Ce programme ancien devrait appeler la version « pointeur ». Le compilateur répond « call of overloaded
+      'afficher(NULL)' is ambiguous ». Quelle correction est la bonne ?
+      ```cpp
+      #include <cstddef>
+      #include <print>
+
+      void afficher(int n) {
+          std::println("entier {}", n);
+      }
+
+      void afficher(const char* texte) {
+          std::println("pointeur {}", texte == nullptr);
+      }
+
+      int main() {
+          afficher(NULL);
+      }
+      ```
+    choices:
+      - {text: "Écrire `afficher(nullptr);`", correct: true}
+      - {text: "Écrire `afficher(0);`", correct: false}
+      - {text: "Écrire `afficher(\"NULL\");`", correct: false}
+      - {text: "Écrire `afficher((int)NULL);`", correct: false}
+    answer: |-
+      ```cpp
+      afficher(nullptr);
+      ```
+      `NULL` est une constante entière : le compilateur hésite entre les deux surcharges. `nullptr` a son propre
+      type, qui ne se convertit qu'en pointeur.
+  - key: bug-sans-override
+    format: bug-fix
+    question: |-
+      Ce programme devrait afficher `miaou`. Il affiche `...` : la fonction de `Chat` ne redéfinit pas celle de la
+      base. Quelle modernisation aurait révélé l'erreur à la compilation ?
+      ```cpp
+      #include <print>
+
+      struct Animal {
+          virtual ~Animal() = default;
+          virtual void crier() const { std::println("..."); }
+      };
+
+      struct Chat : Animal {
+          virtual void crier() { std::println("miaou"); }
+      };
+
+      int main() {
+          const Chat chat;
+          const Animal& animal = chat;
+          animal.crier();
+      }
+      ```
+    choices:
+      - {text: "Marquer la fonction de `Chat` avec `override`, puis lui rendre son `const`", correct: true}
+      - {text: "Marquer la fonction de `Chat` avec `static`, sans autre changement", correct: false}
+      - {text: "Marquer la fonction de `Animal` avec `final`, pour la figer", correct: false}
+      - {text: "Retirer `virtual` de la fonction de `Chat`, sans rien ajouter", correct: false}
+    answer: |-
+      ```cpp
+      void crier() const override { std::println("miaou"); }
+      ```
+      Sans `const`, c'est une nouvelle fonction, pas une redéfinition. Avec `override`, le compilateur refuse une
+      fonction qui ne redéfinit rien.
+  - key: bug-strcpy
+    format: bug-fix
+    question: |-
+      Ce code ancien copie un nom dans un tampon de huit caractères, et écrit au-delà. Quelle modernisation
+      supprime le défaut ?
+      ```cpp
+      #include <cstring>
+      #include <print>
+
+      int main() {
+          char nom[8];
+          std::strcpy(nom, "Bjarne Stroustrup");
+          std::println("{}", nom);
+      }
+      ```
+    choices:
+      - {text: "Déclarer `std::string nom = \"Bjarne Stroustrup\";`, sans `strcpy`", correct: true}
+      - {text: "Déclarer `char nom[16];`, et garder `strcpy`", correct: false}
+      - {text: "Remplacer `std::strcpy` par `std::memcpy`, avec la longueur de la source", correct: false}
+      - {text: "Déclarer `nom` avec le mot-clé `static`", correct: false}
+    answer: |-
+      ```cpp
+      const std::string nom = "Bjarne Stroustrup";
+      ```
+      `strcpy` ne connaît pas la taille de la destination : c'est le débordement de tampon classique.
+      `std::string` gère sa mémoire, quelle que soit la longueur. Un tampon de 16 resterait trop court.

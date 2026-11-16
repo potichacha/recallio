@@ -1,0 +1,411 @@
+notion: strict-aliasing
+lesson: |-
+  La règle de l'**aliasing strict** dit qu'on ne peut accéder à un objet qu'à travers une expression de **son
+  type** (ou d'un type très proche). Lire un `float` à travers un `int*`, ou un tampon d'octets à travers un
+  `Entete*`, est un **comportement indéfini**, même si les tailles concordent.
+
+  ```cpp
+  float f = 1.0f;
+  std::uint32_t bits = *reinterpret_cast<std::uint32_t*>(&f);   // comportement indéfini
+  ```
+
+  **Pourquoi cette règle.** Elle permet au compilateur de supposer que deux pointeurs de types différents ne
+  désignent **pas le même objet**. Il peut alors garder une valeur dans un registre, sans la relire après une
+  écriture à travers l'autre pointeur.
+
+  ```cpp
+  int f(int* a, float* b) {
+      *a = 1;
+      *b = 2.0f;      // ne peut pas modifier *a, selon la règle
+      return *a;      // le compilateur renvoie 1 sans relire
+  }
+  ```
+
+  Si l'appelant triche et passe deux pointeurs vers la même mémoire, le programme optimisé ne fait plus ce que le
+  code semble dire.
+
+  **Les exceptions.** On peut toujours examiner les octets de n'importe quel objet à travers `char*`,
+  `unsigned char*` ou `std::byte*`. Un type signé et sa version non signée, ou `const`, sont aussi compatibles.
+
+  **Réinterpréter des octets proprement.**
+
+  | Besoin | Outil |
+  |---|---|
+  | Voir les bits d'une valeur sous un autre type de même taille | `std::bit_cast<T>(valeur)` (C++20) |
+  | Copier un tampon d'octets vers un objet, ou l'inverse | `std::memcpy` |
+  | Parcourir les octets d'un objet | `unsigned char*` ou `std::byte*` |
+
+  ```cpp
+  std::uint32_t bits = std::bit_cast<std::uint32_t>(f);
+
+  Entete entete;
+  std::memcpy(&entete, tampon, sizeof entete);
+  ```
+
+  `std::memcpy` et `std::bit_cast` exigent un type **trivialement copiable** (pas de `std::string`, pas de
+  fonction virtuelle). Les compilateurs reconnaissent ces copies, et les remplacent par un simple chargement : elles
+  ne coûtent rien.
+
+  **L'union n'est pas une échappatoire.** Écrire un membre d'une `union` puis en lire un autre est permis en C, et
+  **indéfini en C++**.
+
+  **Le repérer.** GCC avertit parfois (`-Wstrict-aliasing`), mais pas toujours. Tout `reinterpret_cast` entre
+  pointeurs d'objets, et tout cast à la mode du C, mérite un second regard. `-fno-strict-aliasing` désactive
+  l'hypothèse : c'est un pansement pour du code hérité.
+
+  **En entretien** : « L'aliasing strict interdit de lire un objet à travers un pointeur d'un autre type, sauf
+  `char`, `unsigned char` et `std::byte`. Pour réinterpréter des bits, j'utilise `std::bit_cast` ou `std::memcpy`,
+  que le compilateur optimise en une simple copie. »
+cards:
+  - key: regle
+    format: course
+    question: "Que dit la règle de l'aliasing strict ?"
+    choices:
+      - {text: "Qu'on n'accède à un objet qu'à travers une expression de son type, ou d'un type d'octets", correct: true}
+      - {text: "Qu'on ne peut jamais avoir deux pointeurs vers le même objet dans une fonction", correct: false}
+      - {text: "Qu'un pointeur ne peut pas être converti en entier, ni un entier en pointeur", correct: false}
+      - {text: "Qu'un objet ne peut être lu que par la fonction qui l'a déclaré", correct: false}
+    answer: "Lire un `float` à travers un `int*` est un comportement indéfini. Deux pointeurs du même type vers le même objet, eux, sont permis."
+  - key: pourquoi
+    format: course
+    question: "Qu'est-ce que la règle de l'aliasing strict permet au compilateur ?"
+    choices:
+      - {text: "De supposer que deux pointeurs de types différents ne désignent pas le même objet", correct: true}
+      - {text: "De vérifier à l'exécution le type de chaque objet lu à travers un pointeur", correct: false}
+      - {text: "De refuser à la compilation tout `reinterpret_cast` écrit dans le programme", correct: false}
+      - {text: "De placer les objets de types différents dans des pages de mémoire séparées", correct: false}
+    answer: "Il peut garder une valeur dans un registre sans la relire après une écriture à travers un pointeur d'un autre type. Un code qui triche est alors mal compilé, sans avertissement garanti."
+  - key: exception-char
+    format: course
+    question: "À travers quels types peut-on toujours lire les octets d'un objet ?"
+    choices:
+      - {text: "`char`, `unsigned char` et `std::byte`", correct: true}
+      - {text: "`int`, `long` et `std::size_t`", correct: false}
+      - {text: "`void`, `bool` et `std::nullptr_t`", correct: false}
+      - {text: "`float`, `double` et `long double`", correct: false}
+    answer: "Ces trois types sont l'exception prévue par le standard : ils servent à examiner la représentation de n'importe quel objet."
+  - key: bit-cast
+    format: course
+    question: "Comment obtient-on proprement les bits d'un `float` sous la forme d'un `std::uint32_t` ?"
+    choices:
+      - {text: "Avec `std::bit_cast<std::uint32_t>(f)`", correct: true}
+      - {text: "Avec `*reinterpret_cast<std::uint32_t*>(&f)`", correct: false}
+      - {text: "Avec `static_cast<std::uint32_t>(f)`", correct: false}
+      - {text: "Avec `*(std::uint32_t*)&f`", correct: false}
+    answer: "`std::bit_cast` (C++20) copie les bits vers un type de même taille. `static_cast` convertit la valeur (1.0 devient 1) ; les deux casts de pointeur violent l'aliasing strict."
+  - key: vf-meme-taille
+    format: true-false
+    question: "Lire un `float` à travers un `int*` est permis quand les deux types ont la même taille."
+    truth: false
+    answer: "La taille n'y change rien : le type de l'accès doit correspondre à celui de l'objet. C'est un comportement indéfini."
+  - key: vf-unsigned-char
+    format: true-false
+    question: "On peut parcourir les octets d'une `struct` à travers un `unsigned char*`."
+    truth: true
+    answer: "C'est l'exception prévue par la règle. C'est ainsi que travaillent `std::memcpy` et les fonctions de sérialisation."
+  - key: vf-union
+    format: true-false
+    question: "En C++, écrire un membre d'une `union` puis lire un autre membre est une façon sûre de réinterpréter des bits."
+    truth: false
+    answer: "C'est permis en C, indéfini en C++. On utilise `std::bit_cast` ou `std::memcpy`."
+  - key: vf-memcpy-cout
+    format: true-false
+    question: "Un `std::memcpy` de quatre octets est en général compilé en un simple chargement, sans appel de fonction."
+    truth: true
+    answer: "Les compilateurs reconnaissent ces petites copies. La forme sûre ne coûte donc rien de plus que le cast interdit."
+  - key: qcm-tampon
+    format: multiple-choice
+    question: "Un tampon `unsigned char tampon[16]` contient un `Entete` reçu du réseau. Comment le lis-tu ?"
+    choices:
+      - {text: "`std::memcpy(&entete, tampon, sizeof entete);`", correct: true}
+      - {text: "`entete = *reinterpret_cast<Entete*>(tampon);`", correct: false}
+      - {text: "`entete = *(Entete*)tampon;`", correct: false}
+      - {text: "`entete = static_cast<Entete>(tampon);`", correct: false}
+    answer: "Le tampon ne contient pas d'objet `Entete` : le lire à travers un `Entete*` viole l'aliasing strict, et peut violer l'alignement. `memcpy` copie les octets dans un vrai objet."
+  - key: qcm-condition
+    format: multiple-choice
+    question: "Quelle propriété un type doit-il avoir pour être copié par `std::memcpy` ou `std::bit_cast` ?"
+    choices:
+      - {text: "Être trivialement copiable", correct: true}
+      - {text: "Être polymorphe", correct: false}
+      - {text: "Être déclaré `final`", correct: false}
+      - {text: "Être alloué sur le tas", correct: false}
+    answer: "Un type trivialement copiable se copie octet par octet : types fondamentaux, `struct` simples. Une `std::string`, qui possède un tampon, ne l'est pas."
+  - key: qcm-option
+    format: multiple-choice
+    question: "Quelle option de GCC désactive les optimisations fondées sur l'aliasing strict ?"
+    choices:
+      - {text: "`-fno-strict-aliasing`", correct: true}
+      - {text: "`-fsanitize=address`", correct: false}
+      - {text: "`-Wstrict-aliasing`", correct: false}
+      - {text: "`-fno-exceptions`", correct: false}
+    answer: "Elle sert de pansement pour du code hérité, comme le noyau Linux. `-Wstrict-aliasing` ne fait qu'avertir, et pas dans tous les cas."
+  - key: qcm-permis
+    format: multiple-choice
+    question: "Lequel de ces accès respecte l'aliasing strict ?"
+    choices:
+      - {text: "Lire un `int` à travers un `unsigned int*`", correct: true}
+      - {text: "Lire un `int` à travers un `float*`", correct: false}
+      - {text: "Lire un `double` à travers un `long*`", correct: false}
+      - {text: "Lire un `float` à travers un `short*`", correct: false}
+    answer: "Un type entier et sa version signée ou non signée sont compatibles. Les autres paires sont des types sans rapport."
+  - key: code-memcpy
+    format: code-output
+    question: |-
+      ```cpp
+      #include <cstdint>
+      #include <cstring>
+      #include <print>
+
+      int main() {
+          const float f = 1.0f;
+          std::uint32_t bits = 0;
+          std::memcpy(&bits, &f, sizeof bits);
+          std::println("{:#x}", bits);
+      }
+      ```
+    choices:
+      - {text: "`0x3f800000`", correct: true}
+      - {text: "`0x1`", correct: false}
+      - {text: "`0x0`", correct: false}
+      - {text: "`0x10000000`", correct: false}
+    answer: "`0x3f800000` : `memcpy` copie les quatre octets du `float`. C'est la représentation IEEE 754 de 1.0, pas l'entier 1."
+    check:
+      output: "0x3f800000"
+  - key: code-bit-cast
+    format: code-output
+    question: |-
+      ```cpp
+      #include <bit>
+      #include <cstdint>
+      #include <print>
+
+      int main() {
+          const auto bits = std::bit_cast<std::uint32_t>(2.0f);
+          const auto valeur = static_cast<std::uint32_t>(2.0f);
+          std::println("{:#x} {}", bits, valeur);
+      }
+      ```
+    choices:
+      - {text: "`0x40000000 2`", correct: true}
+      - {text: "`0x2 2`", correct: false}
+      - {text: "`0x40000000 1073741824`", correct: false}
+      - {text: "`0x2 1073741824`", correct: false}
+    answer: "`0x40000000 2` : `std::bit_cast` garde les bits du `float` ; `static_cast` convertit la valeur, et 2.0 devient 2."
+    check:
+      output: "0x40000000 2"
+  - key: code-octets
+    format: code-output
+    question: |-
+      Sur une machine petit-boutiste, comme le processeur x86-64 du bac à sable :
+      ```cpp
+      #include <array>
+      #include <cstdint>
+      #include <cstring>
+      #include <print>
+
+      int main() {
+          const std::uint32_t valeur = 0x01020304;
+          std::array<unsigned char, 4> octets{};
+          std::memcpy(octets.data(), &valeur, octets.size());
+          std::println("{} {}", octets[0], octets[3]);
+      }
+      ```
+    choices:
+      - {text: "`4 1`", correct: true}
+      - {text: "`1 4`", correct: false}
+      - {text: "`1 1`", correct: false}
+      - {text: "`4 4`", correct: false}
+    answer: "`4 1` : en petit-boutiste, l'octet de poids faible, 04, est rangé en premier. Examiner un objet octet par octet est toujours permis."
+    check:
+      output: "4 1"
+  - key: code-trivialement-copiable
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+      #include <string>
+      #include <type_traits>
+
+      struct Point {
+          int x;
+          int y;
+      };
+
+      int main() {
+          std::println("{} {}", std::is_trivially_copyable_v<Point>, std::is_trivially_copyable_v<std::string>);
+      }
+      ```
+    choices:
+      - {text: "`true false`", correct: true}
+      - {text: "`true true`", correct: false}
+      - {text: "`false false`", correct: false}
+      - {text: "`false true`", correct: false}
+    answer: "`true false` : un `Point` se copie octet par octet, donc `memcpy` lui convient. Une `std::string` possède un tampon : la copier par `memcpy` serait une faute."
+    check:
+      output: "true false"
+  - key: bug-reinterpret
+    format: bug-fix
+    question: |-
+      Ce programme lit les bits d'un `float` à travers un pointeur d'entier : c'est un comportement indéfini. Quelle
+      correction est la bonne ?
+      ```cpp
+      #include <cstdint>
+      #include <print>
+
+      int main() {
+          float f = 1.0f;
+          const std::uint32_t bits = *reinterpret_cast<std::uint32_t*>(&f);
+          std::println("{:#x}", bits);
+      }
+      ```
+    choices:
+      - {text: "Écrire `std::bit_cast<std::uint32_t>(f)`", correct: true}
+      - {text: "Écrire `*(std::uint32_t*)&f`", correct: false}
+      - {text: "Écrire `*static_cast<std::uint32_t*>(&f)`", correct: false}
+      - {text: "Écrire `*reinterpret_cast<const std::uint32_t*>(&f)`", correct: false}
+    answer: |-
+      ```cpp
+      const auto bits = std::bit_cast<std::uint32_t>(f);
+      ```
+      L'objet est un `float` : y accéder comme à un `std::uint32_t` viole l'aliasing strict, quel que soit le cast
+      employé. `std::bit_cast` (en-tête `<bit>`) copie les bits.
+  - key: bug-tampon
+    format: bug-fix
+    question: |-
+      Ce programme lit un entier dans un tampon d'octets à travers un `int*`. C'est un comportement indéfini, et
+      l'adresse peut être mal alignée. Quelle correction est la bonne ?
+      ```cpp
+      #include <print>
+
+      int main() {
+          unsigned char tampon[8] = {0, 42, 0, 0, 0, 0, 0, 0};
+          const int valeur = *reinterpret_cast<int*>(tampon + 1);
+          std::println("{}", valeur);
+      }
+      ```
+    choices:
+      - {text: "Copier avec `std::memcpy(&valeur, tampon + 1, sizeof valeur);` dans un `int valeur`", correct: true}
+      - {text: "Déclarer le tampon avec le type `char` à la place de `unsigned char`", correct: false}
+      - {text: "Écrire `*reinterpret_cast<const int*>(tampon + 1)` à la place du cast", correct: false}
+      - {text: "Écrire `static_cast<int>(tampon + 1)` à la place du `reinterpret_cast`", correct: false}
+    answer: |-
+      ```cpp
+      int valeur = 0;
+      std::memcpy(&valeur, tampon + 1, sizeof valeur);
+      ```
+      Le tampon ne contient pas d'objet `int`, et `tampon + 1` n'est pas aligné pour un `int`. `memcpy` copie les
+      octets dans un vrai `int`, sans hypothèse sur l'alignement.
+  - key: bug-union
+    format: bug-fix
+    question: |-
+      Ce programme écrit le membre `f` d'une `union`, puis lit le membre `bits`. En C++, c'est un comportement
+      indéfini. Quelle correction est la bonne ?
+      ```cpp
+      #include <cstdint>
+      #include <print>
+
+      union Conversion {
+          float f;
+          std::uint32_t bits;
+      };
+
+      int main() {
+          Conversion c;
+          c.f = 1.0f;
+          std::println("{:#x}", c.bits);
+      }
+      ```
+    choices:
+      - {text: "Supprimer l'union, et écrire `std::bit_cast<std::uint32_t>(1.0f)`", correct: true}
+      - {text: "Déclarer l'union avec le mot-clé `volatile`, sans rien changer d'autre", correct: false}
+      - {text: "Lire le membre `c.bits` avant d'écrire le membre `c.f`", correct: false}
+      - {text: "Déclarer le membre `bits` avant le membre `f` dans l'union", correct: false}
+    answer: |-
+      ```cpp
+      std::println("{:#x}", std::bit_cast<std::uint32_t>(1.0f));
+      ```
+      Une `union` n'a qu'un membre actif à la fois : en lire un autre est indéfini en C++, bien que GCC le tolère.
+      `std::bit_cast` fait la même chose, de façon définie.
+  - key: bug-memcpy-string
+    format: bug-fix
+    question: |-
+      Ce programme copie une `std::string` avec `std::memcpy`. Les deux chaînes croient posséder le même tampon : le
+      programme plante à la destruction. Quelle correction est la bonne ?
+      ```cpp
+      #include <cstring>
+      #include <print>
+      #include <string>
+
+      int main() {
+          std::string source(40, 'x');
+          std::string copie;
+          std::memcpy(&copie, &source, sizeof copie);
+          std::println("{}", copie.size());
+      }
+      ```
+    choices:
+      - {text: "Écrire `copie = source;`", correct: true}
+      - {text: "Écrire `std::memmove(&copie, &source, sizeof copie);`", correct: false}
+      - {text: "Écrire `std::memcpy(&copie, &source, source.size());`", correct: false}
+      - {text: "Écrire `copie = std::bit_cast<std::string>(source);`", correct: false}
+    answer: |-
+      ```cpp
+      copie = source;
+      ```
+      `std::string` n'est pas trivialement copiable : la copie d'octets duplique le pointeur interne, libéré deux
+      fois. Seuls l'opérateur d'affectation et le constructeur de copie savent la copier. `std::bit_cast` refuse
+      d'ailleurs ce type à la compilation.
+  - key: situation-release
+    format: scenario
+    question: |-
+      Un décodeur de paquets fonctionne en `-O0`, et donne des valeurs fausses en `-O2`. Il lit les champs par des
+      `*reinterpret_cast<std::uint32_t*>(tampon + decalage)`. Que soupçonnes-tu, et que proposes-tu ?
+    choices:
+      - {text: "Une violation de l'aliasing strict ; lire chaque champ avec `std::memcpy`", correct: true}
+      - {text: "Un défaut de l'optimiseur ; livrer le décodeur compilé en `-O0`", correct: false}
+      - {text: "Une course aux données ; protéger le tampon par un mutex", correct: false}
+      - {text: "Une fuite de mémoire ; libérer le tampon après chaque paquet", correct: false}
+    answer: |-
+      L'optimiseur suppose qu'un `std::uint32_t*` ne désigne pas des `unsigned char`. Quand le code triche, il
+      réordonne ou supprime des lectures. `memcpy` vers une variable du bon type est défini, et compilé en un simple
+      chargement.
+  - key: situation-revue
+    format: scenario
+    question: |-
+      En revue de code, un collègue remplace un `std::memcpy` de quatre octets par un `reinterpret_cast`, « pour
+      éviter un appel de fonction dans une boucle chaude ». Que lui réponds-tu ?
+    choices:
+      - {text: "Que le compilateur remplace déjà ce `memcpy` par un chargement, et que le cast est indéfini", correct: true}
+      - {text: "Qu'il a raison : `memcpy` est toujours un appel coûteux à la bibliothèque C", correct: false}
+      - {text: "Qu'il faut plutôt une `union`, plus rapide que les deux et sans risque en C++", correct: false}
+      - {text: "Qu'il faut déclarer la boucle `volatile` pour que le cast devienne sûr", correct: false}
+    answer: |-
+      Les compilateurs traitent `memcpy` comme une primitive : pour une petite taille connue, ils émettent la même
+      instruction que le cast. On gagne zéro nanoseconde, et l'on perd la garantie que le code fait ce qu'il dit.
+  - key: situation-code-herite
+    format: scenario
+    question: |-
+      Tu hérites d'une bibliothèque de dix mille lignes pleine de casts entre pointeurs de types sans rapport. La
+      réécrire prendra des mois, et elle doit tourner correctement dès maintenant. Que fais-tu d'abord ?
+    choices:
+      - {text: "Je la compile avec `-fno-strict-aliasing`, puis je corrige les casts progressivement", correct: true}
+      - {text: "Je la compile avec `-O3`, pour que l'optimiseur corrige lui-même les casts", correct: false}
+      - {text: "Je remplace tous les casts par des `const_cast`, qui sont toujours sûrs", correct: false}
+      - {text: "Je la compile avec `-w`, pour ne plus voir les avertissements d'aliasing", correct: false}
+    answer: |-
+      L'option retire au compilateur le droit d'exploiter la règle : le code redevient prévisible, au prix de
+      quelques optimisations. C'est un pansement assumé, le temps de passer à `memcpy` et `std::bit_cast`.
+  - key: situation-entretien
+    format: scenario
+    question: |-
+      En entretien, on te demande pourquoi `int f(int* a, float* b) { *a = 1; *b = 2.0f; return *a; }` peut renvoyer
+      1 même quand `a` et `b` désignent la même mémoire. Que réponds-tu ?
+    choices:
+      - {text: "Que le compilateur suppose qu'un `float*` ne modifie pas un `int`, et ne relit pas `*a`", correct: true}
+      - {text: "Que l'écriture `*b = 2.0f` est ignorée quand les deux adresses sont égales", correct: false}
+      - {text: "Que la conversion de 2.0 en entier donne toujours 1 sur cette architecture", correct: false}
+      - {text: "Que la fonction lit `*a` avant d'exécuter les deux écritures", correct: false}
+    answer: |-
+      C'est l'aliasing strict à l'œuvre : `*a` et `*b` ont des types différents, donc ne peuvent pas être le même
+      objet dans un programme valide. L'appelant qui passe la même adresse a déjà un comportement indéfini.

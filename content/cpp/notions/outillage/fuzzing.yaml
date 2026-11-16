@@ -1,0 +1,249 @@
+notion: fuzzing
+lesson: |-
+  Le **fuzzing** teste une fonction en lui donnant des **millions d'entrées générées automatiquement**, à la
+  recherche de celle qui la fait planter. Il trouve les cas qu'on n'imagine pas en écrivant des tests à la main :
+  un fichier tronqué, une longueur négative, une suite d'octets absurde.
+
+  **libFuzzer** est le moteur de fuzzing intégré à Clang. On écrit une seule fonction, la **cible** :
+
+  ```cpp
+  #include <cstddef>
+  #include <cstdint>
+
+  extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* donnees, std::size_t taille) {
+      analyser({reinterpret_cast<const char*>(donnees), taille});
+      return 0;
+  }
+  ```
+
+  Il n'y a pas de `main` : libFuzzer le fournit, et appelle la cible en boucle.
+
+  ```
+  clang++ -g -O1 -fsanitize=fuzzer,address,undefined cible.cpp analyseur.cpp -o fuzz
+  ./fuzz corpus/
+  ```
+
+  **Guidé par la couverture.** libFuzzer ne tire pas au hasard pur : le programme est **instrumenté**, et le moteur
+  observe quelles branches chaque entrée atteint. Une entrée qui découvre du **code nouveau** est gardée, puis
+  **mutée** (un octet changé, un morceau dupliqué). Il progresse ainsi de lui-même vers les profondeurs du code.
+
+  **Avec les sanitizers.** Un accès hors bornes ne fait pas toujours planter le programme. AddressSanitizer et
+  UBSan transforment ces fautes silencieuses en arrêts francs, que le fuzzer détecte. Sans eux, le fuzzing perd
+  l'essentiel de son intérêt.
+
+  **Le corpus.** C'est le répertoire des entrées intéressantes. On l'amorce avec quelques fichiers valides (les
+  **graines**) : le fuzzer part d'exemples réalistes, et va plus vite. Il y range ses découvertes.
+
+  **Quand il trouve.** Il s'arrête, affiche le rapport du sanitizer, et écrit l'entrée fautive dans un fichier
+  `crash-<hachage>`. On rejoue :
+
+  ```
+  ./fuzz crash-1a2b3c
+  ```
+
+  Une fois le bug corrigé, on garde ce fichier comme **test de non-régression**.
+
+  **Une bonne cible** est rapide, déterministe, sans état global conservé d'un appel à l'autre, et ne se termine
+  pas par `exit`. Elle accepte **n'importe quelle** entrée : refuser proprement une entrée invalide est le
+  comportement attendu, pas une erreur.
+
+  **Ce qu'on fuzze.** Tout ce qui lit des données venues de l'extérieur : analyseurs de formats, décodeurs,
+  protocoles réseau, désérialisation. C'est là que se logent les failles de sécurité.
+
+  **Ses limites.** Il trouve des plantages et ce que les sanitizers détectent, pas un résultat simplement faux, à
+  moins d'écrire une vérification dans la cible (par exemple : décoder puis réencoder redonne l'entrée).
+
+  **En entretien** : « Le fuzzing génère des entrées, guidé par la couverture, pour faire planter une fonction.
+  Avec libFuzzer, j'écris `LLVMFuzzerTestOneInput`, je compile avec `-fsanitize=fuzzer,address`, et je garde
+  chaque entrée fautive comme test de non-régression. Je l'applique à tout ce qui analyse des données externes. »
+cards:
+  - key: principe
+    format: course
+    question: "En quoi consiste le fuzzing ?"
+    choices:
+      - {text: "À soumettre à une fonction des entrées générées automatiquement, pour la faire planter", correct: true}
+      - {text: "À relire le code d'une fonction à plusieurs, pour y chercher des failles", correct: false}
+      - {text: "À mesurer le temps d'exécution d'une fonction sur de grandes entrées", correct: false}
+      - {text: "À remplacer les dépendances d'une fonction par des doublures", correct: false}
+    answer: "Le moteur produit des millions d'entrées, que personne n'aurait pensé à écrire, et observe ce qui arrive."
+  - key: couverture
+    format: course
+    question: "Que veut dire que libFuzzer est « guidé par la couverture » ?"
+    choices:
+      - {text: "Il garde et fait muter les entrées qui atteignent du code encore jamais exécuté", correct: true}
+      - {text: "Il s'arrête dès que toutes les lignes du programme ont été exécutées une fois", correct: false}
+      - {text: "Il ne teste que les fonctions déjà couvertes par les tests unitaires", correct: false}
+      - {text: "Il choisit ses entrées dans la documentation du format à analyser", correct: false}
+    answer: "L'instrumentation lui dit quelles branches une entrée emprunte. Celles qui explorent du nouveau servent de base aux suivantes."
+  - key: sanitizers
+    format: course
+    question: "Pourquoi compile-t-on une cible de fuzzing avec AddressSanitizer ?"
+    choices:
+      - {text: "Pour qu'une faute de mémoire silencieuse arrête le programme, et soit détectée", correct: true}
+      - {text: "Pour que le fuzzer génère des entrées plus courtes", correct: false}
+      - {text: "Pour que la cible s'exécute plus vite que sans instrumentation", correct: false}
+      - {text: "Pour que le fuzzer puisse lire le code source de la cible", correct: false}
+    answer: "Un accès hors bornes ne plante pas toujours. Le fuzzer ne voit que les arrêts : le sanitizer transforme la faute en arrêt."
+  - key: quoi-fuzzer
+    format: course
+    question: "Quel code est la meilleure cible pour le fuzzing ?"
+    choices:
+      - {text: "Celui qui analyse des données venues de l'extérieur : formats, protocoles", correct: true}
+      - {text: "Celui qui affiche l'interface graphique du programme", correct: false}
+      - {text: "Celui qui ne reçoit jamais de données en entrée", correct: false}
+      - {text: "Celui qui est déjà prouvé correct par construction", correct: false}
+    answer: "Un analyseur reçoit des octets qu'un attaquant peut choisir. C'est là que le fuzzing trouve le plus, et que les fautes coûtent le plus."
+  - key: vf-main
+    format: true-false
+    question: "Une cible libFuzzer définit sa propre fonction `main`."
+    truth: false
+    answer: "libFuzzer fournit `main`. On n'écrit que `LLVMFuzzerTestOneInput`, appelée pour chaque entrée."
+  - key: vf-hasard
+    format: true-false
+    question: "libFuzzer tire toutes ses entrées au hasard, sans tenir compte des précédentes."
+    truth: false
+    answer: "Il fait muter les entrées qui ont atteint du code nouveau. C'est ce qui le rend bien plus efficace qu'un tirage aveugle."
+  - key: vf-regression
+    format: true-false
+    question: "L'entrée qui a provoqué un plantage se garde comme test de non-régression."
+    truth: true
+    answer: "Le fichier `crash-...` rejoue exactement le bug. Ajouté au corpus ou aux tests, il empêche son retour."
+  - key: vf-resultat-faux
+    format: true-false
+    question: "Sans vérification écrite dans la cible, le fuzzing détecte un résultat faux qui ne fait pas planter."
+    truth: false
+    answer: "Il ne voit que les arrêts et les rapports de sanitizers. Pour un résultat faux, la cible doit vérifier une propriété, et s'arrêter si elle est violée."
+  - key: qcm-fonction
+    format: multiple-choice
+    question: "Quelle fonction une cible libFuzzer doit-elle définir ?"
+    choices:
+      - {text: "`LLVMFuzzerTestOneInput`", correct: true}
+      - {text: "`main`", correct: false}
+      - {text: "`TEST_CASE`", correct: false}
+      - {text: "`FuzzerMain`", correct: false}
+    answer: "Elle reçoit un tampon d'octets et sa taille, et renvoie 0."
+  - key: qcm-option
+    format: multiple-choice
+    question: "Quelle option de Clang construit une cible de fuzzing avec AddressSanitizer ?"
+    choices:
+      - {text: "`-fsanitize=fuzzer,address`", correct: true}
+      - {text: "`-fsanitize=thread`", correct: false}
+      - {text: "`-ffuzz=address`", correct: false}
+      - {text: "`-Wfuzzer -Waddress`", correct: false}
+    answer: "`fuzzer` ajoute le moteur et l'instrumentation de couverture ; `address` ajoute ASan."
+  - key: qcm-corpus
+    format: multiple-choice
+    question: "Qu'appelle-t-on le corpus d'un fuzzer ?"
+    choices:
+      - {text: "Le répertoire des entrées intéressantes, dont il part et qu'il enrichit", correct: true}
+      - {text: "Le code source de la fonction à tester, lu par le moteur", correct: false}
+      - {text: "La liste des plantages déjà corrigés, à ne plus signaler", correct: false}
+      - {text: "Le rapport écrit à la fin de l'exécution", correct: false}
+    answer: "On l'amorce avec quelques exemples valides. Le fuzzer y ajoute chaque entrée qui découvre du code nouveau."
+  - key: qcm-rejouer
+    format: multiple-choice
+    question: "Le fuzzer a écrit le fichier `crash-1a2b3c`. Comment rejoues-tu le plantage ?"
+    choices:
+      - {text: "`./fuzz crash-1a2b3c`", correct: true}
+      - {text: "`./fuzz --replay-all`", correct: false}
+      - {text: "`clang++ crash-1a2b3c`", correct: false}
+      - {text: "`cat crash-1a2b3c | g++`", correct: false}
+    answer: "Passé en argument, un fichier est exécuté une seule fois : on retrouve le rapport, et l'on peut lancer un débogueur."
+  - key: trous-fonction
+    format: fill-in
+    question: |-
+      Complète le nom de la fonction que libFuzzer appelle pour chaque entrée :
+      ```cpp
+      extern "C" int ___(const std::uint8_t* donnees, std::size_t taille) {
+          analyser(donnees, taille);
+          return 0;
+      }
+      ```
+    blanks:
+      - [LLVMFuzzerTestOneInput]
+    answer: "`LLVMFuzzerTestOneInput` est le point d'entrée d'une cible."
+  - key: trous-sanitize
+    format: fill-in
+    question: |-
+      Complète l'option qui ajoute le moteur de fuzzing :
+      ```
+      clang++ -g -O1 -fsanitize=___,address cible.cpp -o fuzz
+      ```
+    blanks:
+      - [fuzzer]
+    answer: "`-fsanitize=fuzzer` lie libFuzzer et instrumente le code."
+  - key: trous-extern-c
+    format: fill-in
+    question: |-
+      Complète pour que libFuzzer, écrit avec une interface C, trouve la fonction :
+      ```cpp
+      ___ "C" int LLVMFuzzerTestOneInput(const std::uint8_t* donnees, std::size_t taille);
+      ```
+    blanks:
+      - [extern]
+    answer: "`extern \"C\"` donne à la fonction un nom de symbole sans décoration C++."
+  - key: trous-retour
+    format: fill-in
+    question: |-
+      Complète la valeur que la cible renvoie après avoir traité une entrée :
+      ```cpp
+      extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* donnees, std::size_t taille) {
+          analyser(donnees, taille);
+          return ___;
+      }
+      ```
+    blanks:
+      - ["0"]
+    answer: "La cible renvoie 0. Les autres valeurs sont réservées."
+  - key: situation-analyseur
+    format: scenario
+    question: |-
+      Ton équipe écrit un analyseur d'images, qui lira des fichiers envoyés par des inconnus. Les tests unitaires
+      couvrent une vingtaine de fichiers valides. Que proposes-tu d'ajouter ?
+    choices:
+      - {text: "Une cible de fuzzing sur la fonction d'analyse, avec ASan, amorcée par ces vingt fichiers", correct: true}
+      - {text: "Vingt autres fichiers valides, pour doubler la couverture des tests", correct: false}
+      - {text: "Un `catch (...)` autour de l'analyse, qui ignore les fichiers invalides", correct: false}
+      - {text: "Une relecture du code par un collègue, à la place de tests supplémentaires", correct: false}
+    answer: |-
+      Les fichiers valides ne testent pas ce qu'un attaquant enverra. Le fuzzer déforme ces exemples par millions,
+      et ASan signale chaque lecture hors bornes. Un `catch` n'attrape pas une faute de mémoire.
+  - key: situation-rien-trouve
+    format: scenario
+    question: |-
+      Un fuzzer tourne depuis une heure sur un décodeur, sans rien trouver. La cible a été compilée avec
+      `-fsanitize=fuzzer` seul. Un collègue conclut que le code est sûr. Que réponds-tu ?
+    choices:
+      - {text: "Que sans ASan ni UBSan, les fautes de mémoire silencieuses passent inaperçues", correct: true}
+      - {text: "Que c'est exact : une heure sans plantage prouve l'absence de bug", correct: false}
+      - {text: "Que le fuzzer aurait dû être lancé sans corpus, pour mieux chercher", correct: false}
+      - {text: "Que la cible aurait dû définir sa propre fonction `main`", correct: false}
+    answer: |-
+      Le fuzzer ne détecte que ce qui arrête le programme. Un dépassement d'un octet passe souvent sans effet :
+      les sanitizers le rendent visible. Et une heure de calme ne prouve rien, seulement qu'on n'a rien trouvé.
+  - key: situation-crash
+    format: scenario
+    question: |-
+      Le fuzzer trouve un plantage après dix minutes, et écrit un fichier `crash-...` de quarante octets. Tu
+      corriges le bug. Que fais-tu du fichier ?
+    choices:
+      - {text: "Je l'ajoute au corpus et aux tests : il empêchera le bug de revenir", correct: true}
+      - {text: "Je le supprime : le bug est corrigé, le fichier ne sert plus", correct: false}
+      - {text: "Je le garde sur mon poste, sans le versionner", correct: false}
+      - {text: "Je le renvoie au fuzzer, pour qu'il le fasse planter encore", correct: false}
+    answer: |-
+      C'est un test de non-régression gratuit, minimal et précis. Rejoué à chaque construction, il signale aussitôt
+      une rechute.
+  - key: situation-cible-lente
+    format: scenario
+    question: |-
+      Ta cible de fuzzing ouvre une base de données, y écrit l'entrée, la relit, puis l'analyse. Elle traite dix
+      entrées par seconde, et le fuzzer n'avance pas. Que changes-tu ?
+    choices:
+      - {text: "La cible appelle directement la fonction d'analyse, en mémoire, sans la base", correct: true}
+      - {text: "La cible attend une seconde entre deux entrées, pour ménager la base", correct: false}
+      - {text: "La cible n'analyse qu'une entrée sur dix, pour aller dix fois plus vite", correct: false}
+      - {text: "La cible se termine par `exit(0)` après la première entrée", correct: false}
+    answer: |-
+      Le fuzzing vit de son débit : des milliers d'exécutions par seconde. Une cible doit être petite, rapide et
+      sans effet extérieur. On fuzze la fonction, pas le système autour.

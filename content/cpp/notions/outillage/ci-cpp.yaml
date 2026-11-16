@@ -1,0 +1,196 @@
+notion: ci-cpp
+lesson: |-
+  L'**intégration continue** (CI) construit et teste le projet **à chaque modification**, sur des machines
+  neutres. Pour du C++, elle a deux particularités : il existe **plusieurs compilateurs**, qui n'acceptent pas tous
+  le même code, et les constructions sont **longues**.
+
+  **La matrice.** On construit la même version du code dans plusieurs configurations, en parallèle.
+
+  | Axe | Valeurs courantes | Ce qu'on y gagne |
+  |---|---|---|
+  | Compilateur | GCC, Clang, MSVC | chacun a ses avertissements et ses écarts au standard |
+  | Système | Linux, macOS, Windows | bibliothèques standard et API différentes |
+  | Type de construction | Debug, Release | l'optimisation révèle des comportements indéfinis |
+  | Instrumentation | ASan + UBSan, TSan | les fautes de mémoire et les courses |
+
+  Un extrait de GitHub Actions :
+
+  ```
+  strategy:
+    matrix:
+      compiler: [gcc-14, clang-18]
+      build_type: [Debug, Release]
+  steps:
+    - uses: actions/checkout@v4
+    - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
+    - run: cmake --build build --parallel
+    - run: ctest --test-dir build --output-on-failure
+  ```
+
+  **Ce qu'une bonne chaîne vérifie**, du plus rapide au plus lent : le formatage (`clang-format --dry-run
+  --Werror`), la compilation avec `-Werror`, les tests, l'analyse statique (clang-tidy), puis les tests sous
+  sanitizers.
+
+  **Le cache.** Recompiler tout le projet à chaque exécution coûte cher. Deux caches se combinent :
+
+  - **ccache** (ou sccache) garde le résultat de chaque compilation. Si le fichier, ses en-têtes et les options
+    n'ont pas changé, il rend le fichier objet sans appeler le compilateur :
+    `-DCMAKE_CXX_COMPILER_LAUNCHER=ccache`.
+  - Le **cache de la CI** conserve d'une exécution à l'autre le répertoire de ccache et les dépendances déjà
+    construites (vcpkg, Conan).
+
+  **Tenir les durées.** Construire en parallèle (`--parallel`), échouer tôt (les vérifications rapides d'abord),
+  ne lancer la matrice complète que sur la branche principale ou la nuit, et garder un retour en quelques minutes
+  sur chaque demande de fusion.
+
+  **Des constructions reproductibles.** Versions de compilateur **fixées** (pas « le dernier »), dépendances
+  épinglées, et souvent une **image Docker** qui contient la chaîne d'outils : la CI et les postes construisent
+  alors exactement de la même façon.
+
+  **En entretien** : « Une CI C++ construit sur une matrice de compilateurs, de systèmes et de types de
+  construction, avec `-Werror`, les tests, clang-tidy et les sanitizers. Pour la durée : ccache, le cache des
+  dépendances, la parallélisation, et les vérifications rapides en premier. »
+cards:
+  - key: matrice
+    format: course
+    question: "Qu'est-ce qu'une matrice de construction, en intégration continue ?"
+    choices:
+      - {text: "La même version du code construite dans plusieurs configurations, en parallèle", correct: true}
+      - {text: "Un tableau qui liste les développeurs autorisés à fusionner leur code", correct: false}
+      - {text: "Une construction unique, relancée plusieurs fois avec les mêmes réglages", correct: false}
+      - {text: "Un graphique du temps de construction, tracé au fil des semaines", correct: false}
+    answer: "Chaque combinaison (compilateur, système, type de construction) donne une tâche. Un défaut propre à l'une d'elles se voit aussitôt."
+  - key: plusieurs-compilateurs
+    format: course
+    question: "Pourquoi construire un projet C++ avec plusieurs compilateurs ?"
+    choices:
+      - {text: "Chacun a ses avertissements et ses écarts : du code accepté par l'un peut être refusé par l'autre", correct: true}
+      - {text: "Chacun produit un programme deux fois plus rapide que le précédent de la liste", correct: false}
+      - {text: "Le standard exige qu'un programme soit compilé par trois compilateurs différents", correct: false}
+      - {text: "Un seul compilateur ne peut pas compiler plus de cent fichiers à la fois", correct: false}
+    answer: "GCC, Clang et MSVC n'ont ni les mêmes extensions ni les mêmes diagnostics. Les croiser attrape le code non portable, et davantage de bugs."
+  - key: ccache
+    format: course
+    question: "Que fait ccache ?"
+    choices:
+      - {text: "Il rend le fichier objet d'une compilation déjà faite, si rien n'a changé", correct: true}
+      - {text: "Il compile chaque fichier sur plusieurs cœurs à la fois", correct: false}
+      - {text: "Il garde en mémoire les résultats des tests déjà passés", correct: false}
+      - {text: "Il compresse l'exécutable après l'édition de liens", correct: false}
+    answer: "Il hache le fichier prétraité et les options. À l'identique, le compilateur n'est pas appelé : une reconstruction complète devient presque instantanée."
+  - key: ordre
+    format: course
+    question: "Dans quel ordre range-t-on les vérifications d'une chaîne d'intégration continue ?"
+    choices:
+      - {text: "Les plus rapides d'abord, pour échouer tôt", correct: true}
+      - {text: "Les plus lentes d'abord, pour en être débarrassé", correct: false}
+      - {text: "Dans l'ordre alphabétique de leur nom", correct: false}
+      - {text: "Dans un ordre tiré au hasard à chaque exécution", correct: false}
+    answer: "Un fichier mal formaté ou une erreur de compilation se détectent en secondes : inutile d'attendre vingt minutes de tests pour l'apprendre."
+  - key: vf-debug-release
+    format: true-false
+    question: "Tester seulement la construction Debug suffit à garantir que la construction Release fonctionne."
+    truth: false
+    answer: "L'optimisation change le comportement d'un code qui contient un comportement indéfini. On teste aussi ce qu'on livre."
+  - key: vf-dernier-compilateur
+    format: true-false
+    question: "Fixer la version du compilateur rend les constructions de la CI reproductibles."
+    truth: true
+    answer: "« Le dernier disponible » change sans prévenir. Une version fixée, mise à jour volontairement, évite les échecs inexpliqués."
+  - key: vf-cache-ci
+    format: true-false
+    question: "Le cache de la CI peut conserver, d'une exécution à l'autre, les dépendances déjà construites."
+    truth: true
+    answer: "Répertoire de ccache, paquets vcpkg ou Conan : ce qui n'a pas changé n'est pas refait."
+  - key: vf-sanitizers
+    format: true-false
+    question: "Lancer les tests sous sanitizers en CI est inutile quand ils passent déjà sans."
+    truth: false
+    answer: "Un test peut réussir malgré un accès hors bornes ou une course aux données. Les sanitizers révèlent ces fautes silencieuses."
+  - key: qcm-launcher
+    format: multiple-choice
+    question: "Quelle option de CMake fait passer chaque compilation par ccache ?"
+    choices:
+      - {text: "`-DCMAKE_CXX_COMPILER_LAUNCHER=ccache`", correct: true}
+      - {text: "`-DCMAKE_BUILD_TYPE=ccache`", correct: false}
+      - {text: "`-DCMAKE_CXX_STANDARD=ccache`", correct: false}
+      - {text: "`-DCMAKE_INSTALL_PREFIX=ccache`", correct: false}
+    answer: "Le « lanceur » est placé devant chaque appel du compilateur."
+  - key: qcm-ctest
+    format: multiple-choice
+    question: "Quelle commande lance les tests d'un projet CMake et affiche la sortie de ceux qui échouent ?"
+    choices:
+      - {text: "`ctest --test-dir build --output-on-failure`", correct: true}
+      - {text: "`cmake --build build --parallel`", correct: false}
+      - {text: "`cmake -S . -B build`", correct: false}
+      - {text: "`make clean`", correct: false}
+    answer: "`ctest` exécute les tests déclarés par `add_test`. `--output-on-failure` montre ce qu'un test raté a écrit."
+  - key: qcm-parallele
+    format: multiple-choice
+    question: "Quelle option fait compiler plusieurs fichiers à la fois ?"
+    choices:
+      - {text: "`cmake --build build --parallel`", correct: true}
+      - {text: "`cmake --build build --verbose`", correct: false}
+      - {text: "`cmake --build build --clean-first`", correct: false}
+      - {text: "`cmake --build build --target help`", correct: false}
+    answer: "`--parallel` utilise les cœurs disponibles. C'est le premier levier sur la durée d'une construction."
+  - key: qcm-image
+    format: multiple-choice
+    question: "Comment garantit-on que la CI et les postes des développeurs utilisent la même chaîne d'outils ?"
+    choices:
+      - {text: "Par une image Docker qui contient le compilateur et les outils, à des versions fixées", correct: true}
+      - {text: "Par un courriel mensuel qui rappelle les versions à installer", correct: false}
+      - {text: "Par l'installation du dernier compilateur disponible, chaque matin", correct: false}
+      - {text: "Par la recopie de l'exécutable du compilateur dans le dépôt", correct: false}
+    answer: "L'image fige l'environnement : « ça passe chez moi » et « ça passe en CI » deviennent la même affirmation."
+  - key: situation-msvc
+    format: scenario
+    question: |-
+      Ton projet, développé sous Linux avec GCC, est livré à un client qui le compile avec MSVC : vingt erreurs. Tu
+      utilisais sans le savoir des extensions de GCC. Comment l'aurais-tu su plus tôt ?
+    choices:
+      - {text: "Par une matrice de CI qui construit aussi avec Clang et MSVC", correct: true}
+      - {text: "Par une construction GCC lancée deux fois de suite", correct: false}
+      - {text: "Par davantage de tests unitaires sous GCC", correct: false}
+      - {text: "Par une relecture des messages de l'éditeur de liens", correct: false}
+    answer: |-
+      Seul un autre compilateur révèle le code non portable. `-Wpedantic` aide, sans tout voir.
+  - key: situation-quarante-minutes
+    format: scenario
+    question: |-
+      Chaque demande de fusion attend quarante minutes de CI : tout est recompilé à chaque fois, puis les douze
+      configurations de la matrice tournent. Les développeurs contournent la CI. Que proposes-tu ?
+    choices:
+      - {text: "ccache et le cache des dépendances, et la matrice complète seulement sur la branche principale", correct: true}
+      - {text: "La suppression des tests, qui sont la partie la plus longue de la chaîne", correct: false}
+      - {text: "Une seule exécution de la CI par semaine, le vendredi soir", correct: false}
+      - {text: "L'ajout de dix configurations à la matrice, pour mieux répartir la charge", correct: false}
+    answer: |-
+      Une CI trop lente n'est plus consultée. On réutilise ce qui n'a pas changé, et l'on garde un retour rapide
+      sur une ou deux configurations, le reste tournant après la fusion ou la nuit.
+  - key: situation-release
+    format: scenario
+    question: |-
+      La CI ne construit qu'en Debug. Un client signale un plantage qui n'apparaît que dans le binaire livré, en
+      Release. Que changes-tu ?
+    choices:
+      - {text: "J'ajoute Release à la matrice, et une configuration sous ASan et UBSan", correct: true}
+      - {text: "Je livre désormais le binaire Debug, qui passe les tests", correct: false}
+      - {text: "Je retire l'optimisation du binaire livré, avec `-O0`", correct: false}
+      - {text: "Je demande au client de compiler lui-même en Debug", correct: false}
+    answer: |-
+      Un défaut visible seulement avec l'optimisation est presque toujours un comportement indéfini. Tester ce
+      qu'on livre le fait voir, et les sanitizers en donnent la cause.
+  - key: situation-echec-inexplique
+    format: scenario
+    question: |-
+      Un lundi, toutes les constructions de la CI échouent sur un nouvel avertissement, sans qu'une ligne du projet
+      ait changé. L'image de la CI installe « la dernière version » de GCC. Que proposes-tu ?
+    choices:
+      - {text: "Fixer la version du compilateur, et la mettre à jour volontairement, dans une modification à part", correct: true}
+      - {text: "Retirer `-Werror` de la CI, pour qu'un avertissement ne bloque plus rien", correct: false}
+      - {text: "Relancer la CI jusqu'à ce que la construction passe", correct: false}
+      - {text: "Interdire toute mise à jour du compilateur à l'avenir", correct: false}
+    answer: |-
+      Le compilateur a changé sous le projet. Une version fixée rend l'échec impossible par surprise ; la mise à
+      jour devient une modification comme une autre, avec ses corrections.

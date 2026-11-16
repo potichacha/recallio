@@ -1,0 +1,523 @@
+notion: copy-and-swap
+lesson: |-
+  Écrire un opérateur d'affectation juste pour une classe qui gère une ressource est délicat : il faut libérer
+  l'ancienne ressource, copier la nouvelle, survivre à l'**auto-affectation** (`a = a`), et ne rien abîmer si la
+  copie **lance une exception**. L'idiome **copy-and-swap** règle tout cela en trois lignes, en réutilisant ce qui
+  existe déjà : le constructeur de copie, le destructeur, et une fonction `swap`.
+
+  ```cpp
+  class Tampon {
+  public:
+      explicit Tampon(std::size_t taille) : taille_{taille}, donnees_{new int[taille]{}} {}
+      Tampon(const Tampon& autre) : taille_{autre.taille_}, donnees_{new int[autre.taille_]} {
+          std::copy(autre.donnees_, autre.donnees_ + taille_, donnees_);
+      }
+      Tampon(Tampon&& autre) noexcept { swap(*this, autre); }
+      ~Tampon() { delete[] donnees_; }
+
+      Tampon& operator=(Tampon autre) noexcept {      // 1. paramètre par VALEUR : la copie est faite ici
+          swap(*this, autre);                          // 2. on échange avec la copie
+          return *this;
+      }                                                // 3. le destructeur d'autre libère l'ancienne ressource
+
+      friend void swap(Tampon& a, Tampon& b) noexcept {
+          using std::swap;
+          swap(a.taille_, b.taille_);
+          swap(a.donnees_, b.donnees_);
+      }
+
+  private:
+      std::size_t taille_ = 0;
+      int* donnees_ = nullptr;
+  };
+  ```
+
+  **Pourquoi ça marche.**
+
+  1. Le paramètre est pris **par valeur** : l'appelant le construit par copie (pour une lvalue) ou par déplacement
+     (pour une rvalue). Si cette copie lance, on n'est **pas encore entré** dans l'opérateur : `*this` est intact.
+  2. `swap` échange les membres : `*this` reçoit le nouvel état, `autre` l'ancien. Il ne peut pas échouer.
+  3. À la sortie, le destructeur d'`autre` libère l'**ancienne** ressource.
+
+  **Ce qu'on obtient.**
+
+  - La **garantie forte** face aux exceptions : l'affectation réussit entièrement, ou ne change rien.
+  - L'**auto-affectation** est juste sans test : `a = a` copie `a`, échange, détruit la copie.
+  - **Un seul opérateur** sert d'affectation de copie **et** de déplacement.
+  - Aucune duplication du code de copie ni de libération.
+
+  **La fonction `swap`.** Elle échange les membres un à un, et ne lance pas (`noexcept`). On écrit
+  `using std::swap;` puis `swap(a, b)` sans préfixe : la recherche par les arguments (ADL) trouve la version de la
+  classe si elle existe, celle de `std` sinon.
+
+  **Le prix.** L'affectation alloue toujours un nouveau tampon, même quand l'ancien aurait pu être réutilisé :
+  un opérateur écrit à la main peut être plus rapide. Et l'idiome n'a d'intérêt que pour une classe qui **gère
+  elle-même** une ressource. Avec des membres comme `std::vector` ou `std::unique_ptr`, on suit la **règle de
+  zéro** : l'affectation générée suffit.
+
+  **En entretien** : « L'opérateur d'affectation prend son paramètre par valeur, échange avec lui par un `swap`
+  qui ne lance pas, et laisse le destructeur du paramètre libérer l'ancien état. J'y gagne la garantie forte, une
+  auto-affectation correcte, et un seul opérateur pour la copie et le déplacement. »
+cards:
+  - key: principe
+    format: course
+    question: "Comment l'idiome copy-and-swap écrit-il l'opérateur d'affectation ?"
+    choices:
+      - {text: "Il prend le paramètre par valeur, échange son contenu avec `*this`, et le laisse détruire l'ancien état", correct: true}
+      - {text: "Il libère d'abord la ressource de `*this`, puis copie celle du paramètre reçu par référence", correct: false}
+      - {text: "Il copie le paramètre dans une variable globale, puis l'échange avec `*this` plus tard", correct: false}
+      - {text: "Il échange les adresses des deux objets, sans toucher à aucun de leurs membres", correct: false}
+    answer: "La copie est faite par le passage par valeur, l'échange par `swap`, la libération par le destructeur du paramètre. Rien n'est écrit deux fois."
+  - key: garantie-forte
+    format: course
+    question: "Pourquoi copy-and-swap offre-t-il la garantie forte face aux exceptions ?"
+    choices:
+      - {text: "La seule étape qui peut lancer, la copie, a lieu avant toute modification de `*this`", correct: true}
+      - {text: "Toutes les exceptions sont attrapées dans l'opérateur, et ignorées", correct: false}
+      - {text: "Le destructeur du paramètre annule l'affectation en cas d'erreur", correct: false}
+      - {text: "La fonction `swap` relance l'exception après avoir restauré l'objet", correct: false}
+    answer: "Si la copie échoue, l'opérateur n'a pas commencé : l'objet est inchangé. Ensuite, `swap` et le destructeur ne lancent pas."
+  - key: auto-affectation
+    format: course
+    question: "Comment copy-and-swap traite-t-il l'auto-affectation `a = a` ?"
+    choices:
+      - {text: "Sans test : `a` est copié, échangé avec sa copie, et la copie est détruite", correct: true}
+      - {text: "Par un test `if (this == &autre) return *this;` en première ligne", correct: false}
+      - {text: "Par une exception `std::logic_error`, que l'appelant attrape", correct: false}
+      - {text: "Par une erreur de compilation : l'auto-affectation est refusée", correct: false}
+    answer: "Le résultat est juste, au prix d'une copie inutile. L'opérateur écrit à la main, lui, doit penser à tester, sous peine de libérer la ressource qu'il s'apprête à copier."
+  - key: par-valeur
+    format: course
+    question: "Pourquoi l'opérateur prend-il son paramètre par valeur, et non par référence constante ?"
+    choices:
+      - {text: "L'appelant construit la copie, par copie ou par déplacement : un seul opérateur sert aux deux", correct: true}
+      - {text: "Une référence constante ne peut pas désigner un objet de la même classe", correct: false}
+      - {text: "Le passage par valeur évite d'allouer de la mémoire pendant l'affectation", correct: false}
+      - {text: "Une référence constante empêcherait l'opérateur de renvoyer `*this`", correct: false}
+    answer: "Avec une rvalue, le paramètre est construit par déplacement : l'opérateur devient une affectation de déplacement, sans copie."
+  - key: vf-swap-noexcept
+    format: true-false
+    question: "La fonction `swap` utilisée par l'idiome ne doit pas lancer d'exception."
+    truth: true
+    answer: "C'est ce qui garantit qu'après la copie, plus rien ne peut échouer. Elle n'échange que des pointeurs et des entiers."
+  - key: vf-deux-operateurs
+    format: true-false
+    question: "Avec copy-and-swap, il faut écrire séparément l'affectation de copie et l'affectation de déplacement."
+    truth: false
+    answer: "L'opérateur qui prend son paramètre par valeur fait les deux. En déclarer un second, `operator=(T&&)`, rendrait d'ailleurs l'appel ambigu."
+  - key: vf-toujours-plus-rapide
+    format: true-false
+    question: "L'affectation par copy-and-swap est toujours plus rapide qu'un opérateur écrit à la main."
+    truth: false
+    answer: "Elle alloue toujours un nouveau tampon, même quand l'ancien pouvait être réutilisé. On choisit l'idiome pour sa sûreté, pas pour sa vitesse."
+  - key: vf-regle-zero
+    format: true-false
+    question: "Une classe dont les membres sont des `std::vector` a besoin de l'idiome copy-and-swap."
+    truth: false
+    answer: "Ses membres gèrent leurs ressources : l'affectation générée est correcte. L'idiome ne concerne que les classes qui tiennent une ressource brute."
+  - key: qcm-signature
+    format: multiple-choice
+    question: "Quelle est la signature de l'opérateur d'affectation dans l'idiome copy-and-swap ?"
+    choices:
+      - {text: "`Tampon& operator=(Tampon autre)`", correct: true}
+      - {text: "`Tampon& operator=(const Tampon& autre)`", correct: false}
+      - {text: "`void operator=(Tampon* autre)`", correct: false}
+      - {text: "`Tampon operator=(Tampon&& autre) const`", correct: false}
+    answer: "Le paramètre est pris par valeur : c'est lui, la copie."
+  - key: qcm-adl
+    format: multiple-choice
+    question: "Comment appelle-t-on `swap` sur deux membres, pour profiter d'une version spécialisée s'il y en a une ?"
+    choices:
+      - {text: "`using std::swap;` puis `swap(a, b);`", correct: true}
+      - {text: "`std::swap(a, b);` uniquement", correct: false}
+      - {text: "`a.swap(&b);`", correct: false}
+      - {text: "`::swap(a, b);`", correct: false}
+    answer: "L'appel sans préfixe laisse la recherche par les arguments trouver le `swap` du type ; `using std::swap;` fournit le repli."
+  - key: qcm-liberation
+    format: multiple-choice
+    question: "Dans copy-and-swap, qui libère l'ancienne ressource de l'objet affecté ?"
+    choices:
+      - {text: "Le destructeur du paramètre, à la sortie de l'opérateur", correct: true}
+      - {text: "Un `delete[]` écrit au début de l'opérateur", correct: false}
+      - {text: "La fonction `swap`, après l'échange", correct: false}
+      - {text: "L'appelant, après le retour de l'opérateur", correct: false}
+    answer: "Après l'échange, le paramètre contient l'ancien état. Il est détruit en fin de fonction."
+  - key: qcm-move-ctor
+    format: multiple-choice
+    question: "Comment un constructeur de déplacement peut-il réutiliser `swap` ?"
+    choices:
+      - {text: "Il part de membres vides, puis échange avec la source : `swap(*this, autre);`", correct: true}
+      - {text: "Il copie la source, puis appelle `delete` sur elle", correct: false}
+      - {text: "Il appelle `swap(autre, autre);` pour vider la source", correct: false}
+      - {text: "Il échange `this` et `&autre`", correct: false}
+    answer: "Les membres ont leurs valeurs par défaut (taille nulle, pointeur nul). Après l'échange, l'objet a la ressource, et la source est vide."
+  - key: trous-swap
+    format: fill-in
+    question: |-
+      Complète le corps de l'opérateur :
+      ```cpp
+      Tampon& operator=(Tampon autre) noexcept {
+          ___(*this, autre);
+          return *this;
+      }
+      ```
+    blanks:
+      - [swap]
+    answer: "`swap` échange le contenu de l'objet avec celui de la copie."
+  - key: trous-retour
+    format: fill-in
+    question: |-
+      Complète ce que renvoie l'opérateur :
+      ```cpp
+      Tampon& operator=(Tampon autre) noexcept {
+          swap(*this, autre);
+          return ___;
+      }
+      ```
+    blanks:
+      - ["*this"]
+    answer: "Un opérateur d'affectation renvoie une référence vers l'objet affecté."
+  - key: trous-using
+    format: fill-in
+    question: |-
+      Complète pour que l'appel sans préfixe trouve aussi la version standard :
+      ```cpp
+      friend void swap(Tampon& a, Tampon& b) noexcept {
+          using std::___;
+          swap(a.taille_, b.taille_);
+          swap(a.donnees_, b.donnees_);
+      }
+      ```
+    blanks:
+      - [swap]
+    answer: "`using std::swap;` rend `std::swap` visible, sans empêcher la recherche d'une version propre au type."
+  - key: trous-noexcept
+    format: fill-in
+    question: |-
+      Complète pour promettre que l'échange ne lance pas :
+      ```cpp
+      friend void swap(Tampon& a, Tampon& b) ___ {
+          std::swap(a.donnees_, b.donnees_);
+      }
+      ```
+    blanks:
+      - [noexcept]
+    answer: "`noexcept` : la garantie forte de l'affectation en dépend."
+  - key: code-affectation
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+      #include <utility>
+
+      class Boite {
+      public:
+          explicit Boite(int valeur) : valeur_{new int{valeur}} {}
+          Boite(const Boite& autre) : valeur_{new int{*autre.valeur_}} {}
+          ~Boite() { delete valeur_; }
+          Boite& operator=(Boite autre) noexcept {
+              std::swap(valeur_, autre.valeur_);
+              return *this;
+          }
+          int valeur() const { return *valeur_; }
+
+      private:
+          int* valeur_;
+      };
+
+      int main() {
+          Boite a{1};
+          Boite b{2};
+          a = b;
+          a = a;
+          std::println("{} {}", a.valeur(), b.valeur());
+      }
+      ```
+    choices:
+      - {text: "`2 2`", correct: true}
+      - {text: "`1 2`", correct: false}
+      - {text: "`2 1`", correct: false}
+      - {text: "`0 2`", correct: false}
+    answer: "`2 2` : `a = b` copie `b`, échange, et détruit l'ancien état de `a`. L'auto-affectation `a = a` laisse `a` intact, sans test."
+    check:
+      output: "2 2"
+  - key: code-copies
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+      #include <utility>
+
+      struct Trace {
+          Trace() = default;
+          Trace(const Trace&) { ++copies; }
+          Trace(Trace&&) noexcept { ++deplacements; }
+          Trace& operator=(Trace autre) noexcept { return *this; }
+          static inline int copies = 0;
+          static inline int deplacements = 0;
+      };
+
+      int main() {
+          Trace a;
+          Trace b;
+          a = b;
+          a = std::move(b);
+          std::println("{} {}", Trace::copies, Trace::deplacements);
+      }
+      ```
+    choices:
+      - {text: "`1 1`", correct: true}
+      - {text: "`2 0`", correct: false}
+      - {text: "`0 2`", correct: false}
+      - {text: "`2 2`", correct: false}
+    answer: "`1 1` : le paramètre par valeur est construit par copie pour la lvalue `b`, par déplacement pour `std::move(b)`. Un seul opérateur sert aux deux."
+    check:
+      output: "1 1"
+  - key: code-exception
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+      #include <stdexcept>
+      #include <utility>
+
+      class Fragile {
+      public:
+          explicit Fragile(int valeur) : valeur_{valeur} {}
+          Fragile(const Fragile& autre) : valeur_{autre.valeur_} {
+              if (valeur_ < 0) {
+                  throw std::runtime_error{"copie impossible"};
+              }
+          }
+          Fragile& operator=(Fragile autre) noexcept {
+              std::swap(valeur_, autre.valeur_);
+              return *this;
+          }
+          int valeur() const { return valeur_; }
+
+      private:
+          int valeur_;
+      };
+
+      int main() {
+          Fragile a{5};
+          const Fragile mauvais{-1};
+          try {
+              a = mauvais;
+          } catch (const std::runtime_error&) {
+              std::print("échec ");
+          }
+          std::println("{}", a.valeur());
+      }
+      ```
+    choices:
+      - {text: "`échec 5`", correct: true}
+      - {text: "`échec -1`", correct: false}
+      - {text: "`-1`", correct: false}
+      - {text: "`échec 0`", correct: false}
+    answer: "`échec 5` : la copie lance avant l'entrée dans l'opérateur. `a` n'a pas été touché : c'est la garantie forte."
+    check:
+      output: "échec 5"
+  - key: code-swap-adl
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+      #include <utility>
+
+      struct Jeton {
+          int id;
+          friend void swap(Jeton& a, Jeton& b) noexcept {
+              std::print("perso ");
+              std::swap(a.id, b.id);
+          }
+      };
+
+      int main() {
+          Jeton a{1};
+          Jeton b{2};
+          using std::swap;
+          swap(a, b);
+          std::println("{} {}", a.id, b.id);
+      }
+      ```
+    choices:
+      - {text: "`perso 2 1`", correct: true}
+      - {text: "`2 1`", correct: false}
+      - {text: "`perso 1 2`", correct: false}
+      - {text: "Ça ne compile pas", correct: false}
+    answer: "`perso 2 1` : l'appel sans préfixe trouve, par ses arguments, le `swap` ami de `Jeton`, préféré au template `std::swap`."
+    check:
+      output: "perso 2 1"
+  - key: bug-auto-affectation
+    format: bug-fix
+    question: |-
+      Cet opérateur écrit à la main libère la mémoire avant de la copier. Sur `a = a`, il lit un entier libéré :
+      comportement indéfini. Quelle correction applique copy-and-swap ?
+      ```cpp
+      #include <print>
+      #include <utility>
+
+      class Boite {
+      public:
+          explicit Boite(int valeur) : valeur_{new int{valeur}} {}
+          Boite(const Boite& autre) : valeur_{new int{*autre.valeur_}} {}
+          ~Boite() { delete valeur_; }
+          Boite& operator=(const Boite& autre) {
+              delete valeur_;
+              valeur_ = new int{*autre.valeur_};
+              return *this;
+          }
+          int valeur() const { return *valeur_; }
+
+      private:
+          int* valeur_;
+      };
+
+      int main() {
+          Boite a{7};
+          a = a;
+          std::println("{}", a.valeur() >= 0);
+      }
+      ```
+    choices:
+      - {text: "Prendre `Boite autre` par valeur, et écrire `std::swap(valeur_, autre.valeur_);`", correct: true}
+      - {text: "Prendre `Boite& autre` sans `const`, et garder le corps tel qu'il est", correct: false}
+      - {text: "Écrire `valeur_ = autre.valeur_;` à la place des deux premières lignes", correct: false}
+      - {text: "Écrire `delete valeur_;` une seconde fois, après la copie", correct: false}
+    answer: |-
+      ```cpp
+      Boite& operator=(Boite autre) noexcept {
+          std::swap(valeur_, autre.valeur_);
+          return *this;
+      }
+      ```
+      La copie est faite avant toute libération, par le passage par valeur. L'ancien entier est libéré par le
+      destructeur d'`autre`. Recopier le pointeur ferait partager le même entier à deux objets.
+  - key: bug-ambiguite
+    format: bug-fix
+    question: |-
+      Le compilateur répond « ambiguous overload for 'operator=' » sur `a = Boite{2};`. Quelle correction est la
+      bonne ?
+      ```cpp
+      #include <print>
+      #include <utility>
+
+      class Boite {
+      public:
+          explicit Boite(int valeur) : valeur_{valeur} {}
+          Boite& operator=(Boite autre) noexcept {
+              std::swap(valeur_, autre.valeur_);
+              return *this;
+          }
+          Boite& operator=(Boite&& autre) noexcept {
+              valeur_ = autre.valeur_;
+              return *this;
+          }
+          int valeur() const { return valeur_; }
+
+      private:
+          int valeur_;
+      };
+
+      int main() {
+          Boite a{1};
+          a = Boite{2};
+          std::println("{}", a.valeur());
+      }
+      ```
+    choices:
+      - {text: "Supprimer `operator=(Boite&&)` : la version par valeur traite déjà les rvalues", correct: true}
+      - {text: "Ajouter une troisième version, `operator=(const Boite&)`", correct: false}
+      - {text: "Écrire `a = std::move(Boite{2});` dans `main`", correct: false}
+      - {text: "Retirer `noexcept` de la version par valeur", correct: false}
+    answer: |-
+      ```cpp
+      Boite& operator=(Boite autre) noexcept {
+          std::swap(valeur_, autre.valeur_);
+          return *this;
+      }
+      ```
+      Pour une rvalue, les deux surcharges conviennent aussi bien l'une que l'autre. Avec copy-and-swap, l'opérateur
+      par valeur est le seul opérateur d'affectation.
+  - key: bug-swap-recursif
+    format: bug-fix
+    question: |-
+      Ce programme plante par débordement de la pile dès la première affectation. Quelle correction est la bonne ?
+      ```cpp
+      #include <print>
+      #include <utility>
+
+      class Boite {
+      public:
+          explicit Boite(int valeur) : valeur_{valeur} {}
+          Boite& operator=(Boite autre) noexcept {
+              std::swap(*this, autre);
+              return *this;
+          }
+          int valeur() const { return valeur_; }
+
+      private:
+          int valeur_;
+      };
+
+      int main() {
+          Boite a{1};
+          const Boite b{2};
+          a = b;
+          std::println("{}", a.valeur());
+      }
+      ```
+    choices:
+      - {text: "Échanger les membres : `std::swap(valeur_, autre.valeur_);`", correct: true}
+      - {text: "Échanger les adresses : `std::swap(this, &autre);`", correct: false}
+      - {text: "Échanger deux fois : `std::swap(*this, autre);` répété", correct: false}
+      - {text: "Échanger sans `std::` : `swap(*this, autre);`, sans rien définir", correct: false}
+    answer: |-
+      ```cpp
+      std::swap(valeur_, autre.valeur_);
+      ```
+      `std::swap` sur l'objet entier utilise l'affectation de la classe, qui rappelle `std::swap` : la récursion est
+      infinie. Le `swap` de l'idiome échange les membres, un par un.
+  - key: bug-ancienne-ressource
+    format: bug-fix
+    question: |-
+      Cet opérateur copie le paramètre au lieu d'échanger : l'entier de `a` n'est jamais libéré, et celui de la
+      copie l'est deux fois. Quelle correction est la bonne ?
+      ```cpp
+      #include <print>
+      #include <utility>
+
+      class Boite {
+      public:
+          explicit Boite(int valeur) : valeur_{new int{valeur}} {}
+          Boite(const Boite& autre) : valeur_{new int{*autre.valeur_}} {}
+          ~Boite() { delete valeur_; }
+          Boite& operator=(Boite autre) noexcept {
+              valeur_ = autre.valeur_;
+              return *this;
+          }
+          int valeur() const { return *valeur_; }
+
+      private:
+          int* valeur_;
+      };
+
+      int main() {
+          Boite a{1};
+          const Boite b{2};
+          a = b;
+          std::println("fin");
+      }
+      ```
+    choices:
+      - {text: "Écrire `std::swap(valeur_, autre.valeur_);` à la place de l'affectation du pointeur", correct: true}
+      - {text: "Écrire `delete autre.valeur_;` juste après l'affectation du pointeur", correct: false}
+      - {text: "Écrire `autre.valeur_ = valeur_;` à la place de l'affectation du pointeur", correct: false}
+      - {text: "Écrire `valeur_ = std::move(autre.valeur_);` à la place de l'affectation", correct: false}
+    answer: |-
+      ```cpp
+      std::swap(valeur_, autre.valeur_);
+      ```
+      L'échange donne à `autre` l'ancien pointeur de l'objet : son destructeur le libère, et chaque entier n'a
+      qu'un propriétaire. Déplacer un pointeur brut le copie simplement.

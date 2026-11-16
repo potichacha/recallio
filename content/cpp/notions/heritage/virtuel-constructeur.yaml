@@ -1,0 +1,502 @@
+notion: virtuel-constructeur
+lesson: |-
+  Dans un **constructeur** ou un **destructeur**, un appel à une fonction virtuelle **n'atteint jamais la classe
+  dérivée**. Il appelle la version de la classe **en cours de construction ou de destruction**.
+
+  ```cpp
+  struct Base {
+      Base() { initialiser(); }                    // appelle Base::initialiser, toujours
+      virtual void initialiser() { std::println("base"); }
+      virtual ~Base() = default;
+  };
+
+  struct Derivee : Base {
+      void initialiser() override { std::println("derivee"); }
+  };
+
+  Derivee d;      // affiche « base »
+  ```
+
+  **Pourquoi.** Un objet dérivé se construit **de la base vers la dérivée**. Pendant que le constructeur de `Base`
+  s'exécute, la partie `Derivee` **n'existe pas encore** : ses membres ne sont pas initialisés. Appeler
+  `Derivee::initialiser` reviendrait à lire des membres non construits.
+
+  Le langage l'empêche : pendant le constructeur de `Base`, le **type dynamique** de l'objet **est `Base`**. Le
+  pointeur vers la table virtuelle désigne celle de `Base` ; il n'est mis à jour qu'à l'entrée dans le
+  constructeur de `Derivee`.
+
+  **Dans le destructeur, c'est symétrique.** La destruction va **de la dérivée vers la base**. Quand `~Base`
+  s'exécute, la partie `Derivee` est **déjà détruite** : un appel virtuel atteint la version de `Base`.
+
+  **Avec une fonction virtuelle pure**, c'est pire. Si le constructeur de la base l'appelle (souvent par
+  l'intermédiaire d'une autre fonction membre), le comportement est indéfini ; en pratique, le programme s'arrête
+  sur « pure virtual method called ».
+
+  **C++ n'est pas Java.** En Java et en C#, l'appel atteint la classe dérivée, sur un objet à moitié construit.
+  C++ choisit la sûreté : l'appel est défini, mais ne fait pas ce qu'un habitué d'un autre langage attend.
+
+  **Comment obtenir le comportement voulu.**
+
+  1. **Passer l'information au constructeur de la base**, au lieu de la lui faire demander :
+
+     ```cpp
+     struct Base {
+         explicit Base(std::string nom) : nom_{std::move(nom)} {}
+     };
+     struct Derivee : Base {
+         Derivee() : Base{"derivee"} {}
+     };
+     ```
+
+  2. **Construire en deux temps, derrière une fabrique** : le constructeur ne fait que l'essentiel ; une fonction
+     de fabrique crée l'objet, puis appelle la fonction virtuelle, sur un objet complet.
+
+     ```cpp
+     template <typename T>
+     std::unique_ptr<T> creer() {
+         auto objet = std::make_unique<T>();
+         objet->initialiser();          // l'objet est complet : l'appel virtuel joue
+         return objet;
+     }
+     ```
+
+  **Les outils.** GCC ne signale rien par défaut ; clang-tidy a une vérification pour cela, et les C++ Core
+  Guidelines en font une règle : ne pas appeler de fonction virtuelle dans un constructeur ou un destructeur.
+
+  **En entretien** : « Dans un constructeur ou un destructeur, l'appel virtuel est résolu sur la classe en cours :
+  la partie dérivée n'est pas encore construite, ou déjà détruite. Si la base a besoin d'une information de la
+  dérivée, je la passe au constructeur, ou je passe par une fabrique qui initialise après la construction. »
+cards:
+  - key: regle
+    format: course
+    question: "Quelle version d'une fonction virtuelle est appelée dans le constructeur d'une classe de base ?"
+    choices:
+      - {text: "Celle de la classe de base, même si l'objet construit est d'une classe dérivée", correct: true}
+      - {text: "Celle de la classe dérivée, comme pour tout appel virtuel", correct: false}
+      - {text: "Aucune : l'appel est ignoré tant que l'objet n'est pas complet", correct: false}
+      - {text: "Les deux : celle de la base, puis celle de la dérivée", correct: false}
+    answer: "Pendant le constructeur de la base, le type dynamique de l'objet est celui de la base. La liaison dynamique ne descend pas plus bas."
+  - key: pourquoi
+    format: course
+    question: "Pourquoi l'appel virtuel n'atteint-il pas la classe dérivée pendant le constructeur de la base ?"
+    choices:
+      - {text: "La partie dérivée n'est pas encore construite : ses membres ne sont pas initialisés", correct: true}
+      - {text: "La table virtuelle de la classe dérivée n'est créée qu'à la fin du programme", correct: false}
+      - {text: "Un constructeur ne peut appeler aucune fonction membre de sa propre classe", correct: false}
+      - {text: "La classe dérivée n'est pas encore compilée au moment où la base se construit", correct: false}
+    answer: "La construction va de la base vers la dérivée. Exécuter du code de la dérivée lirait des membres qui n'existent pas encore."
+  - key: destructeur
+    format: course
+    question: "Que se passe-t-il quand le destructeur d'une classe de base appelle une fonction virtuelle ?"
+    choices:
+      - {text: "La version de la base est appelée : la partie dérivée est déjà détruite", correct: true}
+      - {text: "La version de la dérivée est appelée : l'objet est encore entier", correct: false}
+      - {text: "Le programme lève une exception `std::bad_function_call`", correct: false}
+      - {text: "Le destructeur de la dérivée est appelé une seconde fois", correct: false}
+    answer: "La destruction va de la dérivée vers la base. Quand `~Base` s'exécute, le type dynamique est redevenu `Base`."
+  - key: remede
+    format: course
+    question: "La base a besoin, pendant sa construction, d'une information propre à la dérivée. Que fais-tu ?"
+    choices:
+      - {text: "La dérivée la passe en argument au constructeur de la base", correct: true}
+      - {text: "La base appelle une fonction virtuelle que la dérivée redéfinit", correct: false}
+      - {text: "La base lit directement un membre de la dérivée", correct: false}
+      - {text: "La base attend, dans une boucle, que la dérivée soit construite", correct: false}
+    answer: "`Derivee() : Base{\"derivee\"} {}` : l'information descend par les paramètres. L'autre voie est une fabrique qui appelle la fonction virtuelle après la construction."
+  - key: vf-java
+    format: true-false
+    question: "Comme en Java, un appel virtuel dans un constructeur C++ atteint la redéfinition de la classe dérivée."
+    truth: false
+    answer: "C'est une différence nette entre les deux langages : en C++, l'appel est résolu sur la classe en cours de construction."
+  - key: vf-indirect
+    format: true-false
+    question: "La règle s'applique aussi quand le constructeur appelle une fonction ordinaire qui, elle, appelle la fonction virtuelle."
+    truth: true
+    answer: "Ce qui compte est le moment : tant que le constructeur de la base n'a pas fini, le type dynamique est celui de la base."
+  - key: vf-pure
+    format: true-false
+    question: "Appeler indirectement une fonction virtuelle pure depuis le constructeur de la base est un comportement indéfini."
+    truth: true
+    answer: "En pratique, le programme s'arrête sur « pure virtual method called »."
+  - key: vf-apres-construction
+    format: true-false
+    question: "Une fois l'objet entièrement construit, un appel virtuel fait par une fonction de la base atteint la classe dérivée."
+    truth: true
+    answer: "La restriction ne vaut que pendant la construction et la destruction. Ensuite, la liaison dynamique joue normalement."
+  - key: qcm-type-dynamique
+    format: multiple-choice
+    question: "Quel est le type dynamique d'un objet `Derivee` pendant l'exécution du constructeur de `Base` ?"
+    choices:
+      - {text: "`Base`", correct: true}
+      - {text: "`Derivee`", correct: false}
+      - {text: "Aucun : il n'est pas encore défini", correct: false}
+      - {text: "`void`", correct: false}
+    answer: "`typeid(*this)` y donne `Base`, et `dynamic_cast` vers `Derivee` échoue."
+  - key: qcm-fabrique
+    format: multiple-choice
+    question: "Comment appeler une fonction virtuelle d'initialisation juste après la construction, sans que l'appelant l'oublie ?"
+    choices:
+      - {text: "Par une fonction de fabrique, qui construit l'objet puis appelle la fonction", correct: true}
+      - {text: "Par le constructeur de la base, qui appelle la fonction", correct: false}
+      - {text: "Par le destructeur de la base, qui appelle la fonction", correct: false}
+      - {text: "Par une variable globale, initialisée avant `main`", correct: false}
+    answer: "La fabrique travaille sur un objet complet. En rendant les constructeurs inaccessibles, on oblige à passer par elle."
+  - key: qcm-message
+    format: multiple-choice
+    question: "Quel message affiche le plus souvent un programme qui appelle une fonction virtuelle pure pendant la construction ?"
+    choices:
+      - {text: "« pure virtual method called »", correct: true}
+      - {text: "« segmentation fault in constructor »", correct: false}
+      - {text: "« undefined reference to vtable »", correct: false}
+      - {text: "« stack overflow »", correct: false}
+    answer: "La case de la table virtuelle désigne une fonction d'erreur de la bibliothèque, qui affiche ce message et arrête le programme."
+  - key: qcm-ordre
+    format: multiple-choice
+    question: "Dans quel ordre s'exécutent les constructeurs d'un objet `Derivee`, qui hérite de `Base` ?"
+    choices:
+      - {text: "`Base`, puis `Derivee`", correct: true}
+      - {text: "`Derivee`, puis `Base`", correct: false}
+      - {text: "`Derivee` seulement", correct: false}
+      - {text: "Dans un ordre non spécifié", correct: false}
+    answer: "La base d'abord. C'est pourquoi, pendant son constructeur, rien de la dérivée n'existe encore. Les destructeurs s'exécutent dans l'ordre inverse."
+  - key: code-constructeur
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+
+      struct Base {
+          Base() { nom(); }
+          virtual ~Base() = default;
+          virtual void nom() const { std::println("base"); }
+      };
+
+      struct Derivee : Base {
+          void nom() const override { std::println("derivee"); }
+      };
+
+      int main() {
+          const Derivee d;
+          d.nom();
+      }
+      ```
+    choices:
+      - text: |-
+          ```
+          base
+          derivee
+          ```
+        correct: true
+      - text: |-
+          ```
+          derivee
+          derivee
+          ```
+        correct: false
+      - text: |-
+          ```
+          base
+          base
+          ```
+        correct: false
+      - {text: "`derivee`", correct: false}
+    answer: "`base`, puis `derivee` : dans le constructeur de `Base`, l'appel virtuel reste dans `Base`. Une fois l'objet construit, il atteint `Derivee`."
+    check:
+      output: |-
+        base
+        derivee
+  - key: code-destructeur
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+
+      struct Base {
+          virtual ~Base() { nom(); }
+          virtual void nom() const { std::println("base"); }
+      };
+
+      struct Derivee : Base {
+          ~Derivee() override { nom(); }
+          void nom() const override { std::println("derivee"); }
+      };
+
+      int main() {
+          const Derivee d;
+      }
+      ```
+    choices:
+      - text: |-
+          ```
+          derivee
+          base
+          ```
+        correct: true
+      - text: |-
+          ```
+          derivee
+          derivee
+          ```
+        correct: false
+      - text: |-
+          ```
+          base
+          derivee
+          ```
+        correct: false
+      - text: |-
+          ```
+          base
+          base
+          ```
+        correct: false
+    answer: "`derivee`, puis `base` : `~Derivee` s'exécute d'abord, sur un objet encore entier. Quand `~Base` s'exécute, la partie dérivée est détruite."
+    check:
+      output: |-
+        derivee
+        base
+  - key: code-indirect
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+
+      struct Base {
+          Base() { demarrer(); }
+          virtual ~Base() = default;
+          void demarrer() { std::println("{}", niveau()); }
+          virtual int niveau() const { return 1; }
+      };
+
+      struct Derivee : Base {
+          int niveau() const override { return 2; }
+      };
+
+      int main() {
+          Derivee d;
+          d.demarrer();
+      }
+      ```
+    choices:
+      - text: |-
+          ```
+          1
+          2
+          ```
+        correct: true
+      - text: |-
+          ```
+          2
+          2
+          ```
+        correct: false
+      - text: |-
+          ```
+          1
+          1
+          ```
+        correct: false
+      - text: |-
+          ```
+          2
+          1
+          ```
+        correct: false
+    answer: "`1`, puis `2` : passer par la fonction ordinaire `demarrer` ne change rien. Pendant la construction, `niveau()` est celle de `Base`."
+    check:
+      output: |-
+        1
+        2
+  - key: code-parametre
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+      #include <string>
+      #include <utility>
+
+      class Base {
+      public:
+          explicit Base(std::string nom) : nom_{std::move(nom)} { std::println("créé : {}", nom_); }
+
+      private:
+          std::string nom_;
+      };
+
+      class Derivee : public Base {
+      public:
+          Derivee() : Base{"derivee"} {}
+      };
+
+      int main() {
+          const Derivee d;
+      }
+      ```
+    choices:
+      - {text: "`créé : derivee`", correct: true}
+      - {text: "`créé : base`", correct: false}
+      - {text: "`créé : `", correct: false}
+      - {text: "Rien", correct: false}
+    answer: "`créé : derivee` : la dérivée passe son nom au constructeur de la base. Aucun appel virtuel n'est nécessaire."
+    check:
+      output: "créé : derivee"
+  - key: bug-initialisation-virtuelle
+    format: bug-fix
+    question: |-
+      Ce programme devrait afficher `bouton prêt`. Il affiche `composant prêt`. Quelle correction est la bonne ?
+      ```cpp
+      #include <print>
+      #include <string>
+
+      struct Composant {
+          Composant() { std::println("{} prêt", nom()); }
+          virtual ~Composant() = default;
+          virtual std::string nom() const { return "composant"; }
+      };
+
+      struct Bouton : Composant {
+          std::string nom() const override { return "bouton"; }
+      };
+
+      int main() {
+          const Bouton b;
+      }
+      ```
+    choices:
+      - {text: "Faire passer le nom par le constructeur : `Bouton() : Composant{\"bouton\"} {}`", correct: true}
+      - {text: "Déclarer le constructeur de `Composant` avec le mot-clé `virtual`", correct: false}
+      - {text: "Appeler `this->nom()` à la place de `nom()` dans le constructeur", correct: false}
+      - {text: "Marquer `Bouton::nom` avec `final` à la place de `override`", correct: false}
+    answer: |-
+      ```cpp
+      struct Composant {
+          explicit Composant(const std::string& nom) { std::println("{} prêt", nom); }
+          virtual ~Composant() = default;
+      };
+
+      struct Bouton : Composant {
+          Bouton() : Composant{"bouton"} {}
+      };
+      ```
+      Dans le constructeur de `Composant`, `nom()` est celle de `Composant` : la partie `Bouton` n'existe pas
+      encore. `this->` n'y change rien, et un constructeur ne peut pas être virtuel.
+  - key: bug-pure-virtuelle
+    format: bug-fix
+    question: |-
+      Ce programme s'arrête sur « pure virtual method called ». Quelle correction est la bonne ?
+      ```cpp
+      #include <print>
+
+      struct Forme {
+          Forme() { decrire(); }
+          virtual ~Forme() = default;
+          void decrire() const { std::println("{}", aire()); }
+          virtual double aire() const = 0;
+      };
+
+      struct Carre : Forme {
+          double aire() const override { return 4.0; }
+      };
+
+      int main() {
+          const Carre c;
+      }
+      ```
+    choices:
+      - {text: "Retirer `decrire()` du constructeur, et l'appeler sur l'objet construit", correct: true}
+      - {text: "Marquer `decrire()` avec le mot-clé `virtual`", correct: false}
+      - {text: "Marquer le constructeur de `Forme` avec `noexcept`", correct: false}
+      - {text: "Appeler `Forme::aire()` dans `decrire()`", correct: false}
+    answer: |-
+      ```cpp
+      struct Forme {
+          virtual ~Forme() = default;
+          void decrire() const { std::println("{}", aire()); }
+          virtual double aire() const = 0;
+      };
+
+      int main() {
+          const Carre c;
+          c.decrire();
+      }
+      ```
+      Pendant le constructeur de `Forme`, `aire()` n'a pas de définition : la classe est abstraite. Une fois le
+      `Carre` construit, l'appel atteint sa version.
+  - key: bug-destructeur-nettoyage
+    format: bug-fix
+    question: |-
+      Ce programme devrait afficher `fichier fermé` à la destruction. Il affiche `rien à fermer`. Quelle correction
+      est la bonne ?
+      ```cpp
+      #include <print>
+
+      struct Ressource {
+          virtual ~Ressource() { fermer(); }
+          virtual void fermer() { std::println("rien à fermer"); }
+      };
+
+      struct Fichier : Ressource {
+          void fermer() override { std::println("fichier fermé"); }
+      };
+
+      int main() {
+          const Fichier f;
+      }
+      ```
+    choices:
+      - {text: "Appeler `fermer()` dans le destructeur de `Fichier`", correct: true}
+      - {text: "Appeler `this->fermer()` dans le destructeur de `Ressource`", correct: false}
+      - {text: "Retirer `virtual` du destructeur de `Ressource`", correct: false}
+      - {text: "Marquer `Ressource::fermer` comme virtuelle pure", correct: false}
+    answer: |-
+      ```cpp
+      struct Fichier : Ressource {
+          ~Fichier() override { fermer(); }
+          void fermer() override { std::println("fichier fermé"); }
+      };
+      ```
+      Quand `~Ressource` s'exécute, la partie `Fichier` est déjà détruite : l'appel virtuel reste dans `Ressource`.
+      Chaque classe nettoie ce qui lui appartient, dans son propre destructeur.
+  - key: bug-membre-non-initialise
+    format: bug-fix
+    question: |-
+      Ce programme devrait afficher `5`, la taille configurée par la dérivée. Il affiche `1`. Quelle correction est
+      la bonne ?
+      ```cpp
+      #include <print>
+
+      struct Tampon {
+          Tampon() : taille_{taille_voulue()} {}
+          virtual ~Tampon() = default;
+          virtual int taille_voulue() const { return 1; }
+          int taille_;
+      };
+
+      struct GrandTampon : Tampon {
+          int taille_voulue() const override { return 5; }
+      };
+
+      int main() {
+          const GrandTampon t;
+          std::println("{}", t.taille_);
+      }
+      ```
+    choices:
+      - {text: "Donner la taille au constructeur : `explicit Tampon(int taille)`, et `GrandTampon() : Tampon{5} {}`", correct: true}
+      - {text: "Initialiser `taille_` dans le corps du constructeur de `Tampon`, et non dans sa liste", correct: false}
+      - {text: "Déclarer `taille_voulue` avec le mot-clé `static` dans les deux classes", correct: false}
+      - {text: "Déclarer `taille_` avec le mot-clé `mutable` dans la classe `Tampon`", correct: false}
+    answer: |-
+      ```cpp
+      struct Tampon {
+          explicit Tampon(int taille) : taille_{taille} {}
+          virtual ~Tampon() = default;
+          int taille_;
+      };
+
+      struct GrandTampon : Tampon {
+          GrandTampon() : Tampon{5} {}
+      };
+      ```
+      Pendant la construction de `Tampon`, `taille_voulue()` est celle de `Tampon`. Que l'appel soit dans la liste
+      d'initialisation ou dans le corps ne change rien.

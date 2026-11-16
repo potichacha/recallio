@@ -1,0 +1,422 @@
+notion: placement-new
+lesson: |-
+  `new` fait d'ordinaire deux choses : **allouer** de la mémoire, puis y **construire** un objet. Le **placement
+  new** ne fait que la seconde : il construit un objet dans une mémoire **qu'on lui fournit**.
+
+  ```cpp
+  #include <new>
+
+  alignas(Point) unsigned char tampon[sizeof(Point)];
+  Point* p = new (tampon) Point{3, 4};     // construit dans tampon, n'alloue rien
+  ```
+
+  **La destruction se fait à la main.** Il n'y a pas eu d'allocation, donc **pas de `delete`** : il libérerait une
+  mémoire que `new` n'a pas allouée. On appelle le destructeur explicitement :
+
+  ```cpp
+  p->~Point();                             // ou std::destroy_at(p)
+  ```
+
+  La mémoire, elle, appartient toujours à celui qui l'a fournie.
+
+  **Les trois exigences.**
+
+  - **La taille** : le tampon fait au moins `sizeof(T)` octets.
+  - **L'alignement** : le tampon est aligné pour `T`, d'où `alignas(T)`. Un objet mal aligné est un comportement
+    indéfini.
+  - **La durée de vie** : chaque objet construit est détruit une fois, et l'on ne lit que des objets construits.
+
+  **Séparer allocation et construction.** C'est ce que fait `std::vector` : `reserve(100)` alloue la place de cent
+  éléments **sans en construire aucun** ; chaque `push_back` construit un élément dans cette mémoire, par un
+  placement new ; `pop_back` appelle un destructeur sans rien libérer. `std::optional` et `std::variant` rangent
+  leur valeur de la même façon, dans un tampon interne.
+
+  **Les outils de la bibliothèque.** On écrit rarement le placement new soi-même :
+
+  | Fonction | Rôle |
+  |---|---|
+  | `std::construct_at(p, args...)` (C++20) | construit un objet à l'adresse `p` |
+  | `std::destroy_at(p)` | appelle le destructeur |
+  | `std::uninitialized_copy`, `std::uninitialized_fill` | construisent une suite d'objets dans une mémoire brute |
+  | `std::allocator<T>` | alloue et libère de la mémoire brute pour des `T` |
+
+  **Où on le rencontre.** Dans l'écriture de conteneurs, les réserves de mémoire (*memory pools*, arènes), les
+  systèmes embarqués sans tas, la mémoire partagée entre processus.
+
+  **Les pièges.**
+
+  - `delete p` sur un objet construit par placement new : comportement indéfini.
+  - Oublier le destructeur : les ressources de l'objet fuient.
+  - Construire par-dessus un objet vivant sans l'avoir détruit.
+  - Un tampon `char tampon[sizeof(T)]` sans `alignas`.
+
+  **En entretien** : « Le placement new construit un objet dans une mémoire déjà allouée : il sépare la
+  construction de l'allocation. Je détruis par un appel explicite du destructeur, jamais par `delete`, et le tampon
+  doit être assez grand et bien aligné. C'est le mécanisme interne de `std::vector`. »
+cards:
+  - key: definition
+    format: course
+    question: "Que fait le placement new, `new (adresse) T{...}` ?"
+    choices:
+      - {text: "Il construit un objet dans une mémoire qu'on lui fournit, sans rien allouer", correct: true}
+      - {text: "Il alloue de la mémoire à l'adresse demandée, puis y construit un objet", correct: false}
+      - {text: "Il déplace un objet existant vers une nouvelle adresse", correct: false}
+      - {text: "Il alloue de la mémoire sans y construire d'objet", correct: false}
+    answer: "Le `new` ordinaire alloue puis construit. Le placement new ne garde que la construction."
+  - key: destruction
+    format: course
+    question: "Comment détruit-on un objet construit par placement new ?"
+    choices:
+      - {text: "Par un appel explicite du destructeur : `p->~T()`, ou `std::destroy_at(p)`", correct: true}
+      - {text: "Par `delete p`, comme pour tout objet créé avec `new`", correct: false}
+      - {text: "Par `std::free(p)`, puisque la mémoire est brute", correct: false}
+      - {text: "On ne le détruit pas : il disparaît avec le tampon", correct: false}
+    answer: "`delete` tenterait de libérer une mémoire qu'il n'a pas allouée. Et sans appel du destructeur, les ressources de l'objet fuient."
+  - key: alignement
+    format: course
+    question: "Pourquoi déclare-t-on le tampon avec `alignas(T)` ?"
+    choices:
+      - {text: "Un objet doit être construit à une adresse alignée pour son type", correct: true}
+      - {text: "Le tampon doit être initialisé à zéro avant la construction", correct: false}
+      - {text: "Le tampon doit être placé sur le tas, et non sur la pile", correct: false}
+      - {text: "Le compilateur doit pouvoir déplacer le tampon", correct: false}
+    answer: "Un tableau de `char` n'a aucune exigence d'alignement. Y construire un `double` ou un pointeur mal aligné est un comportement indéfini."
+  - key: vector
+    format: course
+    question: "Comment `std::vector` peut-il réserver de la place sans construire d'éléments ?"
+    choices:
+      - {text: "Il alloue une mémoire brute, puis construit chaque élément sur place, à l'ajout", correct: true}
+      - {text: "Il construit tous les éléments par défaut, puis les masque", correct: false}
+      - {text: "Il alloue un bloc par élément, au moment de l'ajout", correct: false}
+      - {text: "Il range des pointeurs nuls à la place des éléments", correct: false}
+    answer: "Allocation et construction sont séparées : c'est le placement new, à travers l'allocateur. `pop_back` détruit sans libérer."
+  - key: vf-alloue
+    format: true-false
+    question: "Le placement new alloue de la mémoire sur le tas."
+    truth: false
+    answer: "Il n'alloue rien : il utilise l'adresse reçue."
+  - key: vf-delete
+    format: true-false
+    question: "On libère par `delete` un objet construit par placement new dans un tampon de la pile."
+    truth: false
+    answer: "Comportement indéfini : cette mémoire ne vient pas de `new`. On appelle seulement le destructeur."
+  - key: vf-construct-at
+    format: true-false
+    question: "`std::construct_at(p, 3, 4)` construit un objet à l'adresse `p`, comme un placement new."
+    truth: true
+    answer: "Depuis C++20. Il est en plus utilisable dans une fonction `constexpr`."
+  - key: vf-taille
+    format: true-false
+    question: "Le tampon fourni au placement new doit faire au moins `sizeof(T)` octets."
+    truth: true
+    answer: "Sinon l'objet déborde sur ce qui suit. Rien ne le vérifie."
+  - key: qcm-syntaxe
+    format: multiple-choice
+    question: "Quelle ligne construit un `Point{3, 4}` dans le tampon `tampon` ?"
+    choices:
+      - {text: "`Point* p = new (tampon) Point{3, 4};`", correct: true}
+      - {text: "`Point* p = new Point(tampon){3, 4};`", correct: false}
+      - {text: "`Point* p = new Point{3, 4} at tampon;`", correct: false}
+      - {text: "`Point* p = tampon.new Point{3, 4};`", correct: false}
+    answer: "L'adresse se place entre parenthèses, juste après `new`."
+  - key: qcm-en-tete
+    format: multiple-choice
+    question: "Quel en-tête déclare le placement new ?"
+    choices:
+      - {text: "`<new>`", correct: true}
+      - {text: "`<memory_resource>`", correct: false}
+      - {text: "`<cstdlib>`", correct: false}
+      - {text: "`<utility>`", correct: false}
+    answer: "`<new>`. Les fonctions `std::construct_at` et `std::destroy_at` sont dans `<memory>`."
+  - key: qcm-usage
+    format: multiple-choice
+    question: "Dans quel cas écrit-on un placement new ?"
+    choices:
+      - {text: "Pour écrire un conteneur ou une réserve de mémoire", correct: true}
+      - {text: "Pour créer un objet local dans une fonction ordinaire", correct: false}
+      - {text: "Pour remplacer `std::make_unique` dans le code courant", correct: false}
+      - {text: "Pour copier un objet dans un autre", correct: false}
+    answer: "C'est un outil de bas niveau : conteneurs, arènes, embarqué. Le code applicatif n'en a pas besoin."
+  - key: qcm-oubli
+    format: multiple-choice
+    question: "Que se passe-t-il si l'on oublie d'appeler le destructeur d'une `std::string` construite par placement new ?"
+    choices:
+      - {text: "La mémoire que la chaîne a allouée pour son texte fuit", correct: true}
+      - {text: "Le tampon est libéré deux fois", correct: false}
+      - {text: "Le compilateur appelle le destructeur à la fin de la portée", correct: false}
+      - {text: "Le programme lance `std::bad_alloc`", correct: false}
+    answer: "Personne d'autre ne l'appellera : le tampon n'est qu'un tableau d'octets pour le compilateur."
+  - key: trous-placement
+    format: fill-in
+    question: |-
+      Complète pour construire l'entier dans le tampon :
+      ```cpp
+      alignas(int) unsigned char tampon[sizeof(int)];
+      int* p = new (___) int{42};
+      ```
+    blanks:
+      - [tampon]
+    answer: "L'adresse où construire se place entre parenthèses après `new`."
+  - key: trous-destructeur
+    format: fill-in
+    question: |-
+      Complète pour détruire l'objet, sans libérer le tampon :
+      ```cpp
+      Trace* p = new (tampon) Trace{};
+      p->___Trace();
+      ```
+    blanks:
+      - ["~"]
+    answer: "`p->~Trace()` appelle le destructeur explicitement."
+  - key: trous-alignas
+    format: fill-in
+    question: |-
+      Complète pour que le tampon soit aligné pour un `double` :
+      ```cpp
+      ___(double) unsigned char tampon[sizeof(double)];
+      ```
+    blanks:
+      - [alignas]
+    answer: "`alignas(double)` impose l'alignement requis."
+  - key: trous-destroy-at
+    format: fill-in
+    question: |-
+      Complète avec la fonction de la bibliothèque qui appelle le destructeur :
+      ```cpp
+      std::___(p);
+      ```
+    blanks:
+      - [destroy_at]
+    answer: "`std::destroy_at(p)` équivaut à `p->~T()`."
+  - key: code-construction
+    format: code-output
+    question: |-
+      ```cpp
+      #include <new>
+      #include <print>
+
+      struct Point {
+          int x;
+          int y;
+      };
+
+      int main() {
+          alignas(Point) unsigned char tampon[sizeof(Point)];
+          Point* p = new (tampon) Point{3, 4};
+          std::println("{} {}", p->x + p->y, static_cast<void*>(p) == static_cast<void*>(tampon));
+      }
+      ```
+    choices:
+      - {text: "`7 true`", correct: true}
+      - {text: "`7 false`", correct: false}
+      - {text: "`0 true`", correct: false}
+      - {text: "Ça ne compile pas", correct: false}
+    answer: "`7 true` : l'objet est construit dans le tampon lui-même. Le pointeur renvoyé est l'adresse du tampon."
+    check:
+      output: "7 true"
+  - key: code-ordre
+    format: code-output
+    question: |-
+      ```cpp
+      #include <new>
+      #include <print>
+
+      struct Trace {
+          Trace() { std::print("construit "); }
+          ~Trace() { std::print("détruit "); }
+      };
+
+      int main() {
+          alignas(Trace) unsigned char tampon[sizeof(Trace)];
+          std::print("début ");
+          Trace* p = new (tampon) Trace{};
+          p->~Trace();
+          std::println("fin");
+      }
+      ```
+    choices:
+      - {text: "`début construit détruit fin`", correct: true}
+      - {text: "`construit début détruit fin`", correct: false}
+      - {text: "`début construit fin détruit`", correct: false}
+      - {text: "`début construit fin`", correct: false}
+    answer: "`début construit détruit fin` : déclarer le tampon ne construit rien. Le destructeur s'exécute là où on l'appelle, et nulle part ailleurs."
+    check:
+      output: "début construit détruit fin"
+  - key: code-reutilisation
+    format: code-output
+    question: |-
+      ```cpp
+      #include <memory>
+      #include <new>
+      #include <print>
+
+      int main() {
+          alignas(int) unsigned char tampon[sizeof(int)];
+          int* a = new (tampon) int{5};
+          const int premier = *a;
+          std::destroy_at(a);
+          int* b = std::construct_at(reinterpret_cast<int*>(tampon), 9);
+          std::println("{} {}", premier, *b);
+      }
+      ```
+    choices:
+      - {text: "`5 9`", correct: true}
+      - {text: "`5 5`", correct: false}
+      - {text: "`9 9`", correct: false}
+      - {text: "`9 5`", correct: false}
+    answer: "`5 9` : la même mémoire accueille un second objet, une fois le premier détruit. C'est ainsi qu'une réserve de mémoire recycle ses blocs."
+    check:
+      output: "5 9"
+  - key: code-vector
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+      #include <vector>
+
+      struct Trace {
+          Trace() { ++construits; }
+          static inline int construits = 0;
+      };
+
+      int main() {
+          std::vector<Trace> v;
+          v.reserve(10);
+          const int apres_reserve = Trace::construits;
+          v.emplace_back();
+          v.emplace_back();
+          std::println("{} {}", apres_reserve, Trace::construits);
+      }
+      ```
+    choices:
+      - {text: "`0 2`", correct: true}
+      - {text: "`10 12`", correct: false}
+      - {text: "`10 10`", correct: false}
+      - {text: "`0 10`", correct: false}
+    answer: "`0 2` : `reserve` alloue sans construire. Chaque `emplace_back` construit un élément dans la mémoire réservée."
+    check:
+      output: "0 2"
+  - key: bug-delete
+    format: bug-fix
+    question: |-
+      Ce programme construit un objet dans un tampon de la pile, puis le détruit par `delete`. Il s'arrête sur
+      « double free or corruption ». Quelle correction est la bonne ?
+      ```cpp
+      #include <new>
+      #include <print>
+
+      struct Point {
+          int x;
+          int y;
+      };
+
+      int main() {
+          alignas(Point) unsigned char tampon[sizeof(Point)];
+          Point* p = new (tampon) Point{1, 2};
+          std::println("{}", p->x);
+          delete p;
+      }
+      ```
+    choices:
+      - {text: "Écrire `p->~Point();` à la place de `delete p;`", correct: true}
+      - {text: "Écrire `delete[] p;` à la place de `delete p;`", correct: false}
+      - {text: "Écrire `delete tampon;` à la place de `delete p;`", correct: false}
+      - {text: "Écrire `std::free(p);` à la place de `delete p;`", correct: false}
+    answer: |-
+      ```cpp
+      p->~Point();
+      ```
+      `delete` appelle le destructeur, puis rend la mémoire à l'allocateur ; or le tampon est sur la pile. Après un
+      placement new, on appelle seulement le destructeur.
+  - key: bug-destructeur-oublie
+    format: bug-fix
+    question: |-
+      Ce programme devrait afficher `construit détruit`. Il n'affiche que `construit` : le destructeur n'est jamais
+      appelé. Quelle correction est la bonne ?
+      ```cpp
+      #include <new>
+      #include <print>
+
+      struct Trace {
+          Trace() { std::print("construit"); }
+          ~Trace() { std::println(" détruit"); }
+      };
+
+      int main() {
+          alignas(Trace) unsigned char tampon[sizeof(Trace)];
+          new (tampon) Trace{};
+      }
+      ```
+    choices:
+      - {text: "Garder le pointeur renvoyé, et appeler `p->~Trace();`", correct: true}
+      - {text: "Déclarer le tampon avec le mot-clé `static`", correct: false}
+      - {text: "Déclarer le destructeur avec le mot-clé `virtual`", correct: false}
+      - {text: "Appeler `delete[] tampon;` à la fin de `main`", correct: false}
+    answer: |-
+      ```cpp
+      Trace* p = new (tampon) Trace{};
+      p->~Trace();
+      ```
+      Pour le compilateur, le tampon est un tableau d'octets : il ne détruit pas l'objet qu'on y a construit. C'est
+      à toi d'appeler le destructeur.
+  - key: bug-tampon-trop-petit
+    format: bug-fix
+    question: |-
+      Ce programme construit un `double` dans un tampon d'un seul octet. Il affiche `2.5`, puis s'arrête sur
+      « stack smashing detected » : il a écrit hors du tampon. Quelle correction est la bonne ?
+      ```cpp
+      #include <new>
+      #include <print>
+
+      int main() {
+          unsigned char tampon[1];
+          double* p = new (tampon) double{2.5};
+          std::println("{}", *p);
+      }
+      ```
+    choices:
+      - {text: "Déclarer `alignas(double) unsigned char tampon[sizeof(double)];`", correct: true}
+      - {text: "Déclarer `unsigned char tampon[2];`, deux fois plus grand", correct: false}
+      - {text: "Déclarer `char tampon[1];`, sans le mot-clé `unsigned`", correct: false}
+      - {text: "Déclarer `static unsigned char tampon[1];`, hors de la pile", correct: false}
+    answer: |-
+      ```cpp
+      alignas(double) unsigned char tampon[sizeof(double)];
+      ```
+      Le tampon doit avoir la taille et l'alignement du type construit. Le placement new ne vérifie ni l'un ni
+      l'autre.
+  - key: bug-double-construction
+    format: bug-fix
+    question: |-
+      Ce programme devrait afficher autant de `détruit` que de `construit`. Il affiche deux `construit` et un seul
+      `détruit`. Quelle correction est la bonne ?
+      ```cpp
+      #include <new>
+      #include <print>
+
+      struct Trace {
+          Trace() { std::println("construit"); }
+          ~Trace() { std::println("détruit"); }
+      };
+
+      int main() {
+          alignas(Trace) unsigned char tampon[sizeof(Trace)];
+          Trace* a = new (tampon) Trace{};
+          Trace* b = new (tampon) Trace{};
+          b->~Trace();
+      }
+      ```
+    choices:
+      - {text: "Appeler `a->~Trace();` avant de construire le second objet", correct: true}
+      - {text: "Appeler `b->~Trace();` deux fois de suite", correct: false}
+      - {text: "Appeler `delete a;` avant de construire le second objet", correct: false}
+      - {text: "Déclarer `a` et `b` avec le type `const Trace*`", correct: false}
+    answer: |-
+      ```cpp
+      Trace* a = new (tampon) Trace{};
+      a->~Trace();
+      Trace* b = new (tampon) Trace{};
+      b->~Trace();
+      ```
+      Construire par-dessus un objet vivant l'écrase sans le détruire. Chaque objet construit doit être détruit une
+      fois, avant que sa mémoire resserve.

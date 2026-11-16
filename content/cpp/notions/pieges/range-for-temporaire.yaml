@@ -1,0 +1,447 @@
+notion: range-for-temporaire
+lesson: |-
+  La boucle sur un intervalle est une écriture abrégée. Le compilateur réécrit
+
+  ```cpp
+  for (int x : expression) { ... }
+  ```
+
+  à peu près ainsi :
+
+  ```cpp
+  auto&& intervalle = expression;
+  for (auto it = intervalle.begin(); it != intervalle.end(); ++it) {
+      int x = *it;
+      ...
+  }
+  ```
+
+  **Ce qui est sûr.** Si `expression` est elle-même un temporaire, par exemple une fonction qui **renvoie un
+  conteneur par valeur**, il est lié à `auto&&` : sa vie est prolongée pour toute la boucle.
+
+  ```cpp
+  for (int x : creer_vecteur()) { ... }        // sûr
+  ```
+
+  **Ce qui ne l'est pas.** Si `expression` appelle une fonction **sur** un temporaire, et que cette fonction
+  renvoie une **référence** vers l'intérieur de celui-ci, la référence est liée à `auto&&`, mais le temporaire, lui,
+  n'est pas prolongé. Il meurt **avant le premier tour**.
+
+  ```cpp
+  for (int x : creer().valeurs()) { ... }      // creer() est détruit avant la boucle
+  ```
+
+  La boucle parcourt alors un conteneur détruit : comportement indéfini, souvent sans plantage immédiat.
+
+  **Les formes courantes du piège.**
+
+  ```cpp
+  for (char c : lire_config().nom()) { ... }           // accesseur sur un temporaire
+  for (auto& e : charger().elements()) { ... }
+  for (int x : std::optional{creer_vecteur()}.value()) { ... }
+  ```
+
+  **Les remèdes.**
+
+  1. **Nommer** le temporaire avant la boucle :
+
+     ```cpp
+     const auto boite = creer();
+     for (int x : boite.valeurs()) { ... }
+     ```
+
+  2. Depuis C++20, l'**initialisation dans la boucle** garde la portée serrée :
+
+     ```cpp
+     for (const auto boite = creer(); int x : boite.valeurs()) { ... }
+     ```
+
+  3. Faire renvoyer **par valeur** l'accesseur appelé sur un temporaire (une surcharge `&&` de la fonction
+     membre).
+
+  **Le changement de C++23.** La norme C++23 corrige ce piège (proposition P2718) : tous les temporaires de
+  l'expression d'intervalle vivent désormais jusqu'à la fin de la boucle. Mais il faut que le **compilateur**
+  l'applique : **GCC 14 ne le fait pas encore**, même avec `-std=c++23` ; GCC 15 le fait. Tant que le code doit
+  compiler avec d'anciens compilateurs ou d'anciennes normes, on garde les remèdes ci-dessus.
+
+  **Le repérer.** GCC avertit dans certains cas (`-Wdangling-reference`), et AddressSanitizer signale la lecture
+  d'une mémoire libérée.
+
+  **En entretien** : « Dans `for (x : f().g())`, si `g` renvoie une référence, le temporaire `f()` est détruit
+  avant la boucle : seul le résultat final de l'expression est prolongé. Je nomme le temporaire, ou j'utilise
+  l'initialisation de boucle de C++20. C++23 corrige la règle, mais GCC ne l'applique que depuis la version 15. »
+cards:
+  - key: mecanisme
+    format: course
+    question: "À quoi le résultat de l'expression d'une boucle `for (x : expression)` est-il lié ?"
+    choices:
+      - {text: "À une référence cachée `auto&&`, qui vit pendant toute la boucle", correct: true}
+      - {text: "À une copie cachée du conteneur, détruite à la fin de la boucle", correct: false}
+      - {text: "À un pointeur caché vers le premier élément du conteneur", correct: false}
+      - {text: "À rien : l'expression est réévaluée à chaque tour de boucle", correct: false}
+    answer: "Le compilateur écrit `auto&& intervalle = expression;`, puis parcourt de `begin()` à `end()`. L'expression n'est évaluée qu'une fois."
+  - key: sur
+    format: course
+    question: "Pourquoi `for (int x : creer_vecteur())` est-il sûr, quand la fonction renvoie un vecteur par valeur ?"
+    choices:
+      - {text: "Le vecteur temporaire est lié à la référence cachée, qui prolonge sa vie", correct: true}
+      - {text: "Le vecteur temporaire est copié dans la variable `x` avant la boucle", correct: false}
+      - {text: "Le vecteur temporaire est détruit, mais ses éléments restent en mémoire", correct: false}
+      - {text: "Le vecteur temporaire est rendu `static` par le compilateur", correct: false}
+    answer: "Le résultat de l'expression est le temporaire lui-même : lié directement à `auto&&`, il vit jusqu'à la fin de la boucle."
+  - key: piege
+    format: course
+    question: "Avec GCC 14, que se passe-t-il dans `for (int x : creer().valeurs())`, où `valeurs()` renvoie une référence vers un membre ?"
+    choices:
+      - {text: "L'objet temporaire `creer()` est détruit avant le premier tour de boucle", correct: true}
+      - {text: "L'objet temporaire `creer()` est détruit après le dernier tour de boucle", correct: false}
+      - {text: "L'objet temporaire `creer()` est recréé à chaque tour de boucle", correct: false}
+      - {text: "L'objet temporaire `creer()` est copié dans la référence cachée", correct: false}
+    answer: "Seule la référence renvoyée par `valeurs()` est liée à `auto&&`. Le temporaire meurt à la fin de cette initialisation : la boucle lit un conteneur détruit."
+  - key: remede
+    format: course
+    question: "Comment écris-tu sans danger une boucle sur `creer().valeurs()` ?"
+    choices:
+      - {text: "En nommant d'abord l'objet : `const auto boite = creer();`, puis en bouclant sur `boite.valeurs()`", correct: true}
+      - {text: "En ajoutant `const` : `for (const int x : creer().valeurs())`", correct: false}
+      - {text: "En prenant une référence : `for (const int& x : creer().valeurs())`", correct: false}
+      - {text: "En doublant l'appel : `for (int x : creer().valeurs().valeurs())`", correct: false}
+    answer: "Un objet nommé vit jusqu'à la fin de son bloc. Le type de la variable de boucle n'a aucune influence sur la vie du temporaire."
+  - key: vf-par-valeur
+    format: true-false
+    question: "Boucler directement sur une fonction qui renvoie un conteneur par valeur est sûr."
+    truth: true
+    answer: "Le conteneur temporaire est le résultat de l'expression : sa vie est prolongée pour toute la boucle."
+  - key: vf-cpp23-gcc14
+    format: true-false
+    question: "GCC 14, avec `-std=c++23`, prolonge tous les temporaires de l'expression d'une boucle sur un intervalle."
+    truth: false
+    answer: "La norme C++23 le demande (P2718), mais GCC ne l'applique qu'à partir de la version 15. Avec GCC 14, le piège est toujours là."
+  - key: vf-const-ref
+    format: true-false
+    question: "Écrire `for (const auto& x : creer().valeurs())` protège le temporaire `creer()` de la destruction."
+    truth: false
+    answer: "La variable de boucle désigne les éléments, pas le conteneur. Le temporaire meurt avant la boucle, quelle que soit sa forme."
+  - key: vf-init
+    format: true-false
+    question: "Depuis C++20, une boucle sur un intervalle peut déclarer une variable avant le parcours : `for (auto b = creer(); int x : b.valeurs())`."
+    truth: true
+    answer: "L'objet a un nom, et vit le temps de la boucle, sans déborder dans le bloc englobant."
+  - key: qcm-dangereuse
+    format: multiple-choice
+    question: "Laquelle de ces boucles parcourt un objet déjà détruit, avec GCC 14 ?"
+    choices:
+      - {text: "`for (char c : lire_config().nom())`, où `nom()` renvoie `const std::string&`", correct: true}
+      - {text: "`for (char c : lire_nom())`, où `lire_nom()` renvoie une `std::string`", correct: false}
+      - {text: "`for (char c : std::string{\"abc\"})`", correct: false}
+      - {text: "`for (char c : nom)`, où `nom` est une variable locale", correct: false}
+    answer: "Dans le premier cas, le temporaire `lire_config()` n'est pas le résultat de l'expression : il n'est pas prolongé. Dans les trois autres, la chaîne parcourue vit pendant toute la boucle."
+  - key: qcm-cpp20
+    format: multiple-choice
+    question: "Quelle écriture de C++20 garde le temporaire en vie, sans déclarer de variable hors de la boucle ?"
+    choices:
+      - {text: "`for (const auto b = creer(); int x : b.valeurs())`", correct: true}
+      - {text: "`for (int x : static creer().valeurs())`", correct: false}
+      - {text: "`for (int x : auto{creer()}.valeurs())`", correct: false}
+      - {text: "`for (int x : (creer()).valeurs())`", correct: false}
+    answer: "L'initialisation de boucle nomme l'objet, dont la portée est la boucle. Des parenthèses ou `auto{}` ne changent pas la durée de vie."
+  - key: qcm-outil
+    format: multiple-choice
+    question: "Quel outil signale, à l'exécution, la boucle qui lit un conteneur détruit ?"
+    choices:
+      - {text: "AddressSanitizer", correct: true}
+      - {text: "ThreadSanitizer", correct: false}
+      - {text: "clang-format", correct: false}
+      - {text: "CMake", correct: false}
+    answer: "Les éléments du conteneur détruit sont de la mémoire libérée : ASan rapporte un `heap-use-after-free`."
+  - key: qcm-accesseur
+    format: multiple-choice
+    question: "Comment une classe peut-elle rendre sûr l'appel de son accesseur sur un temporaire ?"
+    choices:
+      - {text: "Par une surcharge `&&` de l'accesseur, qui renvoie le membre par valeur", correct: true}
+      - {text: "Par un accesseur déclaré `static`, qui renvoie une référence", correct: false}
+      - {text: "Par un accesseur déclaré `noexcept`, qui renvoie une référence", correct: false}
+      - {text: "Par un accesseur déclaré `virtual`, qui renvoie une référence", correct: false}
+    answer: "`std::vector<int> valeurs() &&` est choisie sur un temporaire : le vecteur est déplacé hors de l'objet, et c'est lui que la boucle prolonge."
+  - key: code-par-valeur
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+      #include <vector>
+
+      struct Boite {
+          std::vector<int> v{1, 2, 3};
+          ~Boite() { std::print("détruit "); }
+          auto begin() const { return v.begin(); }
+          auto end() const { return v.end(); }
+      };
+
+      Boite creer() {
+          return {};
+      }
+
+      int main() {
+          for (int x : creer()) {
+              std::print("{} ", x);
+          }
+          std::println("fin");
+      }
+      ```
+    choices:
+      - {text: "`1 2 3 détruit fin`", correct: true}
+      - {text: "`détruit 1 2 3 fin`", correct: false}
+      - {text: "`1 2 3 fin détruit`", correct: false}
+      - {text: "`détruit fin`", correct: false}
+    answer: "`1 2 3 détruit fin` : la boîte temporaire est le résultat de l'expression. Sa vie est prolongée jusqu'à la fin de la boucle, puis elle est détruite."
+    check:
+      output: "1 2 3 détruit fin"
+  - key: code-nomme
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+      #include <vector>
+
+      struct Boite {
+          std::vector<int> v{4, 5};
+          ~Boite() { std::print("détruit "); }
+          const std::vector<int>& valeurs() const { return v; }
+      };
+
+      Boite creer() {
+          return {};
+      }
+
+      int main() {
+          {
+              const auto boite = creer();
+              for (int x : boite.valeurs()) {
+                  std::print("{} ", x);
+              }
+              std::print("après ");
+          }
+          std::println("fin");
+      }
+      ```
+    choices:
+      - {text: "`4 5 après détruit fin`", correct: true}
+      - {text: "`4 5 détruit après fin`", correct: false}
+      - {text: "`détruit 4 5 après fin`", correct: false}
+      - {text: "`4 5 après fin détruit`", correct: false}
+    answer: "`4 5 après détruit fin` : l'objet nommé vit jusqu'à la fin de son bloc, donc au-delà de la boucle."
+    check:
+      output: "4 5 après détruit fin"
+  - key: code-init
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+      #include <vector>
+
+      struct Boite {
+          std::vector<int> v{7, 8};
+          ~Boite() { std::print("détruit "); }
+          const std::vector<int>& valeurs() const { return v; }
+      };
+
+      Boite creer() {
+          return {};
+      }
+
+      int main() {
+          for (const auto boite = creer(); int x : boite.valeurs()) {
+              std::print("{} ", x);
+          }
+          std::println("fin");
+      }
+      ```
+    choices:
+      - {text: "`7 8 détruit fin`", correct: true}
+      - {text: "`détruit 7 8 fin`", correct: false}
+      - {text: "`7 8 fin détruit`", correct: false}
+      - {text: "`7 détruit 8 fin`", correct: false}
+    answer: "`7 8 détruit fin` : la variable déclarée dans l'en-tête de la boucle vit le temps de la boucle, et pas plus."
+    check:
+      output: "7 8 détruit fin"
+  - key: code-chaine
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+      #include <string>
+
+      std::string prefixe() {
+          return "ab";
+      }
+
+      int main() {
+          int lettres = 0;
+          for (char c : prefixe() + "cd") {
+              std::print("{} ", c);
+              ++lettres;
+          }
+          std::println("{}", lettres);
+      }
+      ```
+    choices:
+      - {text: "`a b c d 4`", correct: true}
+      - {text: "`a b 2`", correct: false}
+      - {text: "`c d 2`", correct: false}
+      - {text: "`4`", correct: false}
+    answer: "`a b c d 4` : le résultat de `prefixe() + \"cd\"` est une chaîne renvoyée par valeur. C'est elle que la boucle prolonge et parcourt."
+    check:
+      output: "a b c d 4"
+  - key: bug-accesseur
+    format: bug-fix
+    question: |-
+      Avec GCC 14, ce programme affiche `détruit` avant les valeurs, puis des nombres quelconques : la boucle
+      parcourt un vecteur détruit. Quelle correction est la bonne ?
+      ```cpp
+      #include <print>
+      #include <vector>
+
+      struct Boite {
+          std::vector<int> v{1, 2, 3};
+          ~Boite() { std::print("détruit "); }
+          const std::vector<int>& valeurs() const { return v; }
+      };
+
+      Boite creer() {
+          return {};
+      }
+
+      int main() {
+          for (int x : creer().valeurs()) {
+              std::print("{} ", x);
+          }
+          std::println("fin");
+      }
+      ```
+    choices:
+      - {text: "Nommer l'objet avant la boucle : `const auto boite = creer();`", correct: true}
+      - {text: "Écrire `for (const int& x : creer().valeurs())`", correct: false}
+      - {text: "Écrire `for (auto&& x : creer().valeurs())`", correct: false}
+      - {text: "Écrire `for (int x : (creer().valeurs()))`", correct: false}
+    answer: |-
+      ```cpp
+      const auto boite = creer();
+      for (int x : boite.valeurs()) {
+          std::print("{} ", x);
+      }
+      ```
+      Seule la référence renvoyée par `valeurs()` est liée à la boucle ; la boîte temporaire meurt aussitôt. Nommée,
+      elle vit jusqu'à la fin du bloc.
+  - key: bug-optional
+    format: bug-fix
+    question: |-
+      Ce programme boucle sur le contenu d'un `std::optional` temporaire. Avec GCC 14, il lit un vecteur détruit.
+      Quelle correction est la bonne ?
+      ```cpp
+      #include <optional>
+      #include <print>
+      #include <vector>
+
+      std::optional<std::vector<int>> charger() {
+          return std::vector<int>{10, 20, 30};
+      }
+
+      int main() {
+          int total = 0;
+          for (int x : charger().value()) {
+              total += x;
+          }
+          std::println("{}", total);
+      }
+      ```
+    choices:
+      - {text: "Garder l'optional : `const auto resultat = charger();`, puis boucler sur `*resultat`", correct: true}
+      - {text: "Écrire `for (int x : *charger())` à la place de `charger().value()`", correct: false}
+      - {text: "Écrire `for (const int x : charger().value())`", correct: false}
+      - {text: "Écrire `for (int x : charger().value_or({}))`, sans rien changer d'autre", correct: false}
+    answer: |-
+      ```cpp
+      const auto resultat = charger();
+      for (int x : *resultat) {
+          total += x;
+      }
+      ```
+      `value()` sur un temporaire renvoie une référence vers son contenu, et l'optional meurt avant la boucle.
+      `*charger()` a le même défaut. On nomme l'optional.
+  - key: bug-chaine-config
+    format: bug-fix
+    question: |-
+      Ce programme compte les lettres du nom d'une configuration temporaire. Avec GCC 14, son comportement est
+      indéfini. Quelle correction utilise l'initialisation de boucle de C++20 ?
+      ```cpp
+      #include <print>
+      #include <string>
+
+      struct Config {
+          std::string nom_ = "serveur principal de production";
+          const std::string& nom() const { return nom_; }
+      };
+
+      Config lire_config() {
+          return {};
+      }
+
+      int main() {
+          int lettres = 0;
+          for (char c : lire_config().nom()) {
+              lettres += c != ' ';
+          }
+          std::println("{}", lettres);
+      }
+      ```
+    choices:
+      - {text: "`for (const auto config = lire_config(); char c : config.nom())`", correct: true}
+      - {text: "`for (char c : lire_config().nom(); const auto config)`", correct: false}
+      - {text: "`for (char c : static_cast<const Config&>(lire_config()).nom())`", correct: false}
+      - {text: "`for (const char& c : lire_config().nom())`", correct: false}
+    answer: |-
+      ```cpp
+      for (const auto config = lire_config(); char c : config.nom()) {
+          lettres += c != ' ';
+      }
+      ```
+      La configuration reçoit un nom dans l'en-tête de la boucle : elle vit jusqu'à la fin du parcours. Un cast ou
+      une référence sur `c` ne prolongent rien.
+  - key: bug-fonction-reference
+    format: bug-fix
+    question: |-
+      La fonction `verifier` renvoie une référence vers son argument. Appelée sur un temporaire dans une boucle, elle
+      fait parcourir un vecteur détruit. Quelle correction est la bonne ?
+      ```cpp
+      #include <print>
+      #include <vector>
+
+      std::vector<int> charger() {
+          return {2, 4, 6};
+      }
+
+      const std::vector<int>& verifier(const std::vector<int>& v) {
+          return v;
+      }
+
+      int main() {
+          for (int x : verifier(charger())) {
+              std::print("{} ", x);
+          }
+          std::println("fin");
+      }
+      ```
+    choices:
+      - {text: "Ranger `charger()` dans une variable, puis boucler sur `verifier(variable)`", correct: true}
+      - {text: "Déclarer `verifier` avec le mot-clé `inline`, sans changer la boucle", correct: false}
+      - {text: "Écrire `for (int x : verifier(verifier(charger())))`", correct: false}
+      - {text: "Écrire `for (const auto& x : verifier(charger()))`", correct: false}
+    answer: |-
+      ```cpp
+      const auto valeurs = charger();
+      for (int x : verifier(valeurs)) {
+          std::print("{} ", x);
+      }
+      ```
+      La prolongation ne traverse pas l'appel de `verifier` : le vecteur temporaire meurt avant le premier tour.
+      Une variable nommée vit jusqu'à la fin du bloc.

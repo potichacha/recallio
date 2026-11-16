@@ -1,0 +1,311 @@
+notion: ordre-initialisation-statique
+lesson: |-
+  Les variables globales et statiques d'un programme sont initialisées **avant `main`**. Dans **un même fichier
+  source**, elles le sont dans l'ordre de leur définition. Mais **entre deux fichiers source, l'ordre n'est pas
+  défini** : il dépend de l'éditeur de liens.
+
+  Si l'initialisation d'une globale se sert d'une globale d'un **autre** fichier, elle peut la trouver **pas encore
+  construite**. C'est le **fiasco de l'ordre d'initialisation des statiques**.
+
+  ```cpp
+  // journal.cpp
+  Journal journal{"app.log"};
+
+  // service.cpp
+  extern Journal journal;
+  Service service{journal};      // journal est-il déjà construit ? Rien ne le garantit.
+  ```
+
+  Le programme marche ou plante selon l'ordre des fichiers dans la commande de liaison. Il peut casser le jour où
+  l'on ajoute un fichier, sans qu'une ligne ait changé.
+
+  **Ce qui n'est pas concerné.** Une globale initialisée par une **constante** (`int limite = 10;`, ou toute
+  variable `constexpr` ou `constinit`) est prête dès le chargement du programme, avant toute initialisation
+  dynamique : pas d'ordre, pas de fiasco.
+
+  **Le remède : construire à la première utilisation.** On remplace la globale par une **fonction** qui renvoie une
+  référence vers une variable **statique locale**.
+
+  ```cpp
+  Journal& journal() {
+      static Journal instance{"app.log"};
+      return instance;
+  }
+  ```
+
+  Une statique locale est initialisée **au premier passage** de l'exécution sur sa déclaration, et depuis C++11
+  cette initialisation est **sûre entre threads**. Quiconque appelle `journal()` reçoit un objet construit. On
+  l'appelle parfois le *singleton de Meyers*.
+
+  **Les autres remèdes.**
+
+  - **Pas de globale du tout** : créer les objets dans `main`, et les passer en paramètres. C'est le plus sain.
+  - **`constinit`** (C++20) : exige que la variable soit initialisée à la compilation ; sinon, le programme ne
+    compile pas.
+  - **`constexpr`** pour les constantes.
+  - Regrouper les globales dépendantes dans **un seul** fichier source, où l'ordre est celui des définitions.
+
+  **Le même piège à la destruction.** Les statiques sont détruites dans l'ordre **inverse** de leur construction.
+  Un destructeur qui se sert d'une autre statique peut la trouver déjà détruite.
+
+  **Le détecter.** AddressSanitizer a une vérification dédiée
+  (`ASAN_OPTIONS=check_initialization_order=1`). Aucun avertissement du compilateur ne le signale.
+
+  **En entretien** : « L'ordre d'initialisation des globales n'est pas défini entre unités de traduction. Si l'une
+  dépend d'une autre, je la remplace par une fonction qui renvoie une statique locale, construite au premier
+  appel et sûre entre threads. Mieux encore : pas de globale. »
+cards:
+  - key: definition
+    format: course
+    question: "Qu'est-ce que le fiasco de l'ordre d'initialisation des statiques ?"
+    choices:
+      - {text: "Une globale initialisée à partir d'une globale d'un autre fichier, pas encore construite", correct: true}
+      - {text: "Une globale initialisée deux fois, parce qu'elle est définie dans un en-tête", correct: false}
+      - {text: "Une variable locale statique initialisée à chaque appel de sa fonction", correct: false}
+      - {text: "Une globale détruite avant la fin de la fonction `main`", correct: false}
+    answer: "Entre deux fichiers source, l'ordre des initialisations dynamiques n'est pas défini. Une dépendance entre globales peut donc lire un objet qui n'existe pas encore."
+  - key: ordre-meme-fichier
+    format: course
+    question: "Dans quel ordre sont initialisées les variables globales d'un même fichier source ?"
+    choices:
+      - {text: "Dans l'ordre de leur définition dans le fichier", correct: true}
+      - {text: "Dans l'ordre alphabétique de leur nom", correct: false}
+      - {text: "Dans un ordre que l'éditeur de liens choisit", correct: false}
+      - {text: "Dans l'ordre inverse de leur définition", correct: false}
+    answer: "À l'intérieur d'une unité de traduction, l'ordre est garanti. C'est entre deux unités qu'il ne l'est pas."
+  - key: remede
+    format: course
+    question: "Comment garantit-on qu'un objet global est construit avant sa première utilisation ?"
+    choices:
+      - {text: "Par une fonction qui renvoie une référence vers une variable statique locale", correct: true}
+      - {text: "Par le mot-clé `extern` devant chaque déclaration de la variable", correct: false}
+      - {text: "Par l'attribut `[[nodiscard]]` sur la variable globale", correct: false}
+      - {text: "Par l'ordre des `#include` en haut de chaque fichier source", correct: false}
+    answer: "La statique locale est construite au premier appel de la fonction : tout appelant reçoit un objet prêt. Depuis C++11, cette initialisation est sûre entre threads."
+  - key: non-concerne
+    format: course
+    question: "Quelle variable globale échappe au fiasco de l'ordre d'initialisation ?"
+    choices:
+      - {text: "Celle qui est initialisée par une constante : `constexpr int limite = 10;`", correct: true}
+      - {text: "Celle qui est initialisée par l'appel d'une fonction d'un autre fichier", correct: false}
+      - {text: "Celle qui est initialisée à partir d'une autre globale `extern`", correct: false}
+      - {text: "Celle dont le constructeur ouvre un fichier de configuration", correct: false}
+    answer: "L'initialisation constante a lieu à la compilation : la valeur est dans l'exécutable avant toute initialisation dynamique. `constinit` permet de l'exiger."
+  - key: vf-ordre-fichiers
+    format: true-false
+    question: "L'ordre d'initialisation des globales de deux fichiers source différents est défini par le standard."
+    truth: false
+    answer: "Il n'est pas défini. Il dépend en pratique de l'ordre de liaison, et peut changer d'une construction à l'autre."
+  - key: vf-statique-locale-thread
+    format: true-false
+    question: "Depuis C++11, l'initialisation d'une variable statique locale est sûre entre threads."
+    truth: true
+    answer: "Si deux threads arrivent ensemble sur la déclaration, un seul initialise, l'autre attend."
+  - key: vf-destruction
+    format: true-false
+    question: "Les variables statiques sont détruites dans l'ordre inverse de leur construction."
+    truth: true
+    answer: "D'où le piège symétrique : un destructeur qui se sert d'une autre statique peut la trouver déjà détruite."
+  - key: vf-avertissement
+    format: true-false
+    question: "Avec `-Wall`, GCC signale une dépendance d'initialisation entre deux globales de fichiers différents."
+    truth: false
+    answer: "Le compilateur ne voit qu'un fichier à la fois. AddressSanitizer, lui, sait le détecter à l'exécution."
+  - key: qcm-constinit
+    format: multiple-choice
+    question: "Quel mot-clé de C++20 fait refuser la compilation si une globale n'est pas initialisée à la compilation ?"
+    choices:
+      - {text: "`constinit`", correct: true}
+      - {text: "`static`", correct: false}
+      - {text: "`extern`", correct: false}
+      - {text: "`mutable`", correct: false}
+    answer: "`constinit` exige une initialisation constante, sans rendre la variable constante. Elle échappe donc au fiasco, vérifié par le compilateur."
+  - key: qcm-premier-passage
+    format: multiple-choice
+    question: "Quand une variable statique locale est-elle initialisée ?"
+    choices:
+      - {text: "Au premier passage de l'exécution sur sa déclaration", correct: true}
+      - {text: "Au démarrage du programme, avant `main`", correct: false}
+      - {text: "À chaque appel de la fonction qui la contient", correct: false}
+      - {text: "À la compilation, dans tous les cas", correct: false}
+    answer: "Une seule fois, au premier appel. C'est ce qui en fait le remède au fiasco : l'ordre suit l'utilisation."
+  - key: qcm-plus-sain
+    format: multiple-choice
+    question: "Quelle conception supprime tout problème d'ordre entre objets globaux ?"
+    choices:
+      - {text: "Créer les objets dans `main`, et les passer en paramètres", correct: true}
+      - {text: "Déclarer tous les objets globaux `extern` dans un en-tête", correct: false}
+      - {text: "Répartir les objets globaux dans davantage de fichiers", correct: false}
+      - {text: "Déclarer tous les objets globaux `volatile`", correct: false}
+    answer: "Sans globale, l'ordre de construction est celui du code, visible et maîtrisé. Les dépendances apparaissent dans les signatures."
+  - key: qcm-outil
+    format: multiple-choice
+    question: "Quel outil détecte, à l'exécution, une globale lue avant d'avoir été initialisée dans un autre fichier ?"
+    choices:
+      - {text: "AddressSanitizer, avec `check_initialization_order=1`", correct: true}
+      - {text: "ThreadSanitizer, avec ses options par défaut", correct: false}
+      - {text: "Le préprocesseur, avec l'option `-E`", correct: false}
+      - {text: "clang-format, avec le style du projet", correct: false}
+    answer: "ASan sait vérifier l'ordre d'initialisation quand on le lui demande par la variable d'environnement `ASAN_OPTIONS`."
+  - key: bug-globale-dependante
+    format: bug-fix
+    question: |-
+      `service.cpp` initialise sa globale à partir de celle de `config.cpp`. Selon l'ordre de liaison, le programme
+      affiche `0` au lieu de `8080`. Quelle correction est la bonne ?
+      ```cpp
+      // config.cpp
+      int lire_port();
+      int port = lire_port();
+
+      // service.cpp
+      extern int port;
+      int port_service = port;
+      ```
+    choices:
+      - {text: "Remplacer la globale `port` par une fonction `int& port()` à statique locale", correct: true}
+      - {text: "Déclarer la globale `port` avec le mot-clé `volatile` dans les deux fichiers", correct: false}
+      - {text: "Inclure `config.cpp` en tête de `service.cpp` avec `#include`", correct: false}
+      - {text: "Déclarer la globale `port_service` avec le mot-clé `extern`", correct: false}
+    answer: |-
+      ```cpp
+      int& port() {
+          static int valeur = lire_port();
+          return valeur;
+      }
+      ```
+      Si `service.cpp` est initialisé d'abord, `port` vaut encore zéro. Avec la fonction, la valeur est calculée au
+      premier appel, d'où qu'il vienne.
+  - key: bug-registre
+    format: bug-fix
+    question: |-
+      Chaque module s'enregistre dans un registre global au démarrage. Le programme plante parfois avant `main` :
+      le vecteur n'est pas encore construit. Quelle correction est la bonne ?
+      ```cpp
+      // registre.cpp
+      std::vector<std::string> registre;
+
+      // module_a.cpp
+      extern std::vector<std::string> registre;
+      const bool inscrit = (registre.push_back("a"), true);
+      ```
+    choices:
+      - {text: "Accéder au registre par une fonction qui renvoie une statique locale", correct: true}
+      - {text: "Appeler `registre.reserve(10);` dans `module_a.cpp`, avant le `push_back`", correct: false}
+      - {text: "Déclarer `inscrit` avec `static const bool` dans `module_a.cpp`", correct: false}
+      - {text: "Remplacer le `std::vector` par un `std::array` de dix chaînes", correct: false}
+    answer: |-
+      ```cpp
+      std::vector<std::string>& registre() {
+          static std::vector<std::string> instance;
+          return instance;
+      }
+      ```
+      Si `module_a.cpp` s'initialise avant `registre.cpp`, le `push_back` agit sur un vecteur non construit. La
+      statique locale est construite au premier appel de `registre()`.
+  - key: bug-constante
+    format: bug-fix
+    question: |-
+      Deux constantes globales de fichiers différents dépendent l'une de l'autre. Selon l'ordre de liaison,
+      `double_limite` vaut `0`. Quelle correction est la plus simple ?
+      ```cpp
+      // limites.cpp
+      extern const int limite = 100;
+
+      // calcul.cpp
+      extern const int limite;
+      const int double_limite = limite * 2;
+      ```
+    choices:
+      - {text: "Définir `inline constexpr int limite = 100;` dans un en-tête inclus par les deux fichiers", correct: true}
+      - {text: "Déclarer `double_limite` avec le mot-clé `volatile` dans `calcul.cpp`", correct: false}
+      - {text: "Définir `limite` une seconde fois dans `calcul.cpp`, avec la même valeur", correct: false}
+      - {text: "Compiler `limites.cpp` avec un niveau d'optimisation plus élevé", correct: false}
+    answer: |-
+      ```cpp
+      // limites.hpp
+      inline constexpr int limite = 100;
+      ```
+      Dans `calcul.cpp`, la valeur de `limite` n'est pas visible : `double_limite` est initialisée à l'exécution,
+      dans un ordre non défini. Une constante `constexpr` définie dans l'en-tête est connue de chaque fichier à la
+      compilation.
+  - key: bug-destruction
+    format: bug-fix
+    question: |-
+      À la fin du programme, le destructeur de `Service` écrit dans le journal global, parfois déjà détruit. Quelle
+      correction est la bonne ?
+      ```cpp
+      // journal.cpp
+      Journal journal;
+
+      // service.cpp
+      extern Journal journal;
+      struct Service {
+          ~Service() { journal.ecrire("arrêt"); }
+      };
+      Service service;
+      ```
+    choices:
+      - {text: "Créer le journal puis le service dans `main`, dans cet ordre, sans globale", correct: true}
+      - {text: "Déclarer le destructeur de `Service` avec le mot-clé `virtual`", correct: false}
+      - {text: "Appeler `journal.ecrire` deux fois de suite dans le destructeur", correct: false}
+      - {text: "Déclarer le destructeur de `Service` avec `noexcept(false)`", correct: false}
+    answer: |-
+      ```cpp
+      int main() {
+          Journal journal;
+          Service service{journal};
+      }
+      ```
+      Les statiques sont détruites dans l'ordre inverse de leur construction, lui-même non défini entre fichiers.
+      Des objets locaux à `main` sont détruits dans un ordre connu : le service d'abord, le journal ensuite.
+  - key: situation-nouveau-fichier
+    format: scenario
+    question: |-
+      Un programme stable se met à planter avant `main` le jour où un collègue ajoute un fichier source sans rapport
+      avec le code fautif. Aucune ligne existante n'a changé. Que soupçonnes-tu ?
+    choices:
+      - {text: "Une dépendance entre globales de fichiers différents, dont l'ordre de liaison a changé", correct: true}
+      - {text: "Une fuite de mémoire dans le nouveau fichier, qui épuise le tas au démarrage", correct: false}
+      - {text: "Une course aux données entre le nouveau fichier et la fonction `main`", correct: false}
+      - {text: "Un défaut de l'éditeur de liens, qui a perdu un fichier objet", correct: false}
+    answer: |-
+      Un plantage avant `main` désigne l'initialisation des globales. L'ajout d'un fichier a modifié l'ordre de
+      liaison, donc l'ordre d'initialisation : la dépendance, cachée depuis toujours, s'est mise à mordre.
+  - key: situation-singleton
+    format: scenario
+    question: |-
+      Une équipe expose sa configuration par une globale `Config config;`, lue par les constructeurs d'autres
+      globales dans tout le projet. Tu dois la rendre sûre sans réécrire le projet. Que proposes-tu ?
+    choices:
+      - {text: "Une fonction `Config& config()` qui renvoie une variable statique locale", correct: true}
+      - {text: "Un `#include` du fichier de la configuration dans tous les autres fichiers", correct: false}
+      - {text: "Un mutex global verrouillé pendant l'initialisation de chaque globale", correct: false}
+      - {text: "Une copie de la configuration dans chaque fichier qui la lit", correct: false}
+    answer: |-
+      Les appelants remplacent `config` par `config()`. L'objet est construit à la première demande, quelle que soit
+      l'unité de traduction qui la fait, et de façon sûre entre threads.
+  - key: situation-plateforme
+    format: scenario
+    question: |-
+      Un programme fonctionne sous Linux, et plante au démarrage sous Windows. Le code est le même ; seuls le
+      compilateur et l'éditeur de liens changent. Parmi ces causes, laquelle regardes-tu d'abord ?
+    choices:
+      - {text: "Une globale initialisée à partir d'une globale d'un autre fichier", correct: true}
+      - {text: "Une variable locale initialisée à zéro dans la fonction `main`", correct: false}
+      - {text: "Une constante `constexpr` définie dans un en-tête", correct: false}
+      - {text: "Une fonction déclarée dans un en-tête et définie dans un fichier source", correct: false}
+    answer: |-
+      L'ordre d'initialisation entre unités de traduction dépend de l'éditeur de liens : ce qui tombait bien avec
+      l'un tombe mal avec l'autre. Les trois autres constructions ont un comportement identique partout.
+  - key: situation-entretien
+    format: scenario
+    question: |-
+      En entretien, on te demande pourquoi le « singleton de Meyers » est préféré à une globale. Que réponds-tu ?
+    choices:
+      - {text: "Qu'il est construit à la première utilisation, donc jamais lu avant d'exister", correct: true}
+      - {text: "Qu'il est construit à la compilation, donc sans aucun coût à l'exécution", correct: false}
+      - {text: "Qu'il est détruit avant chaque utilisation, donc toujours dans un état neuf", correct: false}
+      - {text: "Qu'il est copié dans chaque fichier, donc sans dépendance entre fichiers", correct: false}
+    answer: |-
+      La statique locale d'une fonction s'initialise au premier appel, de façon sûre entre threads depuis C++11. Il
+      reste une globale déguisée : pour le code neuf, passer les dépendances en paramètres est plus sain.

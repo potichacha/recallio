@@ -1,0 +1,489 @@
+notion: call-once
+lesson: |-
+  Initialiser une ressource **une seule fois**, à la première demande, alors que plusieurs threads peuvent la
+  demander en même temps : c'est un besoin courant, et un piège classique. C++ offre deux outils sûrs.
+
+  **1. La variable statique locale.** Depuis C++11, son initialisation est **garantie sûre entre threads** : si
+  plusieurs threads arrivent ensemble, un seul initialise, les autres attendent.
+
+  ```cpp
+  Configuration& configuration() {
+      static Configuration instance = charger();    // une seule fois, même avec dix threads
+      return instance;
+  }
+  ```
+
+  C'est le « singleton de Meyers » : trois lignes, pas de mutex à écrire. C'est le **choix par défaut**.
+
+  **2. `std::call_once`** (en-tête `<mutex>`), avec un drapeau `std::once_flag`. Il exécute une fonction **une
+  seule fois** pour ce drapeau, quel que soit le nombre de threads qui l'appellent.
+
+  ```cpp
+  std::once_flag drapeau;
+  Connexion* connexion = nullptr;
+
+  void preparer() {
+      std::call_once(drapeau, [] { connexion = ouvrir(); });
+  }
+  ```
+
+  Il sert quand l'initialisation ne tient pas dans une variable statique : un membre d'objet à initialiser
+  tardivement, par exemple.
+
+  **Si l'initialisation lance une exception**, elle n'est **pas comptée** : le prochain appel réessaie. Cela vaut
+  pour `std::call_once` comme pour la statique locale.
+
+  **Ce qui est protégé.** L'**initialisation**, et elle seule. Les accès suivants à l'objet ne sont pas
+  synchronisés : si plusieurs threads le **modifient** ensuite, il faut un mutex comme pour n'importe quelle donnée
+  partagée.
+
+  **Ce qu'il ne faut pas écrire.** Le « verrouillage à double vérification » fait à la main :
+
+  ```cpp
+  if (instance == nullptr) {                  // lecture sans verrou : course aux données
+      std::lock_guard garde{verrou};
+      if (instance == nullptr) {
+          instance = new Service;
+      }
+  }
+  ```
+
+  La première lecture se fait hors du verrou pendant qu'un autre thread écrit : c'est une course aux données. La
+  statique locale fait la même chose, **correctement**.
+
+  **Les autres pièges.**
+
+  - Un `std::once_flag` **local** à la fonction est recréé à chaque appel : il ne protège rien. Il doit vivre
+    aussi longtemps que ce qu'il garde (global, `static`, ou membre).
+  - Une initialisation **récursive** (la fonction d'initialisation rappelle la fonction qui la contient) est un
+    comportement indéfini.
+
+  **En entretien** : « Pour une initialisation paresseuse sûre entre threads, j'utilise une variable statique
+  locale : le standard garantit qu'elle n'est initialisée qu'une fois. `std::call_once` avec un `std::once_flag`
+  sert aux cas qui n'entrent pas dans ce moule. Je n'écris pas de double vérification à la main. »
+cards:
+  - key: statique-locale
+    format: course
+    question: "Que garantit C++ pour l'initialisation d'une variable statique locale, quand plusieurs threads appellent la fonction ?"
+    choices:
+      - {text: "Elle n'a lieu qu'une fois : les autres threads attendent qu'elle soit finie", correct: true}
+      - {text: "Elle a lieu une fois par thread, chacun ayant son exemplaire", correct: false}
+      - {text: "Elle a lieu à chaque appel, sous un verrou interne", correct: false}
+      - {text: "Rien : c'est une course aux données sans mutex écrit à la main", correct: false}
+    answer: "C'est garanti depuis C++11. Le compilateur ajoute la synchronisation nécessaire autour de la première initialisation."
+  - key: call-once
+    format: course
+    question: "Que fait `std::call_once(drapeau, fonction)` ?"
+    choices:
+      - {text: "Il exécute la fonction une seule fois pour ce drapeau, quel que soit le nombre de threads", correct: true}
+      - {text: "Il exécute la fonction une fois par thread qui l'appelle", correct: false}
+      - {text: "Il exécute la fonction à chaque appel, mais jamais en parallèle", correct: false}
+      - {text: "Il exécute la fonction dans un nouveau thread, une seule fois", correct: false}
+    answer: "Les threads qui arrivent pendant l'exécution attendent ; ceux qui arrivent après repartent aussitôt."
+  - key: exception
+    format: course
+    question: "La fonction passée à `std::call_once` lance une exception. Que se passe-t-il au prochain appel ?"
+    choices:
+      - {text: "La fonction est exécutée de nouveau : l'échec ne compte pas", correct: true}
+      - {text: "La fonction n'est plus jamais exécutée : le drapeau est consommé", correct: false}
+      - {text: "L'appel lance `std::system_error`, sans exécuter la fonction", correct: false}
+      - {text: "Le programme s'arrête par `std::terminate`", correct: false}
+    answer: "Le drapeau n'est marqué qu'après un retour normal. Un autre appel, de ce thread ou d'un autre, réessaie."
+  - key: portee-de-la-garantie
+    format: course
+    question: "Que protège l'initialisation sûre d'une statique locale ?"
+    choices:
+      - {text: "La construction de l'objet seulement, pas les accès qui suivent", correct: true}
+      - {text: "La construction et tous les accès à l'objet, en lecture comme en écriture", correct: false}
+      - {text: "Les lectures de l'objet seulement, pas sa construction", correct: false}
+      - {text: "La destruction de l'objet seulement, à la fin du programme", correct: false}
+    answer: "Une fois construit, l'objet est une donnée partagée comme une autre. Si des threads le modifient, il lui faut son propre mutex."
+  - key: vf-meyers
+    format: true-false
+    question: "Une fonction qui renvoie une référence vers sa variable statique locale est un singleton sûr entre threads."
+    truth: true
+    answer: C'est le singleton de Meyers. L'initialisation est garantie unique depuis C++11.
+  - key: vf-once-flag-local
+    format: true-false
+    question: "Un `std::once_flag` déclaré comme variable locale ordinaire de la fonction garantit une exécution unique."
+    truth: false
+    answer: "Il est recréé à chaque appel : la fonction est exécutée chaque fois. Le drapeau doit être global, statique ou membre."
+  - key: vf-double-verification
+    format: true-false
+    question: "Tester un pointeur ordinaire hors du verrou, puis de nouveau sous le verrou, est une initialisation sûre."
+    truth: false
+    answer: La première lecture, sans verrou, est en course avec l'écriture d'un autre thread. C'est un comportement indéfini.
+  - key: vf-en-tete
+    format: true-false
+    question: "`std::call_once` et `std::once_flag` sont déclarés dans l'en-tête `<mutex>`."
+    truth: true
+    answer: Ils accompagnent les mutex, dont ils remplacent l'usage pour une initialisation unique.
+  - key: qcm-defaut
+    format: multiple-choice
+    question: "Quel est le moyen le plus simple d'initialiser un objet global à la première utilisation, sans course ?"
+    choices:
+      - {text: "Une variable statique locale dans une fonction d'accès", correct: true}
+      - {text: "Un pointeur global testé avec `if (p == nullptr)`", correct: false}
+      - {text: "Une variable `thread_local` dans une fonction d'accès", correct: false}
+      - {text: "Un `new` dans le constructeur de chaque thread", correct: false}
+    answer: "Trois lignes, et la garantie du standard. `thread_local` créerait un objet par thread."
+  - key: qcm-drapeau
+    format: multiple-choice
+    question: "Quel type accompagne `std::call_once` ?"
+    choices:
+      - {text: "`std::once_flag`", correct: true}
+      - {text: "`std::atomic_flag`", correct: false}
+      - {text: "`std::mutex`", correct: false}
+      - {text: "`std::latch`", correct: false}
+    answer: "`std::once_flag` retient si la fonction a déjà été exécutée. Il ne se copie pas."
+  - key: qcm-recursif
+    format: multiple-choice
+    question: "L'initialisation d'une statique locale rappelle la fonction qui la déclare. Que dit le standard ?"
+    choices:
+      - {text: "C'est un comportement indéfini", correct: true}
+      - {text: "La variable est initialisée deux fois", correct: false}
+      - {text: "Le second appel reçoit une valeur nulle", correct: false}
+      - {text: "Le compilateur refuse le programme", correct: false}
+    answer: "Le thread attend la fin d'une initialisation qu'il mène lui-même. En pratique : un blocage, ou une exception de la bibliothèque."
+  - key: qcm-membre
+    format: multiple-choice
+    question: "Un objet doit initialiser un de ses membres à la première utilisation, sans course. Que choisis-tu ?"
+    choices:
+      - {text: "Un membre `std::once_flag`, et `std::call_once`", correct: true}
+      - {text: "Une variable statique locale, commune à tous les objets", correct: false}
+      - {text: "Un booléen ordinaire testé avant l'initialisation", correct: false}
+      - {text: "Un `std::once_flag` local à la fonction membre", correct: false}
+    answer: "Une statique locale serait partagée par tous les objets de la classe. Un drapeau par objet convient ; il rend la classe non copiable."
+  - key: trous-static
+    format: fill-in
+    question: |-
+      Complète pour que l'instance ne soit construite qu'une fois, même avec plusieurs threads :
+      ```cpp
+      Service& service() {
+          ___ Service instance;
+          return instance;
+      }
+      ```
+    blanks:
+      - [static]
+    answer: "Une statique locale est initialisée une seule fois, de façon sûre."
+  - key: trous-call-once
+    format: fill-in
+    question: |-
+      Complète pour n'exécuter la préparation qu'une fois :
+      ```cpp
+      std::once_flag drapeau;
+
+      void preparer() {
+          std::___(drapeau, [] { ouvrir(); });
+      }
+      ```
+    blanks:
+      - [call_once]
+    answer: "`std::call_once` exécute la fonction une seule fois pour ce drapeau."
+  - key: trous-once-flag
+    format: fill-in
+    question: |-
+      Complète avec le type du drapeau :
+      ```cpp
+      std::___ drapeau;
+      std::call_once(drapeau, initialiser);
+      ```
+    blanks:
+      - [once_flag]
+    answer: "`std::once_flag` retient si l'appel a déjà eu lieu."
+  - key: trous-include
+    format: fill-in
+    question: |-
+      Complète l'en-tête à inclure pour `std::call_once` :
+      ```cpp
+      #include <___>
+      ```
+    blanks:
+      - [mutex]
+    answer: "`std::call_once` et `std::once_flag` sont dans `<mutex>`."
+  - key: code-call-once
+    format: code-output
+    question: |-
+      ```cpp
+      #include <mutex>
+      #include <print>
+      #include <thread>
+
+      int main() {
+          std::once_flag drapeau;
+          int appels = 0;
+          auto travail = [&] { std::call_once(drapeau, [&] { ++appels; }); };
+          std::thread a{travail};
+          std::thread b{travail};
+          std::thread c{travail};
+          a.join();
+          b.join();
+          c.join();
+          std::println("{}", appels);
+      }
+      ```
+    choices:
+      - {text: "`1`", correct: true}
+      - {text: "`3`", correct: false}
+      - {text: "`0`", correct: false}
+      - {text: "Un nombre entre 1 et 3, selon l'exécution", correct: false}
+    answer: "`1` : trois threads appellent `std::call_once` avec le même drapeau. La fonction ne s'exécute qu'une fois."
+    check:
+      output: "1"
+  - key: code-statique
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+
+      int constructions = 0;
+
+      struct Service {
+          Service() { ++constructions; }
+      };
+
+      Service& service() {
+          static Service instance;
+          return instance;
+      }
+
+      int main() {
+          service();
+          service();
+          std::println("{} {}", constructions, &service() == &service());
+      }
+      ```
+    choices:
+      - {text: "`1 true`", correct: true}
+      - {text: "`4 false`", correct: false}
+      - {text: "`2 true`", correct: false}
+      - {text: "`4 true`", correct: false}
+    answer: "`1 true` : la statique locale n'est construite qu'au premier appel. Tous les appels rendent le même objet."
+    check:
+      output: "1 true"
+  - key: code-exception
+    format: code-output
+    question: |-
+      ```cpp
+      #include <mutex>
+      #include <print>
+      #include <stdexcept>
+
+      int main() {
+          std::once_flag drapeau;
+          int essais = 0;
+          auto initialiser = [&] {
+              ++essais;
+              if (essais == 1) {
+                  throw std::runtime_error{"panne"};
+              }
+          };
+          try {
+              std::call_once(drapeau, initialiser);
+          } catch (const std::runtime_error&) {
+          }
+          std::call_once(drapeau, initialiser);
+          std::call_once(drapeau, initialiser);
+          std::println("{}", essais);
+      }
+      ```
+    choices:
+      - {text: "`2`", correct: true}
+      - {text: "`1`", correct: false}
+      - {text: "`3`", correct: false}
+      - {text: "`0`", correct: false}
+    answer: "`2` : le premier appel échoue, donc ne compte pas. Le deuxième réussit ; le troisième ne fait plus rien."
+    check:
+      output: "2"
+  - key: code-paresseux
+    format: code-output
+    question: |-
+      ```cpp
+      #include <print>
+
+      struct Journal {
+          Journal() { std::print("ouvert "); }
+      };
+
+      Journal& journal() {
+          static Journal instance;
+          return instance;
+      }
+
+      int main() {
+          std::print("début ");
+          journal();
+          journal();
+          std::println("fin");
+      }
+      ```
+    choices:
+      - {text: "`début ouvert fin`", correct: true}
+      - {text: "`ouvert début fin`", correct: false}
+      - {text: "`début ouvert ouvert fin`", correct: false}
+      - {text: "`début fin`", correct: false}
+    answer: "`début ouvert fin` : la statique locale est construite au premier passage sur sa déclaration, pas au démarrage du programme, et une seule fois."
+    check:
+      output: "début ouvert fin"
+  - key: bug-once-flag-local
+    format: bug-fix
+    question: |-
+      Ce programme devrait initialiser une seule fois et afficher `1`. Il affiche `3`. Quelle correction est la
+      bonne ?
+      ```cpp
+      #include <mutex>
+      #include <print>
+
+      int initialisations = 0;
+
+      void preparer() {
+          std::once_flag drapeau;
+          std::call_once(drapeau, [] { ++initialisations; });
+      }
+
+      int main() {
+          preparer();
+          preparer();
+          preparer();
+          std::println("{}", initialisations);
+      }
+      ```
+    choices:
+      - {text: "Déclarer le drapeau `static std::once_flag drapeau;`", correct: true}
+      - {text: "Déclarer le drapeau `const std::once_flag drapeau;`", correct: false}
+      - {text: "Déclarer le drapeau `thread_local std::once_flag drapeau;` dans `main`", correct: false}
+      - {text: "Appeler `std::call_once` deux fois de suite dans `preparer`", correct: false}
+    answer: |-
+      ```cpp
+      static std::once_flag drapeau;
+      ```
+      Un drapeau local est neuf à chaque appel : `std::call_once` exécute donc la fonction chaque fois. Le drapeau
+      doit durer autant que ce qu'il protège.
+  - key: bug-double-verification
+    format: bug-fix
+    question: |-
+      Cette initialisation paresseuse lit le pointeur hors du verrou : c'est une course aux données. Quelle
+      correction est la bonne ?
+      ```cpp
+      #include <mutex>
+      #include <print>
+
+      struct Service {
+          int valeur = 7;
+      };
+
+      Service* instance = nullptr;
+      std::mutex verrou;
+
+      Service& service() {
+          if (instance == nullptr) {
+              std::lock_guard garde{verrou};
+              if (instance == nullptr) {
+                  instance = new Service;
+              }
+          }
+          return *instance;
+      }
+
+      int main() {
+          std::println("{}", service().valeur);
+      }
+      ```
+    choices:
+      - {text: "Remplacer le tout par `static Service instance; return instance;`", correct: true}
+      - {text: "Retirer le second test `if (instance == nullptr)`, sous le verrou", correct: false}
+      - {text: "Déclarer le pointeur `instance` avec le mot-clé `volatile`", correct: false}
+      - {text: "Déplacer le `std::lock_guard` après la ligne du `new`", correct: false}
+    answer: |-
+      ```cpp
+      Service& service() {
+          static Service instance;
+          return instance;
+      }
+      ```
+      Le premier test lit `instance` pendant qu'un autre thread peut l'écrire. La statique locale donne la même
+      initialisation paresseuse, garantie par le standard, sans fuite ni mutex.
+  - key: bug-acces-non-protege
+    format: bug-fix
+    question: |-
+      Le compteur est initialisé une seule fois, mais deux threads le modifient ensuite sans protection. Le total
+      attendu est `2000`, et rien ne le garantit. Quelle correction est la bonne ?
+      ```cpp
+      #include <print>
+      #include <thread>
+
+      int& compteur() {
+          static int valeur = 0;
+          return valeur;
+      }
+
+      int main() {
+          auto travail = [] {
+              for (int i = 0; i < 1000; ++i) {
+                  ++compteur();
+              }
+          };
+          std::thread a{travail};
+          std::thread b{travail};
+          a.join();
+          b.join();
+          std::println("{}", compteur());
+      }
+      ```
+    choices:
+      - {text: "Renvoyer un `std::atomic<int>&` vers une statique `std::atomic<int>`", correct: true}
+      - {text: "Déclarer la statique `thread_local int valeur = 0;`", correct: false}
+      - {text: "Appeler `compteur()` une fois dans `main` avant de lancer les threads", correct: false}
+      - {text: "Déclarer la fonction `compteur` avec le mot-clé `inline`", correct: false}
+    answer: |-
+      ```cpp
+      std::atomic<int>& compteur() {
+          static std::atomic<int> valeur{0};
+          return valeur;
+      }
+      ```
+      Seule l'initialisation de la statique est protégée. Les incrémentations qui suivent sont une course aux
+      données : il faut un atomique, ou un mutex.
+  - key: bug-booleen
+    format: bug-fix
+    question: |-
+      Deux threads peuvent passer le test en même temps et initialiser deux fois. Le programme devrait toujours
+      afficher `1`. Quelle correction est la bonne ?
+      ```cpp
+      #include <print>
+      #include <thread>
+
+      bool fait = false;
+      int initialisations = 0;
+
+      void preparer() {
+          if (!fait) {
+              ++initialisations;
+              fait = true;
+          }
+      }
+
+      int main() {
+          std::thread a{preparer};
+          std::thread b{preparer};
+          a.join();
+          b.join();
+          std::println("{}", initialisations);
+      }
+      ```
+    choices:
+      - {text: "Utiliser un `std::once_flag` global et `std::call_once`", correct: true}
+      - {text: "Écrire `fait = true;` avant `++initialisations;`", correct: false}
+      - {text: "Déclarer le booléen `fait` avec le mot-clé `volatile`", correct: false}
+      - {text: "Tester `!fait` deux fois de suite avant d'initialiser", correct: false}
+    answer: |-
+      ```cpp
+      std::once_flag drapeau;
+
+      void preparer() {
+          std::call_once(drapeau, [] { ++initialisations; });
+      }
+      ```
+      Le test et l'écriture du booléen ne sont pas atomiques, et le booléen est en course. `std::call_once` garantit
+      une exécution unique.
