@@ -6,7 +6,7 @@
 
 # Les bibliothèques de Spring Boot (ADR 0060), téléchargées pendant la construction : le conteneur, lui, n'a pas de
 # réseau. Maven vérifie l'empreinte de chaque fichier (-C) ; JUnit et ce qu'il embarque restent ceux du lanceur.
-FROM maven:3.9.16-eclipse-temurin-25 AS libraries
+FROM maven:3.9-eclipse-temurin-26 AS libraries
 WORKDIR /build
 COPY libraries/pom.xml .
 RUN mvn -B -C -q dependency:copy-dependencies -DoutputDirectory=/lib \
