@@ -334,6 +334,13 @@ cards:
   ```
   - La clé est le nom du dossier : définitive, et distincte des clés des cartes de la notion.
   - Des fichiers `.java` seulement, de 1 à 10 par partie ; des packages sont permis (`starter/fr/recallio/Panier.java`).
+  - **Avec Spring Boot** (ADR 0060), le même format : le bac à sable Java embarque Spring Boot 4 (web MVC, validation,
+    JPA sur une base H2 en mémoire) et son starter de test, donc AssertJ et Mockito. Le code vit dans un package
+    (`starter/boutique/Remise.java`), avec une classe `@SpringBootApplication` à la racine de ce package, dans
+    `starter/` comme dans `solution/`. Les tests utilisent `@SpringBootTest`, `@WebMvcTest` et `MockMvc`
+    (`org.springframework.boot.webmvc.test.autoconfigure`), `@DataJpaTest`
+    (`org.springframework.boot.data.jpa.test.autoconfigure`) et `@MockitoBean`. Un exercice se juge en moins de dix
+    secondes : un seul contexte Spring par classe de test, pas de serveur démarré, pas de réseau.
   - **En Go** (ADR 0033), la même forme avec des fichiers `.go` : `starter/` et `solution/` à plat, dans un seul
     package (pas de `package main`), et `tests/*_test.go` dans ce même package, avec le package `testing` seul (pas de
     bibliothèque d'assertions). Le bac à sable n'a pas de réseau et son cache de compilation est en lecture seule :

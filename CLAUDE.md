@@ -103,7 +103,7 @@ Recallio n'est pas une application « Java » : c'est un **catalogue de sujets d
 | Conteneurs | Docker, `docker compose` pour le local | une image backend, une image frontend (fichiers statiques servis par un serveur web) |
 | Hébergement | PaaS ou VPS européen (Clever Cloud, Scaleway ou OVHcloud), PostgreSQL managé | décision à prendre en phase 1, consignée en ADR |
 | Observabilité | logs JSON sur stdout, métriques Micrometer, Sentry pour les erreurs (plus tard OpenTelemetry) | |
-| Exécution du code | service **`runner`** (Quarkus) et images **`sandbox/java`**, **`sandbox/go`**, **`sandbox/cpp`** : un conteneur jetable par exécution, pour juger un exercice par ses tests (ADR 0030, 0033, 0053) ou lancer un programme du Tour (ADR 0037) | seul composant à accéder à Docker ; joint par le seul backend |
+| Exécution du code | service **`runner`** (Quarkus) et images **`sandbox/java`** (avec Spring Boot, ADR 0060), **`sandbox/go`**, **`sandbox/cpp`** : un conteneur jetable par exécution, pour juger un exercice par ses tests (ADR 0030, 0033, 0053) ou lancer un programme du Tour (ADR 0037) | seul composant à accéder à Docker ; joint par le seul backend |
 | Phase 2+ | **Valkey/Redis** (classements, temps réel), WebSockets Next (mode live) | ne pas l'introduire avant la phase concernée |
 
 Toute nouvelle dépendance doit être justifiée et, si elle est structurante, faire l'objet d'un ADR.
@@ -530,7 +530,7 @@ Le propriétaire a testé l'application en local avant de la déployer ; ses ret
 6. ✅ **Relier le Tour à la révision** (ADR 0059) : en parcours « apprendre », une notion qui a des pages dans le Tour n'entre en révision qu'une fois validée dans le Tour.
 7. **Quatre nouveaux sujets complets**, prêts à l'emploi (référentiel, leçons, cartes à choix, exercices), livrés par priorité :
    1. ✅ **C++** : son bac à sable (GCC 14, doctest, ADR 0053) ; son référentiel (335 notions) ; toutes les notions, des priorités 1 à 4, avec le Tour et les exercices (7 656 cartes) ; reste à le relire dans l'application, puis à le publier.
-   2. **Spring Boot**, puis **Quarkus** : des exercices jugés par `@SpringBootTest` et `@QuarkusTest`, dans un bac à sable qui embarque le framework.
+   2. **Spring Boot**, puis **Quarkus** : des exercices jugés par `@SpringBootTest` et `@QuarkusTest`, dans un bac à sable qui embarque le framework (✅ Spring Boot dans le bac à sable Java, ADR 0060 ; puis son contenu ; puis Quarkus).
    3. **Python** : son bac à sable, puis le contenu et le Tour.
 8. **Retours de l'audit** du 2026-11-10 (`docs/audit-2026-11.md`, où chaque numéro ci-dessous est détaillé), une PR par étape :
    1. ✅ **Correctifs d'interface** (1 à 4) : débordement sur mobile, « API : UP », libellé du Tour, éditeur du Tour remonté sur mobile.
