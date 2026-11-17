@@ -1,0 +1,432 @@
+notion: with-context-managers
+lesson: |-
+  Une ressource (fichier, verrou, connexion) doit être libérée quoi qu'il arrive. L'instruction **`with`** s'en
+  charge : elle confie la ressource à un **gestionnaire de contexte**, qui la prépare à l'entrée du bloc et la libère
+  à la sortie, **même si le bloc lève une exception ou fait un `return`**.
+
+  ```python
+  with open("notes.txt", encoding="utf-8") as fichier:
+      contenu = fichier.read()
+  # ici, le fichier est fermé
+  ```
+
+  équivaut à :
+
+  ```python
+  fichier = open("notes.txt", encoding="utf-8")
+  try:
+      contenu = fichier.read()
+  finally:
+      fichier.close()
+  ```
+
+  - **`as`** reçoit la valeur renvoyée par la méthode `__enter__` du gestionnaire : le fichier pour `open`, mais pas
+    toujours l'objet lui-même.
+  - **`with` ne crée pas de portée** : `contenu` (et `fichier`, fermé) existent encore après le bloc. Lire un fichier
+    fermé lève `ValueError: I/O operation on closed file.`
+  - **Les exceptions remontent** : `with open(...)` ferme le fichier, mais ne rattrape rien.
+  - **Plusieurs gestionnaires** dans un même `with`, libérés dans l'ordre inverse :
+    `with open(a) as src, open(b, "w") as dst:` (entre parenthèses sur plusieurs lignes, depuis Python 3.10).
+  - Toujours `encoding="utf-8"` pour un fichier texte : sinon l'encodage dépend de la machine.
+
+  | Gestionnaire | Entrée | Sortie |
+  |---|---|---|
+  | `open(...)` | ouvre le fichier | le ferme |
+  | `threading.Lock()` | prend le verrou | le relâche |
+  | `contextlib.suppress(FileNotFoundError)` | rien | ignore cette exception |
+  | `tempfile.TemporaryDirectory()` | crée un dossier | le supprime |
+  | `decimal.localcontext()` | copie le contexte de calcul | rétablit l'ancien |
+
+  Modes d'ouverture : `"r"` lecture (par défaut), `"w"` écriture (**vide** le fichier), `"a"` ajout à la fin, `"x"`
+  création (échoue si le fichier existe) ; `"b"` en plus pour le binaire.
+
+  **En entretien** : « `with` garantit la libération d'une ressource : le gestionnaire de contexte l'acquiert à
+  l'entrée (`__enter__`, dont le résultat va dans `as`) et la libère à la sortie (`__exit__`), même sur une
+  exception. C'est un `try` / `finally` sans risque d'oubli. On l'utilise pour les fichiers, les verrous, les
+  connexions et les dossiers temporaires. »
+tour:
+  - title: "Fichiers et verrous : with"
+    text: |-
+      Un fichier ouvert doit être fermé, un verrou pris doit être relâché, même si une erreur survient entre les deux.
+      `with` s'en charge : à la sortie du bloc, quelle qu'elle soit, la ressource est libérée.
+
+      `open(nom, mode, encoding=...)` ouvre un fichier : `"w"` pour écrire (le fichier est vidé), `"r"` pour lire, le
+      mode par défaut. Un fichier texte se parcourt ligne par ligne avec `for`.
+
+      Le troisième bloc lève une exception au milieu de la lecture : le fichier est quand même fermé. Un
+      `threading.Lock` s'utilise de la même façon.
+
+      Essaie : ouvre le fichier en mode `"a"` (ajout) au lieu de `"w"`, et exécute deux fois le premier bloc dans une
+      boucle `for _ in range(2):`. Combien de lignes lis-tu ?
+    example:
+      files:
+        main.py: |-
+          import threading
+
+          with open("notes.txt", "w", encoding="utf-8") as fichier:
+              fichier.write("Ada 18\n")
+              fichier.write("Linus 15\n")
+          print("fermé ?", fichier.closed)
+
+          with open("notes.txt", encoding="utf-8") as fichier:
+              for ligne in fichier:
+                  nom, note = ligne.split()
+                  print(nom, int(note))
+
+          try:
+              with open("notes.txt", encoding="utf-8") as fichier:
+                  print("première ligne :", fichier.readline().strip())
+                  raise ValueError("problème au milieu")
+          except ValueError as erreur:
+              print(erreur, "- fermé ?", fichier.closed)
+
+          verrou = threading.Lock()
+          with verrou:
+              print("verrou pris ?", verrou.locked())
+          print("verrou pris ?", verrou.locked())
+      output: |-
+        fermé ? True
+        Ada 18
+        Linus 15
+        première ligne : Ada 18
+        problème au milieu - fermé ? True
+        verrou pris ? True
+        verrou pris ? False
+cards:
+  - key: vf-ferme-sur-exception
+    format: true-false
+    question: "À la sortie d'un bloc `with open(...)`, le fichier est fermé, même si une exception a interrompu le bloc."
+    truth: true
+    answer: "C'est la raison d'être de `with` : la méthode `__exit__` du fichier s'exécute à toute sortie du bloc, comme un `finally`."
+  - key: vf-with-portee
+    format: true-false
+    question: "Une variable créée dans un bloc `with` n'existe plus après la fin du bloc."
+    truth: false
+    answer: "`with` ne crée pas de portée, pas plus que `if` ou `for` : la variable existe encore. Seule la ressource est libérée (le fichier est fermé)."
+  - key: vf-as-enter
+    format: true-false
+    question: "La variable placée après `as` reçoit la valeur renvoyée par la méthode `__enter__` du gestionnaire."
+    truth: true
+    answer: "Pour `open`, `__enter__` renvoie le fichier lui-même. D'autres gestionnaires renvoient autre chose, ou `None`."
+  - key: vf-with-rattrape
+    format: true-false
+    question: "`with open(...)` rattrape les exceptions levées dans son bloc, qui ne remontent donc pas."
+    truth: false
+    answer: "Le fichier est fermé, puis l'exception continue sa remontée. Pour la traiter, il faut un `try` autour du `with`."
+  - key: qcm-equivalent-try
+    format: multiple-choice
+    question: "À quoi équivaut `with open(chemin) as f:` suivi de `traiter(f)` ?"
+    choices:
+      - {text: "`f = open(chemin)`, puis `try: traiter(f)` et `finally: f.close()`", correct: true}
+      - {text: "`f = open(chemin)`, `traiter(f)`, puis `f.close()` à la fin", correct: false}
+      - {text: "`try: f = open(chemin)`, puis `except: f.close()` en cas d'erreur", correct: false}
+      - {text: "`f = open(chemin)`, fermé quand le programme se termine", correct: false}
+    answer: "Sans `finally`, une exception dans `traiter` laisserait le fichier ouvert ; un `except` ne fermerait le fichier qu'en cas d'erreur."
+  - key: qcm-verrou
+    format: multiple-choice
+    question: "Que fait `with verrou:` sur un `threading.Lock` ?"
+    choices:
+      - {text: "Il prend le verrou en entrant, et le relâche en sortant, même sur une erreur", correct: true}
+      - {text: "Il crée un nouveau verrou, propre à ce bloc, puis le détruit à la sortie", correct: false}
+      - {text: "Il attend que tous les autres threads aient fini d'exécuter ce bloc", correct: false}
+      - {text: "Il prend le verrou, qu'il faut relâcher ensuite avec `release()`", correct: false}
+    answer: "C'est le même `try` / `finally` qu'avec un fichier : `acquire` à l'entrée, `release` à la sortie. Oublier `release` après une exception bloquerait tous les autres threads."
+  - key: qcm-deux-fichiers
+    format: multiple-choice
+    question: "Comment ouvrir deux fichiers dans un même `with` ?"
+    choices:
+      - {text: "`with open(a) as f, open(b, 'w') as g:`", correct: true}
+      - {text: "`with open(a), open(b, 'w') as f, g:`", correct: false}
+      - {text: "`with open(a) as f and open(b, 'w') as g:`", correct: false}
+      - {text: "`with open(a) as f; open(b, 'w') as g:`", correct: false}
+    answer: "Chaque gestionnaire a son `as`, séparés par des virgules. Ils sont libérés dans l'ordre inverse : `g`, puis `f`."
+  - key: qcm-lire-apres
+    format: multiple-choice
+    question: "Que se passe-t-il si tu appelles `f.read()` après la fin du bloc `with open(...) as f:` ?"
+    choices:
+      - {text: "Une `ValueError` : le fichier est fermé", correct: true}
+      - {text: "Il renvoie une chaîne vide, rien de plus", correct: false}
+      - {text: "Il rouvre le fichier, puis le lit en entier", correct: false}
+      - {text: "Une `NameError` : `f` n'existe plus", correct: false}
+    answer: "`ValueError: I/O operation on closed file.` Le nom `f` existe encore (`with` ne crée pas de portée), mais le fichier est fermé."
+  - key: trous-with
+    format: fill-in
+    question: |-
+      Complète pour que le fichier soit fermé à la fin du bloc, quoi qu'il arrive :
+      ```python
+      ___ open("journal.txt", "a", encoding="utf-8") as f:
+          f.write("démarrage\n")
+      ```
+    blanks:
+      - - with
+    answer: "`with` appelle `__enter__` à l'entrée et `__exit__` à la sortie : le fichier est fermé, même sur une exception."
+  - key: trous-as
+    format: fill-in
+    question: |-
+      Complète pour nommer le fichier ouvert :
+      ```python
+      with open("data.csv", encoding="utf-8") ___ fichier:
+          for ligne in fichier:
+              print(ligne.strip())
+      ```
+    blanks:
+      - - as
+    answer: "`as` reçoit ce que renvoie `__enter__`, ici le fichier ouvert."
+  - key: trous-encoding
+    format: fill-in
+    question: |-
+      Complète pour lire un fichier en UTF-8, quelle que soit la machine :
+      ```python
+      with open("notes.txt", encoding=___) as f:
+          texte = f.read()
+      ```
+    blanks:
+      - - '"utf-8"'
+        - "'utf-8'"
+        - '"utf8"'
+        - "'utf8'"
+        - '"UTF-8"'
+        - "'UTF-8'"
+    answer: "Sans `encoding`, Python prend l'encodage par défaut du système : le même fichier se lirait mal sous Windows."
+  - key: trous-suppress
+    format: fill-in
+    question: |-
+      Complète pour supprimer le fichier s'il existe, sans erreur s'il n'existe pas :
+      ```python
+      import os
+      from contextlib import ___
+
+      with suppress(FileNotFoundError):
+          os.remove("cache.tmp")
+      ```
+    blanks:
+      - - suppress
+    answer: "`contextlib.suppress` est un gestionnaire de contexte qui ignore les exceptions qu'on lui nomme, et laisse passer les autres."
+  - key: code-closed-avant-apres
+    format: code-output
+    question: |-
+      ```python
+      with open("t.txt", "w", encoding="utf-8") as f:
+          f.write("x")
+          dedans = f.closed
+      print(dedans, f.closed)
+      ```
+    answer: "`False True` : le fichier est ouvert dans le bloc, fermé après. Le nom `f` existe toujours."
+    check:
+      output: "False True"
+    choices:
+      - {text: "`False True`", correct: true}
+      - {text: "`False False`", correct: false}
+      - {text: "`True True`", correct: false}
+      - {text: "`True False`", correct: false}
+  - key: code-write-renvoie
+    format: code-output
+    question: |-
+      ```python
+      with open("t.txt", "w", encoding="utf-8") as f:
+          n = f.write("bonjour")
+      print(n)
+      ```
+    answer: "`7` : `write` renvoie le nombre de caractères écrits, et `n`, créé dans le bloc, existe encore après lui."
+    check:
+      output: "7"
+    choices:
+      - {text: "`7`", correct: true}
+      - {text: "`None`", correct: false}
+      - {text: "`bonjour`", correct: false}
+      - {text: "`1`", correct: false}
+  - key: code-verrou-relache
+    format: code-output
+    question: |-
+      ```python
+      import threading
+
+      verrou = threading.Lock()
+      try:
+          with verrou:
+              raise KeyError("k")
+      except KeyError:
+          print("rattrapée", verrou.locked())
+      ```
+    answer: "`rattrapée False` : le `with` relâche le verrou avant que l'exception ne remonte jusqu'au `except`."
+    check:
+      output: "rattrapée False"
+    choices:
+      - {text: "`rattrapée False`", correct: true}
+      - {text: "`rattrapée True`", correct: false}
+      - {text: "`False`", correct: false}
+      - {text: "`rattrapée k`", correct: false}
+  - key: code-mode-w-vide
+    format: code-output
+    question: |-
+      ```python
+      with open("l.txt", "w", encoding="utf-8") as f:
+          f.write("un ")
+      with open("l.txt", "w", encoding="utf-8") as f:
+          f.write("deux")
+      with open("l.txt", encoding="utf-8") as f:
+          print(f.read())
+      ```
+    answer: "`deux` : le mode `\"w\"` vide le fichier à l'ouverture. Pour ajouter à la fin, c'est le mode `\"a\"`."
+    check:
+      output: "deux"
+    choices:
+      - {text: "`deux`", correct: true}
+      - {text: "`un deux`", correct: false}
+      - {text: "`un`", correct: false}
+      - {text: "`deux un`", correct: false}
+  - key: bug-lecture-hors-du-bloc
+    format: bug-fix
+    question: |-
+      Ce programme s'arrête sur « ValueError: I/O operation on closed file. » :
+      ```python
+      with open("notes.txt", "w", encoding="utf-8") as f:
+          f.write("Ada 18\n")
+
+      with open("notes.txt", encoding="utf-8") as f:
+          pass
+      lignes = f.readlines()
+      print(lignes)
+      ```
+      Quelle correction est la bonne ?
+    choices:
+      - {text: "Indenter `lignes = f.readlines()` dans le bloc `with`, à la place du `pass`", correct: true}
+      - {text: "Rouvrir le fichier avec `f.open()` juste avant de lire les lignes", correct: false}
+      - {text: "Retirer le `with` et appeler `f.close()` à la fin du programme", correct: false}
+      - {text: "Ouvrir le fichier en mode `\"r+\"` pour le garder ouvert après le bloc", correct: false}
+    answer: |-
+      ```python
+      with open("notes.txt", encoding="utf-8") as f:
+          lignes = f.readlines()
+      print(lignes)
+      ```
+      Le fichier est fermé à la fin du bloc : on le lit dedans, et on utilise le résultat après. Les fichiers n'ont
+      pas de méthode `open`.
+  - key: bug-ecriture-pas-fermee
+    format: bug-fix
+    question: |-
+      Ce programme affiche `''` : le texte écrit n'est pas relu.
+      ```python
+      f = open("journal.txt", "w", encoding="utf-8")
+      f.write("démarrage\n")
+
+      with open("journal.txt", encoding="utf-8") as lecture:
+          print(repr(lecture.read()))
+      ```
+      Quelle correction est la bonne ?
+    choices:
+      - {text: "Écrire aussi dans un bloc `with`, qui ferme le fichier et vide son tampon", correct: true}
+      - {text: "Ouvrir le fichier de lecture en mode `\"a\"`, qui voit les ajouts récents", correct: false}
+      - {text: "Appeler `lecture.flush()` avant de lire le contenu du fichier", correct: false}
+      - {text: "Écrire `\"démarrage\"` sans le `\\n`, qui retarde l'écriture", correct: false}
+    answer: |-
+      ```python
+      with open("journal.txt", "w", encoding="utf-8") as f:
+          f.write("démarrage\n")
+      ```
+      `write` remplit un tampon en mémoire ; il n'est écrit sur le disque qu'à `flush` ou `close`. Le `with` ferme le
+      fichier, donc écrit tout, avant la lecture.
+  - key: bug-mode-w-dans-boucle
+    format: bug-fix
+    question: |-
+      Ce programme devait journaliser trois événements, mais affiche `['arrêt']` :
+      ```python
+      for evenement in ["démarrage", "connexion", "arrêt"]:
+          with open("journal.txt", "w", encoding="utf-8") as f:
+              f.write(evenement + "\n")
+
+      with open("journal.txt", encoding="utf-8") as f:
+          print(f.read().split())
+      ```
+      Quelle correction est la bonne ?
+    choices:
+      - {text: "Ouvrir en mode `\"a\"` (ajout), ou une seule fois avant la boucle", correct: true}
+      - {text: "Appeler `f.flush()` après chaque `write` dans la boucle", correct: false}
+      - {text: "Ouvrir en mode `\"x\"`, qui garde le contenu existant", correct: false}
+      - {text: "Remplacer `write` par `writelines`, qui ajoute à la fin", correct: false}
+    answer: |-
+      ```python
+      with open("journal.txt", "w", encoding="utf-8") as f:
+          for evenement in ["démarrage", "connexion", "arrêt"]:
+              f.write(evenement + "\n")
+      ```
+      Le mode `"w"` vide le fichier à chaque ouverture : seule la dernière écriture reste. `"x"` échouerait dès la
+      deuxième ouverture, le fichier existant déjà.
+  - key: bug-verrou-jamais-relache
+    format: bug-fix
+    question: |-
+      Ce programme affiche « verrou encore pris : True » : après un retrait refusé, tous les autres threads restent
+      bloqués.
+      ```python
+      import threading
+
+      verrou = threading.Lock()
+
+
+      def retirer(comptes, nom, montant):
+          verrou.acquire()
+          if comptes[nom] < montant:
+              raise ValueError("solde insuffisant")
+          comptes[nom] -= montant
+          verrou.release()
+
+
+      comptes = {"ana": 10}
+      try:
+          retirer(comptes, "ana", 50)
+      except ValueError:
+          pass
+      print("verrou encore pris :", verrou.locked())
+      ```
+      Quelle correction est la bonne ?
+    choices:
+      - {text: "Écrire le corps de `retirer` dans un bloc `with verrou:`", correct: true}
+      - {text: "Appeler `verrou.release()` dans le `except` de l'appelant", correct: false}
+      - {text: "Remplacer `threading.Lock` par `threading.RLock`", correct: false}
+      - {text: "Appeler `verrou.acquire()` après la vérification du solde", correct: false}
+    answer: |-
+      ```python
+      def retirer(comptes, nom, montant):
+          with verrou:
+              if comptes[nom] < montant:
+                  raise ValueError("solde insuffisant")
+              comptes[nom] -= montant
+      ```
+      L'exception quitte la fonction avant `release` : le verrou n'est jamais relâché. `with` le relâche à toute
+      sortie. Prendre le verrou après la vérification laisserait deux threads vérifier le même solde.
+  - key: role-with
+    format: course
+    question: "Quel problème l'instruction `with` résout-elle ?"
+    choices:
+      - {text: "Libérer une ressource à coup sûr, même si le bloc lève une exception", correct: true}
+      - {text: "Rattraper les exceptions d'un bloc sans écrire de `try`", correct: false}
+      - {text: "Créer une portée où les variables disparaissent à la fin", correct: false}
+      - {text: "Exécuter un bloc dans un thread séparé du programme", correct: false}
+    answer: "Fichier fermé, verrou relâché, connexion rendue : la libération ne dépend plus de la mémoire du programmeur. Les exceptions, elles, continuent de remonter."
+  - key: ordre-de-liberation
+    format: course
+    question: "Dans `with A() as a, B() as b:`, dans quel ordre les deux ressources sont-elles libérées ?"
+    choices:
+      - {text: "`b` d'abord, puis `a` : l'ordre inverse de l'acquisition", correct: true}
+      - {text: "`a` d'abord, puis `b` : l'ordre de l'acquisition", correct: false}
+      - {text: "En même temps, dans deux threads séparés", correct: false}
+      - {text: "Seule `b` est libérée ; `a` reste ouverte", correct: false}
+    answer: "Comme deux `with` imbriqués : le dernier ouvert est le premier fermé, car il peut dépendre du premier."
+  - key: mode-x
+    format: course
+    question: "Que fait `open(\"rapport.txt\", \"x\")` ?"
+    choices:
+      - {text: "Il crée le fichier, et lève `FileExistsError` s'il existe déjà", correct: true}
+      - {text: "Il ouvre le fichier en lecture et en écriture à la fois", correct: false}
+      - {text: "Il vide le fichier s'il existe, et le crée sinon", correct: false}
+      - {text: "Il ouvre le fichier en mode exécutable, pour un script", correct: false}
+    answer: "Le mode `\"x\"` évite d'écraser un fichier existant, sans test préalable : la vérification et la création se font d'un seul coup. `\"w\"` le viderait."
+  - key: autres-gestionnaires
+    format: course
+    question: "Lequel de ces objets s'utilise aussi avec `with` ?"
+    choices:
+      - {text: "`tempfile.TemporaryDirectory()`, qui supprime son dossier à la sortie", correct: true}
+      - {text: "`os.listdir('.')`, qui ferme le dossier après l'avoir lu", correct: false}
+      - {text: "`range(10)`, qui libère ses nombres après le parcours", correct: false}
+      - {text: "`input()`, qui ferme le clavier une fois la saisie lue", correct: false}
+    answer: "Tout objet qui définit `__enter__` et `__exit__` est un gestionnaire de contexte : fichiers, verrous, dossiers temporaires, connexions, `contextlib.suppress`..."

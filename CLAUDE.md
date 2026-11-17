@@ -283,7 +283,8 @@ Les sujets s'ajoutent un par un, au rythme de la rédaction, indépendamment des
 | API REST, Réseau & Linux, Algorithmes, Conception, Entretien comportemental | Fondamentaux | sortis du document Java, en brouillon jusqu'à leur réécriture |
 | Sécurité | Cybersécurité | sortie du document Java, en brouillon jusqu'à sa réécriture |
 | C++ | Langages | ✅ rédigé, en brouillon, pour C++23 et GCC 14 (ADR 0053), complet : 335 notions en 16 domaines, 7 656 cartes, 66 pages du Tour, 32 exercices ; à relire dans l'application avant de le publier |
-| Python, TypeScript, Kotlin, C#, C, Rust | Langages | annoncés (un dossier sans contenu, ADR 0052), à rédiger |
+| Python | Langages | ✅ rédigé, en brouillon, pour Python 3.14 (ADR 0062) : 176 notions en 12 domaines, 3 712 cartes, 53 pages du Tour, 24 exercices jugés par pytest ; à relire dans l'application avant de le publier |
+| TypeScript, Kotlin, C#, C, Rust | Langages | annoncés (un dossier sans contenu, ADR 0052), à rédiger |
 | IA : machine learning, LLM & prompting | IA | à rédiger |
 | Programmer de zéro | Fondamentaux | ✅ rédigé en brouillon, en Java 25 (ADR 0039) : 23 notions, 115 cartes, un Tour de 23 pages ; à relire dans l'application avant de le publier |
 
@@ -533,7 +534,7 @@ Le propriétaire a testé l'application en local avant de la déployer ; ses ret
 7. **Quatre nouveaux sujets complets**, prêts à l'emploi (référentiel, leçons, cartes à choix, exercices), livrés par priorité :
    1. ✅ **C++** : son bac à sable (GCC 14, doctest, ADR 0053) ; son référentiel (335 notions) ; toutes les notions, des priorités 1 à 4, avec le Tour et les exercices (7 656 cartes) ; reste à le relire dans l'application, puis à le publier.
    2. ✅ **Spring Boot**, puis **Quarkus** : des exercices jugés par `@SpringBootTest` et `@QuarkusTest`, dans un bac à sable qui embarque le framework (✅ Spring Boot dans le bac à sable Java, ADR 0060 ; ✅ son contenu : 99 notions, 2 004 cartes, 11 exercices ; ✅ Quarkus dans le bac à sable Java, ADR 0061 ; ✅ son contenu : 91 notions, 1 780 cartes, 12 exercices). Les deux restent à relire dans l'application avant d'être publiés.
-   3. **Python** : son bac à sable, puis le contenu et le Tour (✅ le bac à sable : Python 3.14 et pytest, ADR 0062 ; puis le référentiel, les notions, le Tour et les exercices).
+   3. ✅ **Python** : son bac à sable, puis le contenu et le Tour (✅ le bac à sable : Python 3.14 et pytest, ADR 0062 ; ✅ le contenu : 176 notions, 3 712 cartes, 53 pages du Tour, 24 exercices) ; reste à le relire dans l'application, puis à le publier.
 8. **Retours de l'audit** du 2026-11-10 (`docs/audit-2026-11.md`, où chaque numéro ci-dessous est détaillé), une PR par étape :
    1. ✅ **Correctifs d'interface** (1 à 4) : débordement sur mobile, « API : UP », libellé du Tour, éditeur du Tour remonté sur mobile.
    2. ✅ **Qualité des cartes** (18 à 24) : règles vérifiées en CI, guide de rédaction, notion affichée sur la carte, pilote corrigé.

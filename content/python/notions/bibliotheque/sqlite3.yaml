@@ -1,0 +1,365 @@
+notion: sqlite3
+lesson: |-
+  SQLite est une base de données SQL **dans un simple fichier**, sans serveur. Le module `sqlite3` de la bibliothèque
+  standard permet de l'utiliser directement.
+
+  ```python
+  import sqlite3
+
+  con = sqlite3.connect("app.db")            # ou ":memory:", une base en mémoire
+  con.execute("CREATE TABLE IF NOT EXISTS clients (id INTEGER PRIMARY KEY, nom TEXT, age INTEGER)")
+
+  with con:                                  # une transaction : validée à la sortie, annulée sur exception
+      con.execute("INSERT INTO clients (nom, age) VALUES (?, ?)", ("Ada", 36))
+      con.executemany("INSERT INTO clients (nom, age) VALUES (?, ?)", [("Alan", 41), ("Grace", 45)])
+
+  ligne = con.execute("SELECT nom, age FROM clients WHERE nom = ?", ("Ada",)).fetchone()   # ('Ada', 36)
+  toutes = con.execute("SELECT nom FROM clients ORDER BY nom").fetchall()                  # une liste de tuples
+  con.close()
+  ```
+
+  **Les paramètres, jamais de f-string** : les valeurs passent par des `?` et un tuple (ou `:nom` et un
+  dictionnaire). Le pilote les transmet à part, ce qui empêche l'**injection SQL** : un nom comme `x' OR '1'='1`
+  reste une valeur, pas du SQL. Attention au tuple d'un seul élément : `("Ada",)`, avec la virgule.
+
+  **Les transactions**
+
+  - Par défaut, un `INSERT`, `UPDATE` ou `DELETE` ouvre une transaction, qu'il faut **valider** : `con.commit()`.
+  - `con.close()` ne valide **pas** : ce qui n'est pas validé est perdu.
+  - `with con:` valide à la sortie du bloc, ou annule (`rollback`) si une exception survient. Il **ne ferme pas** la
+    connexion.
+
+  **Lire les résultats**
+
+  - `fetchone()` : la ligne suivante, ou `None` s'il n'y en a plus ; `fetchall()` : toutes les lignes ; on peut aussi
+    itérer sur le curseur.
+  - Chaque ligne est un tuple. Avec `con.row_factory = sqlite3.Row`, on lit aussi par nom : `ligne["nom"]`.
+  - `cur.lastrowid` donne l'identifiant de la ligne insérée, `cur.rowcount` le nombre de lignes modifiées.
+
+  SQLite convient à une application locale, aux tests, à un petit service : beaucoup de lectures, des écritures peu
+  concurrentes. Pour de nombreuses écritures simultanées depuis plusieurs serveurs, on choisit PostgreSQL.
+
+  **En entretien** : « `sqlite3` donne une vraie base SQL sans serveur. Je passe toujours les valeurs en paramètres
+  `?`, contre l'injection SQL, et j'utilise `with con:` pour qu'une transaction soit validée ou annulée en bloc ;
+  `close` ne valide rien. `row_factory = sqlite3.Row` permet de lire les colonnes par leur nom. »
+cards:
+  - key: valeur-en-parametre
+    format: course
+    question: "Comment passer une valeur à une requête `sqlite3` en toute sécurité ?"
+    choices:
+      - {text: "Avec un paramètre `?` et un tuple : `execute(sql, (nom,))`", correct: true}
+      - {text: "Avec une f-string, en doublant les apostrophes de la valeur", correct: false}
+      - {text: "Avec `%s` et l'opérateur `%` appliqué à la chaîne SQL", correct: false}
+      - {text: "Avec `str.format`, qui échappe tout seul les valeurs", correct: false}
+    answer: "Le pilote transmet la valeur à part : elle ne peut pas devenir du SQL. Échapper à la main finit toujours par oublier un cas."
+  - key: with-connexion
+    format: course
+    question: "Que fait `with con:` sur une connexion `sqlite3` ?"
+    choices:
+      - {text: "Il valide la transaction à la sortie, ou l'annule sur exception", correct: true}
+      - {text: "Il ferme la connexion à la sortie du bloc", correct: false}
+      - {text: "Il ouvre un curseur, refermé à la sortie du bloc", correct: false}
+      - {text: "Il verrouille la base pour les autres processus", correct: false}
+    answer: "C'est un gestionnaire de transaction, pas de connexion : après le bloc, `con` reste ouverte. Pour la fermer aussi, `contextlib.closing(sqlite3.connect(...))`."
+  - key: base-en-memoire
+    format: course
+    question: "Que crée `sqlite3.connect(\":memory:\")` ?"
+    choices:
+      - {text: "Une base en mémoire, perdue à la fermeture de la connexion", correct: true}
+      - {text: "Un fichier nommé `:memory:` dans le dossier courant", correct: false}
+      - {text: "Un cache en mémoire devant le fichier de la base", correct: false}
+      - {text: "Une connexion à un serveur SQLite qui tourne en local", correct: false}
+    answer: "Idéal pour les tests : rapide, et repart de zéro à chaque fois. Chaque connexion `:memory:` a sa propre base."
+  - key: row-factory
+    format: course
+    question: "À quoi sert `con.row_factory = sqlite3.Row` ?"
+    choices:
+      - {text: "À lire les colonnes par leur nom : `ligne[\"nom\"]`", correct: true}
+      - {text: "À renvoyer chaque ligne sous forme de liste modifiable", correct: false}
+      - {text: "À compter les lignes renvoyées par chaque requête", correct: false}
+      - {text: "À créer une table à partir d'une classe Python", correct: false}
+    answer: "Une `sqlite3.Row` se lit par nom ou par position, et `dict(ligne)` la convertit. Par défaut, les lignes sont des tuples."
+  - key: vf-serveur
+    format: true-false
+    question: SQLite demande d'installer et de lancer un serveur de base de données.
+    truth: false
+    answer: "La base est un fichier, lu et écrit par une bibliothèque intégrée au programme. Le module `sqlite3` est dans la bibliothèque standard."
+  - key: vf-close-valide
+    format: true-false
+    question: "`con.close()` valide automatiquement la transaction en cours."
+    truth: false
+    answer: "Les modifications non validées sont perdues. Il faut `con.commit()` avant, ou un bloc `with con:`."
+  - key: vf-executemany
+    format: true-false
+    question: "`executemany` exécute la même requête pour chaque tuple d'une liste de paramètres."
+    truth: true
+    answer: "`con.executemany(\"INSERT INTO t VALUES (?, ?)\", lignes)` insère toutes les lignes, plus vite qu'une boucle d'`execute`."
+  - key: vf-fetchone-none
+    format: true-false
+    question: "`fetchone()` renvoie `None` quand il ne reste plus de ligne à lire."
+    truth: true
+    answer: "Une requête qui ne trouve rien donne donc `None` dès le premier appel : à tester avant d'indexer le résultat."
+  - key: qcm-parametres-nommes
+    format: multiple-choice
+    question: "Quelle forme de paramètre nommé `sqlite3` accepte-t-il ?"
+    choices:
+      - {text: "`:nom`, avec un dictionnaire `{\"nom\": ...}`", correct: true}
+      - {text: "`{nom}`, avec un dictionnaire", correct: false}
+      - {text: "`%(nom)s`, avec un dictionnaire", correct: false}
+      - {text: "`#nom`, avec des arguments nommés", correct: false}
+    answer: "`con.execute(\"SELECT * FROM clients WHERE nom = :nom\", {\"nom\": \"Ada\"})`. `%(nom)s` est le style de psycopg, le pilote de PostgreSQL."
+  - key: qcm-lastrowid
+    format: multiple-choice
+    question: Comment récupérer l'identifiant de la ligne qu'on vient d'insérer ?
+    choices:
+      - {text: "`cur.lastrowid`", correct: true}
+      - {text: "`cur.rowcount`", correct: false}
+      - {text: "`con.last_id()`", correct: false}
+      - {text: "`cur.fetchone()`", correct: false}
+    answer: "`execute` renvoie un curseur, dont `lastrowid` donne l'identifiant inséré. `rowcount` compte les lignes touchées par la requête."
+  - key: qcm-mille-lignes
+    format: multiple-choice
+    question: Quelle méthode insère efficacement mille lignes avec une seule requête paramétrée ?
+    choices:
+      - {text: "`executemany`", correct: true}
+      - {text: "`executescript`", correct: false}
+      - {text: "`execute`, dans une f-string géante", correct: false}
+      - {text: "`insertmany`", correct: false}
+    answer: "`executemany` réutilise la requête pour chaque tuple. `executescript` exécute un script SQL brut, sans paramètres."
+  - key: qcm-quand-sqlite
+    format: multiple-choice
+    question: Pour quel usage SQLite convient-il bien ?
+    choices:
+      - {text: "Une application locale ou un petit service, avec peu d'écritures simultanées", correct: true}
+      - {text: "Un site très fréquenté, écrit en même temps par des dizaines de serveurs", correct: false}
+      - {text: "Un cluster de bases répliquées sur plusieurs régions du monde", correct: false}
+      - {text: "Un entrepôt de données de plusieurs téraoctets partagé par une équipe", correct: false}
+    answer: "Une seule écriture à la fois, sur une seule machine : parfait pour une application de bureau, un outil, des tests ou un site modeste. Au-delà, un serveur comme PostgreSQL."
+  - key: trous-connect
+    format: fill-in
+    question: |-
+      Complète pour ouvrir la base :
+      ```python
+      con = sqlite3.___("app.db")
+      ```
+    blanks: [[connect]]
+    answer: "`sqlite3.connect` crée le fichier s'il n'existe pas."
+  - key: trous-placeholder
+    format: fill-in
+    question: |-
+      Complète avec le paramètre positionnel de `sqlite3` :
+      ```python
+      con.execute("SELECT * FROM clients WHERE id = ___", (7,))
+      ```
+    blanks: [["?"]]
+    answer: "`?` : la valeur vient du tuple, transmise à part."
+  - key: trous-commit
+    format: fill-in
+    question: |-
+      Complète pour valider l'insertion :
+      ```python
+      con.execute("INSERT INTO notes VALUES (?)", (texte,))
+      con.___()
+      ```
+    blanks: [[commit]]
+    answer: "`commit()` valide la transaction ouverte par l'`INSERT`."
+  - key: trous-fetchall
+    format: fill-in
+    question: |-
+      Complète pour récupérer toutes les lignes :
+      ```python
+      lignes = con.execute("SELECT nom FROM clients").___()
+      ```
+    blanks: [[fetchall]]
+    answer: "`fetchall()` renvoie la liste des tuples restants."
+  - key: code-agregats
+    format: code-output
+    question: |-
+      ```python
+      import sqlite3
+
+      con = sqlite3.connect(":memory:")
+      con.execute("CREATE TABLE t (n INTEGER)")
+      con.executemany("INSERT INTO t VALUES (?)", [(1,), (2,), (3,)])
+      print(con.execute("SELECT SUM(n), COUNT(*) FROM t").fetchone())
+      ```
+    answer: "`(6, 3)` : `fetchone` renvoie une ligne, sous forme de tuple."
+    check:
+      output: "(6, 3)"
+    choices:
+      - {text: "`(6, 3)`", correct: true}
+      - {text: "`[6, 3]`", correct: false}
+      - {text: "`[(6, 3)]`", correct: false}
+      - {text: "`6 3`", correct: false}
+  - key: code-fetchall-tuples
+    format: code-output
+    question: |-
+      ```python
+      import sqlite3
+
+      con = sqlite3.connect(":memory:")
+      con.execute("CREATE TABLE u (nom TEXT)")
+      con.execute("INSERT INTO u VALUES (?)", ("Ada",))
+      print(con.execute("SELECT nom FROM u").fetchall())
+      ```
+    answer: "`[('Ada',)]` : une liste de lignes, chacune un tuple, même avec une seule colonne."
+    check:
+      output: "[('Ada',)]"
+    choices:
+      - {text: "`[('Ada',)]`", correct: true}
+      - {text: "`['Ada']`", correct: false}
+      - {text: "`('Ada',)`", correct: false}
+      - {text: "`[['Ada']]`", correct: false}
+  - key: code-sqlite-row
+    format: code-output
+    question: |-
+      ```python
+      import sqlite3
+
+      con = sqlite3.connect(":memory:")
+      con.row_factory = sqlite3.Row
+      ligne = con.execute("SELECT 'Ada' AS nom, 36 AS age").fetchone()
+      print(ligne["nom"], ligne[1])
+      ```
+    answer: "`Ada 36` : une `sqlite3.Row` se lit par nom de colonne ou par position."
+    check:
+      output: Ada 36
+    choices:
+      - {text: "`Ada 36`", correct: true}
+      - {text: "`Ada Ada`", correct: false}
+      - {text: "Une `TypeError` : un tuple s'indexe par entier", correct: false}
+      - {text: "`nom 36`", correct: false}
+  - key: code-rollback
+    format: code-output
+    question: |-
+      ```python
+      import sqlite3
+
+      con = sqlite3.connect(":memory:")
+      con.execute("CREATE TABLE compte (solde INTEGER)")
+      con.execute("INSERT INTO compte VALUES (100)")
+      con.commit()
+      try:
+          with con:
+              con.execute("UPDATE compte SET solde = solde - 30")
+              raise ValueError("plafond dépassé")
+      except ValueError:
+          pass
+      print(con.execute("SELECT solde FROM compte").fetchone()[0])
+      ```
+    answer: "`100` : l'exception a fait annuler la transaction par `with con:`, la mise à jour n'a pas eu lieu."
+    check:
+      output: "100"
+    choices:
+      - {text: "`100`", correct: true}
+      - {text: "`70`", correct: false}
+      - {text: "`None`", correct: false}
+      - {text: "Une `ValueError` : plafond dépassé", correct: false}
+  - key: bug-injection-sql
+    format: bug-fix
+    question: |-
+      Une recherche sur un nom qui n'existe pas affiche `2` : elle renvoie tous les clients.
+      ```python
+      import sqlite3
+
+      con = sqlite3.connect(":memory:")
+      con.execute("CREATE TABLE clients (nom TEXT)")
+      con.executemany("INSERT INTO clients VALUES (?)", [("Ada",), ("Alan",)])
+
+      nom = "x' OR '1'='1"
+      lignes = con.execute(f"SELECT nom FROM clients WHERE nom = '{nom}'").fetchall()
+      print(len(lignes))
+      ```
+      Quelle correction est la bonne ?
+    choices:
+      - {text: "`con.execute(\"SELECT nom FROM clients WHERE nom = ?\", (nom,))`", correct: true}
+      - {text: "`con.execute(\"SELECT nom FROM clients WHERE nom = ?\", nom)`", correct: false}
+      - {text: "`con.execute(\"SELECT nom FROM clients WHERE nom = '%s'\" % nom)`", correct: false}
+      - {text: "`con.execute(\"SELECT nom FROM clients WHERE nom = '{}'\".format(nom))`", correct: false}
+    answer: |-
+      ```python
+      lignes = con.execute("SELECT nom FROM clients WHERE nom = ?", (nom,)).fetchall()
+      ```
+      Insérée dans le texte, la valeur devient du SQL : `WHERE nom = 'x' OR '1'='1'` est toujours vrai. Avec `?`,
+      elle reste une valeur. Sans tuple, la chaîne serait prise pour une suite de 12 paramètres.
+  - key: bug-tuple-sans-virgule
+    format: bug-fix
+    question: |-
+      Ce script s'arrête sur « sqlite3.ProgrammingError: Incorrect number of bindings supplied. The current statement
+      uses 1, and there are 3 supplied. » :
+      ```python
+      import sqlite3
+
+      con = sqlite3.connect(":memory:")
+      con.execute("CREATE TABLE clients (nom TEXT)")
+      print(con.execute("SELECT * FROM clients WHERE nom = ?", ("Ada")).fetchall())
+      ```
+      Quelle correction est la bonne ?
+    choices:
+      - {text: "`(\"Ada\",)`, avec une virgule", correct: true}
+      - {text: "`[\"Ada\"][0]`, le premier élément", correct: false}
+      - {text: "`(\"A\", \"d\", \"a\")`, lettre par lettre", correct: false}
+      - {text: "`{\"Ada\"}`, entre accolades", correct: false}
+    answer: |-
+      ```python
+      con.execute("SELECT * FROM clients WHERE nom = ?", ("Ada",))
+      ```
+      Ce sont les virgules qui font un tuple : `("Ada")` est la chaîne `"Ada"`, lue comme trois paramètres.
+  - key: bug-commit-oublie
+    format: bug-fix
+    question: |-
+      Ce script affiche `0` : la note insérée a disparu.
+      ```python
+      import os
+      import sqlite3
+      import tempfile
+
+      chemin = os.path.join(tempfile.mkdtemp(), "app.db")
+      con = sqlite3.connect(chemin)
+      con.execute("CREATE TABLE notes (texte TEXT)")
+      con.execute("INSERT INTO notes VALUES ('acheter du pain')")
+      con.close()
+
+      con = sqlite3.connect(chemin)
+      print(con.execute("SELECT COUNT(*) FROM notes").fetchone()[0])
+      ```
+      Quelle correction est la bonne ?
+    choices:
+      - {text: "Appeler `con.commit()` avant `con.close()`", correct: true}
+      - {text: "Appeler `con.close()` deux fois de suite", correct: false}
+      - {text: "Remplacer `close()` par `del con`", correct: false}
+      - {text: "Ajouter `IF NOT EXISTS` au `CREATE TABLE`", correct: false}
+    answer: |-
+      ```python
+      con.execute("INSERT INTO notes VALUES ('acheter du pain')")
+      con.commit()
+      con.close()
+      ```
+      L'`INSERT` a ouvert une transaction ; `close` ne la valide pas, et l'insertion est annulée. Un bloc `with con:`
+      autour de l'insertion validerait aussi.
+  - key: bug-fetchone-vide
+    format: bug-fix
+    question: |-
+      Ce script s'arrête sur « TypeError: 'NoneType' object is not subscriptable » :
+      ```python
+      import sqlite3
+
+      con = sqlite3.connect(":memory:")
+      con.execute("CREATE TABLE clients (nom TEXT, age INTEGER)")
+      con.execute("INSERT INTO clients VALUES ('Ada', 36)")
+      age = con.execute("SELECT age FROM clients WHERE nom = ?", ("Bob",)).fetchone()[0]
+      print(age)
+      ```
+      Quelle correction est la bonne ?
+    choices:
+      - {text: "Garder la ligne, et tester `if ligne is None` avant `[0]`", correct: true}
+      - {text: "Remplacer `fetchone()[0]` par `fetchall()[0]`", correct: false}
+      - {text: "Remplacer `fetchone()[0]` par `fetchone()[1]`", correct: false}
+      - {text: "Ajouter `con.commit()` avant le `SELECT`", correct: false}
+    answer: |-
+      ```python
+      ligne = con.execute("SELECT age FROM clients WHERE nom = ?", ("Bob",)).fetchone()
+      age = None if ligne is None else ligne[0]
+      ```
+      Aucun client ne s'appelle Bob : `fetchone()` renvoie `None`. `fetchall()[0]` lèverait une `IndexError` sur la
+      liste vide.

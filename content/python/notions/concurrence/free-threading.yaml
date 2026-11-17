@@ -1,0 +1,187 @@
+notion: free-threading
+lesson: |-
+  Depuis Python 3.13, CPython existe en un second **build**, **free-threaded**, compilé **sans GIL** (PEP 703) : les
+  threads y exécutent du bytecode Python **en parallèle**, sur plusieurs cœurs. Expérimental en 3.13, il est
+  **officiellement pris en charge en 3.14** (PEP 779), mais reste **optionnel** : le `python3.14` habituel garde son GIL.
+
+  **Le reconnaître.** L'exécutable porte un `t` : `python3.14t` (le programme d'installation de python.org le propose,
+  `uv python install 3.14t` aussi). Les roues compilées pour lui portent l'étiquette `cp314t`.
+
+  ```python
+  import sys
+  import sysconfig
+
+  print(sysconfig.get_config_var("Py_GIL_DISABLED"))   # 1 pour un build sans GIL, 0 sinon
+  print(sys._is_gil_enabled())                         # le GIL est-il actif en ce moment ?
+  ```
+
+  Sur le build par défaut, la première ligne affiche `0`, la seconde `True`, et `python -X gil=0` refuse de démarrer :
+  « Disabling the GIL is not supported by this build ».
+
+  **Le GIL peut revenir.** Une extension C doit déclarer qu'elle fonctionne sans GIL (l'emplacement `Py_mod_gil`). Si
+  l'on importe une extension qui ne le déclare pas, l'interpréteur **réactive le GIL** et l'annonce par un
+  avertissement. `PYTHON_GIL=0` ou `-X gil=0` le forcent à rester désactivé, aux risques de l'utilisateur.
+
+  **Ce que ça coûte, ce que ça change.**
+
+  | | Build par défaut | Build free-threaded |
+  |---|---|---|
+  | Threads qui calculent en pur Python | un seul à la fois | en parallèle |
+  | Programme à un seul thread | référence | un peu plus lent (de l'ordre de 5 à 10 % en 3.14) |
+  | Extensions C | toutes | celles qui déclarent leur prise en charge |
+  | Verrous dans ton code | nécessaires | toujours nécessaires |
+
+  Les types intégrés (`list`, `dict`...) se protègent par des verrous internes, objet par objet, pour ne jamais se
+  corrompre ; mais une **séquence** d'opérations (« vérifier, puis agir ») reste exposée aux situations de compétition,
+  et elles se manifestent même plus souvent qu'avec le GIL. Le comptage de références y est réparti (*biased reference
+  counting*), et certains objets sont immortels.
+
+  **En entretien** : « Le build free-threaded, `python3.14t`, retire le GIL : des threads calculent enfin en
+  parallèle. Il est pris en charge depuis 3.14 mais optionnel, un peu plus lent sur un seul thread, et une extension C
+  non compatible réactive le GIL. Il ne dispense pas des verrous : il rend au contraire les situations de compétition
+  plus fréquentes. »
+cards:
+  - key: definition-free-threaded
+    format: course
+    question: "Qu'est-ce que le build free-threaded de CPython ?"
+    choices:
+      - {text: "Une version de CPython compilée sans GIL, où les threads calculent en parallèle", correct: true}
+      - {text: "Une option de `threading` qui lance chaque thread dans son propre processus", correct: false}
+      - {text: "Une version de CPython où chaque thread a son propre interpréteur et son GIL", correct: false}
+      - {text: "Un mode de CPython qui exécute les threads l'un après l'autre, sans verrou", correct: false}
+    answer: "Introduit en 3.13 (PEP 703) et pris en charge depuis 3.14, il retire le verrou global : plusieurs threads exécutent du bytecode en même temps. Un interpréteur par thread, ce sont les sous-interpréteurs."
+  - key: savoir-si-le-gil-est-actif
+    format: course
+    question: "Comment savoir, dans le programme, si le GIL est actif ?"
+    choices:
+      - {text: "Avec `sys._is_gil_enabled()`", correct: true}
+      - {text: "Avec `threading.active_count() > 1`", correct: false}
+      - {text: "Avec `sys.getswitchinterval() == 0`", correct: false}
+      - {text: "Avec `os.cpu_count() > 1`", correct: false}
+    answer: "`sys._is_gil_enabled()` dit si le GIL est actif en ce moment ; `sysconfig.get_config_var(\"Py_GIL_DISABLED\")` dit si le build sait s'en passer. Sur un build sans GIL, il peut avoir été réactivé."
+  - key: extension-incompatible
+    format: course
+    question: "Dans le build sans GIL, que se passe-t-il à l'import d'une extension C qui ne déclare pas le prendre en charge ?"
+    choices:
+      - {text: "L'interpréteur réactive le GIL, et l'annonce par un avertissement", correct: true}
+      - {text: "L'import échoue sur une `ImportError`, et le programme s'arrête", correct: false}
+      - {text: "L'extension s'exécute sans GIL, sans aucun avertissement", correct: false}
+      - {text: "L'extension est chargée dans un processus séparé, avec son GIL", correct: false}
+    answer: "Par prudence, CPython remet le GIL pour tout le processus. `PYTHON_GIL=0` ou `-X gil=0` le forcent à rester désactivé, si l'on sait l'extension sûre."
+  - key: verrous-sans-gil
+    format: course
+    question: "Sans GIL, faut-il encore protéger les données partagées par des verrous ?"
+    choices:
+      - {text: "Oui : une séquence d'opérations reste exposée aux situations de compétition", correct: true}
+      - {text: "Non : les types intégrés se verrouillent seuls, pour toutes les séquences", correct: false}
+      - {text: "Non : sans GIL, chaque thread travaille sur sa propre copie des objets", correct: false}
+      - {text: "Seulement pour les objets créés par une extension écrite en C", correct: false}
+    answer: "Une `list` ou un `dict` ne se corrompt pas, grâce à ses verrous internes ; mais « vérifier, puis agir » n'est pas atomique. Sans GIL, ces bugs se manifestent même plus souvent."
+  - key: vf-build-par-defaut-314
+    format: true-false
+    question: "Le build free-threaded est le build par défaut de Python 3.14."
+    truth: false
+    answer: "Il est pris en charge en 3.14 (PEP 779), mais reste à installer à part : `python3.14t`. Le `python3.14` habituel a toujours son GIL."
+  - key: vf-gil-reactive
+    format: true-false
+    question: "Sur le build sans GIL, `sys._is_gil_enabled()` peut renvoyer `True`."
+    truth: true
+    answer: "Quand une extension C qui ne déclare pas sa prise en charge est importée, l'interpréteur réactive le GIL pour tout le processus."
+  - key: vf-un-thread-plus-lent
+    format: true-false
+    question: "Sur le build sans GIL, un programme à un seul thread s'exécute un peu plus lentement que sur le build par défaut."
+    truth: true
+    answer: "La gestion des références et les verrous internes coûtent un peu, de l'ordre de 5 à 10 % en 3.14. Le gain ne vient que des programmes qui calculent dans plusieurs threads."
+  - key: vf-verrous-inutiles
+    format: true-false
+    question: "Sur le build sans GIL, les verrous de ton code deviennent inutiles."
+    truth: false
+    answer: "Le GIL ne protégeait déjà pas tes séquences d'opérations ; sans lui, les threads s'entrelacent encore plus finement. Les verrous restent indispensables."
+  - key: qcm-executable
+    format: multiple-choice
+    question: "Quel nom porte l'exécutable du build sans GIL de Python 3.14 ?"
+    choices:
+      - {text: "`python3.14t`", correct: true}
+      - {text: "`python3.14-nogil`", correct: false}
+      - {text: "`pypy3.14`", correct: false}
+      - {text: "`python3.14x`", correct: false}
+    answer: "Le suffixe `t` (*threaded*) désigne le build free-threaded ; les roues compilées pour lui portent l'étiquette `cp314t`."
+  - key: qcm-gain-calcul
+    format: multiple-choice
+    question: "Qu'apporte le build sans GIL à un programme qui calcule en pur Python dans 8 threads ?"
+    choices:
+      - {text: "Les threads calculent en parallèle, sur plusieurs cœurs", correct: true}
+      - {text: "Rien : les threads restent limités à un seul cœur", correct: false}
+      - {text: "Les threads deviennent des processus, isolés en mémoire", correct: false}
+      - {text: "Les threads n'ont plus besoin d'être rejoints avec `join`", correct: false}
+    answer: "C'est le cas d'usage du build : un calcul découpé en threads profite enfin de plusieurs cœurs, sans le coût de la sérialisation entre processus."
+  - key: qcm-pep-703
+    format: multiple-choice
+    question: "Quel PEP a rendu le GIL optionnel dans CPython ?"
+    choices:
+      - {text: "La PEP 703", correct: true}
+      - {text: "La PEP 8", correct: false}
+      - {text: "La PEP 484", correct: false}
+      - {text: "La PEP 20", correct: false}
+    answer: "La PEP 703, *Making the Global Interpreter Lock Optional*, a introduit le build sans GIL en 3.13. La PEP 8 est le guide de style, la 484 les annotations de type, la 20 le Zen de Python."
+  - key: qcm-forcer-sans-gil
+    format: multiple-choice
+    question: "Sur le build sans GIL, comment empêcher une extension non déclarée de réactiver le GIL ?"
+    choices:
+      - {text: "Lancer Python avec `PYTHON_GIL=0` ou `-X gil=0`", correct: true}
+      - {text: "Appeler `sys.setswitchinterval(0)` au démarrage", correct: false}
+      - {text: "Importer l'extension dans un thread démon", correct: false}
+      - {text: "Lancer Python avec l'option d'optimisation `-O`", correct: false}
+    answer: "Ces réglages gardent le GIL désactivé quoi qu'il arrive : à réserver aux extensions qu'on sait sûres. Sur le build par défaut, `-X gil=0` refuse de démarrer."
+  - key: situation-service-web
+    format: scenario
+    question: |-
+      Ton équipe veut passer au build sans GIL pour accélérer un service web qui passe son temps à attendre la base de
+      données. Que réponds-tu ?
+    choices:
+      - {text: "Que le gain sera faible : l'attente des E/S rend déjà le GIL", correct: true}
+      - {text: "Que le service ira huit fois plus vite sur une machine à 8 cœurs", correct: false}
+      - {text: "Que le build sans GIL accélère surtout les programmes à un thread", correct: false}
+      - {text: "Que le build sans GIL supprime aussi les attentes de la base", correct: false}
+    answer: |-
+      Le GIL ne freine que le calcul en Python ; pendant une requête à la base, il est rendu. Le build sans GIL sert
+      aux programmes qui calculent dans plusieurs threads, et coûte un peu sur chaque thread.
+  - key: situation-avertissement-gil
+    format: scenario
+    question: |-
+      Tu lances ton calcul multi-thread avec `python3.14t`, mais il ne va pas plus vite, et un avertissement parle du
+      GIL au démarrage. Que vérifies-tu ?
+    choices:
+      - {text: "Qu'une extension C importée n'a pas réactivé le GIL", correct: true}
+      - {text: "Que le calcul tourne bien dans le thread principal", correct: false}
+      - {text: "Que `sys.setswitchinterval` est assez court", correct: false}
+      - {text: "Que chaque thread est créé avec `daemon=True`", correct: false}
+    answer: |-
+      Une extension qui ne déclare pas sa prise en charge fait revenir le GIL pour tout le processus ;
+      `sys._is_gil_enabled()` le confirme. On cherche une version compatible (une roue `cp314t`), ou l'on remplace
+      l'extension.
+  - key: situation-migrer-sans-gil
+    format: scenario
+    question: |-
+      Ton code multi-thread fonctionne avec le GIL, et tu veux le passer sur le build sans GIL. Que vérifies-tu
+      d'abord ?
+    choices:
+      - {text: "Que chaque donnée partagée et modifiée est protégée par un verrou", correct: true}
+      - {text: "Que le code n'utilise que des threads démons, plus rapides sans GIL", correct: false}
+      - {text: "Que le code ne crée pas plus de threads que la machine a de cœurs", correct: false}
+      - {text: "Que le code n'appelle jamais `join`, qui reprendrait le GIL", correct: false}
+    answer: |-
+      Les situations de compétition que le GIL rendait rares deviennent fréquentes quand les threads s'exécutent
+      vraiment ensemble. On vérifie les données partagées, puis on teste sous charge, et les dépendances compilées.
+  - key: situation-publier-extension
+    format: scenario
+    question: |-
+      Tu publies une extension C. Un utilisateur du build sans GIL signale que l'importer réactive le GIL. Que fais-tu ?
+    choices:
+      - {text: "Tu la rends sûre sans GIL, déclares `Py_mod_gil` et publies une roue `cp314t`", correct: true}
+      - {text: "Tu lui conseilles d'importer l'extension avant le module `threading`", correct: false}
+      - {text: "Tu ajoutes un `sys.setswitchinterval(0)` à l'import de l'extension", correct: false}
+      - {text: "Tu lui conseilles de lancer chaque appel dans un processus séparé", correct: false}
+    answer: |-
+      L'extension doit protéger son propre état sans compter sur le GIL, puis le déclarer par l'emplacement
+      `Py_mod_gil`. Une roue compilée pour le build `t` permet ensuite de l'installer sans rien recompiler.

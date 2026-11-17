@@ -1,0 +1,440 @@
+notion: asyncio-taches
+lesson: |-
+  Une **tâche** (`asyncio.Task`) enveloppe une coroutine pour que la boucle la fasse avancer **en même temps** que les
+  autres. C'est ce qui donne la concurrence : un `await` seul attend, une tâche avance en parallèle de la suite.
+
+  ```python
+  import asyncio
+
+  async def charger(n):
+      await asyncio.sleep(1)
+      return n * 10
+
+  async def main():
+      # gather : les trois avancent ensemble ; résultats dans l'ordre des arguments (1 s au total)
+      print(await asyncio.gather(charger(1), charger(2), charger(3)))
+
+      # TaskGroup (3.11) : on attend toutes les tâches à la sortie du bloc
+      async with asyncio.TaskGroup() as tg:
+          t1 = tg.create_task(charger(1))
+          t2 = tg.create_task(charger(2))
+      print(t1.result(), t2.result())
+
+      # timeout (3.11) : annule ce qui dépasse
+      try:
+          async with asyncio.timeout(0.5):
+              await charger(4)
+      except TimeoutError:
+          print("trop long")
+
+  asyncio.run(main())
+  ```
+
+  | Outil | Ce qu'il fait |
+  |---|---|
+  | `asyncio.create_task(coro)` | planifie la coroutine ; elle démarre quand la coroutine courante cède la main |
+  | `await asyncio.gather(*aws)` | attend tout ; résultats **dans l'ordre des arguments** ; `return_exceptions=True` range les exceptions parmi les résultats |
+  | `async with asyncio.TaskGroup() as tg` | si une tâche échoue, **annule les autres**, et lève un `ExceptionGroup` (`except*`) |
+  | `async with asyncio.timeout(s)` / `asyncio.wait_for(aw, s)` | annule au-delà du délai, et lève `TimeoutError` |
+  | `asyncio.as_completed(aws)` | dans l'ordre où elles finissent |
+  | `asyncio.Semaphore(n)` | au plus `n` dans un bloc `async with` |
+
+  **Annuler.** `tache.cancel()` lève `asyncio.CancelledError` dans la coroutine, à son `await` en cours. Elle peut faire
+  son ménage (`finally`), mais doit **laisser remonter** l'exception : l'avaler casse les délais et les `TaskGroup`.
+
+  **Les pièges.**
+
+  - `await` dans une boucle `for` exécute les appels **l'un après l'autre** : il faut `gather` ou des tâches.
+  - Sans `return_exceptions`, `gather` relève la première exception, et l'on perd les autres résultats (les autres
+    tâches continuent sans qu'on les attende). `TaskGroup` est plus sûr : il annule et attend tout.
+  - **Garder une référence** à une tâche lancée « pour plus tard » : la boucle n'en garde qu'une référence faible. Et
+    `asyncio.run` annule les tâches encore en cours quand `main` se termine.
+
+  **En entretien** : « `create_task` fait avancer une coroutine en même temps que la suite. `gather` attend un lot et
+  rend les résultats dans l'ordre ; `TaskGroup`, depuis 3.11, annule les autres tâches dès qu'une échoue et remonte un
+  `ExceptionGroup`. `asyncio.timeout` annule ce qui dépasse le délai ; une coroutine annulée fait son ménage puis laisse
+  remonter `CancelledError`. »
+cards:
+  - key: role-create-task
+    format: course
+    question: "Que fait `asyncio.create_task(charger())` ?"
+    choices:
+      - {text: "Il planifie la coroutine, qui avancera en même temps que la suite", correct: true}
+      - {text: "Il exécute la coroutine tout de suite, jusqu'au bout, avant de rendre la main", correct: false}
+      - {text: "Il exécute la coroutine dans un nouveau thread, hors de la boucle", correct: false}
+      - {text: "Il crée la coroutine sans la planifier, comme un simple appel", correct: false}
+    answer: "La tâche démarre dès que la coroutine courante cède la main, à son prochain `await`. On l'attend ensuite avec `await tache`, ou par un `TaskGroup`."
+  - key: gather-ou-taskgroup
+    format: course
+    question: "Que fait un `TaskGroup` de plus que `gather`, quand une tâche échoue ?"
+    choices:
+      - {text: "Il annule les autres tâches, les attend, puis lève un `ExceptionGroup`", correct: true}
+      - {text: "Il relance la tâche en échec jusqu'à ce qu'elle réussisse", correct: false}
+      - {text: "Il ignore l'erreur et renvoie les résultats des autres tâches", correct: false}
+      - {text: "Il arrête la boucle d'événements et le programme entier", correct: false}
+    answer: "`gather` relève la première exception mais laisse les autres tâches tourner sans les attendre. Le `TaskGroup` ne laisse rien en suspens : il annule, attend, et rassemble les erreurs."
+  - key: garder-une-reference
+    format: course
+    question: "Pourquoi garder une référence à la tâche renvoyée par `create_task` ?"
+    choices:
+      - {text: "La boucle n'en garde qu'une référence faible : la tâche pourrait disparaître", correct: true}
+      - {text: "Sans référence, la tâche s'exécute dans le thread principal, hors de la boucle", correct: false}
+      - {text: "Sans référence, la tâche ne démarre jamais, même après un `await`", correct: false}
+      - {text: "La référence sert à libérer le GIL pendant l'exécution de la tâche", correct: false}
+    answer: "Une tâche que plus rien ne référence peut être ramassée en cours d'exécution. On la garde dans une variable ou un ensemble, et on l'attend : ses erreurs ne passent pas inaperçues."
+  - key: annuler-une-tache
+    format: course
+    question: "Que se passe-t-il dans une coroutine quand on annule sa tâche avec `cancel()` ?"
+    choices:
+      - {text: "Une `CancelledError` est levée à son `await` en cours ; elle doit la laisser remonter", correct: true}
+      - {text: "La coroutine s'arrête aussitôt, sans exécuter ses blocs `finally`", correct: false}
+      - {text: "La coroutine finit son travail, puis renvoie `None` à celui qui l'attend", correct: false}
+      - {text: "Une `TimeoutError` est levée à la fin de la coroutine, après son `return`", correct: false}
+    answer: "L'annulation arrive comme une exception : `finally` et `async with` font leur ménage. Avaler `CancelledError` empêche l'annulation, et casse `timeout` et les `TaskGroup`."
+  - key: vf-gather-ordre
+    format: true-false
+    question: "`asyncio.gather` rend les résultats dans l'ordre des coroutines passées, pas dans l'ordre où elles finissent."
+    truth: true
+    answer: "Le résultat est une liste alignée sur les arguments. Pour l'ordre de fin, `asyncio.as_completed`."
+  - key: vf-taskgroup-annule
+    format: true-false
+    question: "Dans un `TaskGroup`, si une tâche lève une exception, les autres tâches du groupe sont annulées."
+    truth: true
+    answer: "Le groupe annule les tâches encore en cours, attend qu'elles s'arrêtent, puis lève un `ExceptionGroup` qui contient les erreurs."
+  - key: vf-demarrage-tache
+    format: true-false
+    question: "Par défaut, une tâche créée par `create_task` ne démarre pas tant que la coroutine qui l'a créée ne cède pas la main."
+    truth: true
+    answer: "La boucle est à un seul thread : la tâche attend que la coroutine courante se suspende. (Une fabrique de tâches « eager », depuis 3.12, change ce comportement.)"
+  - key: vf-timeout-laisse-tourner
+    format: true-false
+    question: "`asyncio.timeout` laisse la coroutine trop lente continuer en arrière-plan."
+    truth: false
+    answer: "Il annule la tâche à l'expiration du délai, puis transforme la `CancelledError` en `TimeoutError` à la sortie du bloc."
+  - key: qcm-annuler-les-autres
+    format: multiple-choice
+    question: "Quelle construction annule les autres tâches dès qu'une échoue, et remonte toutes les erreurs ?"
+    choices:
+      - {text: "`async with asyncio.TaskGroup() as tg:`", correct: true}
+      - {text: "`await asyncio.gather(*taches)`", correct: false}
+      - {text: "`await asyncio.gather(*taches, return_exceptions=True)`", correct: false}
+      - {text: "Un `asyncio.create_task` par coroutine, sans `await`", correct: false}
+    answer: "`gather` n'annule rien ; avec `return_exceptions=True`, il range les erreurs parmi les résultats. Le `TaskGroup` annule et lève un `ExceptionGroup`."
+  - key: qcm-limiter-a-dix
+    format: multiple-choice
+    question: "Comment limiter à 10 le nombre de requêtes en cours en même temps ?"
+    choices:
+      - {text: "Un `asyncio.Semaphore(10)`, pris par `async with` autour de chaque requête", correct: true}
+      - {text: "Un `async with asyncio.timeout(10)` autour de chaque requête", correct: false}
+      - {text: "Un `await asyncio.sleep(10)` entre chaque lancement de requête", correct: false}
+      - {text: "Le paramètre `limit=10` de `asyncio.gather`", correct: false}
+    answer: "Le sémaphore laisse entrer dix coroutines à la fois ; les suivantes attendent qu'une place se libère. `gather` n'a pas de paramètre `limit`."
+  - key: qcm-exception-timeout
+    format: multiple-choice
+    question: "Que lève `async with asyncio.timeout(1):` quand le délai est dépassé ?"
+    choices:
+      - {text: "`TimeoutError`", correct: true}
+      - {text: "`asyncio.CancelledError`", correct: false}
+      - {text: "`asyncio.InvalidStateError`", correct: false}
+      - {text: "`RuntimeError`", correct: false}
+    answer: "À l'intérieur, la coroutine reçoit une `CancelledError` ; à la sortie du bloc, elle devient une `TimeoutError` (le `TimeoutError` intégré)."
+  - key: qcm-garder-les-resultats
+    format: multiple-choice
+    question: "Avec `gather`, comment obtenir tous les résultats même si certaines coroutines lèvent une exception ?"
+    choices:
+      - {text: "`await asyncio.gather(*coros, return_exceptions=True)`", correct: true}
+      - {text: "`await asyncio.gather(*coros, ignore_errors=True)`", correct: false}
+      - {text: "`await asyncio.gather(*coros, timeout=None)`", correct: false}
+      - {text: "`await asyncio.gather(*coros, strict=False)`", correct: false}
+    answer: "Les exceptions prennent alors leur place dans la liste des résultats ; on les trie avec `isinstance(r, Exception)`. Les autres paramètres n'existent pas."
+  - key: trous-create-task
+    format: fill-in
+    question: |-
+      Complète pour lancer le téléchargement, et le laisser avancer pendant la suite :
+      ```python
+      tache = asyncio.___(telecharger(url))
+      preparer_affichage()
+      page = await tache
+      ```
+    blanks:
+      - [create_task]
+    answer: "`asyncio.create_task` planifie la coroutine ; on récupère son résultat avec `await tache`."
+  - key: trous-gather
+    format: fill-in
+    question: |-
+      Complète pour lancer les trois appels ensemble et récupérer leurs résultats dans l'ordre :
+      ```python
+      a, b, c = await asyncio.___(lire("a"), lire("b"), lire("c"))
+      ```
+    blanks:
+      - [gather]
+    answer: "`asyncio.gather` rend les résultats dans l'ordre des arguments."
+  - key: trous-taskgroup
+    format: fill-in
+    question: |-
+      Complète pour lancer deux tâches et les attendre toutes à la sortie du bloc :
+      ```python
+      async with asyncio.___() as tg:
+          tg.create_task(envoyer_courriel())
+          tg.create_task(mettre_a_jour_stock())
+      ```
+    blanks:
+      - [TaskGroup]
+    answer: "Le `TaskGroup` attend ses tâches à la sortie, et annule les autres si l'une échoue."
+  - key: trous-timeout
+    format: fill-in
+    question: |-
+      Complète pour abandonner la lecture au bout de 2 secondes :
+      ```python
+      async with asyncio.___(2):
+          donnees = await lire()
+      ```
+    blanks:
+      - [timeout]
+    answer: "`asyncio.timeout(2)` annule la lecture au-delà de 2 s et lève `TimeoutError`."
+  - key: code-ordre-create-task
+    format: code-output
+    question: |-
+      ```python
+      import asyncio
+
+      async def tache():
+          print("tâche", end=" ")
+
+      async def main():
+          t = asyncio.create_task(tache())
+          print("avant", end=" ")
+          await t
+          print("après")
+
+      asyncio.run(main())
+      ```
+    answer: "La tâche est planifiée, mais ne s'exécute que quand `main` cède la main, à `await t`."
+    check:
+      output: "avant tâche après"
+    choices:
+      - {text: "`avant tâche après`", correct: true}
+      - {text: "`tâche avant après`", correct: false}
+      - {text: "`avant après tâche`", correct: false}
+      - {text: "`avant après`", correct: false}
+  - key: code-gather-ordre
+    format: code-output
+    question: |-
+      ```python
+      import asyncio
+
+      async def carre(x):
+          await asyncio.sleep(0.01 * (4 - x))
+          return x * x
+
+      async def main():
+          print(await asyncio.gather(carre(1), carre(2), carre(3)))
+
+      asyncio.run(main())
+      ```
+    answer: "`carre(3)` finit la première, mais `gather` rend les résultats dans l'ordre des arguments."
+    check:
+      output: "[1, 4, 9]"
+    choices:
+      - {text: "`[1, 4, 9]`", correct: true}
+      - {text: "`[9, 4, 1]`", correct: false}
+      - {text: "`[1, 2, 3]`", correct: false}
+      - {text: "`14`", correct: false}
+  - key: code-wait-for-annule
+    format: code-output
+    question: |-
+      ```python
+      import asyncio
+
+      async def lent():
+          try:
+              await asyncio.sleep(10)
+          except asyncio.CancelledError:
+              print("annulée", end=" ")
+              raise
+
+      async def main():
+          try:
+              await asyncio.wait_for(lent(), timeout=0.05)
+          except TimeoutError:
+              print("délai")
+
+      asyncio.run(main())
+      ```
+    answer: "Au bout de 0,05 s, `wait_for` annule la coroutine : elle reçoit `CancelledError`, fait son ménage et la laisse remonter ; `wait_for` lève alors `TimeoutError`."
+    check:
+      output: "annulée délai"
+    choices:
+      - {text: "`annulée délai`", correct: true}
+      - {text: "`délai`", correct: false}
+      - {text: "`délai annulée`", correct: false}
+      - {text: "`annulée`", correct: false}
+  - key: code-return-exceptions
+    format: code-output
+    question: |-
+      ```python
+      import asyncio
+
+      async def ok():
+          return 1
+
+      async def ko():
+          raise ValueError("x")
+
+      async def main():
+          resultats = await asyncio.gather(ok(), ko(), ok(), return_exceptions=True)
+          print([type(r).__name__ for r in resultats])
+
+      asyncio.run(main())
+      ```
+    answer: "Avec `return_exceptions=True`, l'exception prend sa place dans la liste, et les autres résultats sont gardés."
+    check:
+      output: "['int', 'ValueError', 'int']"
+    choices:
+      - {text: "`['int', 'ValueError', 'int']`", correct: true}
+      - {text: "`['int', 'int']`", correct: false}
+      - {text: "`['int', 'NoneType', 'int']`", correct: false}
+      - {text: "Une `ValueError`, levée par `gather`", correct: false}
+  - key: bug-await-en-boucle
+    format: bug-fix
+    question: |-
+      Ce programme affiche `[0, 1, 2, 3, 4] 1.0` : cinq attentes de 0,2 s prennent 1 s au lieu de 0,2 s.
+      ```python
+      import asyncio
+      import time
+
+      async def charger(n):
+          await asyncio.sleep(0.2)
+          return n
+
+      async def main():
+          debut = time.perf_counter()
+          resultats = [await charger(n) for n in range(5)]
+          print(resultats, round(time.perf_counter() - debut, 1))
+
+      asyncio.run(main())
+      ```
+      Quelle correction est la bonne ?
+    choices:
+      - {text: "`resultats = await asyncio.gather(*(charger(n) for n in range(5)))`", correct: true}
+      - {text: "`resultats = [asyncio.create_task(charger(n)) for n in range(5)]`", correct: false}
+      - {text: "`resultats = [charger(n) for n in range(5)]`", correct: false}
+      - {text: "`resultats = [asyncio.run(charger(n)) for n in range(5)]`", correct: false}
+    answer: |-
+      ```python
+      async def main():
+          debut = time.perf_counter()
+          resultats = await asyncio.gather(*(charger(n) for n in range(5)))
+          print(resultats, round(time.perf_counter() - debut, 1))
+      ```
+      Chaque `await` attend la fin du chargement avant de lancer le suivant. `gather` les fait avancer ensemble.
+      Créer des tâches sans les attendre donnerait une liste de tâches, pas de résultats.
+  - key: bug-tache-jamais-attendue
+    format: bug-fix
+    question: |-
+      Ce programme affiche `réponse envoyée`, mais jamais la ligne du journal :
+      ```python
+      import asyncio
+
+      async def journaliser(message):
+          await asyncio.sleep(0.1)
+          print("journal :", message)
+
+      async def main():
+          asyncio.create_task(journaliser("commande reçue"))
+          print("réponse envoyée")
+
+      asyncio.run(main())
+      ```
+      Quelle correction est la bonne ?
+    choices:
+      - {text: "Garder la tâche dans une variable, et l'attendre avec `await` avant la fin", correct: true}
+      - {text: "Remplacer `asyncio.sleep(0.1)` par `time.sleep(0.1)` dans `journaliser`", correct: false}
+      - {text: "Appeler `asyncio.run(journaliser(...))` à la place de `create_task`", correct: false}
+      - {text: "Ajouter `print` avant `asyncio.create_task`, pour forcer son démarrage", correct: false}
+    answer: |-
+      ```python
+      async def main():
+          tache = asyncio.create_task(journaliser("commande reçue"))
+          print("réponse envoyée")
+          await tache
+      ```
+      `main` se termine avant la fin du journal, et `asyncio.run` annule les tâches encore en cours. Il faut les
+      attendre (ou les lancer dans un `TaskGroup`).
+  - key: bug-annulation-avalee
+    format: bug-fix
+    question: |-
+      Ce programme affiche `annulation ignorée`, puis `fini` : le délai de 0,05 s n'a rien arrêté.
+      ```python
+      import asyncio
+
+      async def lent():
+          try:
+              await asyncio.sleep(1)
+          except asyncio.CancelledError:
+              print("annulation ignorée")
+          return "fini"
+
+      async def main():
+          try:
+              async with asyncio.timeout(0.05):
+                  print(await lent())
+          except TimeoutError:
+              print("délai dépassé")
+
+      asyncio.run(main())
+      ```
+      Quelle correction est la bonne ?
+    choices:
+      - {text: "Relancer l'exception par `raise` dans le bloc `except` de `lent`", correct: true}
+      - {text: "Remplacer `asyncio.timeout(0.05)` par `asyncio.timeout(1)`", correct: false}
+      - {text: "Rattraper `TimeoutError` à la place de `CancelledError` dans `lent`", correct: false}
+      - {text: "Rattraper `Exception` à la place de `CancelledError` dans `lent`", correct: false}
+    answer: |-
+      ```python
+      async def lent():
+          try:
+              await asyncio.sleep(1)
+          except asyncio.CancelledError:
+              print("annulation en cours")
+              raise
+          return "fini"
+      ```
+      `timeout` annule la tâche par une `CancelledError` ; la coroutine qui l'avale continue comme si de rien n'était.
+      Elle peut faire son ménage, mais doit la relancer. (`CancelledError` n'hérite pas de `Exception` : l'attraper ainsi
+      ne la verrait pas.)
+  - key: bug-gather-perd-tout
+    format: bug-fix
+    question: |-
+      Une seule page illisible fait tout perdre : ce programme s'arrête sur `ValueError: page 2 illisible`, sans afficher
+      les trois autres pages.
+      ```python
+      import asyncio
+
+      async def lire(n):
+          await asyncio.sleep(0)
+          if n == 2:
+              raise ValueError(f"page {n} illisible")
+          return f"page {n}"
+
+      async def main():
+          pages = await asyncio.gather(*(lire(n) for n in range(4)))
+          print(pages)
+
+      asyncio.run(main())
+      ```
+      Quelle correction garde les pages lisibles ?
+    choices:
+      - {text: "`gather(..., return_exceptions=True)`, puis écarter les exceptions", correct: true}
+      - {text: "Un `TaskGroup` à la place de `gather`, sans autre changement", correct: false}
+      - {text: "Un `try` / `except ValueError` autour de `asyncio.run(main())`", correct: false}
+      - {text: "`asyncio.timeout(1)` autour de l'appel à `gather`", correct: false}
+    answer: |-
+      ```python
+      async def main():
+          resultats = await asyncio.gather(*(lire(n) for n in range(4)), return_exceptions=True)
+          pages = [r for r in resultats if not isinstance(r, Exception)]
+          print(pages)
+      ```
+      Sans `return_exceptions`, `gather` relève la première exception et les résultats sont perdus. Un `TaskGroup`
+      annulerait les autres lectures ; un `try` autour de `asyncio.run` ne rendrait aucune page.

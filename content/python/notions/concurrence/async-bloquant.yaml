@@ -1,0 +1,337 @@
+notion: async-bloquant
+lesson: |-
+  La boucle d'asyncio tourne dans **un seul thread**, et ne passe d'une coroutine à l'autre qu'aux `await`. Un appel
+  **bloquant** dans une coroutine bloque donc **toute la boucle** : aucune autre coroutine n'avance, aucune requête
+  n'est servie, aucun délai ne se déclenche.
+
+  ```python
+  import asyncio
+  import time
+
+  async def mauvais():
+      time.sleep(1)               # bloque la boucle entière pendant 1 s
+
+  async def bon():
+      await asyncio.sleep(1)      # se suspend : les autres coroutines avancent
+  ```
+
+  **Ce qui bloque** : `time.sleep`, les bibliothèques réseau synchrones (`requests`, `urllib`), les pilotes de base
+  de données synchrones (`sqlite3`, `psycopg2`), la lecture d'un gros fichier, et toute **boucle de calcul** qui ne
+  rencontre aucun `await`. Ajouter `async` devant une fonction ne la rend pas non bloquante : c'est l'appel qu'elle
+  fait qui bloque.
+
+  | Situation | Solution |
+  |---|---|
+  | Attendre une durée | `await asyncio.sleep(s)` |
+  | Réseau, base de données | une bibliothèque asynchrone (`httpx`, `aiohttp`, `asyncpg`) |
+  | Fonction bloquante qu'on ne peut pas changer | `await asyncio.to_thread(f, *args)` : elle s'exécute dans un thread |
+  | Calcul lourd en pur Python | `await loop.run_in_executor(pool_de_processus, f, *args)` |
+
+  ```python
+  import asyncio
+  from concurrent.futures import ProcessPoolExecutor
+
+  async def main():
+      contenu = await asyncio.to_thread(lire_gros_fichier, "donnees.csv")
+      boucle = asyncio.get_running_loop()
+      with ProcessPoolExecutor() as pool:
+          score = await boucle.run_in_executor(pool, calculer_score, contenu)
+  ```
+
+  **Repérer un blocage** : le **mode debug** (`asyncio.run(main(), debug=True)`, ou `PYTHONASYNCIODEBUG=1`) signale
+  chaque étape qui garde la main plus de 100 ms (`slow_callback_duration`). Le symptôme typique : des latences qui
+  explosent pour **toutes** les requêtes quand **une seule** fait un appel lent.
+
+  Et l'inverse : depuis une coroutine, on n'appelle pas `asyncio.run` (une boucle tourne déjà : `RuntimeError`) ; on
+  attend la coroutine avec `await`.
+
+  **En entretien** : « Un appel bloquant dans une coroutine fige toute la boucle, puisqu'elle n'a qu'un thread et ne
+  bascule qu'aux `await`. J'utilise `asyncio.sleep` et des bibliothèques asynchrones ; une fonction synchrone qu'on
+  ne peut pas changer passe par `asyncio.to_thread`, et un calcul lourd par un pool de processus avec
+  `run_in_executor`. Le mode debug signale les étapes trop longues. »
+cards:
+  - key: pourquoi-time-sleep
+    format: course
+    question: "Pourquoi un `time.sleep(1)` dans une coroutine est-il un problème ?"
+    choices:
+      - {text: "Il bloque toute la boucle : aucune autre coroutine n'avance pendant 1 s", correct: true}
+      - {text: "Il lève une `RuntimeError`, car `time` est interdit dans une coroutine", correct: false}
+      - {text: "Il ne bloque que la coroutine courante, mais attend deux fois plus", correct: false}
+      - {text: "Il est ignoré par la boucle, qui passe aussitôt à la suite", correct: false}
+    answer: "La boucle n'a qu'un thread, et `time.sleep` ne rend pas la main à la boucle. `await asyncio.sleep(1)` suspend seulement la coroutine courante."
+  - key: role-to-thread
+    format: course
+    question: "Que fait `await asyncio.to_thread(f, x)` ?"
+    choices:
+      - {text: "Il exécute `f(x)` dans un thread, et attend son résultat sans bloquer la boucle", correct: true}
+      - {text: "Il transforme `f` en coroutine, exécutée ensuite dans la boucle d'événements", correct: false}
+      - {text: "Il exécute `f(x)` dans un processus séparé, avec son propre GIL", correct: false}
+      - {text: "Il lance `f(x)` en arrière-plan, sans jamais renvoyer son résultat", correct: false}
+    answer: "La fonction bloquante occupe un thread du pool par défaut ; la coroutine se suspend jusqu'au résultat, et la boucle continue de servir les autres."
+  - key: calcul-lourd-depuis-asyncio
+    format: course
+    question: "Comment lancer un calcul lourd en pur Python depuis un programme asyncio, sans bloquer la boucle ni rester sur un cœur ?"
+    choices:
+      - {text: "`await loop.run_in_executor(pool, f)` avec un `ProcessPoolExecutor`", correct: true}
+      - {text: "Écrire le calcul dans une `async def`, puis l'attendre avec `await`", correct: false}
+      - {text: "Entourer le calcul d'un `async with asyncio.timeout(...)`", correct: false}
+      - {text: "Appeler `asyncio.run(f())` au milieu de la coroutine", correct: false}
+    answer: "Le calcul part dans un autre processus, qui a son GIL ; la coroutine attend son résultat. `to_thread` libérerait la boucle, mais le calcul resterait limité par le GIL."
+  - key: reperer-un-blocage
+    format: course
+    question: "Comment repérer une coroutine qui bloque la boucle ?"
+    choices:
+      - {text: "Avec le mode debug, qui signale les étapes de plus de 100 ms", correct: true}
+      - {text: "Avec `sys.getswitchinterval()`, qui mesure les blocages", correct: false}
+      - {text: "Avec `asyncio.all_tasks()`, qui liste les tâches bloquantes", correct: false}
+      - {text: "Avec l'option `-O`, qui avertit des appels synchrones", correct: false}
+    answer: "`asyncio.run(main(), debug=True)` ou `PYTHONASYNCIODEBUG=1` journalisent chaque étape qui dépasse `slow_callback_duration` (0,1 s par défaut)."
+  - key: vf-time-sleep-bloque-tout
+    format: true-false
+    question: "Un `time.sleep(1)` dans une coroutine bloque toutes les coroutines de la boucle pendant une seconde."
+    truth: true
+    answer: "Il garde le seul thread de la boucle sans jamais lui rendre la main. Il faut `await asyncio.sleep(1)`."
+  - key: vf-to-thread
+    format: true-false
+    question: "`asyncio.to_thread(f)` exécute `f` dans un thread à part, et renvoie un awaitable."
+    truth: true
+    answer: "On l'attend avec `await` : la coroutine se suspend, la boucle continue, et l'on obtient le résultat de `f`."
+  - key: vf-requests-non-bloquant
+    format: true-false
+    question: "Une bibliothèque HTTP synchrone comme `requests` cesse de bloquer quand on l'appelle depuis une coroutine."
+    truth: false
+    answer: "Elle bloque le thread qui l'appelle, donc la boucle. Il faut un client asynchrone (`httpx`, `aiohttp`), ou `asyncio.to_thread`."
+  - key: vf-debug-100-ms
+    format: true-false
+    question: "En mode debug, asyncio signale les étapes qui gardent la main plus de 100 ms."
+    truth: true
+    answer: "C'est le seuil `slow_callback_duration` de la boucle, 0,1 s par défaut, qu'on peut régler."
+  - key: qcm-attendre-sans-bloquer
+    format: multiple-choice
+    question: "Quel appel attend une seconde dans une coroutine, sans bloquer la boucle ?"
+    choices:
+      - {text: "`await asyncio.sleep(1)`", correct: true}
+      - {text: "`time.sleep(1)`", correct: false}
+      - {text: "`asyncio.sleep(1)`, sans `await`", correct: false}
+      - {text: "`threading.Event().wait(1)`", correct: false}
+    answer: "`time.sleep` et `Event.wait` bloquent le thread de la boucle ; sans `await`, `asyncio.sleep(1)` crée une coroutine que personne n'exécute."
+  - key: qcm-fonction-bloquante
+    format: multiple-choice
+    question: "Comment appeler la fonction bloquante `lire_capteur()` d'une bibliothèque, depuis une coroutine ?"
+    choices:
+      - {text: "`await asyncio.to_thread(lire_capteur)`", correct: true}
+      - {text: "`await lire_capteur()`", correct: false}
+      - {text: "`asyncio.run(lire_capteur())`", correct: false}
+      - {text: "`await asyncio.sleep(lire_capteur())`", correct: false}
+    answer: "Une fonction ordinaire ne s'attend pas, et `asyncio.run` ne s'appelle pas dans une boucle qui tourne. `to_thread` l'exécute dans un thread, sans bloquer la boucle."
+  - key: qcm-mode-debug
+    format: multiple-choice
+    question: "Comment activer le mode debug d'asyncio ?"
+    choices:
+      - {text: "`asyncio.run(main(), debug=True)`", correct: true}
+      - {text: "`asyncio.run(main(), verbose=True)`", correct: false}
+      - {text: "`python -O script.py`", correct: false}
+      - {text: "`asyncio.debug(main())`", correct: false}
+    answer: "Le paramètre `debug=True` (ou la variable d'environnement `PYTHONASYNCIODEBUG=1`) active les vérifications : étapes trop longues, coroutines jamais attendues."
+  - key: qcm-async-devant-requests
+    format: multiple-choice
+    question: "Un collègue écrit `async def lire(url): return requests.get(url).text`. Qu'obtient-il ?"
+    choices:
+      - {text: "Une coroutine qui bloque la boucle pendant toute la requête", correct: true}
+      - {text: "Une coroutine qui rend la main pendant la requête", correct: false}
+      - {text: "Une `SyntaxError`, car `requests` n'est pas asynchrone", correct: false}
+      - {text: "Une requête exécutée d'office dans un thread séparé", correct: false}
+    answer: "`async` ne change rien à ce que fait `requests.get` : il bloque, et la boucle avec. Il faut un client asynchrone, ou `to_thread`."
+  - key: bug-time-sleep-en-parallele
+    format: bug-fix
+    question: |-
+      Ce programme affiche `0.6` : les trois attentes de 0,2 s se font l'une après l'autre.
+      ```python
+      import asyncio
+      import time
+
+      async def attendre(n):
+          time.sleep(0.2)
+          return n
+
+      async def main():
+          debut = time.perf_counter()
+          await asyncio.gather(attendre(1), attendre(2), attendre(3))
+          print(round(time.perf_counter() - debut, 1))
+
+      asyncio.run(main())
+      ```
+      Quelle correction est la bonne ?
+    choices:
+      - {text: "`await asyncio.sleep(0.2)` dans `attendre`", correct: true}
+      - {text: "`asyncio.sleep(0.2)` dans `attendre`, sans `await`", correct: false}
+      - {text: "Un `TaskGroup` à la place de `gather`, sans autre changement", correct: false}
+      - {text: "`await asyncio.to_thread(time.perf_counter)` pour mesurer", correct: false}
+    answer: |-
+      ```python
+      async def attendre(n):
+          await asyncio.sleep(0.2)
+          return n
+      ```
+      `time.sleep` bloque la boucle : `gather` ne peut pas faire avancer les autres coroutines pendant ce temps.
+      `asyncio.sleep` se suspend, et les trois attentes se recouvrent (0,2 s au total).
+  - key: bug-bibliotheque-synchrone
+    format: bug-fix
+    question: |-
+      Ce programme affiche `[21.5, 21.5, 21.5] 0.6` : les trois lectures du capteur se suivent au lieu de se
+      recouvrir.
+      ```python
+      import asyncio
+      import time
+
+      def lire_capteur():  # bibliothèque synchrone, qu'on ne peut pas modifier
+          time.sleep(0.2)
+          return 21.5
+
+      async def mesurer():
+          return lire_capteur()
+
+      async def main():
+          debut = time.perf_counter()
+          mesures = await asyncio.gather(mesurer(), mesurer(), mesurer())
+          print(mesures, round(time.perf_counter() - debut, 1))
+
+      asyncio.run(main())
+      ```
+      Quelle correction est la bonne ?
+    choices:
+      - {text: "`return await asyncio.to_thread(lire_capteur)` dans `mesurer`", correct: true}
+      - {text: "`return await lire_capteur()` dans `mesurer`", correct: false}
+      - {text: "`async def lire_capteur()`, sans toucher à `time.sleep`", correct: false}
+      - {text: "`return asyncio.run(mesurer())` dans `main`", correct: false}
+    answer: |-
+      ```python
+      async def mesurer():
+          return await asyncio.to_thread(lire_capteur)
+      ```
+      Chaque lecture part dans un thread ; la boucle reste libre, et les trois lectures se recouvrent (0,2 s).
+      Ajouter `async` à `lire_capteur` ne change rien : c'est `time.sleep` qui bloque.
+  - key: bug-calcul-bloque-le-battement
+    format: bug-fix
+    question: |-
+      Ce programme affiche `battement`, puis `calcul fini`, puis les deux autres `battement` : le battement s'arrête
+      pendant tout le calcul.
+      ```python
+      import asyncio
+
+      def calculer():
+          return sum(i * i for i in range(3_000_000))
+
+      async def battement():
+          for _ in range(3):
+              print("battement")
+              await asyncio.sleep(0.05)
+
+      async def calcul():
+          calculer()
+          print("calcul fini")
+
+      async def main():
+          await asyncio.gather(battement(), calcul())
+
+      asyncio.run(main())
+      ```
+      Quelle correction est la bonne ?
+    choices:
+      - {text: "`await asyncio.to_thread(calculer)` dans `calcul`", correct: true}
+      - {text: "`async def calculer()`, attendue avec `await`", correct: false}
+      - {text: "`await asyncio.sleep(0)` après l'appel à `calculer()`", correct: false}
+      - {text: "`async with asyncio.timeout(1)` autour de `calculer()`", correct: false}
+    answer: |-
+      ```python
+      async def calcul():
+          await asyncio.to_thread(calculer)
+          print("calcul fini")
+      ```
+      Le calcul ne rencontre aucun `await` : il garde la boucle jusqu'au bout. Dans un thread, il laisse la boucle
+      servir le battement. Pour un calcul lourd qui doit aussi profiter de plusieurs cœurs, `run_in_executor` avec un
+      `ProcessPoolExecutor`.
+  - key: bug-asyncio-run-imbrique
+    format: bug-fix
+    question: |-
+      Ce programme s'arrête sur `RuntimeError: asyncio.run() cannot be called from a running event loop` :
+      ```python
+      import asyncio
+
+      async def lire():
+          await asyncio.sleep(0)
+          return 42
+
+      def lire_sync():
+          return asyncio.run(lire())
+
+      async def main():
+          print(lire_sync())
+
+      asyncio.run(main())
+      ```
+      Quelle correction est la bonne ?
+    choices:
+      - {text: "Dans `main`, écrire `print(await lire())`", correct: true}
+      - {text: "Dans `main`, écrire `print(await lire_sync())`", correct: false}
+      - {text: "Dans `lire_sync`, écrire `return lire()`", correct: false}
+      - {text: "Dans `main`, écrire `print(asyncio.run(lire()))`", correct: false}
+    answer: |-
+      ```python
+      async def main():
+          print(await lire())
+      ```
+      Une boucle tourne déjà dans `main` : on attend la coroutine avec `await`. `lire_sync` ne sert qu'au code
+      synchrone, hors de toute boucle ; `return lire()` renverrait un objet coroutine.
+  - key: situation-latence-generale
+    format: scenario
+    question: |-
+      Ton serveur asyncio répond en 2 s à toutes les requêtes dès qu'une seule appelle une fonction de génération de PDF,
+      synchrone et lente. Que fais-tu ?
+    choices:
+      - {text: "Tu appelles la génération par `asyncio.to_thread`, hors de la boucle", correct: true}
+      - {text: "Tu ajoutes `async` devant la fonction qui génère le PDF", correct: false}
+      - {text: "Tu augmentes le nombre de connexions acceptées par le serveur", correct: false}
+      - {text: "Tu mets un `asyncio.timeout(2)` autour de chaque requête", correct: false}
+    answer: |-
+      L'appel synchrone garde le seul thread de la boucle : toutes les requêtes attendent. Dans un thread, il laisse
+      la boucle servir les autres. Si la génération est surtout du calcul, un pool de processus fait mieux encore.
+  - key: situation-gros-fichier
+    format: scenario
+    question: |-
+      Dans un service asyncio, tu dois lire un fichier de 500 Mo avec la bibliothèque standard, sans dépendance
+      supplémentaire. Que fais-tu ?
+    choices:
+      - {text: "Tu fais la lecture dans `asyncio.to_thread`", correct: true}
+      - {text: "Tu lis le fichier avec `open` dans la coroutine", correct: false}
+      - {text: "Tu lis le fichier avec `asyncio.run` dans la coroutine", correct: false}
+      - {text: "Tu lis le fichier dans une `async def` qui appelle `open`", correct: false}
+    answer: |-
+      La bibliothèque standard n'a pas de lecture de fichier asynchrone : `open().read()` bloque. Dans un thread, la
+      lecture n'empêche pas la boucle de servir les autres coroutines.
+  - key: situation-redimensionner-images
+    format: scenario
+    question: |-
+      Ton service asyncio doit redimensionner des images avec un algorithme en pur Python, gourmand en calcul. Que
+      choisis-tu ?
+    choices:
+      - {text: "Un `ProcessPoolExecutor`, appelé par `loop.run_in_executor`", correct: true}
+      - {text: "Une coroutine par image, lancées ensemble avec `gather`", correct: false}
+      - {text: "Un `await asyncio.sleep(0)` entre deux images", correct: false}
+      - {text: "Un sémaphore qui limite à une image à la fois", correct: false}
+    answer: |-
+      Le calcul doit quitter la boucle, et, en pur Python, quitter aussi le GIL : des processus le font tourner sur
+      plusieurs cœurs. Des coroutines qui calculent sans `await` s'exécutent l'une après l'autre en bloquant tout.
+  - key: situation-async-devant-une-fonction
+    format: scenario
+    question: |-
+      En revue, tu vois qu'un collègue a ajouté `async` devant une fonction qui appelle `requests.get`, « pour la rendre
+      non bloquante ». Que lui dis-tu ?
+    choices:
+      - {text: "Que `requests.get` bloque toujours : il faut un client asynchrone ou `to_thread`", correct: true}
+      - {text: "Que c'est juste, à condition d'appeler la fonction avec `await`", correct: false}
+      - {text: "Que c'est juste, à condition de lancer le programme en mode debug", correct: false}
+      - {text: "Qu'il faut aussi ajouter `await` devant `requests.get(url)`", correct: false}
+    answer: |-
+      `async` permet d'utiliser `await`, mais ne change pas ce que fait `requests` : l'appel bloque le thread de la
+      boucle. `httpx.AsyncClient` (avec `await`) ou `asyncio.to_thread(requests.get, url)` règlent le problème.

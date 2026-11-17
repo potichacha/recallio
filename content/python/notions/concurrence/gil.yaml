@@ -1,0 +1,227 @@
+notion: gil
+lesson: |-
+  Le **GIL** (*Global Interpreter Lock*) est un verrou de **CPython**, l'interpréteur de référence : dans un
+  interpréteur, **un seul thread exécute du bytecode Python à la fois**. Les autres attendent leur tour.
+
+  **Pourquoi il existe.** CPython gère la mémoire par **comptage de références** : chaque objet compte les noms et les
+  conteneurs qui le désignent. Sans verrou, deux threads qui modifient ce compteur en même temps le corrompraient. Le
+  GIL protège ces compteurs, et tout l'état interne de l'interpréteur, avec un seul verrou : c'est simple, rapide pour
+  un programme à un thread, et commode pour les extensions écrites en C.
+
+  **Quand un thread rend le GIL.**
+
+  - quand il **attend une entrée-sortie** : lecture d'un fichier ou d'une socket, `time.sleep`, requête à une base ;
+  - quand une **extension C** le relâche pendant un long calcul : `hashlib` sur de gros blocs, `zlib`, NumPy ;
+  - toutes les **5 ms** environ, l'interpréteur lui demande de céder la place (`sys.getswitchinterval()` vaut `0.005`).
+
+  | Travail | Des threads l'accélèrent-ils ? |
+  |---|---|
+  | Attendre le réseau, le disque, une base (*I/O-bound*) | Oui : le GIL est rendu pendant l'attente |
+  | Calcul en pur Python (*CPU-bound*) | Non : un seul cœur travaille, et les bascules coûtent |
+  | Calcul dans une extension C qui relâche le GIL | Oui |
+
+  ```python
+  import threading
+
+  def calculer():
+      total = 0
+      for i in range(10_000_000):
+          total += i
+
+  # Quatre threads ne vont pas plus vite qu'un seul : ils se partagent le GIL.
+  threads = [threading.Thread(target=calculer) for _ in range(4)]
+  ```
+
+  **Le GIL ne rend pas ton code sûr.** Il protège l'interpréteur, pas tes données : `compteur += 1` se compile en
+  plusieurs instructions (lire, additionner, écrire), et un thread peut être interrompu entre elles. Il faut toujours des
+  verrous autour des données partagées.
+
+  **Pour calculer sur plusieurs cœurs** : des **processus** (`multiprocessing`, `ProcessPoolExecutor`), chacun avec son
+  interpréteur et son GIL ; une extension C qui relâche le GIL ; le **build free-threaded** sans GIL (`python3.14t`),
+  optionnel ; les **sous-interpréteurs** (Python 3.14), chacun avec son GIL. Le GIL est un détail de CPython : Jython et
+  IronPython n'en ont pas, PyPy en a un.
+
+  **En entretien** : « Le GIL de CPython ne laisse qu'un thread exécuter du bytecode à la fois, pour protéger le
+  comptage de références. Les threads restent utiles pour les E/S, car le GIL est rendu pendant l'attente, mais pas pour
+  du calcul en pur Python, qu'on confie à des processus. Il ne dispense pas des verrous : il protège l'interpréteur, pas
+  les invariants de mon code. »
+cards:
+  - key: definition-du-gil
+    format: course
+    question: "Que fait le GIL (Global Interpreter Lock) de CPython ?"
+    choices:
+      - {text: "Un verrou qui ne laisse qu'un thread exécuter du bytecode à la fois", correct: true}
+      - {text: "Un verrou porté par chaque objet, pris à chaque accès en écriture", correct: false}
+      - {text: "Un ramasse-miettes qui arrête tous les threads pendant la collecte", correct: false}
+      - {text: "Un ordonnanceur qui répartit les threads sur tous les cœurs", correct: false}
+    answer: "Le *Global Interpreter Lock* est un verrou unique par interpréteur : un thread doit le tenir pour exécuter du bytecode Python. Les autres attendent qu'il le rende."
+  - key: raison-du-gil
+    format: course
+    question: "Pourquoi CPython a-t-il un GIL ?"
+    choices:
+      - {text: "Pour protéger le comptage de références et simplifier les extensions C", correct: true}
+      - {text: "Pour garantir que le code Python des utilisateurs est thread-safe", correct: false}
+      - {text: "Parce que le système ne sait pas créer de vrais threads pour Python", correct: false}
+      - {text: "Pour qu'un programme à un seul thread profite de plusieurs cœurs", correct: false}
+    answer: "Chaque objet compte ses références ; deux threads qui modifient ce compteur ensemble le corrompraient. Un verrou global protège tout l'état de l'interpréteur à peu de frais. Il ne protège pas les données de ton programme."
+  - key: quand-le-gil-est-rendu
+    format: course
+    question: "Quand un thread rend-il le GIL ?"
+    choices:
+      - {text: "Quand il attend une E/S, et toutes les 5 ms environ pour laisser la place", correct: true}
+      - {text: "Seulement à la fin du thread, quand sa fonction cible se termine", correct: false}
+      - {text: "Seulement quand le programme appelle lui-même `gc.collect()`", correct: false}
+      - {text: "Jamais : seul le thread principal peut prendre le GIL", correct: false}
+    answer: "Les appels bloquants (socket, fichier, `time.sleep`) rendent le GIL pendant l'attente, et l'interpréteur demande au thread de céder la place toutes les `sys.getswitchinterval()` secondes, 0,005 par défaut."
+  - key: gil-et-surete
+    format: course
+    question: "Le GIL rend-il ton code multi-thread sûr ?"
+    choices:
+      - {text: "Non : un thread peut être interrompu au milieu de `x += 1`", correct: true}
+      - {text: "Oui : deux threads n'exécutent jamais de Python ensemble", correct: false}
+      - {text: "Oui, tant que chaque thread ne modifie que des entiers", correct: false}
+      - {text: "Oui, sauf pour les objets créés par une extension C", correct: false}
+    answer: "`x += 1` se compile en plusieurs instructions : lire, additionner, écrire. Le GIL peut changer de main entre elles, et deux threads perdent alors une mise à jour. Les données partagées demandent un verrou."
+  - key: vf-calcul-pur-python
+    format: true-false
+    question: "Avec le GIL, deux threads qui calculent en pur Python ne vont pas plus vite qu'un seul."
+    truth: true
+    answer: "Un seul thread exécute du bytecode à la fois : ils se partagent un cœur, et les bascules entre eux ajoutent même un peu de temps."
+  - key: vf-sleep-rend-le-gil
+    format: true-false
+    question: "`time.sleep` rend le GIL pendant l'attente."
+    truth: true
+    answer: "Comme les lectures de fichiers et de sockets, `time.sleep` relâche le GIL : les autres threads travaillent pendant ce temps."
+  - key: vf-toutes-implementations
+    format: true-false
+    question: "Le GIL fait partie du langage Python : toutes ses implémentations en ont un."
+    truth: false
+    answer: "C'est un choix de CPython (PyPy en a un aussi). Jython et IronPython n'ont pas de GIL, et CPython a un build optionnel sans GIL depuis 3.13."
+  - key: vf-build-par-defaut
+    format: true-false
+    question: "Le build par défaut de Python 3.14 n'a plus de GIL."
+    truth: false
+    answer: "Le build sans GIL (`python3.14t`) est pris en charge en 3.14, mais il reste optionnel : le `python3.14` habituel a toujours son GIL."
+  - key: qcm-profite-des-threads
+    format: multiple-choice
+    question: "Lequel de ces programmes accélère avec des threads, malgré le GIL ?"
+    choices:
+      - {text: "Télécharger 50 pages web", correct: true}
+      - {text: "Chercher des nombres premiers en pur Python", correct: false}
+      - {text: "Trier une liste avec une boucle Python écrite à la main", correct: false}
+      - {text: "Explorer un arbre de coups d'échecs en pur Python", correct: false}
+    answer: "Un téléchargement passe son temps à attendre le réseau, et l'attente rend le GIL. Les trois autres calculent en pur Python : un seul thread avance à la fois."
+  - key: qcm-switch-interval
+    format: multiple-choice
+    question: "Que vaut `sys.getswitchinterval()` par défaut ?"
+    choices:
+      - {text: "`0.005`", correct: true}
+      - {text: "`0.1`", correct: false}
+      - {text: "`1.0`", correct: false}
+      - {text: "`0.0001`", correct: false}
+    answer: "5 millisecondes : passé ce délai, l'interpréteur demande au thread qui tient le GIL de le céder. `sys.setswitchinterval` le règle, sans rien changer au fond du problème."
+  - key: qcm-plusieurs-coeurs
+    format: multiple-choice
+    question: "Avec le CPython par défaut, comment faire travailler plusieurs cœurs sur un calcul en pur Python ?"
+    choices:
+      - {text: "Avec `multiprocessing` ou un `ProcessPoolExecutor`", correct: true}
+      - {text: "Avec davantage d'objets `threading.Thread`", correct: false}
+      - {text: "Avec `asyncio.gather` sur les calculs", correct: false}
+      - {text: "Avec `sys.setswitchinterval(0)` pour basculer plus vite", correct: false}
+    answer: "Chaque processus a son interpréteur et son GIL : ils calculent vraiment en parallèle. Les threads et asyncio restent sur un seul cœur pour du pur Python."
+  - key: qcm-ce-que-protege-le-gil
+    format: multiple-choice
+    question: "Que protège le GIL, à coup sûr ?"
+    choices:
+      - {text: "L'état interne de l'interpréteur, comme les compteurs de références", correct: true}
+      - {text: "Les invariants des classes que tu écris toi-même", correct: false}
+      - {text: "Les fichiers ouverts en écriture par plusieurs threads", correct: false}
+      - {text: "Une suite de plusieurs instructions Python dans un thread", correct: false}
+    answer: "Le GIL garde l'interpréteur cohérent. Il peut changer de main entre deux instructions de ton code : une suite d'instructions qui doit rester atomique demande un verrou."
+  - key: situation-hachage-huit-coeurs
+    format: scenario
+    question: |-
+      Ton service calcule le SHA-256 de gros fichiers dans 8 threads, et tu vois 8 cœurs occupés. Un collègue affirme
+      que c'est impossible à cause du GIL. Que lui réponds-tu ?
+    choices:
+      - {text: "Que `hashlib` relâche le GIL pendant le calcul sur de gros blocs", correct: true}
+      - {text: "Que le GIL ne s'applique qu'au thread principal du programme", correct: false}
+      - {text: "Que Python 3.14 a retiré le GIL de son build par défaut", correct: false}
+      - {text: "Que le système répartit les threads malgré le GIL, sans effet", correct: false}
+    answer: |-
+      Une extension C peut rendre le GIL pendant un calcul qui ne touche pas aux objets Python : `hashlib` le fait sur
+      de gros blocs, comme `zlib` ou NumPy. Le GIL ne bride que l'exécution du bytecode Python.
+  - key: situation-images-plus-lentes
+    format: scenario
+    question: |-
+      Ton script de traitement d'images en pur Python prend 40 s. Tu l'as découpé en 4 threads, et il en prend 42.
+      Comment l'expliques-tu ?
+    choices:
+      - {text: "Le GIL sérialise le calcul, et les bascules entre threads coûtent", correct: true}
+      - {text: "Les threads ne démarrent qu'à la fin du thread principal", correct: false}
+      - {text: "Chaque thread recopie toutes les images avant de commencer", correct: false}
+      - {text: "Python limite un programme à un thread actif par cœur", correct: false}
+    answer: |-
+      Un seul thread exécute du bytecode à la fois : le travail reste séquentiel, avec en plus le coût des passages du
+      GIL. Pour ce calcul, il faut des processus (`ProcessPoolExecutor`), ou une bibliothèque en C.
+  - key: situation-parallelisme-en-entretien
+    format: scenario
+    question: |-
+      En entretien, on te demande si Python « sait faire du parallélisme ». Que réponds-tu ?
+    choices:
+      - {text: "Oui : processus, extensions C qui rendent le GIL, ou build sans GIL", correct: true}
+      - {text: "Non : le GIL empêche toute exécution sur plusieurs cœurs", correct: false}
+      - {text: "Oui : les threads tournent sur tous les cœurs depuis Python 3", correct: false}
+      - {text: "Non : seul `asyncio` permet de faire plusieurs choses à la fois", correct: false}
+    answer: |-
+      Le GIL empêche les threads d'exécuter du bytecode en parallèle, pas le programme d'utiliser plusieurs cœurs. Les
+      processus ont chacun leur GIL, les extensions C le rendent, et le build free-threaded s'en passe.
+  - key: situation-retirer-les-verrous
+    format: scenario
+    question: |-
+      Un collègue retire tous les verrous de son code multi-thread : « Le GIL protège déjà mes données. » Que lui
+      dis-tu ?
+    choices:
+      - {text: "Que le GIL protège l'interpréteur, pas les invariants de son code", correct: true}
+      - {text: "Qu'il a raison, tant qu'il n'utilise aucune extension C", correct: false}
+      - {text: "Qu'il a raison pour les listes, mais pas pour les dictionnaires", correct: false}
+      - {text: "Qu'il doit aussi appeler `sys.setswitchinterval(0)` au démarrage", correct: false}
+    answer: |-
+      Le GIL peut changer de main entre deux instructions : un `solde -= montant` précédé d'un test sur le solde n'est
+      pas atomique. Sans verrou, deux threads perdent des mises à jour ou cassent un invariant.
+  - key: def-cpu-bound
+    format: definition
+    question: "Que désigne une tâche « CPU-bound » ?"
+    choices:
+      - {text: "Une tâche limitée par la vitesse du processeur, qui calcule sans attendre", correct: true}
+      - {text: "Une tâche limitée par l'attente du réseau, du disque ou d'une base", correct: false}
+      - {text: "Une tâche qui ne peut tourner que sur un seul cœur précis", correct: false}
+      - {text: "Une tâche qui garde le GIL même pendant ses entrées-sorties", correct: false}
+    answer: "Elle passe son temps à calculer : seul un processeur plus rapide, ou plusieurs cœurs, l'accélère. En Python, ce sont des processus qui la parallélisent."
+  - key: def-io-bound
+    format: definition
+    question: "Qu'est-ce qu'une tâche « I/O-bound » ?"
+    choices:
+      - {text: "Une tâche qui passe surtout son temps à attendre le réseau ou le disque", correct: true}
+      - {text: "Une tâche qui passe surtout son temps à calculer en pur Python", correct: false}
+      - {text: "Une tâche qui écrit sur la sortie standard à chaque itération", correct: false}
+      - {text: "Une tâche dont la mémoire dépasse la taille du cache du processeur", correct: false}
+    answer: "Pendant l'attente, le processeur ne fait rien pour elle : des threads ou asyncio en lancent beaucoup à la fois, et le GIL est rendu pendant l'attente."
+  - key: def-relacher-le-gil
+    format: definition
+    question: "Que veut dire, pour une extension C, « relâcher le GIL » ?"
+    choices:
+      - {text: "Laisser les autres threads exécuter du Python pendant son calcul en C", correct: true}
+      - {text: "Supprimer le GIL de l'interpréteur jusqu'à la fin du programme", correct: false}
+      - {text: "Lancer son calcul dans un processus séparé, avec son propre GIL", correct: false}
+      - {text: "Reprendre le GIL à un autre thread qui le tenait trop longtemps", correct: false}
+    answer: "Le code C rend le verrou avant un long calcul qui ne touche aucun objet Python, puis le reprend. C'est ainsi que NumPy, `zlib` ou `hashlib` profitent de plusieurs cœurs."
+  - key: def-parallelisme
+    format: definition
+    question: "Qu'appelle-t-on le parallélisme, par opposition à la concurrence ?"
+    choices:
+      - {text: "Plusieurs calculs exécutés au même instant, sur plusieurs cœurs", correct: true}
+      - {text: "Plusieurs tâches qui avancent à tour de rôle, sur un seul cœur", correct: false}
+      - {text: "Plusieurs programmes lancés l'un après l'autre par un script", correct: false}
+      - {text: "Plusieurs threads qui se partagent un verrou sans jamais l'attendre", correct: false}
+    answer: "La concurrence fait progresser plusieurs tâches en les entrelaçant ; le parallélisme les exécute vraiment en même temps. Les threads Python sont concurrents ; les processus sont parallèles."

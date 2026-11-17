@@ -1,0 +1,325 @@
+notion: pytest-raises-approx
+lesson: |-
+  Deux outils de pytest couvrent ce qu'un `assert x == y` ne sait pas bien faire : vérifier qu'une **exception** est
+  levée, et comparer des **flottants**.
+
+  **`pytest.raises` : le code doit lever une exception**
+
+  ```python
+  import pytest
+
+
+  def test_retrait_superieur_au_solde():
+      compte = Compte(solde=10)
+      with pytest.raises(ValueError, match="solde insuffisant") as info:
+          compte.retirer(50)
+      assert compte.solde == 10             # après le bloc : vérifier que rien n'a changé
+      assert info.value.args == ("solde insuffisant",)
+  ```
+
+  - Le test **passe** si le bloc lève l'exception attendue, **ou une de ses sous-classes** ; il **échoue** avec
+    « DID NOT RAISE » si le bloc ne lève rien ; une **autre** exception traverse `pytest.raises` et fait échouer le test.
+  - Le bloc s'arrête à l'exception : **les lignes qui suivent ne s'exécutent jamais**. On y met le seul appel qui doit
+    lever, et les vérifications **après** le bloc.
+  - **`match=`** est une **expression régulière**, cherchée (`re.search`) dans le message. Un message qui contient des
+    caractères spéciaux (`(`, `.`, `?`, `+`) passe par `re.escape(...)` ; pytest le suggère quand le motif échoue.
+  - **`as info`** donne un `ExceptionInfo` : `info.value` est l'exception, `info.type` son type.
+  - Viser **précis** : `pytest.raises(Exception)` accepte n'importe quelle erreur, y compris la `TypeError` d'un bug.
+
+  **`pytest.approx` : comparer des flottants**
+
+  Les flottants binaires ne représentent pas exactement 0,1 : `0.1 + 0.2` vaut `0.30000000000000004`, et
+  `0.1 + 0.2 == 0.3` est **faux**. On compare donc avec une tolérance :
+
+  ```python
+  assert 0.1 + 0.2 == pytest.approx(0.3)                 # tolérance relative de 1e-6 par défaut
+  assert prix_ttc(10) == pytest.approx(12.0, abs=0.01)   # tolérance absolue
+  assert [0.1 + 0.2, 0.2 + 0.4] == pytest.approx([0.3, 0.6])
+  ```
+
+  | Outil | Tolérance par défaut |
+  |---|---|
+  | `pytest.approx(x)` | relative 1e-6, avec un plancher absolu de 1e-12 |
+  | `math.isclose(a, b)` | relative 1e-9, absolue 0 (donc `isclose(x, 0)` exige `abs_tol`) |
+  | `unittest` : `assertAlmostEqual` | 7 décimales |
+
+  `approx` compare aussi des listes, des tuples et des dictionnaires de nombres. Pour de l'argent, mieux vaut ne pas
+  calculer en flottants du tout : des centimes entiers ou `decimal.Decimal`.
+
+  **En entretien** : « `with pytest.raises(ValueError, match=...)` vérifie l'exception et son message ; seul l'appel
+  qui doit lever va dans le bloc. Les flottants se comparent avec `pytest.approx` ou `math.isclose`, jamais avec `==`,
+  car `0.1 + 0.2` ne vaut pas exactement `0.3`. »
+tour:
+  - title: "pytest.raises et pytest.approx"
+    text: |-
+      `0.1 + 0.2` ne vaut pas exactement `0.3` en binaire : avec des flottants, on compare à une tolérance près, grâce
+      à `pytest.approx`.
+
+      `with pytest.raises(ValueError):` vérifie qu'un bloc lève l'exception attendue ; `match=` contrôle son message,
+      et `as info` la garde pour l'examiner. Si le bloc ne lève rien, pytest fait échouer le test : on voit ici le
+      message qu'il donnerait (dans un vrai test, on ne rattrape pas cet échec).
+
+      Essaie : remplace `match="nul"` par `match="zéro"`, et lis l'échec.
+    example:
+      files:
+        main.py: |-
+          import pytest
+
+          print(0.1 + 0.2)
+          print(0.1 + 0.2 == 0.3)
+          print(0.1 + 0.2 == pytest.approx(0.3))
+
+
+          def diviser(a, b):
+              if b == 0:
+                  raise ValueError("diviseur nul")
+              return a / b
+
+
+          with pytest.raises(ValueError, match="nul") as info:
+              diviser(1, 0)
+          print("levée :", info.type.__name__, "-", info.value)
+
+          try:
+              with pytest.raises(ValueError):
+                  diviser(4, 2)
+          except pytest.fail.Exception as echec:
+              print("le test échouerait :", echec)
+      output: |-
+        0.30000000000000004
+        False
+        True
+        levée : ValueError - diviseur nul
+        le test échouerait : DID NOT RAISE ValueError
+cards:
+  - key: ce-que-verifie-raises
+    format: course
+    question: "Que vérifie `with pytest.raises(ValueError):` ?"
+    choices:
+      - {text: "Que le bloc lève une `ValueError` ou une de ses sous-classes", correct: true}
+      - {text: "Que le bloc ne lève aucune `ValueError`, même rattrapée plus loin", correct: false}
+      - {text: "Que le bloc lève exactement une `ValueError`, sous-classes refusées", correct: false}
+      - {text: "Que la `ValueError` du bloc est rattrapée, puis journalisée", correct: false}
+    answer: "`pytest.raises` accepte le type demandé et ses sous-classes, comme un `except`. Une autre exception le traverse et fait échouer le test."
+  - key: rien-n-est-leve
+    format: course
+    question: Que se passe-t-il quand le bloc de `pytest.raises(KeyError)` ne lève aucune exception ?
+    choices:
+      - {text: "Le test échoue, avec le message « DID NOT RAISE »", correct: true}
+      - {text: "Le test passe : il ne s'est produit aucune erreur", correct: false}
+      - {text: "Le test est sauté (skipped), avec un avertissement", correct: false}
+      - {text: "pytest lève lui-même une `KeyError` à la place", correct: false}
+    answer: "pytest fait échouer le test avec « DID NOT RAISE KeyError » : le comportement attendu, l'exception, n'a pas eu lieu."
+  - key: pourquoi-approx
+    format: course
+    question: Pourquoi comparer des flottants avec `pytest.approx` plutôt qu'avec `==` ?
+    choices:
+      - {text: "Le binaire ne représente pas 0,1 exactement : `0.1 + 0.2` vaut 0.30000000000000004", correct: true}
+      - {text: "`==` compare l'identité des flottants, comme `is`, et non leur valeur numérique", correct: false}
+      - {text: "`==` arrondit d'abord les deux flottants à l'entier le plus proche, puis les compare", correct: false}
+      - {text: "`approx` va plus vite que `==` sur les flottants, car il compare moins de chiffres", correct: false}
+    answer: "Les calculs en flottants accumulent de petites erreurs d'arrondi. `approx` compare à une tolérance près ; `==` compare bien les valeurs, mais exige l'égalité au dernier bit."
+  - key: tolerance-par-defaut
+    format: course
+    question: Quelle tolérance `pytest.approx(x)` applique-t-il par défaut ?
+    choices:
+      - {text: "Relative : un millionième de `x` (1e-6), avec un plancher absolu de 1e-12", correct: true}
+      - {text: "Absolue : 0,01, quelle que soit la grandeur du nombre comparé", correct: false}
+      - {text: "Aucune : il faut toujours lui donner `rel` ou `abs` explicitement", correct: false}
+      - {text: "Il compare seulement les deux premières décimales des deux nombres", correct: false}
+    answer: "`pytest.approx(0.3)` s'affiche `0.3 ± 3.0e-07`. `rel=` et `abs=` changent la tolérance ; `math.isclose` utilise 1e-9 en relatif."
+  - key: vf-match-regex
+    format: true-false
+    question: "Le paramètre `match=` de `pytest.raises` est une expression régulière, cherchée dans le message de l'exception."
+    truth: true
+    answer: "pytest applique `re.search` au texte de l'exception : `match=\"négatif\"` suffit, sans tout le message. Les caractères spéciaux s'échappent avec `re.escape`."
+  - key: vf-lignes-apres
+    format: true-false
+    question: "Dans `with pytest.raises(ValueError):`, les lignes qui suivent celle qui lève l'exception s'exécutent quand même."
+    truth: false
+    answer: "L'exception interrompt le bloc : les lignes suivantes ne s'exécutent jamais. Les vérifications sur l'état après l'erreur vont après le bloc."
+  - key: vf-approx-liste
+    format: true-false
+    question: "`pytest.approx` compare aussi des listes de flottants : `[0.1 + 0.2, 0.3] == pytest.approx([0.3, 0.3])` est vrai."
+    truth: true
+    answer: "`approx` accepte des nombres, mais aussi des listes, des tuples et des dictionnaires de nombres, élément par élément."
+  - key: vf-raises-exception
+    format: true-false
+    question: "`pytest.raises(Exception)` est un bon réflexe : il vérifie l'erreur attendue sans se tromper de type."
+    truth: false
+    answer: "Il accepte n'importe quelle erreur, y compris la `TypeError` ou l'`AttributeError` d'un bug : le test passe pour une mauvaise raison. On vise le type précis, et au besoin le message."
+  - key: qcm-verifier-message
+    format: multiple-choice
+    question: "Comment vérifier que `convertir(\"abc\")` lève une `ValueError` dont le message contient « abc » ?"
+    choices:
+      - {text: "`with pytest.raises(ValueError, match=\"abc\"):`", correct: true}
+      - {text: "`with pytest.raises(ValueError(\"abc\")):`", correct: false}
+      - {text: "`with pytest.raises(ValueError, message=\"abc\"):`", correct: false}
+      - {text: "`assert convertir(\"abc\") == ValueError(\"abc\")`", correct: false}
+    answer: "`match=` cherche le motif dans le message. `pytest.raises` attend un type, pas une instance ; et l'appel direct lèverait l'exception avant toute comparaison."
+  - key: qcm-lire-exception
+    format: multiple-choice
+    question: Comment examiner l'exception levée, après le bloc `pytest.raises` ?
+    choices:
+      - {text: "`with pytest.raises(KeyError) as info:`, puis `info.value`", correct: true}
+      - {text: "`with pytest.raises(KeyError):`, puis `pytest.last_error`", correct: false}
+      - {text: "`erreur = pytest.raises(KeyError)`, puis `erreur.raised`", correct: false}
+      - {text: "`with pytest.raises(KeyError) as info:`, puis `info.message`", correct: false}
+    answer: "`as info` donne un `ExceptionInfo` : `info.value` est l'exception, `info.type` son type. On l'examine après le bloc."
+  - key: qcm-assertion-qui-passe
+    format: multiple-choice
+    question: Quelle assertion passe ?
+    choices:
+      - {text: "`assert 0.1 + 0.2 == pytest.approx(0.3)`", correct: true}
+      - {text: "`assert 0.1 + 0.2 == 0.3`", correct: false}
+      - {text: "`assert round(0.1 + 0.2) == 0.3`", correct: false}
+      - {text: "`assert pytest.approx(0.1 + 0.2) is 0.3`", correct: false}
+    answer: "`0.1 + 0.2` vaut 0.30000000000000004 : `==` échoue, `round` sans décimales donne 0, et `is` compare des identités. `approx` compare à 1e-6 près."
+  - key: qcm-caracteres-speciaux
+    format: multiple-choice
+    question: "Le message attendu est « prix (HT) négatif ». Que passer à `match=` pour qu'il corresponde ?"
+    choices:
+      - {text: "`re.escape(\"prix (HT) négatif\")`", correct: true}
+      - {text: "`\"prix (HT) négatif\"`, tel quel", correct: false}
+      - {text: "`[\"prix\", \"(HT)\", \"négatif\"]`", correct: false}
+      - {text: "`str(ValueError(\"prix (HT) négatif\"))`", correct: false}
+    answer: "Dans une expression régulière, les parenthèses forment un groupe : le motif brut cherche « prix HT négatif », sans parenthèses, et échoue. `re.escape` les rend littérales."
+  - key: trous-raises
+    format: fill-in
+    question: |-
+      Complète le test :
+      ```python
+      def test_division_par_zero():
+          with pytest.___(ZeroDivisionError):
+              1 / 0
+      ```
+    blanks: [[raises]]
+    answer: "`pytest.raises` s'utilise comme gestionnaire de contexte, avec `with`."
+  - key: trous-approx
+    format: fill-in
+    question: |-
+      Complète pour comparer des flottants :
+      ```python
+      assert 0.1 * 3 == pytest.___(0.3)
+      ```
+    blanks: [[approx]]
+    answer: "`0.1 * 3` vaut 0.30000000000000004 : `pytest.approx` tolère l'écart d'arrondi."
+  - key: trous-match
+    format: fill-in
+    question: |-
+      Complète pour vérifier aussi le message de l'exception :
+      ```python
+      with pytest.raises(ValueError, ___="négatif"):
+          racine(-1)
+      ```
+    blanks: [[match]]
+    answer: "`match=` est une expression régulière cherchée dans le message."
+  - key: trous-as-value
+    format: fill-in
+    question: |-
+      Complète pour examiner l'exception levée :
+      ```python
+      with pytest.raises(KeyError) ___ info:
+          stock["poire"]
+      assert info.___.args == ("poire",)
+      ```
+    blanks: [[as], [value]]
+    answer: "`as info` garde un `ExceptionInfo` ; `info.value` est l'exception elle-même."
+  - key: bug-assert-dans-le-bloc
+    format: bug-fix
+    question: |-
+      Ce test passe, alors que `retirer` débite le compte avant de lever son erreur. Quelle correction est la bonne ?
+      ```python
+      def test_retrait_refuse():
+          compte = Compte(solde=10)
+          with pytest.raises(ValueError):
+              compte.retirer(50)
+              assert compte.solde == 10
+      ```
+    choices:
+      - {text: "Sortir l'`assert` du bloc `with`, juste après lui", correct: true}
+      - {text: "Placer l'`assert` avant l'appel à `retirer`", correct: false}
+      - {text: "Remplacer `ValueError` par `Exception`", correct: false}
+      - {text: "Ajouter `match=\"solde\"` à `pytest.raises`", correct: false}
+    answer: |-
+      ```python
+      def test_retrait_refuse():
+          compte = Compte(solde=10)
+          with pytest.raises(ValueError):
+              compte.retirer(50)
+          assert compte.solde == 10
+      ```
+      L'exception interrompt le bloc : l'`assert` placé après `retirer` ne s'exécute jamais. Hors du bloc, il voit le solde réel, et le test échoue comme il le doit.
+  - key: bug-flottants-egaux
+    format: bug-fix
+    question: |-
+      Ce test échoue sur « assert 0.30000000000000004 == 0.3 ». Quelle correction est la bonne ?
+      ```python
+      def total(prix):
+          return sum(prix)
+
+
+      def test_total():
+          assert total([0.1, 0.2]) == 0.3
+      ```
+    choices:
+      - {text: "`assert total([0.1, 0.2]) == pytest.approx(0.3)`", correct: true}
+      - {text: "`assert total([0.1, 0.2]) is 0.3`", correct: false}
+      - {text: "`assert int(total([0.1, 0.2])) == 0.3`", correct: false}
+      - {text: "`assert str(total([0.1, 0.2])) == \"0.3\"`", correct: false}
+    answer: |-
+      ```python
+      def test_total():
+          assert total([0.1, 0.2]) == pytest.approx(0.3)
+      ```
+      La somme en flottants porte une erreur d'arrondi : on compare à une tolérance près. `int` donnerait 0, et `str` montre « 0.30000000000000004 ».
+  - key: bug-match-parentheses
+    format: bug-fix
+    question: |-
+      pytest répond « Regex pattern did not match. », alors que le message est exactement celui attendu. Quelle correction est la bonne ?
+      ```python
+      def test_prix_negatif():
+          with pytest.raises(ValueError, match="prix (HT) négatif"):
+              fixer_prix(-5)
+      ```
+    choices:
+      - {text: "`match=re.escape(\"prix (HT) négatif\")`", correct: true}
+      - {text: "`match=\"prix (HT) négatif\".lower()`", correct: false}
+      - {text: "`match=f\"prix (HT) négatif\"`", correct: false}
+      - {text: "`match=b\"prix (HT) négatif\"`", correct: false}
+    answer: |-
+      ```python
+      import re
+
+      def test_prix_negatif():
+          with pytest.raises(ValueError, match=re.escape("prix (HT) négatif")):
+              fixer_prix(-5)
+      ```
+      `match` est une expression régulière : `(HT)` y est un groupe, qui cherche « HT » sans parenthèses. `re.escape` les rend littérales ; pytest le suggère lui-même (« Did you mean to `re.escape()` the regex? »).
+  - key: bug-raises-trop-large
+    format: bug-fix
+    question: |-
+      Ce test passe, mais `valider("douze")` lève en réalité « TypeError: '<' not supported between instances of 'str' and 'int' ». Quelle correction du test révèle le problème ?
+      ```python
+      def valider(age):
+          if age < 0:
+              raise ValueError("âge négatif")
+          return age
+
+
+      def test_age_texte_refuse():
+          with pytest.raises(Exception):
+              valider("douze")
+      ```
+    choices:
+      - {text: "Attendre le type précis : `pytest.raises(ValueError)`", correct: true}
+      - {text: "Attendre plus large encore : `pytest.raises(BaseException)`", correct: false}
+      - {text: "Entourer l'appel d'un `try` / `except TypeError: pass`", correct: false}
+      - {text: "Ajouter un `assert valider(\"douze\") is None` après le bloc", correct: false}
+    answer: |-
+      ```python
+      def test_age_texte_refuse():
+          with pytest.raises(ValueError):
+              valider("douze")
+      ```
+      `Exception` accepte la `TypeError` du bug : le test passe pour une mauvaise raison. Avec `ValueError`, la `TypeError` traverse `pytest.raises`, le test échoue, et il reste à corriger `valider` pour qu'elle refuse un texte proprement.

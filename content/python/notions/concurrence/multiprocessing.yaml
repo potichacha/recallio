@@ -1,0 +1,188 @@
+notion: multiprocessing
+lesson: |-
+  `multiprocessing` lance des **processus** : chacun a son propre interpréteur, sa propre mémoire et **son propre
+  GIL**. C'est la façon classique de faire travailler **plusieurs cœurs** sur un calcul en pur Python.
+
+  ```python
+  from multiprocessing import Pool
+
+  def score(n):
+      return sum(i * i for i in range(n))
+
+  if __name__ == "__main__":                  # indispensable avec spawn et forkserver
+      with Pool(processes=4) as pool:
+          print(pool.map(score, [10**6] * 8))   # résultats dans l'ordre des entrées
+  ```
+
+  **Ce qui traverse la frontière.** Les processus ne partagent pas leur mémoire : la fonction, ses arguments et ses
+  résultats sont **sérialisés avec `pickle`**, puis copiés. D'où trois règles :
+
+  - la fonction doit être **définie au niveau du module** (pas de `lambda`, pas de fonction locale) ;
+  - envoyer de **gros objets** coûte cher : on envoie peu, on calcule beaucoup (des tâches de plusieurs millisecondes
+    au moins, regroupées par paquets avec `chunksize`) ;
+  - une **variable globale** modifiée dans un enfant ne change que sa copie : le parent ne la voit pas. On renvoie
+    les résultats.
+
+  **La garde `if __name__ == "__main__":`.** Avec les méthodes de démarrage `spawn` (Windows, macOS) et `forkserver`
+  (Linux, par défaut depuis Python 3.14), chaque enfant **réimporte le script** : sans la garde, il tenterait lui-même
+  de créer des processus, et Python lève une `RuntimeError`. `fork`, l'ancien défaut sous Linux, copiait le parent ; il
+  pose problème avec les threads.
+
+  | Outil | Usage |
+  |---|---|
+  | `Process(target=f, args=(...))` | un processus, avec `start` et `join`, comme un thread |
+  | `Pool` : `map`, `imap`, `imap_unordered`, `starmap` | un groupe de processus réutilisés |
+  | `Queue`, `Pipe` | échanger des messages |
+  | `shared_memory`, `Value`, `Array` | partager des octets sans copie |
+  | `concurrent.futures.ProcessPoolExecutor` | la même idée, avec l'interface des futures |
+
+  **Le coût** : démarrer un processus prend des dizaines de millisecondes, et chacun occupe sa mémoire. Les processus
+  conviennent aux calculs lourds, pas aux milliers de petites tâches.
+
+  **En entretien** : « Pour un calcul en pur Python, je prends des processus : chacun a son GIL, donc ils tournent
+  vraiment en parallèle. Les arguments et résultats passent par `pickle`, ce qui impose des fonctions de niveau module
+  et des échanges légers, et la création des processus va sous `if __name__ == "__main__":`. »
+cards:
+  - key: pourquoi-des-processus
+    format: course
+    question: "Pourquoi des processus contournent-ils la limite du GIL ?"
+    choices:
+      - {text: "Chaque processus a son propre interpréteur, avec son propre GIL", correct: true}
+      - {text: "Les processus désactivent le GIL le temps de leur exécution", correct: false}
+      - {text: "Les processus partagent un seul GIL, mais le prennent plus vite", correct: false}
+      - {text: "Le système exécute les processus en dehors de tout interpréteur", correct: false}
+    answer: "Le GIL vaut pour un interpréteur. Quatre processus ont quatre interpréteurs et quatre GIL : ils calculent en même temps sur quatre cœurs."
+  - key: garde-main
+    format: course
+    question: "Pourquoi créer ses processus sous `if __name__ == \"__main__\":` ?"
+    choices:
+      - {text: "Chaque enfant réimporte le script ; sans la garde, il créerait des processus à son tour", correct: true}
+      - {text: "Sans la garde, les processus partageraient la mémoire du parent par erreur", correct: false}
+      - {text: "La garde dit à Python de lancer le script avec plusieurs GIL à la fois", correct: false}
+      - {text: "Sans la garde, les résultats reviendraient au parent dans le désordre", correct: false}
+    answer: "Avec `spawn` et `forkserver`, l'enfant importe le module principal pour y trouver la fonction. La garde évite que cet import relance la création des processus : Python lèverait une `RuntimeError`."
+  - key: ce-qui-traverse
+    format: course
+    question: "Comment les arguments d'une tâche arrivent-ils dans un processus enfant ?"
+    choices:
+      - {text: "Ils sont sérialisés avec `pickle`, puis copiés dans l'enfant", correct: true}
+      - {text: "L'enfant reçoit une référence vers la mémoire du parent", correct: false}
+      - {text: "L'enfant relit les variables globales du parent à la demande", correct: false}
+      - {text: "Ils sont convertis en JSON, puis relus par l'enfant", correct: false}
+    answer: "Les processus ont des mémoires séparées. Tout ce qui passe (fonction, arguments, résultat) doit être sérialisable par `pickle`, et la copie a un coût."
+  - key: quand-des-processus
+    format: course
+    question: "Pour quel travail un pool de processus est-il le bon choix ?"
+    choices:
+      - {text: "Des calculs lourds en pur Python, sur plusieurs cœurs", correct: true}
+      - {text: "Des milliers de petites requêtes réseau, d'une milliseconde", correct: false}
+      - {text: "La lecture d'un seul fichier ligne par ligne", correct: false}
+      - {text: "La mise à jour d'un dictionnaire partagé par tout le programme", correct: false}
+    answer: "Démarrer un processus et sérialiser ses données coûte cher : il faut que chaque tâche calcule assez longtemps pour l'amortir. Pour attendre le réseau, des threads ou asyncio suffisent."
+  - key: vf-gil-par-processus
+    format: true-false
+    question: "Chaque processus lancé par `multiprocessing` a son propre GIL."
+    truth: true
+    answer: "Un processus enfant est un interpréteur Python complet, avec son GIL : les processus calculent en parallèle."
+  - key: vf-globale-enfant
+    format: true-false
+    question: "Une variable globale modifiée dans un processus enfant change aussi dans le parent."
+    truth: false
+    answer: "L'enfant travaille sur sa propre copie de la mémoire. Pour rapporter une valeur, il la renvoie (valeur de retour, `Queue`), ou l'écrit dans une mémoire partagée."
+  - key: vf-lambda-pool
+    format: true-false
+    question: "On peut passer une `lambda` à `Pool.map` pour l'exécuter dans les processus."
+    truth: false
+    answer: "Une `lambda` ne se sérialise pas avec `pickle`, qui retrouve une fonction par son nom dans son module. On définit la fonction au niveau du module."
+  - key: vf-forkserver-314
+    format: true-false
+    question: "Sur Linux, Python 3.14 démarre les processus avec la méthode `forkserver` par défaut."
+    truth: true
+    answer: "Le défaut est passé de `fork` à `forkserver` en 3.14 : `fork` copie un parent qui peut avoir des threads, ce qui provoque des blocages. Windows et macOS utilisent `spawn`."
+  - key: qcm-sans-garde
+    format: multiple-choice
+    question: "Avec la méthode `spawn`, que se passe-t-il si le script crée un `Pool` au niveau du module, sans garde ?"
+    choices:
+      - {text: "Chaque enfant réimporte le script et veut créer un pool : Python lève une erreur", correct: true}
+      - {text: "Le pool fonctionne, mais tous les enfants s'exécutent sur un seul cœur", correct: false}
+      - {text: "Le pool fonctionne, et les enfants partagent la mémoire du parent", correct: false}
+      - {text: "Le pool ignore la méthode `spawn` et copie le parent avec `fork`", correct: false}
+    answer: "L'import du script dans l'enfant relance la création du pool. Python le détecte et lève une `RuntimeError` qui recommande la garde `if __name__ == \"__main__\":`."
+  - key: qcm-memoire-partagee
+    format: multiple-choice
+    question: "Quel outil partage un grand tableau d'octets entre processus, sans le copier ?"
+    choices:
+      - {text: "`multiprocessing.shared_memory`", correct: true}
+      - {text: "`queue.Queue`", correct: false}
+      - {text: "`threading.local`", correct: false}
+      - {text: "`copy.deepcopy`", correct: false}
+    answer: "`shared_memory.SharedMemory` crée un bloc que plusieurs processus ouvrent par son nom. Une file copierait les données à chaque passage."
+  - key: qcm-imap-unordered
+    format: multiple-choice
+    question: "Quelle méthode d'un `Pool` rend les résultats dès qu'ils sont prêts, sans garder l'ordre des entrées ?"
+    choices:
+      - {text: "`imap_unordered`", correct: true}
+      - {text: "`map`", correct: false}
+      - {text: "`starmap`", correct: false}
+      - {text: "`apply`", correct: false}
+    answer: "`map` et `starmap` rendent une liste dans l'ordre des entrées, une fois tout calculé ; `apply` exécute un seul appel. `imap_unordered` rend chaque résultat dès qu'il arrive."
+  - key: qcm-chunksize
+    format: multiple-choice
+    question: "Pour un million de petites tâches, à quoi sert le paramètre `chunksize` de `Pool.map` ?"
+    choices:
+      - {text: "À envoyer les tâches par paquets, pour réduire les allers-retours", correct: true}
+      - {text: "À limiter la mémoire de chaque processus enfant", correct: false}
+      - {text: "À fixer le nombre de processus du pool", correct: false}
+      - {text: "À découper chaque résultat en morceaux plus petits", correct: false}
+    answer: "Chaque envoi à un enfant coûte une sérialisation et un passage par un tube. En paquets de 1 000, un million de tâches ne fait plus que mille envois."
+  - key: situation-dix-millions-de-lignes
+    format: scenario
+    question: |-
+      Tu dois calculer un score sur 10 millions de lignes, en pur Python, sur une machine à 8 cœurs. Que choisis-tu ?
+    choices:
+      - {text: "Un pool de processus, avec des paquets de lignes par tâche", correct: true}
+      - {text: "Huit threads, un par cœur, qui se partagent les lignes", correct: false}
+      - {text: "`asyncio.gather` sur une coroutine par ligne", correct: false}
+      - {text: "Un seul processus, avec `sys.setswitchinterval` plus court", correct: false}
+    answer: |-
+      Le calcul est en pur Python : seuls des processus, chacun avec son GIL, utilisent les 8 cœurs. Envoyer des
+      paquets de lignes plutôt qu'une ligne par tâche amortit la sérialisation.
+  - key: situation-pool-plus-lent
+    format: scenario
+    question: |-
+      Ton pool de processus est plus lent que la boucle séquentielle : chaque tâche calcule pendant 1 ms, et reçoit en
+      argument un dictionnaire de 50 Mo. Comment l'expliques-tu ?
+    choices:
+      - {text: "Sérialiser et copier le dictionnaire coûte plus que le calcul", correct: true}
+      - {text: "Le GIL empêche les processus de calculer en même temps", correct: false}
+      - {text: "Les processus partagent le dictionnaire et s'attendent pour le lire", correct: false}
+      - {text: "Le pool ne lance qu'un processus tant que `chunksize` vaut 1", correct: false}
+    answer: |-
+      À chaque tâche, le dictionnaire passe par `pickle` et un tube : bien plus long qu'une milliseconde de calcul. On
+      le charge une fois par processus (l'`initializer` du pool), et l'on n'envoie que de petits arguments.
+  - key: situation-erreur-sous-windows
+    format: scenario
+    question: |-
+      Ton script de calcul marche sous Linux avec Python 3.12, mais part en `RuntimeError` sous Windows dès la création
+      du pool. Que vérifies-tu ?
+    choices:
+      - {text: "Que la création du pool est sous `if __name__ == \"__main__\":`", correct: true}
+      - {text: "Que le nombre de processus ne dépasse pas le nombre de cœurs", correct: false}
+      - {text: "Que la fonction appelée par le pool est bien une `lambda`", correct: false}
+      - {text: "Que le script n'importe pas `threading` avant `multiprocessing`", correct: false}
+    answer: |-
+      Linux utilisait `fork` jusqu'à 3.13 : l'enfant copiait le parent sans réimporter le script. Windows utilise
+      `spawn` : l'enfant réimporte le script, et sans la garde il relance la création du pool.
+  - key: situation-dictionnaire-vide
+    format: scenario
+    question: |-
+      Des processus enfants ajoutent leurs résultats à un dictionnaire global ; une fois le pool terminé, le parent le
+      trouve vide. Que fais-tu ?
+    choices:
+      - {text: "Chaque tâche renvoie son résultat, et le parent les rassemble", correct: true}
+      - {text: "Tu protèges le dictionnaire global par un `threading.Lock`", correct: false}
+      - {text: "Tu déclares le dictionnaire avec `global` dans chaque tâche", correct: false}
+      - {text: "Tu passes la méthode de démarrage à `spawn` pour tout partager", correct: false}
+    answer: |-
+      Chaque enfant a sa copie du dictionnaire : ses ajouts ne reviennent jamais au parent. Les valeurs de retour (ou
+      une `multiprocessing.Queue`) rapportent les résultats ; c'est aussi plus simple à raisonner qu'un état partagé.

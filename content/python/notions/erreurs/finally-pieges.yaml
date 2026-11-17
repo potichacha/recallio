@@ -1,0 +1,345 @@
+notion: finally-pieges
+lesson: |-
+  `finally` s'exécute à toute sortie d'un `try`. Cette garantie a des effets surprenants dès que le `finally` fait
+  autre chose que libérer une ressource.
+
+  **1. Un `return`, `break` ou `continue` dans `finally` l'emporte sur tout** : il remplace la valeur renvoyée par le
+  `try`, et **fait disparaître l'exception** en cours, sans trace.
+
+  ```python
+  def charger():
+      try:
+          raise ValueError("fichier corrompu")
+      finally:
+          return "valeur par défaut"   # la ValueError disparaît
+
+  print(charger())   # valeur par défaut
+  ```
+
+  Depuis Python 3.14 (PEP 765), le compilateur émet un `SyntaxWarning: 'return' in a 'finally' block` ; le code
+  s'exécute comme avant.
+
+  **2. La valeur de `return` est calculée avant le `finally`.** `try: return x` puis `finally: x = 2` renvoie
+  l'ancienne valeur de `x`. Mais si `x` est une liste que le `finally` modifie, l'appelant voit la modification : c'est
+  le même objet.
+
+  **3. Une exception levée dans `finally` remplace celle du `try`.** L'originale n'apparaît plus que dans le
+  `__context__` de la nouvelle (« During handling of the above exception... ») : un nettoyage qui échoue masque la
+  vraie cause.
+
+  **4. La ressource n'existe pas forcément** :
+
+  ```python
+  try:
+      f = open(chemin, encoding="utf-8")   # si open échoue, f n'existe pas
+      return f.read()
+  finally:
+      f.close()                            # UnboundLocalError, qui masque FileNotFoundError
+  ```
+
+  On ouvre avant le `try`, ou mieux, on écrit `with open(...) as f:`, qui fait le `try` / `finally` correctement.
+
+  **5. `finally` ne s'exécute pas toujours** : `os._exit()` termine le processus aussitôt, sans `finally` ni `with`.
+  `sys.exit()`, lui, lève `SystemExit`, et les `finally` s'exécutent.
+
+  **En entretien** : « Un `return`, `break` ou `continue` dans `finally` remplace le résultat du `try` et avale
+  l'exception en cours ; Python 3.14 le signale par un `SyntaxWarning`. La valeur d'un `return` est calculée avant le
+  `finally`, et une exception levée dans `finally` remplace celle du `try`. On garde le `finally` pour le nettoyage,
+  simple et sûr, et on préfère souvent `with`. »
+cards:
+  - key: vf-return-avale
+    format: true-false
+    question: "Un `return` dans un bloc `finally` fait disparaître l'exception que le `try` était en train de propager."
+    truth: true
+    answer: "Le `return` termine la fonction normalement : l'exception est abandonnée, sans trace. C'est pourquoi Python 3.14 émet un `SyntaxWarning` pour ce code."
+  - key: vf-exception-finally-remplace
+    format: true-false
+    question: "Une exception levée dans un `finally` remplace celle que le `try` était en train de propager."
+    truth: true
+    answer: "C'est la nouvelle qui remonte ; l'originale n'est plus que son `__context__`. Un nettoyage qui échoue masque ainsi la vraie cause."
+  - key: vf-finally-modifie-x
+    format: true-false
+    question: "Une fonction qui contient `try: return x`, puis `finally: x = 0`, renvoie 0."
+    truth: false
+    answer: "La valeur à renvoyer est calculée par `return x` avant le `finally` : réaffecter `x` ensuite ne la change pas."
+  - key: vf-os-exit
+    format: true-false
+    question: "`finally` s'exécute même quand le `try` appelle `os._exit(0)`."
+    truth: false
+    answer: "`os._exit` termine le processus immédiatement, sans dérouler la pile : ni `finally`, ni `with`, ni `atexit`. `sys.exit()`, au contraire, lève `SystemExit`."
+  - key: qcm-deux-return
+    format: multiple-choice
+    question: "Que renvoie `f()` si son `try` fait `return 1`, et son `finally` `return 2` ?"
+    choices:
+      - {text: "`2` : le `return` du `finally` l'emporte", correct: true}
+      - {text: "`1` : le premier `return` exécuté l'emporte", correct: false}
+      - {text: "`(1, 2)` : les deux valeurs, dans un tuple", correct: false}
+      - {text: "Une `SyntaxError` : un seul `return` permis", correct: false}
+    answer: "Le `finally` s'exécute après le `return 1`, et son propre `return` remplace le résultat. Python 3.14 émet un `SyntaxWarning`, pas une erreur."
+  - key: qcm-exception-dans-finally
+    format: multiple-choice
+    question: "Le `try` lève une `KeyError`, puis le `finally` lève une `ValueError`. Que reçoit l'appelant ?"
+    choices:
+      - {text: "La `ValueError`, avec la `KeyError` dans son `__context__`", correct: true}
+      - {text: "La `KeyError` : la `ValueError` du `finally` est ignorée", correct: false}
+      - {text: "Un `ExceptionGroup` qui contient les deux exceptions", correct: false}
+      - {text: "Les deux, l'une après l'autre, dans deux `except`", correct: false}
+    answer: "Une seule exception remonte : la dernière levée. La trace montre la `KeyError`, puis « During handling of the above exception, another exception occurred », puis la `ValueError`."
+  - key: qcm-ressource-inexistante
+    format: multiple-choice
+    question: "Pourquoi `try: f = open(chemin)` suivi de `finally: f.close()` est-il fragile ?"
+    choices:
+      - {text: "Si `open` échoue, `f` n'existe pas, et `close` lève une autre erreur", correct: true}
+      - {text: "`finally` ferme le fichier avant que le `try` ait fini de le lire", correct: false}
+      - {text: "`close` lève une erreur sur un fichier déjà fermé", correct: false}
+      - {text: "`open` ne lève jamais d'exception quand il est dans un `try`", correct: false}
+    answer: "L'erreur du `finally` (une `NameError` ou `UnboundLocalError`) masque la vraie, `FileNotFoundError`. `with open(...)` règle le problème. Fermer un fichier déjà fermé, lui, ne fait rien."
+  - key: qcm-break-finally
+    format: multiple-choice
+    question: "Dans une boucle, le `try` lève une exception, et son `finally` contient `break`. Que se passe-t-il ?"
+    choices:
+      - {text: "La boucle s'arrête, et l'exception disparaît", correct: true}
+      - {text: "La boucle s'arrête, puis l'exception remonte", correct: false}
+      - {text: "Le `break` est ignoré : l'exception remonte", correct: false}
+      - {text: "L'exception est relancée au tour suivant", correct: false}
+    answer: "Comme `return`, un `break` (ou `continue`) qui sort du `finally` abandonne l'exception en cours. Python 3.14 émet un `SyntaxWarning`."
+  - key: code-return-finally
+    format: code-output
+    question: |-
+      ```python
+      def f():
+          try:
+              return "try"
+          finally:
+              return "finally"
+
+
+      print(f())
+      ```
+    answer: "`finally` : le `return` du `finally` remplace celui du `try`. Python 3.14 signale ce code par un `SyntaxWarning`, sur la sortie d'erreur."
+    check:
+      output: "finally"
+    choices:
+      - {text: "`finally`", correct: true}
+      - {text: "`try`", correct: false}
+      - {text: "`try finally`", correct: false}
+      - {text: "`None`", correct: false}
+  - key: code-finally-avale
+    format: code-output
+    question: |-
+      ```python
+      def charger():
+          try:
+              raise ValueError("fichier corrompu")
+          finally:
+              return "valeur par défaut"
+
+
+      print(charger())
+      ```
+    answer: "`valeur par défaut` : le `return` du `finally` abandonne la `ValueError`, qui disparaît sans laisser de trace."
+    check:
+      output: "valeur par défaut"
+    choices:
+      - {text: "`valeur par défaut`", correct: true}
+      - {text: "`fichier corrompu`", correct: false}
+      - {text: "`None`", correct: false}
+      - {text: "`valeur par défaut fichier corrompu`", correct: false}
+  - key: code-valeur-calculee-avant
+    format: code-output
+    question: |-
+      ```python
+      def f():
+          x = 1
+          try:
+              return x
+          finally:
+              x = 2
+              print("x =", x, end=" ; ")
+
+
+      print(f())
+      ```
+    answer: "`x = 2 ; 1` : le `finally` s'exécute et affiche `x = 2`, mais la valeur à renvoyer, 1, était déjà calculée."
+    check:
+      output: "x = 2 ; 1"
+    choices:
+      - {text: "`x = 2 ; 1`", correct: true}
+      - {text: "`x = 2 ; 2`", correct: false}
+      - {text: "`1`", correct: false}
+      - {text: "`x = 1 ; 1`", correct: false}
+  - key: code-nettoyage-qui-echoue
+    format: code-output
+    question: |-
+      ```python
+      try:
+          try:
+              {}["a"]
+          finally:
+              print("nettoyage")
+              int("x")
+      except KeyError:
+          print("KeyError rattrapée")
+      ```
+    answer: "`nettoyage`, puis une `ValueError` non rattrapée : l'exception du `finally` remplace la `KeyError`, et le `except KeyError` ne correspond plus."
+    check:
+      output: "nettoyage"
+      throws: ValueError
+    choices:
+      - {text: "`nettoyage`, puis une `ValueError`", correct: true}
+      - {text: "`nettoyage`, puis une `KeyError`", correct: false}
+      - {text: "`nettoyage` et `KeyError rattrapée`, sur deux lignes", correct: false}
+      - {text: "`KeyError rattrapée`", correct: false}
+  - key: bug-return-dans-finally
+    format: bug-fix
+    question: |-
+      Pour une ligne sans `=`, cette fonction devait lever une `ValueError`, mais elle renvoie `{}` sans rien dire :
+      ```python
+      def lire_config(texte):
+          resultat = {}
+          try:
+              cle, valeur = texte.split("=")
+              resultat[cle] = valeur
+          finally:
+              return resultat
+
+
+      print(lire_config("port"))
+      ```
+      Quelle correction est la bonne ?
+    choices:
+      - {text: "Sortir le `return` du `finally`, et retirer le `try` devenu inutile", correct: true}
+      - {text: "Ajouter un `except ValueError: pass` avant le `finally`", correct: false}
+      - {text: "Remplacer `return resultat` par `return None` dans le `finally`", correct: false}
+      - {text: "Mettre le `return` dans un bloc `else` en plus du `finally`", correct: false}
+    answer: |-
+      ```python
+      def lire_config(texte):
+          cle, valeur = texte.split("=")
+          return {cle: valeur}
+      ```
+      Le `return` du `finally` abandonne l'exception (« not enough values to unpack »). Python 3.14 signale ce
+      code par un `SyntaxWarning`.
+  - key: bug-close-sans-fichier
+    format: bug-fix
+    question: |-
+      Ce programme s'arrête sur « UnboundLocalError: cannot access local variable 'f' where it is not associated with
+      a value », au lieu de dire que le fichier n'existe pas :
+      ```python
+      def lire(chemin):
+          try:
+              f = open(chemin, encoding="utf-8")
+              return f.read()
+          finally:
+              f.close()
+
+
+      lire("absent.txt")
+      ```
+      Quelle correction est la bonne ?
+    choices:
+      - {text: "Écrire `with open(chemin, encoding='utf-8') as f: return f.read()`", correct: true}
+      - {text: "Ajouter `global f` au début de la fonction", correct: false}
+      - {text: "Rattraper `UnboundLocalError` autour de l'appel à `lire`", correct: false}
+      - {text: "Remplacer `f.close()` par `del f` dans le `finally`", correct: false}
+    answer: |-
+      ```python
+      def lire(chemin):
+          with open(chemin, encoding="utf-8") as f:
+              return f.read()
+      ```
+      `open` a échoué avant d'affecter `f` : le `finally` lève une seconde erreur, qui masque `FileNotFoundError`.
+      `with` ne ferme que ce qui a été ouvert.
+  - key: bug-continue-dans-finally
+    format: bug-fix
+    question: |-
+      Ce programme affiche `15`, sans signaler la ligne invalide `x` :
+      ```python
+      total = 0
+      for ligne in ["10", "x", "5"]:
+          try:
+              total += int(ligne)
+          finally:
+              continue
+      print(total)
+      ```
+      Quelle correction est la bonne ?
+    choices:
+      - {text: "Remplacer le `finally` par `except ValueError`, qui signale la ligne", correct: true}
+      - {text: "Remplacer `continue` par `pass` dans le `finally`", correct: false}
+      - {text: "Remplacer `continue` par `break` dans le `finally`", correct: false}
+      - {text: "Ajouter un `else: continue` après le `finally`", correct: false}
+    answer: |-
+      ```python
+      try:
+          total += int(ligne)
+      except ValueError:
+          print("ligne invalide :", ligne)
+      ```
+      Le `continue` qui sort du `finally` abandonne la `ValueError` en silence. Avec `pass`, l'exception remonterait,
+      mais arrêterait tout le programme.
+  - key: bug-nettoyage-masque
+    format: bug-fix
+    question: |-
+      Ce programme s'arrête sur « AttributeError: 'NoneType' object has no attribute 'fermer' » ; la vraie cause,
+      le `TimeoutError`, n'apparaît qu'en haut de la trace :
+      ```python
+      def traiter(connexion):
+          try:
+              raise TimeoutError("le serveur ne répond pas")
+          finally:
+              connexion.fermer()
+
+
+      traiter(None)
+      ```
+      Quelle correction est la bonne ?
+    choices:
+      - {text: "Fermer seulement si `connexion is not None`, dans le `finally`", correct: true}
+      - {text: "Ajouter `return` à la fin du `finally`, pour finir proprement", correct: false}
+      - {text: "Rattraper `AttributeError` autour de l'appel à `traiter`", correct: false}
+      - {text: "Déplacer `connexion.fermer()` dans un bloc `else`", correct: false}
+    answer: |-
+      ```python
+      finally:
+          if connexion is not None:
+              connexion.fermer()
+      ```
+      Le nettoyage ne doit pas échouer : son exception remplacerait celle du `try`. Un `return` avalerait le
+      `TimeoutError` ; un `else` ne fermerait rien en cas d'erreur.
+  - key: pourquoi-pas-return-finally
+    format: course
+    question: "Pourquoi éviter un `return` dans un bloc `finally` ?"
+    choices:
+      - {text: "Il remplace le résultat du `try` et fait taire toute exception en cours", correct: true}
+      - {text: "Il est interdit depuis Python 3 et lève une `SyntaxError` à la compilation", correct: false}
+      - {text: "Il s'exécute avant le `try`, qui ne sert alors plus à rien", correct: false}
+      - {text: "Il empêche le `finally` de fermer les ressources ouvertes", correct: false}
+    answer: "Le code paraît sûr mais cache les erreurs. Python 3.14 émet un `SyntaxWarning` (PEP 765) pour `return`, `break` et `continue` qui sortent d'un `finally`."
+  - key: ordre-return-finally
+    format: course
+    question: "Dans `try: return calculer()` suivi d'un `finally`, dans quel ordre les choses se passent-elles ?"
+    choices:
+      - {text: "`calculer()` est appelé, puis le `finally` s'exécute, puis la fonction renvoie", correct: true}
+      - {text: "Le `finally` s'exécute, puis `calculer()` est appelé, puis la fonction renvoie", correct: false}
+      - {text: "La fonction renvoie, puis le `finally` s'exécute au prochain appel", correct: false}
+      - {text: "`calculer()` est appelé, la fonction renvoie, et le `finally` est sauté", correct: false}
+    answer: "L'expression du `return` est évaluée d'abord ; le `finally` s'exécute ensuite, avant que la valeur ne parvienne à l'appelant."
+  - key: with-plutot-que-finally
+    format: course
+    question: "Quelle construction remplace le plus souvent un `try` / `finally` écrit à la main pour libérer une ressource ?"
+    choices:
+      - {text: "Une instruction `with`, avec un gestionnaire de contexte", correct: true}
+      - {text: "Un décorateur `@finally` posé sur la fonction", correct: false}
+      - {text: "Un bloc `else` ajouté à la fin du `try`", correct: false}
+      - {text: "Un appel à `atexit.register` au début de la fonction", correct: false}
+    answer: "`with open(...)`, `with verrou:` : le gestionnaire libère la ressource à la sortie, et seulement si elle a été acquise. `atexit` n'agit qu'à la fin du programme."
+  - key: pep-765
+    format: course
+    question: "Que fait Python 3.14 d'un `return`, `break` ou `continue` qui sort d'un bloc `finally` ?"
+    choices:
+      - {text: "Il émet un `SyntaxWarning`, et le code s'exécute comme avant", correct: true}
+      - {text: "Il lève une `SyntaxError` : le programme ne démarre pas", correct: false}
+      - {text: "Il l'ignore : le `finally` se termine sans en tenir compte", correct: false}
+      - {text: "Il le déplace automatiquement à la fin du bloc `try`", correct: false}
+    answer: "La PEP 765 ajoute un avertissement à la compilation, sans changer le comportement : le `return` l'emporte toujours, et l'exception disparaît."
