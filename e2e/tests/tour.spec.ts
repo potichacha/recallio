@@ -97,16 +97,15 @@ test.describe('Le Tour', () => {
     await page.getByRole('link', { name: 'S’entraîner sur cette notion' }).click()
 
     await expect(page.getByRole('heading', { name: /^S’entraîner : / })).toBeVisible()
-    await expect(page.getByText(/^Carte 1 sur \d+$/)).toBeVisible()
-    // Les formats alternent : une question de cours, qu'on retourne, puis un vrai ou faux, corrigé par le serveur.
-    await page.getByRole('button', { name: 'Voir la réponse' }).click()
-    await expect(page.getByRole('region', { name: 'Réponse' })).toBeVisible()
-    await page.getByRole('button', { name: 'Carte suivante' }).click()
-
-    await expect(page.getByText(/^Carte 2 sur \d+$/)).toBeVisible()
-    await page.getByRole('radio').first().check()
-    await page.getByRole('button', { name: 'Vérifier' }).click()
-    await expect(page.getByText(/^(Juste !|Pas tout à fait\.)$/)).toBeVisible()
+    // Les formats alternent : une question de cours, puis un vrai ou faux, tous deux corrigés sur leurs choix
+    // (ADR 0051).
+    for (const number of [1, 2]) {
+      await expect(page.getByText(new RegExp(`^Carte ${number} sur \\d+$`))).toBeVisible()
+      await page.getByRole('radio').first().check()
+      await page.getByRole('button', { name: 'Vérifier' }).click()
+      await expect(page.getByText(/^(Juste !|Pas tout à fait\.)$/)).toBeVisible()
+      if (number === 1) await page.getByRole('button', { name: 'Carte suivante' }).click()
+    }
     await page.getByRole('link', { name: 'Revenir au Tour' }).click()
     await expect(page.getByRole('heading', { name: 'Bienvenue' })).toBeVisible()
   })

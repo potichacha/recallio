@@ -3,31 +3,58 @@ lesson: "Une **fuite de goroutine** est une goroutine qui ne se termine **jamais
 cards:
   - key: fuite-goroutine
     format: course
-    question: C'est quoi une fuite de goroutine ?
-    answer: Une goroutine bloquée pour toujours, jamais collectée, qui retient sa mémoire.
+    question: "Qu'est-ce qu'une fuite de goroutine ?"
+    choices:
+      - {text: "Une goroutine bloquée pour toujours, jamais ramassée, qui garde sa mémoire", correct: true}
+      - {text: "Une goroutine qui alloue sans fin, plus vite que le ramasse-miettes ne libère", correct: false}
+      - {text: "Une goroutine qui écrit dans la mémoire d'une autre, sans synchronisation", correct: false}
+      - {text: "Une goroutine qui continue à tourner en arrière-plan après la fin de `main`", correct: false}
+    answer: "Une goroutine bloquée pour toujours (ou sans condition d'arrêt) : le GC ne ramasse jamais une goroutine, ni ce qu'elle référence. L'accès concurrent non synchronisé, c'est une data race."
   - key: detecter-fuite-goroutines
     format: course
-    question: Comment détecter une fuite de goroutines ?
-    answer: Nombre de goroutines, profil goroutine de pprof, goleak en test, profil goroutineleak (Go 1.27).
+    question: "Comment détecter une fuite de goroutines ?"
+    choices:
+      - {text: "Suivre leur nombre, lire le profil goroutine de pprof, et `goleak` en test", correct: true}
+      - {text: "Lancer `go vet`, qui signale les goroutines qui ne s'arrêtent jamais", correct: false}
+      - {text: "Lancer les tests avec `-race`, qui signale aussi les goroutines bloquées", correct: false}
+      - {text: "Attendre « all goroutines are asleep », que le runtime affiche alors", correct: false}
+    answer: "Par le nombre de goroutines, le profil goroutine de pprof, `goleak` en test, et le profil `goroutineleak` (Go 1.27). Le runtime ne s'arrête que si toutes les goroutines sont bloquées, ce qui n'arrive pas dans un service."
   - key: nombre-goroutines-service-augmente-facon
     format: scenario
-    question: Le nombre de goroutines de ton service augmente de façon continue et la mémoire avec.
-    answer: |-
-      C'est une fuite de goroutines. Je récupérerais le profil `goroutine` (`/debug/pprof/goroutine?debug=2`) : il groupe les goroutines par pile, et des milliers bloquées sur la même ligne désignent le coupable. Sur Go 1.27, le profil `goroutineleak` identifie directement celles qui ne pourront jamais être débloquées.
-      Les causes habituelles : un envoi sur un channel non bufferisé après que le récepteur a abandonné (retour anticipé sur erreur ou timeout), une goroutine qui attend un channel jamais fermé, un appel réseau sans timeout, une goroutine qui ignore `ctx.Done()`.
-      Correction selon le cas : buffer dimensionné au nombre d'émetteurs, `select` avec `ctx.Done()` sur chaque envoi, timeouts sur les clients. Et j'ajouterais `goleak` aux tests du package pour que la régression ne revienne pas.
+    question: "Le nombre de goroutines de ton service augmente de façon continue, et la mémoire avec. Que fais-tu ?"
+    choices:
+      - {text: "Je compare des profils goroutine pour trouver la ligne où elles bloquent, puis je corrige", correct: true}
+      - {text: "J'augmente la mémoire du conteneur, et je redémarre le service chaque nuit", correct: false}
+      - {text: "J'appelle `runtime.GC()` régulièrement, pour ramasser les goroutines bloquées", correct: false}
+      - {text: "J'abaisse `GOMAXPROCS`, pour que le service crée moins de goroutines à la fois", correct: false}
+    answer: "C'est une fuite : le profil `goroutine` (`/debug/pprof/goroutine?debug=2`) groupe les goroutines par pile, et des milliers bloquées sur la même ligne désignent le coupable (sur Go 1.27, le profil `goroutineleak` les montre directement). Les causes habituelles : un envoi que plus personne ne lit, un channel jamais fermé, un appel réseau sans délai, un `ctx.Done()` ignoré. Je corrige (tampon, `select` sur `ctx.Done()`, délais) et j'ajoute `goleak` aux tests."
   - key: detecter-fuites-goroutines-test
     format: course
-    question: Comment détecter les fuites de goroutines en test ?
-    answer: goleak.
+    question: "Comment détecter les fuites de goroutines dans les tests ?"
+    choices:
+      - {text: "Avec `go.uber.org/goleak`, qui fait échouer un test qui laisse des goroutines", correct: true}
+      - {text: "Avec `go test -race`, qui signale chaque goroutine restée vivante", correct: false}
+      - {text: "Avec `go vet`, qui repère les goroutines sans condition d'arrêt", correct: false}
+      - {text: "Avec `t.Parallel()`, qui attend la fin des goroutines de chaque test", correct: false}
+    answer: "Avec `goleak` (`goleak.VerifyTestMain(m)` ou `defer goleak.VerifyNone(t)`) : un test qui laisse une goroutine vivante échoue, avec sa pile. `-race` détecte les courses, pas les fuites."
   - key: assurer-pipeline-fuit
     format: course
-    question: Comment s'assurer qu'un pipeline ne fuit pas ?
-    answer: Chaque étape ferme sa sortie et sélectionne sur ctx.Done() à chaque envoi.
+    question: "Comment s'assurer qu'un pipeline ne fuit pas ?"
+    choices:
+      - {text: "Chaque étape ferme sa sortie, et envoie dans un `select` avec `ctx.Done()`", correct: true}
+      - {text: "Chaque étape ferme son entrée, une fois qu'elle l'a lue jusqu'au bout", correct: false}
+      - {text: "Chaque channel reçoit un grand tampon, pour qu'aucun envoi ne bloque", correct: false}
+      - {text: "Le consommateur ferme le dernier channel quand il s'arrête plus tôt", correct: false}
+    answer: "Chaque étape ferme sa sortie et sélectionne sur `ctx.Done()` à chaque envoi : la fin descend le pipeline, et l'annulation débloque toutes les étapes. Fermer une entrée ou un channel côté lecteur fait paniquer l'émetteur."
   - key: terme-goroutineleak
     format: course
-    question: Que désigne « goroutineleak » ?
-    answer: Profil des goroutines bloquées pour toujours (Go 1.27)
+    question: "Que désigne le profil « goroutineleak » ?"
+    choices:
+      - {text: "Un profil des goroutines bloquées pour toujours, que rien ne pourra débloquer", correct: true}
+      - {text: "Un profil de toutes les goroutines vivantes, regroupées par pile identique", correct: false}
+      - {text: "Un profil des goroutines qui allouent le plus de mémoire, par pile d'appel", correct: false}
+      - {text: "Un avertissement de `go vet` sur les goroutines lancées sans contexte", correct: false}
+    answer: "Le profil des goroutines bloquées pour toujours (Go 1.27) : il ne garde que celles qui ne pourront jamais être débloquées. Le profil `goroutine`, lui, montre toutes les goroutines vivantes."
   - key: vf-gc
     format: true-false
     question: Le ramasse-miettes libère une goroutine bloquée pour toujours sur un channel inaccessible.
@@ -50,87 +77,157 @@ cards:
     answer: On le surveille avec `runtime.NumGoroutine` ou les métriques du runtime.
   - key: qcm-causes
     format: multiple-choice
-    question: Quelles situations provoquent une fuite de goroutine ?
+    question: "Laquelle de ces situations provoque une fuite de goroutine ?"
     choices:
-      - text: Un envoi sur un channel non bufferisé que plus personne ne lit
-        correct: true
-      - text: Une boucle `for { }` sans condition d'arrêt dans une goroutine de travail
-        correct: true
-      - text: Une goroutine qui se termine normalement après son travail
-        correct: false
-      - text: Un channel fermé par son émetteur
-        correct: false
-    answer: Une goroutine qui finit son travail ne fuit pas.
+      - {text: "Un envoi sur un channel non bufferisé que plus personne ne lit", correct: true}
+      - {text: "Une goroutine qui se termine normalement après son travail", correct: false}
+      - {text: "Un channel fermé par son émetteur une fois les envois finis", correct: false}
+      - {text: "Un channel bufferisé qui garde des valeurs jamais lues", correct: false}
+    answer: "L'émetteur reste bloqué pour toujours ; une boucle `for { }` sans condition d'arrêt fuit aussi. Un channel plein de valeurs non lues, sans goroutine bloquée dessus, est simplement ramassé."
   - key: qcm-detecter
     format: multiple-choice
-    question: Quels outils aident à détecter une fuite ?
+    question: "Lesquels de ces outils aident à détecter une fuite de goroutines ?"
     choices:
-      - text: Le profil goroutine de pprof
-        correct: true
-      - text: '`go.uber.org/goleak` dans les tests'
-        correct: true
-      - text: '`go vet`'
-        correct: false
-      - text: '`gofmt`'
-        correct: false
-    answer: Le profil montre où les goroutines sont bloquées.
+      - {text: "Le profil goroutine de pprof", correct: true}
+      - {text: "`go.uber.org/goleak` dans les tests", correct: true}
+      - {text: "Le détecteur de courses, `go test -race`", correct: false}
+      - {text: "L'analyse statique de `go vet`", correct: false}
+    answer: "Le profil montre où les goroutines sont bloquées, et goleak fait échouer le test qui en laisse une vivante. `-race` détecte les accès concurrents, et `go vet` ne voit pas les fuites."
   - key: qcm-corriger
     format: multiple-choice
-    question: Comment corriger la fuite d'une goroutine qui envoie son résultat après l'abandon du lecteur ?
+    question: "Comment corriger la fuite d'une goroutine qui envoie son résultat après l'abandon du lecteur ?"
     choices:
-      - text: Donner au channel une capacité de 1
-        correct: true
-      - text: Faire surveiller `ctx.Done()` par la goroutine dans un select
-        correct: true
-      - text: Ajouter un `time.Sleep` avant l'envoi
-        correct: false
-      - text: Fermer le channel côté lecteur
-        correct: false
-    answer: Fermer côté lecteur ferait paniquer l'émetteur.
+      - {text: "Donner au channel une capacité de 1", correct: true}
+      - {text: "Ajouter un `time.Sleep` avant l'envoi", correct: false}
+      - {text: "Fermer le channel côté lecteur", correct: false}
+      - {text: "Lancer la goroutine sans `go`", correct: false}
+    answer: "Avec une place, l'envoi réussit même sans lecteur ; faire surveiller `ctx.Done()` par la goroutine dans un `select` marche aussi. Fermer côté lecteur ferait paniquer l'émetteur."
   - key: qcm-symptomes
     format: multiple-choice
-    question: Quels symptômes trahissent des fuites de goroutines en production ?
+    question: "Quel symptôme trahit des fuites de goroutines en production ?"
     choices:
-      - text: La mémoire augmente régulièrement sans revenir
-        correct: true
-      - text: Le nombre de goroutines croît sous une charge constante
-        correct: true
-      - text: Des paniques « nil pointer dereference »
-        correct: false
-      - text: Un temps de démarrage plus long
-        correct: false
-    answer: 'Les fuites sont silencieuses : seule la croissance les révèle.'
+      - {text: "Le nombre de goroutines croît sous une charge constante", correct: true}
+      - {text: "Des panics « nil pointer dereference » à répétition", correct: false}
+      - {text: "Un temps de démarrage du service de plus en plus long", correct: false}
+      - {text: "L'erreur fatale « all goroutines are asleep - deadlock! »", correct: false}
+    answer: "Les fuites sont silencieuses : seule la croissance les révèle, du nombre de goroutines et de la mémoire, qui ne revient pas. Le service, lui, continue de répondre."
   - key: code-fuite
     format: code-output
-    question: "```go\nfuiter := func() {\n\tch := make(chan int)\n\tgo func() { ch <- 1 }() // personne ne lit\n}\n\navant := runtime.NumGoroutine()\nfor range 100 {\n\tfuiter()\n}\ntime.Sleep(50 * time.Millisecond)\nfmt.Println(runtime.NumGoroutine()-avant >= 100)\n```"
-    answer: '`true` : les cent goroutines restent bloquées sur leur envoi, pour toujours.'
+    question: |-
+      Qu'affiche ce code ?
+      ```go
+      fuiter := func() {
+      	ch := make(chan int)
+      	go func() { ch <- 1 }() // personne ne lit
+      }
+
+      avant := runtime.NumGoroutine()
+      for range 100 {
+      	fuiter()
+      }
+      time.Sleep(50 * time.Millisecond)
+      fmt.Println(runtime.NumGoroutine()-avant >= 100)
+      ```
+    choices:
+      - {text: "`true`", correct: true}
+      - {text: "`false`", correct: false}
+      - {text: "`100`", correct: false}
+      - {text: "Une erreur fatale : all goroutines are asleep - deadlock!", correct: false}
+    answer: "`true` : les cent goroutines restent bloquées sur leur envoi, pour toujours. `main` n'est pas bloqué, donc le runtime ne voit pas d'interblocage."
     check:
       code: "package main\n\nimport (\n\t\"fmt\"\n\t\"runtime\"\n\t\"time\"\n)\n\nfunc main() {\n\tfuiter := func() {\n\t\tch := make(chan int)\n\t\tgo func() { ch <- 1 }() // personne ne lit\n\t}\n\n\tavant := runtime.NumGoroutine()\n\tfor range 100 {\n\t\tfuiter()\n\t}\n\ttime.Sleep(50 * time.Millisecond)\n\tfmt.Println(runtime.NumGoroutine()-avant >= 100)\n}\n"
       output: 'true'
   - key: code-buffer
     format: code-output
-    question: "```go\nsansFuite := func() {\n\tch := make(chan int, 1)\n\tgo func() { ch <- 1 }() // l'envoi réussit, la goroutine se termine\n}\n\navant := runtime.NumGoroutine()\nfor range 100 {\n\tsansFuite()\n}\ntime.Sleep(50 * time.Millisecond)\nfmt.Println(runtime.NumGoroutine()-avant < 10)\n```"
-    answer: '`true` : avec une capacité de 1, chaque goroutine termine.'
+    question: |-
+      Qu'affiche ce code ?
+      ```go
+      sansFuite := func() {
+      	ch := make(chan int, 1)
+      	go func() { ch <- 1 }() // l'envoi réussit, la goroutine se termine
+      }
+
+      avant := runtime.NumGoroutine()
+      for range 100 {
+      	sansFuite()
+      }
+      time.Sleep(50 * time.Millisecond)
+      fmt.Println(runtime.NumGoroutine()-avant < 10)
+      ```
+    choices:
+      - {text: "`true`", correct: true}
+      - {text: "`false`", correct: false}
+      - {text: "`100`", correct: false}
+      - {text: "Une erreur fatale : all goroutines are asleep - deadlock!", correct: false}
+    answer: "`true` : avec une capacité de 1, chaque envoi réussit sans lecteur, et chaque goroutine se termine."
     check:
       code: "package main\n\nimport (\n\t\"fmt\"\n\t\"runtime\"\n\t\"time\"\n)\n\nfunc main() {\n\tsansFuite := func() {\n\t\tch := make(chan int, 1)\n\t\tgo func() { ch <- 1 }() // l'envoi réussit, la goroutine se termine\n\t}\n\n\tavant := runtime.NumGoroutine()\n\tfor range 100 {\n\t\tsansFuite()\n\t}\n\ttime.Sleep(50 * time.Millisecond)\n\tfmt.Println(runtime.NumGoroutine()-avant < 10)\n}\n"
       output: 'true'
   - key: code-contexte
     format: code-output
-    question: "```go\nctx, cancel := context.WithCancel(context.Background())\nfini := make(chan struct{})\ngo func() {\n\tdefer close(fini)\n\t<-ctx.Done()\n}()\ncancel()\n<-fini\nfmt.Println(\"arrêtée\", ctx.Err())\n```"
-    answer: '`arrêtée context canceled` : la goroutine a une condition d''arrêt et se termine.'
+    question: |-
+      Qu'affiche ce code ?
+      ```go
+      ctx, cancel := context.WithCancel(context.Background())
+      fini := make(chan struct{})
+      go func() {
+      	defer close(fini)
+      	<-ctx.Done()
+      }()
+      cancel()
+      <-fini
+      fmt.Println("arrêtée", ctx.Err())
+      ```
+    choices:
+      - {text: "`arrêtée context canceled`", correct: true}
+      - {text: "`arrêtée <nil>`", correct: false}
+      - {text: "`arrêtée context deadline exceeded`", correct: false}
+      - {text: "Rien : la goroutine attend pour toujours", correct: false}
+    answer: "`arrêtée context canceled` : `cancel` ferme `ctx.Done()`, la goroutine a une condition d'arrêt et se termine. `deadline exceeded` viendrait d'un délai, pas d'une annulation."
     check:
       code: "package main\n\nimport (\n\t\"context\"\n\t\"fmt\"\n)\n\nfunc main() {\n\tctx, cancel := context.WithCancel(context.Background())\n\tfini := make(chan struct{})\n\tgo func() {\n\t\tdefer close(fini)\n\t\t<-ctx.Done()\n\t}()\n\tcancel()\n\t<-fini\n\tfmt.Println(\"arrêtée\", ctx.Err())\n}\n"
       output: arrêtée context canceled
   - key: code-numgoroutine
     format: code-output
-    question: "```go\nvar wg sync.WaitGroup\nfor range 10 {\n\twg.Go(func() {})\n}\nwg.Wait()\ntime.Sleep(10 * time.Millisecond)\nfmt.Println(runtime.NumGoroutine())\n```"
-    answer: '`1` : seules restent les goroutines vivantes, ici `main`.'
+    question: |-
+      Qu'affiche ce code ?
+      ```go
+      var wg sync.WaitGroup
+      for range 10 {
+      	wg.Go(func() {})
+      }
+      wg.Wait()
+      time.Sleep(10 * time.Millisecond)
+      fmt.Println(runtime.NumGoroutine())
+      ```
+    choices:
+      - {text: "`1`", correct: true}
+      - {text: "`11`", correct: false}
+      - {text: "`0`", correct: false}
+      - {text: "`10`", correct: false}
+    answer: "`1` : les dix goroutines sont terminées ; seule reste `main`, qui compte elle aussi."
     check:
       code: "package main\n\nimport (\n\t\"fmt\"\n\t\"runtime\"\n\t\"sync\"\n\t\"time\"\n)\n\nfunc main() {\n\tvar wg sync.WaitGroup\n\tfor range 10 {\n\t\twg.Go(func() {})\n\t}\n\twg.Wait()\n\ttime.Sleep(10 * time.Millisecond)\n\tfmt.Println(runtime.NumGoroutine())\n}\n"
       output: '1'
   - key: bug-resultat
     format: bug-fix
-    question: "Le nombre de goroutines augmente à chaque requête qui expire :\n```go\nres := make(chan Resultat)\ngo func() { res <- appelerAPI(q) }()\nselect {\ncase r := <-res:\n\treturn r, nil\ncase <-ctx.Done():\n\treturn Resultat{}, ctx.Err()\n}\n```"
+    question: |-
+      Le nombre de goroutines augmente à chaque requête qui expire. Quelle correction est la bonne ?
+      ```go
+      res := make(chan Resultat)
+      go func() { res <- appelerAPI(q) }()
+      select {
+      case r := <-res:
+      	return r, nil
+      case <-ctx.Done():
+      	return Resultat{}, ctx.Err()
+      }
+      ```
+    choices:
+      - {text: "Donner à `res` une capacité de 1 : l'envoi réussit même sans lecteur", correct: true}
+      - {text: "Fermer `res` dans la branche `ctx.Done()`, avant de rendre l'erreur", correct: false}
+      - {text: "Ajouter une branche `default` au `select`, pour ne jamais attendre", correct: false}
+      - {text: "Remplacer `ctx.Done()` par un `time.After`, pour borner l'attente", correct: false}
     answer: |-
       ```go
       res := make(chan Resultat, 1)
@@ -139,36 +236,73 @@ cards:
       goroutine se termine.
   - key: bug-producteur
     format: bug-fix
-    question: "Le producteur reste bloqué quand le consommateur s'arrête sur une erreur :\n```go\ngo func() {\n\tfor _, l := range lignes {\n\t\tsortie <- l\n\t}\n\tclose(sortie)\n}()\n```"
+    question: |-
+      Le producteur reste bloqué quand le consommateur s'arrête sur une erreur. Quelle correction est la bonne ?
+      ```go
+      go func() {
+      	for _, l := range lignes {
+      		sortie <- l
+      	}
+      	close(sortie)
+      }()
+      ```
+    choices:
+      - {text: "Envoyer dans un `select` avec `ctx.Done()`, et fermer `sortie` par `defer`", correct: true}
+      - {text: "Faire fermer `sortie` par le consommateur, au moment où il s'arrête", correct: false}
+      - {text: "Ajouter un court `time.Sleep` entre deux envois du producteur", correct: false}
+      - {text: "Remplacer `close(sortie)` par `sortie = nil` à la fin de la boucle", correct: false}
     answer: "```go\ngo func() {\n\tdefer close(sortie)\n\tfor _, l := range lignes {\n\t\tselect {\n\t\tcase sortie <- l:\n\t\tcase <-ctx.Done():\n\t\t\treturn\n\t\t}\n\t}\n}()\n```\nLe producteur surveille le contexte : quand le consommateur abandonne (et annule), il s'arrête au lieu de rester\nbloqué sur l'envoi."
   - key: bug-boucle
     format: bug-fix
-    question: "Le rafraîchissement du cache continue après l'arrêt du serveur :\n```go\ngo func() {\n\tfor {\n\t\trafraichir()\n\t\ttime.Sleep(time.Minute)\n\t}\n}()\n```"
+    question: |-
+      Ce rafraîchissement du cache continue après l'arrêt du serveur. Quelle correction est la bonne ?
+      ```go
+      go func() {
+      	for {
+      		rafraichir()
+      		time.Sleep(time.Minute)
+      	}
+      }()
+      ```
+    choices:
+      - {text: "Un `select` sur un `time.Ticker` et sur `ctx.Done()`, le contexte du serveur", correct: true}
+      - {text: "Remplacer `time.Sleep` par un `<-time.After(time.Minute)` dans la même boucle", correct: false}
+      - {text: "Vérifier `runtime.NumGoroutine()` à chaque tour, et sortir s'il vaut 1", correct: false}
+      - {text: "Lancer la goroutine avec `defer` plutôt qu'avec `go`, pour la lier au serveur", correct: false}
     answer: "```go\ngo func() {\n\tticker := time.NewTicker(time.Minute)\n\tdefer ticker.Stop()\n\tfor {\n\t\tselect {\n\t\tcase <-ticker.C:\n\t\t\trafraichir()\n\t\tcase <-ctx.Done():\n\t\t\treturn\n\t\t}\n\t}\n}()\n```\nLa goroutine n'avait aucune condition d'arrêt ; le contexte du serveur lui en donne une."
   - key: bug-test
     format: bug-fix
     question: Comment faire échouer un test qui laisse fuiter des goroutines ?
+    choices:
+      - {text: "`goleak.VerifyTestMain(m)` dans `TestMain`, ou `defer goleak.VerifyNone(t)`", correct: true}
+      - {text: "`go test -race`, qui fait échouer tout test qui laisse une goroutine", correct: false}
+      - {text: "`t.Cleanup(runtime.GC)`, qui ramasse les goroutines restées vivantes", correct: false}
+      - {text: "Vérifier au début de chaque test que `runtime.NumGoroutine()` vaut 1", correct: false}
     answer: "```go\nfunc TestMain(m *testing.M) {\n\tgoleak.VerifyTestMain(m)\n}\n// ou, par test : defer goleak.VerifyNone(t)\n```\n`go.uber.org/goleak` vérifie qu'aucune goroutine inattendue ne reste vivante à la fin des tests."
   - key: scenario-proprietaire
     format: scenario
     question: Quelle règle de conception empêche la plupart des fuites de goroutines ?
-    answer: |-
-      Celui qui lance une goroutine est responsable de sa fin : il sait quand et comment elle s'arrête (fin de travail,
-      contexte annulé, channel fermé) et, idéalement, il attend qu'elle soit terminée avant de rendre la main (un
-      WaitGroup ou un channel `done`). Une API qui lance des goroutines en arrière-plan expose une méthode `Close` ou
-      `Shutdown(ctx)` qui les arrête et les attend.
+    choices:
+      - {text: "Qui lance une goroutine répond de sa fin : il sait comment elle s'arrête, et il l'attend", correct: true}
+      - {text: "Lancer toutes les goroutines depuis `main`, qui les surveille depuis un seul endroit", correct: false}
+      - {text: "Donner un tampon à tous les channels, pour qu'aucun envoi ne puisse jamais bloquer", correct: false}
+      - {text: "Laisser le ramasse-miettes arrêter les goroutines dont plus personne n'a besoin", correct: false}
+    answer: "Celui qui lance une goroutine est responsable de sa fin : il sait quand et comment elle s'arrête (fin du travail, contexte annulé, channel fermé), et il attend qu'elle soit terminée avant de rendre la main. Une API qui lance des goroutines en arrière-plan expose une méthode `Close` ou `Shutdown(ctx)` qui les arrête et les attend."
   - key: scenario-pprof
     format: scenario
     question: Comment trouves-tu où sont bloquées les goroutines qui fuient, en production ?
-    answer: |-
-      J'expose `net/http/pprof` sur un port interne et je récupère le profil goroutine
-      (`/debug/pprof/goroutine?debug=1`) : il regroupe les goroutines par pile identique avec leur nombre. Le groupe qui
-      grandit montre la ligne exacte où elles attendent, souvent un envoi sur un channel ou un `select` sans cas
-      d'annulation. Je compare deux profils à quelques minutes d'intervalle pour confirmer la croissance.
+    choices:
+      - {text: "Le profil goroutine de `net/http/pprof`, regroupé par pile, comparé à quelques minutes d'écart", correct: true}
+      - {text: "Le profil CPU de pprof, qui montre les fonctions dans lesquelles les goroutines tournent", correct: false}
+      - {text: "Le profil mémoire de pprof, qui montre les allocations faites par chaque goroutine", correct: false}
+      - {text: "`go vet` sur le code déployé, qui signale les envois sur un channel sans lecteur", correct: false}
+    answer: "J'expose `net/http/pprof` sur un port interne et je récupère le profil goroutine (`/debug/pprof/goroutine?debug=1`), qui regroupe les goroutines par pile avec leur nombre. Le groupe qui grandit, entre deux profils pris à quelques minutes d'écart, montre la ligne exacte où elles attendent ; une goroutine bloquée n'apparaît pas dans un profil CPU."
   - key: scenario-test
     format: scenario
     question: Comment empêches-tu les régressions de fuites dans la CI ?
-    answer: |-
-      J'ajoute `goleak.VerifyTestMain(m)` dans les packages qui lancent des goroutines : un test qui laisse une goroutine
-      vivante échoue, avec sa pile. Les tests des composants qui démarrent des goroutines appellent leur `Close` (via
-      `t.Cleanup`). Et une métrique du nombre de goroutines, avec une alerte sur sa pente, couvre la production.
+    choices:
+      - {text: "`goleak.VerifyTestMain` dans les paquets qui lancent des goroutines, et leur `Close` dans `t.Cleanup`", correct: true}
+      - {text: "`go test -race` sur tous les paquets, qui fait échouer chaque test qui laisse fuir une goroutine", correct: false}
+      - {text: "Un `runtime.GC()` à la fin de chaque test, pour ramasser les goroutines restées bloquées", correct: false}
+      - {text: "Un `-timeout` très court, qui coupe les tests dont des goroutines restent vivantes", correct: false}
+    answer: "`goleak.VerifyTestMain(m)` dans les paquets qui lancent des goroutines : un test qui en laisse une vivante échoue, avec sa pile. Les tests appellent le `Close` des composants (via `t.Cleanup`), et une alerte sur la pente du nombre de goroutines couvre la production."

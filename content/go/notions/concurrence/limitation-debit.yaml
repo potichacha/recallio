@@ -3,32 +3,58 @@ lesson: "Limiter la **concurrence** (combien en même temps) n'est pas limiter l
 cards:
   - key: pattern-limiter-debit
     format: course
-    question: Quel pattern pour limiter un débit ?
-    answer: Un rate limiter à jetons, par exemple golang.org/x/time/rate.
+    question: "Quel motif utiliser pour limiter un débit ?"
+    choices:
+      - {text: "Un limiteur à jetons, comme `golang.org/x/time/rate`", correct: true}
+      - {text: "Un sémaphore, qui borne les opérations en cours", correct: false}
+      - {text: "Un `time.Sleep` fixe après chaque opération", correct: false}
+      - {text: "Un channel bufferisé de la taille du débit voulu", correct: false}
+    answer: "Un limiteur à jetons (rate limiter), par exemple `golang.org/x/time/rate`. Un sémaphore borne la concurrence, pas le débit, et un `Sleep` s'ajoute à la durée de chaque opération."
   - key: bibliotheque-rate-limiting
     format: course
-    question: Quelle bibliothèque de rate limiting ?
-    answer: golang.org/x/time/rate (token bucket).
+    question: "Quelle bibliothèque limite un débit en Go, et sur quel algorithme repose-t-elle ?"
+    choices:
+      - {text: "`golang.org/x/time/rate`, un seau à jetons", correct: true}
+      - {text: "`golang.org/x/sync/semaphore`, un seau à jetons", correct: false}
+      - {text: "`golang.org/x/time/rate`, une fenêtre fixe d'une seconde", correct: false}
+      - {text: "`time.Ticker`, une fenêtre glissante sur une minute", correct: false}
+    answer: "`golang.org/x/time/rate`, qui implémente un seau à jetons (token bucket). `x/sync/semaphore` limite la concurrence, pas le débit."
   - key: demande-ecrire-rate-limiter-simple
     format: scenario
-    question: On te demande d'écrire un rate limiter simple.
-    answer: 'En production j''utiliserais `golang.org/x/time/rate` (token bucket) : `lim := rate.NewLimiter(rate.Limit(10), 20)` puis `lim.Wait(ctx)` ou `lim.Allow()`. Si on me demande de l''écrire, un token bucket avec une capacité, un débit de remplissage, un nombre de jetons et l''instant du dernier remplissage, le tout sous mutex : à chaque demande, je recalcule les jetons ajoutés depuis le dernier passage (bornés par la capacité), et j''accepte si au moins un jeton est disponible. L''horloge est injectée pour pouvoir le tester. Pour plusieurs instances, l''état passe dans Redis avec une opération atomique (script Lua).'
+    question: "En entretien, on te demande d'écrire un limiteur de débit simple. Que proposes-tu ?"
+    choices:
+      - {text: "Un seau à jetons sous mutex : capacité, débit de remplissage, jetons, et instant du dernier remplissage", correct: true}
+      - {text: "Un compteur remis à zéro chaque seconde par un `time.Ticker`, lu et écrit sans verrou", correct: false}
+      - {text: "Un `time.Sleep` d'une durée de 1 / débit avant chaque requête, dans chaque goroutine", correct: false}
+      - {text: "Un channel bufferisé de la capacité voulue, rempli à chaque requête et jamais vidé", correct: false}
+    answer: "En production, `golang.org/x/time/rate` (`rate.NewLimiter(rate.Limit(10), 20)`, puis `Wait(ctx)` ou `Allow()`). À écrire : un seau à jetons sous mutex, qui recalcule à chaque demande les jetons ajoutés depuis le dernier passage (bornés par la capacité) et accepte s'il en reste un, avec une horloge injectée pour le tester. Pour plusieurs instances, l'état passe dans Redis avec une opération atomique."
   - key: concurrence-vs-debit
     format: course
-    question: Quelle différence entre limiter la concurrence et limiter le débit ?
-    answer: La concurrence borne le nombre d'opérations en cours au même moment ; le débit borne le nombre d'opérations par unité de temps. Un seul worker rapide peut dépasser un débit autorisé.
+    question: "Quelle différence entre limiter la concurrence et limiter le débit ?"
+    choices:
+      - {text: "La concurrence borne les opérations en cours ; le débit, les opérations par unité de temps", correct: true}
+      - {text: "Aucune : borner les opérations en cours borne aussi le nombre d'opérations par seconde", correct: false}
+      - {text: "La concurrence se limite par un seau à jetons ; le débit, par un sémaphore", correct: false}
+      - {text: "La concurrence vaut pour les goroutines ; le débit, pour les seules requêtes HTTP", correct: false}
+    answer: "La concurrence borne le nombre d'opérations en cours au même moment ; le débit borne le nombre d'opérations par unité de temps. Un seul worker rapide peut dépasser un débit autorisé."
   - key: seau
     format: course
-    question: Comment fonctionne un seau à jetons ?
-    answer: Un seau de capacité b se remplit de r jetons par seconde ; chaque opération consomme un jeton et attend (ou est refusée) quand le seau est vide. b autorise des rafales, r fixe le débit moyen.
+    question: "Comment fonctionne un seau à jetons ?"
+    choices:
+      - {text: "Il se remplit de r jetons par seconde, jusqu'à b ; chaque opération en consomme un", correct: true}
+      - {text: "Il accepte b opérations par seconde, puis refuse tout jusqu'à la seconde suivante", correct: false}
+      - {text: "Il range les opérations dans une file, et les laisse sortir à un débit constant", correct: false}
+      - {text: "Il compte les opérations des 60 dernières secondes, et refuse au-delà de b", correct: false}
+    answer: "Un seau de capacité b se remplit de r jetons par seconde ; chaque opération consomme un jeton et attend (ou est refusée) quand le seau est vide. b autorise des rafales, r fixe le débit moyen ; les autres choix décrivent la fenêtre fixe, le seau qui fuit et la fenêtre glissante."
   - key: scenario-api-publique
     format: scenario
     question: Ton API publique doit limiter chaque client à 100 requêtes par minute. Comment t'y prends-tu ?
-    answer: |-
-      Un middleware identifie le client (clé d'API, sinon adresse IP) et consulte son limiteur `rate.Limiter`, rangé
-      dans une map protégée par un mutex et nettoyée des clients inactifs. `Allow()` faux : réponse 429 avec un en-tête
-      `Retry-After`. Avec plusieurs instances derrière un répartiteur, je partage le compteur dans Redis (fenêtre
-      glissante ou seau à jetons scripté), ou je délègue la limite à la passerelle d'API.
+    choices:
+      - {text: "Un `rate.Limiter` par client, dans une map protégée, et un 429 avec `Retry-After` au refus", correct: true}
+      - {text: "Un seul `rate.Limiter` global à 100 par minute, partagé par tous les clients de l'API", correct: false}
+      - {text: "Un `rate.Limiter` à 100 par minute, créé à chaque requête dans le middleware", correct: false}
+      - {text: "Un sémaphore de 100 places par client, libérées à la fin de chacune de ses requêtes", correct: false}
+    answer: "Un middleware identifie le client (clé d'API, sinon adresse IP) et consulte son `rate.Limiter`, rangé dans une map protégée par un mutex et nettoyée des clients inactifs ; au refus, une réponse 429 avec `Retry-After`. Avec plusieurs instances, je partage le compteur dans Redis, ou je délègue la limite à la passerelle d'API."
   - key: vf-ticker
     format: true-false
     question: Un `time.Ticker` permet de limiter un débit sans dépendance externe.
@@ -51,20 +77,16 @@ cards:
     answer: Chaque instance a le sien ; il faut un stockage partagé (Redis) ou la passerelle.
   - key: qcm-methodes
     format: multiple-choice
-    question: Quelles méthodes de `rate.Limiter` conviennent à quel usage ?
+    question: "Quelle méthode de `rate.Limiter` convient côté serveur, pour refuser tout de suite une requête en trop ?"
     choices:
-      - text: '`Wait(ctx)` côté client, pour attendre un jeton'
-        correct: true
-      - text: '`Allow()` côté serveur, pour refuser tout de suite'
-        correct: true
-      - text: '`Allow()` côté client, en boucle active jusqu''à true'
-        correct: false
-      - text: '`Wait` côté serveur, pour faire patienter chaque requête sans limite'
-        correct: false
-    answer: Une boucle active brûle du processeur ; un serveur qui fait attendre sans fin accumule les connexions.
+      - {text: "`Allow()`", correct: true}
+      - {text: "`Wait(ctx)`", correct: false}
+      - {text: "`SetLimit(0)`", correct: false}
+      - {text: "`Burst()`", correct: false}
+    answer: "`Allow()` répond aussitôt, sans attendre. `Wait(ctx)` convient côté client, pour attendre un jeton ; un serveur qui fait attendre sans fin accumule les connexions."
   - key: qcm-reponse
     format: multiple-choice
-    question: Que renvoie un serveur HTTP qui refuse une requête pour dépassement de débit ?
+    question: "Lesquels de ces éléments un serveur HTTP renvoie-t-il quand il refuse une requête pour dépassement de débit ?"
     choices:
       - text: 429 Too Many Requests
         correct: true
@@ -77,59 +99,104 @@ cards:
     answer: Le client sait alors qu'il doit ralentir.
   - key: qcm-par-client
     format: multiple-choice
-    question: Comment limiter chaque client séparément ?
+    question: "Comment limiter chaque client séparément ?"
     choices:
-      - text: Une map de limiteurs par clé d'API ou adresse IP, protégée par un mutex
-        correct: true
-      - text: Un nettoyage des limiteurs des clients inactifs
-        correct: true
-      - text: Un seul limiteur global pour tous les clients
-        correct: false
-      - text: Un limiteur créé à chaque requête
-        correct: false
-    answer: Un limiteur neuf à chaque requête aurait toujours son seau plein.
+      - {text: "Une map de limiteurs par clé d'API ou adresse IP, protégée par un mutex", correct: true}
+      - {text: "Un seul limiteur global, partagé par tous les clients du service", correct: false}
+      - {text: "Un limiteur neuf, créé à chaque requête du client", correct: false}
+      - {text: "Une map de limiteurs sans verrou, lue par tous les handlers", correct: false}
+    answer: "Un limiteur par client, qui dure ; la map est protégée par un mutex et nettoyée des clients inactifs. Un limiteur neuf à chaque requête aurait toujours son seau plein."
   - key: qcm-algorithmes
     format: multiple-choice
-    question: Quels algorithmes servent à limiter un débit ?
+    question: "Quel défaut a la fenêtre fixe, comme algorithme de limitation de débit ?"
     choices:
-      - text: Le seau à jetons
-        correct: true
-      - text: La fenêtre glissante
-        correct: true
-      - text: Le tri par insertion
-        correct: false
-      - text: Le ramasse-miettes
-        correct: false
-    answer: La fenêtre fixe existe aussi, mais laisse passer le double à la jonction de deux fenêtres.
+      - {text: "Un client peut faire le double de la limite à la jonction de deux fenêtres", correct: true}
+      - {text: "Elle n'autorise aucune rafale, pas même deux requêtes dans la même seconde", correct: false}
+      - {text: "Elle doit garder en mémoire la date de chacune des requêtes de la fenêtre", correct: false}
+      - {text: "Elle ne sait limiter qu'un seul client à la fois, jamais plusieurs", correct: false}
+    answer: "Elle compte par fenêtre calendaire : un client peut remplir la fin d'une fenêtre et le début de la suivante, soit le double en peu de temps. La fenêtre glissante et le seau à jetons lissent cet effet ; garder chaque date, c'est le journal de la fenêtre glissante."
   - key: bug-concurrence
     format: bug-fix
-    question: "L'API partenaire autorise 10 requêtes par seconde et renvoie des 429 malgré ce code :\n```go\nsem := make(chan struct{}, 10)\nfor _, r := range requetes {\n\tsem <- struct{}{}\n\tgo func() {\n\t\tdefer func() { <-sem }()\n\t\tenvoyer(r)\n\t}()\n}\n```"
+    question: |-
+      L'API partenaire autorise 10 requêtes par seconde, et renvoie des 429 malgré ce code. Quelle correction est la bonne ?
+      ```go
+      sem := make(chan struct{}, 10)
+      for _, r := range requetes {
+      	sem <- struct{}{}
+      	go func() {
+      		defer func() { <-sem }()
+      		envoyer(r)
+      	}()
+      }
+      ```
+    choices:
+      - {text: "Ajouter un `rate.Limiter` à 10 par seconde, attendu par `Wait(ctx)` avant chaque envoi", correct: true}
+      - {text: "Réduire le sémaphore à 5 places, pour rester sous la limite de 10 par seconde", correct: false}
+      - {text: "Agrandir le sémaphore à 100 places, pour finir plus vite et libérer le quota", correct: false}
+      - {text: "Réessayer aussitôt chaque requête qui reçoit un 429, jusqu'à ce qu'elle passe", correct: false}
     answer: "```go\nlimiteur := rate.NewLimiter(rate.Limit(10), 1)\nfor _, r := range requetes {\n\tif err := limiteur.Wait(ctx); err != nil {\n\t\treturn err\n\t}\n\tsem <- struct{}{}\n\tgo func() {\n\t\tdefer func() { <-sem }()\n\t\tenvoyer(r)\n\t}()\n}\n```\nLe sémaphore bornait la concurrence, pas le débit : des requêtes rapides dépassaient 10 par seconde."
   - key: bug-limiteur-par-requete
     format: bug-fix
-    question: "Le middleware ne limite jamais personne :\n```go\nfunc limiter(next http.Handler) http.Handler {\n\treturn http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n\t\tl := rate.NewLimiter(5, 10)\n\t\tif !l.Allow() {\n\t\t\thttp.Error(w, \"trop de requêtes\", http.StatusTooManyRequests)\n\t\t\treturn\n\t\t}\n\t\tnext.ServeHTTP(w, r)\n\t})\n}\n```"
+    question: |-
+      Ce middleware ne limite jamais personne. Quelle correction est la bonne ?
+      ```go
+      func limiter(next http.Handler) http.Handler {
+      	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+      		l := rate.NewLimiter(5, 10)
+      		if !l.Allow() {
+      			http.Error(w, "trop de requêtes", http.StatusTooManyRequests)
+      			return
+      		}
+      		next.ServeHTTP(w, r)
+      	})
+      }
+      ```
+    choices:
+      - {text: "Garder un limiteur par client dans une map protégée, au lieu d'en créer un par requête", correct: true}
+      - {text: "Remplacer `Allow()` par `Wait(r.Context())`, qui attend qu'un jeton soit disponible", correct: false}
+      - {text: "Abaisser la rafale de 10 à 1, pour que le limiteur refuse plus tôt les requêtes", correct: false}
+      - {text: "Créer le limiteur avec `rate.Every(time.Second)` au lieu d'un débit de 5", correct: false}
     answer: "```go\nfunc limiter(next http.Handler) http.Handler {\n\tvar mu sync.Mutex\n\tparClient := map[string]*rate.Limiter{}\n\treturn http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n\t\tcle := r.Header.Get(\"X-Api-Key\")\n\t\tmu.Lock()\n\t\tl, ok := parClient[cle]\n\t\tif !ok {\n\t\t\tl = rate.NewLimiter(5, 10)\n\t\t\tparClient[cle] = l\n\t\t}\n\t\tmu.Unlock()\n\t\tif !l.Allow() {\n\t\t\thttp.Error(w, \"trop de requêtes\", http.StatusTooManyRequests)\n\t\t\treturn\n\t\t}\n\t\tnext.ServeHTTP(w, r)\n\t})\n}\n```\nUn limiteur neuf à chaque requête avait toujours des jetons ; il doit durer, un par client."
   - key: bug-sleep
     format: bug-fix
-    question: "Pour respecter 100 requêtes par seconde, le code dort 10 ms après chaque appel ; le débit réel est bien plus bas.\n```go\nfor _, r := range requetes {\n\tenvoyer(r)\n\ttime.Sleep(10 * time.Millisecond)\n}\n```"
+    question: |-
+      Pour respecter 100 requêtes par seconde, ce code dort 10 ms après chaque appel, mais le débit réel est bien plus bas. Quelle correction est la bonne ?
+      ```go
+      for _, r := range requetes {
+      	envoyer(r)
+      	time.Sleep(10 * time.Millisecond)
+      }
+      ```
+    choices:
+      - {text: "Cadencer les départs avec un `time.Ticker` de 10 ms (ou `rate.Limiter.Wait`)", correct: true}
+      - {text: "Dormir 5 ms au lieu de 10, pour compenser la durée moyenne de chaque appel", correct: false}
+      - {text: "Dormir avant l'appel plutôt qu'après, pour garder le même rythme de départ", correct: false}
+      - {text: "Lancer chaque appel dans une goroutine, sans plus aucune attente entre eux", correct: false}
     answer: "```go\ntick := time.NewTicker(10 * time.Millisecond)\ndefer tick.Stop()\nfor _, r := range requetes {\n\t<-tick.C\n\tenvoyer(r)\n}\n```\nLe sommeil s'ajoutait à la durée de chaque appel ; le ticker cadence les départs, quelle que soit la durée de\nl'appel (ou `rate.Limiter.Wait`)."
   - key: bug-fuite-map
     format: bug-fix
     question: La map des limiteurs par adresse IP grossit sans fin et la mémoire du service monte pendant des jours. Que proposes-tu ?
+    choices:
+      - {text: "Noter la dernière requête de chaque client, et supprimer périodiquement les inactifs", correct: true}
+      - {text: "Remplacer la map par une `sync.Map`, qui libère seule ses entrées inutilisées", correct: false}
+      - {text: "Appeler `runtime.GC()` toutes les minutes, pour libérer les limiteurs inutiles", correct: false}
+      - {text: "Abaisser la capacité de chaque limiteur, pour que chaque entrée pèse moins lourd", correct: false}
     answer: "```go\ntype client struct {\n\tlimiteur *rate.Limiter\n\tvu       time.Time\n}\n\n// une goroutine de nettoyage, toutes les minutes\nmu.Lock()\nfor ip, c := range clients {\n\tif time.Since(c.vu) > 3*time.Minute {\n\t\tdelete(clients, ip)\n\t}\n}\nmu.Unlock()\n```\nChaque entrée garde la date de la dernière requête, et un nettoyage périodique supprime les clients inactifs."
   - key: scenario-client-api
     format: scenario
     question: Ton batch doit appeler une API limitée à 50 requêtes par seconde, en profitant au mieux du quota. Comment ?
-    answer: |-
-      Un pool de workers pour la concurrence (assez pour couvrir la latence : à 200 ms par appel, une dizaine de workers
-      suffit pour 50 par seconde) et un `rate.Limiter` partagé à 50 par seconde, que chaque worker attend avec
-      `Wait(ctx)` avant chaque appel. Je garde une marge (45 par seconde), et je traite les 429 restants par un
-      réessai avec attente exponentielle en respectant `Retry-After`.
+    choices:
+      - {text: "Un pool de workers pour la latence, et un `rate.Limiter` partagé à un peu moins de 50 par seconde", correct: true}
+      - {text: "50 goroutines lancées chaque seconde, une par requête, sans limiteur ni réessai", correct: false}
+      - {text: "Un seul worker qui envoie une requête, puis dort 20 ms, appel après appel", correct: false}
+      - {text: "Un sémaphore de 50 places, qui borne à 50 les requêtes envoyées chaque seconde", correct: false}
+    answer: "Un pool de workers pour couvrir la latence (à 200 ms par appel, une dizaine suffit pour 50 par seconde) et un `rate.Limiter` partagé, que chaque worker attend avec `Wait(ctx)` avant chaque appel. Je garde une marge (45 par seconde) et je réessaie les 429 avec une attente exponentielle qui respecte `Retry-After` ; un sémaphore borne la concurrence, pas le débit."
   - key: scenario-algorithmes
     format: scenario
-    question: Compare fenêtre fixe, fenêtre glissante et seau à jetons.
-    answer: |-
-      La fenêtre fixe compte les requêtes par minute calendaire : simple, mais un client peut en faire le double à la
-      jonction de deux minutes. La fenêtre glissante lisse cet effet en comptant sur les 60 dernières secondes (exacte
-      avec un journal des dates, approchée avec deux compteurs pondérés). Le seau à jetons fixe un débit moyen tout en
-      autorisant des rafales bornées ; c'est le modèle de `x/time/rate` et le plus courant.
+    question: "Entre fenêtre fixe, fenêtre glissante et seau à jetons, lequel fixe un débit moyen tout en autorisant des rafales bornées ?"
+    choices:
+      - {text: "Le seau à jetons, le modèle de `x/time/rate`", correct: true}
+      - {text: "La fenêtre fixe, comptée par minute calendaire", correct: false}
+      - {text: "La fenêtre glissante, sur les 60 dernières secondes", correct: false}
+      - {text: "Aucun : il faut combiner deux fenêtres fixes", correct: false}
+    answer: "Le seau à jetons fixe un débit moyen et autorise des rafales bornées ; c'est le modèle de `x/time/rate` et le plus courant. La fenêtre fixe laisse passer le double à la jonction de deux minutes ; la fenêtre glissante lisse cet effet, sans notion de rafale."

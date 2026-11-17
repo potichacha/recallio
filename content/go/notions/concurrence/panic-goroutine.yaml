@@ -3,29 +3,52 @@ lesson: "Une **panique non récupérée** dans **n'importe quelle goroutine** ar
 cards:
   - key: recuperer-panic-autre-goroutine
     format: course
-    question: Peut-on récupérer le panic d'une autre goroutine ?
-    answer: Non ; il termine tout le programme.
+    question: "Peut-on récupérer, depuis une goroutine, la panic d'une autre goroutine ?"
+    choices:
+      - {text: "Non : sans `recover` dans sa propre goroutine, elle arrête tout le programme", correct: true}
+      - {text: "Oui, avec un `recover` dans `main`, qui voit toutes les goroutines", correct: false}
+      - {text: "Oui, avec un `recover` dans la goroutine qui l'a lancée", correct: false}
+      - {text: "Non, mais seule la goroutine fautive s'arrête, et le reste continue", correct: false}
+    answer: "Non : `recover` ne voit que les panics de sa propre goroutine. Une panic non récupérée, dans n'importe quelle goroutine, termine tout le programme."
   - key: worker-lance-avec-traiter-job-panique
     format: scenario
-    question: Un worker lancé avec `go traiter(job)` panique de temps en temps et fait tomber tout le service.
-    answer: |-
-      Un panic non récupéré dans n'importe quelle goroutine termine le processus, et le recover d'un middleware HTTP ne protège que la goroutine du handler. Je mettrais un `defer` avec `recover` au début de la fonction du worker, qui logge le panic avec la stack (`debug.Stack()`) et transforme l'échec en erreur traitée (job marqué en échec, métrique incrémentée).
-      Mais je n'en resterais pas là : un panic est un bug. Je corrigerais la cause (souvent un nil non vérifié ou un index hors limites), et je me demanderais si ce traitement doit vraiment s'exécuter dans des goroutines non supervisées ; un pool de workers ou `errgroup` donne un cadre plus propre.
+    question: "Un worker lancé avec `go traiter(job)` panique de temps en temps et fait tomber tout le service, malgré le `recover` du middleware HTTP. Pourquoi, et que fais-tu ?"
+    choices:
+      - {text: "Ce `recover` ne couvre que la goroutine du handler : j'en mets un dans le worker, et je corrige la cause", correct: true}
+      - {text: "Le middleware est mal placé : en tête de la chaîne des handlers, il couvrira aussi le worker", correct: false}
+      - {text: "Ce `recover` arrive trop tard : je le déplace dans `main`, qui couvre toutes les goroutines", correct: false}
+      - {text: "La panic vient du runtime : je relance le worker en boucle, sans rien journaliser de plus", correct: false}
+    answer: "Une panic non récupérée dans n'importe quelle goroutine termine le processus, et le `recover` d'un middleware ne protège que la goroutine du handler. Je mets un `defer` avec `recover` au début du worker, qui journalise la panic avec sa pile (`debug.Stack()`) et marque le job en échec ; puis je corrige la cause, car une panic est un bug."
   - key: code-passe-si-goroutine-panique-sans
     format: code-output
-    question: Que se passe-t-il si une goroutine panique sans recover pendant que main attend ?
-    answer: Tout le programme s'arrête, quel que soit le recover présent dans main.
+    question: "Que se passe-t-il si une goroutine panique sans `recover`, pendant que `main`, qui a son propre `recover`, attend ?"
+    choices:
+      - {text: "Une panic qui arrête tout le programme, malgré le `recover` de `main`", correct: true}
+      - {text: "`main` la récupère avec son `recover`, puis le programme continue", correct: false}
+      - {text: "Seule la goroutine s'arrête ; `main` finit d'attendre et se termine", correct: false}
+      - {text: "La panic est mise de côté, et relancée quand `main` se termine", correct: false}
+    answer: "Tout le programme s'arrête, quel que soit le `recover` présent dans `main` : un `recover` ne voit que les panics de sa propre goroutine."
     check:
       code: "package main\n\nimport (\n\t\"fmt\"\n\t\"time\"\n)\n\nfunc main() {\n\tdefer func() {\n\t    if r := recover(); r != nil {\n\t        fmt.Println(\"récupéré dans main\")\n\t    }\n\t}()\n\tgo func() { panic(\"boum\") }()\n\ttime.Sleep(time.Second)\n\tfmt.Println(\"fin\")\n}\n"
       panics: 'panic: boum'
   - key: protection
     format: course
-    question: Comment empêcher qu'une panique dans une goroutine de travail arrête le service ?
-    answer: En posant dans cette goroutine un `defer` qui appelle `recover`, journalise la panique avec sa pile et la convertit en erreur ou en métrique.
+    question: "Comment empêcher qu'une panique dans une goroutine de travail arrête le service ?"
+    choices:
+      - {text: "Un `defer` avec `recover` dans cette goroutine, qui journalise la panique avec sa pile", correct: true}
+      - {text: "Un `recover` dans `main`, qui protège toutes les goroutines lancées par le programme", correct: false}
+      - {text: "Un `recover` dans le middleware HTTP, qui couvre les goroutines lancées par le handler", correct: false}
+      - {text: "Lancer la goroutine avec `errgroup`, qui récupère les paniques de ses tâches", correct: false}
+    answer: "En posant dans cette goroutine un `defer` qui appelle `recover`, journalise la panique avec sa pile et la convertit en erreur ou en métrique. Ni `main`, ni le middleware, ni `errgroup` ne récupèrent la panique d'une autre goroutine."
   - key: errgroup
     format: course
     question: '`errgroup` récupère-t-il les paniques de ses goroutines ?'
-    answer: 'Non : une panique dans une goroutine du groupe arrête le programme ; il faut un recover dans la fonction passée à `g.Go`.'
+    choices:
+      - {text: "Non : il faut un `recover` dans la fonction passée à `g.Go`", correct: true}
+      - {text: "Oui : `g.Wait()` renvoie la panique comme une erreur", correct: false}
+      - {text: "Oui, et il annule le contexte du groupe à la place", correct: false}
+      - {text: "Non, mais le `recover` de `main` la rattrape alors", correct: false}
+    answer: "Non : une panique dans une goroutine du groupe arrête le programme ; il faut un `recover` dans la fonction passée à `g.Go`, qui la convertit en erreur par un retour nommé."
   - key: vf-arrete-tout
     format: true-false
     question: Une panique non récupérée dans une goroutine secondaire arrête tout le programme.
@@ -50,41 +73,29 @@ cards:
     format: multiple-choice
     question: Où placer le recover pour protéger un worker ?
     choices:
-      - text: Dans la goroutine du worker, autour du traitement de chaque tâche
-        correct: true
-      - text: Dans `main`
-        correct: false
-      - text: Dans la goroutine qui a lancé le worker
-        correct: false
-      - text: Nulle part, les goroutines sont isolées
-        correct: false
+      - {text: "Dans la goroutine du worker, autour du traitement de chaque tâche", correct: true}
+      - {text: "Dans `main`, autour de la boucle qui lance les workers", correct: false}
+      - {text: "Dans la goroutine qui a lancé le worker, après le `go`", correct: false}
+      - {text: "Nulle part : une panique ne sort pas de sa goroutine", correct: false}
     answer: Chaque goroutine doit récupérer ses propres paniques.
   - key: qcm-journaliser
     format: multiple-choice
-    question: Que faire d'une panique récupérée dans une goroutine ?
+    question: "Que faire d'abord d'une panique récupérée dans une goroutine ?"
     choices:
-      - text: La journaliser avec sa pile (`debug.Stack()`)
-        correct: true
-      - text: Incrémenter une métrique pour être alerté
-        correct: true
-      - text: L'ignorer silencieusement
-        correct: false
-      - text: Relancer la goroutine en boucle sans rien dire
-        correct: false
-    answer: 'Une panique est un bug : on la rend visible.'
+      - {text: "La journaliser avec sa pile (`debug.Stack()`)", correct: true}
+      - {text: "L'ignorer, puisque le service reste debout", correct: false}
+      - {text: "Relancer la goroutine en boucle, sans rien dire", correct: false}
+      - {text: "Appeler `os.Exit(0)`, pour sortir proprement", correct: false}
+    answer: "Une panique est un bug : on la rend visible, par un journal avec sa pile et une métrique qui déclenche une alerte. L'ignorer cache le bug pour des mois."
   - key: qcm-frontieres
     format: multiple-choice
-    question: Quelles goroutines méritent un recover ?
+    question: "Laquelle de ces goroutines mérite un `recover` ?"
     choices:
-      - text: Une goroutine de fond lancée par un handler HTTP
-        correct: true
-      - text: Chaque worker d'un pool qui traite des tâches indépendantes
-        correct: true
-      - text: Une goroutine courte dont la panique signale un bug qui doit arrêter le programme
-        correct: false
-      - text: La goroutine principale d'un outil en ligne de commande
-        correct: false
-    answer: Pour un outil CLI, une panique qui arrête le programme est souvent le bon comportement.
+      - {text: "Chaque worker d'un pool qui traite des tâches indépendantes", correct: true}
+      - {text: "La goroutine principale d'un outil en ligne de commande", correct: false}
+      - {text: "Une goroutine courte dont la panique signale un bug grave", correct: false}
+      - {text: "Une goroutine dont le résultat est indispensable à la suite", correct: false}
+    answer: "Une tâche indépendante peut échouer seule ; une goroutine de fond lancée par un handler HTTP aussi. Pour un outil en ligne de commande, ou quand rien ne peut continuer sans le résultat, une panique qui arrête le programme est souvent le bon comportement."
   - key: qcm-errgroup
     format: multiple-choice
     question: Que se passe-t-il si une fonction passée à `g.Go` panique ?
@@ -100,8 +111,37 @@ cards:
     answer: Il faut un recover dans la fonction elle-même.
   - key: code-recover-goroutine
     format: code-output
-    question: "```go\nerreurs := make(chan string, 1)\ngo func() {\n\tdefer func() {\n\t\tif r := recover(); r != nil {\n\t\t\terreurs <- fmt.Sprint(\"récupéré : \", r)\n\t\t}\n\t}()\n\tpanic(\"boum\")\n}()\nfmt.Println(<-erreurs)\nfmt.Println(\"le programme continue\")\n```"
-    answer: '`récupéré : boum` puis `le programme continue` : la goroutine a récupéré sa propre panique.'
+    question: |-
+      Qu'affiche ce code ?
+      ```go
+      erreurs := make(chan string, 1)
+      go func() {
+      	defer func() {
+      		if r := recover(); r != nil {
+      			erreurs <- fmt.Sprint("récupéré : ", r)
+      		}
+      	}()
+      	panic("boum")
+      }()
+      fmt.Println(<-erreurs)
+      fmt.Println("le programme continue")
+      ```
+    choices:
+      - text: |-
+          ```
+          récupéré : boum
+          le programme continue
+          ```
+        correct: true
+      - text: |-
+          ```
+          le programme continue
+          récupéré : boum
+          ```
+        correct: false
+      - {text: "`le programme continue`", correct: false}
+      - {text: "Une panic : boum, que le `recover` d'une goroutine ne peut pas arrêter", correct: false}
+    answer: "`récupéré : boum` puis `le programme continue` : la goroutine a récupéré sa propre panique, et `main` attend son message avant de continuer."
     check:
       code: "package main\n\nimport \"fmt\"\n\nfunc main() {\n\terreurs := make(chan string, 1)\n\tgo func() {\n\t\tdefer func() {\n\t\t\tif r := recover(); r != nil {\n\t\t\t\terreurs <- fmt.Sprint(\"récupéré : \", r)\n\t\t\t}\n\t\t}()\n\t\tpanic(\"boum\")\n\t}()\n\tfmt.Println(<-erreurs)\n\tfmt.Println(\"le programme continue\")\n}\n"
       output: |-
@@ -109,15 +149,66 @@ cards:
         le programme continue
   - key: code-recover-main
     format: code-output
-    question: "```go\ndefer func() {\n\tif r := recover(); r != nil {\n\t\tfmt.Println(\"récupéré dans main\")\n\t}\n}()\nfini := make(chan struct{})\ngo func() {\n\tdefer close(fini)\n\tpanic(\"dans la goroutine\")\n}()\n<-fini\ntime.Sleep(100 * time.Millisecond)\n```"
-    answer: 'Le programme s''arrête sur « panic: dans la goroutine » : le recover de `main` ne voit pas la goroutine.'
+    question: |-
+      Qu'affiche ce code ?
+      ```go
+      defer func() {
+      	if r := recover(); r != nil {
+      		fmt.Println("récupéré dans main")
+      	}
+      }()
+      fini := make(chan struct{})
+      go func() {
+      	defer close(fini)
+      	panic("dans la goroutine")
+      }()
+      <-fini
+      time.Sleep(100 * time.Millisecond)
+      ```
+    choices:
+      - {text: "Une panic : dans la goroutine, qui arrête le programme", correct: true}
+      - {text: "`récupéré dans main`", correct: false}
+      - {text: "Rien : la goroutine s'arrête seule, et `main` finit normalement", correct: false}
+      - {text: "`récupéré dans main`, puis le programme se termine normalement", correct: false}
+    answer: "Le programme s'arrête sur « panic: dans la goroutine » : le `recover` de `main` ne voit pas la goroutine. Le `defer close(fini)` s'exécute bien, mais la panique continue jusqu'en haut de sa goroutine."
     check:
       code: "package main\n\nimport (\n\t\"fmt\"\n\t\"time\"\n)\n\nfunc main() {\n\tdefer func() {\n\t\tif r := recover(); r != nil {\n\t\t\tfmt.Println(\"récupéré dans main\")\n\t\t}\n\t}()\n\tfini := make(chan struct{})\n\tgo func() {\n\t\tdefer close(fini)\n\t\tpanic(\"dans la goroutine\")\n\t}()\n\t<-fini\n\ttime.Sleep(100 * time.Millisecond)\n}\n"
       panics: 'panic: dans la goroutine'
   - key: code-worker
     format: code-output
-    question: "```go\ntraiter := func(n int) (err error) {\n\tdefer func() {\n\t\tif r := recover(); r != nil {\n\t\t\terr = fmt.Errorf(\"tâche %d : %v\", n, r)\n\t\t}\n\t}()\n\tif n == 2 {\n\t\tpanic(\"boum\")\n\t}\n\treturn nil\n}\n\nfor n := range 4 {\n\tif err := traiter(n); err != nil {\n\t\tfmt.Println(err)\n\t}\n}\nfmt.Println(\"worker toujours vivant\")\n```"
-    answer: '`tâche 2 : boum` puis `worker toujours vivant` : la panique d''une tâche devient une erreur.'
+    question: |-
+      Qu'affiche ce code ?
+      ```go
+      traiter := func(n int) (err error) {
+      	defer func() {
+      		if r := recover(); r != nil {
+      			err = fmt.Errorf("tâche %d : %v", n, r)
+      		}
+      	}()
+      	if n == 2 {
+      		panic("boum")
+      	}
+      	return nil
+      }
+
+      for n := range 4 {
+      	if err := traiter(n); err != nil {
+      		fmt.Println(err)
+      	}
+      }
+      fmt.Println("worker toujours vivant")
+      ```
+    choices:
+      - text: |-
+          ```
+          tâche 2 : boum
+          worker toujours vivant
+          ```
+        correct: true
+      - {text: "`worker toujours vivant`", correct: false}
+      - {text: "`tâche 2 : boum`", correct: false}
+      - {text: "Une panic : boum, avant tout affichage", correct: false}
+    answer: "`tâche 2 : boum` puis `worker toujours vivant` : le `recover` convertit la panique de la tâche 2 en erreur, par le retour nommé `err`, et la boucle continue."
     check:
       code: "package main\n\nimport \"fmt\"\n\nfunc main() {\n\ttraiter := func(n int) (err error) {\n\t\tdefer func() {\n\t\t\tif r := recover(); r != nil {\n\t\t\t\terr = fmt.Errorf(\"tâche %d : %v\", n, r)\n\t\t\t}\n\t\t}()\n\t\tif n == 2 {\n\t\t\tpanic(\"boum\")\n\t\t}\n\t\treturn nil\n\t}\n\n\tfor n := range 4 {\n\t\tif err := traiter(n); err != nil {\n\t\t\tfmt.Println(err)\n\t\t}\n\t}\n\tfmt.Println(\"worker toujours vivant\")\n}\n"
       output: |-
@@ -125,7 +216,20 @@ cards:
         worker toujours vivant
   - key: bug-handler-goroutine
     format: bug-fix
-    question: "Le serveur tombe parfois malgré son middleware de récupération :\n```go\nfunc (s *Serveur) Commander(w http.ResponseWriter, r *http.Request) {\n\t...\n\tgo s.envoyerConfirmation(cmd)\n\tw.WriteHeader(http.StatusAccepted)\n}\n```"
+    question: |-
+      Le serveur tombe parfois, malgré son middleware de récupération. Quelle correction est la bonne ?
+      ```go
+      func (s *Serveur) Commander(w http.ResponseWriter, r *http.Request) {
+      	...
+      	go s.envoyerConfirmation(cmd)
+      	w.WriteHeader(http.StatusAccepted)
+      }
+      ```
+    choices:
+      - {text: "Un `defer` avec `recover` dans la goroutine lancée, qui journalise la panique", correct: true}
+      - {text: "Placer le middleware de récupération en tête de la chaîne des handlers", correct: false}
+      - {text: "Un `recover` dans `Commander`, juste après l'instruction `go`", correct: false}
+      - {text: "Appeler `WriteHeader` avant de lancer `go s.envoyerConfirmation(cmd)`", correct: false}
     answer: "```go\ngo func() {\n\tdefer func() {\n\t\tif r := recover(); r != nil {\n\t\t\tslog.Error(\"panique dans envoyerConfirmation\", \"commande\", cmd.ID, \"valeur\", r,\n\t\t\t\t\"pile\", string(debug.Stack()))\n\t\t}\n\t}()\n\ts.envoyerConfirmation(cmd)\n}()\n```\nLe middleware ne protège que la goroutine du handler ; la goroutine lancée doit avoir son propre recover."
   - key: bug-errgroup
     format: bug-fix
@@ -134,39 +238,70 @@ cards:
       ```go
       g.Go(func() error { return traiter(item) })
       ```
+    choices:
+      - {text: "Un `defer` avec `recover` dans la fonction passée à `g.Go`, qui affecte le retour nommé `err`", correct: true}
+      - {text: "Un `recover` dans `main`, qui rattrape les paniques de toutes les tâches du groupe", correct: false}
+      - {text: "Créer le groupe avec `errgroup.WithContext`, qui convertit seul les paniques en erreurs", correct: false}
+      - {text: "Un `defer recover()` en tête de la fonction passée à `g.Go`, sans retour nommé", correct: false}
     answer: "```go\ng.Go(func() (err error) {\n\tdefer func() {\n\t\tif r := recover(); r != nil {\n\t\t\terr = fmt.Errorf(\"panique en traitant %v : %v\", item, r)\n\t\t}\n\t}()\n\treturn traiter(item)\n})\n```\nLe recover dans la fonction transforme la panique en erreur, que `g.Wait()` renvoie (et le contexte du groupe annule\nles autres tâches)."
   - key: bug-recover-main
     format: bug-fix
     question: Un collègue a mis un `recover` dans `main` pour « protéger tout le programme ». Qu'expliques-tu, et que proposes-tu ?
+    choices:
+      - {text: "Ce `recover` ne voit que `main` ; je propose une fonction qui lance chaque goroutine avec son propre `recover`", correct: true}
+      - {text: "C'est la bonne pratique : un `recover` dans `main` protège toutes les goroutines du programme", correct: false}
+      - {text: "Il faut aussi un `recover` dans `init`, pour couvrir les goroutines lancées au démarrage", correct: false}
+      - {text: "Il faut le remplacer par `signal.Notify`, qui intercepte les paniques de toutes les goroutines", correct: false}
     answer: "```go\nfunc lancerProtege(nom string, f func()) {\n\tgo func() {\n\t\tdefer func() {\n\t\t\tif r := recover(); r != nil {\n\t\t\t\tslog.Error(\"panique\", \"goroutine\", nom, \"valeur\", r, \"pile\", string(debug.Stack()))\n\t\t\t}\n\t\t}()\n\t\tf()\n\t}()\n}\n```\nUn recover ne voit que sa goroutine : celui de `main` ne protège rien d'autre. Une petite fonction qui lance les\ngoroutines de fond avec leur propre recover rend la protection systématique."
   - key: bug-silence
     format: bug-fix
-    question: "En revue, ce recover cache des bugs depuis des mois :\n```go\ngo func() {\n\tdefer func() { recover() }()\n\tsynchroniser()\n}()\n```"
+    question: |-
+      En revue, ce `recover` cache des bugs depuis des mois. Quelle correction est la bonne ?
+      ```go
+      go func() {
+      	defer func() { recover() }()
+      	synchroniser()
+      }()
+      ```
+    choices:
+      - {text: "Journaliser la panique avec sa pile, et incrémenter une métrique qui alerte", correct: true}
+      - {text: "Relancer `synchroniser()` dans le `defer`, juste après la récupération", correct: false}
+      - {text: "Tester `recover() != nil` dans le `defer`, sans rien faire de la valeur", correct: false}
+      - {text: "Lancer `synchroniser()` sans `go`, pour que le `recover` le couvre", correct: false}
     answer: "```go\ngo func() {\n\tdefer func() {\n\t\tif r := recover(); r != nil {\n\t\t\tpaniques.Inc()\n\t\t\tslog.Error(\"panique dans synchroniser\", \"valeur\", r, \"pile\", string(debug.Stack()))\n\t\t}\n\t}()\n\tsynchroniser()\n}()\n```\nUne panique récupérée doit être visible (log avec la pile et métrique), sinon le bug ne sera jamais corrigé."
   - key: scenario-worker
     format: scenario
     question: Un worker lancé avec `go traiter(job)` panique de temps en temps et fait tomber tout le service. Que fais-tu, à court et à long terme ?
-    answer: |-
-      À court terme, j'ajoute dans la goroutine un `defer` qui récupère la panique, la journalise avec la pile et
-      l'identifiant du job, incrémente une métrique et marque le job en échec : le service reste debout. Ensuite, je lis
-      la pile pour trouver la cause (souvent un pointeur nil ou un indice hors limites sur une donnée inattendue), je
-      corrige et j'ajoute un test qui reproduit le cas. Le recover reste en place comme filet, avec une alerte.
+    choices:
+      - {text: "Un `recover` qui journalise et marque le job en échec, puis je corrige la cause avec un test", correct: true}
+      - {text: "Un `recover` qui ignore la panique, et je n'y touche plus puisque le service tient", correct: false}
+      - {text: "Je relance le service automatiquement à chaque chute, sans toucher au code", correct: false}
+      - {text: "Je remplace les goroutines par des appels directs, plus lents mais à l'abri", correct: false}
+    answer: "À court terme, un `defer` dans la goroutine récupère la panique, la journalise avec la pile et l'identifiant du job, incrémente une métrique et marque le job en échec : le service reste debout. Ensuite, je lis la pile pour trouver la cause (souvent un pointeur nil ou un indice hors limites), je corrige et j'ajoute un test qui reproduit le cas ; le `recover` reste comme filet, avec une alerte."
   - key: scenario-pourquoi
     format: scenario
     question: Pourquoi Go arrête-t-il tout le programme sur une panique dans une goroutine, au lieu de n'arrêter que la goroutine ?
-    answer: |-
-      Parce qu'une panique signale un état incohérent : la goroutine a pu laisser une structure partagée à moitié
-      modifiée, un verrou pris, une ressource ouverte. Continuer comme si de rien n'était risquerait de propager des
-      données corrompues. Arrêter le programme rend le bug visible ; c'est au développeur de décider, à une frontière
-      précise, qu'une tâche est assez isolée pour qu'on récupère sa panique.
+    choices:
+      - {text: "La goroutine a pu laisser un état incohérent : une donnée à moitié modifiée, un verrou pris", correct: true}
+      - {text: "Les goroutines partagent une seule pile, que la panique a pu corrompre pour toutes", correct: false}
+      - {text: "Le runtime ne sait pas dire quelle goroutine a paniqué, et préfère tout arrêter", correct: false}
+      - {text: "C'est une limite du runtime, qu'une option de compilation permet de lever", correct: false}
+    answer: "Une panique signale un état incohérent : la goroutine a pu laisser une structure partagée à moitié modifiée, un verrou pris, une ressource ouverte. Continuer risquerait de propager des données corrompues ; c'est au développeur de décider, à une frontière précise, qu'une tâche est assez isolée pour qu'on récupère sa panique."
   - key: scenario-bibliotheque
     format: scenario
     question: Une bibliothèque lance des goroutines en interne. Que doit-elle faire de leurs paniques ?
-    answer: |-
-      Les récupérer dans ses goroutines et les transmettre à l'appelant sous forme d'erreur (sur un channel d'erreurs,
-      ou via la méthode qui attend la fin du travail), plutôt que de faire tomber le programme de l'utilisateur. Elle
-      documente ce comportement, et garde la pile dans l'erreur pour faciliter le diagnostic.
+    choices:
+      - {text: "Les récupérer, et les rendre à l'appelant comme des erreurs, avec leur pile", correct: true}
+      - {text: "Les laisser arrêter le programme : c'est à l'appelant de mettre un `recover`", correct: false}
+      - {text: "Les récupérer, et les ignorer, pour ne jamais gêner le programme appelant", correct: false}
+      - {text: "Les journaliser, puis appeler `os.Exit(1)` pour arrêter proprement", correct: false}
+    answer: "Les récupérer dans ses goroutines et les transmettre à l'appelant sous forme d'erreur (un channel d'erreurs, ou la méthode qui attend la fin du travail), avec la pile. L'appelant ne peut pas les récupérer lui-même : elles naissent dans des goroutines qu'il ne voit pas."
   - key: net-http
     format: course
     question: Que fait le serveur `net/http` quand un handler panique ?
-    answer: Il récupère la panique, la journalise avec la pile, ferme la connexion concernée et continue de servir les autres requêtes ; les goroutines lancées par le handler ne sont pas protégées.
+    choices:
+      - {text: "Il récupère la panique, la journalise, ferme la connexion et continue de servir les autres", correct: true}
+      - {text: "Il s'arrête, comme pour toute panique non récupérée dans une goroutine du programme", correct: false}
+      - {text: "Il renvoie une erreur 500 au client, puis redémarre le processus pour repartir sain", correct: false}
+      - {text: "Il récupère aussi les paniques des goroutines lancées par le handler qui a paniqué", correct: false}
+    answer: "Il récupère la panique, la journalise avec la pile, ferme la connexion concernée et continue de servir les autres requêtes. Les goroutines lancées par le handler ne sont pas protégées."

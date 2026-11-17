@@ -3,19 +3,39 @@ lesson: "À chaque déploiement, l'orchestrateur envoie **SIGTERM** au processus
 cards:
   - key: arreter-proprement-sigterm
     format: course
-    question: Comment arrêter proprement sur SIGTERM ?
-    answer: signal.NotifyContext, puis Shutdown du serveur avec un nouveau contexte à délai.
+    question: "Comment arrêter proprement un service Go sur SIGTERM ?"
+    choices:
+      - {text: "`signal.NotifyContext`, puis `srv.Shutdown` avec un nouveau contexte à délai", correct: true}
+      - {text: "`signal.NotifyContext`, puis `os.Exit(0)` dès que le contexte est annulé", correct: false}
+      - {text: "Rien à faire : Go termine les requêtes en cours avant de quitter", correct: false}
+      - {text: "`srv.Close()` dans un `defer` de `main`, qui attend les requêtes en cours", correct: false}
+    answer: "`signal.NotifyContext` donne un contexte annulé par le signal ; on appelle alors `srv.Shutdown` avec un nouveau contexte à délai, car celui du signal est déjà annulé. Par défaut, Go quitte aussitôt sur SIGTERM, et `Close` coupe les connexions sans attendre."
   - key: ordre-arret-propre
     format: course
-    question: Quel ordre pour l'arrêt propre ?
-    answer: Arrêter d'accepter du trafic, terminer les requêtes en cours, arrêter les workers, fermer les ressources dans l'ordre inverse de leur création.
+    question: "Dans quel ordre se fait un arrêt propre ?"
+    choices:
+      - {text: "Refuser le trafic, finir les requêtes, arrêter les workers, fermer les ressources", correct: true}
+      - {text: "Fermer les ressources, arrêter les workers, puis refuser le nouveau trafic", correct: false}
+      - {text: "Arrêter les workers, fermer la base, puis laisser finir les requêtes en cours", correct: false}
+      - {text: "Tout fermer en même temps, pour que l'arrêt soit le plus court possible", correct: false}
+    answer: "On arrête d'accepter du trafic, on termine les requêtes en cours, on arrête les workers, puis l'on ferme les ressources dans l'ordre inverse de leur création : les requêtes en cours ont encore besoin de la base."
   - key: arreter-proprement-serveur-http
     format: course
-    question: Comment arrêter proprement un serveur HTTP ?
-    answer: srv.Shutdown(ctx), qui attend la fin des requêtes en cours ; ignorer http.ErrServerClosed.
+    question: "Comment arrêter proprement un `http.Server` ?"
+    choices:
+      - {text: "`srv.Shutdown(ctx)`, qui attend la fin des requêtes en cours", correct: true}
+      - {text: "`srv.Close()`, qui attend la fin des requêtes en cours", correct: false}
+      - {text: "`os.Exit(0)`, après avoir fermé l'écouteur réseau", correct: false}
+      - {text: "Annuler le contexte passé à `ListenAndServe`", correct: false}
+    answer: "`srv.Shutdown(ctx)` ferme les écouteurs, puis attend que les connexions actives redeviennent inactives, dans la limite du contexte. `Close` coupe tout aussitôt ; `ListenAndServe` renvoie alors `http.ErrServerClosed`, à ignorer."
   - key: errserverclosed
     format: course
     question: Pourquoi ne faut-il pas traiter `http.ErrServerClosed` comme une erreur ?
+    choices:
+      - {text: "`ListenAndServe` le renvoie normalement après `Shutdown` ou `Close` : c'est un arrêt demandé", correct: true}
+      - {text: "Il signale une erreur réseau passagère, que le serveur corrige seul en réessayant", correct: false}
+      - {text: "Il n'est jamais renvoyé par `ListenAndServe`, seulement par `Shutdown`", correct: false}
+      - {text: "Il signale que le port est déjà pris, ce qu'on peut ignorer en développement", correct: false}
     answer: ListenAndServe le renvoie normalement dès qu'on appelle Shutdown ou Close ; c'est le signe d'un arrêt demandé, pas d'une panne.
   - key: vf-attend
     format: true-false
@@ -52,20 +72,16 @@ cards:
     answer: srv.Close, lui, coupe tout immédiatement.
   - key: qcm-ordre
     format: multiple-choice
-    question: Dans quel ordre arrêter un service ?
+    question: "Lors de l'arrêt d'un service, que fait-on en dernier ?"
     choices:
-      - text: Arrêter de recevoir du travail (serveur HTTP, consommateurs de messages)
-        correct: true
-      - text: Puis attendre la fin du travail en cours
-        correct: true
-      - text: Enfin fermer la base et les connexions sortantes
-        correct: true
-      - text: Fermer la base d'abord, pour libérer les ressources
-        correct: false
-    answer: Les requêtes en cours ont encore besoin de la base.
+      - {text: "Fermer la base et les connexions sortantes", correct: true}
+      - {text: "Arrêter de recevoir du travail (serveur HTTP, consommateurs)", correct: false}
+      - {text: "Attendre la fin du travail en cours", correct: false}
+      - {text: "Faire échouer la sonde readiness", correct: false}
+    answer: "On arrête d'abord de recevoir du travail, on attend la fin du travail en cours, et l'on ferme la base en dernier : les requêtes en cours en ont encore besoin."
   - key: qcm-signaux
     format: multiple-choice
-    question: Quels signaux écouter pour l'arrêt gracieux ?
+    question: "Lesquels de ces signaux faut-il écouter pour l'arrêt gracieux ?"
     choices:
       - text: SIGTERM, envoyé par les orchestrateurs
         correct: true
@@ -80,19 +96,15 @@ cards:
     format: multiple-choice
     question: Pourquoi attendre quelques secondes avant Shutdown dans Kubernetes ?
     choices:
-      - text: Le temps que l'instance soit retirée des points d'accès du Service
-        correct: true
-      - text: Pour que le répartiteur cesse de lui envoyer de nouvelles requêtes
-        correct: true
-      - text: Pour laisser le GC libérer la mémoire
-        correct: false
-      - text: Kubernetes l'exige pour envoyer SIGTERM
-        correct: false
-    answer: Sans cette pause, des requêtes arrivent sur un serveur qui refuse déjà les connexions.
+      - {text: "Le temps que l'instance soit retirée des points d'accès du Service", correct: true}
+      - {text: "Pour laisser le ramasse-miettes libérer la mémoire avant l'arrêt", correct: false}
+      - {text: "Parce que Kubernetes l'exige avant d'envoyer SIGKILL", correct: false}
+      - {text: "Pour finir les requêtes en cours avant que `Shutdown` ne les coupe", correct: false}
+    answer: "Sans cette pause, le répartiteur envoie encore des requêtes à un serveur qui refuse déjà les connexions. Les requêtes en cours, elles, sont attendues par `Shutdown` lui-même."
   - key: trous-notify
     format: fill-in
     question: |-
-      Complétez pour un contexte annulé par SIGTERM :
+      Complète pour un contexte annulé par SIGTERM :
       ```go
       ctx, stop := signal.___(context.Background(), os.Interrupt, syscall.SIGTERM)
       defer stop()
@@ -102,20 +114,34 @@ cards:
     answer: signal.NotifyContext.
   - key: trous-shutdown
     format: fill-in
-    question: "Complétez l'arrêt :\n```go\nctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)\ndefer cancel()\nif err := srv.___(ctx); err != nil {\n\tlog.Printf(\"arrêt incomplet : %v\", err)\n}\n```"
+    question: |-
+      Complète l'arrêt :
+      ```go
+      ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+      defer cancel()
+      if err := srv.___(ctx); err != nil {
+      	log.Printf("arrêt incomplet : %v", err)
+      }
+      ```
     blanks:
       - - Shutdown
     answer: srv.Shutdown.
   - key: trous-errserverclosed
     format: fill-in
-    question: "Complétez pour ignorer l'arrêt normal :\n```go\nif err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.___) {\n\tlog.Fatal(err)\n}\n```"
+    question: |-
+      Complète pour ignorer l'arrêt normal :
+      ```go
+      if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.___) {
+      	log.Fatal(err)
+      }
+      ```
     blanks:
       - - ErrServerClosed
     answer: http.ErrServerClosed.
   - key: trous-onshutdown
     format: fill-in
     question: |-
-      Complétez pour prévenir les connexions WebSocket :
+      Complète pour prévenir les connexions WebSocket :
       ```go
       srv.___(func() { hub.FermerTout() })
       ```
@@ -124,64 +150,97 @@ cards:
     answer: RegisterOnShutdown.
   - key: bug-main-sort
     format: bug-fix
-    question: "Les requêtes en cours sont coupées au déploiement malgré l'appel à Shutdown :\n```go\ngo func() {\n\t<-ctx.Done()\n\tsrv.Shutdown(context.Background())\n}()\nif err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {\n\tlog.Fatal(err)\n}\n```"
+    question: |-
+      Les requêtes en cours sont coupées au déploiement malgré l'appel à `Shutdown`. Pourquoi ?
+      ```go
+      go func() {
+      	<-ctx.Done()
+      	srv.Shutdown(context.Background())
+      }()
+      if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+      	log.Fatal(err)
+      }
+      ```
+    choices:
+      - {text: "`ListenAndServe` rend la main dès le début de `Shutdown`, et `main` se termine aussitôt", correct: true}
+      - {text: "`Shutdown` avec `context.Background()` coupe les requêtes en cours sans attendre", correct: false}
+      - {text: "`err != http.ErrServerClosed` fait quitter `main` par `log.Fatal` pendant l'arrêt", correct: false}
+      - {text: "La goroutine qui appelle `Shutdown` n'est jamais planifiée par le runtime", correct: false}
     answer: "```go\nfini := make(chan struct{})\ngo func() {\n\tdefer close(fini)\n\t<-ctx.Done()\n\tarret, cancel := context.WithTimeout(context.Background(), 20*time.Second)\n\tdefer cancel()\n\tsrv.Shutdown(arret)\n}()\nif err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {\n\tlog.Fatal(err)\n}\n<-fini // attendre la fin de Shutdown avant de quitter\n```\nListenAndServe rend la main dès le début de Shutdown, et main se terminait aussitôt ; on attend la fin de l'arrêt,\nborné par un délai."
   - key: bug-fatal
     format: bug-fix
     question: |-
-      Chaque arrêt du service est signalé comme un crash dans la supervision :
+      Chaque arrêt du service est signalé comme un crash dans la supervision. Quelle correction est la bonne ?
       ```go
       log.Fatal(srv.ListenAndServe())
       ```
+    choices:
+      - {text: "Ignorer `http.ErrServerClosed`, et n'appeler `log.Fatal` que sur une autre erreur", correct: true}
+      - {text: "Remplacer `log.Fatal` par `panic`, que la supervision interprète mieux", correct: false}
+      - {text: "Remplacer `log.Fatal` par `log.Print`, quelle que soit l'erreur renvoyée", correct: false}
+      - {text: "Appeler `os.Exit(0)` juste avant `ListenAndServe`, pour quitter proprement", correct: false}
     answer: "```go\nif err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {\n\tlog.Fatal(err)\n}\n```\nErrServerClosed est le retour normal après Shutdown ; seul un autre retour est une erreur."
   - key: bug-base-avant
     format: bug-fix
     question: |-
-      Pendant l'arrêt, les dernières requêtes échouent avec « sql: database is closed » :
+      Pendant l'arrêt, les dernières requêtes échouent avec « sql: database is closed ». Quelle correction est la bonne ?
       ```go
       <-ctx.Done()
       db.Close()
       srv.Shutdown(arret)
       ```
+    choices:
+      - {text: "Appeler `srv.Shutdown` d'abord, puis fermer la base", correct: true}
+      - {text: "Fermer la base dans une goroutine, en parallèle", correct: false}
+      - {text: "Appeler `db.SetMaxOpenConns(0)` avant `Shutdown`", correct: false}
+      - {text: "Attendre une seconde après `db.Close()`, puis `Shutdown`", correct: false}
     answer: "```go\n<-ctx.Done()\nif err := srv.Shutdown(arret); err != nil {\n\tlog.Printf(\"arrêt incomplet : %v\", err)\n}\ndb.Close()\n```\nLa base doit rester ouverte jusqu'à la fin des requêtes en cours ; on la ferme après Shutdown."
   - key: bug-sans-delai
     format: bug-fix
     question: |-
-      Un déploiement reste bloqué jusqu'au SIGKILL, à cause d'une requête qui ne finit jamais :
+      Un déploiement reste bloqué jusqu'au SIGKILL, à cause d'une requête qui ne finit jamais. Quelle correction est la bonne ?
       ```go
       srv.Shutdown(context.Background())
       ```
+    choices:
+      - {text: "Un contexte à délai pour `Shutdown`, sous le délai de grâce, puis `srv.Close()`", correct: true}
+      - {text: "Appeler `srv.Close()` seul, sans jamais passer par `Shutdown`", correct: false}
+      - {text: "Appeler `Shutdown` deux fois de suite avec `context.Background()`", correct: false}
+      - {text: "Ignorer SIGTERM, pour laisser la requête finir à son rythme", correct: false}
     answer: "```go\narret, cancel := context.WithTimeout(context.Background(), 20*time.Second)\ndefer cancel()\nif err := srv.Shutdown(arret); err != nil {\n\tlog.Printf(\"arrêt forcé : %v\", err)\n\tsrv.Close()\n}\n```\nSans délai, Shutdown attend indéfiniment ; on le borne sous le délai de grâce de l'orchestrateur, puis on ferme de\nforce."
   - key: scenario-kubernetes
     format: scenario
-    question: Décris l'arrêt idéal d'un service Go dans Kubernetes.
-    answer: |-
-      À SIGTERM, le service fait échouer sa sonde readiness et attend quelques secondes (le temps d'être retiré des
-      points d'accès), puis appelle `srv.Shutdown` avec un délai inférieur au `terminationGracePeriodSeconds` (par exemple
-      20 s pour 30 s). Les consommateurs de messages arrêtent de lire et finissent le message en cours. Enfin, il ferme
-      les connexions à la base et vide ses journaux et métriques. Un test d'intégration vérifie qu'une requête en cours
-      se termine bien pendant l'arrêt.
+    question: "Quel est l'arrêt idéal d'un service Go dans Kubernetes ?"
+    choices:
+      - {text: "Readiness en échec, une courte pause, `Shutdown` à délai, puis fermeture des dépendances", correct: true}
+      - {text: "`os.Exit(0)` dès SIGTERM, Kubernetes relançant ailleurs les requêtes perdues", correct: false}
+      - {text: "`Shutdown` sans délai, en laissant Kubernetes envoyer SIGKILL s'il le faut", correct: false}
+      - {text: "Fermer d'abord la base, puis attendre que Kubernetes coupe le trafic du pod", correct: false}
+    answer: "À SIGTERM, le service fait échouer sa sonde readiness et attend quelques secondes d'être retiré des points d'accès, puis appelle `srv.Shutdown` avec un délai inférieur au `terminationGracePeriodSeconds` (20 s pour 30 s). Les consommateurs finissent leur message, puis le service ferme la base et vide journaux et métriques."
   - key: scenario-workers
     format: scenario
     question: Ton service a aussi des goroutines de fond (consommateur Kafka, tâches planifiées). Comment les arrêtes-tu proprement ?
-    answer: |-
-      Elles reçoivent toutes le contexte annulé par le signal et s'arrêtent après leur tâche en cours ; un WaitGroup (ou
-      un errgroup) les attend, avec le même délai global que le serveur HTTP. L'ordre : arrêter le serveur et les
-      consommateurs en parallèle, attendre les deux, puis fermer les dépendances partagées. Les messages non traités ne
-      sont pas acquittés, pour être relivrés à une autre instance.
+    choices:
+      - {text: "Le contexte annulé par le signal, un `WaitGroup` ou un errgroup, puis les dépendances fermées", correct: true}
+      - {text: "Un `os.Exit` dans chaque goroutine, dès la réception du signal d'arrêt", correct: false}
+      - {text: "Rien : les goroutines de fond finissent proprement leur tâche à la fin de `main`", correct: false}
+      - {text: "Un `time.Sleep` de 30 secondes dans `main`, le temps qu'elles finissent", correct: false}
+    answer: "Elles reçoivent le contexte annulé par le signal et s'arrêtent après leur tâche en cours ; un `WaitGroup` (ou un errgroup) les attend, avec le même délai global que le serveur HTTP. Ensuite seulement, on ferme les dépendances partagées ; les messages non traités ne sont pas acquittés, pour être relivrés."
   - key: scenario-tester
     format: scenario
     question: Comment testes-tu l'arrêt gracieux de ton serveur ?
-    answer: |-
-      Un test démarre le serveur sur un port libre avec un handler qui bloque jusqu'à un signal du test, lance une
-      requête, appelle Shutdown pendant qu'elle est en cours, puis débloque le handler : la requête doit réussir et
-      Shutdown rendre la main sans erreur. Un second cas vérifie qu'une nouvelle connexion est refusée après le début de
-      l'arrêt, et qu'un handler trop long fait renvoyer l'erreur de délai.
+    choices:
+      - {text: "Une requête bloquée dans un handler, `Shutdown` pendant qu'elle tourne, puis vérifier qu'elle réussit", correct: true}
+      - {text: "Envoyer SIGKILL au processus de test, puis vérifier qu'il redémarre bien", correct: false}
+      - {text: "Vérifier seulement que `Shutdown` renvoie `nil` sur un serveur sans requête", correct: false}
+      - {text: "Aucun test : l'arrêt gracieux se vérifie à la main, en production", correct: false}
+    answer: "Un test démarre le serveur sur un port libre, avec un handler qui bloque jusqu'à un signal du test ; il lance une requête, appelle `Shutdown` pendant qu'elle tourne, puis débloque le handler : la requête doit réussir et `Shutdown` rendre la main sans erreur. Un second cas vérifie qu'un handler trop long fait renvoyer l'erreur de délai."
   - key: scenario-entretien
     format: scenario
-    question: En entretien, on te demande ce qui se passe si un service ne gère pas SIGTERM.
-    answer: |-
-      Le comportement par défaut de Go à SIGTERM est de quitter immédiatement : les requêtes en cours sont coupées, les
-      clients voient des erreurs, des transactions peuvent rester à moitié faites et des messages être traités deux fois.
-      À chaque déploiement, une partie du trafic échoue. Avec signal.NotifyContext et Shutdown, les requêtes en cours
-      finissent et les déploiements deviennent invisibles pour les clients.
+    question: "En entretien, on te demande ce qui se passe si un service ne gère pas SIGTERM. Que réponds-tu ?"
+    choices:
+      - {text: "Go quitte aussitôt : les requêtes en cours sont coupées à chaque déploiement", correct: true}
+      - {text: "Go ignore SIGTERM, et l'orchestrateur doit envoyer SIGKILL pour l'arrêter", correct: false}
+      - {text: "Go appelle `Shutdown` de lui-même sur tous les serveurs HTTP ouverts", correct: false}
+      - {text: "Go attend la fin de toutes les goroutines, puis quitte proprement", correct: false}
+    answer: "Par défaut, Go quitte immédiatement sur SIGTERM : les requêtes en cours sont coupées, des transactions restent à moitié faites, des messages sont traités deux fois. Avec `signal.NotifyContext` et `Shutdown`, les requêtes finissent et les déploiements deviennent invisibles."

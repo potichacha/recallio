@@ -55,20 +55,40 @@ tour:
 cards:
   - key: pourquoi
     format: course
-    question: Pourquoi un pool de workers plutôt qu'une goroutine par tâche ?
-    answer: 'Pour borner la concurrence : ne pas ouvrir dix mille connexions ou appels simultanés, et garder la mémoire et le processeur sous contrôle.'
+    question: "Pourquoi un pool de workers plutôt qu'une goroutine par tâche ?"
+    choices:
+      - {text: "Pour borner la concurrence : pas dix mille connexions ou appels simultanés", correct: true}
+      - {text: "Parce qu'une goroutine coûte trop cher à créer, même pour une seule tâche", correct: false}
+      - {text: "Pour garder l'ordre des résultats, que des goroutines libres mélangeraient", correct: false}
+      - {text: "Parce qu'au-delà de `GOMAXPROCS` goroutines, le runtime refuse d'en créer", correct: false}
+    answer: "Pour borner la concurrence : ne pas ouvrir dix mille connexions ou appels simultanés, et garder la mémoire et le processeur sous contrôle. Une goroutine coûte peu, mais ce qu'elle fait (une connexion) coûte cher ; un pool ne garde pas l'ordre non plus."
   - key: combien
     format: course
-    question: Combien de workers choisir ?
-    answer: Pour du calcul, environ `runtime.GOMAXPROCS(0)` ; pour des entrées-sorties, selon la limite de la ressource (taille du pool de connexions, quota de l'API), puis on mesure.
+    question: "Combien de workers choisir pour un pool ?"
+    choices:
+      - {text: "Pour du calcul, environ `GOMAXPROCS(0)` ; pour des E/S, selon la ressource limitante, puis mesurer", correct: true}
+      - {text: "Toujours le nombre de cœurs de la machine, quel que soit le travail fait par les workers", correct: false}
+      - {text: "Le plus possible : plus de workers rend toujours un pool plus rapide, même pour du calcul", correct: false}
+      - {text: "Toujours un seul, pour éviter toute course entre les workers du pool sur les données", correct: false}
+    answer: "Pour du calcul, environ `runtime.GOMAXPROCS(0)` ; pour des entrées-sorties, selon la limite de la ressource (taille du pool de connexions, quota de l'API), puis on mesure. Au-delà des cœurs, des workers de calcul ne font qu'attendre leur tour."
   - key: fermer
     format: course
-    question: Que se passe-t-il si le producteur ne ferme pas le channel des tâches ?
-    answer: Les workers restent bloqués dans leur `range` après la dernière tâche, et le `wg.Wait()` qui les attend ne rend jamais la main.
+    question: "Que se passe-t-il si le producteur ne ferme pas le channel des tâches ?"
+    choices:
+      - {text: "Les workers restent bloqués dans leur `range`, et `wg.Wait()` ne rend jamais la main", correct: true}
+      - {text: "Les workers s'arrêtent après la dernière tâche, faute de nouvelles tâches à lire", correct: false}
+      - {text: "Le premier worker qui trouve le channel vide déclenche une panic", correct: false}
+      - {text: "Les workers relisent en boucle les tâches qu'ils ont déjà traitées", correct: false}
+    answer: "Les workers restent bloqués dans leur `range` après la dernière tâche, et le `wg.Wait()` qui les attend ne rend jamais la main. Un channel vide mais ouvert fait attendre, il ne termine pas le `range`."
   - key: errgroup
     format: course
-    question: Comment écrire un pool de workers avec errgroup ?
-    answer: '`g.SetLimit(n)` puis `g.Go(...)` pour chaque tâche : au plus n goroutines tournent à la fois, et `g.Wait()` renvoie la première erreur.'
+    question: "Comment écrire un pool de workers avec errgroup ?"
+    choices:
+      - {text: "`g.SetLimit(n)`, puis un `g.Go` par tâche, et `g.Wait()` pour la première erreur", correct: true}
+      - {text: "`errgroup.WithContext(n)`, qui crée directement n workers prêts à servir", correct: false}
+      - {text: "Un `g.Go` par tâche, et `runtime.GOMAXPROCS(n)` pour borner le groupe", correct: false}
+      - {text: "`g.TryGo` en boucle pour chaque tâche, sans limite fixée sur le groupe", correct: false}
+    answer: "`g.SetLimit(n)` puis `g.Go(...)` pour chaque tâche : au plus n goroutines tournent à la fois, et `g.Wait()` renvoie la première erreur. `WithContext` prend un contexte, pas un nombre de workers."
   - key: vf-indice
     format: true-false
     question: Des workers qui écrivent chacun à l'indice de leur tâche dans un slice préalloué n'ont pas besoin de verrou.
@@ -91,7 +111,7 @@ cards:
     answer: 'Plusieurs émetteurs : on ferme une fois qu''ils ont tous fini.'
   - key: qcm-elements
     format: multiple-choice
-    question: Quels éléments composent un pool de workers ?
+    question: "Lesquels de ces éléments composent un pool de workers ?"
     choices:
       - text: Un channel de tâches fermé par le producteur
         correct: true
@@ -106,84 +126,232 @@ cards:
     format: multiple-choice
     question: Le pool SQL autorise 20 connexions. Combien de workers pour des requêtes ?
     choices:
-      - text: Environ 20, ou moins pour laisser des connexions au reste du service
-        correct: true
-      - text: 1 000, la base s'adaptera
-        correct: false
-      - text: 1, toujours
-        correct: false
-      - text: Le nombre de cœurs, obligatoirement
-        correct: false
+      - {text: "Environ 20, ou moins pour laisser des connexions au reste du service", correct: true}
+      - {text: "1 000 : la base de données s'adaptera toute seule à la charge", correct: false}
+      - {text: "Un seul, toujours, pour ne jamais saturer la base de données", correct: false}
+      - {text: "Le nombre de cœurs de la machine, obligatoirement, comme pour du calcul", correct: false}
     answer: Au-delà, les workers attendraient une connexion libre.
   - key: qcm-arret
     format: multiple-choice
-    question: Comment arrêter les workers quand une tâche échoue ?
+    question: "Comment arrêter les workers quand une tâche échoue ?"
     choices:
-      - text: Annuler un contexte que les workers surveillent
-        correct: true
-      - text: Utiliser `errgroup.WithContext`, qui annule le contexte à la première erreur
-        correct: true
-      - text: Fermer le channel de résultats depuis le worker en erreur
-        correct: false
-      - text: Appeler os.Exit
-        correct: false
-    answer: Fermer depuis un worker ferait paniquer les autres.
+      - {text: "Annuler un contexte que les workers surveillent", correct: true}
+      - {text: "Fermer le channel de résultats depuis le worker en erreur", correct: false}
+      - {text: "Fermer le channel des tâches depuis le worker en erreur", correct: false}
+      - {text: "Appeler `os.Exit(1)` depuis le worker en erreur", correct: false}
+    answer: "Les workers voient l'annulation et sortent ; `errgroup.WithContext` le fait tout seul à la première erreur. Fermer un channel depuis un worker ferait paniquer les autres émetteurs."
   - key: qcm-resultats
     format: multiple-choice
-    question: Comment récupérer les résultats dans l'ordre des tâches ?
+    question: "Comment récupérer les résultats dans l'ordre des tâches, avec plusieurs workers ?"
     choices:
-      - text: Écrire chaque résultat à l'indice de sa tâche dans un slice préalloué
-        correct: true
-      - text: Envoyer des paires (indice, résultat) et les ranger à la réception
-        correct: true
-      - text: Recevoir sur le channel de résultats et supposer l'ordre
-        correct: false
-      - text: Utiliser un seul worker
-        correct: false
-    answer: Un seul worker garderait l'ordre, mais sans concurrence.
+      - {text: "Écrire chaque résultat à l'indice de sa tâche, dans une slice préallouée", correct: true}
+      - {text: "Recevoir sur le channel de résultats, en supposant qu'ils arrivent dans l'ordre", correct: false}
+      - {text: "Donner au channel de résultats un tampon de la taille de la liste des tâches", correct: false}
+      - {text: "Lancer les workers dans l'ordre des tâches, puisqu'ils finissent dans cet ordre", correct: false}
+    answer: "Chaque worker écrit à l'indice de sa tâche ; envoyer des paires (indice, résultat) et les ranger à la réception marche aussi. Un seul worker garderait l'ordre, mais sans concurrence."
   - key: code-pool
     format: code-output
-    question: "```go\ntaches := []int{1, 2, 3, 4, 5, 6}\nresultats := make([]int, len(taches))\njobs := make(chan int)\nvar wg sync.WaitGroup\nfor range 3 {\n\twg.Go(func() {\n\t\tfor i := range jobs {\n\t\t\tresultats[i] = taches[i] * taches[i]\n\t\t}\n\t})\n}\nfor i := range taches {\n\tjobs <- i\n}\nclose(jobs)\nwg.Wait()\nfmt.Println(resultats)\n```"
-    answer: '`[1 4 9 16 25 36]` : trois workers, chacun écrit à l''indice de sa tâche.'
+    question: |-
+      Qu'affiche ce code ?
+      ```go
+      taches := []int{1, 2, 3, 4, 5, 6}
+      resultats := make([]int, len(taches))
+      jobs := make(chan int)
+      var wg sync.WaitGroup
+      for range 3 {
+      	wg.Go(func() {
+      		for i := range jobs {
+      			resultats[i] = taches[i] * taches[i]
+      		}
+      	})
+      }
+      for i := range taches {
+      	jobs <- i
+      }
+      close(jobs)
+      wg.Wait()
+      fmt.Println(resultats)
+      ```
+    choices:
+      - {text: "`[1 4 9 16 25 36]`", correct: true}
+      - {text: "`[1 2 3 4 5 6]`", correct: false}
+      - {text: "`[0 0 0 0 0 0]`", correct: false}
+      - {text: "`[1 4 9 0 0 0]`", correct: false}
+    answer: "`[1 4 9 16 25 36]` : trois workers se partagent les six tâches, chacun écrit à l'indice de sa tâche, et `Wait` attend toutes les écritures."
     check:
       code: "package main\n\nimport (\n\t\"fmt\"\n\t\"sync\"\n)\n\nfunc main() {\n\ttaches := []int{1, 2, 3, 4, 5, 6}\n\tresultats := make([]int, len(taches))\n\tjobs := make(chan int)\n\tvar wg sync.WaitGroup\n\tfor range 3 {\n\t\twg.Go(func() {\n\t\t\tfor i := range jobs {\n\t\t\t\tresultats[i] = taches[i] * taches[i]\n\t\t\t}\n\t\t})\n\t}\n\tfor i := range taches {\n\t\tjobs <- i\n\t}\n\tclose(jobs)\n\twg.Wait()\n\tfmt.Println(resultats)\n}\n"
       output: '[1 4 9 16 25 36]'
   - key: code-limite
     format: code-output
-    question: "```go\nvar enCours, max atomic.Int32\njobs := make(chan int)\nvar wg sync.WaitGroup\nfor range 2 {\n\twg.Go(func() {\n\t\tfor range jobs {\n\t\t\tn := enCours.Add(1)\n\t\t\tfor {\n\t\t\t\tm := max.Load()\n\t\t\t\tif n <= m || max.CompareAndSwap(m, n) {\n\t\t\t\t\tbreak\n\t\t\t\t}\n\t\t\t}\n\t\t\ttime.Sleep(5 * time.Millisecond)\n\t\t\tenCours.Add(-1)\n\t\t}\n\t})\n}\nfor i := range 10 {\n\tjobs <- i\n}\nclose(jobs)\nwg.Wait()\nfmt.Println(max.Load() <= 2)\n```"
-    answer: '`true` : jamais plus de deux tâches simultanées avec deux workers.'
+    question: |-
+      Qu'affiche ce code ?
+      ```go
+      var enCours, max atomic.Int32
+      jobs := make(chan int)
+      var wg sync.WaitGroup
+      for range 2 {
+      	wg.Go(func() {
+      		for range jobs {
+      			n := enCours.Add(1)
+      			for {
+      				m := max.Load()
+      				if n <= m || max.CompareAndSwap(m, n) {
+      					break
+      				}
+      			}
+      			time.Sleep(5 * time.Millisecond)
+      			enCours.Add(-1)
+      		}
+      	})
+      }
+      for i := range 10 {
+      	jobs <- i
+      }
+      close(jobs)
+      wg.Wait()
+      fmt.Println(max.Load() <= 2)
+      ```
+    choices:
+      - {text: "`true`", correct: true}
+      - {text: "`false`", correct: false}
+      - {text: "`2`", correct: false}
+      - {text: "`10`", correct: false}
+    answer: "`true` : jamais plus de deux tâches simultanées avec deux workers ; le code affiche le booléen `max.Load() <= 2`, pas le maximum."
     check:
       code: "package main\n\nimport (\n\t\"fmt\"\n\t\"sync\"\n\t\"sync/atomic\"\n\t\"time\"\n)\n\nfunc main() {\n\tvar enCours, max atomic.Int32\n\tjobs := make(chan int)\n\tvar wg sync.WaitGroup\n\tfor range 2 {\n\t\twg.Go(func() {\n\t\t\tfor range jobs {\n\t\t\t\tn := enCours.Add(1)\n\t\t\t\tfor {\n\t\t\t\t\tm := max.Load()\n\t\t\t\t\tif n <= m || max.CompareAndSwap(m, n) {\n\t\t\t\t\t\tbreak\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t\ttime.Sleep(5 * time.Millisecond)\n\t\t\t\tenCours.Add(-1)\n\t\t\t}\n\t\t})\n\t}\n\tfor i := range 10 {\n\t\tjobs <- i\n\t}\n\tclose(jobs)\n\twg.Wait()\n\tfmt.Println(max.Load() <= 2)\n}\n"
       output: 'true'
   - key: code-somme-canal
     format: code-output
-    question: "```go\njobs := make(chan int)\nres := make(chan int)\nvar wg sync.WaitGroup\nfor range 4 {\n\twg.Go(func() {\n\t\tfor j := range jobs {\n\t\t\tres <- j * 10\n\t\t}\n\t})\n}\ngo func() {\n\tfor i := 1; i <= 5; i++ {\n\t\tjobs <- i\n\t}\n\tclose(jobs)\n}()\ngo func() {\n\twg.Wait()\n\tclose(res)\n}()\ntotal := 0\nfor r := range res {\n\ttotal += r\n}\nfmt.Println(total)\n```"
-    answer: '`150` : le channel de résultats se ferme après la fin des workers, et la somme ne dépend pas de l''ordre.'
+    question: |-
+      Qu'affiche ce code ?
+      ```go
+      jobs := make(chan int)
+      res := make(chan int)
+      var wg sync.WaitGroup
+      for range 4 {
+      	wg.Go(func() {
+      		for j := range jobs {
+      			res <- j * 10
+      		}
+      	})
+      }
+      go func() {
+      	for i := 1; i <= 5; i++ {
+      		jobs <- i
+      	}
+      	close(jobs)
+      }()
+      go func() {
+      	wg.Wait()
+      	close(res)
+      }()
+      total := 0
+      for r := range res {
+      	total += r
+      }
+      fmt.Println(total)
+      ```
+    choices:
+      - {text: "`150`", correct: true}
+      - {text: "`15`", correct: false}
+      - {text: "`100`", correct: false}
+      - {text: "Rien : le `range` attend pour toujours", correct: false}
+    answer: "`150` : (1 + 2 + 3 + 4 + 5) × 10. Le channel de résultats se ferme après la fin des workers, ce qui arrête le `range`, et la somme ne dépend pas de l'ordre."
     check:
       code: "package main\n\nimport (\n\t\"fmt\"\n\t\"sync\"\n)\n\nfunc main() {\n\tjobs := make(chan int)\n\tres := make(chan int)\n\tvar wg sync.WaitGroup\n\tfor range 4 {\n\t\twg.Go(func() {\n\t\t\tfor j := range jobs {\n\t\t\t\tres <- j * 10\n\t\t\t}\n\t\t})\n\t}\n\tgo func() {\n\t\tfor i := 1; i <= 5; i++ {\n\t\t\tjobs <- i\n\t\t}\n\t\tclose(jobs)\n\t}()\n\tgo func() {\n\t\twg.Wait()\n\t\tclose(res)\n\t}()\n\ttotal := 0\n\tfor r := range res {\n\t\ttotal += r\n\t}\n\tfmt.Println(total)\n}\n"
       output: '150'
   - key: code-oubli-close
     format: code-output
-    question: "```go\njobs := make(chan int)\nvar wg sync.WaitGroup\nwg.Go(func() {\n\tfor j := range jobs {\n\t\t_ = j\n\t}\n})\njobs <- 1\nwg.Wait()\nfmt.Println(\"fini\")\n```"
-    answer: '« all goroutines are asleep - deadlock! » : sans `close(jobs)`, le worker attend une nouvelle tâche pour toujours.'
+    question: |-
+      Qu'affiche ce code ?
+      ```go
+      jobs := make(chan int)
+      var wg sync.WaitGroup
+      wg.Go(func() {
+      	for j := range jobs {
+      		_ = j
+      	}
+      })
+      jobs <- 1
+      wg.Wait()
+      fmt.Println("fini")
+      ```
+    choices:
+      - {text: "Une erreur fatale, plus grave qu'une panic : `all goroutines are asleep - deadlock!`", correct: true}
+      - {text: "`fini` : le worker s'arrête tout seul après la seule tâche qu'on lui a envoyée", correct: false}
+      - {text: "Rien : `main` se termine sans attendre le worker, qui tourne encore", correct: false}
+      - {text: "Une panic : `send on closed channel`, au moment d'envoyer la tâche", correct: false}
+    answer: "« all goroutines are asleep - deadlock! » : sans `close(jobs)`, le worker attend une nouvelle tâche pour toujours, et `wg.Wait()` l'attend lui."
     check:
       code: "package main\n\nimport (\n\t\"fmt\"\n\t\"sync\"\n)\n\nfunc main() {\n\tjobs := make(chan int)\n\tvar wg sync.WaitGroup\n\twg.Go(func() {\n\t\tfor j := range jobs {\n\t\t\t_ = j\n\t\t}\n\t})\n\tjobs <- 1\n\twg.Wait()\n\tfmt.Println(\"fini\")\n}\n"
       panics: all goroutines are asleep
   - key: bug-sans-limite
     format: bug-fix
-    question: "L'import de 100 000 lignes ouvre autant de requêtes simultanées et fait tomber l'API partenaire :\n```go\nfor _, l := range lignes {\n\twg.Go(func() { envoyer(l) })\n}\nwg.Wait()\n```"
+    question: |-
+      L'import de 100 000 lignes ouvre autant de requêtes simultanées, et fait tomber l'API partenaire. Quelle correction est la bonne ?
+      ```go
+      for _, l := range lignes {
+      	wg.Go(func() { envoyer(l) })
+      }
+      wg.Wait()
+      ```
+    choices:
+      - {text: "Un pool de 10 workers qui lisent un channel de lignes (ou `errgroup` avec `SetLimit(10)`)", correct: true}
+      - {text: "`runtime.GOMAXPROCS(10)`, pour qu'au plus 10 goroutines tournent à la fois", correct: false}
+      - {text: "Un `recover` dans chaque goroutine, pour survivre aux erreurs de l'API partenaire", correct: false}
+      - {text: "Un channel de résultats bufferisé de 10 places, rempli par chaque goroutine", correct: false}
     answer: "```go\njobs := make(chan Ligne)\nfor range 10 {\n\twg.Go(func() {\n\t\tfor l := range jobs {\n\t\t\tenvoyer(l)\n\t\t}\n\t})\n}\nfor _, l := range lignes {\n\tjobs <- l\n}\nclose(jobs)\nwg.Wait()\n```\nUn pool de 10 workers borne la concurrence (ou `errgroup` avec `SetLimit(10)`)."
   - key: bug-close
     format: bug-fix
-    question: "Le programme ne se termine jamais après avoir traité toutes les tâches :\n```go\nfor range n {\n\twg.Go(func() {\n\t\tfor t := range taches {\n\t\t\texecuter(t)\n\t\t}\n\t})\n}\nfor _, t := range liste {\n\ttaches <- t\n}\nwg.Wait()\n```"
+    question: |-
+      Ce programme ne se termine jamais après avoir traité toutes les tâches. Quelle correction est la bonne ?
+      ```go
+      for range n {
+      	wg.Go(func() {
+      		for t := range taches {
+      			executer(t)
+      		}
+      	})
+      }
+      for _, t := range liste {
+      	taches <- t
+      }
+      wg.Wait()
+      ```
+    choices:
+      - {text: "Fermer `taches` après le dernier envoi, avant `wg.Wait()`", correct: true}
+      - {text: "Fermer `taches` dans chaque worker, à la fin de son `range`", correct: false}
+      - {text: "Donner à `taches` un tampon de `len(liste)` places", correct: false}
+      - {text: "Appeler `wg.Wait()` avant d'envoyer les tâches", correct: false}
     answer: "```go\nfor _, t := range liste {\n\ttaches <- t\n}\nclose(taches)\nwg.Wait()\n```\nSans fermeture, les workers attendaient une tâche de plus dans leur range."
   - key: bug-race
     format: bug-fix
-    question: "Le détecteur de courses signale un problème sur `resultats` :\n```go\nvar resultats []Resultat\nfor range n {\n\twg.Go(func() {\n\t\tfor t := range taches {\n\t\t\tresultats = append(resultats, executer(t))\n\t\t}\n\t})\n}\n```"
+    question: |-
+      Le détecteur de courses signale un problème sur `resultats`. Quelle correction est la bonne ?
+      ```go
+      var resultats []Resultat
+      for range n {
+      	wg.Go(func() {
+      		for t := range taches {
+      			resultats = append(resultats, executer(t))
+      		}
+      	})
+      }
+      ```
+    choices:
+      - {text: "Envoyer les résultats sur un channel, lu par une seule goroutine qui fait l'`append`", correct: true}
+      - {text: "Préallouer `resultats` avec une capacité `n`, et garder les `append` des workers", correct: false}
+      - {text: "Lire `resultats` seulement après `wg.Wait()`, sans rien changer d'autre", correct: false}
+      - {text: "Réduire le pool à deux workers, pour rendre les collisions plus rares", correct: false}
     answer: "```go\nres := make(chan Resultat)\nfor range n {\n\twg.Go(func() {\n\t\tfor t := range taches {\n\t\t\tres <- executer(t)\n\t\t}\n\t})\n}\ngo func() { wg.Wait(); close(res) }()\nvar resultats []Resultat\nfor r := range res {\n\tresultats = append(resultats, r)\n}\n```\nPlusieurs workers faisaient `append` sur le même slice ; un channel de résultats (ou des indices préalloués) supprime\nla course."
   - key: bug-cpu
     format: bug-fix
     question: Un traitement d'images en pur calcul lance 500 workers sur une machine de 8 cœurs et n'est pas plus rapide qu'avec 8. Que proposes-tu ?
+    choices:
+      - {text: "Autant de workers que de cœurs : `runtime.GOMAXPROCS(0)`", correct: true}
+      - {text: "Encore plus de workers, 5 000, pour occuper chaque cœur à fond", correct: false}
+      - {text: "Un seul worker, pour éviter tout changement de contexte", correct: false}
+      - {text: "Un `runtime.Gosched()` dans chaque worker, pour mieux partager", correct: false}
     answer: |-
       ```go
       nWorkers := runtime.GOMAXPROCS(0)
@@ -193,33 +361,36 @@ cards:
   - key: scenario-dimensionner
     format: scenario
     question: Comment choisis-tu le nombre de workers d'un pool qui appelle une API externe ?
-    answer: |-
-      Je pars de la contrainte de l'API (quota de requêtes simultanées ou par seconde, délais observés) et de nos
-      ressources (connexions, mémoire). Je fais du nombre de workers un réglage, je mesure le débit et les erreurs (429,
-      délais) à plusieurs valeurs, et je garde la plus petite qui atteint le débit voulu. Si le quota est par seconde, un
-      limiteur de débit (`x/time/rate`) complète le pool.
+    choices:
+      - {text: "D'après le quota de l'API et nos ressources, puis en mesurant débit et erreurs à plusieurs valeurs", correct: true}
+      - {text: "Autant de workers que de cœurs, puisque `GOMAXPROCS` borne le parallélisme utile", correct: false}
+      - {text: "Le plus grand nombre possible, pour finir au plus vite, quitte à recevoir des 429", correct: false}
+      - {text: "Un worker par tâche à traiter, pour qu'aucune tâche n'ait à attendre son tour", correct: false}
+    answer: "Je pars de la contrainte de l'API (quota de requêtes simultanées ou par seconde, délais observés) et de nos ressources (connexions, mémoire). Le nombre de workers devient un réglage : je mesure le débit et les erreurs (429, délais) à plusieurs valeurs, je garde la plus petite qui atteint le débit voulu, et un `rate.Limiter` complète le pool si le quota est par seconde."
   - key: scenario-erreurs
     format: scenario
     question: Ton pool traite des tâches indépendantes, et quelques-unes échouent. Comment gères-tu les erreurs ?
-    answer: |-
-      Si les tâches sont indépendantes, une erreur ne doit pas arrêter les autres : chaque worker renvoie un résultat qui
-      contient l'erreur éventuelle (`Resultat{ID, Valeur, Err}`), on collecte tout, puis on rapporte les échecs (ou on
-      les rejoue). Si au contraire une erreur invalide l'ensemble, `errgroup.WithContext` arrête les autres à la première
-      erreur. Dans les deux cas, chaque worker récupère les paniques de ses tâches.
+    choices:
+      - {text: "Chaque résultat porte son erreur ; on collecte tout, puis on rapporte ou rejoue les échecs", correct: true}
+      - {text: "`errgroup.WithContext`, qui arrête tout le pool dès la première tâche en échec", correct: false}
+      - {text: "Une panique à la première erreur, récupérée dans `main` pour la journaliser", correct: false}
+      - {text: "Ignorer les erreurs, puisque les tâches sont indépendantes les unes des autres", correct: false}
+    answer: "Si les tâches sont indépendantes, une erreur ne doit pas arrêter les autres : chaque worker renvoie un résultat qui contient l'erreur éventuelle (`Resultat{ID, Valeur, Err}`), on collecte tout, puis on rapporte ou rejoue les échecs. `errgroup.WithContext` convient quand une erreur invalide l'ensemble ; dans les deux cas, chaque worker récupère les paniques de ses tâches."
   - key: scenario-arret
     format: scenario
     question: Comment arrêter proprement un pool de workers quand le service reçoit SIGTERM ?
-    answer: |-
-      Le producteur et les workers surveillent le contexte du service, annulé à la réception du signal
-      (`signal.NotifyContext`). Le producteur arrête de distribuer et ferme le channel des tâches ; les workers
-      terminent la tâche en cours (ou l'abandonnent si elle accepte le contexte) puis sortent ; `wg.Wait()` avec un délai
-      maximal laisse le temps de finir, et les tâches non traitées restent dans la file d'origine pour la prochaine
-      instance.
+    choices:
+      - {text: "Un contexte annulé par `signal.NotifyContext` : le producteur ferme les tâches, les workers finissent, `Wait` est borné", correct: true}
+      - {text: "Un `os.Exit(0)` à la réception du signal, en acceptant de perdre les tâches en cours de traitement", correct: false}
+      - {text: "Fermer le channel des tâches depuis le gestionnaire de signal, pendant que le producteur envoie encore", correct: false}
+      - {text: "Ignorer SIGTERM, et attendre que l'orchestrateur envoie SIGKILL pour arrêter le service", correct: false}
+    answer: "Le producteur et les workers surveillent le contexte du service, annulé à la réception du signal (`signal.NotifyContext`). Le producteur arrête de distribuer et ferme le channel des tâches ; les workers finissent la tâche en cours (ou l'abandonnent si elle accepte le contexte) puis sortent, et un `wg.Wait()` borné par un délai laisse le temps de finir."
   - key: scenario-errgroup
     format: scenario
     question: Quand choisirais-tu errgroup avec SetLimit plutôt qu'un pool écrit à la main ?
-    answer: |-
-      Presque toujours quand les tâches sont connues d'avance et qu'une erreur doit arrêter l'ensemble : `g.SetLimit(n)`,
-      une boucle `g.Go(...)` et `g.Wait()` font tout, contexte compris. J'écris le pool à la main quand les tâches arrivent
-      en flux continu (un channel alimenté par ailleurs), quand chaque worker garde un état (une connexion à lui), ou
-      quand les erreurs doivent être collectées au lieu d'arrêter le groupe.
+    choices:
+      - {text: "Quand les tâches sont connues d'avance, et qu'une erreur doit arrêter l'ensemble", correct: true}
+      - {text: "Quand les tâches arrivent en flux continu, sur un channel alimenté par ailleurs", correct: false}
+      - {text: "Quand chaque worker doit garder son propre état, comme une connexion à lui", correct: false}
+      - {text: "Quand toutes les erreurs doivent être collectées, sans arrêter le groupe", correct: false}
+    answer: "Presque toujours quand les tâches sont connues d'avance et qu'une erreur doit arrêter l'ensemble : `g.SetLimit(n)`, une boucle `g.Go(...)` et `g.Wait()` font tout, contexte compris. J'écris le pool à la main quand les tâches arrivent en flux continu, quand chaque worker garde un état, ou quand les erreurs doivent être collectées."

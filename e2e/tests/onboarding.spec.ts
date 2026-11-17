@@ -23,6 +23,9 @@ test.describe('Premier login', () => {
     await page.getByRole('button', { name: 'Commencer' }).click()
     await expect(page.getByRole('timer', { name: 'Temps restant' })).toHaveText('Encore 5 min')
     await expect(page.locator('article header')).toContainText('Go ·')
-    await page.getByRole('button', { name: 'Voir la réponse' }).click()
+    // La première carte se corrige sur le serveur (ADR 0051) : on la valide, sans rien retourner.
+    await expect(
+      page.locator('article').first().getByRole('button', { name: 'Valider' }),
+    ).toBeVisible()
   })
 })

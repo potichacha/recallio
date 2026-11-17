@@ -3,20 +3,40 @@ lesson: "Chaque type a une **contrainte d'alignement** : un `int64` doit commenc
 cards:
   - key: ordre-champs-struct-compter
     format: course
-    question: Pourquoi l'ordre des champs d'une struct peut-il compter ?
-    answer: Le padding d'alignement change la taille ; trier par taille décroissante la réduit.
+    question: "Pourquoi l'ordre des champs d'une struct peut-il changer sa taille ?"
+    choices:
+      - {text: "Le remplissage d'alignement inséré entre les champs dépend de leur ordre", correct: true}
+      - {text: "Go range les champs par ordre alphabétique, et l'ordre écrit est ignoré", correct: false}
+      - {text: "Chaque champ déclaré après un pointeur est copié dans un bloc à part", correct: false}
+      - {text: "Les premiers champs sont stockés sur la pile, les suivants dans le tas", correct: false}
+    answer: "Chaque champ est aligné sur sa taille : entre un `bool` et un `int64`, le compilateur insère du remplissage (padding). Ranger les champs par taille décroissante réduit ce remplissage, donc la taille de la struct."
   - key: reordonne
     format: course
     question: Le compilateur Go réordonne-t-il les champs d'une struct pour réduire sa taille ?
-    answer: 'Non : l''ordre en mémoire est celui du code ; c''est au développeur de ranger les champs.'
+    choices:
+      - {text: "Non : les champs restent dans l'ordre du code, au développeur de les ranger", correct: true}
+      - {text: "Oui : il trie toujours les champs par taille décroissante à la compilation", correct: false}
+      - {text: "Oui, mais seulement pour les structs non exportées, invisibles ailleurs", correct: false}
+      - {text: "Oui en build de production ; `go run` garde l'ordre du code pour déboguer", correct: false}
+    answer: "Non : le compilateur garde l'ordre de la déclaration (le code `unsafe`, cgo et les formats binaires en dépendent). C'est au développeur de ranger les champs, aidé par l'analyseur `fieldalignment` ; contrairement à Rust, Go ne réordonne rien."
   - key: mesurer
     format: course
     question: Comment mesurer la taille et le remplissage d'une struct ?
-    answer: Avec `unsafe.Sizeof`, `unsafe.Offsetof` et `unsafe.Alignof`, ou l'analyseur `fieldalignment` qui propose un meilleur ordre.
+    choices:
+      - {text: "Avec `unsafe.Sizeof`, `unsafe.Offsetof` et `unsafe.Alignof`, ou l'analyseur `fieldalignment`", correct: true}
+      - {text: "Avec `len` et `cap` appliqués à la struct, qui donnent sa taille et son remplissage", correct: false}
+      - {text: "Avec `runtime.ReadMemStats`, qui détaille la mémoire occupée par chaque type déclaré", correct: false}
+      - {text: "Avec `go vet -size`, qui imprime la taille et le remplissage de chaque struct du package", correct: false}
+    answer: "`unsafe.Sizeof` donne la taille, `Offsetof` la position d'un champ, `Alignof` son alignement ; l'analyseur `fieldalignment` signale les structs mal rangées et propose un meilleur ordre. `len` ne s'applique pas à une struct, et `MemStats` ne donne que des totaux."
   - key: quand
     format: course
     question: Quand l'ordre des champs vaut-il la peine d'être optimisé ?
-    answer: Pour des structs présentes par millions en mémoire, où le remplissage se multiplie ; ailleurs, la lisibilité prime.
+    choices:
+      - {text: "Pour une struct présente par millions en mémoire, où le remplissage se multiplie", correct: true}
+      - {text: "Pour toute struct exportée, avant de publier une version du package", correct: false}
+      - {text: "Toujours : un champ mal aligné ralentit chaque accès, même sur une seule valeur", correct: false}
+      - {text: "Jamais : le ramasse-miettes compacte la mémoire et retire le remplissage", correct: false}
+    answer: "Quand la struct existe en très grand nombre (caches, slices de millions d'éléments) : quelques octets gagnés par élément font des mégaoctets. Ailleurs, on garde l'ordre le plus lisible ; le ramasse-miettes ne retire jamais le remplissage."
   - key: vf-padding
     format: true-false
     question: Le compilateur peut insérer des octets inutilisés entre les champs d'une struct.
@@ -65,17 +85,13 @@ cards:
     answer: 8 + 4 + 1 + 1 = 14, arrondi à 16 octets.
   - key: qcm-outils
     format: multiple-choice
-    question: Quels outils aident à analyser l'alignement ?
+    question: "Quel outil propose un meilleur ordre pour les champs d'une struct ?"
     choices:
-      - text: '`unsafe.Sizeof` et `unsafe.Offsetof`'
-        correct: true
-      - text: L'analyseur `fieldalignment`
-        correct: true
-      - text: '`gofmt`'
-        correct: false
-      - text: '`go mod tidy`'
-        correct: false
-    answer: gofmt ne touche pas à l'ordre des champs.
+      - {text: "L'analyseur `fieldalignment`", correct: true}
+      - {text: "`gofmt -s`, qui simplifie le code", correct: false}
+      - {text: "`go mod tidy`, qui range le module", correct: false}
+      - {text: "`go vet`, avec ses analyseurs par défaut", correct: false}
+    answer: "L'analyseur `fieldalignment` signale les structs mal rangées et propose un ordre ; `unsafe.Sizeof` et `unsafe.Offsetof` mesurent, sans rien proposer. `gofmt` ne touche pas à l'ordre des champs, et `go vet` ne lance pas cet analyseur par défaut."
   - key: qcm-quand
     format: multiple-choice
     question: Dans quel cas optimiser l'ordre des champs est-il justifié ?
@@ -91,32 +107,88 @@ cards:
     answer: Le gain se multiplie seulement avec le nombre d'instances.
   - key: code-tailles
     format: code-output
-    question: "```go\ntype Mal struct {\n\ta bool\n\tb int64\n\tc bool\n}\ntype Bien struct {\n\tb int64\n\ta bool\n\tc bool\n}\n\nfmt.Println(unsafe.Sizeof(Mal{}), unsafe.Sizeof(Bien{}))\n```"
-    answer: '`24 16` sur une plateforme 64 bits : le remplissage dépend de l''ordre des champs.'
+    question: |-
+      Qu'affiche ce code, sur une plateforme 64 bits ?
+      ```go
+      type Mal struct {
+      	a bool
+      	b int64
+      	c bool
+      }
+      type Bien struct {
+      	b int64
+      	a bool
+      	c bool
+      }
+
+      fmt.Println(unsafe.Sizeof(Mal{}), unsafe.Sizeof(Bien{}))
+      ```
+    choices:
+      - {text: "`24 16`", correct: true}
+      - {text: "`10 10`", correct: false}
+      - {text: "`16 16`", correct: false}
+      - {text: "`24 24`", correct: false}
+    answer: "`24 16` : dans `Mal`, chaque `bool` est suivi de 7 octets de remplissage (pour aligner le `int64`, puis la fin) ; dans `Bien`, les deux `bool` se suivent après le `int64`, et seul le remplissage final reste. `10` serait la somme sans aucun remplissage."
     check:
       code: "package main\n\nimport (\n\t\"fmt\"\n\t\"unsafe\"\n)\n\ntype Mal struct {\n\ta bool\n\tb int64\n\tc bool\n}\n\ntype Bien struct {\n\tb int64\n\ta bool\n\tc bool\n}\n\nfunc main() {\n\tfmt.Println(unsafe.Sizeof(Mal{}), unsafe.Sizeof(Bien{}))\n}\n"
       output: 24 16
   - key: code-offset
     format: code-output
-    question: "```go\ntype S struct {\n\ta bool\n\tb int32\n\tc int64\n}\n\nvar s S\nfmt.Println(unsafe.Offsetof(s.b), unsafe.Offsetof(s.c), unsafe.Sizeof(s))\n```"
-    answer: '`4 8 16` : `b` est aligné sur 4, `c` sur 8.'
+    question: |-
+      Qu'affiche ce code, sur une plateforme 64 bits ?
+      ```go
+      type S struct {
+      	a bool
+      	b int32
+      	c int64
+      }
+
+      var s S
+      fmt.Println(unsafe.Offsetof(s.b), unsafe.Offsetof(s.c), unsafe.Sizeof(s))
+      ```
+    choices:
+      - {text: "`4 8 16`", correct: true}
+      - {text: "`1 5 13`", correct: false}
+      - {text: "`1 8 16`", correct: false}
+      - {text: "`8 16 24`", correct: false}
+    answer: "`4 8 16` : `b` (`int32`) s'aligne sur 4, donc 3 octets de remplissage après `a` ; `c` (`int64`) s'aligne sur 8 et commence juste après `b`. Total 16, sans remplissage final."
     check:
       code: "package main\n\nimport (\n\t\"fmt\"\n\t\"unsafe\"\n)\n\ntype S struct {\n\ta bool\n\tb int32\n\tc int64\n}\n\nfunc main() {\n\tvar s S\n\tfmt.Println(unsafe.Offsetof(s.b), unsafe.Offsetof(s.c), unsafe.Sizeof(s))\n}\n"
       output: 4 8 16
   - key: code-alignof
     format: code-output
     question: |-
+      Qu'affiche ce code, sur une plateforme 64 bits ?
       ```go
       fmt.Println(unsafe.Alignof(int64(0)), unsafe.Alignof(int32(0)), unsafe.Alignof(true))
       ```
-    answer: '`8 4 1` sur une plateforme 64 bits.'
+    choices:
+      - {text: "`8 4 1`", correct: true}
+      - {text: "`8 8 8`", correct: false}
+      - {text: "`64 32 1`", correct: false}
+      - {text: "`8 4 8`", correct: false}
+    answer: "`8 4 1` : un type de base s'aligne sur sa taille en octets (8 pour `int64`, 4 pour `int32`, 1 pour `bool`). `Alignof` compte en octets, pas en bits."
     check:
       code: "package main\n\nimport (\n\t\"fmt\"\n\t\"unsafe\"\n)\n\nfunc main() {\n\tfmt.Println(unsafe.Alignof(int64(0)), unsafe.Alignof(int32(0)), unsafe.Alignof(true))\n}\n"
       output: 8 4 1
   - key: code-vide-fin
     format: code-output
-    question: "```go\ntype A struct {\n\tx int64\n\ty bool\n}\n\nfmt.Println(unsafe.Sizeof(A{}), unsafe.Sizeof([4]A{}))\n```"
-    answer: '`16 64` : le remplissage final arrondit la taille à un multiple de 8, pour que les éléments d''un tableau restent alignés.'
+    question: |-
+      Qu'affiche ce code, sur une plateforme 64 bits ?
+      ```go
+      type A struct {
+      	x int64
+      	y bool
+      }
+
+      fmt.Println(unsafe.Sizeof(A{}), unsafe.Sizeof([4]A{}))
+      ```
+    choices:
+      - {text: "`16 64`", correct: true}
+      - {text: "`9 36`", correct: false}
+      - {text: "`16 36`", correct: false}
+      - {text: "`12 48`", correct: false}
+    answer: "`16 64` : la taille d'une struct est arrondie au multiple de son alignement (8), pour que chaque élément d'un tableau reste aligné ; d'où 7 octets de remplissage final, et 4 × 16 = 64."
     check:
       code: "package main\n\nimport (\n\t\"fmt\"\n\t\"unsafe\"\n)\n\ntype A struct {\n\tx int64\n\ty bool\n}\n\nfunc main() {\n\tfmt.Println(unsafe.Sizeof(A{}), unsafe.Sizeof([4]A{}))\n}\n"
       output: 16 64

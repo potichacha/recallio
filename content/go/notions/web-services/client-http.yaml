@@ -44,26 +44,49 @@ tour:
 cards:
   - key: corps-reponse-http
     format: course
-    question: Que faut-il faire du corps d'une réponse HTTP ?
-    answer: Le lire (ou le vider) et le fermer pour que la connexion soit réutilisée.
+    question: "Que faut-il faire du corps d'une réponse HTTP reçue par un client ?"
+    choices:
+      - {text: "Le lire (ou le vider) puis le fermer, pour que la connexion soit réutilisée", correct: true}
+      - {text: "Rien : il se ferme seul quand la réponse n'est plus référencée", correct: false}
+      - {text: "Le fermer seulement si le statut est une erreur, 4xx ou 5xx", correct: false}
+      - {text: "Le lire seulement : `Close` est réservé au côté serveur", correct: false}
+    answer: "On le lit jusqu'au bout (ou on le vide avec `io.Copy(io.Discard, resp.Body)`) puis on le ferme : la connexion revient au pool. Sinon, chaque appel garde une connexion et un descripteur ouverts."
   - key: utiliser-http-get-production
     format: course
-    question: Pourquoi ne pas utiliser http.Get en production ?
-    answer: Il utilise DefaultClient, sans timeout.
+    question: "Pourquoi ne pas utiliser `http.Get` en production ?"
+    choices:
+      - {text: "Il passe par `http.DefaultClient`, qui n'a aucun délai", correct: true}
+      - {text: "Il ouvre une nouvelle connexion TCP à chaque appel", correct: false}
+      - {text: "Il ne suit pas les redirections, contrairement à `Do`", correct: false}
+      - {text: "Il n'est pas sûr en concurrence entre goroutines", correct: false}
+    answer: "`http.Get` utilise `http.DefaultClient`, sans `Timeout` : un serveur qui ne répond pas bloque l'appel indéfiniment. On crée un `http.Client` avec un délai, et l'on passe un contexte avec `NewRequestWithContext`."
   - key: fermer-lire-corps-reponse
     format: course
-    question: Pourquoi fermer et lire le corps de la réponse ?
-    answer: Pour libérer et réutiliser la connexion.
+    question: "Pourquoi lire jusqu'au bout, puis fermer, le corps d'une réponse ?"
+    choices:
+      - {text: "Pour rendre la connexion au pool, qui peut alors la réutiliser", correct: true}
+      - {text: "Pour que le serveur sache que la réponse a bien été reçue", correct: false}
+      - {text: "Pour vider le cache HTTP du client, sinon il grossit sans fin", correct: false}
+      - {text: "Pour déclencher le décodage JSON, qui n'a lieu qu'à la fermeture", correct: false}
+    answer: "Une connexion n'est rendue au pool que si le corps a été lu jusqu'au bout puis fermé ; sinon elle est jetée, ou reste ouverte et fuit. Le serveur, lui, n'en sait rien."
   - key: client-do-renvoie-erreur-500
     format: course
-    question: client.Do renvoie-t-il une erreur sur un 500 ?
-    answer: Non, il faut vérifier StatusCode.
+    question: "`client.Do` renvoie-t-il une erreur quand le serveur répond 500 ?"
+    choices:
+      - {text: "Non : il faut vérifier `resp.StatusCode`", correct: true}
+      - {text: "Oui : toute réponse 4xx ou 5xx est une erreur", correct: false}
+      - {text: "Oui, mais seulement pour les réponses 5xx", correct: false}
+      - {text: "Non, sauf si le client a un `Timeout`", correct: false}
+    answer: "Non : une réponse HTTP, quel que soit son statut, est un succès pour `Do`. Il ne renvoie d'erreur que si la requête n'a pas abouti (connexion, TLS, délai) ; le statut se teste à la main."
   - key: service-appelle-api-externe-quand-devient
     format: scenario
-    question: Le service appelle une API externe et, quand elle devient lente, tout le service ralentit.
-    answer: |-
-      Sans timeout, chaque appel lent garde une goroutine et une connexion, et la file grossit jusqu'à épuiser les ressources. Je mettrais un **client dédié** avec un timeout global et des timeouts de connexion et de handshake, et je passerais le **contexte** de la requête entrante, éventuellement réduit à un budget précis.
-      Ensuite des protections : un **circuit breaker** pour arrêter d'appeler une dépendance en échec et renvoyer vite une erreur ou une valeur dégradée, une **limite de concurrence** vers cette dépendance (sémaphore), un cache si les données le permettent. Et des métriques de latence par dépendance pour voir le problème avant les utilisateurs.
+    question: "Le service appelle une API externe et, quand elle devient lente, tout le service ralentit. Que fais-tu ?"
+    choices:
+      - {text: "Un client dédié avec des délais, le contexte de la requête, un disjoncteur et une limite de concurrence", correct: true}
+      - {text: "Plus d'instances du service, pour absorber les appels lents vers l'API externe", correct: false}
+      - {text: "Des réessais immédiats et illimités, jusqu'à ce que l'API externe réponde vite", correct: false}
+      - {text: "`http.DefaultClient` partagé par tout le service, pour réutiliser ses connexions", correct: false}
+    answer: "Sans délai, chaque appel lent garde une goroutine et une connexion, et la file grossit. Un client dédié avec ses délais, le contexte de la requête entrante, un disjoncteur (circuit breaker) qui renvoie vite une erreur ou une valeur dégradée, une limite de concurrence vers la dépendance, et des métriques de latence par dépendance."
   - key: vf-500
     format: true-false
     question: '`client.Do` renvoie une erreur quand le serveur répond 500.'
@@ -86,20 +109,16 @@ cards:
     answer: Il borne tout l'échange, de la connexion à la fin du corps.
   - key: qcm-erreurs
     format: multiple-choice
-    question: Quand `client.Do` renvoie-t-il une erreur ?
+    question: "Dans lequel de ces cas `client.Do` renvoie-t-il une erreur ?"
     choices:
-      - text: Quand la connexion échoue (DNS, refus, TLS)
-        correct: true
-      - text: Quand le délai ou le contexte expire
-        correct: true
-      - text: Quand le serveur répond 404
-        correct: false
-      - text: Quand le corps contient du JSON invalide
-        correct: false
-    answer: Le statut et le contenu du corps sont à vérifier par l'appelant.
+      - {text: "Quand le délai du client ou le contexte expire", correct: true}
+      - {text: "Quand le serveur répond 404", correct: false}
+      - {text: "Quand le serveur répond 503", correct: false}
+      - {text: "Quand le corps contient du JSON invalide", correct: false}
+    answer: "`Do` renvoie une erreur quand la requête n'aboutit pas : connexion refusée, DNS, TLS, délai ou contexte expiré. Le statut et le contenu du corps sont à vérifier par l'appelant."
   - key: qcm-corps
     format: multiple-choice
-    question: Que faire du corps d'une réponse ?
+    question: "Lesquelles de ces pratiques faut-il suivre avec le corps d'une réponse ?"
     choices:
       - text: '`defer resp.Body.Close()` juste après avoir vérifié l''erreur de Do'
         correct: true
@@ -112,7 +131,7 @@ cards:
     answer: Le corps se ferme dans tous les cas où Do a réussi.
   - key: qcm-url
     format: multiple-choice
-    question: Comment construire l'URL `.../recherche?q=<terme>` avec un terme saisi par l'utilisateur ?
+    question: "Lesquelles de ces expressions construisent sans risque l'URL `.../recherche?q=<terme>`, avec un terme saisi par l'utilisateur ?"
     choices:
       - text: '`url.Values{"q": {terme}}.Encode()`'
         correct: true
@@ -125,21 +144,17 @@ cards:
     answer: 'Sans échappement, un « & » ou un « # » dans le terme casserait la requête.'
   - key: qcm-contexte
     format: multiple-choice
-    question: Pourquoi utiliser NewRequestWithContext ?
+    question: "Pourquoi utiliser `http.NewRequestWithContext` ?"
     choices:
-      - text: Pour que l'appel s'arrête quand l'appelant est annulé
-        correct: true
-      - text: Pour respecter l'échéance de la requête entrante
-        correct: true
-      - text: Pour réutiliser les connexions
-        correct: false
-      - text: Pour ajouter un en-tête Authorization
-        correct: false
-    answer: Le contexte porte l'annulation et l'échéance.
+      - {text: "Pour que l'appel s'arrête quand l'appelant est annulé ou que son échéance passe", correct: true}
+      - {text: "Pour réutiliser les connexions, ce que `http.NewRequest` ne permet pas", correct: false}
+      - {text: "Pour ajouter un en-tête `Authorization` tiré du contexte", correct: false}
+      - {text: "Pour que la requête soit réessayée automatiquement en cas d'échec", correct: false}
+    answer: "Le contexte porte l'annulation et l'échéance : l'appel sortant s'arrête quand la requête entrante est annulée ou que son budget expire. La réutilisation des connexions dépend du `Transport`, pas du contexte."
   - key: trous-request
     format: fill-in
     question: |-
-      Complétez :
+      Complète :
       ```go
       req, err := http.___(ctx, http.MethodGet, u, nil)
       ```
@@ -148,20 +163,34 @@ cards:
     answer: http.NewRequestWithContext.
   - key: trous-close
     format: fill-in
-    question: "Complétez :\n```go\nresp, err := client.Do(req)\nif err != nil {\n\treturn err\n}\ndefer resp.___.Close()\n```"
+    question: |-
+      Complète :
+      ```go
+      resp, err := client.Do(req)
+      if err != nil {
+      	return err
+      }
+      defer resp.___.Close()
+      ```
     blanks:
       - - Body
     answer: resp.Body.Close().
   - key: trous-statut
     format: fill-in
-    question: "Complétez le test du statut :\n```go\nif resp.___ != http.StatusOK {\n\treturn fmt.Errorf(\"statut %d\", resp.StatusCode)\n}\n```"
+    question: |-
+      Complète le test du statut :
+      ```go
+      if resp.___ != http.StatusOK {
+      	return fmt.Errorf("statut %d", resp.StatusCode)
+      }
+      ```
     blanks:
       - - StatusCode
     answer: resp.StatusCode.
   - key: trous-timeout
     format: fill-in
     question: |-
-      Complétez un client avec délai :
+      Complète un client avec délai :
       ```go
       var client = &http.Client{___: 10 * time.Second}
       ```
@@ -170,46 +199,93 @@ cards:
     answer: Timeout.
   - key: bug-statut
     format: bug-fix
-    question: "Quand le service de paiement répond 503, le code décode une réponse vide et considère le paiement comme accepté :\n```go\nresp, err := client.Do(req)\nif err != nil {\n\treturn err\n}\ndefer resp.Body.Close()\nreturn json.NewDecoder(resp.Body).Decode(&resultat)\n```"
+    question: |-
+      Quand le service de paiement répond 503, le code décode la réponse comme un succès et considère le paiement comme accepté. Quelle correction est la bonne ?
+      ```go
+      resp, err := client.Do(req)
+      if err != nil {
+      	return err
+      }
+      defer resp.Body.Close()
+      return json.NewDecoder(resp.Body).Decode(&resultat)
+      ```
+    choices:
+      - {text: "Tester `resp.StatusCode` avant de décoder, et renvoyer une erreur hors 200", correct: true}
+      - {text: "Rien : `client.Do` renvoie déjà une erreur pour un 503", correct: false}
+      - {text: "Ajouter `DisallowUnknownFields` au décodeur de la réponse", correct: false}
+      - {text: "Réessayer le décodage tant que `resultat` reste vide", correct: false}
     answer: "```go\nresp, err := client.Do(req)\nif err != nil {\n\treturn err\n}\ndefer resp.Body.Close()\nif resp.StatusCode != http.StatusOK {\n\textrait, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))\n\treturn fmt.Errorf(\"paiement : statut %d : %s\", resp.StatusCode, extrait)\n}\nreturn json.NewDecoder(resp.Body).Decode(&resultat)\n```\nDo ne renvoie pas d'erreur pour un 503 ; on teste le statut avant de décoder."
   - key: bug-fuite
     format: bug-fix
-    question: "Après quelques heures, le service ne peut plus ouvrir de connexion (« too many open files ») :\n```go\nresp, err := client.Get(u)\nif err != nil {\n\treturn false\n}\nreturn resp.StatusCode == http.StatusOK\n```"
+    question: |-
+      Après quelques heures, le service ne peut plus ouvrir de connexion (« too many open files »). Quelle correction est la bonne ?
+      ```go
+      resp, err := client.Get(u)
+      if err != nil {
+      	return false
+      }
+      return resp.StatusCode == http.StatusOK
+      ```
+    choices:
+      - {text: "Fermer le corps avec `defer resp.Body.Close()`, et le vider avec `io.Copy(io.Discard, ...)`", correct: true}
+      - {text: "Créer un nouveau `http.Client` à chaque appel, pour repartir de zéro", correct: false}
+      - {text: "Relever la limite de descripteurs du système avec `ulimit -n`", correct: false}
+      - {text: "Tester `resp.StatusCode` avant de lire le corps, qui se ferme alors seul", correct: false}
     answer: "```go\nresp, err := client.Get(u)\nif err != nil {\n\treturn false\n}\ndefer resp.Body.Close()\nio.Copy(io.Discard, resp.Body)\nreturn resp.StatusCode == http.StatusOK\n```\nLe corps n'était jamais fermé : chaque appel gardait une connexion ouverte. Le lire jusqu'au bout permet aussi de\nréutiliser la connexion."
   - key: bug-sans-delai
     format: bug-fix
     question: |-
-      Quand le partenaire ne répond plus, toutes les goroutines du service restent bloquées :
+      Quand le partenaire ne répond plus, toutes les goroutines du service restent bloquées. Quelle correction est la bonne ?
       ```go
       resp, err := http.Get(urlPartenaire)
       ```
+    choices:
+      - {text: "Un `http.Client` avec `Timeout`, et une requête créée avec `NewRequestWithContext`", correct: true}
+      - {text: "Lancer `http.Get` dans une goroutine, pour ne plus bloquer l'appelant", correct: false}
+      - {text: "Remplacer `http.Get` par `http.Head`, plus léger pour le partenaire", correct: false}
+      - {text: "Réessayer `http.Get` en boucle jusqu'à ce que le partenaire réponde", correct: false}
     answer: "```go\nvar client = &http.Client{Timeout: 5 * time.Second}\n\nreq, err := http.NewRequestWithContext(ctx, http.MethodGet, urlPartenaire, nil)\nif err != nil {\n\treturn err\n}\nresp, err := client.Do(req)\n```\nhttp.Get n'a ni délai ni contexte ; un client avec Timeout et une requête avec contexte bornent l'appel."
   - key: bug-close-nil
     format: bug-fix
-    question: "Le service panique quand le partenaire est injoignable :\n```go\nresp, err := client.Do(req)\ndefer resp.Body.Close()\nif err != nil {\n\treturn err\n}\n```"
+    question: |-
+      Le service panique quand le partenaire est injoignable. Quelle correction est la bonne ?
+      ```go
+      resp, err := client.Do(req)
+      defer resp.Body.Close()
+      if err != nil {
+      	return err
+      }
+      ```
+    choices:
+      - {text: "Placer `defer resp.Body.Close()` après la vérification de l'erreur", correct: true}
+      - {text: "Remplacer `defer resp.Body.Close()` par `defer resp.Close()`", correct: false}
+      - {text: "Ajouter un `recover` dans la fonction, pour ignorer la panique", correct: false}
+      - {text: "Tester `resp.StatusCode` juste avant le `defer`", correct: false}
     answer: "```go\nresp, err := client.Do(req)\nif err != nil {\n\treturn err\n}\ndefer resp.Body.Close()\n```\nEn cas d'erreur, resp est nil ; le defer se place après la vérification."
   - key: scenario-client-api
     format: scenario
     question: Comment écris-tu un client Go pour une API REST partenaire ?
-    answer: |-
-      Un type `Client` avec l'URL de base, un `*http.Client` injecté (délai, transport configuré) et des méthodes typées
-      par opération, qui prennent un contexte : construire la requête avec NewRequestWithContext, ajouter les en-têtes
-      (authentification, Accept), vérifier le statut, décoder dans des types dédiés, et renvoyer des erreurs enveloppées,
-      dont une erreur typée pour les statuts (code, corps tronqué). Les tests utilisent httptest.NewServer pour simuler
-      le partenaire.
+    choices:
+      - {text: "Un type `Client` avec URL de base, `*http.Client` injecté et méthodes typées qui prennent un contexte", correct: true}
+      - {text: "Des fonctions qui appellent `http.Get` et renvoient le corps brut, à décoder par l'appelant", correct: false}
+      - {text: "Un client créé à chaque appel, avec une URL construite en concaténant la saisie", correct: false}
+      - {text: "Une fonction générique qui renvoie une `map[string]any`, pour s'adapter à tout changement", correct: false}
+    answer: "Un type `Client` avec l'URL de base, un `*http.Client` injecté (délai, transport configuré) et une méthode typée par opération, qui prend un contexte : `NewRequestWithContext`, en-têtes, vérification du statut, décodage dans des types dédiés, erreurs enveloppées (dont une erreur typée pour les statuts). Les tests passent par `httptest.NewServer`."
   - key: scenario-reessais
     format: scenario
     question: Comment ajoutes-tu des réessais à un client HTTP ?
-    answer: |-
-      Seulement pour les erreurs temporaires (délai, connexion refusée, 429, 502, 503, 504) et les requêtes idempotentes
-      (GET, ou un POST avec une clé d'idempotence). Un délai exponentiel avec une part aléatoire (jitter), en respectant
-      Retry-After, un nombre maximal de tentatives, et toujours le contexte de l'appelant pour ne pas dépasser son
-      échéance. Le corps de la requête doit pouvoir être relu (`req.GetBody`).
+    choices:
+      - {text: "Seulement les erreurs temporaires et les requêtes idempotentes, avec un délai exponentiel et du jitter", correct: true}
+      - {text: "Toutes les erreurs, y compris les 400, avec un délai fixe d'une seconde entre deux essais", correct: false}
+      - {text: "Un réessai immédiat et illimité, tant que le contexte de l'appelant n'est pas annulé", correct: false}
+      - {text: "Tous les POST d'abord, car ce sont eux qui échouent le plus souvent sur le réseau", correct: false}
+    answer: "Seulement pour les erreurs temporaires (délai, connexion refusée, 429, 502, 503, 504) et les requêtes idempotentes (GET, ou POST avec clé d'idempotence) : délai exponentiel avec jitter, `Retry-After` respecté, nombre maximal de tentatives et contexte de l'appelant. Le corps doit pouvoir être relu (`req.GetBody`)."
   - key: scenario-tester
     format: scenario
     question: Comment testes-tu un client HTTP sans appeler le vrai partenaire ?
-    answer: |-
-      Avec `httptest.NewServer` et un handler qui vérifie la requête reçue (méthode, chemin, en-têtes) et renvoie des
-      réponses préparées : succès, 404, 500, JSON invalide, réponse lente pour tester le délai. Le client est construit
-      avec l'URL du serveur de test. Les tests de table couvrent chaque cas, sans réseau externe et de façon
-      reproductible.
+    choices:
+      - {text: "Avec `httptest.NewServer` et un handler qui vérifie la requête et renvoie des réponses préparées", correct: true}
+      - {text: "En appelant l'environnement de recette du partenaire à chaque exécution des tests", correct: false}
+      - {text: "En remplaçant `http.DefaultClient` par une variable globale modifiée dans les tests", correct: false}
+      - {text: "Sans test : on vérifie le client à la main avec curl avant chaque livraison", correct: false}
+    answer: "`httptest.NewServer` démarre un vrai serveur local dont le handler vérifie la requête (méthode, chemin, en-têtes) et renvoie des réponses préparées : succès, 404, 500, JSON invalide, réponse lente pour le délai. Le client est construit avec l'URL de ce serveur, sans réseau externe."

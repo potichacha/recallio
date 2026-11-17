@@ -1,23 +1,19 @@
 import { expect, type Page } from '@playwright/test'
 
 /**
- * Répond à la carte de révision affichée, quelle qu'elle soit. Une carte à choix (ADR 0051) se valide sur son premier
- * choix affiché, et le serveur la corrige ; une carte qui n'a pas encore de choix se retourne, puis « Je savais ».
+ * Répond à la carte de révision affichée, sans chercher la bonne réponse : toute carte se corrige sur le serveur
+ * (ADR 0051). Une carte à choix se valide sur son premier choix affiché, un code à trous avec « x » dans chaque trou.
  */
 export async function answerCard(page: Page) {
   const card = page.locator('article').first()
   const validate = card.getByRole('button', { name: 'Valider' })
-  const flip = card.getByRole('button', { name: 'Voir la réponse' })
-  await expect(validate.or(flip)).toBeVisible()
-  if (await validate.isVisible()) {
-    await card.getByRole('radio').or(card.getByRole('checkbox')).first().check()
-    await validate.click()
-    await card.getByRole('button', { name: 'Carte suivante' }).click()
-    return
+  await expect(validate).toBeVisible()
+  const choice = card.getByRole('radio').or(card.getByRole('checkbox')).first()
+  if (await choice.isVisible()) {
+    await choice.check()
+  } else {
+    for (const blank of await card.getByRole('textbox').all()) await blank.fill('x')
   }
-  await flip.click()
-  await page
-    .getByRole('group', { name: 'Connaissais-tu la réponse ?' })
-    .getByRole('button', { name: 'Je savais' })
-    .click()
+  await validate.click()
+  await card.getByRole('button', { name: 'Carte suivante' }).click()
 }
