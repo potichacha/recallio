@@ -3,13 +3,17 @@ lesson: "Le cas le plus courant du piège de l'**interface nil** : une fonction 
 cards:
   - key: fonction-validation-retourne-validationerror
     format: scenario
-    question: Une fonction de validation retourne `*ValidationError` quand il n'y a pas d'erreur, et les appelants voient une erreur.
-    answer: |-
-      La fonction a une signature du type `func valider() error` mais retourne une variable `var verr *ValidationError` restée nil. L'interface `error` retournée contient le type `*ValidationError` et une valeur nil : elle n'est donc pas nil, et `err != nil` est vrai.
-      Correction : retourner explicitement `nil` quand il n'y a pas d'erreur, ou déclarer la variable locale avec le type `error`. Je relirais aussi les autres fonctions du même style ; `staticcheck` et l'analyseur `nilness` aident à détecter ces cas.
+    question: "Une fonction `func valider() error` renvoie une variable `var verr *ValidationError` restée nil quand tout va bien, et ses appelants voient pourtant une erreur. Que fais-tu ?"
+    choices:
+      - {text: "Je renvoie `nil` explicitement sur le chemin sans erreur, ou je type la variable en `error`", correct: true}
+      - {text: "Je fais tester les appelants avec `errors.Is(err, nil)` plutôt qu'avec `err != nil`", correct: false}
+      - {text: "J'initialise la variable avec `&ValidationError{}`, pour qu'elle ne soit jamais nil", correct: false}
+      - {text: "Je fais renvoyer `*ValidationError` à la signature, et l'appelant convertit en `error`", correct: false}
+    answer: "L'interface `error` retournée contient le type `*ValidationError` et une valeur nil : elle n'est donc pas nil, et `err != nil` est vrai. Un `return nil` explicite (ou une variable de type `error`) donne une vraie interface nil ; staticcheck et l'analyseur `nilness` aident à repérer les autres cas."
   - key: code-type-monerr-struct-func-monerr
     format: code-output
     question: |-
+      Qu'affiche ce code ?
       ```go
       type MonErr struct{}
       func (*MonErr) Error() string { return "x" }
@@ -18,6 +22,11 @@ cards:
       err := trouver()
       fmt.Println(err == nil)
       ```
+    choices:
+      - {text: "`false`", correct: true}
+      - {text: "`true`", correct: false}
+      - {text: "`<nil>`", correct: false}
+      - {text: "Ça ne compile pas", correct: false}
     answer: '`false` : l''interface contient le type `*MonErr` avec une valeur nil, elle n''est donc pas nil.'
     check:
       code: "package main\n\nimport \"fmt\"\n\ntype MonErr struct{}\n\nfunc (*MonErr) Error() string { return \"x\" }\n\nfunc trouver() error {\n    var e *MonErr\n    return e\n}\n\nfunc main() {\n\terr := trouver()\n\tfmt.Println(err == nil)\n}\n"
@@ -25,19 +34,39 @@ cards:
   - key: pourquoi
     format: course
     question: Pourquoi `return e` (avec `e` un `*ErrValidation` nil) donne-t-il une erreur non nil ?
+    choices:
+      - {text: "L'interface reçoit le type `*ErrValidation` ; elle n'est nil que si son type l'est aussi", correct: true}
+      - {text: "La conversion vers `error` alloue une `ErrValidation` vide à la place du pointeur nil", correct: false}
+      - {text: "Go remplace un pointeur nil par une erreur générique « nil pointer » au moment du retour", correct: false}
+      - {text: "`return e` copie la valeur pointée, et une copie n'est jamais nil une fois renvoyée", correct: false}
     answer: La conversion vers `error` crée une interface dont le type est `*ErrValidation` et la valeur nil ; une interface n'est nil que si son type l'est aussi.
   - key: regles
     format: course
-    question: Quelles règles évitent le piège de l'erreur nil typée ?
+    question: "Quelle façon d'écrire évite le piège de l'erreur nil typée ?"
+    choices:
+      - {text: "Un `return nil` explicite, des variables d'erreur de type `error`, aucun type concret en retour", correct: true}
+      - {text: "Des erreurs testées avec `errors.Is(err, nil)`, plus sûr que `err != nil` sur une interface", correct: false}
+      - {text: "Un type concret `*MonErreur` en retour, pour que l'appelant puisse le comparer à nil", correct: false}
+      - {text: "Des variables d'erreur toujours initialisées avec un pointeur vers une valeur vide", correct: false}
     answer: Écrire `return nil` sur le chemin sans erreur, déclarer les variables d'erreur avec le type `error`, et ne jamais renvoyer un type d'erreur concret dans une signature.
   - key: detecter
     format: course
-    question: Quels outils aident à détecter ce piège ?
+    question: "Quels outils aident à détecter le piège de l'erreur nil typée ?"
+    choices:
+      - {text: "Des linters comme `nilaway` et `nilnil`, et staticcheck", correct: true}
+      - {text: "Le compilateur, qui refuse un pointeur nil converti en `error`", correct: false}
+      - {text: "`gofmt`, qui réécrit les `return e` douteux en `return nil`", correct: false}
+      - {text: "Le détecteur de courses `-race`, qui signale les nil typés", correct: false}
     answer: Les linters `nilaway` et `nilnil`, et staticcheck qui signale certaines comparaisons à nil toujours fausses.
   - key: panique
     format: course
     question: Pourquoi `err.Error()` peut-il paniquer sur une erreur nil typée ?
-    answer: Parce que la méthode est appelée avec un receveur pointeur nil, et panique dès qu'elle lit un champ.
+    choices:
+      - {text: "La méthode reçoit un receveur pointeur nil, et panique dès qu'elle lit un champ", correct: true}
+      - {text: "L'interface est nil, et appeler une méthode sur une interface nil panique toujours", correct: false}
+      - {text: "Go interdit d'appeler une méthode d'un pointeur une fois converti en interface", correct: false}
+      - {text: "`Error()` panique dès que l'erreur n'a pas été créée par `errors.New`", correct: false}
+    answer: "La méthode est appelée avec un receveur pointeur nil, et panique dès qu'elle lit un champ. L'interface, elle, n'est pas nil : elle contient le type, c'est pourquoi l'appel a lieu."
   - key: vf-return-variable
     format: true-false
     question: '`var e *MonErreur; return e` dans une fonction `error` renvoie nil.'
@@ -60,85 +89,160 @@ cards:
     answer: Si la méthode Error gère le receveur nil, ou si fmt détecte la panique et affiche `<nil>` ; c'est un indice du piège.
   - key: qcm-nil
     format: multiple-choice
-    question: Lesquelles de ces fonctions renvoient une erreur vraiment nil en cas de succès ?
+    question: "Laquelle de ces fonctions renvoie une erreur vraiment nil en cas de succès ?"
     choices:
-      - text: '`func f() error { return nil }`'
-        correct: true
-      - text: '`func f() error { var err error; return err }`'
-        correct: true
-      - text: '`func f() error { var e *MonErreur; return e }`'
-        correct: false
-      - text: '`func f() error { return (*MonErreur)(nil) }`'
-        correct: false
-    answer: Les deux dernières placent un type dans l'interface.
+      - {text: "`func f() error { return nil }`", correct: true}
+      - {text: "`func f() error { var e *MonErreur; return e }`", correct: false}
+      - {text: "`func f() error { return (*MonErreur)(nil) }`", correct: false}
+      - {text: "`func f() error { var e *MonErreur = nil; return error(e) }`", correct: false}
+    answer: "Seul `return nil` laisse l'interface sans type ni valeur ; les trois autres y placent le type `*MonErreur`. `var err error; return err` serait aussi vraiment nil."
   - key: qcm-symptome
     format: multiple-choice
-    question: Quels symptômes trahissent ce piège ?
+    question: "Quel symptôme trahit une validation qui renvoie une erreur nil typée ?"
     choices:
-      - text: Toutes les requêtes sont refusées alors qu'elles sont valides
-        correct: true
-      - text: Une panique dans la méthode Error de l'erreur
-        correct: true
-      - text: Une erreur de compilation
-        correct: false
-      - text: Un message d'erreur correct
-        correct: false
-    answer: 'Le compilateur ne voit rien : le code est légal.'
+      - {text: "Des requêtes valides refusées, comme si la validation échouait", correct: true}
+      - {text: "Une erreur de compilation sur le `return` de la validation", correct: false}
+      - {text: "Un message d'erreur clair, qui nomme le champ invalide", correct: false}
+      - {text: "Un avertissement de `go vet` sur la signature de la fonction", correct: false}
+    answer: "L'appelant voit `err != nil` et refuse des requêtes valides ; parfois aussi une panique dans `Error()`, appelée sur un receveur nil. Le compilateur et `go vet` ne voient rien : le code est légal."
   - key: qcm-corriger
     format: multiple-choice
-    question: Comment corriger `func premiere(errs []*ErrChamp) *ErrChamp` appelée par `func valider() error { return premiere(errs) }` ?
+    question: "Lesquelles de ces corrections règlent `func premiere(errs []*ErrChamp) *ErrChamp`, appelée par `func valider() error { return premiere(errs) }` ?"
     choices:
-      - text: Faire renvoyer `error` à `premiere`, avec `return nil` quand la liste est vide
-        correct: true
-      - text: Dans `valider`, tester `if e := premiere(errs); e != nil { return e }` puis `return nil`
-        correct: true
-      - text: Garder le code tel quel
-        correct: false
-      - text: Comparer avec `reflect.ValueOf(err).IsNil()` chez tous les appelants
-        correct: false
-    answer: La conversion d'un pointeur nil vers error doit être évitée à la source.
+      - {text: "Faire renvoyer `error` à `premiere`, avec `return nil` quand la liste est vide", correct: true}
+      - {text: "Dans `valider`, tester `if e := premiere(errs); e != nil { return e }` puis `return nil`", correct: true}
+      - {text: "Dans `valider`, écrire `return error(premiere(errs))` pour convertir explicitement", correct: false}
+      - {text: "Comparer avec `reflect.ValueOf(err).IsNil()` chez tous les appelants", correct: false}
+    answer: "La conversion d'un pointeur nil vers `error` doit être évitée à la source : soit `premiere` renvoie `error`, soit `valider` teste le pointeur avant de le convertir. `error(...)` fait la même conversion que le `return` implicite."
   - key: qcm-type
     format: multiple-choice
-    question: Comment voir qu'une erreur « nil » contient un type ?
+    question: "Quel moyen montre qu'une erreur qui s'affiche `<nil>` contient en fait un type ?"
     choices:
-      - text: '`fmt.Printf("%T", err)` affiche un type concret'
-        correct: true
-      - text: '`err == nil` renvoie false'
-        correct: true
-      - text: '`len(err)` vaut 0'
-        correct: false
-      - text: Le compilateur l'affiche
-        correct: false
-    answer: '`%T` montre `*pkg.MonErreur` au lieu de `<nil>`.'
+      - {text: "`fmt.Printf(\"%T\", err)`, qui affiche `*pkg.MonErreur`", correct: true}
+      - {text: "`len(err)`, qui ne vaut 0 que pour une vraie erreur nil", correct: false}
+      - {text: "`err.Error() == \"\"`, vrai seulement pour un nil typé", correct: false}
+      - {text: "`fmt.Println(err)`, qui affiche le type avant la valeur", correct: false}
+    answer: "`%T` montre le type concret, `*pkg.MonErreur`, là où une vraie erreur nil donne `<nil>` ; `err == nil` vaut aussi false. `len` ne s'applique pas à une interface."
   - key: code-type
     format: code-output
-    question: "```go\ntype MonErreur struct{}\n\nfunc (*MonErreur) Error() string { return \"boum\" }\n\nf := func() error {\n\tvar e *MonErreur\n\treturn e\n}\n\nerr := f()\nfmt.Printf(\"%v %T\\n\", err == nil, err)\n```"
-    answer: '`false *main.MonErreur` : l''interface contient le type.'
+    question: |-
+      Qu'affiche ce code ?
+      ```go
+      type MonErreur struct{}
+
+      func (*MonErreur) Error() string { return "boum" }
+
+      f := func() error {
+      	var e *MonErreur
+      	return e
+      }
+
+      err := f()
+      fmt.Printf("%v %T\n", err == nil, err)
+      ```
+    choices:
+      - {text: "`false *main.MonErreur`", correct: true}
+      - {text: "`true <nil>`", correct: false}
+      - {text: "`false <nil>`", correct: false}
+      - {text: "`true *main.MonErreur`", correct: false}
+    answer: "`false *main.MonErreur` : l'interface contient le type `*main.MonErreur` avec une valeur nil, elle n'est donc pas nil."
     check:
       code: "package main\n\nimport \"fmt\"\n\ntype MonErreur struct{}\n\n\nfunc (*MonErreur) Error() string { return \"boum\" }\n\nfunc main() {\n\tf := func() error {\n\t\tvar e *MonErreur\n\t\treturn e\n\t}\n\n\terr := f()\n\tfmt.Printf(\"%v %T\\n\", err == nil, err)\n}\n"
       output: false *main.MonErreur
   - key: code-correction
     format: code-output
-    question: "```go\ntype MonErreur struct{}\n\nfunc (*MonErreur) Error() string { return \"boum\" }\n\nf := func(echec bool) error {\n\tif echec {\n\t\treturn &MonErreur{}\n\t}\n\treturn nil\n}\n\nfmt.Println(f(false) == nil, f(true))\n```"
+    question: |-
+      Qu'affiche ce code ?
+      ```go
+      type MonErreur struct{}
+
+      func (*MonErreur) Error() string { return "boum" }
+
+      f := func(echec bool) error {
+      	if echec {
+      		return &MonErreur{}
+      	}
+      	return nil
+      }
+
+      fmt.Println(f(false) == nil, f(true))
+      ```
+    choices:
+      - {text: "`true boum`", correct: true}
+      - {text: "`false boum`", correct: false}
+      - {text: "`true <nil>`", correct: false}
+      - {text: "`false <nil>`", correct: false}
     answer: '`true boum` : avec un `return nil` explicite, l''erreur est vraiment nil.'
     check:
       code: "package main\n\nimport \"fmt\"\n\ntype MonErreur struct{}\n\n\nfunc (*MonErreur) Error() string { return \"boum\" }\n\nfunc main() {\n\tf := func(echec bool) error {\n\t\tif echec {\n\t\t\treturn &MonErreur{}\n\t\t}\n\t\treturn nil\n\t}\n\n\tfmt.Println(f(false) == nil, f(true))\n}\n"
       output: true boum
   - key: bug-premiere
     format: bug-fix
-    question: "Le formulaire est toujours refusé :\n```go\nfunc premiere(errs []*ErrChamp) *ErrChamp {\n\tif len(errs) == 0 {\n\t\treturn nil\n\t}\n\treturn errs[0]\n}\n\nfunc valider(f Formulaire) error {\n\treturn premiere(verifier(f))\n}\n```"
+    question: |-
+      Le formulaire est toujours refusé, même bien rempli. Quelle correction est la bonne ?
+      ```go
+      func premiere(errs []*ErrChamp) *ErrChamp {
+      	if len(errs) == 0 {
+      		return nil
+      	}
+      	return errs[0]
+      }
+
+      func valider(f Formulaire) error {
+      	return premiere(verifier(f))
+      }
+      ```
+    choices:
+      - {text: "Faire renvoyer `error` à `premiere`, pour que son `return nil` soit une vraie erreur nil", correct: true}
+      - {text: "Remplacer `len(errs) == 0` par `errs == nil` dans `premiere`, plus précis", correct: false}
+      - {text: "Écrire `return error(premiere(verifier(f)))` dans `valider`, pour convertir", correct: false}
+      - {text: "Faire renvoyer `*ErrChamp` par `valider` aussi, et comparer à nil chez son appelant", correct: false}
     answer: "```go\nfunc premiere(errs []*ErrChamp) error {\n\tif len(errs) == 0 {\n\t\treturn nil\n\t}\n\treturn errs[0]\n}\n```\nLe `*ErrChamp` nil devenait une `error` non nil en passant par `valider` ; renvoyer `error` corrige à la source."
   - key: bug-variable
     format: bug-fix
-    question: "La fonction renvoie une erreur même quand tout réussit :\n```go\nfunc sauver(d Doc) error {\n\tvar err *ErrStockage\n\tif !disponible() {\n\t\terr = &ErrStockage{Raison: \"indisponible\"}\n\t}\n\treturn err\n}\n```"
+    question: |-
+      La fonction renvoie une erreur même quand tout réussit. Quelle correction est la bonne ?
+      ```go
+      func sauver(d Doc) error {
+      	var err *ErrStockage
+      	if !disponible() {
+      		err = &ErrStockage{Raison: "indisponible"}
+      	}
+      	return err
+      }
+      ```
+    choices:
+      - {text: "Renvoyer directement `&ErrStockage{...}` en cas d'échec, et `return nil` sinon", correct: true}
+      - {text: "Initialiser `err` avec `&ErrStockage{}`, pour qu'elle ne soit jamais nil", correct: false}
+      - {text: "Remplacer `return err` par `return error(err)`, pour convertir en interface", correct: false}
+      - {text: "Faire tester le résultat avec `errors.Is(err, nil)` chez chaque appelant", correct: false}
     answer: "```go\nfunc sauver(d Doc) error {\n\tif !disponible() {\n\t\treturn &ErrStockage{Raison: \"indisponible\"}\n\t}\n\treturn nil\n}\n```\nUn retour direct et un `return nil` explicite évitent la variable typée."
   - key: bug-panique-error
     format: bug-fix
-    question: "Le journal des erreurs panique sur `err.Error()` :\n```go\nfunc (e *ErrAPI) Error() string { return e.Message }\n\nfunc appeler() error {\n\tvar e *ErrAPI\n\treturn e\n}\n```"
+    question: |-
+      Le journal des erreurs panique sur `err.Error()`. Quelle correction est la bonne ?
+      ```go
+      func (e *ErrAPI) Error() string { return e.Message }
+
+      func appeler() error {
+      	var e *ErrAPI
+      	return e
+      }
+      ```
+    choices:
+      - {text: "Faire `return nil` dans `appeler`, qui ne renvoie plus de pointeur nil typé", correct: true}
+      - {text: "Déclarer `Error` sur la valeur `ErrAPI` plutôt que sur le pointeur `*ErrAPI`", correct: false}
+      - {text: "Déclarer `var e ErrAPI` et renvoyer `&e`, un pointeur qui n'est jamais nil", correct: false}
+      - {text: "Appeler `err.Error()` dans le journal sous un `defer` avec `recover`", correct: false}
     answer: "```go\nfunc appeler() error {\n\treturn nil\n}\n```\nL'erreur renvoyée n'était pas nil, et sa méthode `Error` lisait un champ à travers un pointeur nil."
   - key: scenario-equipe
     format: scenario
-    question: Ce bug est arrivé trois fois en production dans ton équipe. Que mets-tu en place ?
+    question: "Le bug de l'erreur nil typée est arrivé trois fois en production dans ton équipe. Que mets-tu en place ?"
+    choices:
+      - {text: "Une règle de style (`return nil` explicite, retour `error`), un linter en CI et des tests du cas nominal", correct: true}
+      - {text: "Une revue plus attentive, sans outil : un linter sur ce point donnerait trop de faux positifs", correct: false}
+      - {text: "Un `recover` dans chaque handler, pour absorber les paniques des méthodes `Error` sur nil", correct: false}
+      - {text: "Des tests `reflect.ValueOf(err).IsNil()` partout, à la place des comparaisons `err != nil`", correct: false}
     answer: |-
       Une règle écrite dans le guide de style (pas de type d'erreur concret en retour, `return nil` explicite, variables
       d'erreur de type `error`), un linter en CI (nilaway, ou staticcheck et nilnil dans golangci-lint), et des tests du
@@ -146,7 +250,12 @@ cards:
       fonction qui renvoie `error`.
   - key: scenario-debug
     format: scenario
-    question: Comment expliques-tu ce piège en entretien, en une minute ?
+    question: "En entretien, on te demande d'expliquer en une minute le piège de l'erreur nil typée. Que réponds-tu ?"
+    choices:
+      - {text: "Une interface n'est nil que si son type et sa valeur le sont ; un `*MonErreur` nil renvoyé en `error` ne l'est pas", correct: true}
+      - {text: "Un pointeur nil converti en `error` devient une erreur générique, créée par Go pour signaler l'absence de valeur", correct: false}
+      - {text: "Go compare les interfaces par leur message : une erreur au message vide n'est pas considérée comme nil", correct: false}
+      - {text: "Une interface remplie par un pointeur typé panique dès qu'on la compare à nil, avant tout appel", correct: false}
     answer: |-
       Une interface contient un type et une valeur ; elle n'est nil que si les deux le sont. Si une fonction qui renvoie
       `error` retourne une variable `*MonErreur` restée nil, l'interface reçoit le type `*MonErreur` : elle n'est pas
@@ -154,7 +263,27 @@ cards:
       variables d'erreur de type `error`.
   - key: code-message
     format: code-output
-    question: "```go\ntype ErrQuota struct{ Limite int }\n\nfunc (e *ErrQuota) Error() string {\n\tif e == nil {\n\t\treturn \"quota (nil)\"\n\t}\n\treturn fmt.Sprint(\"quota \", e.Limite)\n}\n\nvar e *ErrQuota\nvar err error = e\nfmt.Println(err != nil, err)\n```"
+    question: |-
+      Qu'affiche ce code ?
+      ```go
+      type ErrQuota struct{ Limite int }
+
+      func (e *ErrQuota) Error() string {
+      	if e == nil {
+      		return "quota (nil)"
+      	}
+      	return fmt.Sprint("quota ", e.Limite)
+      }
+
+      var e *ErrQuota
+      var err error = e
+      fmt.Println(err != nil, err)
+      ```
+    choices:
+      - {text: "`true quota (nil)`", correct: true}
+      - {text: "`false <nil>`", correct: false}
+      - {text: "`true <nil>`", correct: false}
+      - {text: "`false quota (nil)`", correct: false}
     answer: '`true quota (nil)` : l''erreur est non nil, et sa méthode est appelée avec un receveur nil.'
     check:
       code: "package main\n\nimport \"fmt\"\n\ntype ErrQuota struct{ Limite int }\n\n\nfunc (e *ErrQuota) Error() string {\n\tif e == nil {\n\t\treturn \"quota (nil)\"\n\t}\n\treturn fmt.Sprint(\"quota \", e.Limite)\n}\n\nfunc main() {\n\tvar e *ErrQuota\n\tvar err error = e\n\tfmt.Println(err != nil, err)\n}\n"
@@ -162,10 +291,15 @@ cards:
   - key: bug-signature
     format: bug-fix
     question: |-
-      En revue, corrigez cette signature qui expose le piège :
+      En revue, cette signature expose le piège de l'erreur nil typée. Quelle correction est la bonne ?
       ```go
       func Valider(c Commande) *ErrValidation { ... }
       ```
+    choices:
+      - {text: "`func Valider(c Commande) error`, l'appelant utilisant `errors.As` s'il veut le type", correct: true}
+      - {text: "`func Valider(c Commande) ErrValidation`, une valeur qui ne peut jamais être nil", correct: false}
+      - {text: "`func Valider(c Commande) any`, que l'appelant convertit en `*ErrValidation`", correct: false}
+      - {text: "La même signature, avec un commentaire qui demande de comparer le résultat à nil", correct: false}
     answer: |-
       ```go
       func Valider(c Commande) error { ... }
@@ -175,6 +309,11 @@ cards:
   - key: scenario-test
     format: scenario
     question: Quel test aurait attrapé une fonction de validation qui renvoie une erreur nil typée ?
+    choices:
+      - {text: "Un test du cas nominal, qui exige `err == nil` pour une commande valide", correct: true}
+      - {text: "Un test de chaque cas d'erreur, qui vérifie que `err != nil` à chaque fois", correct: false}
+      - {text: "Un test qui compare `err.Error()` au message attendu pour chaque cas", correct: false}
+      - {text: "Un benchmark de la validation, lancé avec le détecteur de courses `-race`", correct: false}
     answer: |-
       Un test du cas nominal qui vérifie explicitement `if err := Valider(commandeValide); err != nil { t.Fatalf(...) }`.
       Les tests qui ne vérifient que les cas d'erreur passent, puisqu'une erreur est bien renvoyée. Un test de table

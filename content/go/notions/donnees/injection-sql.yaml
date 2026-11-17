@@ -4,32 +4,48 @@ cards:
   - key: eviter-injection-sql
     format: course
     question: Comment éviter l'injection SQL ?
-    answer: Paramètres liés ($1, ?) ; liste blanche pour les identifiants dynamiques.
+    choices:
+      - {text: "Passer les valeurs en paramètres liés (`$1`, `?`), et les identifiants par liste blanche", correct: true}
+      - {text: "Échapper les apostrophes de la saisie avec `strings.ReplaceAll`, puis concaténer", correct: false}
+      - {text: "Construire la requête avec `fmt.Sprintf` et `%q`, qui met la valeur entre guillemets", correct: false}
+      - {text: "Valider la saisie dans le navigateur, avant qu'elle n'arrive jusqu'au serveur", correct: false}
+    answer: "Les valeurs passent en paramètres liés (`$1` en PostgreSQL, `?` en MySQL) : le pilote les envoie à part du texte de la requête. Les identifiants (colonne de tri) ne se paramètrent pas : on les choisit dans une liste blanche. Échapper à la main laisse toujours passer un cas."
   - key: dois-implementer-recherche-avec-filtres
     format: scenario
-    question: Tu dois implémenter une recherche avec des filtres optionnels.
-    answer: |-
-      Concaténer des chaînes SQL est risqué et illisible. J'utiliserais un constructeur de requêtes comme squirrel, qui ajoute les conditions seulement si le filtre est présent et produit une requête paramétrée :
-      ```go
-      q := sq.Select("id", "nom", "prix").From("produits").PlaceholderFormat(sq.Dollar)
-      if f.Categorie != "" { q = q.Where(sq.Eq{"categorie": f.Categorie}) }
-      if f.PrixMax > 0     { q = q.Where(sq.LtOrEq{"prix": f.PrixMax}) }
-      q = q.OrderBy("prix").Limit(uint64(min(f.Limite, 100)))
-      sqlStr, args, err := q.ToSql()
-      ```
-      Le tri dynamique passe par une liste blanche de colonnes autorisées. Avec sqlc, l'alternative est une requête unique utilisant des paramètres optionnels (`WHERE ($1::text IS NULL OR categorie = $1)`), qui reste typée mais peut empêcher l'utilisation optimale des index : à vérifier avec `EXPLAIN`.
+    question: "Tu dois implémenter une recherche avec des filtres optionnels. Comment construis-tu la requête ?"
+    choices:
+      - {text: "Avec un constructeur comme squirrel, qui n'ajoute que les filtres présents, en paramètres", correct: true}
+      - {text: "En concaténant chaque filtre présent, valeur comprise, dans la clause `WHERE`", correct: false}
+      - {text: "En chargeant toute la table, puis en filtrant les lignes en Go selon les critères", correct: false}
+      - {text: "En écrivant une requête par combinaison de filtres possible, choisie par un `switch`", correct: false}
+    answer: "Un constructeur de requêtes (squirrel) n'ajoute une condition que si le filtre est présent, et produit une requête paramétrée ; le tri dynamique passe par une liste blanche. Avec sqlc, une requête unique à paramètres optionnels (`WHERE ($1::text IS NULL OR categorie = $1)`) reste typée, mais peut gêner l'usage des index : à vérifier avec `EXPLAIN`."
   - key: eviter-injection-sql-2
     format: course
-    question: Comment éviter l'injection SQL en Go ?
-    answer: Paramètres liés, jamais fmt.Sprintf dans une requête ; liste blanche pour les identifiants.
+    question: "En Go, que faut-il ne jamais utiliser pour placer une valeur saisie dans une requête SQL ?"
+    choices:
+      - {text: "`fmt.Sprintf` ou `+`, qui collent la valeur dans le texte de la requête", correct: true}
+      - {text: "Un paramètre `$1`, que le pilote envoie séparément du texte de la requête", correct: false}
+      - {text: "`db.QueryContext(ctx, q, valeur)`, qui transmet la valeur à part", correct: false}
+      - {text: "Une fonction générée par sqlc, dont les valeurs sont des arguments typés", correct: false}
+    answer: "`fmt.Sprintf` ou la concaténation insèrent la valeur dans le texte : une apostrophe suffit à changer la requête. Les paramètres liés, eux, l'envoient séparément ; pour un identifiant, une liste blanche."
   - key: identifiants
     format: course
     question: Peut-on passer un nom de colonne en paramètre `$1` pour un ORDER BY choisi par l'utilisateur ?
+    choices:
+      - {text: "Non : un paramètre remplace une valeur, jamais un identifiant ; on prend la colonne dans une liste blanche", correct: true}
+      - {text: "Oui : le pilote échappe le nom de colonne comme n'importe quelle valeur liée, sans aucun risque", correct: false}
+      - {text: "Oui, à condition d'écrire `ORDER BY $1::text`, pour forcer le type du paramètre", correct: false}
+      - {text: "Non : il faut l'échapper avec `%q` dans un `fmt.Sprintf`, qui le met entre guillemets", correct: false}
     answer: 'Non : les paramètres ne remplacent que des valeurs, pas des identifiants ni des mots-clés. On choisit la colonne dans une liste blanche, et l''on n''insère dans la requête que des valeurs de cette liste.'
   - key: in
     format: course
     question: Comment filtrer sur une liste d'identifiants sans concaténation, avec PostgreSQL ?
-    answer: Avec `WHERE id = ANY($1)` et la slice passée en un seul paramètre (pgx la convertit en tableau) ; sinon, en générant autant de paramètres `$1, $2...` que d'éléments, sans jamais insérer les valeurs.
+    choices:
+      - {text: "`WHERE id = ANY($1)`, avec la slice passée en un seul paramètre", correct: true}
+      - {text: "`WHERE id IN ($1)`, avec les identifiants joints par des virgules", correct: false}
+      - {text: "Une clause `IN (...)` construite avec `strings.Join` sur la slice", correct: false}
+      - {text: "Une requête `WHERE id = $1` par identifiant, lancée dans une boucle", correct: false}
+    answer: "Avec `WHERE id = ANY($1)` et la slice en un seul paramètre (pgx la convertit en tableau). `IN ($1)` avec une chaîne jointe comparerait chaque id à une seule valeur, `'a,b,c'`. Sinon, on génère autant de paramètres `$1, $2...` que d'éléments, sans jamais insérer les valeurs."
   - key: vf-parametres
     format: true-false
     question: Avec des requêtes paramétrées, la valeur de l'utilisateur ne peut pas modifier la structure de la requête SQL.
@@ -65,68 +81,71 @@ cards:
     answer: Tout ce qui insère la saisie dans le texte est dangereux.
   - key: qcm-filtres
     format: multiple-choice
-    question: Comment construire une recherche avec des filtres optionnels ?
+    question: "Comment construire sans risque une recherche avec des filtres optionnels ?"
     choices:
-      - text: Ajouter des morceaux de SQL fixes et les valeurs dans une slice d'arguments
-        correct: true
-      - text: Numéroter les paramètres au fur et à mesure ($1, $2...)
-        correct: true
-      - text: Concaténer les valeurs des filtres dans la clause WHERE
-        correct: false
-      - text: Récupérer toutes les lignes puis filtrer en Go
-        correct: false
-    answer: Filtrer en Go charge toute la table.
+      - {text: "Ajouter des morceaux de SQL fixes, numérotés `$1`, `$2`..., et les valeurs dans une slice d'arguments", correct: true}
+      - {text: "Concaténer les valeurs des filtres présents dans la clause `WHERE`, après avoir échappé les apostrophes", correct: false}
+      - {text: "Récupérer toutes les lignes de la table, puis appliquer en Go les filtres présents dans la requête", correct: false}
+      - {text: "Construire la clause `WHERE` avec `fmt.Sprintf` et `%q`, qui protège chacune des valeurs", correct: false}
+    answer: "Seuls des morceaux fixes et des numéros de paramètres entrent dans le texte ; les valeurs vont dans `args`. Filtrer en Go charge toute la table, et échapper à la main laisse passer des cas."
   - key: qcm-outils
     format: multiple-choice
-    question: Quels outils aident contre l'injection SQL ?
+    question: "Quel outil signale, en CI, les requêtes SQL construites par concaténation ?"
     choices:
-      - text: sqlc, qui génère du code à partir de requêtes écrites à l'avance
-        correct: true
-      - text: gosec, qui signale les requêtes construites par concaténation
-        correct: true
-      - text: go fmt
-        correct: false
-      - text: Le détecteur de courses
-        correct: false
-    answer: Les revues de code restent indispensables.
+      - {text: "gosec", correct: true}
+      - {text: "go fmt", correct: false}
+      - {text: "Le détecteur de courses (`-race`)", correct: false}
+      - {text: "go vet, avec ses analyseurs par défaut", correct: false}
+    answer: "gosec (règles G201 et G202) signale les requêtes construites par `fmt.Sprintf` ou par concaténation. sqlc aide aussi, en partant de requêtes écrites à l'avance ; les revues de code restent indispensables."
   - key: qcm-consequences
     format: multiple-choice
-    question: Que permet une injection SQL réussie ?
+    question: "Une injection SQL vise une application dont le compte en base n'a que des droits de lecture. Que peut-elle encore permettre ?"
     choices:
-      - text: Lire des données d'autres utilisateurs
-        correct: true
-      - text: Modifier ou supprimer des données
-        correct: true
-      - text: Contourner une authentification
-        correct: true
-      - text: Rien de grave si la base est en lecture seule
-        correct: false
-    answer: Même en lecture seule, la fuite de données reste possible.
+      - {text: "Lire les données d'autres utilisateurs, voire contourner une authentification", correct: true}
+      - {text: "Rien de grave : sans droit d'écriture, toute requête injectée est refusée", correct: false}
+      - {text: "Seulement ralentir la base, sans donner accès à des données nouvelles", correct: false}
+      - {text: "Seulement modifier des données, la lecture restant contrôlée par l'application", correct: false}
+    answer: "Même en lecture seule, l'injection fait lire ce que l'application n'aurait jamais montré (les données des autres, des hash) et peut contourner une authentification. Avec des droits d'écriture, elle modifierait ou supprimerait aussi des données."
   - key: bug-concatenation
     format: bug-fix
     question: |-
-      Un attaquant se connecte sans mot de passe en saisissant `admin' --` :
+      Un attaquant se connecte sans mot de passe en saisissant `admin' --` comme identifiant. Quelle correction est la bonne ?
       ```go
       q := "SELECT id FROM utilisateurs WHERE login = '" + login + "' AND hash = '" + hash + "'"
       err := db.QueryRowContext(ctx, q).Scan(&id)
       ```
+    choices:
+      - {text: "Passer le login en paramètre `$1`, puis vérifier le hash en Go avec bcrypt", correct: true}
+      - {text: "Refuser les logins qui contiennent `--`, et garder la même requête", correct: false}
+      - {text: "Doubler les apostrophes du login avant de le concaténer à la requête", correct: false}
+      - {text: "Remplacer `+` par `fmt.Sprintf` et `%s`, plus lisible et plus sûr", correct: false}
     answer: "```go\nerr := db.QueryRowContext(ctx,\n\t\"SELECT id, hash FROM utilisateurs WHERE login = $1\", login).Scan(&id, &hashStocke)\nif err != nil {\n\treturn err\n}\nif bcrypt.CompareHashAndPassword(hashStocke, []byte(motDePasse)) != nil {\n\treturn ErrIdentifiants\n}\n```\nLa saisie fermait la chaîne et commentait la suite ; avec un paramètre, elle reste une valeur. (La vérification du\nmot de passe se fait aussi en Go, avec une comparaison prévue pour cela.)"
   - key: bug-tri
     format: bug-fix
     question: |-
-      Le paramètre de tri permet d'injecter du SQL :
+      Le paramètre de tri de cette requête permet d'injecter du SQL. Quelle correction est la bonne ?
       ```go
       tri := r.URL.Query().Get("tri")
       q := fmt.Sprintf("SELECT id, nom FROM produits ORDER BY %s", tri)
       ```
+    choices:
+      - {text: "Choisir la colonne dans une map de colonnes autorisées, avec une valeur par défaut", correct: true}
+      - {text: "Passer la colonne en paramètre, `ORDER BY $1`, avec `tri` en argument", correct: false}
+      - {text: "Mettre `tri` entre guillemets avec `%q` dans le `fmt.Sprintf`", correct: false}
+      - {text: "Refuser les valeurs de `tri` qui contiennent un point-virgule", correct: false}
     answer: "```go\ncolonnes := map[string]string{\"nom\": \"nom\", \"prix\": \"prix_centimes\", \"date\": \"cree_le\"}\ncol, ok := colonnes[r.URL.Query().Get(\"tri\")]\nif !ok {\n\tcol = \"cree_le\"\n}\nq := \"SELECT id, nom FROM produits ORDER BY \" + col\n```\nUn identifiant ne se passe pas en paramètre : on le choisit dans une liste blanche."
   - key: bug-in
     format: bug-fix
     question: |-
-      Que reproches-tu à ce code ?
+      Ce code filtre des commandes sur une liste d'identifiants venue de la requête HTTP. Quelle correction est la bonne ?
       ```go
       q := "SELECT * FROM commandes WHERE id IN ('" + strings.Join(ids, "','") + "')"
       ```
+    choices:
+      - {text: "`WHERE id = ANY($1)`, avec la slice `ids` en un seul paramètre", correct: true}
+      - {text: "Échapper chaque identifiant avec `strconv.Quote` avant le `Join`", correct: false}
+      - {text: "Remplacer `strings.Join` par une boucle qui concatène chaque id", correct: false}
+      - {text: "Vérifier que `ids` n'est pas vide avant de construire la requête", correct: false}
     answer: |-
       ```go
       rows, err := db.QueryContext(ctx, "SELECT * FROM commandes WHERE id = ANY($1)", ids)
@@ -136,10 +155,15 @@ cards:
   - key: bug-like
     format: bug-fix
     question: |-
-      La recherche par nom est vulnérable :
+      La recherche par nom est vulnérable à l'injection. Quelle correction est la bonne ?
       ```go
       q := "SELECT id, nom FROM clients WHERE nom LIKE '%" + terme + "%'"
       ```
+    choices:
+      - {text: "Construire le motif `%terme%` en Go, jokers échappés, et le passer en paramètre", correct: true}
+      - {text: "Écrire `LIKE '%$1%'` dans la requête, avec `terme` passé en argument", correct: false}
+      - {text: "Remplacer `LIKE` par `=` : une comparaison exacte n'est pas injectable", correct: false}
+      - {text: "Mettre `terme` en minuscules avec `strings.ToLower` avant de le concaténer", correct: false}
     answer: |-
       ```go
       motif := "%" + strings.NewReplacer(`\`, `\\`, "%", `\%`, "_", `\_`).Replace(terme) + "%"
@@ -150,24 +174,27 @@ cards:
   - key: scenario-revue
     format: scenario
     question: En revue de code, comment repères-tu un risque d'injection SQL ?
-    answer: |-
-      Toute requête dont le texte est construit avec +, fmt.Sprintf ou strings.Join à partir de données variables. Je
-      vérifie que chaque valeur passe en paramètre, que les noms de colonnes et l'ordre de tri viennent d'une liste
-      blanche, et que les filtres optionnels ajoutent des morceaux fixes. gosec en CI signale les cas évidents ; sqlc ou
-      un constructeur de requêtes réduisent la surface.
+    choices:
+      - {text: "Une requête dont le texte est construit avec `+`, `fmt.Sprintf` ou `strings.Join` à partir de données variables", correct: true}
+      - {text: "Une requête qui passe ses valeurs en paramètres `$1`, `$2`, que le pilote insère sans les vérifier", correct: false}
+      - {text: "Une requête lancée sans contexte, qu'un attaquant peut faire durer pour y glisser du SQL", correct: false}
+      - {text: "Une requête lancée par `QueryRowContext`, qui, contrairement à `QueryContext`, n'échappe rien", correct: false}
+    answer: "Toute requête dont le texte est construit avec `+`, `fmt.Sprintf` ou `strings.Join` à partir de données variables. Je vérifie que chaque valeur passe en paramètre et que colonnes et tri viennent d'une liste blanche ; gosec en CI signale les cas évidents, sqlc ou un constructeur de requêtes réduisent la surface."
   - key: scenario-filtres
     format: scenario
-    question: Écris le principe d'une fonction de recherche de produits avec des filtres optionnels (catégorie, prix maximum).
-    answer: |-
-      Je pars de `q := "SELECT id, nom FROM produits WHERE 1=1"` et d'une slice `args`. Pour chaque filtre présent,
-      j'ajoute la valeur à args puis un morceau fixe avec son numéro : `q += fmt.Sprintf(" AND categorie = $%d",
-      len(args))`. Le tri vient d'une liste blanche, la limite est un paramètre bornée côté serveur. Seuls des morceaux
-      fixes et des numéros entrent dans le texte, jamais une valeur de l'utilisateur.
+    question: "Quel principe suis-tu pour écrire une fonction de recherche de produits avec des filtres optionnels (catégorie, prix maximum) ?"
+    choices:
+      - {text: "Des morceaux de SQL fixes (`AND categorie = $1`) ajoutés par filtre, et les valeurs dans `args`", correct: true}
+      - {text: "Des morceaux `AND categorie = '...'`, où la valeur est insérée après échappement des apostrophes", correct: false}
+      - {text: "Une requête fixe avec tous les filtres, où l'on passe une chaîne vide ou 0 pour les filtres absents", correct: false}
+      - {text: "Une requête sans filtre, puis une boucle Go qui écarte les produits qui ne correspondent pas", correct: false}
+    answer: "Je pars de `SELECT id, nom FROM produits WHERE 1=1` et d'une slice `args`. Pour chaque filtre présent, j'ajoute la valeur à `args` puis un morceau fixe avec son numéro (`fmt.Sprintf(\" AND categorie = $%d\", len(args))`). Seuls des morceaux fixes et des numéros entrent dans le texte, jamais une valeur ; le tri vient d'une liste blanche et la limite est bornée côté serveur."
   - key: scenario-entretien
     format: scenario
-    question: En entretien, on te demande comment Go protège contre l'injection SQL.
-    answer: |-
-      database/sql et ses pilotes envoient la requête et ses paramètres séparément (requête préparée ou protocole étendu
-      de PostgreSQL) : une valeur ne peut jamais être interprétée comme du SQL. Encore faut-il utiliser les paramètres :
-      rien n'empêche de concaténer. Les limites : les identifiants et mots-clés ne se paramètrent pas, d'où les listes
-      blanches. Des outils comme sqlc et gosec aident à rester discipliné.
+    question: "En entretien, on te demande comment Go protège contre l'injection SQL. Que réponds-tu ?"
+    choices:
+      - {text: "Le pilote envoie la requête et ses paramètres séparément ; encore faut-il utiliser les paramètres", correct: true}
+      - {text: "`database/sql` analyse chaque requête et refuse celles qui contiennent du SQL suspect", correct: false}
+      - {text: "Le compilateur Go refuse de concaténer une chaîne dans un appel à `QueryContext`", correct: false}
+      - {text: "Les chaînes Go sont immuables, donc une saisie ne peut pas modifier la requête", correct: false}
+    answer: "`database/sql` et ses pilotes envoient la requête et ses paramètres séparément (requête préparée ou protocole étendu de PostgreSQL) : une valeur n'est jamais interprétée comme du SQL. Mais rien n'empêche de concaténer, et les identifiants ne se paramètrent pas : listes blanches, sqlc et gosec aident à rester discipliné."

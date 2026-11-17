@@ -1,5 +1,6 @@
 import { expect, test, type Locator, type Page } from './support/test'
 import { followSubjects, signIn, USERS } from './support/auth'
+import { answerCard } from './support/review'
 
 /** Le nombre de tabulations au-delà duquel on renonce : la page a moins d'éléments que cela avant la carte. */
 const MAX_TABS = 40
@@ -15,8 +16,7 @@ async function tabUntilFocused(page: Page, target: Locator) {
 }
 
 test.describe('Session de révision', () => {
-  // Go n'a pas encore reçu ses choix (ADR 0051) : ses premières cartes s'auto-évaluent encore.
-  test('reviews one subject for a chosen length, flipping self-assessed cards @mobile', async ({
+  test('reviews one subject for a chosen length, answering by choosing @mobile', async ({
     page,
   }) => {
     await signIn(page, USERS.bob, '/profile')
@@ -31,19 +31,16 @@ test.describe('Session de révision', () => {
     await expect(page.getByRole('heading', { name: 'Réviser : Go' })).toBeVisible()
     await expect(page.getByRole('timer', { name: 'Temps restant' })).toHaveText('Encore 5 min')
 
-    const answers = page.getByRole('group', { name: 'Connaissais-tu la réponse ?' })
-    for (const [index, answer] of ['Je savais', 'Je ne savais pas'].entries()) {
+    // Chaque carte se corrige sur le serveur (ADR 0051) : on répond sans chercher la bonne réponse.
+    for (const reviewed of ['1 carte révisée', '2 cartes révisées']) {
       await expect(page.locator('article header')).toContainText('Go ·')
-      await page.getByRole('button', { name: 'Voir la réponse' }).click()
-      await answers.getByRole('button', { name: answer }).click()
-      await expect(
-        page.getByText(`${index + 1} carte${index > 0 ? 's' : ''} révisée`),
-      ).toBeVisible()
+      await answerCard(page)
+      await expect(page.getByText(reviewed)).toBeVisible()
     }
 
     await page.getByRole('button', { name: 'Terminer la session' }).click()
     await expect(page.getByRole('region', { name: 'Bilan de la session' })).toContainText(
-      '2 cartes révisées, dont 1 réussie.',
+      /2 cartes révisées, dont \d réussies?\./,
     )
 
     await page.getByRole('link', { name: 'Recallio' }).click()

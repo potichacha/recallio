@@ -274,7 +274,7 @@ Les sujets s'ajoutent un par un, au rythme de la rédaction, indépendamment des
 | Sujet | Catégorie | État |
 |---|---|---|
 | Java | Langages | ✅ rédigé, migré vers son dossier de notions (ADR 0026), complet : 347 notions, 7 072 cartes, 39 exercices ; toutes les questions se corrigent sur des choix (ADR 0051) |
-| Go | Langages | ✅ rédigé, migré vers son dossier de notions (ADR 0026), complet : 223 notions, 4 893 cartes, 21 exercices jugés dans le bac à sable Go (ADR 0033) |
+| Go | Langages | ✅ rédigé, migré vers son dossier de notions (ADR 0026), complet : 223 notions, 4 893 cartes, 21 exercices jugés dans le bac à sable Go (ADR 0033) ; toutes les questions se corrigent sur des choix (ADR 0051) |
 | Spring Boot | Frameworks | ✅ rédigé en dossier de notions, en brouillon, pour Spring Boot 4.1 : 99 notions, 2 004 cartes, 11 exercices jugés dans le bac à sable Java (ADR 0060) ; à relire dans l'application avant de le publier |
 | Quarkus | Frameworks | ✅ rédigé en dossier de notions, en brouillon, pour Quarkus 3 : 91 notions, 1 780 cartes, 12 exercices jugés par `@QuarkusTest` dans le bac à sable Java (ADR 0061) ; à relire dans l'application avant de le publier |
 | Jakarta EE, JPA & Hibernate | Frameworks | sortis du document Java (ADR 0025), en brouillon jusqu'à leur réécriture en dossier de notions (ADR 0050) |
@@ -523,7 +523,7 @@ Le propriétaire a testé l'application en local avant de la déployer ; ses ret
 4. **Des choix pour toutes les questions** (ADR 0051) : le serveur corrige chaque carte, plus d'auto-évaluation.
    1. ✅ **Pilote** : les choix sur tous les formats, mélangés à l'affichage, vérifiés en CI pour le code ; « Programmer de zéro » et le chapitre Java « Premiers pas » convertis.
    2. ✅ **Java** : toutes les cartes converties, au tutoiement (3 713 cartes reçoivent leurs choix ; le sujet sort du cliquet de qualité, à zéro infraction).
-   3. **Go**, puis la fin de l'auto-évaluation : choix obligatoires, mode « questions corrigées » retiré, défis, live, duels et examen blanc ouverts à tous les formats.
+   3. **Go**, puis la fin de l'auto-évaluation : choix obligatoires, mode « questions corrigées » retiré, défis, live, duels et examen blanc ouverts à tous les formats (✅ Go : toutes les cartes converties, au tutoiement ; puis la fin de l'auto-évaluation).
 5. ✅ **Les pages Cours, Tour et Révisions** (ADR 0052) :
    - la navigation devient Accueil, Cours, Tour, Révisions et Jouer ;
    - chaque page s'ouvre sur les sujets par catégorie, avec leur logo, ceux en préparation en « work in progress » ;

@@ -3,26 +3,49 @@ lesson: "Un **`sync.Mutex`** (comme `RWMutex`, `WaitGroup`, `Once`, `Cond` et le
 cards:
   - key: copier-struct-contenant-sync-mutex
     format: course
-    question: Pourquoi ne pas copier une struct contenant un sync.Mutex ?
-    answer: La copie duplique l'état du verrou ; go vet (copylocks) le signale.
+    question: "Pourquoi ne pas copier une struct qui contient un `sync.Mutex` ?"
+    choices:
+      - {text: "La copie a son propre état de verrou : elle ne protège plus les mêmes données", correct: true}
+      - {text: "La copie ne compile pas : un `sync.Mutex` interdit toute affectation par valeur", correct: false}
+      - {text: "La copie partage le verrou d'origine, et le déverrouiller deux fois panique", correct: false}
+      - {text: "La copie est lente, car le runtime copie aussi la file des goroutines en attente", correct: false}
+    answer: "La copie duplique l'état du verrou : verrouiller la copie n'exclut personne de l'original. Ça compile ; c'est `go vet` (copylocks) qui le signale."
   - key: linter-signale-copylocks-struct-cache-grave
     format: scenario
-    question: Le linter signale 'copylocks' sur ta struct de cache. Pourquoi est-ce grave ?
-    answer: |-
-      Ma struct contient un `sync.Mutex` et je la passe ou la retourne par valeur, ou une de ses méthodes a un receveur valeur. Chaque copie a son propre état de verrou : deux goroutines peuvent alors 'verrouiller' deux copies différentes et accéder en même temps aux mêmes données sous-jacentes (la map, partagée par référence). La protection est perdue sans aucune erreur visible.
-      Correction : receveurs pointeurs pour toutes les méthodes, construction par une fonction `New...` qui renvoie un `*Cache`, et jamais de copie de la struct. On peut aussi y ajouter un champ `noCopy` (convention utilisée par la bibliothèque standard) pour que vet le détecte encore mieux.
+    question: "Le linter signale 'copylocks' sur ta struct de cache. Pourquoi est-ce grave ?"
+    choices:
+      - {text: "Chaque copie a son propre verrou, mais partage la map : deux goroutines y accèdent ensemble", correct: true}
+      - {text: "Ce n'est qu'un avertissement de style : le verrou copié reste lié au verrou d'origine", correct: false}
+      - {text: "Le programme panique à la première copie, avec le message « copy of locked mutex »", correct: false}
+      - {text: "La copie double la mémoire du cache, car toute la map est copiée avec la struct", correct: false}
+    answer: "Passée ou retournée par valeur, ou avec un récepteur valeur, la struct est copiée avec son mutex : chaque copie a son propre verrou, mais la map est partagée par référence. La protection est perdue sans erreur visible ; il faut des récepteurs pointeurs et un constructeur qui renvoie un `*Cache`."
   - key: copier-mutex
     format: course
-    question: Peut-on copier un Mutex ?
-    answer: 'Non après usage : la copie duplique l''état ; go vet le signale.'
+    question: "Peut-on copier un `sync.Mutex` déjà utilisé ?"
+    choices:
+      - {text: "Non : la copie duplique son état, et `go vet` le signale", correct: true}
+      - {text: "Oui : la copie partage le verrou d'origine, comme un pointeur", correct: false}
+      - {text: "Oui, à condition de le copier pendant qu'il est verrouillé", correct: false}
+      - {text: "Non : le compilateur refuse toute copie d'un `sync.Mutex`", correct: false}
+    answer: "Non : après sa première utilisation, un mutex ne doit plus être copié ; la copie a son propre état et ne protège rien. Le compilateur l'accepte, c'est `go vet` qui le signale."
   - key: vet
     format: course
-    question: Quel outil détecte la copie d'un mutex ?
-    answer: '`go vet`, avec son analyse copylocks (« passes lock by value », « range var copies lock ») ; il tourne aussi pendant `go test`.'
+    question: "Quel outil détecte la copie d'un mutex ?"
+    choices:
+      - {text: "`go vet`, avec son analyse copylocks, qui tourne aussi pendant `go test`", correct: true}
+      - {text: "Le compilateur, qui refuse le code avec l'erreur « mutex copied by value »", correct: false}
+      - {text: "Le détecteur de courses, qui signale la copie dès la compilation", correct: false}
+      - {text: "`gofmt`, qui réécrit les récepteurs valeur en récepteurs pointeurs", correct: false}
+    answer: "`go vet`, avec son analyse copylocks (« passes lock by value », « range var copies lock ») ; il tourne aussi pendant `go test`. Le détecteur de courses ne voit que la course que la copie provoque, à l'exécution."
   - key: incorporer
     format: course
-    question: Pourquoi ne pas incorporer `sync.Mutex` dans un type exporté ?
-    answer: 'Ses méthodes Lock et Unlock deviendraient des méthodes publiques du type : n''importe quel appelant pourrait verrouiller l''état interne. On préfère un champ non exporté `mu sync.Mutex`.'
+    question: "Pourquoi ne pas incorporer `sync.Mutex` dans un type exporté ?"
+    choices:
+      - {text: "`Lock` et `Unlock` deviendraient des méthodes publiques du type", correct: true}
+      - {text: "Le mutex incorporé est copié à chaque appel de méthode du type", correct: false}
+      - {text: "L'incorporation d'un mutex ne compile pas dans un type exporté", correct: false}
+      - {text: "Le mutex incorporé verrouille tous les champs, même non exportés", correct: false}
+    answer: "Ses méthodes `Lock` et `Unlock` seraient promues dans l'API du type : n'importe quel appelant pourrait verrouiller l'état interne. On préfère un champ non exporté `mu sync.Mutex`."
   - key: vf-etat
     format: true-false
     question: Copier un mutex verrouillé produit un mutex déverrouillé.
@@ -58,30 +81,22 @@ cards:
     answer: Les pointeurs partagent le même mutex.
   - key: qcm-remedes
     format: multiple-choice
-    question: Comment éviter les copies de verrou ?
+    question: "Laquelle de ces pratiques ne protège pas contre les copies de verrou ?"
     choices:
-      - text: Des récepteurs pointeurs
-        correct: true
-      - text: Des slices et des maps de pointeurs
-        correct: true
-      - text: Lancer go vet en CI
-        correct: true
-      - text: Réinitialiser le mutex après chaque copie
-        correct: false
-    answer: Réinitialiser une copie ne la relie pas au verrou d'origine.
+      - {text: "Réinitialiser le mutex après chaque copie", correct: true}
+      - {text: "Des récepteurs pointeurs pour toutes les méthodes", correct: false}
+      - {text: "Des slices et des maps de pointeurs vers la struct", correct: false}
+      - {text: "Lancer `go vet` en CI sur tout le projet", correct: false}
+    answer: "Réinitialiser une copie ne la relie pas au verrou d'origine : elle reste un verrou à part. Les récepteurs pointeurs, les collections de pointeurs et `go vet` en CI évitent ou repèrent les copies."
   - key: qcm-consequence
     format: multiple-choice
-    question: Quelles sont les conséquences d'un mutex copié ?
+    question: "Quelle est la conséquence d'un mutex copié ?"
     choices:
-      - text: Deux goroutines peuvent entrer en même temps dans la section critique
-        correct: true
-      - text: Une copie verrouillée peut bloquer pour toujours
-        correct: true
-      - text: Le programme ne compile pas
-        correct: false
-      - text: Le runtime fusionne les deux copies
-        correct: false
-    answer: La course est silencieuse, sauf avec -race.
+      - {text: "Deux goroutines peuvent entrer en même temps dans la section critique", correct: true}
+      - {text: "Le programme ne compile pas, avec une erreur sur la copie du verrou", correct: false}
+      - {text: "Le runtime fusionne les deux copies au premier appel à `Lock`", correct: false}
+      - {text: "Le runtime panique avec « copied mutex » au premier `Unlock`", correct: false}
+    answer: "Chaque copie a son propre état : deux goroutines peuvent verrouiller deux copies et entrer ensemble dans la section critique. La course est silencieuse, sauf avec `-race` ; une copie faite pendant que le verrou était pris peut aussi bloquer pour toujours."
   - key: qcm-nocopy
     format: multiple-choice
     question: À quoi sert un champ `noCopy` dans une struct ?
@@ -97,39 +112,128 @@ cards:
     answer: C'est une convention reconnue par vet, sans effet à l'exécution.
   - key: bug-recepteur
     format: bug-fix
-    question: "`go vet` signale « Valeur passes lock by value » :\n```go\nfunc (c Compteur) Valeur() int {\n\tc.mu.Lock()\n\tdefer c.mu.Unlock()\n\treturn c.n\n}\n```"
-    answer: "```go\nfunc (c *Compteur) Valeur() int {\n\tc.mu.Lock()\n\tdefer c.mu.Unlock()\n\treturn c.n\n}\n```\nLe récepteur valeur verrouillait une copie : il ne protégeait rien."
+    question: |-
+      `go vet` signale « Valeur passes lock by value » :
+      ```go
+      func (c Compteur) Valeur() int {
+      	c.mu.Lock()
+      	defer c.mu.Unlock()
+      	return c.n
+      }
+      ```
+      Quelle correction est la bonne ?
+    choices:
+      - {text: "Un récepteur pointeur : `func (c *Compteur) Valeur() int`", correct: true}
+      - {text: "Retirer le `defer`, et appeler `c.mu.Unlock()` juste avant le `return`", correct: false}
+      - {text: "Remplacer `sync.Mutex` par `sync.RWMutex`, et prendre `c.mu.RLock()`", correct: false}
+      - {text: "Ignorer l'avertissement : une simple lecture ne modifie pas le compteur", correct: false}
+    answer: |-
+      ```go
+      func (c *Compteur) Valeur() int {
+      	c.mu.Lock()
+      	defer c.mu.Unlock()
+      	return c.n
+      }
+      ```
+      Le récepteur valeur verrouillait une copie : il ne protégeait rien. Un `RWMutex` copié serait tout aussi inutile ; il faut travailler sur la struct d'origine.
   - key: bug-range
     format: bug-fix
-    question: "Les remises à zéro ne prennent pas effet, et vet signale « range var c copies lock » :\n```go\nfor _, c := range compteurs { // []Compteur\n\tc.mu.Lock()\n\tc.n = 0\n\tc.mu.Unlock()\n}\n```"
-    answer: "```go\nfor i := range compteurs {\n\tc := &compteurs[i]\n\tc.mu.Lock()\n\tc.n = 0\n\tc.mu.Unlock()\n}\n```\nLa variable de boucle était une copie ; on travaille sur l'élément lui-même (ou l'on stocke des `*Compteur`)."
+    question: |-
+      Les remises à zéro ne prennent pas effet, et vet signale « range var c copies lock » :
+      ```go
+      for _, c := range compteurs { // []Compteur
+      	c.mu.Lock()
+      	c.n = 0
+      	c.mu.Unlock()
+      }
+      ```
+      Quelle correction est la bonne ?
+    choices:
+      - {text: "Parcourir les indices, et prendre `c := &compteurs[i]`", correct: true}
+      - {text: "Ajouter `c := c` en tête de la boucle, comme avant Go 1.22", correct: false}
+      - {text: "Appeler `c.mu.Lock()` avant la boucle plutôt qu'à l'intérieur", correct: false}
+      - {text: "Écrire `c.n -= c.n`, qui modifie la valeur en place, au lieu de `c.n = 0`", correct: false}
+    answer: |-
+      ```go
+      for i := range compteurs {
+      	c := &compteurs[i]
+      	c.mu.Lock()
+      	c.n = 0
+      	c.mu.Unlock()
+      }
+      ```
+      La variable de boucle était une copie de l'élément, mutex compris ; on travaille sur l'élément lui-même (ou l'on stocke des `*Compteur`). `c := c` ferait une copie de plus.
   - key: bug-incorpore
     format: bug-fix
-    question: "Un appelant de la bibliothèque verrouille l'état interne du cache et bloque tout :\n```go\ntype Cache struct {\n\tsync.Mutex\n\titems map[string]string\n}\n```"
-    answer: "```go\ntype Cache struct {\n\tmu    sync.Mutex // protège items\n\titems map[string]string\n}\n```\nIncorporé, le mutex exposait Lock et Unlock dans l'API publique ; un champ non exporté le garde privé."
+    question: |-
+      Un appelant de la bibliothèque verrouille l'état interne du cache et bloque tout :
+      ```go
+      type Cache struct {
+      	sync.Mutex
+      	items map[string]string
+      }
+      ```
+      Quelle correction est la bonne ?
+    choices:
+      - {text: "Un champ non exporté `mu sync.Mutex` à la place du mutex incorporé", correct: true}
+      - {text: "Un champ exporté `Mu sync.Mutex`, documenté comme réservé au cache", correct: false}
+      - {text: "Un `*sync.Mutex` incorporé, pour que les copies partagent le verrou", correct: false}
+      - {text: "Un `sync.RWMutex` incorporé, pour que l'appelant ne prenne que `RLock`", correct: false}
+    answer: |-
+      ```go
+      type Cache struct {
+      	mu    sync.Mutex // protège items
+      	items map[string]string
+      }
+      ```
+      Incorporé, le mutex exposait `Lock` et `Unlock` dans l'API publique ; un champ non exporté le garde privé. Un champ exporté ou un pointeur incorporé l'exposeraient toujours.
   - key: bug-retour
     format: bug-fix
-    question: "vet signale « return copies lock value » :\n```go\nfunc NouveauCompteur() Compteur {\n\treturn Compteur{}\n}\n```"
-    answer: "```go\nfunc NouveauCompteur() *Compteur {\n\treturn &Compteur{}\n}\n```\nLes types qui contiennent un verrou se manipulent par pointeur, dès leur construction."
+    question: |-
+      vet signale « return copies lock value » :
+      ```go
+      func NouveauCompteur() Compteur {
+      	var c Compteur
+      	return c
+      }
+      ```
+      Quelle correction est la bonne ?
+    choices:
+      - {text: "Renvoyer un pointeur : `func NouveauCompteur() *Compteur`", correct: true}
+      - {text: "Initialiser `c.mu = sync.Mutex{}` juste avant le `return`", correct: false}
+      - {text: "Faire taire l'avertissement par un commentaire `//nolint`", correct: false}
+      - {text: "Renvoyer `c` sous son verrou, entre `Lock` et `Unlock`", correct: false}
+    answer: |-
+      ```go
+      func NouveauCompteur() *Compteur {
+      	return &Compteur{}
+      }
+      ```
+      Les types qui contiennent un verrou se manipulent par pointeur, dès leur construction. Réinitialiser le mutex ne change rien : la valeur renvoyée reste une copie, et les appelants en feront d'autres.
   - key: scenario-api
     format: scenario
-    question: Tu conçois un type exporté thread-safe. Comment évites-tu que ses utilisateurs copient son verrou ?
-    answer: |-
-      Un constructeur qui renvoie un pointeur (`func New() *Registre`), uniquement des méthodes à récepteur pointeur, un
-      champ `mu` non exporté, et une documentation qui dit « ne pas copier après la première utilisation », comme dans la
-      bibliothèque standard. vet signalera les copies chez les utilisateurs qui le lancent ; un champ `noCopy` étend cette
-      détection si le type n'a pas de verrou propre.
+    question: "Tu conçois un type exporté thread-safe. Comment évites-tu que ses utilisateurs copient son verrou ?"
+    choices:
+      - {text: "Un constructeur qui renvoie un pointeur, des récepteurs pointeurs et un champ `mu` non exporté", correct: true}
+      - {text: "Un mutex incorporé, pour que les utilisateurs puissent verrouiller eux-mêmes le type", correct: false}
+      - {text: "Des récepteurs valeur partout, pour que chaque appel travaille sur sa propre copie", correct: false}
+      - {text: "Un champ `Mu` exporté et documenté, pour que les utilisateurs le partagent entre copies", correct: false}
+    answer: "Un constructeur `func New() *Registre`, uniquement des récepteurs pointeurs, un champ `mu` non exporté, et une documentation qui dit « ne pas copier après la première utilisation ». vet signalera les copies chez les utilisateurs qui le lancent."
   - key: scenario-ci
     format: scenario
-    question: Comment t'assures-tu qu'aucune copie de verrou n'arrive en production ?
-    answer: |-
-      `go vet ./...` dans la CI (il tourne aussi pendant `go test`, mais pas avec toutes les analyses), éventuellement
-      via golangci-lint ; les tests avec `-race`, qui révèlent la course qu'une copie provoque ; et, en revue, une
-      attention aux récepteurs valeur, aux `range` sur des slices de structs et aux structs passées par valeur.
+    question: "Comment t'assures-tu qu'aucune copie de verrou n'arrive en production ?"
+    choices:
+      - {text: "`go vet ./...` en CI, des tests avec `-race`, et une revue attentive aux récepteurs valeur", correct: true}
+      - {text: "Le compilateur suffit : une copie de verrou ne passe jamais l'étape de compilation", correct: false}
+      - {text: "Des tests avec `-race` seulement, car vet ne sait pas repérer les copies de verrou", correct: false}
+      - {text: "Un `recover` dans chaque méthode, qui rattrape la panic d'un verrou copié", correct: false}
+    answer: "`go vet ./...` dans la CI (il tourne aussi pendant `go test`, mais pas avec toutes les analyses), les tests avec `-race`, qui révèlent la course qu'une copie provoque, et en revue une attention aux récepteurs valeur et aux `range` sur des slices de structs."
   - key: scenario-entretien
     format: scenario
-    question: 'En entretien, on te demande pourquoi ce code est faux : `func (c Cache) Get(k string) string { c.mu.Lock(); defer c.mu.Unlock(); return c.m[k] }`.'
-    answer: |-
-      Le récepteur valeur copie le Cache à chaque appel, mutex compris : chaque Get verrouille sa propre copie, donc
-      aucun Get n'exclut un Set concurrent, et la map est accédée en course (avec un risque de « concurrent map read and
-      map write »). Il faut un récepteur pointeur ; go vet le signale.
+    question: "En entretien, on te demande pourquoi ce code est faux : `func (c Cache) Get(k string) string { c.mu.Lock(); defer c.mu.Unlock(); return c.m[k] }`. Que réponds-tu ?"
+    choices:
+      - {text: "Le récepteur valeur copie le mutex : chaque `Get` verrouille sa copie, et la map est lue en course", correct: true}
+      - {text: "`defer` libère le verrou trop tôt, avant que le `return` n'évalue `c.m[k]`", correct: false}
+      - {text: "Une lecture de map n'a pas besoin de verrou : le `Lock` est inutile et ralentit", correct: false}
+      - {text: "Il faudrait `RLock` : un `Lock` dans un `Get` bloque les autres lecteurs pour toujours", correct: false}
+    answer: "Le récepteur valeur copie le Cache à chaque appel, mutex compris : aucun `Get` n'exclut un `Set` concurrent, et la map est accédée en course (avec un risque de « concurrent map read and map write »). Il faut un récepteur pointeur ; go vet le signale."
