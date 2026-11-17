@@ -1,0 +1,367 @@
+notion: race-conditions
+lesson: |-
+  Une **situation de compétition** (*race condition*) apparaît quand le résultat dépend de l'ordre dans lequel les
+  threads s'entrelacent. Le bug est **intermittent** : il passe les tests cent fois, puis surgit en production, sous
+  la charge.
+
+  **Les deux formes classiques.**
+
+  - **Lire, modifier, écrire** : `compteur += 1` lit la valeur, l'augmente, puis l'écrit. Deux threads lisent 5, et
+    écrivent 6 tous les deux : une mise à jour est perdue.
+  - **Vérifier, puis agir** : « si le solde suffit, retirer » ; « si la clé est absente, la charger ». Entre le test et
+    l'action, un autre thread a pu changer la donnée.
+
+  ```python
+  import threading
+  import time
+
+  solde = 100
+  verrou = threading.Lock()
+
+  def retirer(montant):
+      global solde
+      with verrou:                    # le test ET le retrait, ensemble
+          if solde >= montant:
+              time.sleep(0.01)        # un appel lent : sans verrou, l'autre thread passerait le test
+              solde -= montant
+  ```
+
+  **Le verrou** (`threading.Lock`) ne protège que si **tous** les threads prennent **le même** verrou, autour de **toute**
+  la séquence qui doit paraître indivisible. Un verrou créé dans la fonction, à chaque appel, ne protège rien. On garde la
+  section critique courte : pas d'appel réseau sous un verrou quand on peut l'éviter.
+
+  **L'interblocage** (*deadlock*) : le thread 1 tient A et attend B, le thread 2 tient B et attend A ; le programme se
+  fige. La parade : prendre les verrous **toujours dans le même ordre**, partout ; ou n'en prendre qu'un ;
+  `lock.acquire(timeout=...)` permet aussi d'abandonner.
+
+  **Éviter le partage** vaut mieux que le protéger : passer des messages par une `queue.Queue`, donner à chaque thread
+  ses propres données (une case de résultat, `threading.local`), préférer des objets immuables.
+
+  Le GIL n'y change rien : il peut changer de main entre deux instructions de ton code. Que `list.append` ou
+  `d[k] = v` soient indivisibles dans CPython est un détail d'implémentation, pas une garantie pour une séquence
+  d'opérations.
+
+  **En entretien** : « Une situation de compétition, c'est un résultat qui dépend de l'entrelacement des threads :
+  lecture-modification-écriture ou vérification puis action. Je la corrige par un verrou partagé autour de toute la
+  séquence, ou mieux en évitant le partage, avec une file. Pour l'interblocage, je prends les verrous toujours dans le
+  même ordre. »
+cards:
+  - key: definition-situation-competition
+    format: course
+    question: "Qu'est-ce qu'une situation de compétition (race condition) ?"
+    choices:
+      - {text: "Un résultat qui dépend de l'ordre dans lequel les threads s'entrelacent", correct: true}
+      - {text: "Deux threads qui attendent chacun un verrou que tient l'autre", correct: false}
+      - {text: "Un thread qui garde le GIL trop longtemps et ralentit les autres", correct: false}
+      - {text: "Plusieurs threads qui lisent la même donnée en même temps", correct: false}
+    answer: "Selon l'ordre des bascules, le programme donne le bon résultat ou non : le bug est intermittent. Des lectures seules ne posent pas de problème ; il faut au moins une écriture."
+  - key: increment-pas-atomique
+    format: course
+    question: "Pourquoi `compteur += 1`, exécuté par plusieurs threads, peut-il perdre des mises à jour ?"
+    choices:
+      - {text: "C'est une lecture, une addition, puis une écriture, qu'un thread peut interrompre", correct: true}
+      - {text: "Les entiers sont immuables : chaque thread a sa propre copie du compteur", correct: false}
+      - {text: "Le GIL interdit à un thread d'écrire une variable globale", correct: false}
+      - {text: "L'opérateur `+=` est exécuté en différé, à la fin du thread", correct: false}
+    answer: "Deux threads lisent 5, calculent 6, et écrivent 6 : une incrémentation est perdue. Un `Lock` autour de `compteur += 1` rend la séquence indivisible."
+  - key: definition-interblocage
+    format: course
+    question: "Qu'est-ce qu'un interblocage (deadlock) ?"
+    choices:
+      - {text: "Des threads qui attendent chacun un verrou tenu par un autre, pour toujours", correct: true}
+      - {text: "Un thread qui prend le même `Lock` deux fois de suite, sans blocage", correct: false}
+      - {text: "Un verrou qui n'est jamais libéré parce qu'une exception a été levée", correct: false}
+      - {text: "Deux threads qui modifient la même variable et perdent une mise à jour", correct: false}
+    answer: "Le thread 1 tient A et attend B, le thread 2 tient B et attend A : aucun ne progresse, le programme se fige. La perte de mise à jour, elle, est une situation de compétition."
+  - key: eviter-interblocage
+    format: course
+    question: "Comment éviter l'interblocage entre deux verrous A et B ?"
+    choices:
+      - {text: "Les prendre toujours dans le même ordre, dans tous les threads", correct: true}
+      - {text: "Les prendre dans un ordre au hasard, différent à chaque appel", correct: false}
+      - {text: "Remplacer les deux verrous par des variables globales booléennes", correct: false}
+      - {text: "Prendre B avant A dans un thread sur deux, pour équilibrer", correct: false}
+    answer: "Si chacun prend A avant B, aucun ne peut tenir B en attendant A. Un seul verrou, ou `acquire(timeout=...)` qui abandonne, sont d'autres parades."
+  - key: vf-intermittent
+    format: true-false
+    question: "Une situation de compétition peut passer tous les tests, puis se produire en production."
+    truth: true
+    answer: "Le bug dépend de l'entrelacement des threads, qui varie avec la charge, la machine et le hasard des bascules : il est intermittent et difficile à reproduire."
+  - key: vf-gil-atomique
+    format: true-false
+    question: "Avec le GIL, `compteur += 1` exécuté par plusieurs threads est atomique."
+    truth: false
+    answer: "Le GIL peut changer de main entre la lecture et l'écriture de `compteur`. Il faut un `Lock` partagé."
+  - key: vf-meme-ordre
+    format: true-false
+    question: "Si tous les threads prennent leurs verrous dans le même ordre, ils ne peuvent pas s'interbloquer sur ces verrous."
+    truth: true
+    answer: "L'attente circulaire (A attend B qui attend A) devient impossible : celui qui tient le premier verrou finira par obtenir le second."
+  - key: vf-verrou-local
+    format: true-false
+    question: "Créer un nouveau `Lock` au début de la fonction, à chaque appel, protège sa section critique."
+    truth: false
+    answer: "Chaque appel a son propre verrou, que personne d'autre ne prend : il n'exclut rien. Le verrou doit être partagé, créé une fois, au niveau du module ou de l'objet."
+  - key: qcm-lecture-modification-ecriture
+    format: multiple-choice
+    question: "Laquelle de ces instructions, exécutée par plusieurs threads sur une variable partagée, est exposée à une situation de compétition ?"
+    choices:
+      - {text: "`solde -= montant`", correct: true}
+      - {text: "`print(solde)`", correct: false}
+      - {text: "`verrou = threading.Lock()`, au chargement du module", correct: false}
+      - {text: "`t.join()`", correct: false}
+    answer: "`solde -= montant` lit, calcule puis écrit : deux threads peuvent lire la même valeur. Une simple lecture n'écrit rien."
+  - key: qcm-verifier-puis-agir
+    format: multiple-choice
+    question: "Deux threads exécutent « si la clé est absente du cache, la charger et l'y mettre ». Quel est le risque ?"
+    choices:
+      - {text: "Les deux voient la clé absente, et la chargent chacun", correct: true}
+      - {text: "Le second thread lève une `KeyError` en lisant le cache", correct: false}
+      - {text: "Le dictionnaire est corrompu et perd toutes ses clés", correct: false}
+      - {text: "Aucun : le test et l'ajout se font sous le GIL", correct: false}
+    answer: "Entre le test et l'ajout, l'autre thread peut faire le même test : le chargement est fait deux fois. Un verrou autour du test et du chargement l'évite."
+  - key: qcm-section-critique-courte
+    format: multiple-choice
+    question: "Que mettre sous `with verrou:` pour un thread qui télécharge une page, puis l'ajoute à un dictionnaire partagé ?"
+    choices:
+      - {text: "Seulement l'ajout au dictionnaire, après le téléchargement", correct: true}
+      - {text: "Le téléchargement et l'ajout, pour plus de sûreté", correct: false}
+      - {text: "Seulement le téléchargement, qui est l'opération lente", correct: false}
+      - {text: "Rien : un dictionnaire n'a jamais besoin de verrou", correct: false}
+    answer: "Le téléchargement ne touche aucune donnée partagée : sous le verrou, il ferait attendre tous les autres threads. On ne protège que l'accès au dictionnaire."
+  - key: qcm-eviter-le-partage
+    format: multiple-choice
+    question: "Quel outil évite de partager des données modifiables entre threads ?"
+    choices:
+      - {text: "Une `queue.Queue`, qui passe les messages d'un thread à l'autre", correct: true}
+      - {text: "Une variable globale, déclarée avec `global` dans chaque thread", correct: false}
+      - {text: "Un dictionnaire partagé, que chaque thread modifie sans verrou", correct: false}
+      - {text: "Une liste créée au niveau du module, que tous les threads lisent", correct: false}
+    answer: "Chaque élément passe d'un producteur à un consommateur ; la file fait elle-même la synchronisation. Moins on partage, moins il faut de verrous."
+  - key: bug-retrait-sans-verrou
+    format: bug-fix
+    question: |-
+      Deux retraits de 80 sur un solde de 100 : ce programme affiche `-60`.
+      ```python
+      import threading
+      import time
+
+      solde = 100
+
+      def retirer(montant):
+          global solde
+          if solde >= montant:
+              time.sleep(0.01)  # le temps d'interroger la banque
+              solde -= montant
+
+      threads = [threading.Thread(target=retirer, args=(80,)) for _ in range(2)]
+      for t in threads:
+          t.start()
+      for t in threads:
+          t.join()
+      print(solde)
+      ```
+      Quelle correction est la bonne ?
+    choices:
+      - {text: "Un `Lock` partagé, pris autour du test et du retrait ensemble", correct: true}
+      - {text: "Un `Lock` partagé, pris autour du seul `solde -= montant`", correct: false}
+      - {text: "Retirer le `time.sleep`, qui est la cause de l'erreur", correct: false}
+      - {text: "Lancer les threads avec `daemon=True`, pour les isoler", correct: false}
+    answer: |-
+      ```python
+      verrou = threading.Lock()
+
+      def retirer(montant):
+          global solde
+          with verrou:
+              if solde >= montant:
+                  time.sleep(0.01)
+                  solde -= montant
+      ```
+      Les deux threads passent le test avant que l'un ait retiré. Un verrou autour du seul retrait laisserait le
+      problème : c'est « vérifier, puis agir » qui doit être indivisible. Sans `sleep`, le bug serait plus rare, pas
+      corrigé.
+  - key: bug-cache-charge-trois-fois
+    format: bug-fix
+    question: |-
+      Ce programme affiche `3` : la clé est chargée trois fois au lieu d'une.
+      ```python
+      import threading
+      import time
+
+      cache = {}
+      chargements = []
+
+      def obtenir(cle):
+          if cle not in cache:
+              time.sleep(0.05)  # chargement lent
+              chargements.append(cle)
+              cache[cle] = cle.upper()
+          return cache[cle]
+
+      threads = [threading.Thread(target=obtenir, args=("a",)) for _ in range(3)]
+      for t in threads:
+          t.start()
+      for t in threads:
+          t.join()
+      print(len(chargements))
+      ```
+      Quelle correction est la bonne ?
+    choices:
+      - {text: "Un `Lock` partagé autour du test et du chargement, dans `obtenir`", correct: true}
+      - {text: "Remplacer `cle not in cache` par `cache.get(cle) is None`", correct: false}
+      - {text: "Un `Lock` partagé autour du seul `cache[cle] = cle.upper()`", correct: false}
+      - {text: "Remplacer le dictionnaire `cache` par un `set` de clés", correct: false}
+    answer: |-
+      ```python
+      verrou = threading.Lock()
+
+      def obtenir(cle):
+          with verrou:
+              if cle not in cache:
+                  time.sleep(0.05)
+                  chargements.append(cle)
+                  cache[cle] = cle.upper()
+              return cache[cle]
+      ```
+      Les trois threads voient la clé absente avant que le premier l'ait ajoutée. Le test et le chargement doivent se
+      faire sous le même verrou ; changer la forme du test ne change rien.
+  - key: bug-interblocage
+    format: bug-fix
+    question: |-
+      Ce programme ne se termine jamais, et n'affiche rien :
+      ```python
+      import threading
+      import time
+
+      a, b = threading.Lock(), threading.Lock()
+
+      def virer_de_a_vers_b():
+          with a:
+              time.sleep(0.05)
+              with b:
+                  print("a vers b")
+
+      def virer_de_b_vers_a():
+          with b:
+              time.sleep(0.05)
+              with a:
+                  print("b vers a")
+
+      t1 = threading.Thread(target=virer_de_a_vers_b)
+      t2 = threading.Thread(target=virer_de_b_vers_a)
+      t1.start(); t2.start()
+      t1.join(); t2.join()
+      ```
+      Quelle correction est la bonne ?
+    choices:
+      - {text: "Prendre `a` puis `b` dans les deux fonctions", correct: true}
+      - {text: "Remplacer les deux `Lock` par des `RLock`", correct: false}
+      - {text: "Supprimer les deux appels à `time.sleep`", correct: false}
+      - {text: "Lancer `t2` avec `daemon=True`, pour qu'il cède", correct: false}
+    answer: |-
+      ```python
+      def virer_de_b_vers_a():
+          with a:
+              time.sleep(0.05)
+              with b:
+                  print("b vers a")
+      ```
+      Chaque thread tient un verrou et attend l'autre : c'est un interblocage. Avec le même ordre partout, celui qui a
+      `a` obtiendra `b`. Un `RLock` n'aide qu'un même thread ; sans `sleep`, le blocage serait juste plus rare.
+  - key: bug-verrou-cree-a-chaque-appel
+    format: bug-fix
+    question: |-
+      Le verrou ne change rien : ce programme affiche toujours `-60`.
+      ```python
+      import threading
+      import time
+
+      solde = 100
+
+      def retirer(montant):
+          global solde
+          verrou = threading.Lock()
+          with verrou:
+              if solde >= montant:
+                  time.sleep(0.01)
+                  solde -= montant
+
+      threads = [threading.Thread(target=retirer, args=(80,)) for _ in range(2)]
+      for t in threads:
+          t.start()
+      for t in threads:
+          t.join()
+      print(solde)
+      ```
+      Quelle correction est la bonne ?
+    choices:
+      - {text: "Créer le verrou une seule fois, hors de la fonction", correct: true}
+      - {text: "Remplacer `threading.Lock()` par `threading.RLock()`", correct: false}
+      - {text: "Appeler `verrou.acquire()` une seconde fois dans le bloc", correct: false}
+      - {text: "Déclarer `verrou` avec `global` dans la fonction", correct: false}
+    answer: |-
+      ```python
+      verrou = threading.Lock()
+
+      def retirer(montant):
+          global solde
+          with verrou:
+              if solde >= montant:
+                  time.sleep(0.01)
+                  solde -= montant
+      ```
+      Chaque appel créait son propre verrou, que l'autre thread ne voyait jamais. Un verrou n'exclut que les threads qui
+      prennent le même objet.
+  - key: situation-compteur-de-visites
+    format: scenario
+    question: |-
+      Un compteur de visites, incrémenté par 20 threads, donne parfois un total trop petit. Que fais-tu ?
+    choices:
+      - {text: "Tu protèges `compteur += 1` par un `threading.Lock` partagé", correct: true}
+      - {text: "Tu passes de 20 à 40 threads, pour que le total rattrape", correct: false}
+      - {text: "Tu remplaces `compteur += 1` par `compteur = compteur + 1`", correct: false}
+      - {text: "Tu appelles `sys.setswitchinterval` avec une valeur plus grande", correct: false}
+    answer: |-
+      Des incrémentations se perdent quand deux threads lisent la même valeur. Les deux écritures sont équivalentes ;
+      un intervalle plus long rend le bug plus rare sans le supprimer. Seul le verrou (ou un compteur par thread, sommé
+      à la fin) le corrige.
+  - key: situation-programme-fige
+    format: scenario
+    question: |-
+      Ton service se fige de temps en temps. Un vidage des piles montre un thread qui tient le verrou des comptes et
+      attend celui du journal, et un autre qui tient le journal et attend les comptes. Que fais-tu ?
+    choices:
+      - {text: "Tu imposes un ordre unique : toujours les comptes, puis le journal", correct: true}
+      - {text: "Tu redémarres le service automatiquement quand il se fige", correct: false}
+      - {text: "Tu remplaces les deux verrous par des `RLock`, réentrants", correct: false}
+      - {text: "Tu ajoutes un `time.sleep` avant de prendre le second verrou", correct: false}
+    answer: |-
+      C'est un interblocage : une attente circulaire entre deux verrous. Un ordre de prise unique la rend impossible.
+      Un `RLock` ne sert qu'à un même thread, et un délai ne fait que déplacer le moment du blocage.
+  - key: situation-test-intermittent
+    format: scenario
+    question: |-
+      Un test multi-thread passe 99 fois sur 100. Ton collègue propose de relancer automatiquement les tests en échec.
+      Que lui dis-tu ?
+    choices:
+      - {text: "Qu'un échec intermittent signale souvent une situation de compétition à corriger", correct: true}
+      - {text: "Qu'il a raison : un test multi-thread échoue toujours un peu, c'est normal", correct: false}
+      - {text: "Qu'il vaut mieux lancer ce test avec un seul thread, pour qu'il passe", correct: false}
+      - {text: "Qu'il suffit d'ajouter un `time.sleep` pour que les threads s'attendent", correct: false}
+    answer: |-
+      Le test révèle peut-être un vrai bug, qui frappera en production sous la charge. On cherche la donnée partagée
+      que rien ne protège ; un `sleep` masque le problème au lieu de le corriger.
+  - key: situation-cache-partage-threads
+    format: scenario
+    question: |-
+      Plusieurs threads partagent un cache de résultats coûteux à calculer. Chaque résultat ne doit être calculé qu'une
+      fois. Que fais-tu ?
+    choices:
+      - {text: "Un verrou autour de « vérifier la présence, puis calculer et ranger »", correct: true}
+      - {text: "Un verrou autour de la seule écriture, pour ne pas ralentir les lectures", correct: false}
+      - {text: "Aucun verrou : les dictionnaires de CPython sont sûrs entre threads", correct: false}
+      - {text: "Un cache par thread, pour que chacun calcule ses propres résultats", correct: false}
+    answer: |-
+      Le test de présence et le calcul forment une séquence « vérifier, puis agir » : sans verrou autour des deux,
+      plusieurs threads calculent la même valeur. Un cache par thread recalculerait tout dans chaque thread.

@@ -1,0 +1,178 @@
+notion: choisir-concurrence
+lesson: |-
+  Python offre trois modèles de concurrence. Le choix dépend d'abord de **ce que les tâches attendent** : des
+  entrées-sorties (réseau, disque, base) ou le processeur.
+
+  | | Threads | asyncio | Processus |
+  |---|---|---|---|
+  | Pour | des E/S, avec des bibliothèques synchrones | beaucoup d'E/S simultanées | du calcul en pur Python |
+  | Parallélisme réel | non (GIL), sauf E/S et extensions C | non : un seul thread | oui : un GIL par processus |
+  | Coût d'une tâche | un thread système (mémoire, bascules) | un petit objet Python | un interpréteur entier |
+  | Bascule | n'importe quand | seulement aux `await` | indépendants |
+  | Données partagées | oui, avec des verrous | oui, sans verrou entre deux `await` | non : copies par `pickle` |
+  | Outil | `ThreadPoolExecutor` | `asyncio.gather`, `TaskGroup` | `ProcessPoolExecutor` |
+
+  **Comment trancher.**
+
+  1. **Calcul ?** Des processus (`ProcessPoolExecutor`), ou une bibliothèque en C qui relâche le GIL (NumPy).
+     Le build sans GIL et les sous-interpréteurs sont d'autres pistes, plus récentes.
+  2. **Des E/S, en petit nombre, avec des bibliothèques synchrones ?** Des threads : un `ThreadPoolExecutor` suffit,
+     sans réécrire le code.
+  3. **Des milliers de connexions, un serveur, des WebSockets ?** asyncio, avec des bibliothèques asynchrones
+     (`httpx`, `aiohttp`, `asyncpg`).
+
+  **On peut combiner** : un programme asyncio confie une fonction bloquante à un thread (`asyncio.to_thread`) et un
+  calcul à un pool de processus (`run_in_executor`). Et `concurrent.futures` donne la même interface aux threads et aux
+  processus : on change de pool en changeant une ligne.
+
+  **Les pièges du choix** : asyncio n'accélère aucun calcul ; des processus pour de petites tâches coûtent plus qu'ils ne
+  rapportent ; asyncio impose que toute la chaîne d'appels soit asynchrone, une seule bibliothèque synchrone bloque
+  tout.
+
+  **En entretien** : « Je regarde ce que les tâches attendent. Pour du calcul en pur Python, des processus, chacun avec
+  son GIL. Pour des E/S, des threads si le code est synchrone et les tâches peu nombreuses, asyncio s'il y en a des
+  milliers. Et je combine au besoin : `to_thread` et `run_in_executor` depuis asyncio. »
+cards:
+  - key: dix-mille-websockets
+    format: course
+    question: "Pour 10 000 connexions WebSocket ouvertes en même temps, quel modèle convient le mieux ?"
+    choices:
+      - {text: "asyncio, avec une bibliothèque WebSocket asynchrone", correct: true}
+      - {text: "Un thread système par connexion, avec `threading`", correct: false}
+      - {text: "Un processus par connexion, avec `multiprocessing`", correct: false}
+      - {text: "Une boucle séquentielle qui sert chaque connexion à tour de rôle", correct: false}
+    answer: "Les connexions passent leur temps à attendre ; une coroutine en attente ne coûte qu'un objet. Dix mille threads ou processus coûteraient beaucoup de mémoire et de bascules."
+  - key: calcul-huit-coeurs
+    format: course
+    question: "Pour un calcul lourd en pur Python, sur une machine à 8 cœurs, quel modèle convient ?"
+    choices:
+      - {text: "Des processus, avec un `ProcessPoolExecutor`", correct: true}
+      - {text: "Des threads, avec un `ThreadPoolExecutor`", correct: false}
+      - {text: "Des coroutines, lancées avec `asyncio.gather`", correct: false}
+      - {text: "Un seul thread, avec `sys.setswitchinterval(0)`", correct: false}
+    answer: "Chaque processus a son GIL : huit processus calculent sur huit cœurs. Les threads et asyncio restent sur un seul cœur pour du pur Python."
+  - key: bibliotheque-synchrone
+    format: course
+    question: "Pour lancer en même temps 20 appels à une API, avec une bibliothèque synchrone qu'on ne veut pas changer, que choisis-tu ?"
+    choices:
+      - {text: "Un `ThreadPoolExecutor`, qui garde le code synchrone", correct: true}
+      - {text: "asyncio, en ajoutant `async` devant chaque appel", correct: false}
+      - {text: "Un `ProcessPoolExecutor` de 20 processus", correct: false}
+      - {text: "Un seul thread, avec `asyncio.sleep` entre les appels", correct: false}
+    answer: "Les appels attendent le réseau et rendent le GIL : des threads les recouvrent sans réécrire le code. asyncio demanderait une bibliothèque asynchrone ; des processus seraient trop lourds."
+  - key: cout-coroutine
+    format: course
+    question: "Pourquoi une coroutine coûte-t-elle moins cher qu'un thread ?"
+    choices:
+      - {text: "C'est un objet Python suspendu : ni pile système ni bascule par le noyau", correct: true}
+      - {text: "Elle s'exécute sur un cœur réservé, à l'écart des autres threads", correct: false}
+      - {text: "Elle ne garde aucun état entre deux `await`, contrairement à un thread", correct: false}
+      - {text: "Elle n'a pas besoin du GIL, contrairement à un thread système", correct: false}
+    answer: "Un thread a sa pile et son ordonnancement par le système ; une coroutine n'est qu'un cadre d'exécution en mémoire, repris par la boucle. Elle garde bien son état, et s'exécute sous le GIL."
+  - key: vf-asyncio-calcul
+    format: true-false
+    question: "asyncio accélère un calcul en pur Python en le répartissant sur plusieurs cœurs."
+    truth: false
+    answer: "La boucle tourne dans un seul thread : asyncio recouvre des attentes, il ne parallélise aucun calcul."
+  - key: vf-threads-e-s
+    format: true-false
+    question: "Malgré le GIL, des threads accélèrent un programme qui attend surtout le réseau."
+    truth: true
+    answer: "Pendant une attente d'E/S, le thread rend le GIL : les autres threads avancent, et les attentes se recouvrent."
+  - key: vf-combiner
+    format: true-false
+    question: "Un programme asyncio peut confier un calcul à un pool de processus."
+    truth: true
+    answer: "`await loop.run_in_executor(pool, f, *args)` avec un `ProcessPoolExecutor` : la boucle reste libre, et le calcul tourne sur d'autres cœurs."
+  - key: vf-chaine-asynchrone
+    format: true-false
+    question: "Dans un programme asyncio, une seule bibliothèque synchrone qui attend le réseau peut ralentir toutes les tâches."
+    truth: true
+    answer: "Son appel bloque le seul thread de la boucle. Il faut une bibliothèque asynchrone, ou l'appeler par `asyncio.to_thread`."
+  - key: qcm-isolement
+    format: multiple-choice
+    question: "Quel modèle démarre le plus lentement, mais isole le mieux les tâches les unes des autres ?"
+    choices:
+      - {text: "Les processus", correct: true}
+      - {text: "Les threads", correct: false}
+      - {text: "Les coroutines", correct: false}
+      - {text: "Les tâches asyncio", correct: false}
+    answer: "Un processus a son interpréteur et sa mémoire : un plantage ou une fuite reste chez lui. En échange, il faut le démarrer et sérialiser tout ce qu'on lui envoie."
+  - key: qcm-entre-deux-await
+    format: multiple-choice
+    question: "Quel modèle garantit qu'aucune autre tâche ne s'exécute entre deux points d'attente ?"
+    choices:
+      - {text: "asyncio, qui ne bascule qu'aux `await`", correct: true}
+      - {text: "Les threads, protégés par le GIL", correct: false}
+      - {text: "Les processus, qui ont chacun leur GIL", correct: false}
+      - {text: "Les threads démons, qui ne s'interrompent pas", correct: false}
+    answer: "Une coroutine garde la main jusqu'à son prochain `await`. Un thread peut être interrompu entre deux instructions, GIL ou pas."
+  - key: qcm-cpu-bound
+    format: multiple-choice
+    question: "Lequel de ces travaux est limité par le processeur (CPU-bound) ?"
+    choices:
+      - {text: "Résoudre des sudokus par retour arrière, en pur Python", correct: true}
+      - {text: "Télécharger cent fichiers depuis un serveur distant", correct: false}
+      - {text: "Attendre les réponses de dix requêtes à une base", correct: false}
+      - {text: "Lire des messages qui arrivent d'une file réseau", correct: false}
+    answer: "Le retour arrière ne fait que calculer : seuls des processus (ou du code compilé) l'accélèrent. Les trois autres attendent surtout le réseau."
+  - key: qcm-meme-interface
+    format: multiple-choice
+    question: "Quel module donne la même interface aux pools de threads et de processus ?"
+    choices:
+      - {text: "`concurrent.futures`", correct: true}
+      - {text: "`asyncio`", correct: false}
+      - {text: "`threading`", correct: false}
+      - {text: "`queue`", correct: false}
+    answer: "`ThreadPoolExecutor` et `ProcessPoolExecutor` héritent de `Executor` : `submit`, `map`, `shutdown`. On passe de l'un à l'autre en changeant une ligne."
+  - key: situation-robot-50000-pages
+    format: scenario
+    question: |-
+      Tu écris un robot qui doit télécharger 50 000 pages web, le plus vite possible sans écrouler les serveurs. Que
+      choisis-tu ?
+    choices:
+      - {text: "asyncio, un client HTTP asynchrone, et un sémaphore pour limiter", correct: true}
+      - {text: "Un processus par page, pour utiliser tous les cœurs de la machine", correct: false}
+      - {text: "Un thread système par page, lancés tous ensemble dès le départ", correct: false}
+      - {text: "Une boucle séquentielle, avec une pause entre deux téléchargements", correct: false}
+    answer: |-
+      Des dizaines de milliers d'attentes réseau : c'est le terrain d'asyncio. Le sémaphore borne les requêtes en
+      cours, pour ménager les serveurs et la machine. 50 000 threads ou processus épuiseraient la mémoire.
+  - key: situation-fichiers-csv
+    format: scenario
+    question: |-
+      Ton script parcourt 200 fichiers CSV de 1 Go, et calcule des statistiques en pur Python sur chacun. Il prend des
+      heures sur un seul cœur. Que fais-tu ?
+    choices:
+      - {text: "Un `ProcessPoolExecutor`, avec un fichier par tâche", correct: true}
+      - {text: "Un `ThreadPoolExecutor`, avec un fichier par thread", correct: false}
+      - {text: "Une coroutine par fichier, lancées avec `asyncio.gather`", correct: false}
+      - {text: "Un `asyncio.to_thread` par fichier, depuis une boucle asyncio", correct: false}
+    answer: |-
+      Le temps passe à calculer, pas à lire : il faut plusieurs GIL, donc plusieurs processus. Un fichier par tâche
+      est un gros grain, qui amortit le coût des processus ; chaque tâche ne renvoie que ses statistiques.
+  - key: situation-appels-api-django
+    format: scenario
+    question: |-
+      Une vue Django, synchrone, appelle cinq API externes l'une après l'autre ; chaque appel prend 300 ms. Comment la
+      rendre plus rapide sans tout réécrire ?
+    choices:
+      - {text: "Lancer les cinq appels dans un `ThreadPoolExecutor`", correct: true}
+      - {text: "Réécrire toute l'application en asyncio", correct: false}
+      - {text: "Lancer les cinq appels dans un `ProcessPoolExecutor`", correct: false}
+      - {text: "Ajouter `async` devant la vue, sans autre changement", correct: false}
+    answer: |-
+      Les appels attendent le réseau : des threads les recouvrent, et la vue passe d'environ 1,5 s à 300 ms, sans
+      changer de bibliothèque. Des processus coûteraient plus à démarrer que ce qu'ils font gagner.
+  - key: situation-question-entretien
+    format: scenario
+    question: |-
+      En entretien : « Threads, processus ou asyncio : comment choisis-tu ? » Par quoi commences-tu ta réponse ?
+    choices:
+      - {text: "Par ce que les tâches attendent : le processeur, ou des entrées-sorties", correct: true}
+      - {text: "Par asyncio, qui est le modèle le plus moderne des trois", correct: false}
+      - {text: "Par le nombre de cœurs de la machine, qui décide de tout", correct: false}
+      - {text: "Par les threads, qui conviennent à tous les cas grâce au GIL", correct: false}
+    answer: |-
+      Le calcul demande des processus ; les E/S, des threads ou asyncio, selon le nombre de tâches et les
+      bibliothèques disponibles. Les cœurs ne comptent que pour le calcul.

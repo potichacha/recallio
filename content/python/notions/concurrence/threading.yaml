@@ -1,0 +1,416 @@
+notion: threading
+lesson: |-
+  Le module `threading` lance des **threads** : des fils d'exécution qui partagent la mémoire du processus. Avec le GIL,
+  ils servent surtout à **attendre plusieurs entrées-sorties à la fois** (réseau, disque, base de données).
+
+  ```python
+  import threading
+
+  def telecharger(url, resultats, i):
+      resultats[i] = f"contenu de {url}"     # chaque thread écrit dans sa case
+
+  urls = ["a", "b", "c"]
+  resultats = [None] * len(urls)
+  threads = [threading.Thread(target=telecharger, args=(url, resultats, i)) for i, url in enumerate(urls)]
+  for t in threads:
+      t.start()          # lance le thread
+  for t in threads:
+      t.join()           # attend sa fin
+  print(resultats)
+  ```
+
+  | Élément | Rôle |
+  |---|---|
+  | `Thread(target=f, args=(x,), kwargs={...})` | prépare un thread qui appellera `f(x)` ; `args` est un **tuple** |
+  | `t.start()` | le lance (une seule fois : un second appel lève `RuntimeError`) |
+  | `t.join(timeout=None)` | attend sa fin |
+  | `t.run()` | appelle la cible **dans le thread courant** : ce n'est pas `start` |
+  | `daemon=True` | le programme ne l'attend pas pour se terminer |
+  | `threading.current_thread().name` | le nom du thread courant (`MainThread` pour le principal) |
+
+  **Récupérer un résultat** : `join` ne renvoie rien. La fonction range son résultat dans une structure partagée
+  (une case de liste par thread, une `queue.Queue`), ou l'on passe par `concurrent.futures`, qui renvoie des valeurs.
+
+  **Les exceptions** : une exception non rattrapée dans un thread est **affichée sur stderr** et arrête ce thread ;
+  elle ne remonte pas dans le thread qui appelle `join`.
+
+  **Le verrou** : `threading.Lock` protège une section critique. On le prend avec `with`, qui le rend même si le bloc
+  lève une exception.
+
+  ```python
+  verrou = threading.Lock()
+  compteur = 0
+
+  def incrementer():
+      global compteur
+      for _ in range(10_000):
+          with verrou:
+              compteur += 1
+  ```
+
+  `RLock` est un verrou qu'un même thread peut reprendre sans se bloquer ; `Event`, `Semaphore`, `Condition` et
+  `Barrier` coordonnent les threads.
+
+  **En entretien** : « Un `Thread` reçoit une cible et des arguments en tuple ; `start` le lance, `join` l'attend. Les
+  threads partagent la mémoire : un `Lock` protège les données modifiées, et l'on récupère les résultats par une
+  structure partagée ou une file. Avec le GIL, ils accélèrent les entrées-sorties, pas le calcul. »
+cards:
+  - key: role-de-join
+    format: course
+    question: "Que fait `t.join()` sur un thread `t` ?"
+    choices:
+      - {text: "Il bloque le thread courant jusqu'à la fin du thread `t`", correct: true}
+      - {text: "Il lance le thread `t`, qui s'exécute en tâche de fond", correct: false}
+      - {text: "Il fusionne le thread `t` avec le thread principal", correct: false}
+      - {text: "Il renvoie la valeur que la fonction cible a renvoyée", correct: false}
+    answer: "`join` attend la fin du thread, et renvoie `None`. C'est `start` qui le lance. Pour obtenir un résultat, la cible le range dans une structure partagée."
+  - key: usage-des-threads
+    format: course
+    question: "Pour quel travail des threads accélèrent-ils un programme Python ?"
+    choices:
+      - {text: "Les attentes d'E/S : réseau, disque, base de données", correct: true}
+      - {text: "Les boucles de calcul numérique écrites en pur Python", correct: false}
+      - {text: "Le tri de grandes listes avec la méthode `sort`", correct: false}
+      - {text: "Toute fonction, dès que la machine a plusieurs cœurs", correct: false}
+    answer: "Avec le GIL, un seul thread exécute du Python à la fois, mais les attentes d'E/S le rendent : plusieurs threads attendent en même temps."
+  - key: exception-dans-un-thread
+    format: course
+    question: "Que devient une exception non rattrapée dans un thread ?"
+    choices:
+      - {text: "Elle s'affiche sur stderr et arrête ce thread ; `join` ne la relève pas", correct: true}
+      - {text: "Elle remonte dans le thread principal, au prochain appel à `join`", correct: false}
+      - {text: "Elle arrête tout le programme, tous threads confondus", correct: false}
+      - {text: "Elle disparaît sans rien afficher, et le thread recommence", correct: false}
+    answer: "`threading.excepthook` affiche la trace, puis le thread se termine. Le thread qui attend ne voit rien : il faut rattraper l'erreur dans la cible, ou utiliser `concurrent.futures`."
+  - key: thread-demon
+    format: course
+    question: "Qu'est-ce qu'un thread démon (`daemon=True`) ?"
+    choices:
+      - {text: "Un thread que le programme n'attend pas pour se terminer", correct: true}
+      - {text: "Un thread qui tourne avec une priorité système plus élevée", correct: false}
+      - {text: "Un thread qui survit au programme, comme un service système", correct: false}
+      - {text: "Un thread qui ne peut pas prendre de verrou `Lock`", correct: false}
+    answer: "À la fin du thread principal, Python attend les threads ordinaires, pas les démons, qui sont arrêtés brutalement. On les réserve aux tâches de fond qu'on peut couper sans risque."
+  - key: vf-run-nouveau-thread
+    format: true-false
+    question: "`t.run()` exécute la fonction cible dans un nouveau thread."
+    truth: false
+    answer: "`run` appelle la cible dans le thread courant. C'est `start` qui crée le thread, puis y appelle `run`."
+  - key: vf-start-une-fois
+    format: true-false
+    question: "Un même objet `Thread` ne peut être démarré qu'une fois."
+    truth: true
+    answer: "Un second `start` lève `RuntimeError: threads can only be started once`. Pour relancer, on crée un nouveau `Thread`."
+  - key: vf-with-libere
+    format: true-false
+    question: "`with verrou:` rend le verrou même si le bloc lève une exception."
+    truth: true
+    answer: "Le gestionnaire de contexte appelle `release` en sortant du bloc, quelle que soit la raison : c'est plus sûr que `acquire` et `release` à la main."
+  - key: vf-join-releve
+    format: true-false
+    question: "Une exception levée dans un thread est relevée par `t.join()` dans le thread qui attend."
+    truth: false
+    answer: "`join` ne relève rien : l'exception est affichée sur stderr, et le thread s'arrête. `Future.result()`, dans `concurrent.futures`, relève l'exception, lui."
+  - key: qcm-passer-des-arguments
+    format: multiple-choice
+    question: "Comment faire appeler `f(1, 2)` par un thread ?"
+    choices:
+      - {text: "`threading.Thread(target=f, args=(1, 2))`", correct: true}
+      - {text: "`threading.Thread(target=f(1, 2))`", correct: false}
+      - {text: "`threading.Thread(target=f).start(1, 2)`", correct: false}
+      - {text: "`threading.Thread(target=f, params=(1, 2))`", correct: false}
+    answer: "`target` reçoit la fonction, sans l'appeler, et `args` ses arguments. `target=f(1, 2)` appellerait `f` tout de suite, dans le thread courant."
+  - key: qcm-recuperer-un-resultat
+    format: multiple-choice
+    question: "Comment récupérer le résultat d'une fonction exécutée dans un `threading.Thread` ?"
+    choices:
+      - {text: "La fonction le range dans une structure partagée, comme une liste", correct: true}
+      - {text: "`t.join()` renvoie la valeur de retour de la fonction cible", correct: false}
+      - {text: "`t.result()`, à appeler une fois que `t.join()` a rendu la main", correct: false}
+      - {text: "`t.start()` renvoie la valeur de retour une fois le thread fini", correct: false}
+    answer: "Un `Thread` ne garde pas la valeur renvoyée par sa cible. On passe une liste, un dictionnaire ou une `queue.Queue`, ou bien on utilise un `ThreadPoolExecutor`, dont les futures renvoient des valeurs."
+  - key: qcm-section-critique
+    format: multiple-choice
+    question: "Quel objet protège une section critique, pour qu'un seul thread à la fois l'exécute ?"
+    choices:
+      - {text: "`threading.Lock`", correct: true}
+      - {text: "`threading.Event`", correct: false}
+      - {text: "`threading.Timer`", correct: false}
+      - {text: "`threading.local`", correct: false}
+    answer: "Un `Lock` n'a qu'un détenteur. `Event` signale qu'une chose est arrivée, `Timer` lance une fonction après un délai, et `local` donne à chaque thread ses propres attributs."
+  - key: qcm-verrou-reentrant
+    format: multiple-choice
+    question: "Quel verrou un même thread peut-il prendre plusieurs fois sans se bloquer ?"
+    choices:
+      - {text: "`threading.RLock`", correct: true}
+      - {text: "`threading.Lock`", correct: false}
+      - {text: "`threading.Semaphore(1)`", correct: false}
+      - {text: "`threading.BoundedSemaphore(1)`", correct: false}
+    answer: "Le verrou réentrant compte les prises de son détenteur, qui doit le rendre autant de fois. Un `Lock` repris par le même thread le bloque pour toujours."
+  - key: trous-start-join
+    format: fill-in
+    question: |-
+      Complète pour lancer le thread, puis attendre sa fin :
+      ```python
+      t = threading.Thread(target=travailler)
+      t.___()
+      t.___()
+      ```
+    blanks:
+      - [start]
+      - [join]
+    answer: "`start` lance le thread, `join` attend qu'il ait fini."
+  - key: trous-creer-verrou
+    format: fill-in
+    question: |-
+      Complète pour créer le verrou qui protège `compteur` :
+      ```python
+      verrou = threading.___()
+
+      def incrementer():
+          global compteur
+          with verrou:
+              compteur += 1
+      ```
+    blanks:
+      - [Lock, RLock]
+    answer: "Un `threading.Lock` (ou un `RLock`), pris avec `with`."
+  - key: trous-args
+    format: fill-in
+    question: |-
+      Complète pour que le thread appelle `saluer("Ana")` :
+      ```python
+      t = threading.Thread(target=saluer, ___=("Ana",))
+      ```
+    blanks:
+      - [args]
+    answer: "`args` attend un tuple : la virgule de `(\"Ana\",)` en fait un tuple d'un élément."
+  - key: trous-demon
+    format: fill-in
+    question: |-
+      Complète pour que le programme n'attende pas ce thread de surveillance pour se terminer :
+      ```python
+      t = threading.Thread(target=surveiller, ___=True)
+      ```
+    blanks:
+      - [daemon]
+    answer: "Un thread démon est arrêté à la fin du programme, sans être attendu."
+  - key: code-resultats-par-case
+    format: code-output
+    question: |-
+      ```python
+      import threading
+
+      resultats = [0] * 4
+
+      def carre(i):
+          resultats[i] = i * i
+
+      threads = [threading.Thread(target=carre, args=(i,)) for i in range(4)]
+      for t in threads:
+          t.start()
+      for t in threads:
+          t.join()
+      print(resultats)
+      ```
+    answer: "Chaque thread écrit dans sa propre case, et `join` attend qu'ils aient tous fini : l'ordre d'exécution n'y change rien."
+    check:
+      output: "[0, 1, 4, 9]"
+    choices:
+      - {text: "`[0, 1, 4, 9]`", correct: true}
+      - {text: "`[0, 0, 0, 0]`", correct: false}
+      - {text: "`[1, 4, 9, 16]`", correct: false}
+      - {text: "`[None, None, None, None]`", correct: false}
+  - key: code-exception-dans-le-thread
+    format: code-output
+    question: |-
+      Que s'affiche-t-il sur la sortie standard ?
+      ```python
+      import threading
+
+      def echouer():
+          raise ValueError("boum")
+
+      t = threading.Thread(target=echouer)
+      t.start()
+      t.join()
+      print("fin", t.is_alive())
+      ```
+    answer: "L'exception arrête le thread et s'affiche sur stderr, mais elle ne remonte pas dans le thread principal : `join` rend la main, et le programme continue."
+    check:
+      output: "fin False"
+    choices:
+      - {text: "`fin False`", correct: true}
+      - {text: "`fin True`", correct: false}
+      - {text: "Une `ValueError`, levée par `t.join()`", correct: false}
+      - {text: "Rien : le programme s'arrête avec le thread", correct: false}
+  - key: code-compteur-verrouille
+    format: code-output
+    question: |-
+      ```python
+      import threading
+
+      compteur = 0
+      verrou = threading.Lock()
+
+      def incrementer():
+          global compteur
+          for _ in range(10_000):
+              with verrou:
+                  compteur += 1
+
+      threads = [threading.Thread(target=incrementer) for _ in range(4)]
+      for t in threads:
+          t.start()
+      for t in threads:
+          t.join()
+      print(compteur)
+      ```
+    answer: "Le verrou rend chaque `compteur += 1` atomique : aucune mise à jour n'est perdue, 4 fois 10 000."
+    check:
+      output: "40000"
+    choices:
+      - {text: "`40000`", correct: true}
+      - {text: "`10000`", correct: false}
+      - {text: "`0`", correct: false}
+      - {text: "`4`", correct: false}
+  - key: code-nom-des-threads
+    format: code-output
+    question: |-
+      ```python
+      import threading
+
+      noms = []
+
+      def noter():
+          noms.append(threading.current_thread().name)
+
+      t = threading.Thread(target=noter, name="ouvrier")
+      t.start()
+      t.join()
+      print(noms, threading.current_thread().name)
+      ```
+    answer: "La cible s'exécute dans le thread nommé `ouvrier` ; le thread principal s'appelle `MainThread`."
+    check:
+      output: "['ouvrier'] MainThread"
+    choices:
+      - {text: "`['ouvrier'] MainThread`", correct: true}
+      - {text: "`['MainThread'] MainThread`", correct: false}
+      - {text: "`['ouvrier'] ouvrier`", correct: false}
+      - {text: "`[] MainThread`", correct: false}
+  - key: bug-cible-appelee
+    format: bug-fix
+    question: |-
+      Ce programme affiche `a MainThread`, puis `b MainThread` : les deux téléchargements se font dans le thread
+      principal, l'un après l'autre.
+      ```python
+      import threading
+
+      def telecharger(url):
+          print(url, threading.current_thread().name)
+
+      threads = [threading.Thread(target=telecharger(u)) for u in ["a", "b"]]
+      for t in threads:
+          t.start()
+      for t in threads:
+          t.join()
+      ```
+      Quelle correction est la bonne ?
+    choices:
+      - {text: "`threading.Thread(target=telecharger, args=(u,))`", correct: true}
+      - {text: "`threading.Thread(target=telecharger(u), daemon=True)`", correct: false}
+      - {text: "`threading.Thread(target=lambda: telecharger)`", correct: false}
+      - {text: "`threading.Thread(target=telecharger(u)).run()`", correct: false}
+    answer: |-
+      ```python
+      threads = [threading.Thread(target=telecharger, args=(u,)) for u in ["a", "b"]]
+      ```
+      `target=telecharger(u)` appelle la fonction tout de suite, dans le thread principal, et passe son résultat
+      (`None`) comme cible. On passe la fonction elle-même, et ses arguments dans `args`.
+  - key: bug-join-oublie
+    format: bug-fix
+    question: |-
+      Ce programme affiche `[]`, au lieu des trois carrés :
+      ```python
+      import threading
+      import time
+
+      resultats = []
+
+      def calculer(n):
+          time.sleep(0.1)
+          resultats.append(n * n)
+
+      for n in range(3):
+          threading.Thread(target=calculer, args=(n,)).start()
+      print(resultats)
+      ```
+      Quelle correction est la bonne ?
+    choices:
+      - {text: "Garder les threads dans une liste et appeler `join` sur chacun avant `print`", correct: true}
+      - {text: "Créer les threads avec `daemon=True`, pour qu'ils finissent plus tôt", correct: false}
+      - {text: "Appeler `run()` au lieu de `start()`, pour garder les threads", correct: false}
+      - {text: "Protéger `resultats.append` par un `threading.Lock` partagé", correct: false}
+    answer: |-
+      ```python
+      threads = [threading.Thread(target=calculer, args=(n,)) for n in range(3)]
+      for t in threads:
+          t.start()
+      for t in threads:
+          t.join()
+      print(resultats)
+      ```
+      Le thread principal affiche la liste avant que les threads aient fini. `join` attend chacun. (`run()` marcherait,
+      mais sans aucun thread.)
+  - key: bug-run-au-lieu-de-start
+    format: bug-fix
+    question: |-
+      Ce programme affiche `MainThread`, alors que la tâche devait s'exécuter dans le thread `ouvrier` :
+      ```python
+      import threading
+
+      def tache():
+          print(threading.current_thread().name)
+
+      t = threading.Thread(target=tache, name="ouvrier")
+      t.run()
+      ```
+      Quelle correction est la bonne ?
+    choices:
+      - {text: "Appeler `t.start()`, puis `t.join()`", correct: true}
+      - {text: "Appeler `t.run()`, puis `t.join()`", correct: false}
+      - {text: "Créer le thread avec `daemon=True`", correct: false}
+      - {text: "Appeler `t.join()` avant `t.run()`", correct: false}
+    answer: |-
+      ```python
+      t = threading.Thread(target=tache, name="ouvrier")
+      t.start()
+      t.join()
+      ```
+      `run` appelle la cible dans le thread courant. `start` crée le thread système, qui appelle `run` à son tour.
+  - key: bug-args-pas-un-tuple
+    format: bug-fix
+    question: |-
+      Le thread s'arrête sur `TypeError: saluer() takes 1 positional argument but 3 were given` :
+      ```python
+      import threading
+
+      def saluer(nom):
+          print("Bonjour", nom)
+
+      t = threading.Thread(target=saluer, args=("Ana"))
+      t.start()
+      t.join()
+      ```
+      Quelle correction est la bonne ?
+    choices:
+      - {text: "`args=(\"Ana\",)`, avec une virgule", correct: true}
+      - {text: "`args=\"Ana\"`, sans parenthèses", correct: false}
+      - {text: "`args=(\"Ana\")`, avec `daemon=True`", correct: false}
+      - {text: "`target=saluer(\"Ana\")`, sans `args`", correct: false}
+    answer: |-
+      ```python
+      t = threading.Thread(target=saluer, args=("Ana",))
+      ```
+      `("Ana")` n'est qu'une chaîne entre parenthèses : le thread la déballe en trois arguments, `A`, `n` et `a`. La
+      virgule fait un tuple d'un élément.

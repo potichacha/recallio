@@ -1,0 +1,346 @@
+notion: imports-circulaires
+lesson: |-
+  Un **import circulaire** : `a` importe `b`, et `b` importe `a` (directement ou par un détour).
+
+  **Ce qui se passe** : Python range un module dans `sys.modules` **avant** de l'exécuter. Quand `b` importe `a` en
+  plein chargement de `a`, il reçoit ce module **à moitié initialisé** : seuls les noms définis avant l'import y
+  existent.
+
+  ```python
+  # boutique/modeles.py
+  from boutique.services import calculer_remise     # 1. charge services...
+
+  class Client: ...
+
+  # boutique/services.py
+  from boutique.modeles import Client               # 2. ... qui veut Client, pas encore défini
+  ```
+
+  ```
+  ImportError: cannot import name 'Client' from partially initialized module 'boutique.modeles'
+  (most likely due to a circular import)
+  ```
+
+  Avec `import boutique.modeles` puis `boutique.modeles.Client` **au premier niveau**, l'erreur devient une
+  `AttributeError: partially initialized module ...`. Pour des modules posés à côté du script (hors d'un paquet),
+  Python 3.14 peut aussi suggérer à tort de renommer le fichier (« consider renaming ... »).
+
+  **Un cycle n'est pas toujours une erreur** : si chaque module n'utilise l'autre que **dans des fonctions**, après
+  le chargement (`import b` puis `b.f()` dans une fonction), tout fonctionne.
+
+  **Les solutions, de la meilleure à la moins bonne**
+
+  1. **Revoir le découpage** : sortir le code partagé dans un troisième module, ou faire dépendre un seul des deux de
+     l'autre. Un cycle signale souvent deux modules trop couplés.
+  2. **Un import pour les annotations seulement** : sous `if TYPE_CHECKING:`. `typing.TYPE_CHECKING` vaut `False` à
+     l'exécution, `True` pour les vérificateurs ; avec les annotations différées de 3.14, pas besoin de guillemets.
+
+     ```python
+     from typing import TYPE_CHECKING
+
+     if TYPE_CHECKING:
+         from boutique.modeles import Client
+
+     def calculer_remise(client: Client) -> float: ...
+     ```
+
+  3. **Un import local**, dans la fonction qui en a besoin : il ne s'exécute qu'à l'appel, une fois les deux modules
+     chargés. Efficace, mais c'est un pansement.
+
+  **Un cas piège** : le script lancé (`main.py`) importé par un autre module. Il est alors exécuté deux fois, comme
+  `__main__` puis comme `main`, et le cycle apparaît.
+
+  Pour les repérer tôt, des outils les signalent en CI (la règle `cyclic-import` de pylint, import-linter).
+
+  **En entretien** : « Dans un cycle, le second module reçoit le premier à moitié chargé : un `from a import x`
+  échoue si `x` n'est pas encore défini. Je casse le cycle en extrayant le code commun dans un autre module ; pour une
+  annotation seule, `if TYPE_CHECKING` ; l'import dans une fonction reste un dépannage. »
+cards:
+  - key: pourquoi-echec
+    format: course
+    question: "Pourquoi `from a import x` échoue-t-il dans un import circulaire ?"
+    choices:
+      - {text: "Le module `a` est en cours d'exécution : `x` n'y est pas encore défini", correct: true}
+      - {text: "Python interdit à deux modules de s'importer l'un l'autre", correct: false}
+      - {text: "Le module `a` a été retiré du cache par le second import", correct: false}
+      - {text: "Le nom `x` est importé deux fois, ce qui lève une erreur", correct: false}
+    answer: "`a` est déjà dans `sys.modules`, mais seuls les noms définis avant son import de `b` existent. Le message le dit : « partially initialized module »."
+  - key: import-module-tolere
+    format: course
+    question: "Pourquoi `import a`, puis `a.f()` dans le corps d'une fonction, supporte-t-il un cycle que `from a import f` ne supporte pas ?"
+    choices:
+      - {text: "L'attribut `f` n'est cherché qu'à l'appel, une fois `a` chargé", correct: true}
+      - {text: "`import a` charge une seconde copie complète du module", correct: false}
+      - {text: "`import a` attend que l'autre module ait fini de se charger", correct: false}
+      - {text: "`from a import f` est interdit dans un module importé", correct: false}
+    answer: "`import a` lie seulement le module, même incomplet ; `a.f` est résolu plus tard, à l'appel. `from a import f` doit trouver `f` immédiatement."
+  - key: role-type-checking
+    format: course
+    question: "À quoi sert `if TYPE_CHECKING:` autour d'un import ?"
+    choices:
+      - {text: "À importer un nom pour les annotations seulement, pas à l'exécution", correct: true}
+      - {text: "À vérifier le type des valeurs importées au chargement", correct: false}
+      - {text: "À n'importer le module que si mypy est installé", correct: false}
+      - {text: "À désactiver mypy pour tout le module", correct: false}
+    answer: "`TYPE_CHECKING` vaut `False` à l'exécution : l'import n'a jamais lieu, donc pas de cycle. Les vérificateurs le considèrent vrai et connaissent le type."
+  - key: meilleure-solution
+    format: course
+    question: Quelle est la solution la plus saine à un import circulaire entre deux modules ?
+    choices:
+      - {text: "Sortir le code partagé dans un troisième module, importé par les deux", correct: true}
+      - {text: "Placer tous les imports du projet à l'intérieur des fonctions", correct: false}
+      - {text: "Fusionner tout le projet en un seul gros module", correct: false}
+      - {text: "Entourer les imports d'un `try` qui ignore l'`ImportError`", correct: false}
+    answer: "Le cycle révèle un couplage : un module commun, ou une dépendance à sens unique, le supprime. Les imports locaux le contournent sans le résoudre."
+  - key: vf-toujours-erreur
+    format: true-false
+    question: Deux modules qui s'importent l'un l'autre lèvent toujours une erreur.
+    truth: false
+    answer: "Si chacun n'utilise l'autre que dans des fonctions appelées après le chargement, avec `import module`, tout fonctionne. L'erreur vient d'un nom utilisé trop tôt."
+  - key: vf-message
+    format: true-false
+    question: "Le message d'erreur d'un import circulaire, dans un paquet, parle d'un module « partially initialized »."
+    truth: true
+    answer: "« cannot import name 'Client' from partially initialized module 'boutique.modeles' (most likely due to a circular import) »."
+  - key: vf-import-local-differe
+    format: true-false
+    question: Un import placé dans le corps d'une fonction n'est exécuté qu'à l'appel de cette fonction, pas au chargement du module.
+    truth: true
+    answer: "C'est pour cela qu'il casse un cycle : à l'appel, les deux modules ont fini de se charger. Le module reste en cache après le premier appel."
+  - key: vf-type-checking-vrai
+    format: true-false
+    question: "`typing.TYPE_CHECKING` vaut `True` à l'exécution."
+    truth: false
+    answer: "Il vaut `False` à l'exécution ; seuls les vérificateurs statiques le considèrent comme vrai."
+  - key: qcm-symptome
+    format: multiple-choice
+    question: Quelle erreur trahit le plus souvent un import circulaire ?
+    choices:
+      - {text: "`ImportError: cannot import name ... from partially initialized module`", correct: true}
+      - {text: "`SyntaxError: circular import detected`", correct: false}
+      - {text: "`RecursionError: maximum recursion depth exceeded`", correct: false}
+      - {text: "`ModuleNotFoundError: No module named ...`", correct: false}
+    answer: "Python ne boucle pas sur un cycle : le module à moitié chargé est réutilisé. L'erreur arrive quand un nom manque encore."
+  - key: qcm-annotation-seule
+    format: multiple-choice
+    question: "`services.py` importe `Client` de `modeles.py` seulement pour annoter un paramètre, ce qui crée un cycle. Quelle correction est la plus légère ?"
+    choices:
+      - {text: "Mettre cet import sous `if TYPE_CHECKING:`", correct: true}
+      - {text: "Supprimer l'annotation du paramètre", correct: false}
+      - {text: "Fusionner `services.py` et `modeles.py`", correct: false}
+      - {text: "Renommer `modeles.py` en `_modeles.py`", correct: false}
+    answer: "L'import disparaît à l'exécution, et l'annotation reste lisible pour mypy. Depuis 3.14, l'annotation n'est évaluée qu'à la demande : pas besoin de guillemets."
+  - key: qcm-signe
+    format: multiple-choice
+    question: Que révèle souvent un import circulaire ?
+    choices:
+      - {text: "Deux modules trop couplés, aux responsabilités mêlées", correct: true}
+      - {text: "Une version de Python trop ancienne pour le projet", correct: false}
+      - {text: "Un fichier enregistré dans le mauvais encodage", correct: false}
+      - {text: "Un paquet tiers mal installé dans l'environnement", correct: false}
+    answer: "Si `modeles` a besoin de `services` et l'inverse, la frontière entre eux est floue. Le cycle est un symptôme de conception."
+  - key: qcm-ce-que-recoit-b
+    format: multiple-choice
+    question: "Le module `a` fait `import b` à sa première ligne, et `b` fait `import a`. Qu'est-ce que `b` reçoit ?"
+    choices:
+      - {text: "Le module `a`, encore incomplet", correct: true}
+      - {text: "Une copie complète de `a`, exécutée à part", correct: false}
+      - {text: "`None`, puisque `a` n'est pas fini", correct: false}
+      - {text: "Une `ImportError` immédiate", correct: false}
+    answer: "`a` est déjà dans `sys.modules` : `b` reçoit cet objet, où rien n'est encore défini. L'erreur ne vient que si `b` y lit un nom au premier niveau."
+  - key: bug-from-dans-les-deux-sens
+    format: bug-fix
+    question: |-
+      `python main.py` s'arrête sur « ImportError: cannot import name 'Client' from partially initialized module
+      'boutique.modeles' (most likely due to a circular import) » :
+      ```python
+      # boutique/modeles.py
+      from boutique.services import calculer_remise
+
+
+      class Client:
+          def __init__(self, nom):
+              self.nom = nom
+
+          def remise(self):
+              return calculer_remise(self)
+      ```
+      ```python
+      # boutique/services.py
+      from boutique.modeles import Client
+
+
+      def calculer_remise(client):
+          return 0.1 if isinstance(client, Client) else 0.0
+
+      # main.py
+      from boutique.modeles import Client
+      print(Client("Ada").remise())
+      ```
+      Quelle correction est la bonne ?
+    choices:
+      - {text: "Déplacer l'import de `calculer_remise` dans la méthode `remise`", correct: true}
+      - {text: "Écrire `from boutique.modeles import *` dans `services.py`", correct: false}
+      - {text: "Importer `boutique.services` avant `boutique.modeles` dans `main.py`", correct: false}
+      - {text: "Renommer `services.py` en `_services.py`, un module privé", correct: false}
+    answer: |-
+      ```python
+      class Client:
+          def __init__(self, nom):
+              self.nom = nom
+
+          def remise(self):
+              from boutique.services import calculer_remise
+              return calculer_remise(self)
+      ```
+      `modeles` ne charge plus `services` à son import : `Client` est défini quand `services` le demande. Avec l'étoile,
+      `services` se charge sans `Client`, et `isinstance` lève plus tard une `NameError` ; inverser l'ordre déplace
+      seulement l'erreur. Mieux encore : revoir le découpage.
+  - key: bug-import-pour-annotation
+    format: bug-fix
+    question: |-
+      `services.py` n'utilise `Client` que dans une annotation, mais l'application s'arrête sur « ImportError: cannot
+      import name 'Client' from partially initialized module 'boutique.modeles' (most likely due to a circular
+      import) » :
+      ```python
+      # boutique/services.py
+      from boutique.modeles import Client
+
+
+      def calculer_remise(client: Client) -> float:
+          return 0.1
+      ```
+      Quelle correction est la bonne ?
+    choices:
+      - {text: "Mettre l'import sous `if TYPE_CHECKING:`", correct: true}
+      - {text: "Écrire l'annotation entre guillemets : `\"Client\"`", correct: false}
+      - {text: "Ajouter `from __future__ import annotations`", correct: false}
+      - {text: "Annoter le paramètre `client: object`", correct: false}
+    answer: |-
+      ```python
+      from typing import TYPE_CHECKING
+
+      if TYPE_CHECKING:
+          from boutique.modeles import Client
+
+
+      def calculer_remise(client: Client) -> float:
+          return 0.1
+      ```
+      C'est la ligne d'import qui échoue, pas l'annotation : guillemets, `__future__` ou `object` la laissent en
+      place. Sous `TYPE_CHECKING`, elle ne s'exécute plus, et l'annotation, différée en 3.14, ne la réclame jamais.
+  - key: bug-attribut-au-premier-niveau
+    format: bug-fix
+    question: |-
+      `python main.py` s'arrête sur « AttributeError: partially initialized module 'boutique.journal' from
+      '/home/ada/projet/boutique/journal.py' has no attribute 'NIVEAU_DEFAUT' (most likely due to a circular import) » :
+      ```python
+      # boutique/config.py
+      from boutique import journal
+
+      NIVEAU = journal.NIVEAU_DEFAUT
+      ```
+      ```python
+      # boutique/journal.py
+      from boutique import config
+
+      NIVEAU_DEFAUT = "INFO"
+
+
+      def log(message):
+          print(f"[{config.NIVEAU}] {message}")
+
+      # main.py
+      from boutique import journal
+      journal.log("démarrage")
+      ```
+      Quelle correction est la bonne ?
+    choices:
+      - {text: "Définir `NIVEAU_DEFAUT` dans `config.py`, qui n'importe plus `journal`", correct: true}
+      - {text: "Écrire `import boutique.journal` dans `config.py`, sans `from`", correct: false}
+      - {text: "Ajouter `NIVEAU_DEFAUT` à la liste `__all__` de `journal.py`", correct: false}
+      - {text: "Déplacer `NIVEAU_DEFAUT = \"INFO\"` à la fin de `journal.py`", correct: false}
+    answer: |-
+      ```python
+      # boutique/config.py
+      NIVEAU_DEFAUT = "INFO"
+      NIVEAU = NIVEAU_DEFAUT
+      ```
+      `journal` charge `config`, qui lit `journal.NIVEAU_DEFAUT` alors que `journal` n'a pas dépassé sa première
+      ligne. Une configuration ne devrait dépendre de personne : en y mettant la constante, le cycle disparaît.
+  - key: bug-script-importe
+    format: bug-fix
+    question: |-
+      `python main.py` s'arrête sur « ImportError: cannot import name 'formater' from 'outils' (consider renaming
+      '/home/ada/projet/outils.py' if it has the same name as a library you intended to import) » :
+      ```python
+      # main.py
+      from outils import formater
+
+      DEVISE = "€"
+
+      if __name__ == "__main__":
+          print(formater(12))
+      ```
+      ```python
+      # outils.py
+      from main import DEVISE
+
+
+      def formater(montant):
+          return f"{montant} {DEVISE}"
+      ```
+      Quelle correction est la bonne ?
+    choices:
+      - {text: "Déplacer `DEVISE` dans `outils.py`, qui n'importe plus `main`", correct: true}
+      - {text: "Renommer `outils.py`, comme le message le suggère", correct: false}
+      - {text: "Remplacer `from main import DEVISE` par `from __main__ import DEVISE`", correct: false}
+      - {text: "Écrire `import main` dans `outils.py`, puis `main.DEVISE`", correct: false}
+    answer: |-
+      ```python
+      # outils.py
+      DEVISE = "€"
+
+
+      def formater(montant):
+          return f"{montant} {DEVISE}"
+      ```
+      `outils` importe `main`, qui est exécuté une seconde fois sous ce nom et redemande `formater`, pas encore
+      définie : c'est un cycle, malgré le message qui parle de renommer. Le script lancé ne devrait être importé par
+      personne.
+  - key: sc-modeles-services
+    format: scenario
+    question: "Dans ton application, `modeles.py` importe `services.py` pour une validation, et `services.py` importe `modeles.py` pour ses classes. L'application ne démarre plus. Que fais-tu ?"
+    choices:
+      - {text: "Sortir la validation dans un module à part, que les deux importent", correct: true}
+      - {text: "Entourer les deux imports d'un `try` qui ignore l'`ImportError`", correct: false}
+      - {text: "Inverser l'ordre des imports en tête des deux fichiers", correct: false}
+      - {text: "Ranger les deux fichiers dans un même sous-paquet", correct: false}
+    answer: "La validation n'a pas sa place dans `services` si les modèles en dépendent : un module `validation` sans dépendance vers les deux casse le cycle. Ignorer l'erreur laisserait des noms manquants."
+  - key: sc-import-local
+    format: scenario
+    question: Un collègue propose de déplacer un import dans une fonction pour casser un cycle. Que lui réponds-tu ?
+    choices:
+      - {text: "Ça marche, mais c'est un pansement : le couplage reste à corriger", correct: true}
+      - {text: "PEP 8 l'interdit : un import se place toujours en tête du fichier", correct: false}
+      - {text: "Ça ne marche pas : l'import reste circulaire à l'exécution", correct: false}
+      - {text: "C'est la meilleure solution, à appliquer à tous les imports", correct: false}
+    answer: "L'import local s'exécute à l'appel, quand les modules sont chargés : le cycle ne bloque plus. Mais il cache la dépendance et la reporte au moment de l'appel ; on le garde pour un dépannage, avec un commentaire."
+  - key: sc-classes-mutuelles
+    format: scenario
+    question: En Python 3.14, deux classes de modules différents s'annotent l'une l'autre, et leurs imports forment un cycle. Que proposes-tu ?
+    choices:
+      - {text: "Importer l'autre classe sous `if TYPE_CHECKING:`, sans guillemets", correct: true}
+      - {text: "Écrire les annotations entre guillemets, la seule solution", correct: false}
+      - {text: "Fusionner les deux modules, puisqu'on ne peut pas faire autrement", correct: false}
+      - {text: "Retirer les annotations, qui provoquent forcément le cycle", correct: false}
+    answer: "Les imports ne servent qu'aux annotations : sous `TYPE_CHECKING`, ils disparaissent à l'exécution. Les annotations différées de 3.14 ne cherchent le nom qu'à la demande. Attention : `typing.get_type_hints` échouerait sur ces annotations."
+  - key: sc-detecter
+    format: scenario
+    question: Comment repérer les cycles d'imports d'un grand projet avant qu'ils ne cassent l'application ?
+    choices:
+      - {text: "Un contrôle en CI, comme la règle `cyclic-import` de pylint", correct: true}
+      - {text: "Attendre l'erreur au démarrage, qui suffit à les signaler", correct: false}
+      - {text: "Lancer `python -X importtime`, qui refuse les cycles", correct: false}
+      - {text: "Mettre tous les imports dans des fonctions, par précaution", correct: false}
+    answer: "Un cycle ne casse pas toujours au démarrage : il peut dormir jusqu'à un changement d'ordre d'import. pylint ou import-linter les signalent en CI. `-X importtime` mesure la durée des imports, sans rien refuser."

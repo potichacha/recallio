@@ -1,0 +1,399 @@
+notion: concurrent-futures
+lesson: |-
+  `concurrent.futures` offre une interface unique pour exécuter des appels **en tâche de fond**, dans un **pool** :
+  `ThreadPoolExecutor` (des threads, pour les E/S), `ProcessPoolExecutor` (des processus, pour le calcul) et, depuis
+  Python 3.14, `InterpreterPoolExecutor` (des sous-interpréteurs). On change de pool sans changer le reste du code.
+
+  ```python
+  from concurrent.futures import ThreadPoolExecutor, as_completed
+
+  def telecharger(url):
+      ...
+      return f"page {url}"
+
+  urls = ["a", "b", "c"]
+  with ThreadPoolExecutor(max_workers=8) as ex:
+      pages = list(ex.map(telecharger, urls))           # dans l'ordre des urls
+
+      futurs = {ex.submit(telecharger, url): url for url in urls}
+      for futur in as_completed(futurs):                 # dans l'ordre où ils finissent
+          print(futurs[futur], futur.result())
+  ```
+
+  **Le `Future`** est la promesse d'un résultat : `ex.submit(f, *args)` le renvoie aussitôt.
+
+  | Méthode | Rôle |
+  |---|---|
+  | `futur.result(timeout=None)` | attend et renvoie le résultat, ou **relève l'exception** de la tâche |
+  | `futur.exception()` | attend, et renvoie l'exception (ou `None`) |
+  | `futur.done()`, `futur.cancel()` | terminé ? ; annuler (seulement si la tâche n'a pas commencé) |
+  | `futur.add_done_callback(f)` | appeler `f(futur)` à la fin |
+
+  **`map` ou `as_completed`.** `ex.map(f, xs)` rend les résultats **dans l'ordre des entrées**, et relève l'exception
+  d'une tâche quand on arrive à son résultat. `as_completed(futurs)` rend les futures **dans l'ordre où elles
+  finissent** : pratique pour afficher une progression. `wait(futurs, return_when=FIRST_COMPLETED)` attend la première.
+
+  **Les pièges.**
+
+  - Une exception est **gardée dans le futur** : si personne n'appelle `result()`, elle passe inaperçue.
+  - Appeler `submit(...).result()` dans la boucle attend chaque tâche avant de lancer la suivante : tout redevient
+    séquentiel. On soumet tout, puis on récupère.
+  - Avec `ProcessPoolExecutor`, la fonction et ses arguments passent par `pickle` (pas de `lambda`), et la création du
+    pool va sous `if __name__ == "__main__":`.
+  - Le `with` appelle `shutdown(wait=True)` en sortant : il attend la fin des tâches soumises.
+
+  `max_workers` vaut par défaut `min(32, os.process_cpu_count() + 4)` pour les threads, et le nombre de cœurs pour les
+  processus. `timeout=` lève `TimeoutError` sans arrêter la tâche.
+
+  **En entretien** : « `concurrent.futures` donne la même interface aux pools de threads et de processus : `submit`
+  renvoie un `Future`, `map` des résultats dans l'ordre, `as_completed` les futures dans l'ordre où elles finissent.
+  `result()` relève l'exception de la tâche ; sans lui, elle passe inaperçue. Threads pour les E/S, processus pour le
+  calcul. »
+cards:
+  - key: definition-future
+    format: course
+    question: "Qu'est-ce qu'un `Future` dans `concurrent.futures` ?"
+    choices:
+      - {text: "La promesse d'un résultat, qu'on récupère plus tard avec `result()`", correct: true}
+      - {text: "Un thread déjà lancé, qu'on attend ensuite avec `join()`", correct: false}
+      - {text: "Une fonction marquée pour s'exécuter au prochain démarrage", correct: false}
+      - {text: "Une file qui reçoit les résultats de toutes les tâches du pool", correct: false}
+    answer: "`submit` renvoie un `Future` tout de suite. `result()` attend la fin de la tâche, puis renvoie sa valeur ou relève son exception."
+  - key: map-ou-as-completed
+    format: course
+    question: "Quelle différence entre `ex.map(f, xs)` et `as_completed(futurs)` ?"
+    choices:
+      - {text: "`map` suit l'ordre des entrées ; `as_completed` l'ordre de fin des tâches", correct: true}
+      - {text: "`map` exécute les tâches l'une après l'autre ; `as_completed` en parallèle", correct: false}
+      - {text: "`map` ne marche qu'avec des threads ; `as_completed` qu'avec des processus", correct: false}
+      - {text: "`map` ignore les exceptions ; `as_completed` les relève toutes à la fin", correct: false}
+    answer: "Les deux exécutent les tâches en parallèle. `map` rend les résultats dans l'ordre des entrées, même si la troisième finit la première ; `as_completed` rend chaque futur dès qu'il est terminé."
+  - key: sortie-du-with
+    format: course
+    question: "Que se passe-t-il à la sortie d'un bloc `with ThreadPoolExecutor() as ex:` ?"
+    choices:
+      - {text: "Il appelle `shutdown(wait=True)` : il attend la fin des tâches soumises", correct: true}
+      - {text: "Il annule toutes les tâches qui ne sont pas encore terminées", correct: false}
+      - {text: "Il laisse les tâches tourner, et rend la main aussitôt", correct: false}
+      - {text: "Il relève la première exception levée par une des tâches", correct: false}
+    answer: "Le bloc ne se termine qu'une fois toutes les tâches finies. Les exceptions restent dans leurs futures : seul `result()` les relève."
+  - key: thread-ou-process-pool
+    format: course
+    question: "Quand choisir `ProcessPoolExecutor` plutôt que `ThreadPoolExecutor` ?"
+    choices:
+      - {text: "Pour des calculs en pur Python, qui doivent occuper plusieurs cœurs", correct: true}
+      - {text: "Pour des centaines d'appels HTTP qui attendent surtout le réseau", correct: false}
+      - {text: "Pour des tâches qui partagent un gros objet modifié par toutes", correct: false}
+      - {text: "Pour des tâches très courtes, de quelques microsecondes chacune", correct: false}
+    answer: "Chaque processus a son GIL : le calcul y est vraiment parallèle. Mais tout passe par `pickle`, et démarrer un processus coûte : les E/S et les petites tâches vont aux threads."
+  - key: vf-map-ordre
+    format: true-false
+    question: "`ex.map` rend les résultats dans l'ordre des entrées, même si les tâches finissent dans le désordre."
+    truth: true
+    answer: "`map` attend chaque résultat dans l'ordre de soumission. Pour les traiter dans l'ordre de fin, `as_completed`."
+  - key: vf-exception-affichee
+    format: true-false
+    question: "Une exception levée par une tâche soumise avec `submit` s'affiche, même si personne n'appelle `result()`."
+    truth: false
+    answer: "Elle est rangée dans le futur, sans rien afficher. Seuls `result()` (qui la relève) ou `exception()` (qui la renvoie) la font voir."
+  - key: vf-attente-a-la-sortie
+    format: true-false
+    question: "À la sortie du bloc `with`, l'exécuteur attend la fin des tâches déjà soumises."
+    truth: true
+    answer: "`__exit__` appelle `shutdown(wait=True)`. `shutdown(cancel_futures=True)` annule en plus celles qui n'ont pas commencé."
+  - key: vf-meme-interface
+    format: true-false
+    question: "`ThreadPoolExecutor` et `ProcessPoolExecutor` ont la même interface : `submit`, `map` et `shutdown`."
+    truth: true
+    answer: "Les deux héritent de `Executor` : on passe de l'un à l'autre en changeant une ligne, si la fonction et ses arguments se sérialisent."
+  - key: qcm-submit-renvoie
+    format: multiple-choice
+    question: "Que renvoie `ex.submit(f, x)` ?"
+    choices:
+      - {text: "Un `Future`, qui donnera le résultat plus tard", correct: true}
+      - {text: "Le résultat de `f(x)`, une fois calculé", correct: false}
+      - {text: "Un `Thread` déjà démarré, à rejoindre avec `join`", correct: false}
+      - {text: "`None`, car le calcul se fait en tâche de fond", correct: false}
+    answer: "`submit` rend la main aussitôt, avec un `Future`. `futur.result()` attend la fin de la tâche."
+  - key: qcm-ordre-de-fin
+    format: multiple-choice
+    question: "Comment traiter chaque résultat dès que sa tâche finit, quel que soit l'ordre de soumission ?"
+    choices:
+      - {text: "`for futur in as_completed(futurs):`", correct: true}
+      - {text: "`for resultat in ex.map(f, xs):`", correct: false}
+      - {text: "`for futur in sorted(futurs):`", correct: false}
+      - {text: "`for futur in futurs: futur.result()`", correct: false}
+    answer: "`as_completed` rend les futures terminées une par une. `map` et la boucle sur `futurs` attendent dans l'ordre de soumission ; les futures ne se trient pas."
+  - key: qcm-result-timeout
+    format: multiple-choice
+    question: "Que fait `futur.result(timeout=2)` si la tâche n'a pas fini au bout de 2 secondes ?"
+    choices:
+      - {text: "Il lève `TimeoutError`, et la tâche continue de tourner", correct: true}
+      - {text: "Il annule la tâche, puis renvoie `None`", correct: false}
+      - {text: "Il renvoie le résultat partiel déjà calculé", correct: false}
+      - {text: "Il attend la fin de la tâche, sans tenir compte du délai", correct: false}
+    answer: "Le délai borne l'attente, pas la tâche : un thread ne s'interrompt pas de l'extérieur. Depuis 3.11, `concurrent.futures.TimeoutError` est le `TimeoutError` intégré."
+  - key: qcm-deux-cents-appels-http
+    format: multiple-choice
+    question: "Quel exécuteur choisir pour faire 200 appels HTTP avec une bibliothèque synchrone ?"
+    choices:
+      - {text: "`ThreadPoolExecutor(max_workers=20)`", correct: true}
+      - {text: "`ProcessPoolExecutor(max_workers=200)`", correct: false}
+      - {text: "`ProcessPoolExecutor(max_workers=1)`", correct: false}
+      - {text: "`ThreadPoolExecutor(max_workers=1)`", correct: false}
+    answer: "Les appels attendent le réseau, ce qui rend le GIL : une vingtaine de threads suffit. Deux cents processus coûteraient en mémoire et en démarrage ; un seul ouvrier serait séquentiel."
+  - key: trous-max-workers
+    format: fill-in
+    question: |-
+      Complète pour limiter le pool à quatre threads :
+      ```python
+      with ThreadPoolExecutor(___=4) as ex:
+          pages = list(ex.map(telecharger, urls))
+      ```
+    blanks:
+      - [max_workers]
+    answer: "`max_workers` fixe la taille du pool."
+  - key: trous-submit-result
+    format: fill-in
+    question: |-
+      Complète pour lancer la tâche, puis attendre son résultat :
+      ```python
+      futur = ex.___(telecharger, url)
+      page = futur.___()
+      ```
+    blanks:
+      - [submit]
+      - [result]
+    answer: "`submit` renvoie un `Future` ; `result` attend la fin de la tâche et renvoie sa valeur."
+  - key: trous-as-completed
+    format: fill-in
+    question: |-
+      Complète pour afficher chaque page dès qu'elle est téléchargée :
+      ```python
+      futurs = [ex.submit(telecharger, url) for url in urls]
+      for futur in ___(futurs):
+          print(futur.result())
+      ```
+    blanks:
+      - [as_completed, concurrent.futures.as_completed]
+    answer: "`as_completed` rend les futures dans l'ordre où elles finissent."
+  - key: trous-map
+    format: fill-in
+    question: |-
+      Complète pour obtenir les carrés dans l'ordre des nombres :
+      ```python
+      with ThreadPoolExecutor() as ex:
+          carres = list(ex.___(carre, nombres))
+      ```
+    blanks:
+      - [map]
+    answer: "`ex.map` applique la fonction en parallèle, et rend les résultats dans l'ordre des entrées."
+  - key: code-map-ordre
+    format: code-output
+    question: |-
+      ```python
+      import time
+      from concurrent.futures import ThreadPoolExecutor
+
+      def carre(x):
+          time.sleep(0.01 * x)
+          return x * x
+
+      with ThreadPoolExecutor(max_workers=3) as ex:
+          print(list(ex.map(carre, [3, 1, 2])))
+      ```
+    answer: "La tâche de 1 finit la première, mais `map` rend les résultats dans l'ordre des entrées."
+    check:
+      output: "[9, 1, 4]"
+    choices:
+      - {text: "`[9, 1, 4]`", correct: true}
+      - {text: "`[1, 4, 9]`", correct: false}
+      - {text: "`[3, 1, 2]`", correct: false}
+      - {text: "`[1, 9, 4]`", correct: false}
+  - key: code-exception-gardee
+    format: code-output
+    question: |-
+      ```python
+      from concurrent.futures import ThreadPoolExecutor
+
+      def diviser(a, b):
+          return a / b
+
+      with ThreadPoolExecutor() as ex:
+          futur = ex.submit(diviser, 1, 0)
+      print(futur.done(), type(futur.exception()).__name__)
+      ```
+    answer: "La tâche est terminée, en échec : son exception est rangée dans le futur, et `exception()` la renvoie sans la lever."
+    check:
+      output: "True ZeroDivisionError"
+    choices:
+      - {text: "`True ZeroDivisionError`", correct: true}
+      - {text: "`False ZeroDivisionError`", correct: false}
+      - {text: "`True NoneType`", correct: false}
+      - {text: "Une `ZeroDivisionError`, à la sortie du `with`", correct: false}
+  - key: code-result-releve
+    format: code-output
+    question: |-
+      ```python
+      from concurrent.futures import ThreadPoolExecutor
+
+      def lire(cle):
+          return {"a": 1}[cle]
+
+      with ThreadPoolExecutor() as ex:
+          futurs = [ex.submit(lire, cle) for cle in ["a", "b"]]
+      print("soumis")
+      print(sum(f.result() for f in futurs))
+      ```
+    answer: "Le `with` se termine sans erreur : l'exception de `lire(\"b\")` dort dans son futur. C'est `result()` qui la relève, après `soumis`."
+    check:
+      output: "soumis"
+      throws: KeyError
+    choices:
+      - {text: "`soumis`, puis une `KeyError`", correct: true}
+      - {text: "Une `KeyError`, avant d'afficher `soumis`", correct: false}
+      - {text: "`soumis`, puis `1`", correct: false}
+      - {text: "`soumis`, puis `None`", correct: false}
+  - key: code-process-pool
+    format: code-output
+    question: |-
+      ```python
+      from concurrent.futures import ProcessPoolExecutor
+
+      def cube(x):
+          return x ** 3
+
+      if __name__ == "__main__":
+          with ProcessPoolExecutor(max_workers=2) as ex:
+              print(sum(ex.map(cube, range(4))))
+      ```
+    answer: "Les processus calculent 0, 1, 8 et 27 ; la fonction, définie au niveau du module, se sérialise sans problème."
+    check:
+      output: "36"
+    choices:
+      - {text: "`36`", correct: true}
+      - {text: "`14`", correct: false}
+      - {text: "`6`", correct: false}
+      - {text: "Rien : la garde empêche le calcul", correct: false}
+  - key: bug-result-dans-la-boucle
+    format: bug-fix
+    question: |-
+      Ce programme affiche `[0, 1, 2, 3, 4] 1.0` : cinq attentes de 0,2 s durent 1 s au lieu de 0,2 s.
+      ```python
+      import time
+      from concurrent.futures import ThreadPoolExecutor
+
+      def attendre(n):
+          time.sleep(0.2)
+          return n
+
+      debut = time.perf_counter()
+      with ThreadPoolExecutor(max_workers=5) as ex:
+          resultats = [ex.submit(attendre, n).result() for n in range(5)]
+      print(resultats, round(time.perf_counter() - debut, 1))
+      ```
+      Quelle correction est la bonne ?
+    choices:
+      - {text: "`resultats = list(ex.map(attendre, range(5)))`", correct: true}
+      - {text: "`resultats = [ex.submit(attendre(n)) for n in range(5)]`", correct: false}
+      - {text: "`ThreadPoolExecutor(max_workers=10)`, avec la même boucle", correct: false}
+      - {text: "`resultats = [ex.submit(attendre, n).done() for n in range(5)]`", correct: false}
+    answer: |-
+      ```python
+      with ThreadPoolExecutor(max_workers=5) as ex:
+          resultats = list(ex.map(attendre, range(5)))
+      ```
+      `result()` attend chaque tâche avant que la suivante soit soumise : tout est séquentiel. On soumet tout d'abord
+      (avec `map`, ou une liste de futures), puis on récupère les résultats.
+  - key: bug-exception-perdue
+    format: bug-fix
+    question: |-
+      Ce programme affiche `terminé sans erreur`, alors que la ligne vide lève une `ValueError` :
+      ```python
+      from concurrent.futures import ThreadPoolExecutor
+
+      def enregistrer(ligne):
+          if not ligne:
+              raise ValueError("ligne vide")
+
+      with ThreadPoolExecutor() as ex:
+          for ligne in ["a", "", "b"]:
+              ex.submit(enregistrer, ligne)
+      print("terminé sans erreur")
+      ```
+      Quelle correction est la bonne ?
+    choices:
+      - {text: "Garder les futures, et appeler `result()` sur chacune", correct: true}
+      - {text: "Entourer `ex.submit(...)` d'un `try` / `except ValueError`", correct: false}
+      - {text: "Créer l'exécuteur avec `max_workers=1`, pour voir l'erreur", correct: false}
+      - {text: "Appeler `ex.shutdown(wait=True)` après la boucle", correct: false}
+    answer: |-
+      ```python
+      with ThreadPoolExecutor() as ex:
+          futurs = [ex.submit(enregistrer, ligne) for ligne in ["a", "", "b"]]
+      for futur in futurs:
+          futur.result()
+      print("terminé sans erreur")
+      ```
+      L'exception est rangée dans le futur. `submit` lui-même ne lève rien : un `try` autour de lui ne voit jamais
+      l'erreur. `result()` la relève (`list(ex.map(...))` aussi).
+  - key: bug-lambda-process-pool
+    format: bug-fix
+    question: |-
+      Ce programme s'arrête sur `_pickle.PicklingError: Can't pickle <function <lambda> at 0x...>` :
+      ```python
+      from concurrent.futures import ProcessPoolExecutor
+
+      if __name__ == "__main__":
+          with ProcessPoolExecutor(max_workers=2) as ex:
+              print(list(ex.map(lambda x: x * x, [1, 2, 3])))
+      ```
+      Quelle correction est la bonne ?
+    choices:
+      - {text: "Définir `def carre(x)` au niveau du module, et passer `carre`", correct: true}
+      - {text: "Retirer la garde `if __name__ == \"__main__\":` du script", correct: false}
+      - {text: "Passer `chunksize=3` à `ex.map`, pour tout envoyer d'un coup", correct: false}
+      - {text: "Définir `carre` dans le bloc `with`, juste avant l'appel", correct: false}
+    answer: |-
+      ```python
+      from concurrent.futures import ProcessPoolExecutor
+
+      def carre(x):
+          return x * x
+
+      if __name__ == "__main__":
+          with ProcessPoolExecutor(max_workers=2) as ex:
+              print(list(ex.map(carre, [1, 2, 3])))
+      ```
+      `pickle` envoie une fonction par son nom, que l'enfant retrouve dans le module. Une `lambda`, ou une fonction
+      locale, n'a pas de nom accessible au niveau du module.
+  - key: bug-as-completed-ordre
+    format: bug-fix
+    question: |-
+      Ce programme affiche `[2, 1, 0]`, alors que les résultats devaient suivre l'ordre des entrées :
+      ```python
+      import time
+      from concurrent.futures import ThreadPoolExecutor, as_completed
+
+      def attendre(n):
+          time.sleep(0.1 * (3 - n))
+          return n
+
+      with ThreadPoolExecutor() as ex:
+          futurs = [ex.submit(attendre, n) for n in range(3)]
+          print([f.result() for f in as_completed(futurs)])
+      ```
+      Quelle correction est la bonne ?
+    choices:
+      - {text: "`print([f.result() for f in futurs])`", correct: true}
+      - {text: "`print(sorted(as_completed(futurs)))`", correct: false}
+      - {text: "`print([f.result() for f in reversed(futurs)])`", correct: false}
+      - {text: "`print([f.done() for f in as_completed(futurs)])`", correct: false}
+    answer: |-
+      ```python
+      with ThreadPoolExecutor() as ex:
+          futurs = [ex.submit(attendre, n) for n in range(3)]
+          print([f.result() for f in futurs])
+      ```
+      `as_completed` rend les futures dans l'ordre où elles finissent. Parcourir la liste des futures, ou utiliser
+      `ex.map`, garde l'ordre des entrées. Inverser la liste ne marcherait que par hasard.

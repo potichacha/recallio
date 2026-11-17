@@ -1,0 +1,338 @@
+notion: mocks
+lesson: |-
+  Un **mock** remplace une dépendance (un service réseau, l'horloge, un envoi de courriel) par un objet qui **répond ce
+  qu'on lui dit** et **enregistre ses appels**. Le module standard est **`unittest.mock`** ; il marche aussi avec pytest.
+
+  **`Mock` et `MagicMock`**
+
+  ```python
+  from unittest.mock import Mock
+
+  passerelle = Mock()
+  passerelle.payer.return_value = "ok"                  # ce que renvoie l'appel
+  passerelle.rembourser.side_effect = TimeoutError()   # l'appel lève cette exception
+
+  assert passerelle.payer(42) == "ok"
+  passerelle.payer.assert_called_once_with(42)
+  passerelle.annuler.assert_not_called()
+  ```
+
+  - Un `Mock` crée à la volée **tout attribut** qu'on lui demande (lui-même un `Mock`), et le garde.
+  - **`return_value`** : la valeur renvoyée. **`side_effect`** : une exception à lever, une liste de valeurs à renvoyer
+    tour à tour (puis `StopIteration`), ou une fonction à appeler.
+  - **Vérifier les appels** : `assert_called_once_with(...)`, `assert_called_with(...)` (le dernier appel),
+    `assert_any_call(...)`, `assert_not_called()`, et les attributs `call_count`, `call_args`, `call_args_list`.
+  - Une faute de frappe dans une assertion (`assert_called_once_whith`, `called_once_with`) lève une `AttributeError`
+    (« is not a valid assertion ») plutôt que de passer en silence.
+  - **`MagicMock`** gère en plus les méthodes spéciales (`len()`, l'itération, `with`) ; `AsyncMock` les coroutines.
+
+  **`patch` : remplacer un nom le temps d'un test**
+
+  ```python
+  from unittest.mock import patch
+
+  # meteo.py fait : from capteurs import lire_temperature
+  @patch("meteo.lire_temperature", return_value=45)
+  def test_alerte_canicule(faux_capteur):
+      assert meteo.alerte()
+      faux_capteur.assert_called_once()
+  ```
+
+  `patch` s'utilise en décorateur ou en `with`, et **restaure** l'original à la fin. La règle d'or : **on patche là où
+  le nom est cherché**, pas là où il est défini. `from capteurs import lire_temperature` copie le nom dans `meteo` :
+  patcher `capteurs.lire_temperature` ne change pas celui de `meteo`. Avec `import capteurs` puis
+  `capteurs.lire_temperature()`, on patcherait `capteurs.lire_temperature`.
+
+  Avec plusieurs `@patch` empilés, le décorateur **le plus bas** donne le **premier** argument.
+
+  **Un mock fidèle** : `create_autospec(Classe)` ou `patch(..., autospec=True)` refuse les méthodes et les signatures
+  que l'objet réel n'a pas. Sans cela, un mock accepte `client.envoyer_mail()` même si la vraie méthode s'appelle
+  `envoyer_courriel` : le test passe, la production plante.
+
+  **Bien s'en servir**
+
+  - Mocker les **frontières** (réseau, disque, horloge, hasard), pas son propre code : trop de mocks figent
+    l'implémentation et cassent à chaque refactorisation.
+  - Préférer **injecter** la dépendance (un paramètre `envoyer`, une `horloge`) : le test passe un `Mock` sans `patch`.
+  - Certains types ne se patchent pas : `datetime.datetime.now` est un attribut d'un type immuable (« cannot set 'now'
+    attribute of immutable type »). On patche la fonction du module qui lit l'heure, ou on injecte une horloge.
+  - Avec pytest, la fixture `monkeypatch` fait le même travail de remplacement ; le paquet `pytest-mock` fournit une
+    fixture `mocker`.
+
+  **En entretien** : « Un mock remplace une dépendance, répond par `return_value` ou `side_effect` et enregistre ses
+  appels, qu'on vérifie avec `assert_called_once_with`. `patch` remplace un nom là où il est cherché, et `autospec`
+  garde le mock fidèle à l'objet réel. On mocke les frontières, pas son propre code. »
+cards:
+  - key: attribut-inconnu
+    format: course
+    question: "Que renvoie `m.envoyer(1)`, si `m = Mock()` et qu'on n'a rien configuré ?"
+    choices:
+      - {text: "Un nouveau `Mock`, créé à la volée et gardé pour la suite", correct: true}
+      - {text: "`None`, comme une fonction qui n'a pas de `return`", correct: false}
+      - {text: "Une `AttributeError` : la méthode `envoyer` n'existe pas", correct: false}
+      - {text: "Une `NotImplementedError`, tant que rien n'est configuré", correct: false}
+    answer: "Un `Mock` invente tout attribut demandé, et son `return_value` par défaut est lui aussi un `Mock`. C'est pratique, et dangereux : une faute de frappe passe, d'où `autospec`."
+  - key: ou-patcher
+    format: course
+    question: "`meteo.py` fait `from capteurs import lire_temperature`. Quelle cible donner à `patch` pour que `meteo` utilise le faux ?"
+    choices:
+      - {text: "`\"meteo.lire_temperature\"`", correct: true}
+      - {text: "`\"capteurs.lire_temperature\"`", correct: false}
+      - {text: "`\"lire_temperature\"`", correct: false}
+      - {text: "`\"meteo.capteurs.lire_temperature\"`", correct: false}
+    answer: "On patche là où le nom est cherché. L'import `from ... import` a copié le nom dans `meteo` : remplacer celui de `capteurs` laisse `meteo` appeler le vrai."
+  - key: role-side-effect
+    format: course
+    question: "À quoi sert `side_effect` sur un mock ?"
+    choices:
+      - {text: "À lever une exception à l'appel, ou à renvoyer des valeurs tour à tour", correct: true}
+      - {text: "À compter combien de fois le mock a été appelé pendant le test", correct: false}
+      - {text: "À vérifier les arguments du dernier appel reçu par le mock", correct: false}
+      - {text: "À rendre le mock fidèle à la signature de l'objet qu'il imite", correct: false}
+    answer: "`side_effect` vaut une exception (levée), un itérable (une valeur par appel) ou une fonction (appelée avec les mêmes arguments). Le comptage, c'est `call_count` ; la fidélité, `autospec`."
+  - key: pourquoi-autospec
+    format: course
+    question: "Que gagne-t-on à créer un mock avec `create_autospec` ou `autospec=True` ?"
+    choices:
+      - {text: "Le mock refuse les méthodes et les arguments que l'objet réel n'a pas", correct: true}
+      - {text: "Le mock exécute le vrai code de l'objet, et enregistre en plus les appels", correct: false}
+      - {text: "Le mock se crée plus vite qu'un `Mock()` ordinaire, sans aucune introspection", correct: false}
+      - {text: "Le mock vérifie seul, à la fin du test, qu'il a bien été appelé", correct: false}
+    answer: "Un mock nu accepte n'importe quel nom et n'importe quels arguments. Avec `autospec`, une méthode renommée ou un argument en trop fait échouer le test, comme en production."
+  - key: vf-magicmock
+    format: true-false
+    question: "`MagicMock` prend en charge les méthodes spéciales comme `__len__` ou `__iter__`, ce que `Mock` ne fait pas."
+    truth: true
+    answer: "`len(MagicMock())` vaut 0 et `list(MagicMock())` vaut `[]` ; `len(Mock())` lève une `TypeError`. `patch` crée un `MagicMock` par défaut."
+  - key: vf-patch-restaure
+    format: true-false
+    question: "`patch` utilisé avec `with` restaure l'objet d'origine à la sortie du bloc."
+    truth: true
+    answer: "En décorateur, il le restaure à la fin du test ; en `with`, à la sortie du bloc, même sur une exception."
+  - key: vf-ordre-decorateurs
+    format: true-false
+    question: Avec deux décorateurs `@patch` empilés, le premier argument du test reçoit le mock du décorateur le plus haut.
+    truth: false
+    answer: "Les décorateurs s'appliquent de bas en haut : le plus proche de la fonction donne le premier argument."
+  - key: vf-patch-partout
+    format: true-false
+    question: "`patch(\"capteurs.lire\")` remplace aussi la fonction dans les modules qui ont fait `from capteurs import lire`."
+    truth: false
+    answer: "Ces modules ont leur propre nom `lire`, lié à l'ancienne fonction. Il faut patcher chacun de ces noms, là où le code le cherche."
+  - key: qcm-lever-exception
+    format: multiple-choice
+    question: "Comment faire lever une `TimeoutError` à chaque appel de `client.get` ?"
+    choices:
+      - {text: "`client.get.side_effect = TimeoutError()`", correct: true}
+      - {text: "`client.get.return_value = TimeoutError()`", correct: false}
+      - {text: "`client.get.raises = TimeoutError`", correct: false}
+      - {text: "`client.get.exception = TimeoutError()`", correct: false}
+    answer: "Une exception dans `side_effect` est levée. Dans `return_value`, elle serait simplement renvoyée, comme une valeur ordinaire."
+  - key: qcm-verifier-appel
+    format: multiple-choice
+    question: "Comment vérifier que `envoyer` a été appelé exactement une fois, avec `\"ada@exemple.fr\"` ?"
+    choices:
+      - {text: "`envoyer.assert_called_once_with(\"ada@exemple.fr\")`", correct: true}
+      - {text: "`assert envoyer.called_once_with(\"ada@exemple.fr\")`", correct: false}
+      - {text: "`assert envoyer.call_args == \"ada@exemple.fr\"`", correct: false}
+      - {text: "`envoyer.assert_called_with(\"ada@exemple.fr\", once=True)`", correct: false}
+    answer: "`assert_called_once_with` vérifie le nombre d'appels et les arguments. `called_once_with` n'existe pas (Python lève une `AttributeError`), et `call_args` est un objet `call`, pas une chaîne."
+  - key: qcm-valeurs-successives
+    format: multiple-choice
+    question: Quel mock renvoie 1 au premier appel, 2 au second, puis lève `StopIteration` ?
+    choices:
+      - {text: "`Mock(side_effect=[1, 2])`", correct: true}
+      - {text: "`Mock(return_value=[1, 2])`", correct: false}
+      - {text: "`Mock(return_value=iter([1, 2]))`", correct: false}
+      - {text: "`Mock(values=[1, 2])`", correct: false}
+    answer: "Un itérable dans `side_effect` fournit une valeur par appel. `return_value=[1, 2]` renverrait la liste entière à chaque appel."
+  - key: qcm-call-args-list
+    format: multiple-choice
+    question: "Que vaut `m.call_args_list` après `m(1)` puis `m(2, x=3)` ?"
+    choices:
+      - {text: "`[call(1), call(2, x=3)]`", correct: true}
+      - {text: "`[(1,), (2, 3)]`", correct: false}
+      - {text: "`call(2, x=3)`", correct: false}
+      - {text: "`[1, 2, 3]`", correct: false}
+    answer: "`call_args_list` garde tous les appels, dans l'ordre, sous forme d'objets `call` qui distinguent arguments positionnels et nommés. `call_args` ne garde que le dernier."
+  - key: trous-return-value
+    format: fill-in
+    question: |-
+      Complète pour que l'horloge simulée renvoie toujours le même instant :
+      ```python
+      horloge = Mock()
+      horloge.maintenant.___ = 1700000000
+      ```
+    blanks: [[return_value]]
+    answer: "`return_value` est ce que renvoie chaque appel à `horloge.maintenant()`."
+  - key: trous-patch
+    format: fill-in
+    question: |-
+      Complète pour remplacer l'envoi de courriels pendant le test :
+      ```python
+      with ___("commandes.envoyer_courriel") as envoyer:
+          valider_commande(42)
+      envoyer.assert_called_once()
+      ```
+    blanks: [[patch]]
+    answer: "`patch` remplace le nom `envoyer_courriel` du module `commandes`, là où `valider_commande` le cherche, puis le restaure."
+  - key: trous-side-effect
+    format: fill-in
+    question: |-
+      Complète pour simuler une panne réseau :
+      ```python
+      passerelle = Mock()
+      passerelle.payer.___ = ConnectionError("réseau")
+      ```
+    blanks: [[side_effect]]
+    answer: "Une exception placée dans `side_effect` est levée à chaque appel."
+  - key: trous-not-called
+    format: fill-in
+    question: |-
+      Complète pour vérifier qu'aucune relance n'est partie :
+      ```python
+      notifier = Mock()
+      relancer([], notifier)
+      notifier.___()
+      ```
+    blanks: [[assert_not_called]]
+    answer: "`assert_not_called()` échoue si le mock a reçu le moindre appel."
+  - key: bug-mauvaise-cible
+    format: bug-fix
+    question: |-
+      Ce test appelle le vrai capteur et échoue sur « ConnectionError: capteur injoignable ». Quelle correction est la bonne ?
+      ```python
+      # meteo.py
+      from capteurs import lire_temperature
+
+      def alerte():
+          return lire_temperature() > 40
+
+      # test_meteo.py
+      @patch("capteurs.lire_temperature", return_value=45)
+      def test_alerte_canicule(faux):
+          assert alerte()
+      ```
+    choices:
+      - {text: "Patcher `\"meteo.lire_temperature\"`, le nom que cherche `alerte`", correct: true}
+      - {text: "Utiliser `MagicMock` au lieu du `Mock` par défaut de `patch`", correct: false}
+      - {text: "Ajouter `autospec=True` au décorateur `patch` actuel", correct: false}
+      - {text: "Importer `alerte` après avoir appliqué le décorateur", correct: false}
+    answer: |-
+      ```python
+      @patch("meteo.lire_temperature", return_value=45)
+      def test_alerte_canicule(faux):
+          assert alerte()
+      ```
+      `from capteurs import lire_temperature` a créé un nom dans `meteo`, lié à la vraie fonction. On remplace ce nom-là ; celui de `capteurs` ne sert plus à `alerte`.
+  - key: bug-ordre-patch
+    format: bug-fix
+    question: |-
+      Ce test échoue : `commander` renvoie « <MagicMock name='paiement.payer()'> » au lieu de « payé ». Quelle correction est la bonne ?
+      ```python
+      @patch("boutique.stock")
+      @patch("boutique.paiement")
+      def test_commande_payee(stock, paiement):
+          paiement.payer.return_value = "payé"
+          assert commander("livre", 20) == "payé"
+      ```
+    choices:
+      - {text: "Inverser les paramètres : `def test_commande_payee(paiement, stock):`", correct: true}
+      - {text: "Écrire `paiement.payer.side_effect = \"payé\"` au lieu de `return_value`", correct: false}
+      - {text: "Remplacer les deux `@patch` par des `@patch.object` sur `boutique`", correct: false}
+      - {text: "Appeler `paiement.reset_mock()` avant de configurer `payer`", correct: false}
+    answer: |-
+      ```python
+      @patch("boutique.stock")
+      @patch("boutique.paiement")
+      def test_commande_payee(paiement, stock):
+          paiement.payer.return_value = "payé"
+          assert commander("livre", 20) == "payé"
+      ```
+      Le décorateur le plus bas donne le premier argument : le paramètre `stock` recevait le faux `paiement`, et la configuration visait le mauvais mock.
+  - key: bug-exception-en-valeur
+    format: bug-fix
+    question: |-
+      Ce test échoue sur « assert TimeoutError('trop lent') is None ». Quelle correction est la bonne ?
+      ```python
+      def charger(api):
+          try:
+              return api.lire()
+          except TimeoutError:
+              return None
+
+
+      def test_charger_rend_none_si_delai_depasse():
+          api = Mock()
+          api.lire.return_value = TimeoutError("trop lent")
+          assert charger(api) is None
+      ```
+    choices:
+      - {text: "`api.lire.side_effect = TimeoutError(\"trop lent\")`", correct: true}
+      - {text: "`api.lire.return_value = TimeoutError`, sans parenthèses", correct: false}
+      - {text: "`api.lire.return_value = raise TimeoutError(\"trop lent\")`", correct: false}
+      - {text: "`api = Mock(spec=TimeoutError)`, puis le même `return_value`", correct: false}
+    answer: |-
+      ```python
+      api = Mock()
+      api.lire.side_effect = TimeoutError("trop lent")
+      ```
+      `return_value` renvoie l'exception comme une simple valeur : rien n'est levé, et `charger` la transmet. `side_effect` la lève, ce que le test veut simuler.
+  - key: bug-faute-dans-l-assertion
+    format: bug-fix
+    question: |-
+      Ce test échoue sur « AttributeError: 'called_once_with' is not a valid assertion ». Quelle correction est la bonne ?
+      ```python
+      def test_bienvenue_envoyee():
+          envoyer = Mock()
+          inscrire("ada@exemple.fr", envoyer)
+          assert envoyer.called_once_with("ada@exemple.fr")
+      ```
+    choices:
+      - {text: "`envoyer.assert_called_once_with(\"ada@exemple.fr\")`, sans `assert`", correct: true}
+      - {text: "`assert envoyer.called_once_with(\"ada@exemple.fr\") is True`", correct: false}
+      - {text: "`assert envoyer.called == \"ada@exemple.fr\"`", correct: false}
+      - {text: "`envoyer = Mock(unsafe=True)`, puis la même ligne", correct: false}
+    answer: |-
+      ```python
+      envoyer.assert_called_once_with("ada@exemple.fr")
+      ```
+      Les assertions d'un mock sont des méthodes qui lèvent une `AssertionError` d'elles-mêmes. Sans garde-fou, `called_once_with` créerait un `Mock`, toujours vrai, et le test passerait en silence ; `unsafe=True` retirerait justement ce garde-fou.
+  - key: situation-api-paiement
+    format: scenario
+    question: Ta fonction `regler_commande` appelle une API de paiement réelle. Comment la tester sans réseau ni argent ?
+    choices:
+      - {text: "Je remplace le client de paiement par un mock, injecté ou patché, et je vérifie ses appels", correct: true}
+      - {text: "Je lance les tests sur l'API de production, avec une petite somme remboursée ensuite", correct: false}
+      - {text: "Je ne teste pas cette fonction : le prestataire de paiement teste déjà son API", correct: false}
+      - {text: "Je mocke `regler_commande` elle-même, pour que le test ne touche à rien", correct: false}
+    answer: "Le réseau est une frontière : on la remplace par un mock qui répond « payé », « refusé » ou lève une erreur, et on vérifie ce que la fonction lui envoie. Mocker la fonction testée ne testerait rien."
+  - key: situation-trop-de-mocks
+    format: scenario
+    question: Ton test mocke cinq fonctions de ton propre module, et casse à chaque refactorisation. Que conseilles-tu ?
+    choices:
+      - {text: "Ne mocker que les frontières (réseau, disque, horloge) et vérifier le résultat", correct: true}
+      - {text: "Ajouter `autospec=True` aux cinq mocks, pour qu'ils suivent les changements", correct: false}
+      - {text: "Mocker aussi les fonctions restantes, pour isoler complètement le test", correct: false}
+      - {text: "Supprimer ce test : un code refactorisé souvent ne se teste pas", correct: false}
+    answer: "Un test qui mocke son propre code vérifie l'implémentation, pas le comportement : il casse dès qu'on la change. On garde le vrai code et on ne remplace que ce qui sort du programme."
+  - key: situation-methode-renommee
+    format: scenario
+    question: |-
+      Ton test vérifie `client.envoyer_mail(...)` sur un mock, mais la vraie méthode s'appelle `envoyer_courriel` : le
+      test passe, la production plante. Comment l'éviter ?
+    choices:
+      - {text: "Créer le mock avec `autospec=True`, pour qu'il refuse les méthodes inconnues", correct: true}
+      - {text: "Remplacer le `Mock` par un `MagicMock`, qui connaît plus de méthodes", correct: false}
+      - {text: "Ajouter un `assert hasattr(client, \"envoyer_mail\")` au test", correct: false}
+      - {text: "Relire les noms de méthodes à chaque revue de code", correct: false}
+    answer: "Un mock nu invente toute méthode demandée. `create_autospec(Client)` ou `patch(..., autospec=True)` copie l'interface réelle : `envoyer_mail` lève une `AttributeError`. `hasattr` sur un mock nu renvoie toujours `True`."
+  - key: situation-29-fevrier
+    format: scenario
+    question: Ton code lit l'heure avec `datetime.now()`, et un test doit simuler le 29 février. Que fais-tu ?
+    choices:
+      - {text: "Je passe l'horloge en paramètre, ou je patche la fonction du module qui lit l'heure", correct: true}
+      - {text: "Je patche `datetime.datetime.now` directement, comme n'importe quelle fonction", correct: false}
+      - {text: "Je change la date du système de la machine de CI le temps du test", correct: false}
+      - {text: "J'écris le test, et je ne le lance qu'un 29 février, tous les quatre ans", correct: false}
+    answer: "`datetime.datetime` est un type immuable : patcher `now` lève « cannot set 'now' attribute of immutable type ». On isole la lecture de l'heure dans une fonction à soi (ou on injecte une horloge), que le test remplace."

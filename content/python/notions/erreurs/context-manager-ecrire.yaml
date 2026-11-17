@@ -1,0 +1,520 @@
+notion: context-manager-ecrire
+lesson: |-
+  Un **gestionnaire de contexte** est un objet qui suit un protocole de deux méthodes. `with` appelle la première à
+  l'entrée du bloc, la seconde à la sortie, quoi qu'il arrive.
+
+  ```python
+  class Transaction:
+      def __init__(self, donnees):
+          self.donnees = donnees
+
+      def __enter__(self):
+          self.brouillon = dict(self.donnees)
+          return self.brouillon                # la valeur de « as »
+
+      def __exit__(self, exc_type, exc, tb):
+          if exc_type is None:                 # le bloc a réussi : on valide
+              self.donnees.clear()
+              self.donnees.update(self.brouillon)
+          return False                         # une exception éventuelle continue sa remontée
+
+
+  with Transaction(stock) as brouillon:
+      brouillon["pommes"] -= 3
+  ```
+
+  - **`__enter__(self)`** prépare la ressource ; ce qu'il renvoie va dans la variable de `as` (souvent `self`, pas
+    toujours).
+  - **`__exit__(self, exc_type, exc, tb)`** reçoit le type, la valeur et la trace de l'exception qui a interrompu le
+    bloc, ou trois `None`. **S'il renvoie une valeur vraie, l'exception est supprimée** ; sinon (`None`, `False`),
+    elle remonte. Ne renvoie `True` que pour une exception que tu as décidé d'ignorer.
+
+  **Avec un générateur**, `contextlib.contextmanager` évite d'écrire la classe : le code avant le `yield` est
+  l'entrée, la valeur produite va dans `as`, le code après est la sortie.
+
+  ```python
+  from contextlib import contextmanager
+
+
+  @contextmanager
+  def verrouille(verrou):
+      verrou.acquire()
+      try:
+          yield verrou
+      finally:
+          verrou.release()     # sans try/finally, une exception sauterait cette ligne
+  ```
+
+  - L'exception du bloc **réapparaît à la ligne du `yield`** : sans `try` / `finally`, le code de sortie ne
+    s'exécute pas. Un `except` autour du `yield` la supprime (comme `contextlib.suppress`).
+  - Le générateur fait **exactement un `yield`** : sinon `RuntimeError: generator didn't yield` (aucun) ou
+    `generator didn't stop` (plusieurs).
+  - Un gestionnaire écrit avec `@contextmanager` sert aussi de **décorateur** de fonction.
+
+  `contextlib` en fournit d'autres : `suppress`, `closing` (appelle `close()`), `nullcontext` (ne fait rien),
+  `redirect_stdout`, et **`ExitStack`**, pour un nombre de ressources connu seulement à l'exécution. Les versions
+  asynchrones s'écrivent avec `__aenter__` / `__aexit__` ou `@asynccontextmanager`.
+
+  **En entretien** : « Un gestionnaire de contexte définit `__enter__`, dont le résultat va dans `as`, et `__exit__`,
+  qui reçoit l'exception éventuelle et la supprime s'il renvoie une valeur vraie. `@contextmanager` l'écrit avec un
+  générateur à un seul `yield`, entouré d'un `try` / `finally` pour que la sortie s'exécute aussi sur une exception.
+  `ExitStack` gère un nombre variable de ressources. »
+cards:
+  - key: vf-exit-true-supprime
+    format: true-false
+    question: "Si `__exit__` renvoie `True`, l'exception levée dans le bloc `with` est supprimée."
+    truth: true
+    answer: "Une valeur vraie dit « exception traitée » : l'exécution reprend après le `with`. `None` ou `False` la laissent remonter."
+  - key: vf-un-seul-yield
+    format: true-false
+    question: "Une fonction décorée par `@contextmanager` doit faire exactement un `yield`."
+    truth: true
+    answer: "Le `yield` sépare l'entrée de la sortie. Aucun `yield` : `generator didn't yield` ; un second : `generator didn't stop`."
+  - key: vf-apres-yield-sans-finally
+    format: true-false
+    question: "Avec `@contextmanager`, le code placé après le `yield` s'exécute même si le bloc lève une exception, sans `try` / `finally`."
+    truth: false
+    answer: "L'exception réapparaît à la ligne du `yield` : sans `try` / `finally`, elle quitte le générateur et saute le code de sortie."
+  - key: vf-enter-self
+    format: true-false
+    question: "`__enter__` doit toujours renvoyer `self`."
+    truth: false
+    answer: "Il renvoie ce qui est utile dans le bloc : `self` souvent, mais aussi une copie, une connexion, ou rien. `decimal.localcontext()` renvoie un contexte de calcul."
+  - key: qcm-arguments-exit
+    format: multiple-choice
+    question: "Quels arguments reçoit `__exit__`, en plus de `self` ?"
+    choices:
+      - {text: "Le type, la valeur et la trace de l'exception, ou trois `None`", correct: true}
+      - {text: "L'exception seule, ou `None` si le bloc s'est bien terminé", correct: false}
+      - {text: "La valeur renvoyée par `__enter__`, puis l'exception", correct: false}
+      - {text: "Aucun : il lit l'exception dans `sys.exc_info()`", correct: false}
+    answer: "`__exit__(self, exc_type, exc, tb)`. Les trois valent `None` quand le bloc se termine normalement."
+  - key: qcm-decorateur-generateur
+    format: multiple-choice
+    question: "Quel décorateur transforme une fonction génératrice en gestionnaire de contexte ?"
+    choices:
+      - {text: "`@contextlib.contextmanager`", correct: true}
+      - {text: "`@contextlib.closing`", correct: false}
+      - {text: "`@functools.wraps`", correct: false}
+      - {text: "`@contextlib.suppress`", correct: false}
+    answer: "`contextmanager` fabrique `__enter__` et `__exit__` autour du générateur. `closing` et `suppress` sont des gestionnaires, pas des décorateurs de générateur."
+  - key: qcm-exitstack
+    format: multiple-choice
+    question: "Ton code doit ouvrir un nombre de fichiers connu seulement à l'exécution, et tous les fermer. Quel outil choisir ?"
+    choices:
+      - {text: "`contextlib.ExitStack`", correct: true}
+      - {text: "`contextlib.nullcontext`", correct: false}
+      - {text: "`contextlib.closing`", correct: false}
+      - {text: "`contextlib.redirect_stdout`", correct: false}
+    answer: "`with ExitStack() as pile:` puis `pile.enter_context(open(chemin))` pour chaque fichier : tous sont fermés à la sortie, dans l'ordre inverse."
+  - key: qcm-ou-reapparait
+    format: multiple-choice
+    question: "Avec `@contextmanager`, où l'exception levée dans le bloc `with` réapparaît-elle ?"
+    choices:
+      - {text: "À la ligne du `yield`, dans le générateur", correct: true}
+      - {text: "Après le dernier `return` du générateur", correct: false}
+      - {text: "Nulle part : le générateur ne la voit jamais", correct: false}
+      - {text: "Dans `__enter__`, avant que le bloc ne commence", correct: false}
+    answer: "Le décorateur la relance dans le générateur, au point du `yield` : un `try` / `finally` y exécute la sortie, un `except` peut la supprimer."
+  - key: trous-protocole
+    format: fill-in
+    question: |-
+      Complète le protocole des gestionnaires de contexte :
+      ```python
+      class Indentation:
+          def ___(self):
+              print("début")
+              return self
+
+          def ___(self, exc_type, exc, tb):
+              print("fin")
+      ```
+    blanks:
+      - - __enter__
+      - - __exit__
+    answer: "`__enter__` à l'entrée du bloc, `__exit__` à la sortie, avec l'exception éventuelle."
+  - key: trous-yield
+    format: fill-in
+    question: |-
+      Complète ce gestionnaire, qui fournit un dossier temporaire puis le supprime :
+      ```python
+      @contextmanager
+      def dossier_temporaire():
+          chemin = tempfile.mkdtemp()
+          try:
+              ___ chemin
+          finally:
+              shutil.rmtree(chemin)
+      ```
+    blanks:
+      - - yield
+    answer: "Le `yield` donne le chemin au bloc `with`, puis suspend le générateur jusqu'à la sortie du bloc ; le `finally` supprime le dossier dans tous les cas."
+  - key: trous-import-contextmanager
+    format: fill-in
+    question: |-
+      Complète l'import :
+      ```python
+      from contextlib import ___
+
+
+      @contextmanager
+      def chrono(nom):
+          ...
+      ```
+    blanks:
+      - - contextmanager
+    answer: "`contextmanager` vit dans le module `contextlib`, avec `suppress`, `closing`, `ExitStack`..."
+  - key: trous-supprimer-keyerror
+    format: fill-in
+    question: |-
+      Complète pour que ce gestionnaire supprime les `KeyError`, et laisse remonter toute autre exception :
+      ```python
+      def __exit__(self, exc_type, exc, tb):
+          return exc_type is not None and issubclass(exc_type, ___)
+      ```
+    blanks:
+      - - KeyError
+    answer: "`__exit__` renvoie `True` seulement pour une `KeyError` (ou une sous-classe) : elle est supprimée. Pour toute autre exception, il renvoie `False`, et elle remonte."
+  - key: code-ordre-entree-sortie
+    format: code-output
+    question: |-
+      ```python
+      class Bloc:
+          def __init__(self, nom):
+              self.nom = nom
+
+          def __enter__(self):
+              print("entrée", self.nom)
+              return self.nom.upper()
+
+          def __exit__(self, exc_type, exc, tb):
+              print("sortie", self.nom)
+
+
+      with Bloc("a") as x, Bloc("b") as y:
+          print(x, y)
+      ```
+    answer: "Les entrées dans l'ordre, puis le bloc, puis les sorties dans l'ordre inverse. `as` reçoit ce que renvoie `__enter__` : `A` et `B`, pas les objets."
+    check:
+      output: |-
+        entrée a
+        entrée b
+        A B
+        sortie b
+        sortie a
+    choices:
+      - text: |-
+          ```
+          entrée a
+          entrée b
+          A B
+          sortie b
+          sortie a
+          ```
+        correct: true
+      - text: |-
+          ```
+          entrée a
+          entrée b
+          A B
+          sortie a
+          sortie b
+          ```
+        correct: false
+      - text: |-
+          ```
+          entrée a
+          entrée b
+          a b
+          sortie b
+          sortie a
+          ```
+        correct: false
+      - text: |-
+          ```
+          entrée a
+          sortie a
+          entrée b
+          sortie b
+          A B
+          ```
+        correct: false
+  - key: code-exit-supprime
+    format: code-output
+    question: |-
+      ```python
+      class Silencieux:
+          def __enter__(self):
+              return self
+
+          def __exit__(self, exc_type, exc, tb):
+              print("vu :", exc_type.__name__)
+              return True
+
+
+      with Silencieux():
+          raise KeyError("k")
+      print("suite")
+      ```
+    answer: "`__exit__` reçoit la `KeyError`, l'affiche, et renvoie `True` : l'exception est supprimée, et le programme continue après le `with`."
+    check:
+      output: |-
+        vu : KeyError
+        suite
+    choices:
+      - text: |-
+          ```
+          vu : KeyError
+          suite
+          ```
+        correct: true
+      - {text: "`vu : KeyError`, puis une `KeyError`", correct: false}
+      - {text: "`suite`", correct: false}
+      - text: |-
+          ```
+          vu : NoneType
+          suite
+          ```
+        correct: false
+  - key: code-generateur-finally
+    format: code-output
+    question: |-
+      ```python
+      from contextlib import contextmanager
+
+
+      @contextmanager
+      def balise(nom):
+          print(f"<{nom}>", end="")
+          try:
+              yield
+          finally:
+              print(f"</{nom}>", end="")
+
+
+      try:
+          with balise("p"):
+              print("texte", end="")
+              raise ValueError
+      except ValueError:
+          print(" !")
+      ```
+    answer: "`<p>texte</p> !` : l'exception réapparaît au `yield`, le `finally` ferme la balise, puis l'exception remonte jusqu'au `except`."
+    check:
+      output: "<p>texte</p> !"
+    choices:
+      - {text: "`<p>texte</p> !`", correct: true}
+      - {text: "`<p>texte !`", correct: false}
+      - {text: "`<p>texte ! </p>`", correct: false}
+      - {text: "`<p></p>texte !`", correct: false}
+  - key: code-generateur-sans-finally
+    format: code-output
+    question: |-
+      ```python
+      from contextlib import contextmanager
+
+
+      @contextmanager
+      def etape():
+          print("avant", end=" ")
+          yield
+          print("après", end=" ")
+
+
+      try:
+          with etape():
+              raise RuntimeError
+      except RuntimeError:
+          print("erreur")
+      ```
+    answer: "`avant erreur` : sans `try` / `finally`, l'exception quitte le générateur à la ligne du `yield`, et `après` n'est jamais affiché."
+    check:
+      output: "avant erreur"
+    choices:
+      - {text: "`avant erreur`", correct: true}
+      - {text: "`avant après erreur`", correct: false}
+      - {text: "`avant`", correct: false}
+      - {text: "`erreur`", correct: false}
+  - key: bug-verrou-sans-finally
+    format: bug-fix
+    question: |-
+      Ce programme affiche « verrou pris ? True » : après une erreur dans le bloc, le verrou n'est jamais relâché.
+      ```python
+      import threading
+      from contextlib import contextmanager
+
+      verrou = threading.Lock()
+
+
+      @contextmanager
+      def section_critique():
+          verrou.acquire()
+          yield
+          verrou.release()
+
+
+      try:
+          with section_critique():
+              raise ValueError("échec")
+      except ValueError:
+          pass
+      print("verrou pris ?", verrou.locked())
+      ```
+      Quelle correction est la bonne ?
+    choices:
+      - {text: "Entourer le `yield` d'un `try`, et relâcher le verrou dans le `finally`", correct: true}
+      - {text: "Relâcher le verrou avant le `yield`, pour ne jamais l'oublier", correct: false}
+      - {text: "Appeler `verrou.release()` dans le `except` de l'appelant", correct: false}
+      - {text: "Ajouter un second `yield` après `verrou.release()`", correct: false}
+    answer: |-
+      ```python
+      @contextmanager
+      def section_critique():
+          verrou.acquire()
+          try:
+              yield
+          finally:
+              verrou.release()
+      ```
+      L'exception réapparaît au `yield` et saute la suite. Relâcher avant le `yield` laisserait le bloc sans
+      protection ; un second `yield` lèverait `generator didn't stop`.
+  - key: bug-exit-avale-tout
+    format: bug-fix
+    question: |-
+      Ce programme affiche « journal fermé », puis `None`, au lieu de signaler la division par zéro :
+      ```python
+      class Journal:
+          def __enter__(self):
+              return self
+
+          def __exit__(self, exc_type, exc, tb):
+              print("journal fermé")
+              return True
+
+
+      def diviser(a, b):
+          with Journal():
+              return a / b
+
+
+      print(diviser(1, 0))
+      ```
+      Quelle correction est la bonne ?
+    choices:
+      - {text: "Retirer `return True` de `__exit__`, qui supprime toutes les exceptions", correct: true}
+      - {text: "Faire renvoyer `None` à `__enter__`, au lieu de `self`", correct: false}
+      - {text: "Placer le `return a / b` après la fin du bloc `with`", correct: false}
+      - {text: "Lever l'exception à nouveau dans `__enter__`", correct: false}
+    answer: |-
+      ```python
+      def __exit__(self, exc_type, exc, tb):
+          print("journal fermé")
+      ```
+      Renvoyer `True` dit « exception traitée » : la `ZeroDivisionError` disparaît, et `diviser` renvoie `None`. Sans
+      `return`, `__exit__` renvoie `None`, et l'exception remonte.
+  - key: bug-enter-sans-return
+    format: bug-fix
+    question: |-
+      Ce programme affiche « connexion ouverte », « connexion fermée », puis s'arrête sur « AttributeError: 'NoneType'
+      object has no attribute 'envoyer' » :
+      ```python
+      class Connexion:
+          def __enter__(self):
+              print("connexion ouverte")
+
+          def __exit__(self, exc_type, exc, tb):
+              print("connexion fermée")
+
+          def envoyer(self, message):
+              print("envoi :", message)
+
+
+      with Connexion() as c:
+          c.envoyer("bonjour")
+      ```
+      Quelle correction est la bonne ?
+    choices:
+      - {text: "Ajouter `return self` à la fin de `__enter__`", correct: true}
+      - {text: "Ajouter `return self` à la fin de `__exit__`", correct: false}
+      - {text: "Écrire `with Connexion(): c.envoyer(...)`, sans `as`", correct: false}
+      - {text: "Définir `__init__`, qui fournit la valeur de `as`", correct: false}
+    answer: |-
+      ```python
+      def __enter__(self):
+          print("connexion ouverte")
+          return self
+      ```
+      `as` reçoit ce que renvoie `__enter__`, ici `None`. Ce n'est pas l'objet du `with` qui est lié au nom, mais le
+      résultat de `__enter__`.
+  - key: bug-deux-yield
+    format: bug-fix
+    question: |-
+      Ce programme affiche « ouverture » et « utilise r1 », puis s'arrête sur « RuntimeError: generator didn't
+      stop » :
+      ```python
+      from contextlib import contextmanager
+
+
+      @contextmanager
+      def ressource():
+          print("ouverture")
+          yield "r1"
+          yield "r2"
+          print("fermeture")
+
+
+      with ressource() as r:
+          print("utilise", r)
+      ```
+      Quelle correction est la bonne ?
+    choices:
+      - {text: "Ne garder qu'un seul `yield` : il sépare l'entrée de la sortie", correct: true}
+      - {text: "Ajouter un `return` après le second `yield`", correct: false}
+      - {text: "Entourer les deux `yield` d'un `try` / `finally`", correct: false}
+      - {text: "Écrire `with ressource() as (r1, r2):`", correct: false}
+    answer: |-
+      ```python
+      @contextmanager
+      def ressource():
+          print("ouverture")
+          yield "r1"
+          print("fermeture")
+      ```
+      À la sortie du bloc, le décorateur relance le générateur et attend qu'il se termine ; un second `yield` le
+      contredit. Pour plusieurs valeurs, on produit un tuple : `yield ("r1", "r2")`.
+  - key: protocole
+    format: course
+    question: "Quelles méthodes un objet doit-il définir pour servir dans un `with` ?"
+    choices:
+      - {text: "`__enter__` et `__exit__`", correct: true}
+      - {text: "`__open__` et `__close__`", correct: false}
+      - {text: "`__init__` et `__del__`", correct: false}
+      - {text: "`__iter__` et `__next__`", correct: false}
+    answer: "C'est le protocole des gestionnaires de contexte. `__del__` n'est pas fiable pour libérer une ressource : on ne sait pas quand il s'exécute."
+  - key: classe-ou-generateur
+    format: course
+    question: "Quand préférer une classe à `@contextmanager` pour écrire un gestionnaire de contexte ?"
+    choices:
+      - {text: "Quand il garde un état riche, ou sert aussi d'objet avec ses méthodes", correct: true}
+      - {text: "Toujours : `@contextmanager` est réservé aux tests unitaires", correct: false}
+      - {text: "Quand le gestionnaire doit libérer une ressource à la sortie", correct: false}
+      - {text: "Quand le bloc `with` risque de lever une exception", correct: false}
+    answer: "Pour un acquérir-libérer simple, le générateur est plus court. Une classe convient mieux quand l'objet vit au-delà du bloc, ou qu'il a des méthodes, comme une transaction."
+  - key: supprimer-une-exception
+    format: course
+    question: "Comment un gestionnaire de contexte écrit en classe supprime-t-il une exception ?"
+    choices:
+      - {text: "Son `__exit__` renvoie une valeur vraie", correct: true}
+      - {text: "Son `__exit__` efface l'exception reçue avec `del`", correct: false}
+      - {text: "Son `__enter__` renvoie `None`", correct: false}
+      - {text: "Il lève `StopIteration` dans `__exit__`", correct: false}
+    answer: "`return True` dans `__exit__` : l'exécution reprend après le `with`. C'est ce que fait `contextlib.suppress` pour les types qu'on lui nomme."
+  - key: suppress-usage
+    format: course
+    question: "Que fait `with contextlib.suppress(FileNotFoundError): os.remove(chemin)` ?"
+    choices:
+      - {text: "Il supprime le fichier, et ignore le cas où il n'existe pas", correct: true}
+      - {text: "Il supprime le fichier et tous ceux du même dossier", correct: false}
+      - {text: "Il vérifie l'existence du fichier avant de le supprimer", correct: false}
+      - {text: "Il supprime le fichier, et ignore toutes les exceptions", correct: false}
+    answer: "Seule `FileNotFoundError` est supprimée ; une `PermissionError`, par exemple, remonte. C'est l'équivalent d'un `try` / `except FileNotFoundError: pass`."

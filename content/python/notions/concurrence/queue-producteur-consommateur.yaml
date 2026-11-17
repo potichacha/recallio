@@ -1,0 +1,445 @@
+notion: queue-producteur-consommateur
+lesson: |-
+  `queue.Queue` est une **file sûre entre threads** : des producteurs y déposent du travail, des consommateurs l'en
+  retirent, et la file fait elle-même la synchronisation. C'est la façon la plus simple de faire coopérer des threads
+  sans partager de données modifiables.
+
+  ```python
+  import queue
+  import threading
+
+  file = queue.Queue(maxsize=100)
+  FIN = None                               # la sentinelle
+
+  def consommer():
+      while True:
+          element = file.get()             # bloque tant que la file est vide
+          if element is FIN:
+              break
+          print("traité", element)
+
+  consommateur = threading.Thread(target=consommer)
+  consommateur.start()
+  for i in range(3):
+      file.put(i)                          # bloque si la file est pleine
+  file.put(FIN)
+  consommateur.join()
+  ```
+
+  | Méthode | Rôle |
+  |---|---|
+  | `put(x)` / `get()` | déposer / retirer ; bloquent si la file est pleine / vide |
+  | `put_nowait(x)` / `get_nowait()` | sans attendre : lèvent `queue.Full` / `queue.Empty` |
+  | `get(timeout=1)` | attend au plus une seconde, puis lève `queue.Empty` |
+  | `task_done()` puis `join()` | le consommateur signale chaque élément traité ; `join` attend qu'ils le soient tous |
+  | `shutdown()` (3.13) | ferme la file : `get` lève `queue.ShutDown` une fois la file vide |
+
+  - **`maxsize`** borne la file : un producteur trop rapide attend que les consommateurs suivent (*backpressure*), au
+    lieu de remplir la mémoire.
+  - **Arrêter les consommateurs** : une **sentinelle** (`None`, ou un objet dédié) **par consommateur**, ou
+    `shutdown()` depuis Python 3.13.
+  - **Les variantes** : `LifoQueue` (le dernier entré sort le premier), `PriorityQueue` (le plus petit d'abord ; on y
+    met des tuples `(priorité, élément)`), `SimpleQueue` (sans `maxsize` ni `task_done`).
+  - **Ailleurs** : `asyncio.Queue` pour les coroutines (elle n'est pas sûre entre threads), `multiprocessing.Queue`
+    entre processus.
+
+  **En entretien** : « `queue.Queue` relie producteurs et consommateurs sans verrou à écrire : `put` et `get`
+  bloquent quand il faut. `maxsize` freine un producteur trop rapide, et une sentinelle par consommateur, ou
+  `shutdown`, les arrête proprement ; `task_done` et `join` attendent que tout soit traité. »
+cards:
+  - key: pourquoi-une-queue
+    format: course
+    question: "Pourquoi une `queue.Queue` plutôt qu'une liste partagée entre threads ?"
+    choices:
+      - {text: "Elle se synchronise seule, et `get` attend qu'un élément arrive", correct: true}
+      - {text: "Elle copie chaque élément, pour que les threads ne le partagent pas", correct: false}
+      - {text: "Elle est plus rapide qu'une liste pour toutes les opérations", correct: false}
+      - {text: "Elle exécute elle-même le traitement de chaque élément déposé", correct: false}
+    answer: "Une liste demanderait un verrou et une attente active (« la liste est-elle vide ? »). La file gère les deux : `get` dort jusqu'à ce qu'un élément arrive."
+  - key: get-file-vide
+    format: course
+    question: "Que fait `file.get()` quand la file est vide ?"
+    choices:
+      - {text: "Il bloque jusqu'à ce qu'un producteur dépose un élément", correct: true}
+      - {text: "Il renvoie `None` aussitôt, sans attendre", correct: false}
+      - {text: "Il lève `queue.Empty` aussitôt, sans attendre", correct: false}
+      - {text: "Il renvoie le dernier élément retiré de la file", correct: false}
+    answer: "Par défaut, `get` attend. `get_nowait()`, ou `get(timeout=...)` une fois le délai passé, lèvent `queue.Empty`."
+  - key: role-de-maxsize
+    format: course
+    question: "À quoi sert `queue.Queue(maxsize=100)` ?"
+    choices:
+      - {text: "À faire attendre un producteur trop rapide, au lieu de remplir la mémoire", correct: true}
+      - {text: "À limiter le nombre de consommateurs qui lisent la file à 100", correct: false}
+      - {text: "À jeter les éléments les plus anciens quand la file dépasse 100", correct: false}
+      - {text: "À traiter les éléments par lots de 100, pour aller plus vite", correct: false}
+    answer: "Quand la file est pleine, `put` bloque : le producteur avance au rythme des consommateurs. Sans borne, la file peut grossir sans fin."
+  - key: arreter-les-consommateurs
+    format: course
+    question: "Comment arrêter proprement trois threads consommateurs ?"
+    choices:
+      - {text: "Déposer une sentinelle par consommateur, ou fermer la file avec `shutdown()`", correct: true}
+      - {text: "Déposer une seule sentinelle, que les trois consommateurs verront", correct: false}
+      - {text: "Appeler `file.join()`, qui arrête les threads qui lisent la file", correct: false}
+      - {text: "Vider la file avec `get_nowait()`, ce qui réveille les consommateurs", correct: false}
+    answer: "Chaque consommateur retire une seule sentinelle, puis s'arrête : il en faut autant que de consommateurs. Depuis Python 3.13, `shutdown()` fait lever `queue.ShutDown` à `get` une fois la file vide."
+  - key: vf-sure-entre-threads
+    format: true-false
+    question: "`queue.Queue` est sûre entre threads, sans verrou supplémentaire."
+    truth: true
+    answer: "Elle a ses propres verrous et conditions : plusieurs producteurs et consommateurs peuvent appeler `put` et `get` en même temps."
+  - key: vf-get-renvoie-none
+    format: true-false
+    question: "`file.get()` sur une file vide renvoie `None`."
+    truth: false
+    answer: "Il bloque jusqu'à l'arrivée d'un élément. C'est pourquoi on dépose une sentinelle pour réveiller un consommateur et l'arrêter."
+  - key: vf-trois-sentinelles
+    format: true-false
+    question: "Avec trois consommateurs qui s'arrêtent chacun sur `None`, le producteur doit déposer trois `None`."
+    truth: true
+    answer: "Le premier consommateur qui retire le `None` s'arrête ; les deux autres attendraient pour toujours sans leur propre sentinelle."
+  - key: vf-asyncio-queue-threads
+    format: true-false
+    question: "`asyncio.Queue` peut être partagée sans risque entre plusieurs threads."
+    truth: false
+    answer: "Elle est faite pour les coroutines d'une même boucle, et n'est pas sûre entre threads. Entre threads, `queue.Queue` ; entre processus, `multiprocessing.Queue`."
+  - key: qcm-plus-petit-d-abord
+    format: multiple-choice
+    question: "Quelle file rend l'élément le plus petit en premier ?"
+    choices:
+      - {text: "`queue.PriorityQueue`", correct: true}
+      - {text: "`queue.LifoQueue`", correct: false}
+      - {text: "`queue.Queue`", correct: false}
+      - {text: "`queue.SimpleQueue`", correct: false}
+    answer: "`PriorityQueue` garde un tas : on y dépose des tuples `(priorité, élément)`. `LifoQueue` rend le dernier entré, les deux autres le premier entré."
+  - key: qcm-put-file-pleine
+    format: multiple-choice
+    question: "Que fait `file.put(x)` sur une `Queue(maxsize=5)` pleine ?"
+    choices:
+      - {text: "Il bloque jusqu'à ce qu'une place se libère", correct: true}
+      - {text: "Il lève `queue.Full` aussitôt, sans attendre", correct: false}
+      - {text: "Il remplace l'élément le plus ancien de la file", correct: false}
+      - {text: "Il agrandit la file d'une place supplémentaire", correct: false}
+    answer: "C'est `put_nowait` qui lève `queue.Full`. Par défaut, `put` attend : le producteur ralentit au rythme des consommateurs."
+  - key: qcm-role-de-join
+    format: multiple-choice
+    question: "À quoi sert `file.join()` ?"
+    choices:
+      - {text: "À attendre que chaque élément déposé ait été marqué par `task_done()`", correct: true}
+      - {text: "À attendre la fin de tous les threads qui ont lu dans la file", correct: false}
+      - {text: "À fusionner deux files en une seule, dans l'ordre de dépôt", correct: false}
+      - {text: "À fermer la file, pour que `get` lève une exception", correct: false}
+    answer: "Chaque `put` augmente un compteur de tâches, chaque `task_done` le diminue ; `join` attend qu'il revienne à zéro. Sans `task_done`, `join` attend pour toujours."
+  - key: qcm-entre-processus
+    format: multiple-choice
+    question: "Quelle file relie deux processus ?"
+    choices:
+      - {text: "`multiprocessing.Queue`", correct: true}
+      - {text: "`queue.Queue`", correct: false}
+      - {text: "`asyncio.Queue`", correct: false}
+      - {text: "`collections.deque`", correct: false}
+    answer: "Les processus ne partagent pas leur mémoire : `multiprocessing.Queue` sérialise les éléments et les fait passer par un tube. `queue.Queue` ne relie que des threads d'un même processus."
+  - key: trous-put-get
+    format: fill-in
+    question: |-
+      Complète le producteur et le consommateur :
+      ```python
+      file.___(commande)        # le producteur dépose
+      commande = file.___()     # le consommateur retire
+      ```
+    blanks:
+      - [put]
+      - [get]
+    answer: "`put` dépose, `get` retire ; les deux bloquent quand il le faut."
+  - key: trous-task-done-join
+    format: fill-in
+    question: |-
+      Complète pour que le thread principal attende que tout soit traité :
+      ```python
+      def consommer():
+          while True:
+              element = file.get()
+              traiter(element)
+              file.___()
+
+      threading.Thread(target=consommer, daemon=True).start()
+      for element in elements:
+          file.put(element)
+      file.___()
+      ```
+    blanks:
+      - [task_done]
+      - [join]
+    answer: "Le consommateur marque chaque élément avec `task_done`, et `join` attend qu'ils le soient tous."
+  - key: trous-maxsize
+    format: fill-in
+    question: |-
+      Complète pour qu'un producteur attende dès que 10 éléments sont en attente :
+      ```python
+      file = queue.Queue(___=10)
+      ```
+    blanks:
+      - [maxsize]
+    answer: "Avec `maxsize`, `put` bloque quand la file est pleine."
+  - key: trous-priorite
+    format: fill-in
+    question: |-
+      Complète pour que les tâches sortent par priorité croissante :
+      ```python
+      file = queue.___()
+      file.put((2, "rapport"))
+      file.put((1, "alerte"))
+      ```
+    blanks:
+      - [PriorityQueue]
+    answer: "`PriorityQueue` rend le plus petit tuple d'abord : `(1, \"alerte\")`."
+  - key: code-somme-avec-sentinelle
+    format: code-output
+    question: |-
+      ```python
+      import queue
+      import threading
+
+      file = queue.Queue()
+      total = 0
+
+      def consommer():
+          global total
+          while (n := file.get()) is not None:
+              total += n
+
+      t = threading.Thread(target=consommer)
+      t.start()
+      for n in [1, 2, 3, 4, 5]:
+          file.put(n)
+      file.put(None)
+      t.join()
+      print("total", total)
+      ```
+    answer: "Le consommateur additionne les cinq nombres, puis s'arrête sur la sentinelle `None` ; `join` attend qu'il ait fini."
+    check:
+      output: "total 15"
+    choices:
+      - {text: "`total 15`", correct: true}
+      - {text: "`total 0`", correct: false}
+      - {text: "`total 10`", correct: false}
+      - {text: "Rien : le consommateur attend pour toujours", correct: false}
+  - key: code-priority-queue
+    format: code-output
+    question: |-
+      ```python
+      import queue
+
+      file = queue.PriorityQueue()
+      for tache in [(3, "c"), (1, "a"), (2, "b")]:
+          file.put(tache)
+      print(*(file.get()[1] for _ in range(3)))
+      ```
+    answer: "`PriorityQueue` rend le plus petit tuple en premier : priorités 1, 2, puis 3."
+    check:
+      output: "a b c"
+    choices:
+      - {text: "`a b c`", correct: true}
+      - {text: "`c a b`", correct: false}
+      - {text: "`c b a`", correct: false}
+      - {text: "`b a c`", correct: false}
+  - key: code-lifo
+    format: code-output
+    question: |-
+      ```python
+      import queue
+
+      pile = queue.LifoQueue()
+      for n in [1, 2, 3]:
+          pile.put(n)
+      print(pile.get(), pile.get(), pile.qsize())
+      ```
+    answer: "Une `LifoQueue` est une pile : le dernier entré sort le premier. Il reste un élément."
+    check:
+      output: "3 2 1"
+    choices:
+      - {text: "`3 2 1`", correct: true}
+      - {text: "`1 2 1`", correct: false}
+      - {text: "`3 2 3`", correct: false}
+      - {text: "`1 2 3`", correct: false}
+  - key: code-get-nowait-vide
+    format: code-output
+    question: |-
+      ```python
+      import queue
+
+      file = queue.Queue(maxsize=2)
+      file.put("a")
+      file.put("b")
+      print(file.full(), file.qsize())
+      file.get()
+      file.get()
+      file.get_nowait()
+      ```
+    answer: "La file est pleine avec deux éléments. Une fois vidée, `get_nowait` ne peut pas attendre : il lève `queue.Empty`, que Python nomme `_queue.Empty` dans la trace."
+    check:
+      output: "True 2"
+      throws: _queue.Empty
+    choices:
+      - {text: "`True 2`, puis une exception `_queue.Empty`", correct: true}
+      - {text: "`True 2`, puis le programme attend pour toujours", correct: false}
+      - {text: "`False 2`, puis une exception `_queue.Empty`", correct: false}
+      - {text: "`True 2`, sans erreur : `get_nowait` renvoie `None`", correct: false}
+  - key: bug-consommateur-sans-fin
+    format: bug-fix
+    question: |-
+      Ce programme affiche `0`, `1` et `2`, puis ne se termine jamais :
+      ```python
+      import queue
+      import threading
+
+      file = queue.Queue()
+
+      def consommer():
+          while True:
+              print(file.get())
+
+      t = threading.Thread(target=consommer)
+      t.start()
+      for i in range(3):
+          file.put(i)
+      t.join()
+      print("fin")
+      ```
+      Quelle correction est la bonne ?
+    choices:
+      - {text: "Déposer `None` à la fin, et sortir de la boucle en le recevant", correct: true}
+      - {text: "Appeler `file.join()` au lieu de `t.join()` à la fin", correct: false}
+      - {text: "Remplacer `file.get()` par `file.get_nowait()` dans la boucle", correct: false}
+      - {text: "Créer la file avec `queue.Queue(maxsize=3)`", correct: false}
+    answer: |-
+      ```python
+      def consommer():
+          while (element := file.get()) is not None:
+              print(element)
+
+      t = threading.Thread(target=consommer)
+      t.start()
+      for i in range(3):
+          file.put(i)
+      file.put(None)
+      t.join()
+      print("fin")
+      ```
+      Le consommateur attend un quatrième élément qui ne vient jamais, et `t.join()` l'attend. La sentinelle le
+      réveille et l'arrête. `file.join()` attendrait des `task_done` qui ne viennent pas, et `get_nowait` arrêterait
+      le consommateur dès que la file est vide.
+  - key: bug-task-done-oublie
+    format: bug-fix
+    question: |-
+      Ce programme affiche `traité 0` et `traité 1`, puis reste bloqué sur `file.join()` :
+      ```python
+      import queue
+      import threading
+
+      file = queue.Queue()
+
+      def consommer():
+          while True:
+              element = file.get()
+              print("traité", element)
+
+      threading.Thread(target=consommer, daemon=True).start()
+      for i in range(2):
+          file.put(i)
+      file.join()
+      print("tout est traité")
+      ```
+      Quelle correction est la bonne ?
+    choices:
+      - {text: "Appeler `file.task_done()` après chaque élément traité", correct: true}
+      - {text: "Créer le consommateur sans `daemon=True`", correct: false}
+      - {text: "Appeler `file.join()` avant les `put`", correct: false}
+      - {text: "Remplacer `file.join()` par `file.get()`", correct: false}
+    answer: |-
+      ```python
+      def consommer():
+          while True:
+              element = file.get()
+              print("traité", element)
+              file.task_done()
+      ```
+      `join` attend que le compteur de tâches revienne à zéro : chaque `put` l'augmente, seul `task_done` le
+      diminue.
+  - key: bug-get-nowait-trop-tot
+    format: bug-fix
+    question: |-
+      Le consommateur s'arrête aussitôt sur une exception `_queue.Empty`, et rien n'est traité :
+      ```python
+      import queue
+      import threading
+      import time
+
+      file = queue.Queue()
+
+      def consommer():
+          while (element := file.get_nowait()) is not None:
+              print("traité", element)
+
+      t = threading.Thread(target=consommer)
+      t.start()
+      time.sleep(0.1)  # le producteur prépare ses données
+      for i in range(2):
+          file.put(i)
+      file.put(None)
+      t.join()
+      ```
+      Quelle correction est la bonne ?
+    choices:
+      - {text: "Remplacer `file.get_nowait()` par `file.get()`, qui attend", correct: true}
+      - {text: "Remplacer `file.get_nowait()` par `file.get(timeout=0)`", correct: false}
+      - {text: "Retirer la sentinelle `None` déposée à la fin", correct: false}
+      - {text: "Lancer le consommateur avec `daemon=True`", correct: false}
+    answer: |-
+      ```python
+      def consommer():
+          while (element := file.get()) is not None:
+              print("traité", element)
+      ```
+      La file est encore vide quand le consommateur démarre : `get_nowait` ne patiente pas et lève `queue.Empty`.
+      `get()` dort jusqu'à l'arrivée d'un élément. `timeout=0` ne patienterait pas davantage.
+  - key: bug-file-bornee-pleine
+    format: bug-fix
+    question: |-
+      Ce programme ne se termine jamais, et n'affiche rien :
+      ```python
+      import queue
+
+      file = queue.Queue(maxsize=2)
+      for i in range(3):
+          file.put(i)
+      print("rempli")
+      while not file.empty():
+          print(file.get())
+      ```
+      Quelle correction est la bonne ?
+    choices:
+      - {text: "Consommer dans un autre thread pendant que celui-ci dépose", correct: true}
+      - {text: "Appeler `file.task_done()` après chaque `put`", correct: false}
+      - {text: "Appeler `file.join()` avant la boucle de lecture", correct: false}
+      - {text: "Remplacer `file.put(i)` par `file.put(i, block=True)`", correct: false}
+    answer: |-
+      ```python
+      import queue
+      import threading
+
+      file = queue.Queue(maxsize=2)
+
+      def consommer():
+          while (element := file.get()) is not None:
+              print(element)
+
+      t = threading.Thread(target=consommer)
+      t.start()
+      for i in range(3):
+          file.put(i)
+      file.put(None)
+      t.join()
+      ```
+      Le troisième `put` attend une place que seul un consommateur peut libérer, et le seul thread est celui qui
+      attend. Une file bornée suppose que quelqu'un d'autre la vide en même temps.
