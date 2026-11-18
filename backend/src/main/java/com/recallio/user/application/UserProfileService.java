@@ -1,6 +1,7 @@
 package com.recallio.user.application;
 
 import com.recallio.platform.domain.IdGenerator;
+import com.recallio.user.AccountCreated;
 import com.recallio.user.UserDirectory;
 import com.recallio.user.UserRef;
 import com.recallio.user.domain.AuthenticatedUser;
@@ -9,6 +10,7 @@ import com.recallio.user.domain.Timezones;
 import com.recallio.user.domain.UserProfile;
 import com.recallio.user.domain.UserProfileRepository;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.event.Event;
 import jakarta.transaction.Transactional;
 import java.time.Clock;
 import java.time.ZoneId;
@@ -25,11 +27,17 @@ public class UserProfileService implements UserDirectory {
     private final UserProfileRepository repository;
     private final IdGenerator idGenerator;
     private final Clock clock;
+    private final Event<AccountCreated> accountCreated;
 
-    public UserProfileService(UserProfileRepository repository, IdGenerator idGenerator, Clock clock) {
+    public UserProfileService(
+            UserProfileRepository repository,
+            IdGenerator idGenerator,
+            Clock clock,
+            Event<AccountCreated> accountCreated) {
         this.repository = repository;
         this.idGenerator = idGenerator;
         this.clock = clock;
+        this.accountCreated = accountCreated;
     }
 
     /**
@@ -72,6 +80,12 @@ public class UserProfileService implements UserDirectory {
                 DisplayName.suggestedFrom(user.suggestedName()),
                 timezone,
                 clock.instant());
-        return repository.createIfAbsent(candidate);
+        UserProfile profile = repository.createIfAbsent(candidate);
+        // Deux premières connexions simultanées ne créent qu'un profil : seule celle dont le candidat a été retenu
+        // annonce le compte (ADR 0064).
+        if (profile.id().equals(candidate.id())) {
+            accountCreated.fire(new AccountCreated(new UserRef(profile.id(), profile.timezone()), profile.createdAt()));
+        }
+        return profile;
     }
 }

@@ -1,6 +1,6 @@
-import { screen, within } from '@testing-library/react'
+import { cleanup, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { renderAt, sentRequests, stubApi, TEST_SUBJECTS } from '../test/render'
 
 const card = (overrides: Record<string, unknown>) => ({
@@ -35,12 +35,65 @@ const TRIAL = {
   ],
 }
 
+const VISIT = 'POST /api/v1/funnel/visits'
+
 const API = {
   '/api/v1/subjects': { body: TEST_SUBJECTS },
   '/api/v1/subjects/java/trial': { body: TRIAL },
+  [VISIT]: { status: 204, body: null },
 }
 
+const visits = (fetchMock: ReturnType<typeof stubApi>) =>
+  sentRequests(fetchMock).filter(
+    (request) => request.method === 'POST' && request.url.endsWith('/api/v1/funnel/visits'),
+  )
+
+// Une session de navigateur par test : la visite y est comptée une fois.
+beforeEach(() => sessionStorage.clear())
+
 describe('LandingPage (ADR 0058)', () => {
+  it('counts the visit once per browser session (ADR 0064)', async () => {
+    const fetchMock = stubApi(API)
+    renderAt('/')
+
+    await waitFor(() => expect(visits(fetchMock)).toHaveLength(1))
+    // Revenir sur la page publique dans la même session ne compte pas une seconde visite.
+    cleanup()
+    renderAt('/')
+    expect(await screen.findByRole('heading', { level: 1 })).toBeInTheDocument()
+    expect(visits(fetchMock)).toHaveLength(1)
+  })
+
+  it('still counts the visit, and shows the page, when the browser refuses sessionStorage', async () => {
+    const refuse = () => {
+      throw new DOMException('Le stockage est bloqué.', 'SecurityError')
+    }
+    vi.stubGlobal('sessionStorage', {
+      getItem: refuse,
+      setItem: refuse,
+      removeItem: refuse,
+      clear: () => {},
+    })
+    const fetchMock = stubApi(API)
+    renderAt('/')
+
+    expect(
+      await screen.findByRole('heading', {
+        level: 1,
+        name: 'Prêt pour ton entretien technique, dix minutes par jour.',
+      }),
+    ).toBeInTheDocument()
+    await waitFor(() => expect(visits(fetchMock)).toHaveLength(1))
+  })
+
+  it('shows the page even when the visit cannot be counted', async () => {
+    stubApi({ ...API, [VISIT]: { status: 503, body: { status: 503, title: 'Unavailable' } } })
+    renderAt('/')
+
+    expect(await screen.findByRole('link', { name: 'Essayer Java' })).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
   it('asks a real question at once, corrected by the server, then goes on with the trial', async () => {
     const fetchMock = stubApi({
       ...API,
@@ -55,7 +108,7 @@ describe('LandingPage (ADR 0058)', () => {
     await userEvent.click(trial.getByRole('button', { name: 'Vérifier' }))
 
     expect(await trial.findByText('Juste !')).toBeInTheDocument()
-    const check = sentRequests(fetchMock).find((request) => request.method === 'POST')
+    const check = sentRequests(fetchMock).find((request) => request.url.endsWith('/checks'))
     expect(await check?.json()).toEqual({ cardId: 'c1', selectedChoices: [1] })
 
     // L'essai reprend à la deuxième question, la première comptée juste.
@@ -80,7 +133,7 @@ describe('LandingPage (ADR 0058)', () => {
 
   it('does without the question when the trial is not available', async () => {
     stubApi({
-      '/api/v1/subjects': { body: TEST_SUBJECTS },
+      ...API,
       '/api/v1/subjects/java/trial': {
         status: 429,
         body: { status: 429, code: 'too-many-requests' },

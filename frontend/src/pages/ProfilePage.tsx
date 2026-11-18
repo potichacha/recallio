@@ -225,7 +225,7 @@ export function ProfilePage() {
                 Signalements à traiter
               </Link>
               <Link to="/admin/retention" className="font-medium text-brand-strong hover:underline">
-                Rétention
+                Rétention et parcours
               </Link>
             </p>
           )}
