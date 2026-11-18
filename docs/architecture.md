@@ -116,7 +116,7 @@ flowchart LR
 | Élément | Rôle |
 |---|---|
 | `domain.UserProfile` | Profil applicatif : `sub` OIDC, nom affiché, fuseau horaire. |
-| `application.UserProfileService` | Création à la première connexion, préférences. |
+| `application.UserProfileService` | Création à la première connexion, préférences ; publie `AccountCreated` (package racine, ADR 0064) quand il crée le profil. |
 | `infrastructure.JpaUserProfileRepository` | Création atomique (`ON CONFLICT DO NOTHING`). |
 | `api.TokenIdentity` | Seul endroit qui lit les claims du jeton (`sub`, `name`, `preferred_username`). |
 | `application.FollowedSubjectsService` | Sujets suivis (ADR 0014) : choix validé auprès de `content.SubjectDirectory`. |
@@ -170,7 +170,7 @@ Le module `review` ne lit aucune table des autres modules : il passe par `conten
 `content.SubjectDirectory`, `user.CurrentUser` et `user.FollowedSubjects`, et ses tables n'ont pas de clé étrangère vers celles des autres modules.
 
 Il publie l'événement `review.CardReviewed` (package racine, API publique) quand une réponse est enregistrée pour la
-première fois.
+première fois, et `review.TrialStarted` quand un visiteur répond à la première question d'un essai (ADR 0064).
 
 ### Module `gamification` (en place)
 
@@ -205,6 +205,8 @@ flowchart LR
 | `api.QuestsResource`, `api.AchievementsResource` | `GET /api/v1/me/quests` et `GET /api/v1/me/achievements`. |
 | `application.PublicSkillProfileService`, `api.PublicProfilesResource` | Le profil public (ADR 0043), `GET /api/v1/public-profiles/{adresse}` sans compte : `user.PublicProfiles`, le vérifié et le déclaré par `review.SkillProfiles`, puis le niveau, la série et les succès. |
 | `domain.RetentionReport`, `application.RetentionService`, `api.AdminRetentionResource` | La rétention (ADR 0050), `GET /api/v1/admin/retention`, rôle admin : la part des joueurs revenus réviser 1, 7 et 30 jours après leur premier jour actif, calculée sur `daily_activity`. |
+| `application.FunnelRecorder`, `api.FunnelVisitsResource` | Le parcours mesuré (ADR 0064) : la visite (`POST /api/v1/funnel/visits`, sans compte), l'essai (`review.TrialStarted`), le compte (`user.AccountCreated`) et la première révision (`CardReviewed`, après `ActivityRecorder`), dans la table `funnel_event`, sans identifiant d'utilisateur. |
+| `domain.funnel.FunnelReport`, `application.FunnelService`, `api.AdminFunnelResource` | `GET /api/v1/admin/funnel`, rôle admin : chaque étape des huit dernières semaines ISO (en UTC), et le taux de passage de l'une à la suivante. |
 
 Le tableau de bord de la PWA (accueil, une fois connecté) assemble des lectures indépendantes :
 `/api/v1/subjects` (content, pour les titres et les Tours), `/api/v1/me/review-stats` (review), `/api/v1/me/progress`,
@@ -294,6 +296,7 @@ flowchart LR
 | `api.PushSubscriptionsResource`, `api.PushPublicKeyResource` | `PUT` et `DELETE /api/v1/me/push-subscription`, `GET /api/v1/push/public-key`. |
 
 Les dépendances entre modules vont dans un seul sens : `gamification` → `review` (événement) → `content`, `user` ;
+`gamification` → `user` (événement `AccountCreated`) ;
 `review` → `group` → `content`, `user` ;
 `gamification` → `group` (classement des groupes), `ranked` (le rang du profil public) ; `live` → `group`, `user` ;
 `feedback` → `content`, `user` ; `ranked` → `content`, `user`, `review` (événement) ;

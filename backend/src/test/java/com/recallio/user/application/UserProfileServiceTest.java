@@ -3,6 +3,9 @@ package com.recallio.user.application;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.recallio.platform.RecordingEvent;
+import com.recallio.user.AccountCreated;
+import com.recallio.user.UserRef;
 import com.recallio.user.domain.AuthenticatedUser;
 import com.recallio.user.domain.DisplayName;
 import com.recallio.user.domain.InvalidProfileException;
@@ -18,6 +21,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 
 class UserProfileServiceTest {
@@ -26,8 +30,29 @@ class UserProfileServiceTest {
     private static final AuthenticatedUser ALICE = new AuthenticatedUser("sub-alice", "Alice Martin");
 
     private final InMemoryProfiles repository = new InMemoryProfiles();
+    private final RecordingEvent<AccountCreated> accountCreated = new RecordingEvent<>();
     private final UserProfileService service =
-            new UserProfileService(repository, UUID::randomUUID, Clock.fixed(NOW, ZoneOffset.UTC));
+            new UserProfileService(repository, UUID::randomUUID, Clock.fixed(NOW, ZoneOffset.UTC), accountCreated);
+
+    @Test
+    void shouldAnnounceTheAccountWhenTheProfileIsCreatedAndNeverAgain() {
+        UserProfile profile = service.currentProfile(ALICE, Optional.of("Europe/Paris"));
+        service.currentProfile(ALICE, Optional.empty());
+
+        assertThat(accountCreated.fired())
+                .containsExactly(new AccountCreated(new UserRef(profile.id(), ZoneId.of("Europe/Paris")), NOW));
+    }
+
+    @Test
+    void shouldNotAnnounceTheAccountCreatedMeanwhileByAnotherLogin() {
+        // Une première connexion simultanée, dans un deuxième onglet, a créé le profil entre la lecture et l'insertion.
+        repository.createdMeanwhile =
+                new UserProfile(UUID.randomUUID(), "sub-alice", new DisplayName("Alice"), ZoneId.of("UTC"), NOW);
+
+        service.currentProfile(ALICE, Optional.empty());
+
+        assertThat(accountCreated.fired()).isEmpty();
+    }
 
     @Test
     void shouldCreateTheProfileOnFirstLoginWithTheBrowserTimezone() {
@@ -76,6 +101,10 @@ class UserProfileServiceTest {
     private static final class InMemoryProfiles implements UserProfileRepository {
         private final Map<String, UserProfile> bySubject = new HashMap<>();
 
+        /** Un profil qu'une autre requête insère juste avant celui du test. */
+        @Nullable
+        UserProfile createdMeanwhile;
+
         @Override
         public Optional<UserProfile> findBySubject(String oidcSubject) {
             return Optional.ofNullable(bySubject.get(oidcSubject));
@@ -90,6 +119,10 @@ class UserProfileServiceTest {
 
         @Override
         public UserProfile createIfAbsent(UserProfile candidate) {
+            UserProfile other = createdMeanwhile;
+            if (other != null) {
+                bySubject.putIfAbsent(other.oidcSubject(), other);
+            }
             return bySubject.computeIfAbsent(candidate.oidcSubject(), subject -> candidate);
         }
 

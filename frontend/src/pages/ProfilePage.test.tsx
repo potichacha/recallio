@@ -209,7 +209,7 @@ describe('ProfilePage', () => {
     stubApi({ ...SIGNED_IN_API, ...SUBJECTS, '/api/v1/me': { body: PROFILE } })
     renderAt('/profile', SIGNED_IN)
 
-    expect(await screen.findByRole('link', { name: 'Rétention' })).toHaveAttribute(
+    expect(await screen.findByRole('link', { name: 'Rétention et parcours' })).toHaveAttribute(
       'href',
       '/admin/retention',
     )

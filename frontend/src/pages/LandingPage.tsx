@@ -8,10 +8,11 @@ import {
   GraduationCap,
   type Icon,
 } from '@phosphor-icons/react'
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { Link } from 'react-router'
 import { useCatalogSubjects, type Subject } from '../api/content'
 import { ApiError } from '../api/errors'
+import { recordVisitOncePerSession } from '../api/funnel'
 import { useCheckTrialAnswer, useTrial, type TrialQuestion } from '../api/trial'
 import { useSession } from '../auth/session'
 import { CARD_TYPE_LABELS } from '../components/cardTypeLabels'
@@ -67,12 +68,17 @@ const STEPS: { icon: Icon; title: string; text: string }[] = [
 
 /**
  * La page publique (ADR 0058, audit élément 49) : un visiteur répond à une vraie question avant de lire quoi que ce
- * soit, puis voit pour qui est l'application, comment elle marche et ce qu'on y apprend.
+ * soit, puis voit pour qui est l'application, comment elle marche et ce qu'on y apprend. Elle compte sa visite, la
+ * première étape du parcours mesuré (ADR 0064).
  */
 export function LandingPage() {
   // Tout le catalogue, sujets en préparation compris : ils sont annoncés en bas de page, comme sur la page Cours.
   const subjects = useCatalogSubjects()
   const session = useSession()
+
+  useEffect(() => {
+    recordVisitOncePerSession()
+  }, [])
   // Pour l'essai et les chiffres, seuls les sujets publiés comptent : la page dit la même chose à tout le monde.
   const published = subjects.data?.filter((subject) => subject.status === 'PUBLISHED') ?? []
   const trials = published.filter((subject) => subject.hasTour)

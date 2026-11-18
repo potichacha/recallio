@@ -123,7 +123,7 @@ Modules prévus (créés au fur et à mesure des phases, pas tous dès le dépar
 | `content` | catégories, sujets, thèmes, cartes, versions de cartes, import du contenu | 1 |
 | `review` | sessions de révision, planification par répétition espacée (FSRS), historique | 1 |
 | `user` | profil utilisateur lié à l'identité OIDC, préférences (fuseau horaire) | 1 |
-| `gamification` | XP, streaks, succès | 1 |
+| `gamification` | XP, streaks, succès ; rétention et parcours des visiteurs, pour les admins (ADR 0050, 0064) | 1 |
 | `group` | groupes, membres, invitations, réglages, classements | 2 |
 | `live` | parties synchronisées en temps réel | 3 |
 | `feedback` | signalements d'erreurs dans le contenu (ADR 0042) | 3 ter |
@@ -169,7 +169,7 @@ Si une règle devient gênante, on en discute et on consigne l'exception dans un
 - Les endpoints qui modifient la progression (enregistrer une réponse) sont **idempotents** (identifiant de requête côté client) pour supporter les retries sur mobile.
 
 ### 4.5 Sécurité
-- Toutes les routes sauf la santé, le contenu public (catalogue, Tour) et l'essai sans compte (ADR 0050) nécessitent un JWT valide.
+- Toutes les routes sauf la santé, le contenu public (catalogue, Tour), l'essai sans compte (ADR 0050) et la visite de la page publique (ADR 0064) nécessitent un JWT valide.
 - Autorisation vérifiée **côté serveur pour chaque ressource** (un utilisateur ne lit que sa progression, un membre ne voit que ses groupes).
 - Chacun peut télécharger ses données et supprimer son compte ; un module qui garde des données personnelles implémente `PersonalData` (ADR 0056).
 - Secrets uniquement en variables d'environnement, jamais dans le dépôt.
@@ -543,7 +543,12 @@ Le propriétaire a testé l'application en local avant de la déployer ; ses ret
    5. ✅ **Suppression de compte et export des données** (17) : chaque module répond de ses données par un port (ADR 0056).
    6. ✅ **Ergonomie** (5, 7 à 10) : filet d'erreur, icônes de la PWA, fraîcheur des données, chapitres repliés, profil en sections. L'accueil d'un nouveau venu (6) passe à l'étape 8.9.3, qui refait l'accueil.
    7. ✅ **Apprendre de ses erreurs** (27, 35) : « Revoir la leçon » sous une réponse fausse, et un carnet des erreurs de la semaine, à refaire sans rien enregistrer (ADR 0057). L'annulation de la dernière réponse (38) est abandonnée : elle contredit l'ADR 0051.
-   8. **Avant la bêta** (25, 26, 34, 40, 44) : compte à rebours avant l'entretien, défi du jour, test de niveau, référencement, parcours mesuré.
+   8. **Avant la bêta** (25, 26, 34, 40, 44) : compte à rebours avant l'entretien, défi du jour, test de niveau, référencement, parcours mesuré. Une PR par étape :
+      1. ✅ **Parcours mesuré** (44) : visite, essai, compte créé, première révision, par semaine, sur la page des admins (ADR 0064).
+      2. **Référencement** (40) : balises de partage, `robots.txt`, plan du site.
+      3. **Compte à rebours avant l'entretien** (25) : une date, un plan par semaine, en avance ou en retard.
+      4. **Défi du jour** (26) : les mêmes cinq questions pour tous, une tentative, un résultat à partager.
+      5. **Test de niveau** (34) : à l'arrivée, pour sauter les bases.
    9. ✅ **Refonte « Rico »** (47 à 57) : la direction ludique retenue le 2026-11-10, en clair et en sombre, avec tout ce qui ne coûte que du temps. L'ADR 0058 la décide et révise l'ADR 0049 ; une PR par étape :
       1. ✅ **Identité** (47, 48) : couleurs, Nunito, boutons en relief, Rico, thèmes clair et sombre au choix dans le profil (ADR 0058).
          Les contrastes des tokens sont calculés à chaque `npm test`, et axe-core passe aussi dans le thème sombre.
