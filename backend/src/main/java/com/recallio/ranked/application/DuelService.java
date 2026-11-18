@@ -3,6 +3,7 @@ package com.recallio.ranked.application;
 import com.recallio.content.CardDirectory;
 import com.recallio.content.CardDirectory.ActiveCard;
 import com.recallio.content.CardDirectory.CardFilter;
+import com.recallio.content.CardDirectory.CardFilter.Grading;
 import com.recallio.content.CardDirectory.CardSnapshot;
 import com.recallio.content.SubjectDirectory;
 import com.recallio.platform.domain.IdGenerator;
@@ -250,10 +251,13 @@ public class DuelService {
                 .rating();
     }
 
-    /** Un nouveau duel, ses questions tirées près de la cote moyenne de ses joueurs, dans l'ordre de leurs places. */
+    /**
+     * Un nouveau duel, ses questions tirées près de la cote moyenne de ses joueurs, dans l'ordre de leurs places, parmi
+     * les cartes à choix ou à trous du sujet (ADR 0063) : de quoi répondre en trente secondes, sans exécuter de code.
+     */
     private Duel draw(String subjectSlug, Mode mode, Status status, Instant now, Instant expiresAt, List<Seat> seats) {
-        List<ActiveCard> active =
-                cards.activeCards(new CardFilter(Set.of(subjectSlug), null, Set.of(), CardDifficulty.RATED_FORMATS));
+        List<ActiveCard> active = cards.activeCards(
+                new CardFilter(Set.of(subjectSlug), null, Set.of(), Set.of(), Grading.CHOICES_OR_BLANKS));
         if (active.size() < Duel.QUESTIONS) {
             throw new NotEnoughDuelQuestionsException(subjectSlug);
         }

@@ -115,8 +115,9 @@ final class ContentDtos {
             String answer,
 
             @Schema(
-                    description = "Les choix de la carte, bonnes réponses marquées ; vide pour une carte qui"
-                            + " s'auto-évalue, un code à trous ou un exercice (ADR 0051)")
+                    description = "Les choix de la carte, bonnes réponses marquées ; vide pour un code à trous, un"
+                            + " exercice, ou une carte d'un document Markdown qui n'en a pas et ne se révise donc pas"
+                            + " (ADR 0051, 0063)")
             List<ChoiceDto> choices,
 
             @Schema(

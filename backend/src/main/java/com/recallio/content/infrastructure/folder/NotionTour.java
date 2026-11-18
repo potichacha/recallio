@@ -78,20 +78,20 @@ final class NotionTour {
 
     /**
      * Une notion du Tour se valide par ses questions (ADR 0037) : il lui faut au moins {@value TourQuestions#MIN} cartes
-     * corrigées par le serveur parmi ses cartes valides.
+     * à choix ou à trous parmi ses cartes valides (ADR 0063).
      */
     static void requireQuestions(ParsedNotion notion, List<ParsedCard> cards, List<SourceIssue> issues) {
         if (notion.tour().isEmpty()) {
             return;
         }
         long graded = cards.stream()
-                .filter(card -> TourQuestions.FORMATS.contains(card.content().type()))
+                .filter(card -> card.content().isGradedWithoutRunningCode())
                 .count();
         if (graded < TourQuestions.MIN) {
             issues.add(new SourceIssue(
                     0,
-                    ("Tour : la notion « %s » a %d carte(s) corrigée(s) par le serveur (vrai ou faux, QCM, code à "
-                                    + "compléter) ; il en faut au moins %d pour la valider")
+                    ("Tour : la notion « %s » a %d carte(s) à choix ou à trous ; il en faut au moins %d pour la"
+                                    + " valider")
                             .formatted(notion.slug(), graded, TourQuestions.MIN),
                     notion.slug()));
         }

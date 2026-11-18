@@ -15,7 +15,8 @@ const plural = (count: number, one: string, many: string) => `${count} ${count >
 
 /**
  * Le profil public de compétences (ADR 0043), lisible sans compte. Le vérifié (corrigé par le serveur) est séparé du
- * déclaré (la maîtrise en révision personnelle, auto-évaluée en partie).
+ * déclaré (la maîtrise des notions en révision personnelle, qui garde les réussites d'avant la fin de l'auto-évaluation,
+ * ADR 0063).
  */
 export function PublicProfilePage() {
   const { handle = '' } = useParams()
@@ -58,8 +59,8 @@ export function PublicProfilePage() {
       </header>
       <p className="text-sm text-ink-muted">
         <strong>Vérifié</strong> : corrigé par le serveur (exercices jugés par leurs tests, réponses
-        corrigées, notions du Tour validées). <strong>Déclaré</strong> : la maîtrise en révision
-        personnelle, en partie auto-évaluée.
+        corrigées, notions du Tour validées). <strong>Déclaré</strong> : la maîtrise des notions en
+        révision personnelle.
       </p>
       {subjects.length === 0 && <EmptyState title="Aucun sujet suivi pour l’instant." />}
       <ul className="flex flex-col gap-3">

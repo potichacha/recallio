@@ -78,7 +78,7 @@ public class PracticeResource {
                             schema = @Schema(implementation = ProblemDetail.class)))
     @APIResponse(
             responseCode = "422",
-            description = "La carte s'auto-évalue, ou la réponse ne convient pas à son format",
+            description = "La réponse ne convient pas à la carte",
             content =
                     @Content(
                             mediaType = ProblemDetail.MEDIA_TYPE,
@@ -109,18 +109,12 @@ public class PracticeResource {
             UUID cardId,
             CardType type,
 
-            @Schema(description = "Recto, en Markdown") String prompt,
+            @Schema(description = "Recto, en Markdown ; l'explication arrive avec la correction")
+            String prompt,
 
             @Schema(
-                    description = "Verso, en Markdown ; absent pour une carte corrigée par le serveur (une carte à"
-                            + " choix, un code à trous, un exercice), dont l'explication arrive avec la correction",
-                    nullable = true)
-            @Nullable
-            String answer,
-
-            @Schema(
-                    description = "Les choix de la carte, sans dire lesquels sont justes ; vide pour une carte qui"
-                            + " s'auto-évalue, un code à trous ou un exercice (ADR 0051)")
+                    description = "Les choix de la carte, sans dire lesquels sont justes ; vide pour un code à trous"
+                            + " ou un exercice (ADR 0051)")
             List<String> choices,
 
             @Schema(description = "Vrai si plusieurs choix sont justes")
@@ -150,7 +144,6 @@ public class PracticeResource {
                     card.cardId(),
                     card.type(),
                     card.prompt(),
-                    card.isGradedByServer() ? null : card.answer(),
                     card.choices().stream().map(CardChoice::text).toList(),
                     card.correctChoices().size() > 1,
                     card.blanks().size(),
@@ -164,8 +157,7 @@ public class PracticeResource {
     public record PracticeAnswerDto(
             @NotNull UUID cardId,
 
-            @Schema(description = "Les positions cochées d'un QCM ou d'un vrai ou faux, à partir de 0", nullable = true)
-            @Nullable
+            @Schema(description = "Les positions cochées d'une carte à choix, à partir de 0", nullable = true) @Nullable
             List<@NotNull Integer> selectedChoices,
 
             @Schema(description = "Les réponses d'un code à trous, une par trou", nullable = true) @Nullable
@@ -182,7 +174,7 @@ public class PracticeResource {
             UUID cardId,
             boolean correct,
 
-            @Schema(description = "Les bonnes réponses d'un QCM ou d'un vrai ou faux, à partir de 0")
+            @Schema(description = "Les bonnes réponses d'une carte à choix, à partir de 0")
             List<Integer> correctChoices,
 
             @Schema(description = "La correction de chaque trou d'un code à compléter")

@@ -14,19 +14,15 @@ import jakarta.transaction.Transactional;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
-import java.util.Set;
 import java.util.UUID;
 
 /**
  * La cote de difficulté des cartes (ADR 0046) : chaque réponse corrigée par le serveur est une partie entre la carte et
- * celui qui répond, avec sa cote dans le sujet. Une bonne réponse fait perdre la carte.
+ * celui qui répond, avec sa cote dans le sujet. Une bonne réponse fait perdre la carte. Seules les cartes des duels en
+ * ont une : celles qui se corrigent sur leurs choix ou leurs trous (ADR 0063), pas les exercices.
  */
 @ApplicationScoped
 public class CardDifficulty {
-
-    /** Les formats des duels, les seuls à avoir une cote de difficulté. */
-    public static final Set<CardType> RATED_FORMATS =
-            Set.of(CardType.MULTIPLE_CHOICE, CardType.TRUE_FALSE, CardType.FILL_IN);
 
     private final CardRatingRepository ratings;
     private final StandingRepository standings;
@@ -38,10 +34,13 @@ public class CardDifficulty {
         this.clock = clock;
     }
 
-    /** Une révision : observateur synchrone, dans la transaction de la réponse. */
+    /**
+     * Une révision : observateur synchrone, dans la transaction de la réponse. Une réponse que le serveur n'a pas
+     * corrigée ne dit rien de la carte ; un exercice ne passe pas en duel.
+     */
     @Transactional(Transactional.TxType.MANDATORY)
     void onCardReviewed(@Observes CardReviewed event) {
-        if (!RATED_FORMATS.contains(event.cardType())) {
+        if (!event.gradedByServer() || event.cardType() == CardType.CODING_EXERCISE) {
             return;
         }
         Rating player = standings

@@ -3,6 +3,7 @@ package com.recallio.review.application;
 import com.recallio.content.CardDirectory;
 import com.recallio.content.CardDirectory.ActiveCard;
 import com.recallio.content.CardDirectory.CardFilter;
+import com.recallio.content.CardDirectory.CardFilter.Grading;
 import com.recallio.content.CardDirectory.CardSnapshot;
 import com.recallio.content.NotionInfo;
 import com.recallio.review.domain.AnswerMismatchException;
@@ -16,8 +17,8 @@ import java.util.Set;
 import java.util.UUID;
 
 /**
- * Cas d'usage : s'entraîner sur une notion (ADR 0038). Toutes ses cartes actives, les formats mêlés, et la correction
- * par le serveur de celles qui s'y prêtent (vrai ou faux, QCM, code à compléter ; un exercice s'essaie contre ses tests).
+ * Cas d'usage : s'entraîner sur une notion (ADR 0038). Toutes ses cartes actives que le serveur corrige (ADR 0063), les
+ * formats mêlés, et leur correction : sur leurs choix ou leurs trous ; un exercice s'essaie contre ses tests.
  * Rien n'est enregistré : ni le journal, ni FSRS, ni l'XP, ni la série ne voient ces réponses. Les cartes reviennent
  * ensuite dans les révisions espacées comme les autres, une par notion et par jour (ADR 0031).
  */
@@ -38,10 +39,10 @@ public class PracticeService {
      */
     public Practice practice(String subjectSlug, String notionSlug) {
         NotionInfo notion = notion(subjectSlug, notionSlug);
-        List<ActiveCard> notionCards =
-                cards.activeCards(new CardFilter(Set.of(subjectSlug), null, Set.of(), Set.of())).stream()
-                        .filter(card -> notion.id().equals(card.notionId()))
-                        .toList();
+        var filter = new CardFilter(Set.of(subjectSlug), null, Set.of(), Set.of(), Grading.SERVER);
+        List<ActiveCard> notionCards = cards.activeCards(filter).stream()
+                .filter(card -> notion.id().equals(card.notionId()))
+                .toList();
         List<UUID> ordered = PracticeOrder.arrange(notionCards, ActiveCard::type).stream()
                 .map(ActiveCard::cardId)
                 .toList();
@@ -53,7 +54,7 @@ public class PracticeService {
      *
      * @throws NotionNotFoundException si la notion est inconnue, retirée, ou d'un sujet non publié
      * @throws CardNotReviewableException si la carte n'est pas une carte active de cette notion
-     * @throws AnswerMismatchException si la carte s'auto-évalue, ou si la réponse ne convient pas à son format
+     * @throws AnswerMismatchException si la réponse ne convient pas à la carte
      */
     public AnswerCorrection check(String subjectSlug, String notionSlug, GradedAnswer answer) {
         NotionInfo notion = notion(subjectSlug, notionSlug);

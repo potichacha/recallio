@@ -3,6 +3,7 @@ package com.recallio.review.api;
 import static io.restassured.RestAssured.given;
 import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.everyItem;
 import static org.hamcrest.Matchers.hasSize;
@@ -32,22 +33,27 @@ import org.junit.jupiter.api.Test;
 /**
  * Chaque test se connecte avec un {@code sub} différent : chaque utilisateur a sa propre progression, ce qui isole les
  * tests les uns des autres. Le quota de nouvelles cartes vaut 3 en test (application.properties).
+ *
+ * <p>Le serveur corrige chaque carte révisée (ADR 0063) : les documents Markdown de test ne se révisent que par leurs
+ * QCM. Le document Java n'en a aucun ; ses cartes sans choix ne sont jamais proposées.
  */
 @QuarkusTest
 class ReviewsResourceTest {
 
     private static final String QUEUE = "/api/v1/review-queue";
     private static final String REVIEWS = "/api/v1/reviews";
-    private static final String THEME = "java-fondamentaux";
+    /** Les quatre QCM du document Quiz ; la bonne réponse des deux premiers est la seconde. */
+    private static final String THEME = "quiz-bases";
 
     @Inject
     ContentImportService contentImport;
 
-    /** Deux sujets publiés : Java (l'exemple de référence) et un petit document Go. */
+    /** Trois sujets publiés : Java (sans QCM), Go (trois QCM sur deux thèmes) et Quiz (quatre QCM). */
     @BeforeEach
     void importSubjects() throws IOException {
         importDocument("/content/reference-sample.md");
         importDocument("/content/go-sample.md");
+        importDocument("/content/quiz-sample.md");
     }
 
     private void importDocument(String resource) throws IOException {
@@ -70,10 +76,24 @@ class ReviewsResourceTest {
                 .body("dueCount", is(0))
                 .body("newCount", is(3))
                 .body("cards", hasSize(3))
-                .body("cards[0].prompt", containsString("JVM"))
+                .body("cards[0].prompt", containsString("2 + 2"))
                 .body("cards[0].state", equalTo("NEW"))
                 .body("cards[0].themeSlug", equalTo(THEME))
                 .body("nextDueAt", nullValue());
+    }
+
+    /** Plus d'auto-évaluation (ADR 0063) : une carte d'un document Markdown sans choix ne se révise plus. */
+    @Test
+    @TestSecurity(user = "alice")
+    @OidcSecurity(claims = @Claim(key = "sub", value = "review-markdown-without-choices"))
+    void shouldNotOfferAMarkdownCardWithoutChoices() {
+        queue("java-fondamentaux").body("cards", empty()).body("newCount", is(0));
+        given().queryParam("subject", "go")
+                .queryParam("type", "FLASHCARD")
+                .get(QUEUE)
+                .then()
+                .statusCode(200)
+                .body("cards", empty());
     }
 
     @Test
@@ -82,9 +102,10 @@ class ReviewsResourceTest {
     void shouldScheduleAReviewedCardAndCountItAgainstTheDailyLimit() {
         String cardId = firstCardId();
 
-        record(UUID.randomUUID(), cardId, "GOOD")
+        answer(UUID.randomUUID(), cardId, "[1]")
                 .statusCode(201)
                 .body("cardId", equalTo(cardId))
+                .body("rating", equalTo("GOOD"))
                 .body("state", equalTo("LEARNING"))
                 .body("dueAt", notNullValue());
 
@@ -101,47 +122,61 @@ class ReviewsResourceTest {
         String cardId = firstCardId();
         UUID requestId = UUID.randomUUID();
         String dueAt =
-                record(requestId, cardId, "EASY").statusCode(201).extract().path("dueAt");
+                answer(requestId, cardId, "[1]").statusCode(201).extract().path("dueAt");
 
-        record(requestId, cardId, "EASY")
+        answer(requestId, cardId, "[1]")
                 .statusCode(200)
                 .body("dueAt", equalTo(dueAt))
-                .body("state", equalTo("REVIEW"));
+                .body("state", equalTo("LEARNING"));
         queue(THEME).body("newCount", is(2));
     }
 
     @Test
     @TestSecurity(user = "alice")
     @OidcSecurity(claims = @Claim(key = "sub", value = "review-conflict"))
-    void shouldRejectARequestIdReusedForAnotherRating() {
+    void shouldRejectARequestIdReusedForAnotherAnswer() {
         String cardId = firstCardId();
         UUID requestId = UUID.randomUUID();
-        record(requestId, cardId, "GOOD").statusCode(201);
+        answer(requestId, cardId, "[1]").statusCode(201);
 
-        record(requestId, cardId, "AGAIN").statusCode(409).body("code", equalTo("review.request-id-conflict"));
+        answer(requestId, cardId, "[0]").statusCode(409).body("code", equalTo("review.request-id-conflict"));
     }
 
     @Test
     @TestSecurity(user = "alice")
     @OidcSecurity(claims = @Claim(key = "sub", value = "review-unknown-card"))
     void shouldRejectAnUnknownCard() {
-        record(UUID.randomUUID(), UUID.randomUUID().toString(), "GOOD")
+        answer(UUID.randomUUID(), UUID.randomUUID().toString(), "[0]")
                 .statusCode(404)
                 .body("code", equalTo("review.card-not-found"));
     }
 
+    /**
+     * Une carte sans choix ne se corrige pas : ni sans réponse, ni avec des choix, ni avec l'ancienne note d'auto-
+     * évaluation, que l'API ignore désormais (ADR 0063).
+     */
     @Test
     @TestSecurity(user = "alice")
-    @OidcSecurity(claims = @Claim(key = "sub", value = "review-invalid"))
-    void shouldRejectAMissingRatingOrChoicesSentForASelfAssessedCard() {
-        String cardId = firstCardId();
+    @OidcSecurity(claims = @Claim(key = "sub", value = "review-without-choices"))
+    void shouldRefuseToRecordACardThatHasNoChoices() {
+        String cardId = given().get("/api/v1/themes/java-fondamentaux/cards")
+                .then()
+                .statusCode(200)
+                .body("items[0].type", equalTo("FLASHCARD"))
+                .body("items[0].choices", empty())
+                .extract()
+                .path("items[0].id");
+
+        withoutAnswer(UUID.randomUUID(), cardId).statusCode(422).body("code", equalTo("review.answer-mismatch"));
+        answer(UUID.randomUUID(), cardId, "[0]").statusCode(422).body("code", equalTo("review.answer-mismatch"));
         given().contentType(ContentType.JSON)
-                .body("{\"requestId\": \"%s\", \"cardId\": \"%s\"}".formatted(UUID.randomUUID(), cardId))
+                .body("{\"requestId\": \"%s\", \"cardId\": \"%s\", \"rating\": \"GOOD\"}"
+                        .formatted(UUID.randomUUID(), cardId))
                 .post(REVIEWS)
                 .then()
                 .statusCode(422)
                 .body("code", equalTo("review.answer-mismatch"));
-        answer(UUID.randomUUID(), cardId, "[0]").statusCode(422).body("code", equalTo("review.answer-mismatch"));
+        given().get("/api/v1/me/progress").then().statusCode(200).body("cardsToday", is(0));
     }
 
     @Test
@@ -155,7 +190,7 @@ class ReviewsResourceTest {
                 .extract()
                 .path("cards[0].cardId");
 
-        record(UUID.randomUUID(), cardId, "EASY").statusCode(422).body("code", equalTo("review.answer-mismatch"));
+        withoutAnswer(UUID.randomUUID(), cardId).statusCode(422).body("code", equalTo("review.answer-mismatch"));
         UUID requestId = UUID.randomUUID();
         answer(requestId, cardId, "[0]")
                 .statusCode(201)
@@ -196,11 +231,11 @@ class ReviewsResourceTest {
                 .body("correction.explanation", equalTo("Non."));
     }
 
-    /** Une question de cours qui a reçu des choix se corrige comme un QCM : on ne peut plus s'auto-évaluer (ADR 0051). */
+    /** Une question de cours qui a ses choix se corrige comme un QCM (ADR 0051). */
     @Test
     @TestSecurity(user = "alice")
     @OidcSecurity(claims = @Claim(key = "sub", value = "review-course-with-choices"))
-    void shouldGradeACourseQuestionOnItsChoicesAndRefuseASelfAssessment() {
+    void shouldGradeACourseQuestionOnItsChoices() {
         contentImport.importFolder(
                 new SubjectFolder("""
                 subject: kotlin
@@ -239,7 +274,7 @@ class ReviewsResourceTest {
                 .extract()
                 .path("cards[0].cardId");
 
-        record(UUID.randomUUID(), cardId, "GOOD").statusCode(422).body("code", equalTo("review.answer-mismatch"));
+        withoutAnswer(UUID.randomUUID(), cardId).statusCode(422).body("code", equalTo("review.answer-mismatch"));
         answer(UUID.randomUUID(), cardId, "[2]")
                 .statusCode(201)
                 .body("rating", equalTo("GOOD"))
@@ -281,7 +316,7 @@ class ReviewsResourceTest {
                 .extract()
                 .path("cards[0].cardId");
 
-        record(UUID.randomUUID(), cardId, "GOOD").statusCode(422).body("code", equalTo("review.answer-mismatch"));
+        withoutAnswer(UUID.randomUUID(), cardId).statusCode(422).body("code", equalTo("review.answer-mismatch"));
         fill(UUID.randomUUID(), cardId, "[\"val\"]").statusCode(422);
         UUID requestId = UUID.randomUUID();
         fill(requestId, cardId, "[\" val \", \"var\"]")
@@ -304,13 +339,13 @@ class ReviewsResourceTest {
     void shouldFilterByThemeAndType() {
         given().queryParam("theme", "inconnu").get(QUEUE).then().statusCode(404);
 
-        given().queryParam("theme", THEME)
-                .queryParam("type", "OPEN_SCENARIO")
+        given().queryParam("theme", "go-maps")
+                .queryParam("type", "MULTIPLE_CHOICE")
                 .get(QUEUE)
                 .then()
                 .statusCode(200)
-                .body("cards", hasSize(2))
-                .body("cards.type", everyItem(equalTo("OPEN_SCENARIO")));
+                .body("cards", hasSize(1))
+                .body("cards.themeSlug", everyItem(equalTo("go-maps")));
     }
 
     @Test
@@ -338,33 +373,32 @@ class ReviewsResourceTest {
     @TestSecurity(user = "alice")
     @OidcSecurity(claims = @Claim(key = "sub", value = "review-two-subjects"))
     void shouldGiveEachFollowedSubjectItsOwnNewCardQuota() {
-        follow("java", "go");
+        follow("go", "quiz");
 
         given().get(QUEUE)
                 .then()
                 .statusCode(200)
                 .body("newCount", is(6))
-                .body("cards.subjectSlug", contains("java", "go", "java", "go", "java", "go"));
+                .body("cards.subjectSlug", contains("go", "quiz", "go", "quiz", "go", "quiz"));
     }
 
-    /** Le mode « questions corrigées » de la PWA (ADR 0048) : le document Go de test n'en a qu'une, son QCM. */
     @Test
     @TestSecurity(user = "alice")
-    @OidcSecurity(claims = @Claim(key = "sub", value = "review-graded-only"))
+    @OidcSecurity(claims = @Claim(key = "sub", value = "review-formats"))
     void shouldReviewOnlyTheRequestedFormats() {
         given().queryParam("subject", "go")
-                .queryParam("type", "MULTIPLE_CHOICE", "TRUE_FALSE", "FILL_IN", "CODING_EXERCISE")
+                .queryParam("type", "MULTIPLE_CHOICE", "FLASHCARD")
                 .get(QUEUE)
                 .then()
                 .statusCode(200)
-                .body("cards.type", contains("MULTIPLE_CHOICE"));
+                .body("cards.type", contains("MULTIPLE_CHOICE", "MULTIPLE_CHOICE", "MULTIPLE_CHOICE"));
     }
 
     @Test
     @TestSecurity(user = "alice")
     @OidcSecurity(claims = @Claim(key = "sub", value = "review-one-subject"))
     void shouldReviewARequestedSubjectEvenIfNotFollowed() {
-        follow("java");
+        follow("quiz");
 
         given().queryParam("subject", "go")
                 .get(QUEUE)
@@ -391,18 +425,19 @@ class ReviewsResourceTest {
         return given().queryParam("theme", theme).get(QUEUE).then().statusCode(200);
     }
 
+    /** Le premier QCM du document Quiz, « 2 + 2 » : sa bonne réponse est la seconde. */
     private static String firstCardId() {
         return queue(THEME).extract().path("cards[0].cardId");
     }
 
-    /** Le QCM du document Go de test, seul de son format. */
+    /** Le premier QCM du document Go de test, sur les channels fermés. */
     private static ValidatableResponse multipleChoiceCard() {
         return given().queryParam("subject", "go")
                 .queryParam("type", "MULTIPLE_CHOICE")
                 .get(QUEUE)
                 .then()
                 .statusCode(200)
-                .body("cards", hasSize(1));
+                .body("cards", hasSize(3));
     }
 
     /** Un sujet en dossier (ADR 0026) avec un vrai ou faux et un code à trous (ADR 0027). */
@@ -444,16 +479,16 @@ class ReviewsResourceTest {
 
     private static ValidatableResponse answer(UUID requestId, String cardId, String selectedChoices) {
         return given().contentType(ContentType.JSON)
-                .body("{\"requestId\": \"%s\", \"cardId\": \"%s\", \"selectedChoices\": %s}"
+                .body("{\"requestId\": \"%s\", \"cardId\": \"%s\", \"selectedChoices\": %s, \"elapsedMs\": 4200}"
                         .formatted(requestId, cardId, selectedChoices))
                 .post(REVIEWS)
                 .then();
     }
 
-    private static ValidatableResponse record(UUID requestId, String cardId, String rating) {
+    /** Une requête sans réponse : ni choix, ni trous, ni fichiers. */
+    private static ValidatableResponse withoutAnswer(UUID requestId, String cardId) {
         return given().contentType(ContentType.JSON)
-                .body("{\"requestId\": \"%s\", \"cardId\": \"%s\", \"rating\": \"%s\", \"elapsedMs\": 4200}"
-                        .formatted(requestId, cardId, rating))
+                .body("{\"requestId\": \"%s\", \"cardId\": \"%s\"}".formatted(requestId, cardId))
                 .post(REVIEWS)
                 .then();
     }

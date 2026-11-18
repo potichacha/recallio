@@ -5,7 +5,8 @@ import java.util.Set;
 import java.util.UUID;
 
 /**
- * Une question de la partie, figée au démarrage : un QCM du sujet (ADR 0019), tel qu'il était à cet instant.
+ * Une question de la partie, figée au démarrage : une question à choix du sujet (ADR 0019, 0063), telle qu'elle était à
+ * cet instant.
  *
  * @param correctChoices les positions des bonnes réponses, à partir de 0 ; jamais envoyées avant la correction
  */

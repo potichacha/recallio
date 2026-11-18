@@ -8,7 +8,9 @@ import static org.hamcrest.Matchers.notNullValue;
 import static org.hamcrest.Matchers.nullValue;
 
 import com.recallio.content.application.ContentImportService;
+import com.recallio.content.domain.CardIdentity;
 import com.recallio.content.domain.source.SubjectFolder;
+import com.recallio.review.domain.Rating;
 import io.quarkus.narayana.jta.QuarkusTransaction;
 import io.quarkus.test.junit.QuarkusTest;
 import io.quarkus.test.security.TestSecurity;
@@ -49,11 +51,28 @@ class PublicProfileTest {
                   - {id: bases, title: "Les bases", level: beginner, priority: 1}
             """;
 
-    /** Un vrai ou faux : la réponse juste est « Faux », le second choix. */
+    /**
+     * Un vrai ou faux (la réponse juste est « Faux », le second choix), puis deux questions de cours à choix (la première
+     * juste), ses sœurs : la file ne propose que la première carte le même jour (ADR 0031).
+     */
     private static final String BASES = """
             notion: bases
             cards:
               - {key: vrai-faux, format: true-false, question: "Haxe ne compile que vers JavaScript.", truth: false, answer: "Non."}
+              - key: cours
+                format: course
+                question: "Vers quoi Haxe compile-t-il ?"
+                choices:
+                  - {text: "Vers plusieurs langages", correct: true}
+                  - {text: "Vers JavaScript seulement", correct: false}
+                answer: "Vers JavaScript, C++, la JVM et d'autres."
+              - key: cours-ancien
+                format: course
+                question: "Qui a créé Haxe ?"
+                choices:
+                  - {text: "Nicolas Cannasse", correct: true}
+                  - {text: "Brendan Eich", correct: false}
+                answer: "Nicolas Cannasse."
             """;
 
     @Inject
@@ -107,6 +126,62 @@ class PublicProfileTest {
 
         update("alice-dev", false).statusCode(200);
         given().get(PUBLIC + "alice-dev").then().statusCode(404);
+    }
+
+    /**
+     * Le vérifié compte les réussites corrigées par le serveur, quel que soit le format (ADR 0063) : une question de cours
+     * à choix en est une. Un ancien « Je savais », donné à une version de la carte qui n'avait pas encore ses choix, n'en
+     * est pas une, même si la carte en a maintenant.
+     */
+    @Test
+    @TestSecurity(user = "alice")
+    @OidcSecurity(claims = @Claim(key = "sub", value = "public-profile-self-assessed"))
+    void shouldCountACourseQuestionWithChoicesButNotAnOldSelfAssessedSuccess() {
+        follow("haxe");
+        answerRight();
+        given().contentType(ContentType.JSON)
+                .body("{\"requestId\": \"%s\", \"cardId\": \"%s\", \"selectedChoices\": [0]}"
+                        .formatted(UUID.randomUUID(), CardIdentity.keyedCardId("haxe", "bases", "cours")))
+                .post("/api/v1/reviews")
+                .then()
+                .statusCode(201)
+                .body("rating", is("GOOD"));
+        recallAVersionWithoutChoices(CardIdentity.keyedCardId("haxe", "bases", "cours-ancien"));
+
+        update("alice-declare", true).statusCode(200);
+        given().get(PUBLIC + "alice-declare").then().statusCode(200).body("subjects[0].verified.correctAnswers", is(2));
+    }
+
+    /**
+     * Un « Je savais » d'avant la fin de l'auto-évaluation, sur une version de la carte sans choix, écrit en base. La
+     * version reste à l'écart de la version courante, et loin des numéros que donnerait un réimport.
+     */
+    private void recallAVersionWithoutChoices(UUID cardId) {
+        QuarkusTransaction.requiringNew().run(() -> {
+            UUID versionId = UUID.randomUUID();
+            entityManager
+                    .createNativeQuery("""
+                            insert into card_version (id, card_id, version, prompt, answer, content_hash, created_at)
+                            select :version, :card, max(version) + 1000, 'Qui a créé Haxe ?', 'Nicolas Cannasse.',
+                                'sans-choix', now()
+                            from card_version where card_id = :card
+                            """)
+                    .setParameter("version", versionId)
+                    .setParameter("card", cardId)
+                    .executeUpdate();
+            entityManager
+                    .createNativeQuery("""
+                            insert into review_log (id, request_id, user_id, card_id, card_version_id, rating,
+                                reviewed_at, state, stability, difficulty, due_at)
+                            select gen_random_uuid(), gen_random_uuid(), u.id, :card, :version, :good,
+                                now() - interval '30 days', 'REVIEW', 10, 5, now()
+                            from app_user u where u.oidc_subject = 'public-profile-self-assessed'
+                            """)
+                    .setParameter("card", cardId)
+                    .setParameter("version", versionId)
+                    .setParameter("good", (short) Rating.GOOD.value())
+                    .executeUpdate();
+        });
     }
 
     @Test

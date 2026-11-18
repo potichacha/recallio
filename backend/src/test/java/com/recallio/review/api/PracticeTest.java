@@ -50,12 +50,15 @@ class PracticeTest {
                   - {id: processus, title: "Les processus", level: beginner, priority: 1}
             """;
 
-    /** Dans l'ordre du fichier : deux cours, deux vrai ou faux (« Vrai », puis « Faux »), un QCM, un code à trous. */
+    /**
+     * Dans l'ordre du fichier : deux cours à choix (le premier juste), deux vrai ou faux (« Vrai », puis « Faux »), un QCM,
+     * un code à trous.
+     */
     private static final String MODULES = """
             notion: modules
             cards:
-              - {key: cours-1, format: course, question: "Comment définir un module ?", answer: "Avec defmodule."}
-              - {key: cours-2, format: course, question: "Comment appeler une fonction ?", answer: "Module.fonction()."}
+              - {key: cours-1, format: course, question: "Comment définir un module ?", answer: "Avec defmodule.", choices: [{text: defmodule, correct: true}, {text: module, correct: false}]}
+              - {key: cours-2, format: course, question: "Comment appeler une fonction ?", answer: "Module.fonction().", choices: [{text: Module.fonction(), correct: true}, {text: fonction(Module), correct: false}]}
               - {key: vrai-faux-1, format: true-false, question: "defmodule définit un module.", truth: true, answer: "Oui."}
               - {key: vrai-faux-2, format: true-false, question: "class définit un module.", truth: false, answer: "Non."}
               - key: choix
@@ -106,8 +109,8 @@ class PracticeTest {
                 .body(
                         "cards.type",
                         contains("FLASHCARD", "TRUE_FALSE", "MULTIPLE_CHOICE", "FILL_IN", "FLASHCARD", "TRUE_FALSE"))
-                .body("cards[0].answer", equalTo("Avec defmodule."))
-                .body("cards[1].answer", nullValue())
+                .body("cards[0].choices", contains("defmodule", "module"))
+                .body("cards[0].answer", nullValue())
                 .body("cards[1].choices", contains("Vrai", "Faux"))
                 .body("cards[2].multipleAnswers", is(false))
                 .body("cards[3].blankCount", is(1));
@@ -119,6 +122,11 @@ class PracticeTest {
     void shouldCorrectAnAnswerWithoutRecordingAnything() {
         List<String> ids = cardIds(PRACTICE);
 
+        // Une question de cours se corrige sur ses choix (ADR 0051).
+        check(choice(ids.get(0), 0))
+                .statusCode(200)
+                .body("correct", is(true))
+                .body("explanation", equalTo("Avec defmodule."));
         check(choice(ids.get(1), 1))
                 .statusCode(200)
                 .body("correct", is(false))
@@ -143,7 +151,9 @@ class PracticeTest {
         String course = cardIds(PRACTICE).getFirst();
         String otherNotion = cardIds("/api/v1/me/practice/elixir/processus").getFirst();
 
-        check(choice(course, 0)).statusCode(422).body("code", equalTo("review.answer-mismatch"));
+        check(Map.of("cardId", course, "filledBlanks", List.of("defmodule")))
+                .statusCode(422)
+                .body("code", equalTo("review.answer-mismatch"));
         check(choice(otherNotion, 0)).statusCode(404).body("code", equalTo("review.card-not-found"));
         check(choice(UUID.randomUUID().toString(), 0)).statusCode(404);
         given().get("/api/v1/me/practice/elixir/inconnue")

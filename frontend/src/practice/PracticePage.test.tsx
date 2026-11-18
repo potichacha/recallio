@@ -12,7 +12,6 @@ const PRACTICE = {
       cardId: 'c1',
       type: 'TRUE_FALSE',
       prompt: '`main` prend des paramètres.',
-      answer: null,
       choices: ['Vrai', 'Faux'],
       multipleAnswers: false,
       blankCount: 0,
@@ -22,8 +21,7 @@ const PRACTICE = {
       cardId: 'c2',
       type: 'FLASHCARD',
       prompt: 'Où commence un programme Go ?',
-      answer: 'Dans `func main`, du package `main`.',
-      choices: [],
+      choices: ['Dans `func main`, du package `main`', 'Dans `func init`', 'À la première ligne'],
       multipleAnswers: false,
       blankCount: 0,
       exercise: null,
@@ -32,7 +30,6 @@ const PRACTICE = {
       cardId: 'c3',
       type: 'FILL_IN',
       prompt: '`package ___`',
-      answer: null,
       choices: [],
       multipleAnswers: false,
       blankCount: 1,
@@ -44,7 +41,7 @@ const PRACTICE = {
 const CHECKS = 'POST /api/v1/me/practice/go/hello-world/checks'
 
 describe('PracticePage', () => {
-  it('goes through every card of the notion, the server correcting what it can', async () => {
+  it('goes through every card of the notion, each one corrected by the server', async () => {
     const responses: Parameters<typeof stubApi>[0] = {
       ...SIGNED_IN_API,
       '/api/v1/me/practice/go/hello-world': { body: PRACTICE },
@@ -73,12 +70,22 @@ describe('PracticePage', () => {
     const sent = sentRequests(fetchMock).find((request) => request.url.endsWith('/checks'))
     expect(await sent?.json()).toEqual({ cardId: 'c1', selectedChoices: [0] })
 
+    // Une question de cours se corrige comme un vrai ou faux : elle n'a plus de réponse à retourner (ADR 0063).
+    responses[CHECKS] = {
+      body: {
+        cardId: 'c2',
+        correct: true,
+        correctChoices: [0],
+        blanks: [],
+        explanation: 'Dans `func main`, du package `main`.',
+      },
+    }
     await userEvent.click(screen.getByRole('button', { name: 'Carte suivante' }))
     expect(screen.getByText('Carte 2 sur 3')).toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: 'Voir la réponse' }))
-    expect(screen.getByRole('region', { name: 'Réponse' })).toHaveTextContent(
-      'Dans func main, du package main.',
-    )
+    expect(screen.queryByRole('button', { name: 'Voir la réponse' })).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('radio', { name: /Dans func main/ }))
+    await userEvent.click(screen.getByRole('button', { name: 'Vérifier' }))
+    expect(await screen.findByText('Juste !')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Carte suivante' }))
 
     responses[CHECKS] = {
@@ -96,9 +103,7 @@ describe('PracticePage', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Carte suivante' }))
 
     expect(screen.getByRole('status')).toHaveTextContent('Entraînement terminé !')
-    expect(
-      screen.getByText('1 / 2 juste parmi les cartes corrigées par le serveur.'),
-    ).toBeInTheDocument()
+    expect(screen.getByText('2 / 3 justes.')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Revenir au Tour' })).toHaveAttribute(
       'href',
       '/subjects/go/tour/hello-world',

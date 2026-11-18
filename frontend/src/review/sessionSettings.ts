@@ -1,6 +1,3 @@
-import type { CardType } from '../api/content'
-import { SERVER_GRADED_TYPES } from '../components/cardTypeLabels'
-
 /** Les durées proposées pour une session, en minutes (ADR 0048). */
 export const SESSION_MINUTES = [5, 10, 15, 20] as const
 
@@ -10,24 +7,20 @@ export type TimedMinutes = (typeof SESSION_MINUTES)[number]
 /** La durée d'une session, en minutes ; `null` : sans limite. */
 export type SessionMinutes = TimedMinutes | null
 
-/** Toutes les questions, ou seulement celles que le serveur corrige (ADR 0048). */
-export type SessionMode = 'all' | 'graded'
-
-export type SessionSettings = { subject: string; minutes: SessionMinutes; mode: SessionMode }
+export type SessionSettings = { subject: string; minutes: SessionMinutes }
 
 export const DEFAULT_MINUTES: TimedMinutes = 10
-export const DEFAULT_MODE: SessionMode = 'all'
 
 const STORAGE_KEY = 'recallio.review-session'
 
 const isMinutes = (value: unknown): value is SessionMinutes =>
   value === null || SESSION_MINUTES.some((minutes) => minutes === value)
 
-const isMode = (value: unknown): value is SessionMode => value === 'all' || value === 'graded'
-
 /**
  * Les derniers réglages choisis sur cet appareil, pour lancer la session suivante d'un geste. Rien si le stockage est
- * vide, illisible ou indisponible (navigation privée, par exemple) : les valeurs par défaut prennent le relais.
+ * vide, illisible ou indisponible (navigation privée, par exemple) : les valeurs par défaut prennent le relais. Le mode
+ * « questions corrigées » qu'une version précédente y rangeait est ignoré : le serveur corrige toutes les cartes qu'on
+ * révise (ADR 0063).
  */
 export function loadSessionSettings(): Partial<SessionSettings> {
   try {
@@ -36,7 +29,6 @@ export function loadSessionSettings(): Partial<SessionSettings> {
     const settings: Partial<SessionSettings> = {}
     if ('subject' in stored && typeof stored.subject === 'string') settings.subject = stored.subject
     if ('minutes' in stored && isMinutes(stored.minutes)) settings.minutes = stored.minutes
-    if ('mode' in stored && isMode(stored.mode)) settings.mode = stored.mode
     return settings
   } catch {
     return {}
@@ -49,9 +41,4 @@ export function saveSessionSettings(settings: SessionSettings) {
   } catch {
     // Stockage indisponible : la prochaine session repartira des valeurs par défaut.
   }
-}
-
-/** Les formats révisés dans ce mode ; aucun : tous les formats. */
-export function sessionTypes(mode: SessionMode): CardType[] | undefined {
-  return mode === 'graded' ? [...SERVER_GRADED_TYPES] : undefined
 }

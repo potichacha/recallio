@@ -10,10 +10,11 @@ import java.util.UUID;
 import java.util.stream.IntStream;
 
 /**
- * La correction, par le serveur, d'une réponse à un vrai ou faux, un QCM ou un code à compléter, sans rien enregistrer :
- * pour les questions du Tour (ADR 0037) et l'entraînement (ADR 0038).
+ * La correction, par le serveur, d'une réponse à une carte à choix, quel que soit son format, ou à un code à compléter,
+ * sans rien enregistrer : pour les questions du Tour (ADR 0037), l'entraînement (ADR 0038), le carnet d'erreurs, l'essai
+ * et l'examen blanc.
  *
- * @param correctChoices les bonnes réponses d'un QCM ou d'un vrai ou faux ; aucune pour un code à trous
+ * @param correctChoices les bonnes réponses d'une carte à choix ; aucune pour un code à trous
  * @param blanks la correction de chaque trou d'un code à trous ; aucune pour les autres formats
  * @param explanation le verso de la carte, en Markdown
  */
@@ -28,7 +29,8 @@ public record AnswerCorrection(
     /**
      * Corrige la réponse donnée à cette carte.
      *
-     * @throws AnswerMismatchException si la carte s'auto-évalue, ou si la réponse ne convient pas à son format
+     * @throws AnswerMismatchException si la réponse ne convient pas à la carte, ou si le serveur ne la corrige pas sans
+     *     exécuter de code (une carte sans choix ni trous)
      */
     public static AnswerCorrection grade(CardSnapshot card, GradedAnswer answer) {
         if (card.isGradedByChoices()) {

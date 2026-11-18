@@ -63,6 +63,9 @@ class YamlSubjectFolderParserTest {
               - key: emplacement-du-pool
                 format: course
                 question: Où se trouve le pool de chaînes ?
+                choices:
+                  - {text: Dans le tas, correct: true}
+                  - {text: Dans la pile, correct: false}
                 answer: Dans le tas depuis Java 7.
               - key: concatenation-constante
                 format: code-output
@@ -70,6 +73,9 @@ class YamlSubjectFolderParserTest {
                   ```java
                   System.out.println("Ja" + "va" == "Java");
                   ```
+                choices:
+                  - {text: "`true`", correct: true}
+                  - {text: "`false`", correct: false}
                 answer: "`true` : la concaténation est calculée à la compilation."
               - key: comparer
                 format: multiple-choice
@@ -118,6 +124,9 @@ class YamlSubjectFolderParserTest {
               - key: emplacement-du-pool
                 format: course
                 question: Où se trouve le pool de chaînes ?
+                choices:
+                  - {text: Dans le tas, correct: true}
+                  - {text: Dans la pile, correct: false}
                 answer: Dans le tas depuis Java 7.
               - {key: vrai-faux, format: true-false, question: "Une affirmation vraie.", truth: true, answer: Oui.}
               - key: choix
@@ -240,7 +249,7 @@ class YamlSubjectFolderParserTest {
     }
 
     @Test
-    void shouldRequireTwoCardsGradedByTheServerInANotionOfTheTour() {
+    void shouldRequireTwoCardsWithChoicesOrBlanksInANotionOfTheTour() {
         ParsedContent parsed = parse(Map.of("api-de-base/string-pool.yaml", """
                 notion: string-pool
                 tour:
@@ -253,14 +262,39 @@ class YamlSubjectFolderParserTest {
                           }
                       output: ok
                 cards:
-                  - {key: cours, format: course, question: "Une question ?", answer: Une réponse.}
                   - {key: vrai-faux, format: true-false, question: "Une affirmation vraie.", truth: true, answer: Oui.}
                 """));
 
         assertThat(parsed.issues())
                 .extracting(SourceIssue::reason)
-                .containsExactly("Tour : la notion « string-pool » a 1 carte(s) corrigée(s) par le serveur (vrai ou "
-                        + "faux, QCM, code à compléter) ; il en faut au moins 2 pour la valider");
+                .containsExactly("Tour : la notion « string-pool » a 1 carte(s) à choix ou à trous ; il en faut au"
+                        + " moins 2 pour la valider");
+    }
+
+    /** Une question de cours à choix pose une question du Tour comme un QCM (ADR 0063). */
+    @Test
+    void shouldCountACourseQuestionWithChoicesAmongTheQuestionsOfTheTour() {
+        ParsedContent parsed = parse(Map.of("api-de-base/string-pool.yaml", """
+                notion: string-pool
+                tour:
+                  - text: Une page.
+                    example:
+                      files:
+                        Main.java: |-
+                          void main() {
+                              IO.println("ok");
+                          }
+                      output: ok
+                cards:
+                  - key: cours
+                    format: course
+                    question: Une question ?
+                    choices: [{text: La bonne, correct: true}, {text: La mauvaise, correct: false}]
+                    answer: Une réponse.
+                  - {key: vrai-faux, format: true-false, question: "Une affirmation vraie.", truth: true, answer: Oui.}
+                """));
+
+        assertThat(parsed.issues()).isEmpty();
     }
 
     /** Un fichier de notion avec une page du Tour en Java, et les deux cartes corrigées qui la valident. */
@@ -335,8 +369,10 @@ class YamlSubjectFolderParserTest {
                 .cards();
 
         assertThat(cards.get(0).content())
-                .isEqualTo(
-                        new CardContent.Flashcard("Où se trouve le pool de chaînes ?", "Dans le tas depuis Java 7."));
+                .isEqualTo(new CardContent.Flashcard(
+                        "Où se trouve le pool de chaînes ?",
+                        "Dans le tas depuis Java 7.",
+                        List.of(new CardChoice("Dans le tas", true), new CardChoice("Dans la pile", false))));
         assertThat(cards.get(1).content().type()).isEqualTo(CardType.CODE_OUTPUT);
         assertThat(cards.get(1).content().prompt()).startsWith("```java").endsWith("```");
         assertThat(cards.get(2).content().choices())
@@ -348,27 +384,29 @@ class YamlSubjectFolderParserTest {
         String notion = """
                 notion: string-bases
                 cards:
-                  - {key: valide, format: course, question: "Q ?", answer: "R."}
-                  - {key: valide, format: course, question: "Autre ?", answer: "R."}
-                  - {key: Majuscule, format: course, question: "Q ?", answer: "R."}
+                  - {key: valide, format: course, question: "Q ?", answer: "R.", %1$s}
+                  - {key: valide, format: course, question: "Autre ?", answer: "R.", %1$s}
+                  - {key: Majuscule, format: course, question: "Q ?", answer: "R.", %1$s}
                   - {key: exercice, format: exercise, question: "Q ?", answer: "R."}
                   - {key: trous-sans-reponses, format: fill-in, question: "`___`", answer: "R."}
                   - {key: trous-en-trop, format: fill-in, question: "`___`", answer: "R.", blanks: [[a], [b]]}
-                  - {key: trous-hors-format, format: course, question: "Q ?", answer: "R.", blanks: [[a]]}
+                  - {key: trous-hors-format, format: course, question: "Q ?", answer: "R.", blanks: [[a]], %1$s}
                   - {key: vrai-faux-sans-valeur, format: true-false, question: "Q ?", answer: "R."}
-                  - {key: valeur-hors-vrai-faux, format: course, question: "Q ?", answer: "R.", truth: true}
+                  - {key: valeur-hors-vrai-faux, format: course, question: "Q ?", answer: "R.", truth: true, %1$s}
                   - {key: inconnu, format: quiz, question: "Q ?", answer: "R."}
                   - {key: qcm-sans-choix, format: multiple-choice, question: "Q ?", answer: "R."}
                   - {key: qcm-un-choix, format: multiple-choice, question: "Q ?", answer: "R.", choices: [{text: a, correct: true}]}
-                  - {key: choix-sur-vrai-faux, format: true-false, question: "Q ?", answer: "R.", truth: true, choices: [{text: a, correct: true}, {text: b, correct: false}]}
+                  - {key: choix-sur-vrai-faux, format: true-false, question: "Q ?", answer: "R.", truth: true, %1$s}
                   - {key: choix-en-double, format: course, question: "Q ?", answer: "R.", choices: [{text: a, correct: true}, {text: a, correct: false}]}
-                  - {key: vide, format: course, question: " ", answer: "R."}
-                  - {key: verification-hors-format, format: course, question: "Q ?", answer: "R.", check: {output: "1"}}
-                  - {key: verification-et-raison, format: code-output, question: "Q ?", answer: "R.", check: {output: "1"}, unverifiable: threads}
-                  - {key: verification-sans-attendu, format: code-output, question: "Q ?", answer: "R.", check: {code: "f();"}}
-                  - {key: compile-et-affiche, format: code-output, question: "Q ?", answer: "R.", check: {output: "1", compiles: false}}
-                  - {key: verifiee, format: code-output, question: "Q ?", answer: "R.", check: {code: "f();", throws: NullPointerException}}
-                """;
+                  - {key: cours-sans-choix, format: course, question: "Q ?", answer: "R."}
+                  - {key: bug-sans-choix, format: bug-fix, question: "Q ?", answer: "R."}
+                  - {key: vide, format: course, question: " ", answer: "R.", %1$s}
+                  - {key: verification-hors-format, format: course, question: "Q ?", answer: "R.", check: {output: "1"}, %1$s}
+                  - {key: verification-et-raison, format: code-output, question: "Q ?", answer: "R.", check: {output: "1"}, unverifiable: threads, %1$s}
+                  - {key: verification-sans-attendu, format: code-output, question: "Q ?", answer: "R.", check: {code: "f();"}, %1$s}
+                  - {key: compile-et-affiche, format: code-output, question: "Q ?", answer: "R.", check: {output: "1", compiles: false}, %1$s}
+                  - {key: verifiee, format: code-output, question: "Q ?", answer: "R.", check: {code: "f();", throws: NullPointerException}, %1$s}
+                """.formatted("choices: [{text: a, correct: true}, {text: b, correct: false}]");
 
         ParsedContent parsed = parse(Map.of("api-de-base/string-bases.yaml", notion));
 
@@ -389,6 +427,8 @@ class YamlSubjectFolderParserTest {
                         "qcm-un-choix",
                         "choix-sur-vrai-faux",
                         "choix-en-double",
+                        "cours-sans-choix",
+                        "bug-sans-choix",
                         "vide",
                         "verification-hors-format",
                         "verification-et-raison",
@@ -396,6 +436,8 @@ class YamlSubjectFolderParserTest {
                         "compile-et-affiche");
         assertThat(parsed.issues().get(2).reason())
                 .contains("son propre dossier : exercices/api-de-base/string-bases/");
+        assertThat(parsed.issues().get(13).reason()).contains("une carte « course » a besoin de ses choix");
+        assertThat(parsed.issues().get(14).reason()).contains("une carte « bug-fix » a besoin de ses choix");
     }
 
     @Test
@@ -421,10 +463,8 @@ class YamlSubjectFolderParserTest {
                   - {key: pas-encore, format: course, question: "Qu'est-ce qu'une chaîne ?", answer: "Une suite de caractères."}
                 """;
 
-        var cards = parse(Map.of("api-de-base/string-bases.yaml", notion))
-                .themes()
-                .getFirst()
-                .cards();
+        ParsedContent parsed = parse(Map.of("api-de-base/string-bases.yaml", notion));
+        var cards = parsed.themes().getFirst().cards();
 
         assertThat(cards.get(0).content()).isInstanceOf(CardContent.Flashcard.class);
         assertThat(cards.get(0).content().choices())
@@ -432,12 +472,13 @@ class YamlSubjectFolderParserTest {
                 .containsExactly(false, false, true);
         assertThat(cards.get(1).content().type()).isEqualTo(CardType.OPEN_SCENARIO);
         assertThat(cards.get(1).content().choices()).hasSize(2);
-        // Une carte qui n'a pas encore reçu de choix s'auto-évalue, le temps de la migration (ADR 0051).
-        assertThat(cards.get(2).content().choices()).isEmpty();
+        // Plus d'auto-évaluation (ADR 0063) : une carte sans choix n'est pas importée.
+        assertThat(cards).hasSize(2);
+        assertThat(parsed.issues()).extracting(SourceIssue::excerpt).containsExactly("pas-encore");
     }
 
     @Test
-    void shouldReadATrueFalseCardAsTwoFixedChoicesAndABugFixAsSelfAssessed() {
+    void shouldReadATrueFalseCardAsTwoFixedChoicesAndRefuseABugFixWithoutChoices() {
         String notion = """
                 notion: string-bases
                 cards:
@@ -448,16 +489,18 @@ class YamlSubjectFolderParserTest {
                     answer: "`if (\\"oui\\".equals(s))`"
                 """;
 
-        var cards = parse(Map.of("api-de-base/string-bases.yaml", notion))
-                .themes()
-                .getFirst()
-                .cards();
+        ParsedContent parsed = parse(Map.of("api-de-base/string-bases.yaml", notion));
+        var cards = parsed.themes().getFirst().cards();
 
-        assertThat(cards.get(0).content()).isEqualTo(new CardContent.TrueFalse("String est immuable.", "Oui.", true));
-        assertThat(cards.get(0).content().choices())
-                .containsExactly(new CardChoice("Vrai", true), new CardChoice("Faux", false));
-        assertThat(cards.get(1).content().type()).isEqualTo(CardType.BUG_FIX);
-        assertThat(cards.get(1).content().choices()).isEmpty();
+        assertThat(cards).singleElement().satisfies(card -> {
+            assertThat(card.content()).isEqualTo(new CardContent.TrueFalse("String est immuable.", "Oui.", true));
+            assertThat(card.content().choices())
+                    .containsExactly(new CardChoice("Vrai", true), new CardChoice("Faux", false));
+        });
+        assertThat(parsed.issues()).singleElement().satisfies(issue -> {
+            assertThat(issue.excerpt()).isEqualTo("bug");
+            assertThat(issue.reason()).contains("une carte « bug-fix » a besoin de ses choix");
+        });
     }
 
     @Test

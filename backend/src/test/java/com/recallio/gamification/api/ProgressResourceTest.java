@@ -39,6 +39,8 @@ class ProgressResourceTest {
     private static final String PROGRESS = "/api/v1/me/progress";
     private static final String QUEUE = "/api/v1/review-queue";
     private static final int DAILY_GOAL = 2;
+    /** Une bonne réponse à un QCM : son XP de base et le bonus d'une réussite corrigée par le serveur (ADR 0035). */
+    private static final int RIGHT_ANSWER_XP = 10 + 5;
 
     @Inject
     ContentImportService contentImport;
@@ -50,11 +52,14 @@ class ProgressResourceTest {
     @Inject
     Clock clock;
 
-    /** Deux sujets publiés : Java (l'exemple de référence) et un petit document Go, qui a un QCM. */
+    /**
+     * Deux sujets publiés, que l'on révise par leurs QCM (ADR 0063) : un petit document Go (trois QCM) et un Quiz (quatre
+     * QCM). La bonne réponse des trois QCM de Go et des deux premiers du Quiz est la seconde.
+     */
     @BeforeEach
     void importSubjects() throws IOException {
-        importDocument("/content/reference-sample.md");
         importDocument("/content/go-sample.md");
+        importDocument("/content/quiz-sample.md");
     }
 
     private void importDocument(String resource) throws IOException {
@@ -85,14 +90,17 @@ class ProgressResourceTest {
     @TestSecurity(user = "alice")
     @OidcSecurity(claims = @Claim(key = "sub", value = "progress-goal"))
     void shouldAwardXpAndStartTheStreakWhenTheDailyGoalIsReached() {
-        List<String> cards = flashcardIds();
+        List<String> cards = goQuestionIds();
 
         review(UUID.randomUUID(), cards.get(0));
-        progress().body("totalXp", is(10)).body("cardsToday", is(1)).body("streak", is(0));
+        progress()
+                .body("totalXp", is(RIGHT_ANSWER_XP))
+                .body("cardsToday", is(1))
+                .body("streak", is(0));
 
         review(UUID.randomUUID(), cards.get(1));
         progress()
-                .body("totalXp", is(10 + 10 + 50))
+                .body("totalXp", is(RIGHT_ANSWER_XP + RIGHT_ANSWER_XP + 50))
                 .body("cardsToday", is(2))
                 .body("goalReachedToday", is(true))
                 .body("streak", is(1));
@@ -103,28 +111,29 @@ class ProgressResourceTest {
     @OidcSecurity(claims = @Claim(key = "sub", value = "progress-replay"))
     void shouldNotAwardXpTwiceForAReplayedReview() {
         UUID requestId = UUID.randomUUID();
-        String card = flashcardIds().getFirst();
+        String card = goQuestionIds().getFirst();
 
         review(requestId, card).statusCode(201);
         review(requestId, card).statusCode(200);
 
-        progress().body("totalXp", is(10)).body("cardsToday", is(1));
+        progress().body("totalXp", is(RIGHT_ANSWER_XP)).body("cardsToday", is(1));
     }
 
     @Test
     @TestSecurity(user = "alice")
     @OidcSecurity(claims = @Claim(key = "sub", value = "progress-subjects"))
     void shouldGiveTheXpAndTheLevelOfEachFollowedSubject() {
-        follow("java", "go");
+        follow("go", "quiz");
 
-        review(UUID.randomUUID(), flashcardIds().getFirst());
-        // Le QCM de Go, juste : son XP de base et un bonus, puis celui de l'objectif du jour, qui n'a pas de sujet.
-        answer(goMultipleChoiceId(), "[1]").statusCode(201).body("rating", equalTo("GOOD"));
+        // Un QCM de Go, juste : son XP de base et un bonus.
+        review(UUID.randomUUID(), goQuestionIds().getFirst()).body("rating", equalTo("GOOD"));
+        // Un QCM du Quiz, faux : son XP de base seulement, puis celle de l'objectif du jour, qui n'a pas de sujet.
+        answer(quizQuestionId(), "[0]").statusCode(201).body("rating", equalTo("AGAIN"));
 
         progress()
-                .body("totalXp", is(10 + (10 + 5) + 50))
-                .body("subjects.slug", contains("java", "go"))
-                .body("subjects.xp", contains(10, 15))
+                .body("totalXp", is(RIGHT_ANSWER_XP + 10 + 50))
+                .body("subjects.slug", contains("go", "quiz"))
+                .body("subjects.xp", contains(RIGHT_ANSWER_XP, 10))
                 .body("subjects.level", contains(1, 1))
                 .body("subjects.levelXp", contains(0, 0))
                 .body("subjects.nextLevelXp", contains(100, 100));
@@ -136,7 +145,7 @@ class ProgressResourceTest {
     void shouldEarnAStreakFreezeWhenTheGoalIsReachedTheSeventhDayInARow() {
         LocalDate today = LocalDate.now(clock.withZone(myTimezone()));
         goalReached(today.minusDays(6), today.minusDays(1));
-        List<String> cards = flashcardIds();
+        List<String> cards = goQuestionIds();
 
         review(UUID.randomUUID(), cards.get(0));
         progress().body("streak", is(6)).body("streakFreezes", is(0)).body("daysToNextFreeze", is(1));
@@ -170,7 +179,7 @@ class ProgressResourceTest {
     @TestSecurity(user = "alice")
     @OidcSecurity(claims = @Claim(key = "sub", value = "progress-activity"))
     void shouldListTheRecentDaysIncludingThoseWithoutReviews() {
-        review(UUID.randomUUID(), flashcardIds().getFirst());
+        review(UUID.randomUUID(), goQuestionIds().getFirst());
 
         given().queryParam("days", 3)
                 .get(PROGRESS + "/activity")
@@ -214,22 +223,20 @@ class ProgressResourceTest {
         return given().get(PROGRESS).then().statusCode(200);
     }
 
-    /** Les deux questions de cours du thème Java de l'exemple : 10 XP chacune. */
-    private static List<String> flashcardIds() {
-        return given().queryParam("theme", "java-fondamentaux")
-                .queryParam("type", "FLASHCARD")
+    /** Les trois QCM du document Go de test : la bonne réponse de chacun est la deuxième. */
+    private static List<String> goQuestionIds() {
+        return given().queryParam("subject", "go")
                 .get(QUEUE)
                 .then()
                 .statusCode(200)
-                .body("cards.size()", equalTo(2))
+                .body("cards.size()", equalTo(3))
                 .extract()
                 .path("cards.cardId");
     }
 
-    /** Le QCM du document Go de test : sa bonne réponse est la deuxième. */
-    private static String goMultipleChoiceId() {
-        return given().queryParam("subject", "go")
-                .queryParam("type", "MULTIPLE_CHOICE")
+    /** Le premier QCM du Quiz, « 2 + 2 » : sa bonne réponse est la deuxième. */
+    private static String quizQuestionId() {
+        return given().queryParam("subject", "quiz")
                 .get(QUEUE)
                 .then()
                 .statusCode(200)
@@ -246,9 +253,11 @@ class ProgressResourceTest {
                 .statusCode(200);
     }
 
+    /** Une bonne réponse à un QCM de Go : la deuxième. */
     private static ValidatableResponse review(UUID requestId, String cardId) {
         return given().contentType(ContentType.JSON)
-                .body("{\"requestId\": \"%s\", \"cardId\": \"%s\", \"rating\": \"GOOD\"}".formatted(requestId, cardId))
+                .body("{\"requestId\": \"%s\", \"cardId\": \"%s\", \"selectedChoices\": [1]}"
+                        .formatted(requestId, cardId))
                 .post("/api/v1/reviews")
                 .then();
     }

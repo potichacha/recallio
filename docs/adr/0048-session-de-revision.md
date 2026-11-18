@@ -4,6 +4,7 @@
 - Date : 2026-11-05
 - Revient en partie sur : ADR 0014 (quota de nouvelles cartes à parts égales) et CLAUDE.md, section 6.1 (les quatre
   notes de l'auto-évaluation)
+- Révisé par : ADR 0063 (plus d'auto-évaluation ni de mode « questions corrigées » : le serveur corrige chaque carte)
 
 ## Contexte
 

@@ -86,6 +86,18 @@ public class JpaReviewLogRepository implements ReviewLogRepository {
     }
 
     @Override
+    public Set<UUID> versionsRecalled(UUID userId) {
+        return Set.copyOf(entityManager
+                .createQuery(
+                        "select distinct l.cardVersionId from ReviewLogEntity l where l.userId = :userId"
+                                + " and l.rating >= :good",
+                        UUID.class)
+                .setParameter("userId", userId)
+                .setParameter("good", (short) Rating.GOOD.value())
+                .getResultList());
+    }
+
+    @Override
     public List<UUID> cardsStillFailedSince(UUID userId, Instant since) {
         List<?> cards = entityManager
                 .createNativeQuery("""

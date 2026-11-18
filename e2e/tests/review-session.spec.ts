@@ -67,7 +67,7 @@ test.describe('Session de révision', () => {
     const card = page.locator('article').first()
     // La carte dit son sujet et sa notion ; le thème, lui, est dans l'URL.
     await expect(card.locator('header')).toContainText('Java · ')
-    // Les cartes de « Premiers pas » ont leurs choix : plus de carte à retourner ni d'auto-évaluation.
+    // Toutes les cartes ont leurs choix : plus de carte à retourner ni d'auto-évaluation (ADR 0063).
     await expect(card.getByRole('button', { name: 'Voir la réponse' })).toHaveCount(0)
 
     // Au clavier seul (ADR 0058) : Tab jusqu'à un choix, Espace pour le cocher, Tab jusqu'à « Valider », Entrée.

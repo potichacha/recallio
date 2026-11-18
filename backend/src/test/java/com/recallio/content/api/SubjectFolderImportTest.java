@@ -54,6 +54,9 @@ class SubjectFolderImportTest {
               - key: difference
                 format: course
                 question: Quelle différence entre val et var ?
+                choices:
+                  - {text: "val ne se réaffecte pas, var si", correct: true}
+                  - {text: "var ne se réaffecte pas, val si", correct: false}
                 answer: val ne se réaffecte pas, var si.
             """;
 

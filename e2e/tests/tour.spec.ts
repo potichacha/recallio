@@ -64,7 +64,7 @@ test.describe('Le Tour', () => {
     await signIn(page, USERS.alice, '/subjects/go/tour')
     await page.getByRole('link', { name: 'Bienvenue', exact: true }).click()
     const check = page.getByRole('region', { name: 'Valider la notion' })
-    // La première notion du Tour Go n'a que des vrai ou faux et des QCM : on y répond en cochant.
+    // La première notion du Tour Go n'a que des cartes à choix : on y répond en cochant.
     const questions = check.getByRole('group')
     await expect(questions.first()).toBeVisible()
 

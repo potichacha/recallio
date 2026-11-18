@@ -29,6 +29,8 @@ class LearningTracksTest {
 
     private static final String QUEUE = "/api/v1/review-queue";
     private static final String NOTIONS = "domains[0].chapters[0].notions";
+    /** Les choix de chaque question : la bonne réponse est la première. */
+    private static final String YES_OR_NO = "choices: [{text: Oui, correct: true}, {text: Non, correct: false}]";
 
     @Inject
     ContentImportService contentImport;
@@ -42,7 +44,8 @@ class LearningTracksTest {
                 category: languages
                 position: 940
                 status: published
-                """, Map.of("01-langage.yaml", """
+                """,
+                Map.of("01-langage.yaml", """
                         domain: langage
                         title: Le langage
                         position: 10
@@ -52,16 +55,18 @@ class LearningTracksTest {
                             notions:
                               - {id: bases, title: "Les bases", level: beginner, priority: 2}
                               - {id: avance, title: "L'avancé", level: expert, priority: 1, requires: [bases]}
-                        """), Map.of("langage/bases.yaml", """
+                        """),
+                Map.of("langage/bases.yaml", """
                         notion: bases
                         lesson: Les bases se lisent avant tout.
                         cards:
-                          - {key: q, format: course, question: "Les bases ?", answer: "Oui."}
-                        """, "langage/avance.yaml", """
+                          - {key: q, format: course, question: "Les bases ?", answer: "Oui.", %1$s}
+                        """.formatted(YES_OR_NO), "langage/avance.yaml", """
                         notion: avance
                         cards:
-                          - {key: q, format: course, question: "L'avancé ?", answer: "Oui."}
-                        """)));
+                          - {key: q, format: course, question: "L'avancé ?", answer: "Oui.", %1$s}
+                        """.formatted(
+                                YES_OR_NO))));
     }
 
     @Test
@@ -85,7 +90,7 @@ class LearningTracksTest {
                 .extract()
                 .path("cards[0].cardId");
         given().contentType(ContentType.JSON)
-                .body(Map.of("requestId", UUID.randomUUID(), "cardId", basics, "rating", "GOOD"))
+                .body(Map.of("requestId", UUID.randomUUID(), "cardId", basics, "selectedChoices", List.of(0)))
                 .post("/api/v1/reviews")
                 .then()
                 .statusCode(201);
@@ -124,7 +129,7 @@ class LearningTracksTest {
 
         String basics = prompts().extract().path("cards[0].cardId");
         given().contentType(ContentType.JSON)
-                .body(Map.of("requestId", UUID.randomUUID(), "cardId", basics, "rating", "GOOD"))
+                .body(Map.of("requestId", UUID.randomUUID(), "cardId", basics, "selectedChoices", List.of(0)))
                 .post("/api/v1/reviews")
                 .then()
                 .statusCode(201);

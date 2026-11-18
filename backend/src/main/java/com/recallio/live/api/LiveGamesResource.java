@@ -89,7 +89,7 @@ public class LiveGamesResource {
                             schema = @Schema(implementation = ProblemDetail.class)))
     @APIResponse(
             responseCode = "422",
-            description = "Pas assez de QCM dans le sujet",
+            description = "Pas assez de questions à choix dans le sujet",
             content =
                     @Content(
                             mediaType = ProblemDetail.MEDIA_TYPE,

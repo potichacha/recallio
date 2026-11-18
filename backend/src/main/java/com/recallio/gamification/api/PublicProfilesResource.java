@@ -86,7 +86,7 @@ public class PublicProfilesResource {
             @Schema(description = "Le rang en classé, vérifié ; absent pendant le placement, ou sans duel") @Nullable
             PublicRankDto rank,
 
-            @Schema(description = "Ce que l'utilisateur déclare en révision personnelle, auto-évaluée en partie")
+            @Schema(description = "Ce que l'utilisateur déclare en révision personnelle : la maîtrise de ses notions")
             DeclaredSkillsDto declared) {
 
         static PublicSubjectDto from(SubjectProfile subject) {
@@ -114,7 +114,7 @@ public class PublicProfilesResource {
             @Schema(description = "Exercices de code réussis, jugés par leurs tests")
             int exercisesPassed,
 
-            @Schema(description = "QCM, vrai ou faux et codes à compléter réussis, corrigés par le serveur")
+            @Schema(description = "Cartes à choix ou à trous réussies, corrigées par le serveur")
             int correctAnswers,
 
             @Schema(description = "Notions du Tour validées")

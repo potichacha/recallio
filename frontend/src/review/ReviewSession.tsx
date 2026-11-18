@@ -68,7 +68,8 @@ export function ReviewSession({
   const [startXp] = useState(() => queryClient.getQueryData<Progress>(PROGRESS_KEY)?.totalXp)
   const [endsAt] = useState(() => (minutes === null ? null : Date.now() + minutes * MINUTE_MS))
   const [position, setPosition] = useState(0)
-  // Le numéro de la série : une carte revenue dans la série suivante (notée « Je ne savais pas ») repart de son recto.
+  // Le numéro de la série : une carte revenue dans la série suivante (ratée, donc à revoir) repart de zéro, sans sa
+  // correction précédente.
   const [batch, setBatch] = useState(0)
   const [tally, setTally] = useState<Tally>({ reviewed: 0, recalled: 0 })
   const [stopped, setStopped] = useState<SessionEnd>()
@@ -97,7 +98,8 @@ export function ReviewSession({
   }
 
   const reviewed = (result: ReviewResult) => {
-    const recalled = result.rating !== 'AGAIN'
+    // Le verdict est celui du serveur : sa note découle de la correction, « Bien » si la réponse est juste (ADR 0063).
+    const recalled = result.rating === 'GOOD'
     answerFeedback(recalled)
     setTally((current) => ({
       reviewed: current.reviewed + 1,

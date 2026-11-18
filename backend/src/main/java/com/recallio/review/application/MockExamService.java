@@ -2,6 +2,7 @@ package com.recallio.review.application;
 
 import com.recallio.content.CardDirectory;
 import com.recallio.content.CardDirectory.CardFilter;
+import com.recallio.content.CardDirectory.CardFilter.Grading;
 import com.recallio.content.CardDirectory.CardSnapshot;
 import com.recallio.content.CardType;
 import com.recallio.content.NotionInfo;
@@ -34,12 +35,12 @@ import java.util.stream.Collectors;
  * Cas d'usage : l'examen blanc d'un sujet (ADR 0044). Des questions corrigées par le serveur, tirées dans les notions
  * essentielles d'abord, un temps limité, puis la note et le corrigé. Ni le journal de révision, ni FSRS, ni l'XP ne
  * voient ces réponses : un examen mesure, il n'entraîne pas la mémoire.
+ *
+ * <p>Les questions sont les cartes à choix ou à trous, quel que soit leur format (ADR 0063) : pas les exercices de code,
+ * trop longs pour une épreuve.
  */
 @ApplicationScoped
 public class MockExamService {
-
-    /** Les formats d'un examen : ceux que le serveur corrige, sauf les exercices de code, trop longs pour une épreuve. */
-    static final Set<CardType> EXAM_FORMATS = Set.of(CardType.MULTIPLE_CHOICE, CardType.TRUE_FALSE, CardType.FILL_IN);
 
     /** La priorité d'une carte sans notion (document Markdown) : courante. */
     static final int UNKNOWN_PRIORITY = 2;
@@ -74,16 +75,15 @@ public class MockExamService {
         subjects.requirePublished(subjectSlug);
         Map<UUID, Integer> priorities = cards.notions(Set.of(subjectSlug)).stream()
                 .collect(Collectors.toMap(NotionInfo::id, NotionInfo::priority));
-        List<Candidate> candidates =
-                cards.activeCards(new CardFilter(Set.of(subjectSlug), null, Set.of(), EXAM_FORMATS)).stream()
-                        .map(card -> {
-                            UUID notionId = card.notionId();
-                            int priority = notionId == null
-                                    ? UNKNOWN_PRIORITY
-                                    : priorities.getOrDefault(notionId, UNKNOWN_PRIORITY);
-                            return new Candidate(card.cardId(), notionId, priority);
-                        })
-                        .toList();
+        var filter = new CardFilter(Set.of(subjectSlug), null, Set.of(), Set.of(), Grading.CHOICES_OR_BLANKS);
+        List<Candidate> candidates = cards.activeCards(filter).stream()
+                .map(card -> {
+                    UUID notionId = card.notionId();
+                    int priority =
+                            notionId == null ? UNKNOWN_PRIORITY : priorities.getOrDefault(notionId, UNKNOWN_PRIORITY);
+                    return new Candidate(card.cardId(), notionId, priority);
+                })
+                .toList();
         if (candidates.size() < MockExam.MIN_QUESTIONS) {
             throw new NotEnoughExamQuestionsException(subjectSlug, MockExam.MIN_QUESTIONS);
         }

@@ -3,9 +3,7 @@ import { useState, type FormEvent } from 'react'
 import { ApiError } from '../api/errors'
 import type { PracticeAnswer, PracticeCard, PracticeCorrection } from '../api/practice'
 import { useRunExercise, type ExerciseFile } from '../api/review'
-import { AnswerDraft, DraftEcho } from '../components/AnswerDraft'
 import { CARD_TYPE_LABELS } from '../components/cardTypeLabels'
-import { FlipCard } from '../components/FlipCard'
 import { GradedQuestion } from '../components/GradedQuestion'
 import {
   emptyDraft,
@@ -16,6 +14,7 @@ import {
 import { LessonLink } from '../components/LessonLink'
 import { Markdown } from '../components/Markdown'
 import { ReportButton } from '../components/ReportButton'
+import { ErrorState } from '../components/states/ErrorState'
 import { useFocusOnAppear } from '../components/useFocusOnAppear'
 import { ExerciseEditor } from '../review/ExerciseEditor'
 import { ExerciseRunResult } from '../review/ExerciseRunResult'
@@ -25,16 +24,16 @@ const CARD_STYLE = 'flex flex-col gap-4 rounded-xl border border-line bg-surface
 const PRIMARY = `self-start ${button()}`
 const SECONDARY = `self-start ${button({ variant: 'secondary' })}`
 
-/** Une carte passée : juste ou non quand le serveur l'a corrigée, `undefined` quand elle s'auto-évalue. */
-type Outcome = boolean | undefined
+/** Une carte passée : juste ou non, d'après le serveur ; un exercice est juste quand ses tests passent. */
+type Outcome = boolean
 
 /** Corrige une réponse sur le serveur, sans l'enregistrer : l'entraînement d'une notion et le carnet ont chacun la leur. */
 type CheckAnswer = (answer: PracticeAnswer) => Promise<PracticeCorrection>
 
 /**
  * Des cartes à passer une à une, sans rien enregistrer : l'entraînement d'une notion (ADR 0038) et le carnet d'erreurs
- * (ADR 0057). Le serveur corrige les cartes à choix et les codes à trous ; un exercice s'essaie contre ses tests ; les
- * autres cartes se retournent. À la fin, le bilan des cartes corrigées.
+ * (ADR 0057). Le serveur corrige les cartes à choix et les codes à trous ; un exercice s'essaie contre ses tests. Il n'y
+ * a pas d'autre carte (ADR 0063). À la fin, le bilan des réponses justes.
  */
 export function PracticeDeck({
   subject,
@@ -100,17 +99,15 @@ function Summary({
   doneLabel: string
   onRestart: () => void
 }) {
-  const graded = outcomes.filter((outcome) => outcome !== undefined)
-  const right = graded.filter(Boolean).length
+  const right = outcomes.filter(Boolean).length
   return (
     <div className={CARD_STYLE}>
       <p role="status" className="font-medium">
         {doneLabel}
       </p>
-      {graded.length > 0 && (
+      {outcomes.length > 0 && (
         <p className="text-ink-muted">
-          {right} / {graded.length} juste{right > 1 ? 's' : ''} parmi les cartes corrigées par le
-          serveur.
+          {right} / {outcomes.length} juste{right > 1 ? 's' : ''}.
         </p>
       )}
       <button type="button" onClick={onRestart} className={SECONDARY}>
@@ -135,7 +132,7 @@ function PracticeCardView({
     return <AnsweredCard subject={subject} card={card} check={check} onNext={onNext} />
   }
   if (card.type === 'CODING_EXERCISE') return <ExerciseTry card={card} onNext={onNext} />
-  return <SelfAssessedCard card={card} onNext={onNext} />
+  return <ErrorState message="Cette carte ne peut pas être corrigée : signale-la." />
 }
 
 /** Une carte à choix ou un code à trous : le serveur corrige, sans rien enregistrer. */
@@ -200,52 +197,9 @@ function AnsweredCard({
 }
 
 /**
- * Une carte qui s'auto-évalue : on y réfléchit, on peut écrire sa réponse, puis on la retourne pour la comparer à celle
- * attendue (ADR 0048).
+ * Un exercice de code : on lance ses tests autant de fois qu'on veut, sans rien rendre. Il compte juste si ses tests
+ * passaient à la dernière exécution.
  */
-function SelfAssessedCard({
-  card,
-  onNext,
-}: {
-  card: PracticeCard
-  onNext: (outcome: Outcome) => void
-}) {
-  const [revealed, setRevealed] = useState(false)
-  const [draft, setDraft] = useState('')
-  const label = <p className="text-sm font-medium text-ink-muted">{CARD_TYPE_LABELS[card.type]}</p>
-  return (
-    <FlipCard
-      flipped={revealed}
-      front={
-        <article className={CARD_STYLE}>
-          {label}
-          <Markdown>{card.prompt}</Markdown>
-          <AnswerDraft type={card.type} value={draft} onChange={setDraft} />
-          <button type="button" onClick={() => setRevealed(true)} className={PRIMARY}>
-            Voir la réponse
-          </button>
-        </article>
-      }
-      back={
-        <article className={CARD_STYLE}>
-          {label}
-          <div className="text-ink-muted">
-            <Markdown>{card.prompt}</Markdown>
-          </div>
-          <DraftEcho type={card.type} value={draft} />
-          <section aria-label="Réponse" className="rounded-lg bg-surface-muted p-3">
-            <Markdown>{card.answer ?? ''}</Markdown>
-          </section>
-          <button type="button" onClick={() => onNext(undefined)} className={PRIMARY}>
-            Carte suivante
-          </button>
-        </article>
-      }
-    />
-  )
-}
-
-/** Un exercice de code : on lance ses tests autant de fois qu'on veut, sans rien rendre. */
 function ExerciseTry({ card, onNext }: { card: PracticeCard; onNext: (outcome: Outcome) => void }) {
   const [files, setFiles] = useState<ExerciseFile[]>(() => card.exercise?.starter ?? [])
   const run = useRunExercise()
@@ -272,7 +226,7 @@ function ExerciseTry({ card, onNext }: { card: PracticeCard; onNext: (outcome: O
         </button>
         <button
           type="button"
-          onClick={() => onNext(run.data ? run.data.status === 'PASSED' : undefined)}
+          onClick={() => onNext(run.data?.status === 'PASSED')}
           className={PRIMARY}
         >
           Carte suivante

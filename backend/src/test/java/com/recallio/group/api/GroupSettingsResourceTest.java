@@ -42,6 +42,7 @@ class GroupSettingsResourceTest {
     private static final String GROUPS = "/api/v1/groups";
     private static final String QUEUE = "/api/v1/review-queue";
     private static final String JAVA_BASICS = "java-fondamentaux";
+    private static final String GO_BASICS = "go-fondamentaux";
 
     @Inject
     ContentImportService contentImport;
@@ -61,7 +62,8 @@ class GroupSettingsResourceTest {
 
     @BeforeEach
     void importSubjects() throws IOException {
-        for (String resource : List.of("/content/reference-sample.md", "/content/go-sample.md")) {
+        for (String resource :
+                List.of("/content/reference-sample.md", "/content/go-sample.md", "/content/quiz-sample.md")) {
             try (InputStream input = Objects.requireNonNull(getClass().getResourceAsStream(resource))) {
                 contentImport.importContent(new String(input.readAllBytes(), StandardCharsets.UTF_8));
             }
@@ -124,24 +126,25 @@ class GroupSettingsResourceTest {
     @OidcSecurity(claims = @Claim(key = "sub", value = "settings-member"))
     void shouldLetAMemberReviewWithTheGroupButNotChangeItsSettings() {
         var owner = new UserRef(UUID.randomUUID(), ZoneOffset.UTC);
-        UUID groupId = groupService.create(owner, "Équipe Java").id();
+        UUID groupId = groupService.create(owner, "Équipe Go").id();
         addMember(groupId, myId());
         settingsService.update(
                 owner,
                 groupId,
                 new GroupSettings(
-                        List.of("java", "go"), List.of(JAVA_BASICS), Set.of(), 10, LeaderboardVisibility.NAMED));
+                        List.of("go", "quiz"), List.of(GO_BASICS), Set.of(), 10, LeaderboardVisibility.NAMED));
 
-        // Java est restreint à un thème ; Go, sans thème sélectionné, les garde tous.
-        given().get(QUEUE + "?group=" + groupId + "&subject=java")
+        // Go est restreint à un thème, sans celui des maps ; Quiz, sans thème sélectionné, les garde tous. Seuls les
+        // QCM de ces documents se révisent (ADR 0063).
+        given().get(QUEUE + "?group=" + groupId + "&subject=go")
                 .then()
                 .statusCode(200)
                 .body("cards", not(empty()))
-                .body("cards.themeSlug", everyItem(equalTo(JAVA_BASICS)));
-        given().get(QUEUE + "?group=" + groupId + "&subject=go")
+                .body("cards.themeSlug", everyItem(equalTo(GO_BASICS)));
+        given().get(QUEUE + "?group=" + groupId + "&subject=quiz")
                 .then()
                 .body("cards", not(empty()))
-                .body("cards.subjectSlug", everyItem(equalTo("go")));
+                .body("cards.subjectSlug", everyItem(equalTo("quiz")));
 
         update(groupId.toString(), settingsJson("[\"go\"]", "[]", 10))
                 .statusCode(403)

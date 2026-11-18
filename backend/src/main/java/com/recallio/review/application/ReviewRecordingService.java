@@ -32,8 +32,9 @@ import java.util.stream.IntStream;
 import org.jspecify.annotations.Nullable;
 
 /**
- * Cas d'usage : enregistrer la note donnée à une carte. Idempotent (CLAUDE.md, section 4.4) : sur mobile, une requête
- * peut être renvoyée après une coupure ; le même {@code requestId} renvoie alors le résultat déjà enregistré.
+ * Cas d'usage : enregistrer la réponse à une carte, que le serveur corrige (ADR 0063). Idempotent (CLAUDE.md, section
+ * 4.4) : sur mobile, une requête peut être renvoyée après une coupure ; le même {@code requestId} renvoie alors le
+ * résultat déjà enregistré.
  */
 @ApplicationScoped
 public class ReviewRecordingService {
@@ -119,47 +120,40 @@ public class ReviewRecordingService {
     }
 
     /**
-     * La note choisie par l'utilisateur, ou, pour un format corrigé par le serveur, celle que donne la correction de sa
-     * réponse (ADR 0019, 0027) ou, pour un exercice de code, ses tests (ADR 0030).
+     * La note que donne la correction de la réponse par le serveur : ses choix (ADR 0019, 0051), ses trous (ADR 0027)
+     * ou, pour un exercice de code, ses tests (ADR 0030). Personne ne se note soi-même (ADR 0063).
      *
-     * @throws AnswerMismatchException si la réponse ne correspond pas au format de la carte
+     * @throws AnswerMismatchException si la réponse ne correspond pas à la carte, ou si le serveur ne sait pas la
+     *     corriger (une carte d'un document Markdown sans choix)
      */
     private static Rating rating(CardSnapshot card, RecordReview command) {
         Set<Integer> selected = command.selectedChoices();
         List<String> filled = command.filledBlanks();
         ExerciseRun run = command.exerciseRun();
-        Rating chosen = command.rating();
         if (card.isGradedByChoices()) {
-            if (selected == null || chosen != null || filled != null || run != null) {
+            if (selected == null || filled != null || run != null) {
                 throw AnswerMismatchException.choicesExpected();
             }
             return Rating.ofGradedAnswer(card.isCorrectSelection(selected));
         }
         if (card.type() == CardType.FILL_IN) {
-            if (filled == null
-                    || filled.size() != card.blanks().size()
-                    || chosen != null
-                    || selected != null
-                    || run != null) {
+            if (filled == null || filled.size() != card.blanks().size() || selected != null || run != null) {
                 throw AnswerMismatchException.blanksExpected(card.blanks().size());
             }
             return Rating.ofGradedAnswer(!card.checkBlanks(filled).contains(false));
         }
         if (card.type() == CardType.CODING_EXERCISE) {
-            if (run == null || chosen != null || selected != null || filled != null) {
+            if (run == null || selected != null || filled != null) {
                 throw AnswerMismatchException.filesExpected();
             }
             return Rating.ofGradedAnswer(run.solved());
         }
-        if (chosen == null || selected != null || filled != null || run != null) {
-            throw AnswerMismatchException.ratingExpected();
-        }
-        return chosen;
+        throw AnswerMismatchException.notGradedByServer();
     }
 
     /**
-     * Pour un format corrigé par le serveur : les bonnes réponses et l'explication, montrées une fois la réponse
-     * enregistrée. À appeler après {@link #rating}, qui vérifie la forme de la réponse.
+     * Les bonnes réponses et l'explication, montrées une fois la réponse enregistrée. À appeler après {@link #rating},
+     * qui vérifie la forme de la réponse.
      */
     private static @Nullable Correction correction(CardSnapshot card, RecordReview command) {
         if (card.isGradedByChoices()) {
@@ -198,9 +192,10 @@ public class ReviewRecordingService {
     }
 
     /**
+     * Une réponse, dont le serveur déduit la note : il n'y a pas de note d'auto-évaluation (ADR 0063).
+     *
      * @param requestId identifiant choisi par le client, unique par réponse
-     * @param rating la note d'auto-évaluation ; absente pour un QCM
-     * @param selectedChoices les positions cochées d'un QCM (à partir de 0) ; absentes pour les autres formats
+     * @param selectedChoices les positions cochées d'une carte à choix (à partir de 0) ; absentes pour les autres
      * @param filledBlanks les réponses d'un code à trous, une par trou ; absentes pour les autres formats
      * @param exerciseRun le résultat des tests d'un exercice de code rendu ({@link ExerciseSubmissionService}) ; absent
      *     pour les autres formats
@@ -209,7 +204,6 @@ public class ReviewRecordingService {
     public record RecordReview(
             UUID requestId,
             UUID cardId,
-            @Nullable Rating rating,
             @Nullable Set<Integer> selectedChoices,
             @Nullable List<String> filledBlanks,
             @Nullable ExerciseRun exerciseRun,
@@ -222,7 +216,7 @@ public class ReviewRecordingService {
 
         /** Un exercice rendu, jugé par ses tests. */
         static RecordReview exercise(UUID requestId, UUID cardId, ExerciseRun run, @Nullable Integer elapsedMs) {
-            return new RecordReview(requestId, cardId, null, null, null, run, elapsedMs);
+            return new RecordReview(requestId, cardId, null, null, run, elapsedMs);
         }
     }
 

@@ -3,8 +3,8 @@ package com.recallio.review.application;
 import com.recallio.content.CardDirectory;
 import com.recallio.content.CardDirectory.ActiveCard;
 import com.recallio.content.CardDirectory.CardFilter;
+import com.recallio.content.CardDirectory.CardFilter.Grading;
 import com.recallio.content.CardDirectory.CardSnapshot;
-import com.recallio.content.CardType;
 import com.recallio.content.NotionInfo;
 import com.recallio.review.domain.TrialUnavailableException;
 import com.recallio.review.domain.track.Readiness;
@@ -24,6 +24,9 @@ import java.util.stream.Collectors;
 /**
  * Cas d'usage : l'essai sans compte (ADR 0050). Quelques questions corrigées par le serveur, une par notion essentielle,
  * des plus simples aux plus avancées, et rien d'enregistré : on voit ce que vaut l'application avant de s'inscrire.
+ *
+ * <p>Ses questions sont des cartes à choix ou à trous, quel que soit leur format (ADR 0063), auxquelles on répond vite :
+ * pas d'exercice de code dans un essai.
  */
 @ApplicationScoped
 @Transactional(Transactional.TxType.SUPPORTS)
@@ -31,9 +34,6 @@ public class TrialService {
 
     /** Le nombre de questions d'un essai : de quoi se faire une idée en deux minutes. */
     static final int QUESTIONS = 5;
-
-    /** Des formats corrigés par le serveur, auxquels on répond vite : pas d'exercice de code dans un essai. */
-    static final Set<CardType> FORMATS = Set.of(CardType.TRUE_FALSE, CardType.MULTIPLE_CHOICE, CardType.FILL_IN);
 
     private final CardDirectory cards;
     private final PracticeService practice;
@@ -55,7 +55,8 @@ public class TrialService {
                 .collect(Collectors.toMap(NotionInfo::id, Function.identity()));
         // La première carte de chaque notion, dans l'ordre du programme.
         Map<UUID, UUID> cardOfNotion = new HashMap<>();
-        for (ActiveCard card : cards.activeCards(new CardFilter(Set.of(subjectSlug), null, Set.of(), FORMATS))) {
+        var filter = new CardFilter(Set.of(subjectSlug), null, Set.of(), Set.of(), Grading.CHOICES_OR_BLANKS);
+        for (ActiveCard card : cards.activeCards(filter)) {
             UUID notion = card.notionId();
             if (notion != null && essentials.containsKey(notion)) {
                 cardOfNotion.putIfAbsent(notion, card.cardId());

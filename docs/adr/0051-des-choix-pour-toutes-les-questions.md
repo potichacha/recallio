@@ -4,6 +4,7 @@
 - Date : 2026-11-06
 - Remplace en partie : ADR 0048 (l'auto-évaluation « Je savais / Je ne savais pas »)
 - Complète : ADR 0019 (les QCM), ADR 0027 (les formats texte), ADR 0028 (le code vérifié en CI)
+- Révisé par : ADR 0063 (la fin de la migration, son point 7 : le critère porte sur la carte, plus sur son format)
 
 ## Contexte
 

@@ -67,7 +67,7 @@ class ExerciseReviewsTest {
                 Map.of("bases/listes.yaml", """
                         notion: listes
                         cards:
-                          - {key: tete, format: course, question: "La tête d'une liste ?", answer: "hd."}
+                          - {key: tete, format: course, question: "La tête d'une liste ?", answer: "hd.", choices: [{text: hd, correct: true}, {text: tl, correct: false}]}
                         """),
                 Map.of(
                         "bases/listes/sans-doublons/exercise.yaml",
@@ -175,9 +175,9 @@ class ExerciseReviewsTest {
     @Test
     @TestSecurity(user = "alice")
     @OidcSecurity(claims = @Claim(key = "sub", value = "exercise-mismatch"))
-    void shouldRefuseARatingForAnExerciseAndFilesForAnotherCard() {
+    void shouldRefuseAnExerciseWithoutItsFilesAndFilesForAnotherCard() {
         given().contentType(ContentType.JSON)
-                .body(Map.of("requestId", UUID.randomUUID(), "cardId", exerciseId(), "rating", "GOOD"))
+                .body(Map.of("requestId", UUID.randomUUID(), "cardId", exerciseId(), "selectedChoices", List.of(0)))
                 .post(REVIEWS)
                 .then()
                 .statusCode(422)

@@ -94,7 +94,8 @@ public final class LiveExceptions {
         public NotEnoughQuestionsException(int available, int minimum) {
             super(
                     CODE,
-                    "Ce sujet ne compte que " + available + " QCM dans les thèmes du groupe ; il en faut au moins "
+                    "Ce sujet ne compte que " + available + " questions à choix dans les thèmes du groupe ; il en faut"
+                            + " au moins "
                             + minimum + " pour une partie.");
         }
     }

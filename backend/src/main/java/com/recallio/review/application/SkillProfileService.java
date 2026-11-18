@@ -55,12 +55,14 @@ public class SkillProfileService implements SkillProfiles {
         Map<UUID, ReviewState> memory = states.findAllByUser(userId);
         Map<NotionInfo, NotionMastery> mastery = masteries.of(userId, subjects, memory);
 
-        // Une carte réussie au moins une fois : pour un format corrigé par le serveur, c'est une réussite vérifiée.
-        Set<UUID> recalled = log.cardsRecalled(userId);
+        // Une carte réussie dans une version que le serveur corrigeait : une réussite vérifiée. Un ancien « Je savais
+        // »,
+        // sur une version sans choix, ne l'est pas (ADR 0063).
+        Set<UUID> recalled = cards.cardsOfVersionsGradedByServer(log.versionsRecalled(userId));
         Map<String, Integer> exercises = new HashMap<>();
         Map<String, Integer> answers = new HashMap<>();
         for (ActiveCard card : cards.activeCards(new CardFilter(subjects, null, Set.of(), Set.of()))) {
-            if (!recalled.contains(card.cardId()) || !card.type().isGradedByServer()) {
+            if (!recalled.contains(card.cardId())) {
                 continue;
             }
             var counts = card.type() == CardType.CODING_EXERCISE ? exercises : answers;

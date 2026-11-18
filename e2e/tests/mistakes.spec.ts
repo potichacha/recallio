@@ -19,8 +19,7 @@ test.describe('Apprendre de ses erreurs (ADR 0057)', () => {
     page,
   }) => {
     await signIn(page, USERS.erin, '/review?subject=go')
-    // Le bouton radio est masqué derrière son libellé : c'est lui qu'on touche.
-    await page.getByText('Questions corrigées', { exact: true }).click()
+    // Toutes les cartes se corrigent sur le serveur (ADR 0063) : il n'y a que la durée à choisir.
     await page.getByRole('button', { name: 'Commencer' }).click()
 
     const card = page.locator('article').first()

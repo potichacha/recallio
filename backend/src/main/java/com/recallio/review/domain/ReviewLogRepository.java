@@ -25,6 +25,12 @@ public interface ReviewLogRepository {
     Set<UUID> cardsRecalled(UUID userId);
 
     /**
+     * Les versions de cartes que l'utilisateur a réussies : de quoi savoir si le serveur corrigeait la version révisée,
+     * ou si la réussite était un ancien « Je savais » (ADR 0063).
+     */
+    Set<UUID> versionsRecalled(UUID userId);
+
+    /**
      * Les cartes que l'utilisateur a ratées depuis {@code since} et pas réussies depuis : leur dernière révision est
      * notée « À revoir ». La plus récemment ratée d'abord.
      */

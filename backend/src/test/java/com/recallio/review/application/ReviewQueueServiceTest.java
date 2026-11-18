@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.recallio.content.CardDirectory;
 import com.recallio.content.CardDirectory.CardFilter;
+import com.recallio.content.CardDirectory.CardFilter.Grading;
 import com.recallio.content.CardType;
 import com.recallio.content.NotionInfo;
 import com.recallio.content.SubjectDirectory;
@@ -89,14 +90,15 @@ class ReviewQueueServiceTest {
         assertThat(queue.cards()).extracting(card -> card.state()).containsOnly(LearningState.NEW);
     }
 
+    /** Seules les cartes que le serveur corrige se révisent (ADR 0063), quel que soit le filtre. */
     @Test
-    void shouldReviewOnlyTheRequestedFormats() {
+    void shouldReviewOnlyTheRequestedFormatsThatTheServerGrades() {
         var requested = Set.of(CardType.MULTIPLE_CHOICE, CardType.TRUE_FALSE);
 
         serviceAt(Instant.parse("2026-10-29T08:00:00Z"))
                 .queue(user, new QueueFilter(null, SUBJECT, null, requested), 10);
 
-        assertThat(filters).containsExactly(new CardFilter(Set.of(SUBJECT), null, Set.of(), requested));
+        assertThat(filters).containsExactly(new CardFilter(Set.of(SUBJECT), null, Set.of(), requested, Grading.SERVER));
     }
 
     @Test
@@ -106,7 +108,11 @@ class ReviewQueueServiceTest {
 
         assertThat(filters)
                 .containsExactly(new CardFilter(
-                        Set.of("java", "go"), null, Set.of("go-concurrence"), Set.of(CardType.FLASHCARD)));
+                        Set.of("java", "go"),
+                        null,
+                        Set.of("go-concurrence"),
+                        Set.of(CardType.FLASHCARD),
+                        Grading.SERVER));
     }
 
     @Test
@@ -222,6 +228,11 @@ class ReviewQueueServiceTest {
         }
 
         @Override
+        public Set<UUID> cardsOfVersionsGradedByServer(Collection<UUID> versionIds) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
         public List<CardSnapshot> currentVersions(Collection<UUID> cardIds) {
             return cardIds.stream()
                     .map(id -> new CardSnapshot(
@@ -263,6 +274,11 @@ class ReviewQueueServiceTest {
 
         @Override
         public Set<UUID> cardsRecalled(UUID userId) {
+            return Set.of();
+        }
+
+        @Override
+        public Set<UUID> versionsRecalled(UUID userId) {
             return Set.of();
         }
 

@@ -18,7 +18,7 @@ export function FeedbackSettingsForm() {
     <fieldset className="flex max-w-md flex-col gap-2">
       <legend className="mb-1 text-lg font-semibold">Sons et vibrations</legend>
       <p className="text-sm text-ink-muted">
-        Un retour à chaque réponse, sur cet appareil : deux notes si tu savais, une note grave
+        Un retour à chaque réponse, sur cet appareil : deux notes si elle est juste, une note grave
         sinon.
       </p>
       <label className="flex min-h-11 items-center gap-3">

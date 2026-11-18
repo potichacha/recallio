@@ -56,7 +56,8 @@ class TourProgressTest {
 
     /**
      * Deux pages (la seconde à la place du {@code %s}), puis un vrai ou faux (la réponse juste est « Faux »), un QCM (la
-     * première) et un code à trous (« main »).
+     * première) et un code à trous (« main ») : les trois questions du Tour, une par format. La question de cours qui suit
+     * serait la quatrième.
      */
     private static final String BONJOUR = """
             notion: bonjour
@@ -71,7 +72,6 @@ class TourProgressTest {
                   output: rien
             %s
             cards:
-              - {key: cours, format: course, question: "Où commence un programme ?", answer: Dans main.}
               - {key: vrai-faux, format: true-false, question: "main prend des paramètres.", truth: false, answer: "Non."}
               - key: choix
                 format: multiple-choice
@@ -85,6 +85,39 @@ class TourProgressTest {
                 question: "`package ___`"
                 blanks: [[main]]
                 answer: "Le package main."
+              - key: cours
+                format: course
+                question: "Où commence un programme ?"
+                choices:
+                  - {text: "Dans la fonction `main`", correct: true}
+                  - {text: "À la première ligne du fichier", correct: false}
+                answer: Dans main.
+            """;
+
+    /**
+     * La même notion, avec une question de cours à choix et un vrai ou faux seulement : la question de cours valide la
+     * notion comme les autres (ADR 0063).
+     */
+    private static final String BONJOUR_WITH_A_COURSE_QUESTION = """
+            notion: bonjour
+            tour:
+              - text: Le premier programme.
+                example:
+                  files:
+                    main.go: |-
+                      package main
+
+                      func main() {}
+                  output: rien
+            cards:
+              - key: cours
+                format: course
+                question: "Où commence un programme ?"
+                choices:
+                  - {text: "Dans la fonction `main`", correct: true}
+                  - {text: "À la première ligne du fichier", correct: false}
+                answer: Dans main.
+              - {key: vrai-faux, format: true-false, question: "main prend des paramètres.", truth: false, answer: "Non."}
             """;
 
     /** La seconde page de « bonjour » : un test la retire, pour sortir cette page du Tour. */
@@ -152,6 +185,29 @@ class TourProgressTest {
                 .asString();
 
         assertThat(body).doesNotContain("correct", "Le package main.");
+    }
+
+    @Test
+    @TestSecurity(user = "alice")
+    @OidcSecurity(claims = @Claim(key = "sub", value = "tour-course-question"))
+    void shouldAskAndGradeACourseQuestionThatHasItsChoices() {
+        contentImport.importFolder(new SubjectFolder(
+                SUBJECT,
+                Map.of("01-bases.yaml", REFERENTIAL),
+                Map.of("bases/bonjour.yaml", BONJOUR_WITH_A_COURSE_QUESTION, "bases/hors-tour.yaml", HORS_TOUR)));
+
+        List<String> ids = given().get(TOUR + "/bonjour")
+                .then()
+                .statusCode(200)
+                .body("questions.type", contains("FLASHCARD", "TRUE_FALSE"))
+                .body("questions[0].choices", contains("Dans la fonction `main`", "À la première ligne du fichier"))
+                .extract()
+                .path("questions.cardId");
+
+        check(List.of(choice(ids.get(0), 0), choice(ids.get(1), 1)))
+                .statusCode(200)
+                .body("validated", is(true))
+                .body("results[0].explanation", equalTo("Dans main."));
     }
 
     @Test

@@ -107,6 +107,10 @@ final class NotionCards {
         if (type == CardType.MULTIPLE_CHOICE && card.choices() == null) {
             return "un QCM a besoin de ses choix";
         }
+        // Le serveur corrige chaque carte qu'on révise (ADR 0051, 0063) : plus d'auto-évaluation.
+        if (card.choices() == null && type != CardType.TRUE_FALSE && type != CardType.FILL_IN) {
+            return "une carte « " + card.format() + " » a besoin de ses choix : le serveur la corrige sur eux";
+        }
         if (card.choices() != null && (type == CardType.TRUE_FALSE || type == CardType.FILL_IN)) {
             return "un vrai ou faux ou un code à trous n'a pas de choix : sa réponse est sa valeur (truth) ou ses"
                     + " trous (blanks)";
@@ -162,7 +166,7 @@ final class NotionCards {
         if (type == null) {
             throw new IllegalArgumentException("format non pris en charge : " + card.format());
         }
-        // Une carte d'un autre format que le QCM peut recevoir des choix : elle se corrige alors comme lui (ADR 0051).
+        // Une carte d'un autre format que le QCM a aussi ses choix : elle se corrige comme lui (ADR 0051).
         List<ChoiceEntry> choices = card.choices();
         return CardContent.of(
                 type,

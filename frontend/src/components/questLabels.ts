@@ -21,7 +21,7 @@ export const QUEST_LABELS: Record<Quest, { title: (target: number) => string; hi
   DAILY_REVIEWS: { title: (target) => `Réviser ${count(target, 'carte', 'cartes')}` },
   DAILY_VERIFIED: {
     title: (target) => `Réussir ${count(target, 'question corrigée', 'questions corrigées')}`,
-    hint: 'QCM, vrai ou faux, code à compléter ou exercice : le serveur vérifie la réponse.',
+    hint: 'Une réponse juste, sur n’importe quelle carte : le serveur les corrige toutes.',
   },
   DAILY_CODE: {
     title: (target) => `Réviser ${count(target, 'carte de code', 'cartes de code')}`,

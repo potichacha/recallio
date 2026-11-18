@@ -62,7 +62,8 @@ public class GroupChallengesResource {
     @Consumes(MediaType.APPLICATION_JSON)
     @Operation(
             operationId = "createChallenge",
-            summary = "Lance un défi : une série de QCM tirée au hasard dans les sujets du groupe (créateur seulement)")
+            summary = "Lance un défi : une série de questions à choix tirée au hasard dans les sujets du groupe"
+                    + " (créateur seulement)")
     @APIResponse(
             responseCode = "201",
             description = "Le défi lancé",
@@ -90,7 +91,7 @@ public class GroupChallengesResource {
                             schema = @Schema(implementation = ProblemDetail.class)))
     @APIResponse(
             responseCode = "422",
-            description = "Pas assez de QCM dans les sujets du groupe",
+            description = "Pas assez de questions à choix dans les sujets du groupe",
             content =
                     @Content(
                             mediaType = ProblemDetail.MEDIA_TYPE,

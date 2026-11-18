@@ -142,7 +142,7 @@ public class DuelsResource {
             @Schema(description = "Le rang de la question servie, à partir de 0") @Min(0) @Max(Duel.QUESTIONS - 1)
             int position,
 
-            @Schema(description = "Les positions cochées d'un QCM ou d'un vrai ou faux, à partir de 0", nullable = true)
+            @Schema(description = "Les positions cochées d'une carte à choix, à partir de 0", nullable = true)
             @Nullable
             @Size(max = 8)
             List<@NotNull Integer> selectedChoices,

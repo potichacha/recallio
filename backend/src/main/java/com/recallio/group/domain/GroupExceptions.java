@@ -117,7 +117,8 @@ public final class GroupExceptions {
         public NotEnoughCardsException(int available) {
             super(
                     "group.not-enough-cards",
-                    "Les sujets du groupe ne comptent que " + available + " QCM : choisis une série plus courte"
+                    "Les sujets du groupe ne comptent que " + available + " questions à choix : choisis une série plus"
+                            + " courte"
                             + " ou d'autres sujets.");
         }
     }

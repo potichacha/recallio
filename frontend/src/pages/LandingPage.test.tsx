@@ -4,7 +4,6 @@ import { describe, expect, it } from 'vitest'
 import { renderAt, sentRequests, stubApi, TEST_SUBJECTS } from '../test/render'
 
 const card = (overrides: Record<string, unknown>) => ({
-  answer: null,
   choices: [],
   multipleAnswers: false,
   blankCount: 0,

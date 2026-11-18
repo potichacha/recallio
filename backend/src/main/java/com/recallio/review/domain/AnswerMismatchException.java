@@ -4,8 +4,9 @@ import com.recallio.platform.domain.DomainException;
 import java.util.Collection;
 
 /**
- * La réponse ne correspond pas au format de la carte : un QCM attend les choix cochés, un code à trous ses réponses et un
- * exercice ses fichiers (le serveur en déduit la note), les autres formats une note d'auto-évaluation.
+ * La réponse ne correspond pas à la carte : une carte à choix attend les choix cochés, un code à trous ses réponses et un
+ * exercice ses fichiers. Le serveur en déduit la note ; une carte qu'il ne sait pas corriger ne se révise pas (ADR
+ * 0063).
  */
 public class AnswerMismatchException extends DomainException {
 
@@ -16,18 +17,17 @@ public class AnswerMismatchException extends DomainException {
     }
 
     public static AnswerMismatchException choicesExpected() {
-        return new AnswerMismatchException("Un QCM se répond en cochant des choix, sans note : le serveur corrige.");
+        return new AnswerMismatchException("Cette carte se répond en cochant ses choix : le serveur corrige.");
     }
 
     public static AnswerMismatchException blanksExpected(int blankCount) {
         return new AnswerMismatchException(
-                "Un code à trous se répond en remplissant ses %d trou(s), sans note : le serveur corrige."
-                        .formatted(blankCount));
+                "Un code à trous se répond en remplissant ses %d trou(s) : le serveur corrige.".formatted(blankCount));
     }
 
     public static AnswerMismatchException filesExpected() {
         return new AnswerMismatchException(
-                "Un exercice de code se répond en rendant ses fichiers, sans note : ses tests le jugent.");
+                "Un exercice de code se répond en rendant ses fichiers : ses tests le jugent.");
     }
 
     public static AnswerMismatchException starterFilesExpected(Collection<String> paths) {
@@ -46,10 +46,6 @@ public class AnswerMismatchException extends DomainException {
 
     public static AnswerMismatchException notGradedByServer() {
         return new AnswerMismatchException(
-                "Cette carte s'auto-évalue : seuls un vrai ou faux, un QCM et un code à trous se corrigent.");
-    }
-
-    public static AnswerMismatchException ratingExpected() {
-        return new AnswerMismatchException("Cette carte se note par auto-évaluation, sans choix cochés.");
+                "Cette carte n'a pas encore ses choix : le serveur ne peut pas la corriger, elle ne se révise pas.");
     }
 }

@@ -55,8 +55,9 @@ export function ChallengePage() {
       </Link>
       <h1 className="text-2xl font-bold">{summary.title}</h1>
       <p className="text-ink-muted">
-        {summary.cardCount} QCM, {summary.secondsPerCard} secondes par carte. Une réponse hors délai
-        compte comme fausse ; le chrono continue si tu quittes la page.
+        {summary.cardCount} question{summary.cardCount > 1 ? 's' : ''}, {summary.secondsPerCard}{' '}
+        secondes par carte. Une réponse hors délai compte comme fausse ; le chrono continue si tu
+        quittes la page.
       </p>
       {playing ? (
         <ChallengePlay challengeId={challengeId} onFinished={stopPlaying} />
