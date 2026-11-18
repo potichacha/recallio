@@ -265,6 +265,11 @@ class LiveGameServiceTest {
         public List<CardSnapshot> tourQuestions(String subjectSlug, String notionSlug) {
             throw new UnsupportedOperationException();
         }
+
+        @Override
+        public Set<UUID> cardsOfVersionsGradedByServer(Collection<UUID> versionIds) {
+            throw new UnsupportedOperationException();
+        }
     }
 
     /** Aucun nom affiché : le test ne regarde que les identifiants. */

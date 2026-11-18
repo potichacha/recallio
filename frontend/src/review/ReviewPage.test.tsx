@@ -31,6 +31,8 @@ vi.mock('../components/CodeEditor', () => ({
 const QUEUE = '/api/v1/review-queue'
 const REVIEWS = 'POST /api/v1/reviews'
 const MINUTE = 60_000
+/** Le nombre de tabulations au-delà duquel on renonce : la page a moins d'éléments que cela avant la carte. */
+const MAX_TABS = 40
 
 function counts(dueNow: number) {
   return { total: 40, seen: 10, mastered: 2, dueNow, dueToday: dueNow }
@@ -63,6 +65,7 @@ const PROFILE = {
 const FOLLOWING_JAVA_AND_GO = { body: { ...TEST_PROFILE, followedSubjects: ['java', 'go'] } }
 const signedIn = () => fakeSession({ status: 'authenticated', userName: 'Alice' })
 
+/** Une question de cours et ses choix (ADR 0051) : la bonne réponse, la machine virtuelle, est la première. */
 function queuedCard(overrides: Partial<QueuedCard> = {}): QueuedCard {
   return {
     cardId: 'card-1',
@@ -72,8 +75,11 @@ function queuedCard(overrides: Partial<QueuedCard> = {}): QueuedCard {
     themeSlug: 'java-fondamentaux',
     themeTitle: 'Java : fondamentaux',
     prompt: "Qu'est-ce que la JVM ?",
-    answer: 'La machine virtuelle qui exécute le bytecode.',
-    choices: [],
+    choices: [
+      'La machine virtuelle qui exécute le bytecode',
+      'Le compilateur de Java',
+      'Une bibliothèque de tests',
+    ],
     multipleAnswers: false,
     blankCount: 0,
     exercise: null,
@@ -89,13 +95,46 @@ function queue(cards: QueuedCard[], overrides: Partial<ReviewQueue> = {}): Revie
   return { cards, dueCount: 0, newCount: cards.length, nextDueAt: null, ...overrides }
 }
 
+/** Une réponse juste, enregistrée : la note découle de la correction (ADR 0063). */
 const recorded = {
-  body: { cardId: 'card-1', rating: 'GOOD', state: 'LEARNING', dueAt: '2026-10-29T10:10:00Z' },
+  body: {
+    cardId: 'card-1',
+    rating: 'GOOD',
+    state: 'LEARNING',
+    dueAt: '2026-10-29T10:10:00Z',
+    correction: {
+      correctChoices: [0],
+      blanks: [],
+      explanation: 'La JVM exécute le bytecode.',
+      exerciseRun: null,
+      solution: [],
+    },
+  },
 }
 
 /** Lance une session depuis l'écran de lancement, avec les réglages déjà choisis. */
 async function startSession() {
   await userEvent.click(await screen.findByRole('button', { name: 'Commencer' }))
+}
+
+/** Coche la machine virtuelle, la bonne réponse de la carte par défaut. */
+async function chooseTheVirtualMachine() {
+  await userEvent.click(await screen.findByRole('radio', { name: /machine virtuelle/ }))
+}
+
+/** Répond juste à la carte par défaut, puis passe à la suivante. */
+async function answerCard() {
+  await chooseTheVirtualMachine()
+  await userEvent.click(screen.getByRole('button', { name: 'Valider' }))
+  await userEvent.click(await screen.findByRole('button', { name: 'Carte suivante' }))
+}
+
+/** Appuie sur Tab jusqu'à ce que le focus soit sur l'élément attendu, comme au clavier seul. */
+async function tabUntil(isTarget: (element: Element | null) => boolean) {
+  for (let tabs = 0; tabs < MAX_TABS && !isTarget(document.activeElement); tabs++) {
+    await userEvent.tab()
+  }
+  expect(isTarget(document.activeElement)).toBe(true)
 }
 
 function queueRequests(fetchMock: ReturnType<typeof stubApi>) {
@@ -130,7 +169,7 @@ describe('ReviewPage', () => {
     expect(rust).toHaveTextContent('Work in progress')
   })
 
-  it('asks the length and the kind of questions for the chosen subject', async () => {
+  it('asks the length of a session on the chosen subject, and nothing else', async () => {
     stubApi({ ...PROFILE, '/api/v1/me': FOLLOWING_JAVA_AND_GO })
     renderAt('/review?subject=java', signedIn())
 
@@ -147,10 +186,12 @@ describe('ReviewPage', () => {
         .map((radio) => radio.closest('label')?.textContent),
     ).toEqual(['5 min', '10 min', '15 min', '20 min', 'Sans limite'])
     expect(within(durations).getByRole('radio', { name: '10 min' })).toBeChecked()
-    expect(screen.getByRole('radio', { name: /Toutes les questions/ })).toBeChecked()
+    // Le serveur corrige toutes les cartes (ADR 0063) : plus de questions à choisir.
+    expect(screen.queryByRole('group', { name: 'Questions' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('radio', { name: /questions/i })).not.toBeInTheDocument()
   })
 
-  it('starts a session on the subject chosen in the gallery, for the questions graded by the server', async () => {
+  it('starts a session on the subject chosen in the gallery, for the chosen length', async () => {
     const fetchMock = stubApi({
       ...PROFILE,
       '/api/v1/me': FOLLOWING_JAVA_AND_GO,
@@ -160,27 +201,21 @@ describe('ReviewPage', () => {
 
     await userEvent.click(await screen.findByRole('link', { name: 'Go' }))
     await userEvent.click(await screen.findByRole('radio', { name: '15 min' }))
-    await userEvent.click(screen.getByRole('radio', { name: /Questions corrigées/ }))
     await startSession()
 
     expect(await screen.findByRole('heading', { name: 'Réviser : Go' })).toBeInTheDocument()
     expect(screen.getByRole('timer', { name: 'Temps restant' })).toHaveTextContent('Encore 15 min')
     const [query] = queueRequests(fetchMock)
     expect(query?.get('subject')).toBe('go')
-    expect(query?.getAll('type')).toEqual([
-      'MULTIPLE_CHOICE',
-      'TRUE_FALSE',
-      'FILL_IN',
-      'CODING_EXERCISE',
-    ])
+    expect(query?.getAll('type')).toEqual([])
   })
 
-  it('remembers the last length and questions on this device', async () => {
+  it('remembers the last length on this device, ignoring the questions an older version kept', async () => {
     localStorage.setItem(
       'recallio.review-session',
       JSON.stringify({ subject: 'go', minutes: null, mode: 'graded' }),
     )
-    stubApi({
+    const fetchMock = stubApi({
       ...PROFILE,
       '/api/v1/me': FOLLOWING_JAVA_AND_GO,
       [QUEUE]: { body: queue([queuedCard()]) },
@@ -188,11 +223,11 @@ describe('ReviewPage', () => {
     renderAt('/review?subject=go', signedIn())
 
     expect(await screen.findByRole('radio', { name: 'Sans limite' })).toBeChecked()
-    expect(screen.getByRole('radio', { name: /Questions corrigées/ })).toBeChecked()
     await startSession()
 
     await screen.findByText("Qu'est-ce que la JVM ?")
     expect(screen.queryByRole('timer')).not.toBeInTheDocument()
+    expect(queueRequests(fetchMock)[0]?.getAll('type')).toEqual([])
   })
 
   it('follows a subject reviewed for the first time, so that it joins the dashboard', async () => {
@@ -212,7 +247,7 @@ describe('ReviewPage', () => {
     expect(await put?.json()).toEqual({ subjects: ['java', 'go'] })
   })
 
-  it('flips a self-assessed card to show the answer, then records what the candidate says', async () => {
+  it('records the chosen answer, without any self-assessment, then shows the next card', async () => {
     const fetchMock = stubApi({
       ...PROFILE,
       [QUEUE]: {
@@ -224,45 +259,20 @@ describe('ReviewPage', () => {
     await startSession()
 
     expect(await screen.findByText("Qu'est-ce que la JVM ?")).toBeInTheDocument()
-    expect(
-      screen.queryByText('La machine virtuelle qui exécute le bytecode.'),
-    ).not.toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: 'Voir la réponse' }))
-
-    expect(screen.getByRole('region', { name: 'Réponse attendue' })).toHaveTextContent(
-      'La machine virtuelle qui exécute le bytecode.',
-    )
-    const choices = screen.getByRole('group', { name: 'Connaissais-tu la réponse ?' })
-    expect(
-      within(choices)
-        .getAllByRole('button')
-        .map((button) => button.textContent),
-    ).toEqual(['Je ne savais pas', 'Je savais'])
+    // Ni carte à retourner, ni zone de texte, ni « Je savais » : on choisit, le serveur corrige (ADR 0063).
     expect(screen.queryByRole('button', { name: 'Voir la réponse' })).not.toBeInTheDocument()
-    await userEvent.click(within(choices).getByRole('button', { name: 'Je savais' }))
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Je savais' })).not.toBeInTheDocument()
+    await answerCard()
 
     expect(await screen.findByText('Taille d’un int ?')).toBeInTheDocument()
     expect(screen.getByText('1 carte révisée')).toBeInTheDocument()
     const post = sentRequests(fetchMock).find((request) => request.method === 'POST')
     const body = await post?.json()
-    expect(body).toMatchObject({ cardId: 'card-1', rating: 'GOOD' })
+    expect(body).toMatchObject({ cardId: 'card-1', selectedChoices: [0] })
+    expect(body.rating).toBeUndefined()
     expect(body.requestId).toMatch(/^[0-9a-f-]{36}$/)
     expect(body.elapsedMs).toBeGreaterThanOrEqual(0)
-  })
-
-  it('lets the candidate write an answer, then shows it next to the expected one', async () => {
-    stubApi({ ...PROFILE, [QUEUE]: { body: queue([queuedCard()]) } })
-    renderAt('/review?subject=java', signedIn())
-    await startSession()
-
-    const draft = await screen.findByRole('textbox', { name: 'Ta réponse (facultatif)' })
-    await userEvent.type(draft, 'Elle exécute le bytecode.')
-    await userEvent.click(screen.getByRole('button', { name: 'Voir la réponse' }))
-
-    expect(screen.getByRole('region', { name: 'Ta réponse' })).toHaveTextContent(
-      'Elle exécute le bytecode.',
-    )
-    expect(screen.getByRole('region', { name: 'Réponse attendue' })).toBeInTheDocument()
   })
 
   it('reports an error on the card being reviewed', async () => {
@@ -311,8 +321,8 @@ describe('ReviewPage', () => {
     renderAt('/review?subject=java', signedIn())
     await startSession()
 
-    await userEvent.click(await screen.findByRole('button', { name: 'Voir la réponse' }))
-    await userEvent.click(screen.getByRole('button', { name: 'Je ne savais pas' }))
+    await chooseTheVirtualMachine()
+    await userEvent.click(screen.getByRole('button', { name: 'Valider' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('Erreur temporaire')
 
     responses[REVIEWS] = {
@@ -329,7 +339,7 @@ describe('ReviewPage', () => {
     const posts = sentRequests(fetchMock).filter((request) => request.method === 'POST')
     const [first, second] = await Promise.all(posts.map((request) => request.json()))
     expect(second.requestId).toBe(first.requestId)
-    expect(second.rating).toBe('AGAIN')
+    expect(second.selectedChoices).toEqual([0])
   })
 
   it('fetches the next batch by itself once the batch is finished', async () => {
@@ -341,8 +351,7 @@ describe('ReviewPage', () => {
     renderAt('/review?subject=java', signedIn())
     await startSession()
 
-    await userEvent.click(await screen.findByRole('button', { name: 'Voir la réponse' }))
-    await userEvent.click(screen.getByRole('button', { name: 'Je savais' }))
+    await answerCard()
 
     await waitFor(() => expect(queueRequests(fetchMock)).toHaveLength(2))
     expect(await screen.findByText("Qu'est-ce que la JVM ?")).toBeInTheDocument()
@@ -393,12 +402,13 @@ describe('ReviewPage', () => {
     })
     renderAt('/review?subject=java', signedIn())
     await startSession()
-    await userEvent.click(await screen.findByRole('button', { name: 'Voir la réponse' }))
+    await chooseTheVirtualMachine()
 
-    // Les dix minutes passent pendant que la carte est retournée : on la finit, puis vient le bilan.
+    // Les dix minutes passent pendant qu'on répond : on finit la carte, puis vient le bilan.
     const later = Date.now() + 11 * MINUTE
     vi.spyOn(Date, 'now').mockReturnValue(later)
-    await userEvent.click(screen.getByRole('button', { name: 'Je savais' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Valider' }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Carte suivante' }))
 
     const summary = await screen.findByRole('region', { name: 'Bilan de la session' })
     expect(summary).toHaveTextContent('Temps écoulé : session terminée')
@@ -472,7 +482,6 @@ describe('ReviewPage', () => {
           queuedCard({
             type: 'MULTIPLE_CHOICE',
             prompt: 'Où vivent les objets créés avec `new` ?',
-            answer: null,
             choices: ['Dans la pile', 'Dans le tas', 'Dans le Metaspace'],
           }),
           queuedCard({ cardId: 'card-2', prompt: 'Taille d’un int ?' }),
@@ -525,7 +534,6 @@ describe('ReviewPage', () => {
           queuedCard({
             type: 'TRUE_FALSE',
             prompt: 'Le tas est partagé entre les threads.',
-            answer: null,
             choices: ['Vrai', 'Faux'],
             notionSlug: 'memoire-jvm',
             notionTitle: 'La mémoire de la JVM',
@@ -575,7 +583,6 @@ describe('ReviewPage', () => {
           queuedCard({
             type: 'TRUE_FALSE',
             prompt: '`new String("a") == "a"` vaut `true`.',
-            answer: null,
             choices: ['Vrai', 'Faux'],
           }),
         ]),
@@ -604,14 +611,13 @@ describe('ReviewPage', () => {
     expect(body.selectedChoices).toEqual([1])
   })
 
-  it('grades a course question that received choices like a multiple-choice card, with no self-assessment', async () => {
+  it('grades a course question on its choices, like a multiple-choice card', async () => {
     const fetchMock = stubApi({
       ...PROFILE,
       [QUEUE]: {
         body: queue([
           queuedCard({
             prompt: 'Java est-il compilé ou interprété ?',
-            answer: null,
             choices: ['Compilé', 'Interprété', 'Les deux'],
           }),
         ]),
@@ -634,15 +640,44 @@ describe('ReviewPage', () => {
     await startSession()
 
     await userEvent.click(await screen.findByRole('radio', { name: /Les deux/ }))
-    expect(screen.queryByRole('button', { name: 'Voir la réponse' })).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Valider' }))
+
+    expect(await screen.findByRole('status')).toHaveTextContent('Bonne réponse')
+    expect(screen.getByText(/Compilé en bytecode/)).toBeInTheDocument()
+    const post = sentRequests(fetchMock).find((request) => request.method === 'POST')
+    const body = await post?.json()
+    expect(body.selectedChoices).toEqual([2])
+    expect(body.rating).toBeUndefined()
+  })
+
+  it('grades a bug to fix on its choices, its code shown in a block (ADR 0063)', async () => {
+    const fetchMock = stubApi({
+      ...PROFILE,
+      [QUEUE]: {
+        body: queue([
+          queuedCard({
+            type: 'BUG_FIX',
+            prompt: 'Corrige ce code :\n\n```java\nif (s == "oui") { ok(); }\n```',
+            choices: ['`if ("oui".equals(s))`', '`if (s === "oui")`', '`if (s.is("oui"))`'],
+          }),
+        ]),
+      },
+      [REVIEWS]: { status: 201, ...recorded },
+    })
+    renderAt('/review?subject=java', signedIn())
+    await startSession()
+
+    const card = await screen.findByRole('article')
+    expect(within(card).getByText('Bug à corriger')).toBeInTheDocument()
+    expect(card.querySelector('pre')).toHaveTextContent('if (s == "oui") { ok(); }')
     expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('radio', { name: /equals/ }))
     await userEvent.click(screen.getByRole('button', { name: 'Valider' }))
 
     expect(await screen.findByRole('status')).toHaveTextContent('Bonne réponse')
     const post = sentRequests(fetchMock).find((request) => request.method === 'POST')
     const body = await post?.json()
-    expect(body.selectedChoices).toEqual([2])
-    expect(body.rating).toBeUndefined()
+    expect(body.selectedChoices).toEqual([0])
   })
 
   it('grades each blank of a fill-in card on the server and shows the expected answers', async () => {
@@ -653,7 +688,7 @@ describe('ReviewPage', () => {
           queuedCard({
             type: 'FILL_IN',
             prompt: '```java\npublic int ___() { return Objects.___(x, y); }\n```',
-            answer: null,
+            choices: [],
             blankCount: 2,
           }),
         ]),
@@ -697,6 +732,19 @@ describe('ReviewPage', () => {
     expect(body.rating).toBeUndefined()
   })
 
+  it('says so, rather than breaking, when a card cannot be graded by the server', async () => {
+    // Une carte sans choix, ni trous, ni tests : la file n'en sert plus (ADR 0063), mais l'écran ne doit pas casser.
+    stubApi({ ...PROFILE, [QUEUE]: { body: queue([queuedCard({ choices: [] })]) } })
+    renderAt('/review?subject=java', signedIn())
+    await startSession()
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Cette carte ne peut pas être corrigée',
+    )
+    expect(screen.getByRole('button', { name: 'Signaler une erreur' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Terminer la session' })).toBeInTheDocument()
+  })
+
   it('shows the lesson of a notion before its first card, then the card', async () => {
     stubApi({
       ...PROFILE,
@@ -719,7 +767,7 @@ describe('ReviewPage', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Passer à la carte' }))
 
     expect(screen.getByText("Qu'est-ce que la JVM ?")).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Voir la réponse' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Valider' })).toBeInTheDocument()
   })
 
   it('says which notion a card is about, or its theme when it has none', async () => {
@@ -743,7 +791,7 @@ describe('ReviewPage', () => {
           queuedCard({
             type: 'CODING_EXERCISE',
             prompt: 'Retirer les doublons.',
-            answer: null,
+            choices: [],
             exercise: {
               starter: [{ path: 'Doublons.java', content: 'class Doublons {}' }],
               tests: [{ path: 'DoublonsTest.java', content: 'class DoublonsTest {}' }],
@@ -816,24 +864,6 @@ describe('ReviewPage', () => {
     expect(submitted.rating).toBeUndefined()
   })
 
-  it('lets the candidate write a fix to a bug before flipping the card', async () => {
-    stubApi({
-      ...PROFILE,
-      [QUEUE]: { body: queue([queuedCard({ type: 'BUG_FIX', answer: 'Utiliser `equals`.' })]) },
-    })
-    renderAt('/review?subject=java', signedIn())
-    await startSession()
-
-    const draft = await screen.findByRole('textbox', { name: 'Ta correction (facultatif)' })
-    await userEvent.type(draft, 'if ("oui".equals(s))')
-    await userEvent.click(screen.getByRole('button', { name: 'Voir la réponse' }))
-
-    expect(screen.getByRole('region', { name: 'Ta correction' })).toHaveTextContent(
-      'if ("oui".equals(s))',
-    )
-    expect(screen.getByRole('group', { name: 'Connaissais-tu la réponse ?' })).toBeInTheDocument()
-  })
-
   it('shows the progress towards the daily goal, refreshed after each review', async () => {
     const responses = {
       ...PROFILE,
@@ -851,8 +881,7 @@ describe('ReviewPage', () => {
     responses['/api/v1/me/progress'] = {
       body: { ...TEST_PROGRESS, cardsToday: 10, goalReachedToday: true, streak: 4 },
     }
-    await userEvent.click(screen.getByRole('button', { name: 'Voir la réponse' }))
-    await userEvent.click(screen.getByRole('button', { name: 'Je savais' }))
+    await answerCard()
 
     expect(
       await screen.findByText('Objectif atteint ! Ta série passe à 4 jours.'),
@@ -863,19 +892,28 @@ describe('ReviewPage', () => {
     ).toBeGreaterThanOrEqual(2)
   })
 
-  it('starts at once from a link that gives the subject, the length and the questions', async () => {
+  it('starts at once from a link that gives the subject and the length', async () => {
     const fetchMock = stubApi({ ...PROFILE, [QUEUE]: { body: queue([queuedCard()]) } })
-    renderAt('/review?subject=java&minutes=5&mode=graded', signedIn())
+    renderAt('/review?subject=java&minutes=5', signedIn())
 
     expect(await screen.findByText("Qu'est-ce que la JVM ?")).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Commencer' })).not.toBeInTheDocument()
     expect(screen.getByRole('timer', { name: 'Temps restant' })).toHaveTextContent('Encore 5 min')
     const [query] = queueRequests(fetchMock)
     expect(query?.get('subject')).toBe('java')
-    expect(query?.getAll('type')).toContain('MULTIPLE_CHOICE')
+    expect(query?.getAll('type')).toEqual([])
   })
 
-  it('flips a self-assessed card and records the answer from the keyboard', async () => {
+  it('still starts at once from an older link that chose the questions, now ignored', async () => {
+    const fetchMock = stubApi({ ...PROFILE, [QUEUE]: { body: queue([queuedCard()]) } })
+    renderAt('/review?subject=java&minutes=5&mode=graded', signedIn())
+
+    expect(await screen.findByText("Qu'est-ce que la JVM ?")).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Commencer' })).not.toBeInTheDocument()
+    expect(queueRequests(fetchMock)[0]?.getAll('type')).toEqual([])
+  })
+
+  it('answers a card with the keyboard alone, then moves on with Enter (ADR 0058)', async () => {
     const fetchMock = stubApi({
       ...PROFILE,
       [QUEUE]: {
@@ -885,33 +923,23 @@ describe('ReviewPage', () => {
     })
     renderAt('/review?subject=java', signedIn())
     await startSession()
-
     expect(await screen.findByText("Qu'est-ce que la JVM ?")).toBeInTheDocument()
+
+    // Tab jusqu'à un choix, Espace pour le cocher, Tab jusqu'à « Valider », Entrée.
+    await tabUntil((element) => element instanceof HTMLInputElement && element.type === 'radio')
     await userEvent.keyboard(' ')
-    expect(screen.getByRole('region', { name: 'Réponse attendue' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Je savais' })).toHaveAttribute(
-      'aria-keyshortcuts',
-      '2',
-    )
-    await userEvent.keyboard('2')
+    const validate = screen.getByRole('button', { name: 'Valider' })
+    await tabUntil((element) => element === validate)
+    await userEvent.keyboard('{Enter}')
+
+    // Le focus est passé sur « Carte suivante » : Entrée ouvre la carte d'après.
+    expect(await screen.findByRole('button', { name: 'Carte suivante' })).toHaveFocus()
+    await userEvent.keyboard('{Enter}')
 
     expect(await screen.findByText('Taille d’un int ?')).toBeInTheDocument()
     const post = sentRequests(fetchMock).find((request) => request.method === 'POST')
-    expect(await post?.json()).toMatchObject({ cardId: 'card-1', rating: 'GOOD' })
-  })
-
-  it('leaves Enter to the button that has the focus', async () => {
-    stubApi({ ...PROFILE, [QUEUE]: { body: queue([queuedCard()]) } })
-    renderAt('/review?subject=java', signedIn())
-    await startSession()
-
-    expect(await screen.findByText("Qu'est-ce que la JVM ?")).toBeInTheDocument()
-    screen.getByRole('button', { name: 'Terminer la session' }).focus()
-    await userEvent.keyboard('{Enter}')
-
-    expect(screen.getByRole('region', { name: 'Bilan de la session' })).toHaveTextContent(
-      'Session terminée',
-    )
+    const body = await post?.json()
+    expect(body.selectedChoices).toHaveLength(1)
   })
 
   it('offers five more minutes once the time is up', async () => {
@@ -922,9 +950,10 @@ describe('ReviewPage', () => {
     })
     renderAt('/review?subject=java', signedIn())
     await startSession()
-    await userEvent.click(await screen.findByRole('button', { name: 'Voir la réponse' }))
+    await chooseTheVirtualMachine()
     vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 11 * MINUTE)
-    await userEvent.click(screen.getByRole('button', { name: 'Je savais' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Valider' }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Carte suivante' }))
 
     const summary = await screen.findByRole('region', { name: 'Bilan de la session' })
     await userEvent.click(within(summary).getByRole('button', { name: 'Encore 5 minutes' }))

@@ -48,11 +48,20 @@ class MockExamsTest {
                   - {id: fonctions, title: "Les fonctions", level: beginner, priority: 2}
             """;
 
-    /** Cinq questions corrigées par le serveur (les vrais ou faux sont faux, le QCM est le premier choix, le trou « int »), et un cours. */
+    /**
+     * Une question de cours à choix, deux vrais ou faux (faux tous deux) et un QCM (le premier choix) : toutes entrent dans
+     * l'examen, quel que soit leur format (ADR 0063).
+     */
     private static final String TYPES = """
             notion: types
             cards:
-              - {key: cours, format: course, question: "Qu'est-ce qu'un type ?", answer: "Une famille de valeurs."}
+              - key: cours
+                format: course
+                question: "Qu'est-ce qu'un type ?"
+                choices:
+                  - {text: "Une famille de valeurs", correct: true}
+                  - {text: "Une variable", correct: false}
+                answer: "Une famille de valeurs."
               - {key: vf1, format: true-false, question: "Dart n'a pas de types.", truth: false, answer: "Il en a."}
               - {key: vf2, format: true-false, question: "Un int peut valoir 1.5.", truth: false, answer: "Non."}
               - key: choix
@@ -64,13 +73,16 @@ class MockExamsTest {
                 answer: "`int`."
             """;
 
-    private static final List<String> TYPES_PROMPTS =
-            List.of("Dart n'a pas de types.", "Un int peut valoir 1.5.", "Quel type pour un entier ?");
+    private static final List<String> TYPES_PROMPTS = List.of(
+            "Qu'est-ce qu'un type ?",
+            "Dart n'a pas de types.",
+            "Un int peut valoir 1.5.",
+            "Quel type pour un entier ?");
 
     private static final List<String> FONCTIONS_PROMPTS =
             List.of("`___ carre(int x) => x * x;`", "Une fonction Dart ne rend jamais rien.");
 
-    /** Un seul domaine, une seule notion : trois questions corrigées par le serveur, trop peu pour un examen. */
+    /** Un seul domaine, une seule notion : quatre questions corrigées par le serveur, trop peu pour un examen. */
     private static final String ELM_REFERENTIAL = """
             domain: bases
             title: Les bases
@@ -122,8 +134,9 @@ class MockExamsTest {
                 .statusCode(201)
                 .body("subject", is("dart"))
                 .body("submitted", is(false))
-                .body("questions", hasSize(5))
-                .body("questions.type", everyItem(oneOf("TRUE_FALSE", "MULTIPLE_CHOICE", "FILL_IN")))
+                .body("questions", hasSize(6))
+                .body("questions.type", everyItem(oneOf("FLASHCARD", "TRUE_FALSE", "MULTIPLE_CHOICE", "FILL_IN")))
+                .body("questions.find { it.type == 'FLASHCARD' }.choices", hasSize(2))
                 .body("remainingMs", greaterThan(4 * 60_000))
                 .extract()
                 .jsonPath();
@@ -146,8 +159,8 @@ class MockExamsTest {
         submit(id, answers)
                 .statusCode(200)
                 .body("correct", is(1))
-                .body("total", is(5))
-                .body("percent", is(20))
+                .body("total", is(6))
+                .body("percent", is(17))
                 .body("inTime", is(true))
                 .body("results.cardId", contains(cards.toArray()))
                 .body(
@@ -162,7 +175,7 @@ class MockExamsTest {
                 .then()
                 .statusCode(200)
                 .body("id", contains(id))
-                .body("[0].percent", is(20));
+                .body("[0].percent", is(17));
         // Rien n'est passé par la révision.
         assertThat(reviewLogCount()).isZero();
     }

@@ -88,7 +88,7 @@ class TourResourceTest {
                       func main() {}
                   output: rien
             cards:
-              - {key: point-entree, format: course, question: "Où commence un programme ?", answer: Dans main.}
+              - {key: point-entree, format: course, question: "Où commence un programme ?", answer: Dans main., choices: [{text: Dans main, correct: true}, {text: Ailleurs, correct: false}]}
             """;
 
     private static final String FONCTIONS = """
@@ -103,13 +103,13 @@ class TourResourceTest {
                       func main() {}
                   output: rien
             cards:
-              - {key: declarer, format: course, question: "Comment déclarer une fonction ?", answer: Avec func.}
+              - {key: declarer, format: course, question: "Comment déclarer une fonction ?", answer: Avec func., choices: [{text: Avec func, correct: true}, {text: Avec def, correct: false}]}
             """;
 
     private static final String HISTOIRE = """
             notion: histoire
             cards:
-              - {key: naissance, format: course, question: "Où est né Lua ?", answer: Au Brésil.}
+              - {key: naissance, format: course, question: "Où est né Lua ?", answer: Au Brésil., choices: [{text: Au Brésil, correct: true}, {text: Au Portugal, correct: false}]}
             """;
 
     /** Un exercice de la notion « fonctions » : le Tour le propose à la fin de son chapitre. */

@@ -107,6 +107,39 @@ describe('MockExamPage', () => {
     expect(await submission?.json()).toEqual({ answers: [{ cardId: 'c1', selectedChoices: [1] }] })
   })
 
+  it('asks a question of any format that has choices, its Markdown and its code shown (ADR 0063)', async () => {
+    stubExam(
+      exam({
+        questions: [
+          {
+            cardId: 'c1',
+            type: 'FLASHCARD',
+            prompt: 'Que vaut une slice **jamais affectée** ?',
+            choices: ['`nil`', 'Une slice vide de longueur 1'],
+            multipleAnswers: false,
+            blankCount: 0,
+          },
+          {
+            cardId: 'c2',
+            type: 'CODE_OUTPUT',
+            prompt: 'Qu’affiche ce code ?\n\n```go\nfmt.Println(len("go"))\n```',
+            choices: ['`2`', '`0`', 'panic'],
+            multipleAnswers: false,
+            blankCount: 0,
+          },
+        ],
+      }),
+    )
+    renderAt('/subjects/go/exam?exam=e1', signedIn())
+
+    const course = await screen.findByRole('group', { name: 'Question 1 sur 2' })
+    expect(within(course).getByText('jamais affectée').tagName).toBe('STRONG')
+    const code = screen.getByRole('group', { name: 'Question 2 sur 2' })
+    expect(code.querySelector('pre')).toHaveTextContent('fmt.Println(len("go"))')
+    await userEvent.click(within(code).getByRole('radio', { name: '2' }))
+    expect(screen.getByText('1 / 2 questions répondues')).toBeInTheDocument()
+  })
+
   it('hands the copy by itself once the time is up', async () => {
     const fetchMock = stubExam(exam({ remainingMs: 0 }))
     renderAt('/subjects/go/exam?exam=e1', signedIn())

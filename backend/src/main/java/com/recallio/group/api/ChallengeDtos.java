@@ -130,7 +130,7 @@ final class ChallengeDtos {
         }
     }
 
-    /** Comme dans la file de révision, un QCM arrive sans ses bonnes réponses ni son explication. */
+    /** Comme dans la file de révision, une question arrive sans ses bonnes réponses ni son explication. */
     @Schema(name = "ChallengeCard")
     record ChallengeCardDto(
             @Schema(description = "Position dans la série, à partir de 0")

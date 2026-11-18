@@ -26,8 +26,8 @@ public sealed interface CardContent {
     String answer();
 
     /**
-     * Les choix d'une carte qui se corrige sur eux : ceux d'un QCM, « Vrai » et « Faux », ou ceux qu'a reçus une carte
-     * d'un autre format (ADR 0051) ; aucun pour une carte qui s'auto-évalue, un code à trous ou un exercice.
+     * Les choix d'une carte qui se corrige sur eux : ceux d'un QCM, « Vrai » et « Faux », ou ceux d'une carte d'un autre
+     * format (ADR 0051) ; aucun pour un code à trous, un exercice, ou une carte d'un document Markdown qui n'en a pas.
      */
     default List<CardChoice> choices() {
         return List.of();
@@ -36,6 +36,11 @@ public sealed interface CardContent {
     /** Les trous d'une carte « compléter le code » ; aucun pour les autres formats. */
     default List<CardBlank> blanks() {
         return List.of();
+    }
+
+    /** Vrai si le serveur corrige la carte sans exécuter de code : sur ses choix, ou sur ses trous (ADR 0063). */
+    default boolean isGradedWithoutRunningCode() {
+        return !choices().isEmpty() || type() == CardType.FILL_IN;
     }
 
     /** Les fichiers d'un exercice de code ; aucun pour les autres formats. */
@@ -58,8 +63,9 @@ public sealed interface CardContent {
     }
 
     /**
-     * Une question de cours. Sans choix, elle s'auto-évalue ; avec, elle se corrige comme un QCM (ADR 0051), et
-     * {@code answer} devient l'explication. Il en va de même des autres formats qui reçoivent des choix.
+     * Une question de cours. Elle se corrige sur ses choix comme un QCM (ADR 0051), et {@code answer} est l'explication.
+     * Il en va de même des autres formats qui ont des choix. Une carte d'un document Markdown peut ne pas en avoir :
+     * elle ne se révise pas (ADR 0063).
      */
     record Flashcard(String prompt, String answer, List<CardChoice> choices) implements CardContent {
 
@@ -184,15 +190,15 @@ public sealed interface CardContent {
     }
 
     /**
-     * Un contenu sans choix, trous ni fichiers : il s'auto-évalue. Un QCM, un vrai ou faux, un code à trous ou un
-     * exercice se construit avec eux.
+     * Un contenu sans choix, trous ni fichiers : celui d'un document Markdown, qui ne se révise pas (ADR 0063). Un QCM,
+     * un vrai ou faux, un code à trous ou un exercice se construit avec eux.
      */
     static CardContent of(CardType type, String prompt, String answer) {
         return of(type, prompt, answer, List.of());
     }
 
     /**
-     * Un contenu qui se corrige sur ses choix, ou qui s'auto-évalue s'il n'en a pas (ADR 0051).
+     * Un contenu qui se corrige sur ses choix (ADR 0051) ; sans eux, il ne se révise pas (ADR 0063).
      *
      * @throws IllegalArgumentException pour un format qui n'en reçoit pas, ou des choix invalides
      */

@@ -15,7 +15,7 @@ const MAX_SECONDS = 120
 
 const END = new Intl.DateTimeFormat('fr-FR', { dateStyle: 'long' })
 
-/** Les défis du groupe (ADR 0020) : une série de QCM commune, avec un délai par carte. */
+/** Les défis du groupe (ADR 0020) : une série de questions à choix commune, avec un délai par carte (ADR 0063). */
 export function ChallengesPanel({ group }: { group: Group }) {
   const challenges = useGroupChallenges(group.id)
 
@@ -37,7 +37,7 @@ export function ChallengesPanel({ group }: { group: Group }) {
       {challenges.data?.length === 0 && (
         <EmptyState
           title="Aucun défi pour le moment."
-          text="Un défi propose la même série de QCM à tous les membres, avec un temps limité par carte."
+          text="Un défi propose la même série de questions à tous les membres, avec un temps limité par carte."
         />
       )}
       {challenges.data && challenges.data.length > 0 && (
@@ -70,7 +70,8 @@ function ChallengeRow({ challenge }: { challenge: ChallengeSummary }) {
         <span className="flex flex-col">
           <span className="font-medium">{challenge.title}</span>
           <span className="text-xs text-ink-muted">
-            {challenge.cardCount} QCM · {challenge.secondsPerCard} s par carte
+            {challenge.cardCount} question{challenge.cardCount > 1 ? 's' : ''} ·{' '}
+            {challenge.secondsPerCard} s par carte
             {challenge.open && ` · jusqu'au ${END.format(new Date(challenge.endsAt))}`}
           </span>
         </span>
@@ -109,7 +110,7 @@ function CreateChallengeForm({ groupId }: { groupId: string }) {
       </label>
       <div className="flex flex-wrap gap-4">
         <NumberField
-          label="Nombre de QCM"
+          label="Nombre de questions"
           value={cardCount}
           min={MIN_CARDS}
           max={MAX_CARDS}

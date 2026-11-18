@@ -6,8 +6,8 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * Un défi de groupe (CLAUDE.md, section 6.4 ; ADR 0020) : la même série de QCM pour tous les membres, avec un délai de
- * réponse par carte, ouvert pendant une semaine.
+ * Un défi de groupe (CLAUDE.md, section 6.4 ; ADR 0020) : la même série de questions à choix pour tous les membres,
+ * avec un délai de réponse par carte, ouvert pendant une semaine.
  *
  * @param cardIds la série, dans l'ordre où elle est jouée
  */

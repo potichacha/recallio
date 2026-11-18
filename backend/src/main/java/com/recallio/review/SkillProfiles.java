@@ -5,7 +5,7 @@ import java.util.UUID;
 
 /**
  * API publique du module review (ADR 0001) : les compétences d'un utilisateur, pour son profil public (ADR 0043). Le
- * vérifié (ce que le serveur a corrigé) y est séparé du déclaré (la maîtrise, auto-évaluée en partie).
+ * vérifié (ce que le serveur a corrigé) y est séparé du déclaré (la maîtrise, en révision personnelle).
  */
 public interface SkillProfiles {
 
@@ -18,14 +18,15 @@ public interface SkillProfiles {
      * Ce que le serveur a vérifié.
      *
      * @param exercisesPassed les exercices de code réussis, jugés par leurs tests
-     * @param correctAnswers les autres cartes corrigées par le serveur (QCM, vrai ou faux, code à compléter) réussies
+     * @param correctAnswers les autres cartes réussies dans une version que le serveur corrigeait, sur ses choix ou ses
+     *     trous, quel que soit son format ; un ancien « Je savais » n'en est pas (ADR 0063)
      * @param tourNotionsValidated les notions du Tour validées
      */
     record Verified(int exercisesPassed, int correctAnswers, int tourNotionsValidated) {}
 
     /**
-     * Ce que l'utilisateur déclare en révision personnelle : la maîtrise des notions (ADR 0034), dont une partie
-     * s'auto-évalue.
+     * Ce que l'utilisateur déclare en révision personnelle : la maîtrise des notions (ADR 0034), qui compte encore les
+     * réussites auto-évaluées d'avant l'ADR 0063.
      *
      * @param notions les notions du sujet ; aucune pour un sujet sans référentiel
      * @param readinessPercent son indice de préparation (ADR 0041)

@@ -41,7 +41,10 @@ public record CardChoice(String text, boolean correct) {
         return copy;
     }
 
-    /** Aucun choix, pour une carte qui s'auto-évalue, ou des choix vérifiés comme par {@link #checked}. */
+    /**
+     * Aucun choix, pour une carte d'un document Markdown qui n'en a pas (elle ne se révise pas, ADR 0063), ou des choix
+     * vérifiés comme par {@link #checked}.
+     */
     public static List<CardChoice> checkedIfAny(List<CardChoice> choices) {
         return choices.isEmpty() ? List.of() : checked(choices);
     }

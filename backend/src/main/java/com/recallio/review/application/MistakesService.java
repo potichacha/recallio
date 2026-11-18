@@ -3,6 +3,7 @@ package com.recallio.review.application;
 import com.recallio.content.CardDirectory;
 import com.recallio.content.CardDirectory.ActiveCard;
 import com.recallio.content.CardDirectory.CardFilter;
+import com.recallio.content.CardDirectory.CardFilter.Grading;
 import com.recallio.content.CardDirectory.CardSnapshot;
 import com.recallio.review.domain.AnswerMismatchException;
 import com.recallio.review.domain.CardNotReviewableException;
@@ -52,7 +53,7 @@ public class MistakesService {
      *
      * @throws CardNotReviewableException si la carte n'est pas dans le carnet de l'utilisateur pour ce sujet : cette
      *     route ne corrige pas n'importe quelle carte
-     * @throws AnswerMismatchException si la carte s'auto-évalue, ou si la réponse ne convient pas à son format
+     * @throws AnswerMismatchException si la réponse ne convient pas à la carte
      */
     public AnswerCorrection check(UserRef user, String subjectSlug, GradedAnswer answer) {
         CardSnapshot card = mistakenCards(user, subjectSlug).contains(answer.cardId())
@@ -64,16 +65,19 @@ public class MistakesService {
         return AnswerCorrection.grade(card, answer);
     }
 
-    /** Les cartes ratées qui sont encore des cartes actives du sujet : le contenu a pu changer depuis. */
+    /**
+     * Les cartes ratées qui sont encore des cartes actives du sujet, que le serveur corrige : le contenu a pu changer
+     * depuis, et un ancien « Je ne savais pas » sur une carte sans choix ne se refait pas (ADR 0063).
+     */
     private List<UUID> mistakenCards(UserRef user, String subjectSlug) {
         List<UUID> failed =
                 reviewLog.cardsStillFailedSince(user.id(), clock.instant().minus(WINDOW));
         if (failed.isEmpty()) {
             return List.of();
         }
-        Set<UUID> ofSubject = cards.activeCards(new CardFilter(Set.of(subjectSlug), null, Set.of(), Set.of())).stream()
-                .map(ActiveCard::cardId)
-                .collect(Collectors.toSet());
+        var filter = new CardFilter(Set.of(subjectSlug), null, Set.of(), Set.of(), Grading.SERVER);
+        Set<UUID> ofSubject =
+                cards.activeCards(filter).stream().map(ActiveCard::cardId).collect(Collectors.toSet());
         return failed.stream().filter(ofSubject::contains).limit(MAX_CARDS).toList();
     }
 }

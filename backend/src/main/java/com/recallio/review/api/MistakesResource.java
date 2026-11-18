@@ -70,7 +70,7 @@ public class MistakesResource {
                             schema = @Schema(implementation = ProblemDetail.class)))
     @APIResponse(
             responseCode = "422",
-            description = "La carte s'auto-évalue, ou la réponse ne convient pas à son format",
+            description = "La réponse ne convient pas à la carte",
             content =
                     @Content(
                             mediaType = ProblemDetail.MEDIA_TYPE,

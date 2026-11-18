@@ -129,15 +129,17 @@ describe('DashboardPage', () => {
 
     const next = await screen.findByRole('region', { name: 'Java' })
     expect(next).toHaveTextContent('5 à revoir · 8 nouvelles')
-    expect(
-      within(next).getByRole('link', { name: 'Continuer 10 min · toutes les questions' }),
-    ).toHaveAttribute('href', '/review?subject=java&minutes=10&mode=all')
+    expect(within(next).getByRole('link', { name: 'Continuer 10 min' })).toHaveAttribute(
+      'href',
+      '/review?subject=java&minutes=10',
+    )
     expect(
       within(next).getByRole('link', { name: 'Changer de sujet ou de durée' }),
     ).toHaveAttribute('href', '/review')
   })
 
-  it('continues with the settings of the last session on this device', async () => {
+  it('continues with the length of the last session on this device', async () => {
+    // Un mode de questions rangé par une version précédente (ADR 0048) est ignoré : le serveur corrige tout (ADR 0063).
     localStorage.setItem(
       'recallio.review-session',
       JSON.stringify({ subject: 'java', minutes: 5, mode: 'graded' }),
@@ -145,9 +147,10 @@ describe('DashboardPage', () => {
     stubDashboard()
     renderAt('/', signedIn())
 
-    expect(
-      await screen.findByRole('link', { name: 'Continuer 5 min · questions corrigées' }),
-    ).toHaveAttribute('href', '/review?subject=java&minutes=5&mode=graded')
+    expect(await screen.findByRole('link', { name: 'Continuer 5 min' })).toHaveAttribute(
+      'href',
+      '/review?subject=java&minutes=5',
+    )
   })
 
   it('says when everything is up to date for today', async () => {

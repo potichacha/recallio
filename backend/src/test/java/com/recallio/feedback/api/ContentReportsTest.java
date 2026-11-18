@@ -75,13 +75,13 @@ class ContentReportsTest {
                       func main() {}
                   output: rien
             cards:
-              - {key: cours, format: course, question: "Où commence un programme Nim ?", answer: "Au début."}
+              - {key: cours, format: course, question: "Où commence un programme Nim ?", answer: "Au début.", choices: [{text: Au début, correct: true}, {text: À la fin, correct: false}]}
             """;
 
     private static final String HORS_TOUR = """
             notion: hors-tour
             cards:
-              - {key: cours, format: course, question: "Cette notion a-t-elle une page ?", answer: "Non."}
+              - {key: cours, format: course, question: "Cette notion a-t-elle une page ?", answer: "Non.", choices: [{text: Non, correct: true}, {text: Oui, correct: false}]}
             """;
 
     @Inject

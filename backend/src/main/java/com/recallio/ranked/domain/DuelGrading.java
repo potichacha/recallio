@@ -9,7 +9,8 @@ import java.util.stream.IntStream;
 import org.jspecify.annotations.Nullable;
 
 /**
- * La correction d'une réponse de duel par le serveur (ADR 0046) : un QCM, un vrai ou faux ou un code à compléter. Les
+ * La correction d'une réponse de duel par le serveur (ADR 0046) : une carte à choix, quel que soit son format, ou un code
+ * à compléter (ADR 0063). Les
  * règles de justesse sont celles de la carte ({@link CardSnapshot#isCorrectSelection}, {@link CardSnapshot#checkBlanks}),
  * comme en révision.
  */
@@ -18,7 +19,7 @@ public final class DuelGrading {
     private DuelGrading() {}
 
     /**
-     * @param correctChoices les bonnes réponses d'un QCM ou d'un vrai ou faux ; aucune pour un code à trous
+     * @param correctChoices les bonnes réponses d'une carte à choix ; aucune pour un code à trous
      * @param blanks la correction de chaque trou ; aucune pour les autres formats
      * @param explanation le verso de la carte, en Markdown
      */

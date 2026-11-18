@@ -66,18 +66,13 @@ final class ReviewDtos {
             String subjectTitle,
             String themeSlug,
             String themeTitle,
-            @Schema(description = "Recto, en Markdown") String prompt,
 
-            @Schema(
-                    description = "Verso, en Markdown ; absent pour une carte corrigée par le serveur (une carte à"
-                            + " choix, un code à trous, un exercice), dont l'explication arrive avec la correction",
-                    nullable = true)
-            @Nullable
-            String answer,
+            @Schema(description = "Recto, en Markdown ; l'explication arrive avec la correction")
+            String prompt,
 
             @Schema(
                     description = "Les choix de la carte, en Markdown, sans dire lesquels sont justes ; vide pour"
-                            + " une carte qui s'auto-évalue, un code à trous ou un exercice (ADR 0051)")
+                            + " un code à trous ou un exercice (ADR 0051)")
             List<String> choices,
 
             @Schema(
@@ -125,7 +120,6 @@ final class ReviewDtos {
                     card.themeSlug(),
                     card.themeTitle(),
                     card.prompt(),
-                    card.isGradedByServer() ? null : card.answer(),
                     card.choices().stream().map(CardChoice::text).toList(),
                     card.correctChoices().size() > 1,
                     card.blanks().size(),
@@ -137,10 +131,7 @@ final class ReviewDtos {
         }
     }
 
-    /**
-     * Un exercice à résoudre. Auto-évalué tant que le code n'est pas exécuté (ADR 0029) : la solution vient avec lui,
-     * comme la réponse d'une carte auto-évaluée, et la PWA ne la montre qu'une fois révélée.
-     */
+    /** Un exercice à résoudre : son code de départ et ses tests ; la solution arrive avec la correction (ADR 0030). */
     @Schema(name = "ExerciseToSolve")
     record ExerciseToSolveDto(
             @Schema(description = "Le code de départ, à modifier")
@@ -175,6 +166,7 @@ final class ReviewDtos {
         }
     }
 
+    /** Une réponse : le serveur la corrige et en déduit la note (ADR 0063). Une seule de ses trois formes. */
     @Schema(name = "RecordReviewRequest")
     record RecordReviewRequest(
             @Schema(description = "Identifiant généré par le client, réutilisé tel quel si la requête est renvoyée")
@@ -184,13 +176,8 @@ final class ReviewDtos {
             @NotNull UUID cardId,
 
             @Schema(
-                    description = "La note d'auto-évaluation ; absente pour un QCM, que le serveur corrige",
-                    nullable = true)
-            @Nullable
-            Rating rating,
-
-            @Schema(
-                    description = "Pour un QCM seulement : les positions des choix cochés, à partir de 0",
+                    description = "Pour une carte à choix seulement : les positions des choix cochés, à partir de 0,"
+                            + " dans l'ordre de la carte (avant le mélange de l'affichage)",
                     nullable = true)
             @Size(max = CardChoice.MAX_PER_CARD)
             @Nullable
@@ -221,13 +208,13 @@ final class ReviewDtos {
     record ReviewResultDto(
             UUID cardId,
 
-            @Schema(description = "La note enregistrée ; pour un QCM, celle que donne la correction")
+            @Schema(description = "La note enregistrée, que donne la correction : GOOD si juste, AGAIN sinon")
             Rating rating,
 
             LearningState state,
             Instant dueAt,
 
-            @Schema(description = "La correction d'un QCM ; absente pour les autres formats", nullable = true) @Nullable
+            @Schema(description = "La correction de la réponse", nullable = true) @Nullable
             CorrectionDto correction) {
         static ReviewResultDto from(ReviewOutcome outcome) {
             Correction correction = outcome.correction();
@@ -242,9 +229,7 @@ final class ReviewDtos {
 
     @Schema(name = "Correction")
     record CorrectionDto(
-            @Schema(
-                    description =
-                            "Positions des bonnes réponses d'un QCM ou d'un vrai ou faux, à partir de 0, dans l'ordre")
+            @Schema(description = "Positions des bonnes réponses d'une carte à choix, à partir de 0, dans l'ordre")
             List<Integer> correctChoices,
 
             @Schema(description = "La correction de chaque trou d'un code à trous, dans l'ordre ; vide sinon")

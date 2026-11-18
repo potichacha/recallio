@@ -63,7 +63,7 @@ describe('ChallengesPanel', () => {
       '/challenges/c3',
       '/challenges/c4',
     ])
-    expect(links[0]).toHaveTextContent('À jouer5 QCM · 30 s par carte')
+    expect(links[0]).toHaveTextContent('À jouer5 questions · 30 s par carte')
     expect(links[0]).toHaveTextContent('Jouer')
     expect(links[1]).toHaveTextContent('Reprendre')
     expect(links[2]).toHaveTextContent('Score : 4 / 5')
@@ -77,7 +77,7 @@ describe('ChallengesPanel', () => {
         status: 422,
         body: {
           code: 'group.not-enough-cards',
-          detail: 'Les sujets du groupe ne comptent que 3 QCM.',
+          detail: 'Les sujets du groupe ne comptent que 3 questions à choix.',
         },
       },
     })
@@ -91,7 +91,7 @@ describe('ChallengesPanel', () => {
     await userEvent.click(within(form).getByRole('button', { name: 'Lancer le défi' }))
 
     expect(await within(form).findByRole('alert')).toHaveTextContent(
-      'Les sujets du groupe ne comptent que 3 QCM.',
+      'Les sujets du groupe ne comptent que 3 questions à choix.',
     )
     const post = sentRequests(fetchMock).find((request) => request.method === 'POST')
     expect(await post?.json()).toEqual({ title: 'Défi du lundi', cardCount: 5, secondsPerCard: 20 })

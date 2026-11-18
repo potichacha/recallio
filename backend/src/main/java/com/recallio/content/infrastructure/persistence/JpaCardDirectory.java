@@ -3,6 +3,7 @@ package com.recallio.content.infrastructure.persistence;
 import com.recallio.content.CardBlank;
 import com.recallio.content.CardChoice;
 import com.recallio.content.CardDirectory;
+import com.recallio.content.CardDirectory.CardFilter.Grading;
 import com.recallio.content.CardType;
 import com.recallio.content.ExerciseFiles;
 import com.recallio.content.NotionInfo;
@@ -45,6 +46,12 @@ public class JpaCardDirectory implements CardDirectory {
                     and other.slug in :selection))
             """;
 
+    /** La version courante de la carte a des choix (ADR 0051). */
+    private static final String HAS_CHOICES = """
+            exists (select 1 from CardVersionEntity v
+                    where v.cardId = c.id and v.version = c.currentVersion and v.choices is not null)
+            """;
+
     private final EntityManager entityManager;
 
     public JpaCardDirectory(EntityManager entityManager) {
@@ -77,6 +84,7 @@ public class JpaCardDirectory implements CardDirectory {
             conditions.add("c.type in :types");
             parameters.put("types", filter.types());
         }
+        addGrading(filter.grading(), conditions, parameters);
         var query = entityManager.createQuery("""
                 select c.id, s.slug, c.notionId, c.type from CardEntity c
                 join ThemeEntity t on t.id = c.themeId
@@ -88,6 +96,25 @@ public class JpaCardDirectory implements CardDirectory {
         return query.getResultStream()
                 .map(row -> new ActiveCard((UUID) row[0], (String) row[1], (UUID) row[2], (CardType) row[3]))
                 .toList();
+    }
+
+    /**
+     * Le critère de correction (ADR 0063) : des choix dans la version courante, ou un format que le serveur corrige
+     * sans eux. Lie le paramètre {@code gradedWithoutChoices} quand il en faut un.
+     */
+    private static void addGrading(Grading grading, List<String> conditions, Map<String, Object> parameters) {
+        switch (grading) {
+            case ANY -> {}
+            case CHOICES -> conditions.add(HAS_CHOICES);
+            case CHOICES_OR_BLANKS -> addChoicesOr(Set.of(CardType.FILL_IN), conditions, parameters);
+            case SERVER -> addChoicesOr(Set.of(CardType.FILL_IN, CardType.CODING_EXERCISE), conditions, parameters);
+        }
+    }
+
+    /** Des choix, ou l'un de ces formats, que le serveur corrige sans eux. */
+    private static void addChoicesOr(Set<CardType> formats, List<String> conditions, Map<String, Object> parameters) {
+        conditions.add("(c.type in :gradedWithoutChoices or " + HAS_CHOICES + ")");
+        parameters.put("gradedWithoutChoices", formats);
     }
 
     @Override
@@ -254,27 +281,40 @@ public class JpaCardDirectory implements CardDirectory {
                 .toList();
     }
 
+    /** Les questions se choisissent sur la version courante des cartes : c'est elle qui a, ou non, des choix. */
     @Override
     public List<CardSnapshot> tourQuestions(String subjectSlug, String notionSlug) {
-        List<ActiveCard> cards = entityManager
+        List<UUID> cardIds = entityManager
                 .createQuery("""
-                        select c.id, s.slug, c.notionId, c.type from CardEntity c
+                        select c.id from CardEntity c
                         join NotionEntity n on n.id = c.notionId
                         join SubjectEntity s on s.id = n.subjectId
                         join ThemeEntity t on t.id = c.themeId
                         where c.retiredAt is null and n.retiredAt is null and s.status = :published
                           and s.slug = :subject and n.slug = :notion and function('jsonb_array_length', n.tour) > 0
                         order by t.position, c.position
-                        """, Object[].class)
+                        """, UUID.class)
                 .setParameter("published", Subject.Status.PUBLISHED)
                 .setParameter("subject", subjectSlug)
                 .setParameter("notion", notionSlug)
-                .getResultStream()
-                .map(row -> new ActiveCard((UUID) row[0], (String) row[1], (UUID) row[2], (CardType) row[3]))
-                .toList();
-        return currentVersions(TourQuestions.pick(cards, ActiveCard::type).stream()
-                .map(ActiveCard::cardId)
-                .toList());
+                .getResultList();
+        return TourQuestions.pick(
+                currentVersions(cardIds), CardSnapshot::type, CardSnapshot::isGradedWithoutRunningCode);
+    }
+
+    @Override
+    public Set<UUID> cardsOfVersionsGradedByServer(Collection<UUID> versionIds) {
+        if (versionIds.isEmpty()) {
+            return Set.of();
+        }
+        return Set.copyOf(entityManager
+                .createQuery("""
+                        select distinct v.cardId from CardVersionEntity v join CardEntity c on c.id = v.cardId
+                        where v.id in :versions and (v.choices is not null or c.type in :gradedByServer)
+                        """, UUID.class)
+                .setParameter("versions", versionIds)
+                .setParameter("gradedByServer", CardType.GRADED_BY_SERVER)
+                .getResultList());
     }
 
     @Override

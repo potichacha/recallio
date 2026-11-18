@@ -89,9 +89,9 @@ function Intro({
   return (
     <div className="flex flex-col gap-4">
       <p className="text-ink-soft">
-        Jusqu’à 20 questions corrigées par le serveur, une minute par question, les notions
-        essentielles d’abord, comme en entretien. À la fin, la note et le corrigé. Rien n’entre dans
-        tes révisions.
+        Jusqu’à 20 questions de tous les formats, à choix ou à compléter, une minute par question,
+        les notions essentielles d’abord, comme en entretien. À la fin, la note et le corrigé. Rien
+        n’entre dans tes révisions.
       </p>
       {alreadySubmitted && <p role="status">Cette copie est déjà rendue.</p>}
       <button type="button" onClick={onStart} disabled={starting} className={PRIMARY}>

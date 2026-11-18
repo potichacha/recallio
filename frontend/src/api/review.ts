@@ -8,13 +8,12 @@ import type { components } from './schema'
 
 export type ReviewQueue = components['schemas']['ReviewQueue']
 export type QueuedCard = components['schemas']['QueuedCard']
-export type Rating = components['schemas']['Rating']
 export type ReviewResult = components['schemas']['ReviewResult']
 export type RecordReviewRequest = components['schemas']['RecordReviewRequest']
 
 /**
  * Sans groupe, sujet ni thème, la file puise dans les sujets suivis ; avec un groupe, dans ses réglages. Des formats
- * (`types`) la restreignent encore : le mode « questions corrigées » d'une session (ADR 0048).
+ * (`types`) la restreignent encore : les exercices de code seuls, par exemple (`?type=CODING_EXERCISE`).
  */
 export type ReviewFilter = { group?: string; subject?: string; theme?: string; types?: CardType[] }
 
@@ -40,8 +39,9 @@ export function useReviewQueue(filter: ReviewFilter) {
 }
 
 /**
- * Enregistre une note. Le `requestId` est choisi par l'appelant, une fois par réponse : les nouvelles tentatives
- * (réseau mobile instable) renvoient le même identifiant, et le serveur ne compte la révision qu'une fois.
+ * Enregistre une réponse, que le serveur corrige : la note en découle (ADR 0063). Le `requestId` est choisi par
+ * l'appelant, une fois par réponse : les nouvelles tentatives (réseau mobile instable) renvoient le même identifiant,
+ * et le serveur ne compte la révision qu'une fois.
  */
 export function useRecordReview() {
   const queryClient = useQueryClient()

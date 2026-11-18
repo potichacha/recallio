@@ -310,43 +310,7 @@ describe('TourNotionPage', () => {
     )
   })
 
-  it('lets the reader test themselves on the last page, with cards to flip', async () => {
-    stubApi({
-      ...SIGNED_IN_API,
-      ...TOUR_API,
-      '/api/v1/me/practice/go/valeur-zero': {
-        body: {
-          notionTitle: 'La valeur zéro',
-          cards: [
-            {
-              cardId: 'c1',
-              type: 'FLASHCARD',
-              prompt: 'Que vaut un `int` jamais affecté ?',
-              answer: 'Sa valeur zéro : `0`.',
-              choices: [],
-              multipleAnswers: false,
-              blankCount: 0,
-              exercise: null,
-            },
-          ],
-        },
-      },
-    })
-    renderAt('/subjects/go/tour/valeur-zero', signedIn())
-
-    const test = await screen.findByRole('region', { name: 'Teste-toi' })
-    expect(test).toHaveTextContent('Que vaut un int jamais affecté ?')
-    // Sur un téléphone, le programme que le cours annonce vient avant les questions : c'est l'ordre du document.
-    const program = screen.getByRole('region', { name: 'Programme' })
-    expect(program.compareDocumentPosition(test) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-    await userEvent.click(within(test).getByRole('button', { name: 'Voir la réponse' }))
-
-    expect(within(test).getByRole('region', { name: 'Réponse' })).toHaveTextContent(
-      'Sa valeur zéro : 0.',
-    )
-  })
-
-  it('lets the reader choose the answer to a course question, graded by the server', async () => {
+  it('lets the reader test themselves on the last page, each answer graded by the server', async () => {
     const fetchMock = stubApi({
       ...SIGNED_IN_API,
       ...TOUR_API,
@@ -358,7 +322,6 @@ describe('TourNotionPage', () => {
               cardId: 'c1',
               type: 'FLASHCARD',
               prompt: 'Que vaut un `int` jamais affecté ?',
-              answer: null,
               choices: ['`0`', '`nil`', 'Rien : le code ne compile pas'],
               multipleAnswers: false,
               blankCount: 0,
@@ -380,6 +343,11 @@ describe('TourNotionPage', () => {
     renderAt('/subjects/go/tour/valeur-zero', signedIn())
 
     const test = await screen.findByRole('region', { name: 'Teste-toi' })
+    expect(test).toHaveTextContent('Que vaut un int jamais affecté ?')
+    // Sur un téléphone, le programme que le cours annonce vient avant les questions : c'est l'ordre du document.
+    const program = screen.getByRole('region', { name: 'Programme' })
+    expect(program.compareDocumentPosition(test) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    // Plus de carte à retourner : chaque question a ses choix (ADR 0063).
     expect(within(test).queryByRole('button', { name: 'Voir la réponse' })).not.toBeInTheDocument()
     await userEvent.click(within(test).getByRole('radio', { name: '0' }))
     await userEvent.click(within(test).getByRole('button', { name: 'Vérifier' }))

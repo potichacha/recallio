@@ -86,6 +86,13 @@ class DuelsTest {
                   - {text: "`#`", correct: true}
                   - {text: "`len`", correct: false}
                 answer: "L'opérateur `#`."
+              - key: cours
+                format: course
+                question: "Quelle est la seule structure de données de Lua ?"
+                choices:
+                  - {text: "La table", correct: true}
+                  - {text: "La liste", correct: false}
+                answer: "La table, qui sert de tableau comme de dictionnaire."
             """;
 
     private static final String FONCTIONS = """
@@ -202,18 +209,20 @@ class DuelsTest {
         assertThat(live.players()).extracting(Duel.DuelPlayer::userId).containsExactly(alice.id(), bob.id());
     }
 
+    /** Le critère porte sur la réponse, plus sur le format (ADR 0063) : une question de cours à choix a sa cote. */
     @Test
     void shouldRateACardFromItsServerGradedReviewsOnly() {
-        UUID trueFalse = cardOfType(CardType.TRUE_FALSE);
-        double before = cardRating(trueFalse).orElse(Rating.START_RATING);
-        long answersBefore = cardAnswers(trueFalse);
+        UUID course = cardOfType(CardType.FLASHCARD);
+        double before = cardRating(course).orElse(Rating.START_RATING);
+        long answersBefore = cardAnswers(course);
 
-        review(trueFalse, CardType.TRUE_FALSE, true);
-        review(trueFalse, CardType.FLASHCARD, true);
+        review(course, CardType.FLASHCARD, true, true);
+        // Un ancien « Je savais », sans choix : le serveur n'a rien corrigé.
+        review(course, CardType.FLASHCARD, false, true);
 
-        // Une bonne réponse fait perdre la carte ; un format auto-évalué ne compte pas.
-        assertThat(cardRating(trueFalse).orElseThrow()).isLessThan(before);
-        assertThat(cardAnswers(trueFalse)).isEqualTo(answersBefore + 1);
+        // Une bonne réponse fait perdre la carte.
+        assertThat(cardRating(course).orElseThrow()).isLessThan(before);
+        assertThat(cardAnswers(course)).isEqualTo(answersBefore + 1);
     }
 
     @Test
@@ -328,17 +337,10 @@ class DuelsTest {
                 .cardId();
     }
 
-    private void review(UUID cardId, CardType type, boolean recalled) {
+    private void review(UUID cardId, CardType type, boolean gradedByServer, boolean recalled) {
         QuarkusTransaction.requiringNew()
                 .run(() -> reviewed.fire(new CardReviewed(
-                        player(),
-                        UUID.randomUUID(),
-                        cardId,
-                        SUBJECT,
-                        type,
-                        type.isGradedByServer(),
-                        recalled,
-                        Instant.now())));
+                        player(), UUID.randomUUID(), cardId, SUBJECT, type, gradedByServer, recalled, Instant.now())));
     }
 
     private Optional<Double> cardRating(UUID cardId) {

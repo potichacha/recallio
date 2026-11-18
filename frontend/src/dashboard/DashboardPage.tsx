@@ -13,10 +13,8 @@ import { GoalRing } from '../components/GoalRing'
 import { freezeSummary } from '../components/streak'
 import {
   DEFAULT_MINUTES,
-  DEFAULT_MODE,
   loadSessionSettings,
   type SessionMinutes,
-  type SessionMode,
 } from '../review/sessionSettings'
 import { QuestsPanel } from './QuestsPanel'
 import { SubjectProgressList } from './SubjectProgressList'
@@ -110,7 +108,6 @@ export function DashboardPage() {
           stats={stats.data}
           progress={progress.data}
           minutes={stored.minutes === undefined ? DEFAULT_MINUTES : stored.minutes}
-          mode={stored.mode ?? DEFAULT_MODE}
         />
       )}
 
@@ -189,19 +186,17 @@ function ContinueCard({
   stats,
   progress,
   minutes,
-  mode,
 }: {
   subject: string
   title: string
   stats: ReviewStats
   progress?: Progress
   minutes: SessionMinutes
-  mode: SessionMode
 }) {
   const subjectStats = stats.subjects.find((candidate) => candidate.slug === subject)
   const dueNow = subjectStats?.counts.dueNow ?? 0
   const newToday = subjectStats?.newToday ?? 0
-  const session = `/review?subject=${encodeURIComponent(subject)}&minutes=${minutes ?? 'none'}&mode=${mode}`
+  const session = `/review?subject=${encodeURIComponent(subject)}&minutes=${minutes ?? 'none'}`
 
   return (
     <section
@@ -226,10 +221,7 @@ function ContinueCard({
           className="flex min-h-16 flex-col items-center justify-center rounded-xl bg-surface px-4 py-2 text-brand-strong shadow-[0_4px_0_0_var(--color-brand-press)] transition-transform focus-visible:outline-on-brand active:translate-y-0.5 active:shadow-none motion-reduce:transition-none"
         >
           <span className="text-lg font-bold">Continuer</span>{' '}
-          <span className="text-sm">
-            {minutes === null ? 'Sans limite' : `${minutes} min`} ·{' '}
-            {mode === 'graded' ? 'questions corrigées' : 'toutes les questions'}
-          </span>
+          <span className="text-sm">{minutes === null ? 'Sans limite' : `${minutes} min`}</span>
         </Link>
       ) : (
         <p className="font-semibold">Tout est à jour en {title} pour aujourd’hui.</p>

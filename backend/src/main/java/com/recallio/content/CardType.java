@@ -2,24 +2,27 @@ package com.recallio.content;
 
 import java.util.Set;
 
-/** Format d'une carte (CLAUDE.md, section 5.3). Stocké tel quel en base : ne pas renommer une valeur existante. */
+/**
+ * Format d'une carte (CLAUDE.md, section 5.3). Stocké tel quel en base : ne pas renommer une valeur existante.
+ *
+ * <p>Le serveur corrige chaque carte qu'on révise (ADR 0063). Ce qui le permet dépend de la carte, plus de son format :
+ * ses choix, ses trous ou ses tests. Une carte d'un document Markdown sans choix ne se révise pas : elle attend sa
+ * réécriture en dossier de sujet (ADR 0050).
+ */
 public enum CardType {
-    /** Question de cours : corrigée sur ses choix, ou auto-évaluée tant qu'elle n'en a pas (ADR 0051). */
+    /** Question de cours, corrigée sur ses choix (ADR 0051). */
     FLASHCARD,
-    /** « Qu'affiche ce code ? » : corrigé sur ses choix, ou auto-évalué tant qu'il n'en a pas (ADR 0051). */
+    /** « Qu'affiche ce code ? », corrigé sur ses choix, des sorties (ADR 0051). */
     CODE_OUTPUT,
-    /** Mise en situation : corrigée sur ses choix, ou rédigée puis comparée à la réponse modèle sans eux (ADR 0051). */
+    /** Mise en situation, corrigée sur ses choix, des façons d'y répondre (ADR 0051). */
     OPEN_SCENARIO,
-    /** Terme du glossaire et sa définition : corrigé sur ses choix, ou auto-évalué sans eux (ADR 0051). */
+    /** Terme du glossaire, corrigé sur ses choix, des définitions (ADR 0051). */
     DEFINITION,
     /** Question à choix multiples, corrigée par le serveur (ADR 0019). */
     MULTIPLE_CHOICE,
     /** Une affirmation, vraie ou fausse : un QCM à deux choix fixes, corrigé par le serveur (ADR 0027). */
     TRUE_FALSE,
-    /**
-     * Un code bogué à corriger (ADR 0027) : corrigé sur ses choix, ou rédigé puis comparé à la correction modèle sans eux
-     * (ADR 0051).
-     */
+    /** Un code bogué à corriger (ADR 0027), corrigé sur ses choix, des corrections (ADR 0051). */
     BUG_FIX,
     /** Du code à trous, chaque trou corrigé par le serveur (ADR 0027). */
     FILL_IN,
@@ -27,23 +30,11 @@ public enum CardType {
     CODING_EXERCISE;
 
     /**
-     * Les formats toujours corrigés d'après les choix cochés : seuls admis là où la triche ou la rapidité compte (défis
-     * de groupe, parties live). Une carte d'un autre format qui a reçu des choix se corrige aussi sur eux (voir
-     * {@link CardDirectory.CardSnapshot#isGradedByChoices()}) ; elle rejoindra ces parties à la fin de la migration
-     * (ADR 0051).
-     */
-    public static final Set<CardType> GRADED_BY_CHOICES = Set.of(MULTIPLE_CHOICE, TRUE_FALSE);
-
-    /**
-     * Les formats que le serveur corrige toujours lui-même (les choix cochés, les trous, les tests d'un exercice) : leur
-     * réussite est vérifiée, et non déclarée par l'utilisateur. Elle rapporte un bonus d'XP (ADR 0035). Une carte
-     * d'un autre format qui a reçu des choix l'est aussi : voir {@link CardDirectory.CardSnapshot#isGradedByServer()}.
+     * Les formats que le serveur corrige toujours, quelle que soit la carte : un QCM et un vrai ou faux ont toujours
+     * leurs choix, un code à trous ses trous, un exercice ses tests. Les autres formats le sont quand la carte a ses
+     * choix : voir {@link CardDirectory.CardSnapshot#isGradedByServer()}.
      */
     public static final Set<CardType> GRADED_BY_SERVER = Set.of(MULTIPLE_CHOICE, TRUE_FALSE, FILL_IN, CODING_EXERCISE);
-
-    public boolean isGradedByChoices() {
-        return GRADED_BY_CHOICES.contains(this);
-    }
 
     public boolean isGradedByServer() {
         return GRADED_BY_SERVER.contains(this);

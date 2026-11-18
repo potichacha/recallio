@@ -2,6 +2,7 @@ package com.recallio.review.application;
 
 import com.recallio.content.CardDirectory;
 import com.recallio.content.CardDirectory.CardFilter;
+import com.recallio.content.CardDirectory.CardFilter.Grading;
 import com.recallio.content.CardDirectory.CardSnapshot;
 import com.recallio.content.CardType;
 import com.recallio.content.NotionInfo;
@@ -38,6 +39,10 @@ import org.jspecify.annotations.Nullable;
  * Cas d'usage : quelles cartes réviser maintenant (CLAUDE.md, section 6.1). La PWA révise un sujet à la fois (ADR 0048) ;
  * sans filtre, les cartes viennent des sujets suivis. Un sujet ou un thème demandé explicitement est révisable même s'il
  * n'est pas suivi. Avec un groupe, elles viennent de ses réglages (ADR 0017).
+ *
+ * <p>Seules les cartes que le serveur corrige se révisent (ADR 0063) : des choix, un code à trous ou un exercice. Une
+ * carte d'un document Markdown sans choix n'est plus proposée, ni nouvelle, ni due : les cartes dues sont tirées des
+ * mêmes cartes éligibles que les nouvelles.
  */
 @ApplicationScoped
 @Transactional(Transactional.TxType.SUPPORTS)
@@ -81,7 +86,7 @@ public class ReviewQueueService {
         List<Candidate> eligible = arranged(
                 user,
                 tracks,
-                cards.activeCards(cardFilter(user, filter)).stream()
+                cards.activeCards(cardFilter(user, filter).withGrading(Grading.SERVER)).stream()
                         .map(card -> new Candidate(card.cardId(), card.subjectSlug(), card.notionId()))
                         .toList(),
                 memory.keySet());
@@ -236,7 +241,7 @@ public class ReviewQueueService {
      * @param group les cartes de ce groupe, dont l'utilisateur est membre, au lieu de ses sujets suivis
      * @param subject restreint à un sujet, suivi ou non
      * @param theme restreint à un thème, suivi ou non
-     * @param types restreint à ces formats de carte (le mode « questions corrigées », ADR 0048) ; vide : tous
+     * @param types restreint à ces formats de carte (les exercices, ceux d'un groupe) ; vide : tous
      */
     public record QueueFilter(
             @Nullable UUID group,

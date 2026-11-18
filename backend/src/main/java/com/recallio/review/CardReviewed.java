@@ -14,8 +14,9 @@ import java.util.UUID;
  * @param subjectSlug le sujet de la carte, qui gagne l'XP de la révision (ADR 0035)
  * @param cardType le format de la carte : l'XP en dépend
  * @param gradedByServer si le serveur a corrigé la réponse (ses choix, ses trous ou ses tests) : sa réussite est alors
- *     vérifiée, et non déclarée (ADR 0035, 0051)
- * @param recalled si la carte est réussie : notée au moins « Bien », ou juste pour une carte corrigée par le serveur
+ *     vérifiée (ADR 0035, 0051). Toujours vrai depuis la fin de l'auto-évaluation (ADR 0063) ; gardé pour que chaque
+ *     observateur dise ce qu'il exige.
+ * @param recalled si la réponse est juste
  */
 public record CardReviewed(
         UserRef user,

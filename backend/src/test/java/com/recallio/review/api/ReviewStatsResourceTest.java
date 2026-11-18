@@ -25,8 +25,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 /**
- * Documents d'exemple : Java (4 cartes dans « java-fondamentaux », 8 au total) et Go (2 cartes) ; quota de 3 nouvelles
- * cartes par jour en test.
+ * Documents d'exemple : Java (4 cartes dans « java-fondamentaux », 8 au total) et Go (5 cartes, dont 3 QCM, les seules
+ * qui se révisent, ADR 0063) ; quota de 3 nouvelles cartes par jour en test.
  */
 @QuarkusTest
 class ReviewStatsResourceTest {
@@ -35,6 +35,10 @@ class ReviewStatsResourceTest {
     private static final String THEME = "java-fondamentaux";
     private static final String JAVA = "subjects.find { it.slug == 'java' }";
     private static final String JAVA_THEME = JAVA + ".themes.find { it.slug == '%s' }".formatted(THEME);
+    private static final String GO = "subjects.find { it.slug == 'go' }";
+    private static final String GO_THEME = GO + ".themes.find { it.slug == 'go-fondamentaux' }";
+    /** Les choix d'une question de cours : la bonne réponse est la première. */
+    private static final String YES_OR_NO = "choices: [{text: Oui, correct: true}, {text: Non, correct: false}]";
 
     @Inject
     ContentImportService contentImport;
@@ -97,7 +101,8 @@ class ReviewStatsResourceTest {
                 category: languages
                 position: 950
                 status: published
-                """, Map.of("01-langage.yaml", """
+                """,
+                Map.of("01-langage.yaml", """
                         domain: langage
                         title: Le langage
                         position: 10
@@ -107,19 +112,21 @@ class ReviewStatsResourceTest {
                             notions:
                               - {id: bases, title: "Les bases", level: beginner, priority: 1}
                               - {id: avance, title: "L'avancé", level: expert, priority: 2}
-                        """), Map.of("langage/bases.yaml", """
+                        """),
+                Map.of("langage/bases.yaml", """
                         notion: bases
                         cards:
-                          - {key: q, format: course, question: "Les bases d'Odin ?", answer: "Oui."}
-                        """, "langage/avance.yaml", """
+                          - {key: q, format: course, question: "Les bases d'Odin ?", answer: "Oui.", %1$s}
+                        """.formatted(YES_OR_NO), "langage/avance.yaml", """
                         notion: avance
                         cards:
-                          - {key: q, format: course, question: "L'avancé d'Odin ?", answer: "Oui."}
-                        """)));
+                          - {key: q, format: course, question: "L'avancé d'Odin ?", answer: "Oui.", %1$s}
+                        """.formatted(
+                                YES_OR_NO))));
         follow("odin");
         String cardId = given().get("/api/v1/review-queue").then().extract().path("cards[0].cardId");
         given().contentType(ContentType.JSON)
-                .body("{\"requestId\": \"%s\", \"cardId\": \"%s\", \"rating\": \"GOOD\"}"
+                .body("{\"requestId\": \"%s\", \"cardId\": \"%s\", \"selectedChoices\": [0]}"
                         .formatted(UUID.randomUUID(), cardId))
                 .post("/api/v1/reviews")
                 .then()
@@ -152,30 +159,32 @@ class ReviewStatsResourceTest {
                 .then()
                 .statusCode(200)
                 .body("subjects.slug", contains("java", "go"))
-                .body("subjects.find { it.slug == 'go' }.counts.total", is(3))
-                .body("subjects.find { it.slug == 'go' }.themes.slug", contains("go-fondamentaux"))
+                .body(GO + ".counts.total", is(5))
+                .body(GO + ".themes.slug", contains("go-fondamentaux", "go-maps"))
                 .extract()
                 .jsonPath();
 
-        assertThat(stats.getInt("overall.total")).isEqualTo(stats.getInt(JAVA + ".counts.total") + 3);
+        assertThat(stats.getInt("overall.total")).isEqualTo(stats.getInt(JAVA + ".counts.total") + 5);
     }
 
     @Test
     @TestSecurity(user = "alice")
     @OidcSecurity(claims = @Claim(key = "sub", value = "stats-after-review"))
     void shouldCountReviewedCardsPerSubjectAndThemeAndAsDueToday() {
-        follow("java");
-        String cardId = given().queryParam("theme", THEME)
+        follow("go");
+        String cardId = given().queryParam("subject", "go")
                 .get("/api/v1/review-queue")
                 .then()
                 .extract()
                 .path("cards[0].cardId");
+        // Une mauvaise réponse au premier QCM de Go, dont la bonne est la deuxième : la carte revient aujourd'hui.
         given().contentType(ContentType.JSON)
-                .body("{\"requestId\": \"%s\", \"cardId\": \"%s\", \"rating\": \"AGAIN\"}"
+                .body("{\"requestId\": \"%s\", \"cardId\": \"%s\", \"selectedChoices\": [0]}"
                         .formatted(UUID.randomUUID(), cardId))
                 .post("/api/v1/reviews")
                 .then()
-                .statusCode(201);
+                .statusCode(201)
+                .body("rating", equalTo("AGAIN"));
 
         given().get(STATS)
                 .then()
@@ -184,9 +193,9 @@ class ReviewStatsResourceTest {
                 .body("overall.dueToday", is(1))
                 .body("overall.mastered", is(0))
                 .body("newToday", is(2))
-                .body(JAVA + ".counts.seen", is(1))
-                .body(JAVA + ".counts.dueToday", is(1))
-                .body(JAVA_THEME + ".counts.seen", is(1));
+                .body(GO + ".counts.seen", is(1))
+                .body(GO + ".counts.dueToday", is(1))
+                .body(GO_THEME + ".counts.seen", is(1));
     }
 
     private static void follow(String... subjects) {

@@ -65,7 +65,7 @@ describe('ChallengePage', () => {
     renderAt('/challenges/c1', signedIn())
 
     expect(await screen.findByRole('heading', { name: 'Défi du lundi' })).toBeInTheDocument()
-    expect(screen.getByText(/2 QCM, 30 secondes par carte/)).toBeInTheDocument()
+    expect(screen.getByText(/2 questions, 30 secondes par carte/)).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Commencer' }))
 
     expect(await screen.findByText('Carte 1 / 2')).toBeInTheDocument()
@@ -104,6 +104,28 @@ describe('ChallengePage', () => {
     expect(await screen.findByRole('status')).toHaveTextContent('Temps écoulé')
     expect(screen.queryByRole('button', { name: 'Valider' })).not.toBeInTheDocument()
     expect(screen.getByRole('radio', { name: /Oui/ })).toBeDisabled()
+  })
+
+  it('asks a question of any format that has choices, its code in a block (ADR 0063)', async () => {
+    const codeCard = {
+      ...card(0),
+      prompt: 'Qu’affiche ce code ?\n\n```go\nfmt.Println(len("go"))\n```',
+      choices: ['`2`', '`0`', 'panic'],
+    }
+    stubApi({
+      ...SIGNED_IN_API,
+      [CHALLENGE]: { body: challenge() },
+      [`POST ${CHALLENGE}/next`]: { body: step(codeCard) },
+    })
+    renderAt('/challenges/c1', signedIn())
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Commencer' }))
+
+    const prompt = await screen.findByText('Qu’affiche ce code ?')
+    expect(prompt.closest('article')?.querySelector('pre')).toHaveTextContent(
+      'fmt.Println(len("go"))',
+    )
+    expect(screen.getByRole('radio', { name: 'panic' })).toBeEnabled()
   })
 
   it('hides the names of the others in an anonymous leaderboard', async () => {

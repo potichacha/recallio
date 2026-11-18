@@ -3,7 +3,7 @@ package com.recallio.group.application;
 import com.recallio.content.CardDirectory;
 import com.recallio.content.CardDirectory.ActiveCard;
 import com.recallio.content.CardDirectory.CardFilter;
-import com.recallio.content.CardType;
+import com.recallio.content.CardDirectory.CardFilter.Grading;
 import com.recallio.group.LeaderboardVisibility;
 import com.recallio.group.domain.Challenge;
 import com.recallio.group.domain.ChallengeRepository;
@@ -68,15 +68,15 @@ public class ChallengeService {
     }
 
     /**
-     * Le créateur lance un défi : une série tirée au hasard parmi les QCM et les vrai ou faux des sujets et
-     * thèmes du groupe (ADR 0027).
+     * Le créateur lance un défi : une série tirée au hasard parmi les questions à choix des sujets et thèmes du groupe,
+     * quel que soit leur format (ADR 0027, 0063).
      *
-     * @throws NotEnoughCardsException si le groupe n'a pas assez de QCM pour la série demandée
+     * @throws NotEnoughCardsException si le groupe n'a pas assez de questions à choix pour la série demandée
      */
     @Transactional
     public ChallengeView create(UserRef user, UUID groupId, String title, int cardCount, int secondsPerCard) {
         access.ownedGroup(user, groupId);
-        List<UUID> pool = new ArrayList<>(multipleChoiceCards(settings.findByGroup(groupId)));
+        List<UUID> pool = new ArrayList<>(cardsWithChoices(settings.findByGroup(groupId)));
         if (pool.size() < cardCount) {
             throw new NotEnoughCardsException(pool.size());
         }
@@ -119,9 +119,10 @@ public class ChallengeService {
         }
     }
 
-    private List<UUID> multipleChoiceCards(GroupSettings group) {
+    /** Les questions à choix du groupe : un geste pour répondre, sous le délai de chaque carte. */
+    private List<UUID> cardsWithChoices(GroupSettings group) {
         CardFilter filter = new CardFilter(
-                Set.copyOf(group.subjectSlugs()), null, Set.copyOf(group.themeSlugs()), CardType.GRADED_BY_CHOICES);
+                Set.copyOf(group.subjectSlugs()), null, Set.copyOf(group.themeSlugs()), Set.of(), Grading.CHOICES);
         return cards.activeCards(filter).stream().map(ActiveCard::cardId).toList();
     }
 

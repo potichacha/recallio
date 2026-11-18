@@ -99,10 +99,10 @@ test.describe('Groupes', () => {
     await settings.getByRole('button', { name: 'Enregistrer les réglages' }).click()
     await expect(settings.getByRole('button', { name: 'Modifier les réglages' })).toBeVisible()
 
-    // Une série courte : trois QCM de Go.
+    // Une série courte : trois questions à choix de Go, de tous les formats (ADR 0063).
     const launch = alice.getByRole('form', { name: 'Lancer un défi' })
     await launch.getByLabel('Titre du défi').fill('Défi du lundi')
-    await launch.getByLabel('Nombre de QCM').fill('3')
+    await launch.getByLabel('Nombre de questions').fill('3')
     await launch.getByRole('button', { name: 'Lancer le défi' }).click()
     await expect(alice.getByRole('region', { name: 'Défis' })).toContainText('Défi du lundi')
 
@@ -119,7 +119,7 @@ test.describe('Groupes', () => {
     for (const position of [1, 2, 3]) {
       await expect(bob.getByText(`Carte ${position} / 3`)).toBeVisible()
       await expect(bob.getByRole('timer', { name: 'Temps restant' })).toHaveText(/\d+ s/)
-      // Radio ou case à cocher, selon le nombre de bonnes réponses du QCM.
+      // Radio ou case à cocher, selon le nombre de bonnes réponses de la question.
       await bob.locator('input[name="choice"]').first().check()
       await bob.getByRole('button', { name: 'Valider' }).click()
       await bob
