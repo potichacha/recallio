@@ -34,7 +34,8 @@ test.describe('Compte à rebours avant un entretien (ADR 0066)', () => {
     if (await remove.isVisible()) await remove.click()
 
     await give.click()
-    await interview.getByLabel('Date de ton entretien').fill(inDays(THREE_WEEKS))
+    // Exact : le formulaire s'appelle « Date de ton entretien en Go », et Playwright cherche sinon une sous-chaîne.
+    await interview.getByLabel('Date de ton entretien', { exact: true }).fill(inDays(THREE_WEEKS))
     await interview.getByRole('button', { name: 'Valider' }).click()
 
     await expect(interview.getByText(/^Entretien dans \d+ jours$/)).toBeVisible()
