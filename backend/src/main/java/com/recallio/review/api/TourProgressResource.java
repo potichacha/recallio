@@ -70,8 +70,8 @@ public class TourProgressResource {
     @GET
     @Operation(
             operationId = "getMyTourProgress",
-            summary =
-                    "Les notions du Tour d'un sujet que l'utilisateur a validées, et la dernière page qu'il a ouverte")
+            summary = "Les notions du Tour d'un sujet que l'utilisateur a validées ou montré connaître, et la dernière"
+                    + " page qu'il a ouverte")
     @APIResponse(responseCode = "200", description = "La progression ; vide si le sujet est inconnu")
     public TourProgressDto getMyTourProgress(@PathParam("subject") String subject) {
         return TourProgressDto.from(tour.progress(currentUser.get(), subject));
@@ -229,6 +229,11 @@ public class TourProgressResource {
             List<String> validatedNotions,
 
             @Schema(
+                    description = "Les notions connues au test de niveau (ADR 0068), dans l'ordre du référentiel : le"
+                            + " Tour les saute")
+            List<String> knownNotions,
+
+            @Schema(
                     description = "La dernière page ouverte, pour y reprendre ; absente si aucune, ou si elle n'est"
                             + " plus dans le Tour",
                     nullable = true)
@@ -239,6 +244,7 @@ public class TourProgressResource {
             @Nullable Step lastPage = progress.lastPage();
             return new TourProgressDto(
                     progress.validatedNotions(),
+                    progress.knownNotions(),
                     lastPage == null ? null : new TourStepDto(lastPage.notion(), lastPage.page()));
         }
     }

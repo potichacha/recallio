@@ -56,7 +56,12 @@ class NewCardOrderTest {
     @Test
     void shouldKeepAKnownCardOfALockedNotion() {
         List<Candidate> arranged = NewCardOrder.arrange(
-                program, Set.of(expert.cardId()), Map.of("java", LearningTrack.LEARN), NOTIONS, Set.of(EXPERT.id()));
+                program,
+                Set.of(expert.cardId()),
+                Map.of("java", LearningTrack.LEARN),
+                NOTIONS,
+                Set.of(EXPERT.id()),
+                Set.of());
 
         assertThat(arranged).contains(expert);
     }
@@ -67,7 +72,7 @@ class NewCardOrderTest {
         Candidate markdown2 = new Candidate(UUID.randomUUID(), "go");
         List<Candidate> eligible = List.of(markdown1, expert, markdown2, beginner);
 
-        assertThat(NewCardOrder.arrange(eligible, Set.of(), Map.of(), NOTIONS, Set.of()))
+        assertThat(NewCardOrder.arrange(eligible, Set.of(), Map.of(), NOTIONS, Set.of(), Set.of()))
                 .containsExactly(markdown1, markdown2, expert, beginner);
     }
 
@@ -75,16 +80,54 @@ class NewCardOrderTest {
     @Test
     void shouldOrderTheNotionsLikeTheirNewCards() {
         List<NotionInfo> notions = Stream.of(BEGINNER, INTERMEDIATE, EXPERT)
-                .sorted(NewCardOrder.notionOrder(LearningTrack.PREPARE))
+                .sorted(NewCardOrder.notionOrder(LearningTrack.PREPARE, Set.of()))
                 .toList();
 
         assertThat(notions).containsExactly(EXPERT, INTERMEDIATE, BEGINNER);
-        assertThat(Stream.of(EXPERT, INTERMEDIATE, BEGINNER).sorted(NewCardOrder.notionOrder(LearningTrack.LEARN)))
+        assertThat(Stream.of(EXPERT, INTERMEDIATE, BEGINNER)
+                        .sorted(NewCardOrder.notionOrder(LearningTrack.LEARN, Set.of())))
                 .containsExactly(BEGINNER, INTERMEDIATE, EXPERT);
     }
 
+    /** Qui apprend ne revoit pas les bases montrées au test de niveau (ADR 0068) avant tout le reste. */
+    @Test
+    void shouldServeTheKnownNotionsAfterAllTheOthersToLearn() {
+        assertThat(arrangeKnowing(LearningTrack.LEARN, BEGINNER)).containsExactly(intermediate, expert, beginner);
+        assertThat(Stream.of(BEGINNER, INTERMEDIATE, EXPERT)
+                        .sorted(NewCardOrder.notionOrder(LearningTrack.LEARN, Set.of(BEGINNER.id()))))
+                .containsExactly(INTERMEDIATE, EXPERT, BEGINNER);
+    }
+
+    /** Qui prépare un entretien les revoit après les notions inconnues de même priorité seulement. */
+    @Test
+    void shouldServeTheKnownNotionsAfterTheOthersOfTheSamePriorityToPrepareAnInterview() {
+        NotionInfo essentialBasics = notion(Level.BEGINNER, 1);
+        Candidate basics = card(essentialBasics);
+        Map<UUID, NotionInfo> notions = byId(EXPERT, BEGINNER, INTERMEDIATE, essentialBasics);
+
+        List<Candidate> arranged = NewCardOrder.arrange(
+                List.of(basics, expert, beginner, intermediate),
+                Set.of(),
+                Map.of("java", LearningTrack.PREPARE),
+                notions,
+                Set.of(),
+                Set.of(essentialBasics.id()));
+
+        assertThat(arranged).containsExactly(expert, basics, intermediate, beginner);
+    }
+
+    /** Entretenir son niveau met déjà les notions débutantes en dernier : le test de niveau n'y change rien. */
+    @Test
+    void shouldKeepTheOrderToMaintainALevel() {
+        assertThat(arrangeKnowing(LearningTrack.MAINTAIN, EXPERT)).containsExactly(expert, intermediate, beginner);
+    }
+
     private List<Candidate> arrange(LearningTrack track, Set<UUID> locked) {
-        return NewCardOrder.arrange(program, Set.of(), Map.of("java", track), NOTIONS, locked);
+        return NewCardOrder.arrange(program, Set.of(), Map.of("java", track), NOTIONS, locked, Set.of());
+    }
+
+    private List<Candidate> arrangeKnowing(LearningTrack track, NotionInfo known) {
+        return NewCardOrder.arrange(program, Set.of(), Map.of("java", track), NOTIONS, Set.of(), Set.of(known.id()));
     }
 
     private static Candidate card(NotionInfo notion) {

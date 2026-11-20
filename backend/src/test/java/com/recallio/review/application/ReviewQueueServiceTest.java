@@ -16,6 +16,7 @@ import com.recallio.review.domain.ReviewLogRepository;
 import com.recallio.review.domain.ReviewState;
 import com.recallio.review.domain.ReviewStateRepository;
 import com.recallio.review.domain.fsrs.FsrsParameters;
+import com.recallio.review.domain.level.KnownNotionRepository;
 import com.recallio.review.domain.tour.TourLastPage;
 import com.recallio.review.domain.tour.TourProgressRepository;
 import com.recallio.user.FollowedSubjects;
@@ -167,6 +168,7 @@ class ReviewQueueServiceTest {
                 states,
                 new NoReviewsToday(),
                 new NoTour(),
+                new NoKnownNotions(),
                 new NewCardQuota(states, directory, new TestConfig()),
                 Clock.fixed(now, ZoneOffset.UTC));
     }
@@ -313,6 +315,24 @@ class ReviewQueueServiceTest {
         @Override
         public Optional<TourLastPage> lastPage(UUID userId, String subjectSlug) {
             return Optional.empty();
+        }
+    }
+
+    /** Aucun test de niveau passé : l'ordre des cartes est couvert par NewCardOrderTest. */
+    private static final class NoKnownNotions implements KnownNotionRepository {
+        @Override
+        public void markKnown(UUID userId, String subjectSlug, Collection<UUID> notionIds, Instant knownAt) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public Set<UUID> known(UUID userId, Collection<String> subjectSlugs) {
+            return Set.of();
+        }
+
+        @Override
+        public void forget(UUID userId, String subjectSlug) {
+            throw new UnsupportedOperationException();
         }
     }
 

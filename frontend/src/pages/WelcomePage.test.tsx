@@ -157,11 +157,60 @@ describe('WelcomePage', () => {
       await screen.findByRole('radio', { name: /Je connais déjà un autre langage/ }),
     )
     await userEvent.click(screen.getByRole('radio', { name: /Java/ }))
-    await userEvent.click(screen.getByRole('button', { name: 'C’est parti' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Commencer le Tour' }))
 
     await waitFor(() => expect(router.state.location.pathname).toBe('/subjects/java/tour'))
     const track = sentRequests(fetchMock).find((request) => request.url.endsWith('/track'))
     expect(await track?.json()).toEqual({ track: 'LEARN' })
+  })
+
+  it('lets who knows another language take the level check first (ADR 0068)', async () => {
+    const following = { ...NEW_USER, followedSubjects: ['go'] }
+    const fetchMock = stubApi({
+      ...SIGNED_IN_API,
+      '/api/v1/me': { body: NEW_USER },
+      '/api/v1/subjects': { body: TEST_SUBJECTS },
+      'PUT /api/v1/me/followed-subjects': { body: following },
+      'PUT /api/v1/me/followed-subjects/go/track': {
+        body: { ...following, tracks: { go: 'LEARN' } },
+      },
+      '/api/v1/me/level-checks/go': { status: 404, body: { status: 404 } },
+    })
+    const router = renderAt('/welcome', signedIn())
+
+    await userEvent.click(
+      await screen.findByRole('radio', { name: /Je connais déjà un autre langage/ }),
+    )
+    // Le choix vient une fois le langage choisi.
+    expect(
+      screen.queryByRole('button', { name: 'Passer le test de niveau' }),
+    ).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('radio', { name: /Go/ }))
+    const levelCheck = screen.getByRole('button', { name: 'Passer le test de niveau' })
+    expect(levelCheck).toHaveAccessibleDescription('si tu as déjà des bases')
+    expect(screen.queryByRole('button', { name: 'C’est parti' })).not.toBeInTheDocument()
+    await userEvent.click(levelCheck)
+
+    await waitFor(() => expect(router.state.location.pathname).toBe('/subjects/go/level-check'))
+    const track = sentRequests(fetchMock).find((request) => request.url.endsWith('/track'))
+    expect(await track?.json()).toEqual({ track: 'LEARN' })
+  })
+
+  it('offers the level check to who knows another language only', async () => {
+    stubApi({
+      ...SIGNED_IN_API,
+      '/api/v1/me': { body: NEW_USER },
+      '/api/v1/subjects': { body: [...TEST_SUBJECTS, BEGINNER] },
+    })
+    renderAt('/welcome', signedIn())
+
+    await userEvent.click(await screen.findByRole('radio', { name: /Je prépare un entretien/ }))
+    await userEvent.click(screen.getByRole('radio', { name: /Go/ }))
+    expect(screen.getByRole('button', { name: 'C’est parti' })).toBeEnabled()
+    expect(screen.queryByRole('button', { name: /test de niveau/ })).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('radio', { name: /Je n’ai jamais programmé/ }))
+    expect(screen.getByRole('button', { name: 'C’est parti' })).toBeEnabled()
+    expect(screen.queryByRole('button', { name: /test de niveau/ })).not.toBeInTheDocument()
   })
 
   it('offers to start from scratch only once « Programmer de zéro » is open', async () => {

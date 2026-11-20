@@ -25,6 +25,10 @@ import org.jspecify.annotations.Nullable;
  *       dernier.
  * </ul>
  *
+ * <p>Les notions <em>connues</em>, montrées au test de niveau (ADR 0068), passent après les autres : en « apprendre »,
+ * avant tout le reste de la clé, pour ne pas revoir les bases avant la première notion intermédiaire ; en « préparer un
+ * entretien », après la priorité. « Entretenir son niveau » met déjà les notions débutantes en dernier.
+ *
  * <p>Une carte sans notion (document Markdown) garde sa place : toutes les cartes d'un tel sujet sont à égalité.
  */
 public final class NewCardOrder {
@@ -32,21 +36,28 @@ public final class NewCardOrder {
     /** La priorité d'une carte sans notion : à égalité avec toutes les autres cartes de son sujet. */
     private static final int NO_PRIORITY = 0;
 
+    /** Dans une clé, ce qui passe d'abord, puis ce qui passe en dernier. */
+    private static final int FIRST = 0;
+
+    private static final int LAST = 1;
+
     private NewCardOrder() {}
 
     /**
      * @param eligible les cartes éligibles, dans l'ordre du programme
-     * @param known les cartes que l'utilisateur a déjà vues (elles ne sont jamais écartées)
+     * @param seen les cartes que l'utilisateur a déjà vues (elles ne sont jamais écartées)
      * @param tracks le parcours de chaque sujet ; un sujet absent suit {@link LearningTrack#DEFAULT}
      * @param notions les notions des sujets, par identifiant
      * @param locked les notions verrouillées pour le parcours « apprendre »
+     * @param knownNotions les notions que l'utilisateur a montré connaître au test de niveau
      */
     public static List<Candidate> arrange(
             List<Candidate> eligible,
-            Set<UUID> known,
+            Set<UUID> seen,
             Map<String, LearningTrack> tracks,
             Map<UUID, NotionInfo> notions,
-            Set<UUID> locked) {
+            Set<UUID> locked,
+            Set<UUID> knownNotions) {
         Map<String, Integer> subjectRank = new HashMap<>();
         eligible.forEach(card -> subjectRank.putIfAbsent(card.subjectSlug(), subjectRank.size()));
         record Ranked(Candidate card, int index, int[] key) {}
@@ -58,10 +69,10 @@ public final class NewCardOrder {
                 .mapToObj(index -> {
                     Candidate card = eligible.get(index);
                     LearningTrack track = tracks.getOrDefault(card.subjectSlug(), LearningTrack.DEFAULT);
-                    return new Ranked(card, index, key(track, notion(card, notions)));
+                    return new Ranked(card, index, key(track, notion(card, notions), knownNotions));
                 })
                 .filter(ranked ->
-                        known.contains(ranked.card().cardId()) || !isLockedForLearning(ranked.card(), tracks, locked))
+                        seen.contains(ranked.card().cardId()) || !isLockedForLearning(ranked.card(), tracks, locked))
                 .sorted(order)
                 .map(Ranked::card)
                 .toList();
@@ -71,9 +82,12 @@ public final class NewCardOrder {
      * L'ordre des notions d'un sujet dans un parcours : celui où leurs nouvelles cartes sont servies. L'ordre du
      * référentiel départage les égalités, comme l'ordre du programme départage les cartes. Le compte à rebours avant
      * un entretien (ADR 0066) range ainsi ses notions comme le parcours « préparer un entretien » range leurs cartes.
+     *
+     * @param knownNotions les notions que l'utilisateur a montré connaître au test de niveau
      */
-    public static Comparator<NotionInfo> notionOrder(LearningTrack track) {
-        return Comparator.<NotionInfo, int[]>comparing(notion -> key(track, notion), NewCardOrder::compareKeys)
+    public static Comparator<NotionInfo> notionOrder(LearningTrack track, Set<UUID> knownNotions) {
+        return Comparator.<NotionInfo, int[]>comparing(
+                        notion -> key(track, notion, knownNotions), NewCardOrder::compareKeys)
                 .thenComparingInt(NotionInfo::position);
     }
 
@@ -83,15 +97,16 @@ public final class NewCardOrder {
     }
 
     /** La clé de tri d'une carte dans son sujet ; l'ordre du programme départage les égalités. */
-    private static int[] key(LearningTrack track, @Nullable NotionInfo notion) {
+    private static int[] key(LearningTrack track, @Nullable NotionInfo notion, Set<UUID> knownNotions) {
         if (notion == null) {
             return new int[] {NO_PRIORITY};
         }
         int level = notion.level().ordinal();
+        int known = knownNotions.contains(notion.id()) ? LAST : FIRST;
         return switch (track) {
-            case LEARN -> new int[] {level};
-            case PREPARE -> new int[] {notion.priority()};
-            case MAINTAIN -> new int[] {notion.level() == NotionInfo.Level.BEGINNER ? 1 : 0, notion.priority()};
+            case LEARN -> new int[] {known, level};
+            case PREPARE -> new int[] {notion.priority(), known};
+            case MAINTAIN -> new int[] {notion.level() == NotionInfo.Level.BEGINNER ? LAST : FIRST, notion.priority()};
         };
     }
 

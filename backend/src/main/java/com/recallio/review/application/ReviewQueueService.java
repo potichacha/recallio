@@ -13,6 +13,7 @@ import com.recallio.review.domain.LearningState;
 import com.recallio.review.domain.ReviewLogRepository;
 import com.recallio.review.domain.ReviewState;
 import com.recallio.review.domain.ReviewStateRepository;
+import com.recallio.review.domain.level.KnownNotionRepository;
 import com.recallio.review.domain.queue.ReviewQueuePlanner;
 import com.recallio.review.domain.queue.ReviewQueuePlanner.Candidate;
 import com.recallio.review.domain.queue.ReviewQueuePlanner.QueuePlan;
@@ -55,6 +56,7 @@ public class ReviewQueueService {
     private final ReviewStateRepository states;
     private final ReviewLogRepository log;
     private final TourProgressRepository tour;
+    private final KnownNotionRepository known;
     private final NewCardQuota quota;
     private final Clock clock;
 
@@ -66,6 +68,7 @@ public class ReviewQueueService {
             ReviewStateRepository states,
             ReviewLogRepository log,
             TourProgressRepository tour,
+            KnownNotionRepository known,
             NewCardQuota quota,
             Clock clock) {
         this.cards = cards;
@@ -75,6 +78,7 @@ public class ReviewQueueService {
         this.states = states;
         this.log = log;
         this.tour = tour;
+        this.known = known;
         this.quota = quota;
         this.clock = clock;
     }
@@ -117,13 +121,13 @@ public class ReviewQueueService {
     private final class Lessons {
 
         private final Map<String, LearningTrack> tracks;
-        private final Set<UUID> known;
+        private final Set<UUID> seen;
         private final Map<UUID, Candidate> candidates;
         private @Nullable Set<UUID> startedNotions;
 
-        Lessons(Map<String, LearningTrack> tracks, Set<UUID> known, List<Candidate> eligible) {
+        Lessons(Map<String, LearningTrack> tracks, Set<UUID> seen, List<Candidate> eligible) {
             this.tracks = tracks;
-            this.known = known;
+            this.seen = seen;
             this.candidates = eligible.stream().collect(Collectors.toMap(Candidate::cardId, Function.identity()));
         }
 
@@ -134,7 +138,7 @@ public class ReviewQueueService {
             if (lesson == null
                     || candidate == null
                     || candidate.notionId() == null
-                    || known.contains(card.cardId())
+                    || seen.contains(card.cardId())
                     || tracks.get(card.subjectSlug()) != LearningTrack.LEARN) {
                 return null;
             }
@@ -145,7 +149,7 @@ public class ReviewQueueService {
         private Set<UUID> startedNotions() {
             Set<UUID> started = startedNotions;
             if (started == null) {
-                started = Set.copyOf(cards.notionsOf(known).values());
+                started = Set.copyOf(cards.notionsOf(seen).values());
                 startedNotions = started;
             }
             return started;
@@ -153,45 +157,50 @@ public class ReviewQueueService {
     }
 
     /**
-     * Les cartes rangées selon le parcours de leur sujet (ADR 0032). Avec un groupe, chaque sujet suit le parcours par
-     * défaut : le groupe choisit ses cartes, pas le parcours de chacun.
+     * Les cartes rangées selon le parcours de leur sujet (ADR 0032), les notions connues au test de niveau après les
+     * autres (ADR 0068). Avec un groupe, chaque sujet suit le parcours par défaut : le groupe choisit ses cartes, pas le
+     * parcours de chacun.
      */
     private List<Candidate> arranged(
-            UserRef user, Map<String, LearningTrack> tracks, List<Candidate> eligible, Set<UUID> known) {
-        List<NotionInfo> notions =
-                cards.notions(eligible.stream().map(Candidate::subjectSlug).collect(Collectors.toSet()));
-        Set<UUID> locked =
-                tracks.containsValue(LearningTrack.LEARN) ? lockedForLearning(user, notions, known) : Set.of();
+            UserRef user, Map<String, LearningTrack> tracks, List<Candidate> eligible, Set<UUID> seen) {
+        Set<String> subjectSlugs = eligible.stream().map(Candidate::subjectSlug).collect(Collectors.toSet());
+        List<NotionInfo> notions = cards.notions(subjectSlugs);
+        Set<UUID> knownNotions = notions.isEmpty() ? Set.of() : known.known(user.id(), subjectSlugs);
+        Set<UUID> locked = tracks.containsValue(LearningTrack.LEARN)
+                ? lockedForLearning(user, notions, seen, knownNotions)
+                : Set.of();
         return NewCardOrder.arrange(
                 eligible,
-                known,
+                seen,
                 tracks,
                 notions.stream().collect(Collectors.toMap(NotionInfo::id, Function.identity())),
-                locked);
+                locked,
+                knownNotions);
     }
 
     /**
      * Les notions fermées aux nouvelles cartes de qui apprend : celles dont un prérequis manque (ADR 0032), et celles du
-     * Tour qu'il n'y a pas encore validées (ADR 0059). Une notion dont il a déjà vu une carte reste ouverte : la règle du
-     * Tour ne retire rien à qui révisait avant elle.
+     * Tour qu'il n'y a pas encore validées (ADR 0059) ni montré connaître (ADR 0068). Une notion dont il a déjà vu une
+     * carte reste ouverte : la règle du Tour ne retire rien à qui révisait avant elle.
      */
-    private Set<UUID> lockedForLearning(UserRef user, List<NotionInfo> notions, Set<UUID> known) {
-        LearningPath path = learningPath(user, notions);
-        Set<UUID> started = Set.copyOf(cards.notionsOf(known).values());
+    private Set<UUID> lockedForLearning(
+            UserRef user, List<NotionInfo> notions, Set<UUID> seen, Set<UUID> knownNotions) {
+        LearningPath path = learningPath(user, notions, knownNotions);
+        Set<UUID> started = Set.copyOf(cards.notionsOf(seen).values());
         Set<UUID> locked = new HashSet<>(path.locked());
         path.awaitingTour().stream().filter(notion -> !started.contains(notion)).forEach(locked::add);
         return locked;
     }
 
-    /** Le chemin d'apprentissage de l'utilisateur : ses cartes réussies, comptées par notion, et son Tour. */
-    private LearningPath learningPath(UserRef user, List<NotionInfo> notions) {
+    /** Le chemin d'apprentissage de l'utilisateur : ses cartes réussies, comptées par notion, son Tour et son niveau. */
+    private LearningPath learningPath(UserRef user, List<NotionInfo> notions, Set<UUID> knownNotions) {
         Map<UUID, Integer> recalled = cards.notionsOf(log.cardsRecalled(user.id())).values().stream()
                 .collect(Collectors.toMap(Function.identity(), _ -> 1, Integer::sum));
         Set<UUID> inTour = notions.stream()
                 .filter(NotionInfo::isInTour)
                 .map(NotionInfo::id)
                 .collect(Collectors.toSet());
-        return new LearningPath(notions, recalled, tour.validated(user.id(), inTour));
+        return new LearningPath(notions, recalled, tour.validated(user.id(), inTour), knownNotions);
     }
 
     /** Les cartes révisées depuis minuit, dans le fuseau de l'utilisateur, par notion : leurs sœurs attendent demain. */

@@ -39,6 +39,7 @@ class AccountResourceTest {
             "mock_exam",
             "tour_progress",
             "tour_last_page",
+            "known_notion",
             "interview_plan",
             "daily_challenge_answer",
             "points_ledger",
@@ -112,6 +113,7 @@ class AccountResourceTest {
                 .body("sections.user.followed_subject", hasSize(1))
                 .body("sections.review.review_state", hasSize(1))
                 .body("sections.review.review_log[0].rating", equalTo(3))
+                .body("sections.review.known_notion[0].subject_slug", equalTo("java"))
                 .body("sections.review.interview_plan[0].subject_slug", equalTo("java"))
                 .body("sections.review.interview_plan[0].notions_to_acquire", equalTo(4))
                 .body("sections.review.daily_challenge_answer[0].correct", equalTo(true))
@@ -227,6 +229,10 @@ class AccountResourceTest {
                 """
                 insert into tour_last_page (user_id, subject_slug, notion_id, page, opened_at)
                 values (:user, 'java', :card, 1, now())
+                """,
+                """
+                insert into known_notion (user_id, notion_id, subject_slug, known_at)
+                values (:user, :card, 'java', now())
                 """,
                 """
                 insert into interview_plan (user_id, subject_slug, interview_on, planned_on, notions_to_acquire)

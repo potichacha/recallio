@@ -3,6 +3,7 @@ package com.recallio.review.application;
 import com.recallio.content.NotionInfo;
 import com.recallio.content.SubjectDirectory;
 import com.recallio.review.domain.ReviewStateRepository;
+import com.recallio.review.domain.level.KnownNotionRepository;
 import com.recallio.review.domain.tour.TourProgressRepository;
 import com.recallio.review.domain.track.LearningPath;
 import com.recallio.review.domain.track.LearningPath.NotionStatus;
@@ -25,7 +26,7 @@ import java.util.stream.Collectors;
 /**
  * Cas d'usage : la carte du parcours d'un sujet (ADR 0032), pour l'utilisateur connecté. Ses domaines et leurs
  * chapitres, dans l'ordre du référentiel ; chaque notion avec son état (à rédiger, verrouillée, disponible, en cours ou
- * acquise) et sa maîtrise (ADR 0034).
+ * acquise) et sa maîtrise (ADR 0034). Une notion connue au test de niveau (ADR 0068) ouvre celles qui en dépendent.
  */
 @ApplicationScoped
 @Transactional(Transactional.TxType.SUPPORTS)
@@ -36,18 +37,21 @@ public class LearningPathService {
     private final ReviewStateRepository states;
     private final NotionMasteries masteries;
     private final TourProgressRepository tour;
+    private final KnownNotionRepository known;
 
     public LearningPathService(
             SubjectDirectory subjects,
             FollowedSubjects followedSubjects,
             ReviewStateRepository states,
             NotionMasteries masteries,
-            TourProgressRepository tour) {
+            TourProgressRepository tour,
+            KnownNotionRepository known) {
         this.subjects = subjects;
         this.followedSubjects = followedSubjects;
         this.states = states;
         this.masteries = masteries;
         this.tour = tour;
+        this.known = known;
     }
 
     /** @throws com.recallio.platform.domain.ResourceNotFoundException si aucun sujet publié ne porte ce slug */
@@ -61,7 +65,11 @@ public class LearningPathService {
                 .filter(NotionInfo::isInTour)
                 .map(NotionInfo::id)
                 .collect(Collectors.toSet());
-        var path = new LearningPath(mastery.keySet(), recalled, tour.validated(user.id(), inTour));
+        var path = new LearningPath(
+                mastery.keySet(),
+                recalled,
+                tour.validated(user.id(), inTour),
+                known.known(user.id(), Set.of(subjectSlug)));
         LearningTrack track = followedSubjects.tracksOf(user).getOrDefault(subjectSlug, LearningTrack.DEFAULT);
         boolean prerequisitesApply = track == LearningTrack.LEARN;
 

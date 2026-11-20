@@ -68,6 +68,10 @@ describe('robots.txt (ADR 0065)', () => {
     },
   )
 
+  it('reads the account pages, the level check among them (ADR 0068)', () => {
+    expect(accountPages.map(samplePath)).toContain('/subjects/exemple/level-check')
+  })
+
   const publicPages = pages.filter((route) => route.index || (route.path && route.path !== '*'))
 
   it.each(publicPages.map(samplePath))('decides what to do with %s, a public page', (path) => {

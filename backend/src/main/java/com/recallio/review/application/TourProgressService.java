@@ -6,6 +6,7 @@ import com.recallio.content.NotionInfo;
 import com.recallio.review.TourNotionValidated;
 import com.recallio.review.TourPageOpened;
 import com.recallio.review.domain.AnswerMismatchException;
+import com.recallio.review.domain.level.KnownNotionRepository;
 import com.recallio.review.domain.tour.TourLastPage;
 import com.recallio.review.domain.tour.TourNotionNotFoundException;
 import com.recallio.review.domain.tour.TourPageNotFoundException;
@@ -36,6 +37,7 @@ public class TourProgressService {
 
     private final CardDirectory cards;
     private final TourProgressRepository progress;
+    private final KnownNotionRepository known;
     private final Clock clock;
     private final Event<TourPageOpened> pageOpened;
     private final Event<TourNotionValidated> notionValidated;
@@ -43,25 +45,28 @@ public class TourProgressService {
     public TourProgressService(
             CardDirectory cards,
             TourProgressRepository progress,
+            KnownNotionRepository known,
             Clock clock,
             Event<TourPageOpened> pageOpened,
             Event<TourNotionValidated> notionValidated) {
         this.cards = cards;
         this.progress = progress;
+        this.known = known;
         this.clock = clock;
         this.pageOpened = pageOpened;
         this.notionValidated = notionValidated;
     }
 
-    /** Les notions validées, dans l'ordre du référentiel, et la dernière page ouverte, si elle est encore dans le Tour. */
+    /**
+     * Les notions validées et celles connues au test de niveau (ADR 0068), dans l'ordre du référentiel, et la dernière
+     * page ouverte, si elle est encore dans le Tour.
+     */
     public Progress progress(UserRef user, String subjectSlug) {
         List<NotionInfo> notions = cards.notions(Set.of(subjectSlug));
         Set<UUID> validated = progress.validated(
                 user.id(), notions.stream().map(NotionInfo::id).toList());
-        List<String> validatedNotions = notions.stream()
-                .filter(notion -> validated.contains(notion.id()))
-                .map(NotionInfo::slug)
-                .toList();
+        Set<UUID> knownNotions = notions.isEmpty() ? Set.of() : known.known(user.id(), Set.of(subjectSlug));
+        List<String> validatedNotions = slugsOf(notions, validated);
         @Nullable
         Step lastPage = progress.lastPage(user.id(), subjectSlug)
                 .flatMap(last -> notions.stream()
@@ -69,7 +74,15 @@ public class TourProgressService {
                         .findFirst()
                         .map(notion -> new Step(notion.slug(), last.page())))
                 .orElse(null);
-        return new Progress(validatedNotions, lastPage);
+        return new Progress(validatedNotions, slugsOf(notions, knownNotions), lastPage);
+    }
+
+    /** Les slugs de celles de ces notions qui sont dans l'ensemble, dans l'ordre du référentiel. */
+    private static List<String> slugsOf(List<NotionInfo> notions, Set<UUID> ids) {
+        return notions.stream()
+                .filter(notion -> ids.contains(notion.id()))
+                .map(NotionInfo::slug)
+                .toList();
     }
 
     /**
@@ -153,13 +166,17 @@ public class TourProgressService {
 
     /**
      * @param validatedNotions dans l'ordre du référentiel
+     * @param knownNotions les notions connues au test de niveau, dans l'ordre du référentiel
      * @param lastPage la dernière page ouverte ; {@code null} si aucune, ou si elle n'est plus dans le Tour
      */
     public record Progress(
-            List<String> validatedNotions, @Nullable Step lastPage) {
+            List<String> validatedNotions,
+            List<String> knownNotions,
+            @Nullable Step lastPage) {
 
         public Progress {
             validatedNotions = List.copyOf(validatedNotions);
+            knownNotions = List.copyOf(knownNotions);
         }
     }
 
