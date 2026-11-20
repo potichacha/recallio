@@ -1,6 +1,7 @@
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
+import { dayFromToday } from '../components/interviewDate'
 import {
   fakeSession,
   renderAt,
@@ -61,6 +62,81 @@ describe('WelcomePage', () => {
     expect(router.state.location.search).toBe('?subject=go')
     const put = sentRequests(fetchMock).find((request) => request.method === 'PUT')
     expect(await put?.json()).toEqual({ subjects: ['go'] })
+  })
+
+  it('sends the date of the interview once the subject is followed, if given (ADR 0066)', async () => {
+    const date = dayFromToday(30)
+    const following = { ...NEW_USER, followedSubjects: ['go'] }
+    const fetchMock = stubApi({
+      ...SIGNED_IN_API,
+      '/api/v1/me': { body: NEW_USER },
+      '/api/v1/subjects': { body: TEST_SUBJECTS },
+      'PUT /api/v1/me/followed-subjects': { body: following },
+      'PUT /api/v1/me/interviews/go': { body: {} },
+    })
+    renderAt('/welcome', signedIn())
+
+    await userEvent.click(await screen.findByRole('radio', { name: /Je prépare un entretien/ }))
+    await userEvent.click(screen.getByRole('radio', { name: /Go/ }))
+    const field = screen.getByLabelText(/Ton entretien est prévu le…/)
+    expect(field).toHaveAttribute('min', dayFromToday(1))
+    await userEvent.type(field, date)
+    await userEvent.click(screen.getByRole('button', { name: 'C’est parti' }))
+
+    expect(await screen.findByRole('heading', { name: 'Réviser Go' })).toBeInTheDocument()
+    const puts = sentRequests(fetchMock).filter((request) => request.method === 'PUT')
+    expect(puts.map((request) => new URL(request.url).pathname)).toEqual([
+      '/api/v1/me/followed-subjects',
+      '/api/v1/me/interviews/go',
+    ])
+    expect(await puts[1].json()).toEqual({ date })
+  })
+
+  it('asks the date of the interview only to who prepares one, and sends none when left empty', async () => {
+    const following = { ...NEW_USER, followedSubjects: ['go'] }
+    const fetchMock = stubApi({
+      ...SIGNED_IN_API,
+      '/api/v1/me': { body: NEW_USER },
+      '/api/v1/subjects': { body: TEST_SUBJECTS },
+      'PUT /api/v1/me/followed-subjects': { body: following },
+    })
+    renderAt('/welcome', signedIn())
+
+    await userEvent.click(
+      await screen.findByRole('radio', { name: /Je connais déjà un autre langage/ }),
+    )
+    expect(screen.queryByLabelText(/Ton entretien est prévu le…/)).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('radio', { name: /Je prépare un entretien/ }))
+    await userEvent.click(screen.getByRole('radio', { name: /Go/ }))
+    await userEvent.click(screen.getByRole('button', { name: 'C’est parti' }))
+
+    expect(await screen.findByRole('heading', { name: 'Réviser Go' })).toBeInTheDocument()
+    expect(sentRequests(fetchMock).some((request) => request.url.includes('/interviews/'))).toBe(
+      false,
+    )
+  })
+
+  it('arrives anyway when the date of the interview is refused', async () => {
+    const following = { ...NEW_USER, followedSubjects: ['go'] }
+    stubApi({
+      ...SIGNED_IN_API,
+      '/api/v1/me': { body: NEW_USER },
+      '/api/v1/subjects': { body: TEST_SUBJECTS },
+      'PUT /api/v1/me/followed-subjects': { body: following },
+      'PUT /api/v1/me/interviews/go': {
+        status: 422,
+        body: { status: 422, code: 'interview.no-essential-notions', detail: 'Pas de plan.' },
+      },
+    })
+    const router = renderAt('/welcome', signedIn())
+
+    await userEvent.click(await screen.findByRole('radio', { name: /Je prépare un entretien/ }))
+    await userEvent.click(screen.getByRole('radio', { name: /Go/ }))
+    await userEvent.type(screen.getByLabelText(/Ton entretien est prévu le…/), dayFromToday(30))
+    await userEvent.click(screen.getByRole('button', { name: 'C’est parti' }))
+
+    expect(await screen.findByRole('heading', { name: 'Réviser Go' })).toBeInTheDocument()
+    expect(router.state.location.search).toBe('?subject=go')
   })
 
   it('sends who knows another language to the Tour of the new one, on the learning track', async () => {

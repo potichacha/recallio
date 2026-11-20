@@ -92,6 +92,8 @@ const QUESTS: QuestBoard = {
 
 const TOUR_PROGRESS = '/api/v1/me/tour/java'
 const TOUR_NEVER_OPENED = { [TOUR_PROGRESS]: { body: { validatedNotions: [], lastPage: null } } }
+/** Aucun entretien prévu : le compte à rebours a ses propres tests (InterviewCountdownPanel.test.tsx). */
+const NO_INTERVIEW = { '/api/v1/me/interviews': { body: [] } }
 
 function stubDashboard(reviewStats: ReviewStats = stats()) {
   return stubApi({
@@ -101,6 +103,7 @@ function stubDashboard(reviewStats: ReviewStats = stats()) {
     '/api/v1/me/progress/activity': { body: WEEK },
     '/api/v1/me/quests': { body: QUESTS },
     ...TOUR_NEVER_OPENED,
+    ...NO_INTERVIEW,
   })
 }
 
@@ -183,6 +186,7 @@ describe('DashboardPage', () => {
       [TOUR_PROGRESS]: {
         body: { validatedNotions: [], lastPage: { notion: 'hello-world', page: 1 } },
       },
+      ...NO_INTERVIEW,
     })
     renderAt('/', signedIn())
 
@@ -200,6 +204,7 @@ describe('DashboardPage', () => {
       '/api/v1/me/progress/activity': { body: WEEK },
       '/api/v1/me/quests': { body: QUESTS },
       ...TOUR_NEVER_OPENED,
+      ...NO_INTERVIEW,
     })
     renderAt('/', signedIn())
 

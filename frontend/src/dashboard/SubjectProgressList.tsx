@@ -1,16 +1,22 @@
+import type { ReactNode } from 'react'
 import { Link } from 'react-router'
+import { useInterviews } from '../api/interviews'
+import { useProfile } from '../api/profile'
 import type { SubjectXp } from '../api/progress'
 import type { CardCounts, SubjectStats, ThemeStats } from '../api/stats'
 import { MasteryBar } from '../components/MasteryBar'
 import { ReadinessGauge } from '../components/ReadinessGauge'
 import { masterySummary } from '../components/mastery'
+import { ErrorState } from '../components/states/ErrorState'
+import { LoadingState } from '../components/states/LoadingState'
+import { InterviewCountdownPanel } from './InterviewCountdownPanel'
 
 const plural = (count: number, word: string) => `${count} ${word}${count > 1 ? 's' : ''}`
 
 /**
  * Progression par sujet suivi, dans l'ordre du catalogue : son niveau (ADR 0035), ses cartes, la maîtrise de ses
- * notions et son indice de préparation quand il a un référentiel (ADR 0034, 0041), puis ses thèmes (dépliables). Avec
- * un seul sujet, ses thèmes sont dépliés d'emblée.
+ * notions, son indice de préparation et le compte à rebours avant son entretien quand il a un référentiel (ADR 0034,
+ * 0041, 0066), puis ses thèmes (dépliables). Avec un seul sujet, ses thèmes sont dépliés d'emblée.
  */
 export function SubjectProgressList({
   subjects,
@@ -19,11 +25,37 @@ export function SubjectProgressList({
   subjects: SubjectStats[]
   levels: SubjectXp[]
 }) {
+  // Seul un sujet qui a des notions essentielles a un plan avant un entretien (ADR 0066).
+  const interviews = useInterviews(subjects.some((subject) => subject.readiness.essentials > 0))
+  const profile = useProfile()
+
+  /** Le compte à rebours d'un sujet, sous sa jauge ; rien pour un sujet sans notion essentielle. */
+  const interviewOf = (subject: SubjectStats): ReactNode => {
+    if (subject.readiness.essentials === 0) return null
+    if (interviews.isPending)
+      return <LoadingState label="Chargement de ton entretien…" shape="line" />
+    if (!interviews.isSuccess) return null
+    return (
+      <InterviewCountdownPanel
+        subject={subject.slug}
+        title={subject.title}
+        countdown={interviews.data.find((countdown) => countdown.subjectSlug === subject.slug)}
+        track={profile.data?.tracks[subject.slug] ?? 'PREPARE'}
+      />
+    )
+  }
+
   return (
     <section aria-labelledby="subjects-progress-title" className="flex flex-col gap-3">
       <h2 id="subjects-progress-title" className="text-lg font-semibold">
         Progression par sujet
       </h2>
+      {interviews.isError && (
+        <ErrorState
+          message="Impossible de charger tes entretiens."
+          onRetry={() => void interviews.refetch()}
+        />
+      )}
       <ul className="flex flex-col gap-3">
         {subjects.map((subject) => (
           <SubjectRow
@@ -31,6 +63,7 @@ export function SubjectProgressList({
             subject={subject}
             level={levels.find((level) => level.slug === subject.slug)}
             expanded={subjects.length === 1}
+            interview={interviewOf(subject)}
           />
         ))}
       </ul>
@@ -42,10 +75,13 @@ function SubjectRow({
   subject,
   level,
   expanded,
+  interview,
 }: {
   subject: SubjectStats
   level: SubjectXp | undefined
   expanded: boolean
+  /** Le compte à rebours avant l'entretien, sous la jauge (ADR 0066). */
+  interview: ReactNode
 }) {
   // Les thèmes commencés d'abord, puis les autres, chacun dans l'ordre du document.
   const started = subject.themes.filter((theme) => theme.counts.seen > 0)
@@ -94,6 +130,7 @@ function SubjectRow({
           readiness={subject.readiness}
         />
       )}
+      {interview}
       <details open={expanded} className="group">
         <summary className="cursor-pointer text-sm font-medium text-brand-strong">
           {plural(subject.themes.length, 'thème')}

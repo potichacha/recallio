@@ -162,6 +162,7 @@ flowchart LR
 | `SkillProfiles` (package racine), `application.SkillProfileService` | **API publique** : les compétences d'un utilisateur par sujet, le vérifié (exercices réussis, réponses corrigées, notions du Tour) séparé du déclaré (maîtrise, préparation), pour le profil public (ADR 0043). |
 | `application.MockExamService`, `api.MockExamsResource`, `domain.exam.MockExamDraw` | L'examen blanc (ADR 0044) : `POST /api/v1/me/mock-exams`, une question par notion à chaque tour, les essentielles d'abord ; une minute par question, mesurée par le serveur ; `POST …/{id}/submission`, la note et le corrigé. Tables `mock_exam` et `mock_exam_question` ; ni le journal, ni FSRS, ni l'XP ne voient les réponses. |
 | `domain.track.Readiness` | L'indice de préparation d'un sujet (ADR 0041) : ses notions essentielles acquises comptent pour moitié, maîtrisées en entier ; prêt à partir de 80 %. |
+| `application.InterviewService`, `api.InterviewsResource`, `domain.interview.InterviewCountdown` | Le compte à rebours avant l'entretien (ADR 0066), une date par sujet suivi (table `interview_plan` : la date, le jour où elle a été fixée, la ligne de départ). `GET /api/v1/me/interviews` : pour chaque sujet suivi qui a une date, les jours qui restent, l'avance ou le retard, les notions essentielles de la semaine et les semaines suivantes, recalculés d'après la maîtrise ; `PUT …/{s}` fixe ou change la date (le plan repart d'aujourd'hui), `DELETE …/{s}` la retire. |
 | `application.ExerciseRunService`, `application.PlaygroundRunService` | Exécuter un exercice contre ses tests (ADR 0030), ou un programme du Tour (`POST /api/v1/playground-runs`, ADR 0037). Rien n'est enregistré. |
 | `application.RunLock` | Une exécution à la fois par utilisateur, exercices et programmes confondus : 429 sinon. |
 | `infrastructure.runner.HttpCodeRunner`, `HttpProgramRunner` | Les deux modes du runner, derrière les ports `CodeRunner` et `ProgramRunner` ; une panne du runner répond 503. |
@@ -214,7 +215,8 @@ flowchart LR
 | `domain.funnel.FunnelReport`, `application.FunnelService`, `api.AdminFunnelResource` | `GET /api/v1/admin/funnel`, rôle admin : chaque étape des huit dernières semaines ISO (en UTC), et le taux de passage de l'une à la suivante. |
 
 Le tableau de bord de la PWA (accueil, une fois connecté) assemble des lectures indépendantes :
-`/api/v1/subjects` (content, pour les titres et les Tours), `/api/v1/me/review-stats` (review), `/api/v1/me/progress`,
+`/api/v1/subjects` (content, pour les titres et les Tours), `/api/v1/me/review-stats` et `/api/v1/me/interviews`
+(review), `/api/v1/me/progress`,
 `/api/v1/me/progress/activity` et `/api/v1/me/quests` (gamification). Aucun
 module « tableau de bord » côté serveur : chaque module expose ce qu'il sait.
 

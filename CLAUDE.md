@@ -302,6 +302,7 @@ Les sujets s'ajoutent un par un, au rythme de la rédaction, indépendamment des
 - Une seule carte d'une même notion par jour : ses sœurs attendent le lendemain, sans que leur état FSRS change (ADR 0031).
 - Chaque sujet suivi a son **parcours** (ADR 0032) : *apprendre* (seulement les notions dont les prérequis sont acquis, du débutant vers l'expert), *préparer un entretien* (par priorité, le défaut) ou *entretenir son niveau* (intermédiaire et expert d'abord). Il range les nouvelles cartes, jamais les dues. Qui apprend découvre une notion dans le Tour avant de la réviser : une notion du Tour attend d'y être validée (ADR 0059).
 - Sous une réponse fausse, « Revoir la leçon » ; et par sujet, un carnet des cartes ratées dans la semaine, à refaire sans rien enregistrer (ADR 0057).
+- Le compte à rebours avant l'entretien (ADR 0066) : une date par sujet suivi, facultative ; un plan par semaine des notions essentielles encore à acquérir, la dernière semaine pour réviser ; en avance, dans les temps ou en retard.
 - Arrêter de suivre un sujet ne supprime pas la progression : ses cartes ne sont plus proposées, et elles reviennent si on le suit de nouveau.
 
 ### 6.2 Répétition espacée : FSRS
@@ -546,7 +547,7 @@ Le propriétaire a testé l'application en local avant de la déployer ; ses ret
    8. **Avant la bêta** (25, 26, 34, 40, 44) : compte à rebours avant l'entretien, défi du jour, test de niveau, référencement, parcours mesuré. Une PR par étape :
       1. ✅ **Parcours mesuré** (44) : visite, essai, compte créé, première révision, par semaine, sur la page des admins (ADR 0064).
       2. ✅ **Référencement** (40) : balises de partage et image d'aperçu, `robots.txt`, plan du site produit par le backend, à l'origine publique `PUBLIC_ORIGIN` (ADR 0065).
-      3. **Compte à rebours avant l'entretien** (25) : une date, un plan par semaine, en avance ou en retard.
+      3. ✅ **Compte à rebours avant l'entretien** (25) : une date par sujet suivi, les notions essentielles à acquérir réparties par semaine (la dernière pour réviser), en avance ou en retard, sur le tableau de bord et au premier login (ADR 0066).
       4. **Défi du jour** (26) : les mêmes cinq questions pour tous, une tentative, un résultat à partager.
       5. **Test de niveau** (34) : à l'arrivée, pour sauter les bases.
    9. ✅ **Refonte « Rico »** (47 à 57) : la direction ludique retenue le 2026-11-10, en clair et en sombre, avec tout ce qui ne coûte que du temps. L'ADR 0058 la décide et révise l'ADR 0049 ; une PR par étape :

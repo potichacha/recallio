@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from './client'
 import { ApiError } from './errors'
+import { INTERVIEWS_KEY } from './interviews'
 import type { components } from './schema'
 
 export type Profile = components['schemas']['Profile']
@@ -39,7 +40,10 @@ export function useUpdateProfile() {
   })
 }
 
-/** Remplace les sujets suivis : la file de révision et le tableau de bord sont recalculés sur ces sujets. */
+/**
+ * Remplace les sujets suivis : la file de révision et le tableau de bord sont recalculés sur ces sujets. Un sujet qu'on
+ * ne suit plus garde la date de son entretien, sans la montrer (ADR 0066).
+ */
 export function useFollowSubjects() {
   const queryClient = useQueryClient()
   return useMutation({
@@ -54,6 +58,7 @@ export function useFollowSubjects() {
       queryClient.setQueryData(PROFILE_KEY, profile)
       await queryClient.invalidateQueries({ queryKey: ['review-queue'] })
       await queryClient.invalidateQueries({ queryKey: ['review-stats'] })
+      await queryClient.invalidateQueries({ queryKey: INTERVIEWS_KEY })
     },
   })
 }

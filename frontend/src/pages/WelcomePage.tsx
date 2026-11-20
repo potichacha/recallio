@@ -3,8 +3,10 @@ import { ErrorState } from '../components/states/ErrorState'
 import { useState } from 'react'
 import { useNavigate } from 'react-router'
 import { useCatalogSubjects, type Subject } from '../api/content'
+import { usePlanInterview } from '../api/interviews'
 import { useChooseTrack, useFollowSubjects, useProfile } from '../api/profile'
 import { Chip, Choices } from '../components/ChoiceChips'
+import { interviewDateBounds } from '../components/interviewDate'
 import { button } from '../components/ui/button'
 import { SubjectLogo } from '../subjects/SubjectLogo'
 import { useIsAdmin } from '../subjects/useIsAdmin'
@@ -35,7 +37,7 @@ const BEGINNER_SUBJECT = 'programmer-de-zero'
 /**
  * Premier login (ADR 0052) : le but, puis le sujet. Le but règle le parcours et la première étape : qui apprend part
  * dans le Tour, en parcours « apprendre » (ADR 0032) ; qui prépare un entretien choisit la durée de sa première
- * session. Le sujet choisi est suivi : il entre au tableau de bord.
+ * session, et peut donner la date de son entretien (ADR 0066). Le sujet choisi est suivi : il entre au tableau de bord.
  */
 export function WelcomePage() {
   const profile = useProfile()
@@ -71,9 +73,12 @@ export function WelcomePage() {
 function WelcomeForm({ followed, subjects }: { followed: string[]; subjects: Subject[] }) {
   const [goal, setGoal] = useState<Goal>()
   const [picked, setPicked] = useState<string>()
+  const [interviewOn, setInterviewOn] = useState('')
   const follow = useFollowSubjects()
   const chooseTrack = useChooseTrack()
+  const planInterview = usePlanInterview()
   const navigate = useNavigate()
+  const { min, max } = interviewDateBounds()
 
   const goals = GOALS.filter(
     ({ goal: value }) =>
@@ -97,6 +102,13 @@ function WelcomeForm({ followed, subjects }: { followed: string[]; subjects: Sub
     } catch {
       // L'erreur est dite sous le bouton : on reste sur la page pour réessayer.
       return
+    }
+    if (goal === 'interview' && interviewOn !== '') {
+      try {
+        await planInterview.mutateAsync({ subject, date: interviewOn })
+      } catch {
+        // Une date refusée ne bloque pas l'arrivée : elle se corrige ensuite sur le tableau de bord.
+      }
     }
     const slug = encodeURIComponent(subject)
     navigate(goal === 'interview' ? `/review?subject=${slug}` : `/subjects/${slug}/tour`)
@@ -131,10 +143,31 @@ function WelcomeForm({ followed, subjects }: { followed: string[]; subjects: Sub
           ))}
         </Choices>
       )}
+      {goal === 'interview' && (
+        <label className="flex flex-col gap-1">
+          <span className="text-sm font-medium">
+            Ton entretien est prévu le…{' '}
+            <span className="font-normal text-ink-muted">(facultatif)</span>
+          </span>
+          <input
+            type="date"
+            value={interviewOn}
+            min={min}
+            max={max}
+            onChange={(event) => setInterviewOn(event.target.value)}
+            aria-describedby="interview-date-help"
+            className="self-start rounded-lg border border-line-strong bg-surface px-3 py-2"
+          />
+          <span id="interview-date-help" className="text-xs text-ink-muted">
+            Recallio te prépare un plan, semaine par semaine, jusqu’au jour J. Tu pourras la donner
+            plus tard.
+          </span>
+        </label>
+      )}
       <button
         type="button"
         onClick={start}
-        disabled={!subject || follow.isPending || chooseTrack.isPending}
+        disabled={!subject || follow.isPending || chooseTrack.isPending || planInterview.isPending}
         className={`self-start ${button()}`}
       >
         C’est parti

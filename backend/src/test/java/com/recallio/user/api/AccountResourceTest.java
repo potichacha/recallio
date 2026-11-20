@@ -39,6 +39,7 @@ class AccountResourceTest {
             "mock_exam",
             "tour_progress",
             "tour_last_page",
+            "interview_plan",
             "points_ledger",
             "daily_activity",
             "quest_progress",
@@ -110,6 +111,8 @@ class AccountResourceTest {
                 .body("sections.user.followed_subject", hasSize(1))
                 .body("sections.review.review_state", hasSize(1))
                 .body("sections.review.review_log[0].rating", equalTo(3))
+                .body("sections.review.interview_plan[0].subject_slug", equalTo("java"))
+                .body("sections.review.interview_plan[0].notions_to_acquire", equalTo(4))
                 .body("sections.gamification.points_ledger[0].amount", equalTo(10))
                 .body("sections.group.group_member", hasSize(2))
                 .body("sections.group.challenge", hasSize(1))
@@ -220,6 +223,10 @@ class AccountResourceTest {
                 """
                 insert into tour_last_page (user_id, subject_slug, notion_id, page, opened_at)
                 values (:user, 'java', :card, 1, now())
+                """,
+                """
+                insert into interview_plan (user_id, subject_slug, interview_on, planned_on, notions_to_acquire)
+                values (:user, 'java', current_date + 21, current_date, 4)
                 """,
                 """
                 insert into points_ledger (id, user_id, amount, reason, source_id, occurred_at)

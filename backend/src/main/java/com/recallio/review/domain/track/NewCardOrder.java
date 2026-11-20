@@ -67,6 +67,16 @@ public final class NewCardOrder {
                 .toList();
     }
 
+    /**
+     * L'ordre des notions d'un sujet dans un parcours : celui où leurs nouvelles cartes sont servies. L'ordre du
+     * référentiel départage les égalités, comme l'ordre du programme départage les cartes. Le compte à rebours avant
+     * un entretien (ADR 0066) range ainsi ses notions comme le parcours « préparer un entretien » range leurs cartes.
+     */
+    public static Comparator<NotionInfo> notionOrder(LearningTrack track) {
+        return Comparator.<NotionInfo, int[]>comparing(notion -> key(track, notion), NewCardOrder::compareKeys)
+                .thenComparingInt(NotionInfo::position);
+    }
+
     private static boolean isLockedForLearning(Candidate card, Map<String, LearningTrack> tracks, Set<UUID> locked) {
         UUID notion = card.notionId();
         return tracks.get(card.subjectSlug()) == LearningTrack.LEARN && notion != null && locked.contains(notion);
