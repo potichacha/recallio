@@ -17,6 +17,20 @@ export function tourSteps(outline: TourOutline): TourStep[] {
   )
 }
 
+/**
+ * La première page de la première notion à découvrir : ni validée, ni connue au test de niveau (ADR 0068), qui saute
+ * les bases qu'on connaît. Indéfinie si toutes le sont, ou si le Tour est vide.
+ */
+export function firstStepToDiscover(
+  outline: TourOutline,
+  validated: ReadonlySet<string>,
+  known: ReadonlySet<string>,
+): TourStep | undefined {
+  return tourSteps(outline).find(
+    (step) => step.page === 1 && !validated.has(step.notion) && !known.has(step.notion),
+  )
+}
+
 /** Le lien d'une page : `/subjects/go/tour/hello-world`, avec `?page=2` au-delà de la première. */
 export function tourPath(subject: string, step: TourStep): string {
   const base = `/subjects/${encodeURIComponent(subject)}/tour/${encodeURIComponent(step.notion)}`

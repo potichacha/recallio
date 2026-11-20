@@ -302,6 +302,7 @@ Les sujets s'ajoutent un par un, au rythme de la rédaction, indépendamment des
 - Le quota quotidien de nouvelles cartes est **propre à chaque sujet** (ADR 0048) : finir sa session de Java ne prive pas Go de ses nouvelles cartes. Dans un sujet, les cartes dues passent toujours en premier.
 - Une seule carte d'une même notion par jour : ses sœurs attendent le lendemain, sans que leur état FSRS change (ADR 0031).
 - Chaque sujet suivi a son **parcours** (ADR 0032) : *apprendre* (seulement les notions dont les prérequis sont acquis, du débutant vers l'expert), *préparer un entretien* (par priorité, le défaut) ou *entretenir son niveau* (intermédiaire et expert d'abord). Il range les nouvelles cartes, jamais les dues. Qui apprend découvre une notion dans le Tour avant de la réviser : une notion du Tour attend d'y être validée (ADR 0059).
+- Le **test de niveau** (ADR 0068) : deux questions par domaine des bases, et deux domaines ratés de suite l'arrêtent. Un domaine réussi rend ses notions débutantes **connues** : elles n'attendent plus le Tour et comptent comme prérequis satisfaits ; leurs nouvelles cartes passent après les autres (en « apprendre », avant tout ; en « préparer », après la priorité). Une notion connue n'est pas acquise : la maîtrise, l'indice de préparation et FSRS ne voient que les vraies révisions. Refaire le test ajoute ; l'annuler retire toutes les notions connues du sujet.
 - Sous une réponse fausse, « Revoir la leçon » ; et par sujet, un carnet des cartes ratées dans la semaine, à refaire sans rien enregistrer (ADR 0057).
 - Le compte à rebours avant l'entretien (ADR 0066) : une date par sujet suivi, facultative ; un plan par semaine des notions essentielles encore à acquérir, la dernière semaine pour réviser ; en avance, dans les temps ou en retard.
 - Arrêter de suivre un sujet ne supprime pas la progression : ses cartes ne sont plus proposées, et elles reviennent si on le suit de nouveau.
@@ -335,6 +336,7 @@ Les sujets s'ajoutent un par un, au rythme de la rédaction, indépendamment des
 - Sur un écran large, la page a deux colonnes : le cours à gauche, avec « Teste-toi » (des questions de la notion à retourner), le code à droite (ADR 0050).
 - Une notion se valide à la fin de sa dernière page, en répondant juste à 2 ou 3 de ses questions, corrigées par le serveur ; elle reste validée. Ces réponses ne sont pas enregistrées comme des révisions : FSRS ne voit que les vraies révisions, espacées.
 - Pour qui apprend, valider une notion dans le Tour l'ouvre à la révision (ADR 0059).
+- Qui programme déjà peut passer le **test de niveau** (ADR 0068), au premier login ou depuis le sommaire : le Tour saute les bases qu'il y montre, marquées « Connue » dans le sommaire, et « Commencer le Tour » part de la première notion à découvrir.
 - En fin de chapitre, ses exercices ; depuis chaque page, « S'entraîner » ouvre toutes les cartes de la notion, corrigées par le serveur quand leur format le permet, sans rien enregistrer (ADR 0038).
 - Chaque langage a son Tour, fait de contenu seulement ; un nouveau langage demande aussi son image de bac à sable.
 
@@ -546,12 +548,12 @@ Le propriétaire a testé l'application en local avant de la déployer ; ses ret
    5. ✅ **Suppression de compte et export des données** (17) : chaque module répond de ses données par un port (ADR 0056).
    6. ✅ **Ergonomie** (5, 7 à 10) : filet d'erreur, icônes de la PWA, fraîcheur des données, chapitres repliés, profil en sections. L'accueil d'un nouveau venu (6) passe à l'étape 8.9.3, qui refait l'accueil.
    7. ✅ **Apprendre de ses erreurs** (27, 35) : « Revoir la leçon » sous une réponse fausse, et un carnet des erreurs de la semaine, à refaire sans rien enregistrer (ADR 0057). L'annulation de la dernière réponse (38) est abandonnée : elle contredit l'ADR 0051.
-   8. **Avant la bêta** (25, 26, 34, 40, 44) : compte à rebours avant l'entretien, défi du jour, test de niveau, référencement, parcours mesuré. Une PR par étape :
+   8. ✅ **Avant la bêta** (25, 26, 34, 40, 44) : compte à rebours avant l'entretien, défi du jour, test de niveau, référencement, parcours mesuré. Une PR par étape :
       1. ✅ **Parcours mesuré** (44) : visite, essai, compte créé, première révision, par semaine, sur la page des admins (ADR 0064).
       2. ✅ **Référencement** (40) : balises de partage et image d'aperçu, `robots.txt`, plan du site produit par le backend, à l'origine publique `PUBLIC_ORIGIN` (ADR 0065).
       3. ✅ **Compte à rebours avant l'entretien** (25) : une date par sujet suivi, les notions essentielles à acquérir réparties par semaine (la dernière pour réviser), en avance ou en retard, sur le tableau de bord et au premier login (ADR 0066).
       4. ✅ **Défi du jour** (26) : par sujet publié, les mêmes cinq questions pour tous au même jour (celui de chacun), de la plus facile à la plus difficile, une tentative avec un compte, les chiffres du jour une fois fini, un résultat à partager sans les réponses ; sur la page Jouer et l'accueil (ADR 0067).
-      5. **Test de niveau** (34) : à l'arrivée, pour sauter les bases.
+      5. ✅ **Test de niveau** (34) : deux questions par domaine des bases, arrêté par deux domaines ratés de suite ; les notions des domaines réussis sont connues, sautées dans le Tour et servies après le reste en révision, sans être acquises ; au premier login (« je connais déjà un autre langage ») et depuis le sommaire du Tour, annulable (ADR 0068).
    9. ✅ **Refonte « Rico »** (47 à 57) : la direction ludique retenue le 2026-11-10, en clair et en sombre, avec tout ce qui ne coûte que du temps. L'ADR 0058 la décide et révise l'ADR 0049 ; une PR par étape :
       1. ✅ **Identité** (47, 48) : couleurs, Nunito, boutons en relief, Rico, thèmes clair et sombre au choix dans le profil (ADR 0058).
          Les contrastes des tokens sont calculés à chaque `npm test`, et axe-core passe aussi dans le thème sombre.

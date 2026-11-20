@@ -1,3 +1,4 @@
+import { FastForward } from '@phosphor-icons/react'
 import { EmptyState } from '../components/states/EmptyState'
 import { ErrorState } from '../components/states/ErrorState'
 import { LoadingState } from '../components/states/LoadingState'
@@ -6,14 +7,15 @@ import { ApiError } from '../api/errors'
 import { useTour, useTourProgress } from '../api/tour'
 import { useSession } from '../auth/session'
 import { ChapterExercises } from './ChapterExercises'
-import { tourPath, tourSteps } from './tourSteps'
+import { firstStepToDiscover, tourPath, tourSteps } from './tourSteps'
 import { button } from '../components/ui/button'
 
 const PRIMARY_LINK = `self-start ${button()}`
 
 /**
  * Le sommaire du Tour d'un sujet (ADR 0037) : ses domaines, ses chapitres et ses notions, dans l'ordre où on les
- * découvre. Public, comme le catalogue.
+ * découvre. Public, comme le catalogue. Un utilisateur connecté y voit ses notions validées et celles qu'il connaît
+ * déjà, montrées au test de niveau (ADR 0068), que le Tour saute.
  */
 export function TourOutlinePage() {
   const { slug = '' } = useParams()
@@ -21,6 +23,7 @@ export function TourOutlinePage() {
   const session = useSession()
   const progress = useTourProgress(slug, session.status === 'authenticated')
   const validated = new Set(progress.data?.validatedNotions)
+  const known = new Set(progress.data?.knownNotions)
 
   if (tour.error instanceof ApiError && tour.error.status === 404) {
     return (
@@ -40,15 +43,20 @@ export function TourOutlinePage() {
   if (!tour.data) return <LoadingState label="Chargement…" />
 
   const { subjectTitle, domains } = tour.data
-  const first = tourSteps(tour.data)[0]
+  // Commencer le Tour, c'est commencer par la première notion à découvrir : les bases connues sont sautées.
+  const first = firstStepToDiscover(tour.data, validated, known) ?? tourSteps(tour.data)[0]
   const notions = domains.flatMap((domain) => domain.chapters).flatMap((chapter) => chapter.notions)
   // Une notion validée puis sortie du Tour ne compte plus.
   const validatedCount = notions.filter((notion) => validated.has(notion.slug)).length
+  const knownCount = notions.filter(
+    (notion) => known.has(notion.slug) && !validated.has(notion.slug),
+  ).length
   const lastPage = progress.data?.lastPage
   const resumed = lastPage ? notions.find((notion) => notion.slug === lastPage.notion) : undefined
   // Seul le chapitre où l'on en est s'ouvre d'emblée (audit, élément 5) : celui de la page où l'on s'est arrêté,
-  // sinon celui de la première notion à valider. Le sommaire entier ferait des milliers de pixels sur un téléphone.
-  const current = resumed ?? notions.find((notion) => !validated.has(notion.slug)) ?? notions[0]
+  // sinon celui de la première notion à découvrir. Le sommaire entier ferait des milliers de pixels sur un téléphone.
+  const current = resumed ?? notions.find((notion) => notion.slug === first?.notion) ?? notions[0]
+  const levelCheck = `/subjects/${encodeURIComponent(slug)}/level-check`
 
   return (
     <section className="flex flex-col gap-6">
@@ -85,6 +93,23 @@ export function TourOutlinePage() {
               <p className="text-sm text-ink-muted">
                 {validatedCount} / {notions.length} notion{notions.length > 1 ? 's' : ''} validée
                 {notions.length > 1 ? 's' : ''}
+                {knownCount > 0 && ` · ${knownCount} connue${knownCount > 1 ? 's' : ''}`}
+              </p>
+            )}
+            {progress.data && (
+              <p className="text-sm">
+                {known.size > 0 ? (
+                  <Link to={levelCheck} className="font-medium text-brand-strong underline">
+                    Refaire le test de niveau
+                  </Link>
+                ) : (
+                  <>
+                    Déjà des bases ?{' '}
+                    <Link to={levelCheck} className="font-medium text-brand-strong underline">
+                      Passe le test de niveau
+                    </Link>
+                  </>
+                )}
               </p>
             )}
           </>
@@ -138,8 +163,10 @@ export function TourOutlinePage() {
                             · {notion.pageCount} pages
                           </span>
                         )}
-                        {validated.has(notion.slug) && (
+                        {validated.has(notion.slug) ? (
                           <span className="text-sm font-medium text-success"> · validée</span>
+                        ) : (
+                          known.has(notion.slug) && <KnownMark />
                         )}
                       </li>
                     ))}
@@ -158,5 +185,16 @@ export function TourOutlinePage() {
         </section>
       ))}
     </section>
+  )
+}
+
+/** Une notion montrée au test de niveau : l'icône et le mot, jamais la couleur seule. */
+function KnownMark() {
+  return (
+    <span className="text-sm font-medium text-ink-muted">
+      {' · '}
+      <FastForward weight="bold" aria-hidden className="inline size-4 align-[-0.15em]" />
+      {' Connue'}
+    </span>
   )
 }

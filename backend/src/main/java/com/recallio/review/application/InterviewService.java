@@ -8,6 +8,7 @@ import com.recallio.review.domain.interview.InterviewExceptions.InterviewSubject
 import com.recallio.review.domain.interview.InterviewExceptions.NoEssentialNotionsException;
 import com.recallio.review.domain.interview.InterviewPlan;
 import com.recallio.review.domain.interview.InterviewPlanRepository;
+import com.recallio.review.domain.level.KnownNotionRepository;
 import com.recallio.review.domain.track.NotionMastery;
 import com.recallio.review.domain.track.Readiness;
 import com.recallio.user.FollowedSubjects;
@@ -21,6 +22,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 /**
@@ -37,6 +39,7 @@ public class InterviewService {
     private final SubjectDirectory subjects;
     private final ReviewStateRepository states;
     private final NotionMasteries masteries;
+    private final KnownNotionRepository known;
     private final Clock clock;
 
     public InterviewService(
@@ -45,12 +48,14 @@ public class InterviewService {
             SubjectDirectory subjects,
             ReviewStateRepository states,
             NotionMasteries masteries,
+            KnownNotionRepository known,
             Clock clock) {
         this.plans = plans;
         this.followedSubjects = followedSubjects;
         this.subjects = subjects;
         this.states = states;
         this.masteries = masteries;
+        this.known = known;
         this.clock = clock;
     }
 
@@ -67,12 +72,14 @@ public class InterviewService {
         if (withDate.isEmpty()) {
             return List.of();
         }
-        Map<String, Map<NotionInfo, NotionMastery>> notions = notionsBySubject(
-                user, withDate.stream().map(InterviewPlan::subjectSlug).toList());
+        List<String> slugs = withDate.stream().map(InterviewPlan::subjectSlug).toList();
+        Map<String, Map<NotionInfo, NotionMastery>> notions = notionsBySubject(user, slugs);
+        Set<UUID> knownNotions = known.known(user.id(), slugs);
         LocalDate today = today(user);
         Map<String, String> titles = subjects.publishedTitles();
         return withDate.stream()
-                .map(plan -> countdown(plan, today, notions.getOrDefault(plan.subjectSlug(), Map.of()), titles))
+                .map(plan -> countdown(
+                        plan, today, notions.getOrDefault(plan.subjectSlug(), Map.of()), knownNotions, titles))
                 .toList();
     }
 
@@ -97,13 +104,14 @@ public class InterviewService {
         if (essentials(notions).isEmpty()) {
             throw new NoEssentialNotionsException(subjectSlug);
         }
+        Set<UUID> knownNotions = known.known(user.id(), Set.of(subjectSlug));
         var plan = new InterviewPlan(
                 subjectSlug,
                 interviewOn,
                 today,
-                InterviewCountdown.toAcquire(notions).size());
+                InterviewCountdown.toAcquire(notions, knownNotions).size());
         plans.save(user.id(), plan);
-        return countdown(plan, today, notions, subjects.publishedTitles());
+        return countdown(plan, today, notions, knownNotions, subjects.publishedTitles());
     }
 
     /** Retire la date de l'entretien d'un sujet, s'il en avait une. */
@@ -112,12 +120,17 @@ public class InterviewService {
         plans.delete(user.id(), subjectSlug);
     }
 
+    /** @param knownNotions les notions connues au test de niveau (ADR 0068) : le plan les met après les autres */
     private static SubjectCountdown countdown(
-            InterviewPlan plan, LocalDate today, Map<NotionInfo, NotionMastery> notions, Map<String, String> titles) {
+            InterviewPlan plan,
+            LocalDate today,
+            Map<NotionInfo, NotionMastery> notions,
+            Set<UUID> knownNotions,
+            Map<String, String> titles) {
         Readiness readiness = Readiness.of(essentials(notions));
         return new SubjectCountdown(
                 titles.getOrDefault(plan.subjectSlug(), plan.subjectSlug()),
-                InterviewCountdown.of(plan, today, InterviewCountdown.toAcquire(notions), readiness));
+                InterviewCountdown.of(plan, today, InterviewCountdown.toAcquire(notions, knownNotions), readiness));
     }
 
     /** La maîtrise des notions de ces sujets, sujet par sujet : les mêmes lectures que le tableau de bord. */

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { TourOutline } from '../api/tour'
-import { neighbours, tourPath, tourSteps } from './tourSteps'
+import { firstStepToDiscover, neighbours, tourPath, tourSteps } from './tourSteps'
 
 const OUTLINE: TourOutline = {
   subjectSlug: 'go',
@@ -57,6 +57,25 @@ describe('tourSteps', () => {
     expect(neighbours(steps, { notion: 'hello-world', page: 1 }).previous).toBeUndefined()
     expect(neighbours(steps, { notion: 'goroutines', page: 1 }).next).toBeUndefined()
     expect(neighbours(steps, { notion: 'inconnue', page: 1 }).index).toBe(-1)
+  })
+
+  it('finds the first notion to discover, neither validated nor known (ADR 0068)', () => {
+    const none = new Set<string>()
+
+    expect(firstStepToDiscover(OUTLINE, none, none)).toEqual({ notion: 'hello-world', page: 1 })
+    expect(
+      firstStepToDiscover(OUTLINE, new Set(['hello-world']), new Set(['packages-imports'])),
+    ).toEqual({
+      notion: 'goroutines',
+      page: 1,
+    })
+    expect(
+      firstStepToDiscover(
+        OUTLINE,
+        new Set(['hello-world', 'goroutines']),
+        new Set(['packages-imports']),
+      ),
+    ).toBeUndefined()
   })
 
   it('links to a page, with its rank beyond the first', () => {

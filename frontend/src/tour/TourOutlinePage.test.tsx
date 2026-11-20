@@ -31,6 +31,8 @@ describe('TourOutlinePage', () => {
     expect(
       within(exercises).getByRole('link', { name: 'Écris Zero, qui renvoie la valeur zéro' }),
     ).toHaveAttribute('href', '/subjects/go/practice/valeur-zero?from=tour&card=ex1')
+    // Le test de niveau demande un compte : un visiteur ne le voit pas.
+    expect(screen.queryByRole('link', { name: /test de niveau/ })).not.toBeInTheDocument()
   })
 
   it('marks the notions that a signed-in user has validated', async () => {
@@ -52,6 +54,43 @@ describe('TourOutlinePage', () => {
       'Le premier programme · validée',
     )
     expect(within(firstSteps).getAllByRole('listitem')[1]).not.toHaveTextContent('validée')
+    expect(screen.getByText(/^Déjà des bases \?/)).toBeVisible()
+    expect(screen.getByRole('link', { name: 'Passe le test de niveau' })).toHaveAttribute(
+      'href',
+      '/subjects/go/level-check',
+    )
+  })
+
+  it('marks the notions known from the level check and starts the Tour after them (ADR 0068)', async () => {
+    stubApi({
+      ...SIGNED_IN_API,
+      '/api/v1/subjects/go/tour': { body: TEST_TOUR },
+      '/api/v1/me/tour/go': {
+        body: {
+          validatedNotions: ['hello-world'],
+          knownNotions: ['hello-world', 'packages-imports'],
+          lastPage: null,
+        },
+      },
+    })
+
+    renderAt('/subjects/go/tour', fakeSession({ status: 'authenticated', userName: 'Alice' }))
+
+    expect(await screen.findByText('1 / 3 notions validées · 1 connue')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Commencer le Tour' })).toHaveAttribute(
+      'href',
+      '/subjects/go/tour/valeur-zero',
+    )
+    const firstSteps = screen.getByRole('list', { name: 'Premiers pas', hidden: true })
+    const [validated, known] = within(firstSteps).getAllByRole('listitem', { hidden: true })
+    expect(validated).toHaveTextContent('Le premier programme · validée')
+    expect(validated).not.toHaveTextContent('Connue')
+    expect(known).toHaveTextContent('Packages et imports · 2 pages · Connue')
+    expect(known.querySelector('svg')).not.toBeNull()
+    expect(screen.getByRole('link', { name: 'Refaire le test de niveau' })).toHaveAttribute(
+      'href',
+      '/subjects/go/level-check',
+    )
   })
 
   it('offers to resume the Tour at the last page that a signed-in user opened', async () => {

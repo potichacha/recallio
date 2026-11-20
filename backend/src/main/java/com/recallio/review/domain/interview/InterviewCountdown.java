@@ -10,6 +10,8 @@ import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
 import java.util.stream.IntStream;
 
 /**
@@ -62,15 +64,17 @@ public record InterviewCountdown(
 
     /**
      * Les notions du plan : celles, essentielles, qui ne sont pas encore acquises, dans l'ordre où le parcours « préparer
-     * un entretien » sert leurs cartes (ADR 0032).
+     * un entretien » sert leurs cartes (ADR 0032) : les notions connues au test de niveau (ADR 0068) après les autres de
+     * même priorité.
      *
      * @param notions la maîtrise des notions d'un sujet
+     * @param knownNotions les notions que l'utilisateur a montré connaître au test de niveau
      */
-    public static List<PlanNotion> toAcquire(Map<NotionInfo, NotionMastery> notions) {
+    public static List<PlanNotion> toAcquire(Map<NotionInfo, NotionMastery> notions, Set<UUID> knownNotions) {
         return notions.entrySet().stream()
                 .filter(entry -> entry.getKey().priority() == Readiness.ESSENTIAL_PRIORITY)
                 .filter(entry -> entry.getValue().level().compareTo(MasteryLevel.ACQUIRED) < 0)
-                .sorted(Map.Entry.comparingByKey(NewCardOrder.notionOrder(LearningTrack.PREPARE)))
+                .sorted(Map.Entry.comparingByKey(NewCardOrder.notionOrder(LearningTrack.PREPARE, knownNotions)))
                 .map(entry -> new PlanNotion(
                         entry.getKey().slug(),
                         entry.getKey().title(),
@@ -80,7 +84,7 @@ public record InterviewCountdown(
 
     /**
      * @param today le jour de l'utilisateur, dans son fuseau
-     * @param toAcquire les notions du plan qui restent à acquérir aujourd'hui ({@link #toAcquire(Map)})
+     * @param toAcquire les notions du plan qui restent à acquérir aujourd'hui ({@link #toAcquire(Map, Set)})
      * @param readiness l'indice de préparation du sujet
      */
     public static InterviewCountdown of(

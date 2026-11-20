@@ -14,10 +14,13 @@ import java.util.stream.Collectors;
  *
  * <p>Une notion est <em>acquise</em> quand {@link #RECALLED_TO_ACQUIRE} de ses cartes ont été réussies (notées au moins
  * « Bien »), ou toutes si elle en a moins ; une notion sans carte est acquise, sinon elle bloquerait tout ce qui en
- * dépend. Une notion est <em>débloquée</em> quand tous ses prérequis sont acquis.
+ * dépend. Une notion est <em>débloquée</em> quand tous ses prérequis sont acquis (ou connus, voir plus bas).
  *
  * <p>Qui apprend découvre une notion dans le Tour avant de la réviser (ADR 0059) : une notion qui a des pages dans le
  * Tour <em>attend le Tour</em> tant qu'elle n'y est pas validée. Une notion sans page n'attend rien.
+ *
+ * <p>Une notion <em>connue</em>, montrée au test de niveau (ADR 0068), n'attend pas le Tour et compte comme un prérequis
+ * satisfait. Elle n'est pas acquise pour autant : seules les vraies révisions acquièrent une notion.
  */
 public final class LearningPath {
 
@@ -27,23 +30,32 @@ public final class LearningPath {
     private final Map<UUID, NotionInfo> notions;
     private final Map<UUID, Integer> recalled;
     private final Set<UUID> validatedInTour;
+    private final Set<UUID> knownNotions;
 
     /**
      * @param notions les notions des sujets concernés
      * @param recalledPerNotion le nombre de cartes réussies au moins une fois, par notion
      * @param validatedInTour les notions que l'utilisateur a validées dans le Tour
+     * @param knownNotions les notions qu'il a montré connaître au test de niveau
      */
     public LearningPath(
-            Collection<NotionInfo> notions, Map<UUID, Integer> recalledPerNotion, Set<UUID> validatedInTour) {
+            Collection<NotionInfo> notions,
+            Map<UUID, Integer> recalledPerNotion,
+            Set<UUID> validatedInTour,
+            Set<UUID> knownNotions) {
         this.notions = notions.stream().collect(Collectors.toMap(NotionInfo::id, Function.identity()));
         this.recalled = Map.copyOf(recalledPerNotion);
         this.validatedInTour = Set.copyOf(validatedInTour);
+        this.knownNotions = Set.copyOf(knownNotions);
     }
 
-    /** Vrai si la notion a des pages dans le Tour et n'y est pas encore validée. */
+    /** Vrai si la notion a des pages dans le Tour, n'y est pas encore validée, et n'est pas connue. */
     public boolean awaitsTour(UUID notionId) {
         NotionInfo notion = notions.get(notionId);
-        return notion != null && notion.isInTour() && !validatedInTour.contains(notionId);
+        return notion != null
+                && notion.isInTour()
+                && !validatedInTour.contains(notionId)
+                && !knownNotions.contains(notionId);
     }
 
     public boolean acquired(UUID notionId) {
@@ -64,9 +76,12 @@ public final class LearningPath {
         return Math.min(RECALLED_TO_ACQUIRE, cardCount);
     }
 
+    /** Vrai si chaque prérequis de la notion est acquis ou connu. */
     public boolean unlocked(UUID notionId) {
         NotionInfo notion = notions.get(notionId);
-        return notion == null || notion.requires().stream().allMatch(this::acquired);
+        return notion == null
+                || notion.requires().stream()
+                        .allMatch(prerequisite -> acquired(prerequisite) || knownNotions.contains(prerequisite));
     }
 
     /**
@@ -98,7 +113,7 @@ public final class LearningPath {
     public enum NotionStatus {
         /** Pas encore de carte : la notion est à rédiger. */
         NO_CARDS,
-        /** Un prérequis n'est pas encore acquis (parcours « apprendre »). */
+        /** Un prérequis n'est encore ni acquis ni connu (parcours « apprendre »). */
         LOCKED,
         /** À découvrir d'abord dans le Tour, où elle n'est pas encore validée (parcours « apprendre »). */
         TOUR_FIRST,
@@ -110,12 +125,12 @@ public final class LearningPath {
         ACQUIRED
     }
 
-    /** Les notions verrouillées : au moins un prérequis n'est pas encore acquis. */
+    /** Les notions verrouillées : au moins un prérequis n'est encore ni acquis ni connu. */
     public Set<UUID> locked() {
         return notions.keySet().stream().filter(notion -> !unlocked(notion)).collect(Collectors.toUnmodifiableSet());
     }
 
-    /** Les notions du Tour qui n'y sont pas encore validées. */
+    /** Les notions du Tour qui n'y sont pas encore validées, et ne sont pas connues. */
     public Set<UUID> awaitingTour() {
         return notions.keySet().stream().filter(this::awaitsTour).collect(Collectors.toUnmodifiableSet());
     }

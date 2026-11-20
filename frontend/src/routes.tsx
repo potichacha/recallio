@@ -59,6 +59,10 @@ export const accountPages: RouteObject[] = [
     path: 'subjects/:slug/mistakes',
     ...page(() => import('./practice/MistakesPage'), 'MistakesPage'),
   },
+  {
+    path: 'subjects/:slug/level-check',
+    ...page(() => import('./level/LevelCheckPage'), 'LevelCheckPage'),
+  },
   { path: 'review', ...page(() => import('./review/ReviewPage'), 'ReviewPage') },
   { path: 'ranked', ...page(() => import('./ranked/RankedPage'), 'RankedPage') },
   { path: 'ranked/duels/:id', ...page(() => import('./ranked/DuelPage'), 'DuelPage') },

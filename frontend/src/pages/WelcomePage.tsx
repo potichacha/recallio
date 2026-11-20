@@ -94,7 +94,8 @@ function WelcomeForm({ followed, subjects }: { followed: string[]; subjects: Sub
       ? BEGINNER_SUBJECT
       : candidates.find((candidate) => candidate.slug === picked)?.slug
 
-  const start = async () => {
+  /** @param firstStep pour qui connaît un autre langage : le Tour, ou d'abord le test de niveau (ADR 0068) */
+  const start = async (firstStep: 'tour' | 'level-check' = 'tour') => {
     if (!goal || !subject) return
     try {
       await follow.mutateAsync([...new Set([...followed, subject])])
@@ -111,8 +112,9 @@ function WelcomeForm({ followed, subjects }: { followed: string[]; subjects: Sub
       }
     }
     const slug = encodeURIComponent(subject)
-    navigate(goal === 'interview' ? `/review?subject=${slug}` : `/subjects/${slug}/tour`)
+    navigate(goal === 'interview' ? `/review?subject=${slug}` : `/subjects/${slug}/${firstStep}`)
   }
+  const busy = follow.isPending || chooseTrack.isPending || planInterview.isPending
 
   return (
     <>
@@ -164,14 +166,40 @@ function WelcomeForm({ followed, subjects }: { followed: string[]; subjects: Sub
           </span>
         </label>
       )}
-      <button
-        type="button"
-        onClick={start}
-        disabled={!subject || follow.isPending || chooseTrack.isPending || planInterview.isPending}
-        className={`self-start ${button()}`}
-      >
-        C’est parti
-      </button>
+      {goal === 'language' && subject ? (
+        // Qui connaît déjà un autre langage peut sauter les bases qu'il connaît (ADR 0068).
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            onClick={() => void start('tour')}
+            disabled={busy}
+            className={button()}
+          >
+            Commencer le Tour
+          </button>
+          <button
+            type="button"
+            onClick={() => void start('level-check')}
+            disabled={busy}
+            aria-describedby="level-check-help"
+            className={button({ variant: 'secondary' })}
+          >
+            Passer le test de niveau
+          </button>
+          <span id="level-check-help" className="text-sm text-ink-muted">
+            si tu as déjà des bases
+          </span>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => void start()}
+          disabled={!subject || busy}
+          className={`self-start ${button()}`}
+        >
+          C’est parti
+        </button>
+      )}
       {(follow.isError || chooseTrack.isError) && (
         <p role="alert">Ton choix n’a pas pu être enregistré.</p>
       )}

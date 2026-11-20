@@ -230,10 +230,24 @@ class InterviewCountdownTest {
         notions.put(acquired, mastery(MasteryLevel.ACQUIRED));
         notions.put(common, mastery(MasteryLevel.NEW));
 
-        assertThat(InterviewCountdown.toAcquire(notions))
+        assertThat(InterviewCountdown.toAcquire(notions, Set.of()))
                 .containsExactly(
                         new PlanNotion("premiere", "premiere", MasteryLevel.NEW),
                         new PlanNotion("troisieme", "troisieme", MasteryLevel.DISCOVERED));
+    }
+
+    /** Les bases montrées au test de niveau (ADR 0068) restent dans le plan, après les autres notions essentielles. */
+    @Test
+    void shouldPlanTheKnownNotionsAfterTheOthers() {
+        Map<NotionInfo, NotionMastery> notions = new LinkedHashMap<>();
+        NotionInfo known = notion("connue", 1, 1);
+        NotionInfo unknown = notion("inconnue", 1, 2);
+        notions.put(known, mastery(MasteryLevel.NEW));
+        notions.put(unknown, mastery(MasteryLevel.NEW));
+
+        assertThat(InterviewCountdown.toAcquire(notions, Set.of(known.id())))
+                .extracting(PlanNotion::slug)
+                .containsExactly("inconnue", "connue");
     }
 
     @Test
