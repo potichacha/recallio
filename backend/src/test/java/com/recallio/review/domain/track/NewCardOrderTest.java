@@ -71,6 +71,18 @@ class NewCardOrderTest {
                 .containsExactly(markdown1, markdown2, expert, beginner);
     }
 
+    /** Les notions se rangent comme leurs cartes : celles du compte à rebours avant un entretien (ADR 0066). */
+    @Test
+    void shouldOrderTheNotionsLikeTheirNewCards() {
+        List<NotionInfo> notions = Stream.of(BEGINNER, INTERMEDIATE, EXPERT)
+                .sorted(NewCardOrder.notionOrder(LearningTrack.PREPARE))
+                .toList();
+
+        assertThat(notions).containsExactly(EXPERT, INTERMEDIATE, BEGINNER);
+        assertThat(Stream.of(EXPERT, INTERMEDIATE, BEGINNER).sorted(NewCardOrder.notionOrder(LearningTrack.LEARN)))
+                .containsExactly(BEGINNER, INTERMEDIATE, EXPERT);
+    }
+
     private List<Candidate> arrange(LearningTrack track, Set<UUID> locked) {
         return NewCardOrder.arrange(program, Set.of(), Map.of("java", track), NOTIONS, locked);
     }

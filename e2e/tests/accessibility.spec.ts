@@ -1,9 +1,6 @@
-import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from './support/test'
 import { followSubjects, signIn, USERS } from './support/auth'
-
-/** Les critères WCAG 2.2, niveaux A et AA, qu'axe sait vérifier seul (ADR 0050, 0058). */
-const WCAG = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']
+import { seriousViolations } from './support/axe'
 
 /** La largeur d'un écran de 1280 px zoomé à 400 % : une page doit encore s'y lire sans défiler de côté (WCAG 1.4.10). */
 const REFLOW_WIDTH = 320
@@ -41,28 +38,6 @@ const MEMBER_PAGES = [
 async function settled(page: Page) {
   await expect(page.locator('main h1').first()).toBeVisible()
   await expect(page.locator('main [aria-busy="true"]')).toHaveCount(0)
-}
-
-/**
- * Les violations graves ou critiques de la page, une ligne chacune : elles font échouer la CI. Les mineures ne la
- * bloquent pas ; ce qu'axe ne voit pas (l'ordre de lecture, le sens des libellés) se vérifie à la main, avec
- * docs/accessibilite.md.
- */
-async function seriousViolations(page: Page): Promise<string[]> {
-  // axe mesure les couleurs à l'instant : une transition en cours fausserait les contrastes.
-  await page.waitForFunction(() =>
-    document
-      .getAnimations()
-      .every(
-        (animation) =>
-          animation.playState !== 'running' ||
-          animation.effect?.getComputedTiming().iterations === Infinity,
-      ),
-  )
-  const { violations } = await new AxeBuilder({ page }).withTags(WCAG).analyze()
-  return violations
-    .filter(({ impact }) => impact === 'serious' || impact === 'critical')
-    .map(({ id, nodes }) => `${id} : ${nodes.map((node) => node.target.join(' ')).join(', ')}`)
 }
 
 /** Répond à la carte affichée sans chercher la bonne réponse, pour en voir la correction. */
