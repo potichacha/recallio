@@ -80,6 +80,7 @@ function stubDashboard(
     '/api/v1/me/quests': { body: QUESTS },
     '/api/v1/me/tour/java': { body: { validatedNotions: [], lastPage: null } },
     '/api/v1/me/interviews': { body: interviews },
+    '/api/v1/me/daily-challenges': { body: [] },
     ...extra,
   })
 }

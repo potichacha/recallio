@@ -10,8 +10,9 @@ import java.util.UUID;
 import org.jspecify.annotations.Nullable;
 
 /**
- * La progression de l'utilisateur : sa mémoire de chaque carte, son journal de révision, ses examens blancs, son Tour et
- * les dates de ses entretiens (ADR 0066).
+ * La progression de l'utilisateur : sa mémoire de chaque carte, son journal de révision, ses examens blancs, son Tour,
+ * les dates de ses entretiens (ADR 0066) et ses réponses aux défis du jour (ADR 0067). Les défis eux-mêmes, les questions
+ * du jour, ne sont à personne : ils restent.
  */
 @ApplicationScoped
 public class ReviewPersonalData implements PersonalData {
@@ -36,6 +37,9 @@ public class ReviewPersonalData implements PersonalData {
         tables.put("tour_progress", sql.rowsOf("tour_progress", "validated_at, notion_id", userId));
         tables.put("tour_last_page", sql.rowsOf("tour_last_page", "subject_slug", userId));
         tables.put("interview_plan", sql.rowsOf("interview_plan", "subject_slug", userId));
+        tables.put(
+                "daily_challenge_answer",
+                sql.rowsOf("daily_challenge_answer", "answered_at, challenge_id, position", userId));
         return tables;
     }
 
@@ -48,5 +52,7 @@ public class ReviewPersonalData implements PersonalData {
         sql.deleteFrom("tour_progress", userId);
         sql.deleteFrom("tour_last_page", userId);
         sql.deleteFrom("interview_plan", userId);
+        // Les chiffres du jour, agrégés et sans nom, ne comptent plus ses réponses.
+        sql.deleteFrom("daily_challenge_answer", userId);
     }
 }

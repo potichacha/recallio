@@ -86,7 +86,8 @@ export const accountPages: RouteObject[] = [
 export const pages: RouteObject[] = [
   { index: true, element: <HomePage /> },
   // Sans compte : le catalogue, le Tour (seul « Exécuter » demande de se connecter, ADR 0037), un profil public
-  // (ADR 0043) et l'essai (ADR 0050). Le plan du site du backend (SitemapService, ADR 0065) recopie les adresses de
+  // (ADR 0043), l'essai (ADR 0050) et le défi du jour, qu'un lien partagé ouvre chez un visiteur (jouer demande un
+  // compte, ADR 0067). Le plan du site du backend (SitemapService, ADR 0065) recopie les adresses de
   // l'accueil, des pages Cours et Tour, du catalogue, d'un sujet, de ses leçons et de son Tour : les changer ici, c'est
   // les changer là-bas.
   { path: 'learn', ...page(() => import('./subjects/CoursesPage'), 'CoursesPage') },
@@ -116,6 +117,10 @@ export const pages: RouteObject[] = [
     ...page(() => import('./pages/PublicProfilePage'), 'PublicProfilePage'),
   },
   { path: 'try/:slug', ...page(() => import('./pages/TrialPage'), 'TrialPage') },
+  {
+    path: 'daily/:subject',
+    ...page(() => import('./daily/DailyChallengePage'), 'DailyChallengePage'),
+  },
   {
     path: 'auth/callback',
     ...page(() => import('./pages/AuthCallbackPage'), 'AuthCallbackPage'),

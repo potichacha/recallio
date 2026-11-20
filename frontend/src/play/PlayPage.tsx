@@ -1,5 +1,6 @@
 import { Trophy, UsersThree, type Icon } from '@phosphor-icons/react'
 import { Link } from 'react-router'
+import { DailyChallengeSection } from '../daily/DailyChallengeLinks'
 
 const GAMES: { to: string; icon: Icon; title: string; detail: string }[] = [
   {
@@ -16,7 +17,10 @@ const GAMES: { to: string; icon: Icon; title: string; detail: string }[] = [
   },
 ]
 
-/** Jouer (ADR 0052) : ce qui se joue contre les autres, le classé et les groupes, réunis sous une seule entrée. */
+/**
+ * Jouer (ADR 0052) : ce qui se joue contre les autres, le classé et les groupes, réunis sous une seule entrée ; et le
+ * défi du jour, le même pour tous (ADR 0067).
+ */
 export function PlayPage() {
   return (
     <section className="flex flex-col gap-6">
@@ -40,6 +44,7 @@ export function PlayPage() {
           </li>
         ))}
       </ul>
+      <DailyChallengeSection />
     </section>
   )
 }
