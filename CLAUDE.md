@@ -169,7 +169,7 @@ Si une règle devient gênante, on en discute et on consigne l'exception dans un
 - Les endpoints qui modifient la progression (enregistrer une réponse) sont **idempotents** (identifiant de requête côté client) pour supporter les retries sur mobile.
 
 ### 4.5 Sécurité
-- Toutes les routes sauf la santé, le contenu public (catalogue, Tour), l'essai sans compte (ADR 0050) et la visite de la page publique (ADR 0064) nécessitent un JWT valide.
+- Toutes les routes sauf la santé, le contenu public (catalogue, Tour, plan du site : ADR 0065), l'essai sans compte (ADR 0050) et la visite de la page publique (ADR 0064) nécessitent un JWT valide.
 - Autorisation vérifiée **côté serveur pour chaque ressource** (un utilisateur ne lit que sa progression, un membre ne voit que ses groupes).
 - Chacun peut télécharger ses données et supprimer son compte ; un module qui garde des données personnelles implémente `PersonalData` (ADR 0056).
 - Secrets uniquement en variables d'environnement, jamais dans le dépôt.
@@ -545,7 +545,7 @@ Le propriétaire a testé l'application en local avant de la déployer ; ses ret
    7. ✅ **Apprendre de ses erreurs** (27, 35) : « Revoir la leçon » sous une réponse fausse, et un carnet des erreurs de la semaine, à refaire sans rien enregistrer (ADR 0057). L'annulation de la dernière réponse (38) est abandonnée : elle contredit l'ADR 0051.
    8. **Avant la bêta** (25, 26, 34, 40, 44) : compte à rebours avant l'entretien, défi du jour, test de niveau, référencement, parcours mesuré. Une PR par étape :
       1. ✅ **Parcours mesuré** (44) : visite, essai, compte créé, première révision, par semaine, sur la page des admins (ADR 0064).
-      2. **Référencement** (40) : balises de partage, `robots.txt`, plan du site.
+      2. ✅ **Référencement** (40) : balises de partage et image d'aperçu, `robots.txt`, plan du site produit par le backend, à l'origine publique `PUBLIC_ORIGIN` (ADR 0065).
       3. **Compte à rebours avant l'entretien** (25) : une date, un plan par semaine, en avance ou en retard.
       4. **Défi du jour** (26) : les mêmes cinq questions pour tous, une tentative, un résultat à partager.
       5. **Test de niveau** (34) : à l'arrivée, pour sauter les bases.

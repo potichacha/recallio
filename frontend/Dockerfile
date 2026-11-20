@@ -19,6 +19,9 @@ RUN apk upgrade --no-cache
 ENV BACKEND_URL=http://backend:8080
 # L'origine du fournisseur OIDC, seule origine tierce permise par la Content-Security-Policy (ADR 0054).
 ENV OIDC_ORIGIN=http://localhost:8180
+# L'origine publique du site, sans barre finale (https://recallio.fr, par exemple) : nginx la met dans les balises de
+# partage et dans robots.txt, dont les adresses doivent être absolues (ADR 0065). À donner aussi au backend.
+ENV PUBLIC_ORIGIN=http://localhost:3000
 # Les débits permis sans compte, par adresse IP (ADR 0054), et le proxy dont on croit l'en-tête X-Forwarded-For.
 ENV RATE_LIMIT_PUBLIC=20r/s RATE_LIMIT_TRIAL=2r/s RATE_LIMIT_INVITATIONS=1r/s TRUSTED_PROXY=127.0.0.1
 COPY frontend/nginx/security-headers.conf frontend/nginx/api-proxy.conf /etc/nginx/snippets/
