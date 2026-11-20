@@ -1,6 +1,7 @@
 import { Link, useRouteError } from 'react-router'
 import { Rico } from './Rico'
 import { button } from './ui/button'
+import { useNoIndex } from './useNoIndex'
 
 /**
  * Le filet d'une page (audit de novembre 2026, élément 8) : une erreur JavaScript, ou le code d'une page qui ne se
@@ -38,8 +39,9 @@ export function AppError() {
   )
 }
 
-/** Une adresse qui ne mène à aucune page. */
+/** Une adresse qui ne mène à aucune page : les moteurs de recherche ne l'indexent pas. */
 export function NotFoundPage() {
+  useNoIndex()
   return (
     <section className="flex flex-col items-start gap-4">
       <Rico mood="thinking" decorative />

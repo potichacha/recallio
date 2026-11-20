@@ -44,6 +44,10 @@ nginx porte aussi la sécurité de l'entrée (ADR 0054) : les en-têtes de sécu
 n'admet que l'application et le fournisseur OIDC, et une limite de débit par adresse IP pour les requêtes sans jeton
 (essai, catalogue) et pour les invitations.
 
+Pour le référencement (ADR 0065), nginx met l'origine publique du site (`PUBLIC_ORIGIN`) dans les balises de partage
+d'`index.html` et dans `robots.txt`, là seulement où il sert les fichiers, et relaie `/sitemap.xml` vers le plan du
+site que produit le backend.
+
 ## 2. Vue composants du backend (C4, niveau 3)
 
 Le backend est un **monolithe modulaire** (ADR 0001) : un module métier par package, découpé en
@@ -105,6 +109,7 @@ flowchart LR
 | `TourDirectory` (package racine), `infrastructure.persistence.JpaTourDirectory` | **API publique** : une page du Tour, « À toi » compris, pour que le module `review` le juge sans que sa sortie attendue ne quitte le backend. |
 | `TourPage` (package racine) | Une page du Tour et ses règles : un programme d'un seul langage, `Main.java` en Java, un « À toi » aux fichiers de son code de départ (ADR 0037). |
 | `domain.TourQuestions` | Les questions qui valident une notion du Tour : ses cartes corrigées par le serveur, une par format d'abord, trois au plus, dans l'ordre du fichier. Le parseur en exige deux (ADR 0037). |
+| `application.SitemapService`, `api.SitemapResource` | Le plan du site (ADR 0065), `GET /api/v1/sitemap.xml` sans compte, que nginx sert sous `/sitemap.xml` : l'accueil, les pages Cours et Tour, le catalogue, puis la page, les leçons et le Tour de chaque sujet publié, en adresses absolues à l'origine `recallio.public-origin`. |
 | `api.ContentImportResource` | Import d'un document à la demande, rôle `admin`. |
 | `infrastructure.ContentStartupImport` | En dev et dans le compose : importe tous les documents du dossier, un sujet par transaction. |
 | `CardDirectory` (package racine) | **API publique** pour les autres modules : cartes actives filtrées (sujets, thème, format) ou par thème, version courante, notions d'un sujet ou une seule, questions qui valident une notion du Tour. |
@@ -335,6 +340,7 @@ flowchart LR
 | PostgreSQL | Dev Services (conteneur automatique) | `DB_URL`, `DB_USERNAME`, `DB_PASSWORD` |
 | OIDC | Dev Services Keycloak | `OIDC_AUTH_SERVER_URL`, `OIDC_CLIENT_ID` |
 | Rappels (Web Push, ADR 0047) | paire VAPID éphémère, tirée au démarrage ; aucun minuteur en test | `RECALLIO_PUSH_VAPID_PUBLIC_KEY`, `RECALLIO_PUSH_VAPID_PRIVATE_KEY`, `RECALLIO_PUSH_SUBJECT` |
+| Origine publique du site (plan du site, balises de partage, `robots.txt` ; ADR 0065) | celle de Vite en dev, `https://recallio.test/` en test ; `http://localhost:3000` dans le compose | `PUBLIC_ORIGIN`, la même au backend (obligatoire) et au front (nginx) |
 | `/q/*` (Dev UI, Swagger) | public | non exposé |
 | Santé | `/api/v1/health` (public) | `/api/v1/health` (public) |
 

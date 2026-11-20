@@ -37,8 +37,9 @@ export default defineConfig({
       workbox: {
         // Les polices sont hébergées avec l'application (ADR 0049) : elles servent aussi hors ligne.
         globPatterns: ['**/*.{js,css,html,svg,woff2}'],
-        // Les appels API ne sont jamais servis depuis le cache du service worker.
-        navigateFallbackDenylist: [/^\/api\//],
+        // Les appels API ne sont jamais servis depuis le cache du service worker, ni robots.txt et le plan du site
+        // (ADR 0065) : le service worker servirait la PWA à leur place.
+        navigateFallbackDenylist: [/^\/api\//, /^\/robots\.txt$/, /^\/sitemap\.xml$/],
         // Les rappels (ADR 0047) : la réception d'une notification et le clic dessus.
         importScripts: ['push-sw.js'],
       },
@@ -46,8 +47,12 @@ export default defineConfig({
   ],
   server: {
     // En dev, le front appelle /api sur son propre origin : pas de CORS à configurer.
-    // `ws` : le mode live passe par un WebSocket sous /api (ADR 0021).
-    proxy: { '/api': { target: BACKEND_URL, ws: true } },
+    // `ws` : le mode live passe par un WebSocket sous /api (ADR 0021). Le plan du site vient du backend, comme
+    // derrière nginx (ADR 0065).
+    proxy: {
+      '/api': { target: BACKEND_URL, ws: true },
+      '/sitemap.xml': { target: BACKEND_URL, rewrite: () => '/api/v1/sitemap.xml' },
+    },
   },
   test: {
     environment: 'jsdom',

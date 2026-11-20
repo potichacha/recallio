@@ -1,5 +1,5 @@
 import { focusManager } from '@tanstack/react-query'
-import { render, screen } from '@testing-library/react'
+import { act, render, screen } from '@testing-library/react'
 import { createMemoryRouter, Outlet, RouterProvider } from 'react-router'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { renderAt, sentRequests, stubApi, TEST_SUBJECTS } from '../test/render'
@@ -40,6 +40,22 @@ describe('the safety net of the pages (audit, item 8)', () => {
 
     expect(await screen.findByRole('heading', { name: 'Page introuvable' })).toBeInTheDocument()
     expect(screen.getByRole('navigation', { name: 'Navigation principale' })).toBeInTheDocument()
+  })
+
+  // Une application monopage répond 200 à toute adresse : sans la balise, un moteur indexerait la page (ADR 0065).
+  it('asks the search engines not to index an unknown address, as long as it is shown', async () => {
+    stubApi({ '/api/v1/subjects': { body: TEST_SUBJECTS } })
+    const robots = () => document.head.querySelector('meta[name="robots"]')
+    const router = renderAt('/nulle-part')
+    await screen.findByRole('heading', { name: 'Page introuvable' })
+
+    expect(robots()).toHaveAttribute('content', 'noindex')
+
+    await act(async () => {
+      await router.navigate('/subjects')
+    })
+    await screen.findByRole('link', { name: /^Java/ })
+    expect(robots()).toBeNull()
   })
 })
 

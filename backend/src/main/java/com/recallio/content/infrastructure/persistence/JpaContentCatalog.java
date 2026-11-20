@@ -230,6 +230,17 @@ public class JpaContentCatalog implements ContentCatalog {
                         neighbour(subjectId, notion.position, true)));
     }
 
+    @Override
+    public List<String> lessonNotions(UUID subjectId) {
+        return entityManager
+                .createQuery(
+                        "select n.slug from NotionEntity n where n.subjectId = :subjectId and n.retiredAt is null"
+                                + " and n.lesson is not null order by n.position",
+                        String.class)
+                .setParameter("subjectId", subjectId)
+                .getResultList();
+    }
+
     /** La notion active la plus proche avant ({@code after} faux) ou après cette position, dans le référentiel. */
     private @Nullable NotionLink neighbour(UUID subjectId, int position, boolean after) {
         String query = after

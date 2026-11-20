@@ -46,6 +46,12 @@ public interface ContentCatalog {
     Optional<NotionLesson> notionLesson(UUID subjectId, String notionSlug);
 
     /**
+     * Les notions actives d'un sujet qui ont une leçon, dans l'ordre du référentiel : les pages du cours que le plan du
+     * site annonce (ADR 0065).
+     */
+    List<String> lessonNotions(UUID subjectId);
+
+    /**
      * La leçon d'une notion, lue dans la page Cours (ADR 0052).
      *
      * @param lesson la leçon, en Markdown ; {@code null} si la notion n'en a pas encore

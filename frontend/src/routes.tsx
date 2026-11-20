@@ -41,11 +41,54 @@ function page<Name extends string, M extends Record<Name, ComponentType>>(
   }
 }
 
-/** Les pages, dans le layout. */
-const pages: RouteObject[] = [
+/** Les pages des comptes : robots.txt les écarte des moteurs de recherche (ADR 0065), ce que vérifie seo.test.ts. */
+export const accountPages: RouteObject[] = [
+  {
+    path: 'subjects/:slug/course',
+    ...page(() => import('./pages/LearningPathPage'), 'LearningPathPage'),
+  },
+  {
+    path: 'subjects/:slug/practice/:notion',
+    ...page(() => import('./practice/PracticePage'), 'PracticePage'),
+  },
+  {
+    path: 'subjects/:slug/exam',
+    ...page(() => import('./exam/MockExamPage'), 'MockExamPage'),
+  },
+  {
+    path: 'subjects/:slug/mistakes',
+    ...page(() => import('./practice/MistakesPage'), 'MistakesPage'),
+  },
+  { path: 'review', ...page(() => import('./review/ReviewPage'), 'ReviewPage') },
+  { path: 'ranked', ...page(() => import('./ranked/RankedPage'), 'RankedPage') },
+  { path: 'ranked/duels/:id', ...page(() => import('./ranked/DuelPage'), 'DuelPage') },
+  { path: 'groups', ...page(() => import('./groups/GroupsPage'), 'GroupsPage') },
+  { path: 'groups/:groupId', ...page(() => import('./groups/GroupPage'), 'GroupPage') },
+  {
+    path: 'challenges/:challengeId',
+    ...page(() => import('./challenges/ChallengePage'), 'ChallengePage'),
+  },
+  { path: 'live/:gameId', ...page(() => import('./live/LivePage'), 'LivePage') },
+  { path: 'join/:token', ...page(() => import('./groups/JoinPage'), 'JoinPage') },
+  { path: 'welcome', ...page(() => import('./pages/WelcomePage'), 'WelcomePage') },
+  { path: 'profile/:section?', ...page(() => import('./pages/ProfilePage'), 'ProfilePage') },
+  {
+    path: 'admin/reports',
+    ...page(() => import('./admin/ContentReportsPage'), 'ContentReportsPage'),
+  },
+  {
+    path: 'admin/retention',
+    ...page(() => import('./admin/RetentionPage'), 'RetentionPage'),
+  },
+]
+
+/** Les pages, dans le layout. seo.test.ts vérifie aussi ce que robots.txt laisse aux moteurs des pages publiques. */
+export const pages: RouteObject[] = [
   { index: true, element: <HomePage /> },
   // Sans compte : le catalogue, le Tour (seul « Exécuter » demande de se connecter, ADR 0037), un profil public
-  // (ADR 0043) et l'essai (ADR 0050).
+  // (ADR 0043) et l'essai (ADR 0050). Le plan du site du backend (SitemapService, ADR 0065) recopie les adresses de
+  // l'accueil, des pages Cours et Tour, du catalogue, d'un sujet, de ses leçons et de son Tour : les changer ici, c'est
+  // les changer là-bas.
   { path: 'learn', ...page(() => import('./subjects/CoursesPage'), 'CoursesPage') },
   { path: 'tours', ...page(() => import('./subjects/ToursPage'), 'ToursPage') },
   { path: 'play', ...page(() => import('./play/PlayPage'), 'PlayPage') },
@@ -84,45 +127,7 @@ const pages: RouteObject[] = [
         <Outlet />
       </RequireAuth>
     ),
-    children: [
-      {
-        path: 'subjects/:slug/course',
-        ...page(() => import('./pages/LearningPathPage'), 'LearningPathPage'),
-      },
-      {
-        path: 'subjects/:slug/practice/:notion',
-        ...page(() => import('./practice/PracticePage'), 'PracticePage'),
-      },
-      {
-        path: 'subjects/:slug/exam',
-        ...page(() => import('./exam/MockExamPage'), 'MockExamPage'),
-      },
-      {
-        path: 'subjects/:slug/mistakes',
-        ...page(() => import('./practice/MistakesPage'), 'MistakesPage'),
-      },
-      { path: 'review', ...page(() => import('./review/ReviewPage'), 'ReviewPage') },
-      { path: 'ranked', ...page(() => import('./ranked/RankedPage'), 'RankedPage') },
-      { path: 'ranked/duels/:id', ...page(() => import('./ranked/DuelPage'), 'DuelPage') },
-      { path: 'groups', ...page(() => import('./groups/GroupsPage'), 'GroupsPage') },
-      { path: 'groups/:groupId', ...page(() => import('./groups/GroupPage'), 'GroupPage') },
-      {
-        path: 'challenges/:challengeId',
-        ...page(() => import('./challenges/ChallengePage'), 'ChallengePage'),
-      },
-      { path: 'live/:gameId', ...page(() => import('./live/LivePage'), 'LivePage') },
-      { path: 'join/:token', ...page(() => import('./groups/JoinPage'), 'JoinPage') },
-      { path: 'welcome', ...page(() => import('./pages/WelcomePage'), 'WelcomePage') },
-      { path: 'profile/:section?', ...page(() => import('./pages/ProfilePage'), 'ProfilePage') },
-      {
-        path: 'admin/reports',
-        ...page(() => import('./admin/ContentReportsPage'), 'ContentReportsPage'),
-      },
-      {
-        path: 'admin/retention',
-        ...page(() => import('./admin/RetentionPage'), 'RetentionPage'),
-      },
-    ],
+    children: accountPages,
   },
   { path: '*', element: <NotFoundPage /> },
 ]
