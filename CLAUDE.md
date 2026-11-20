@@ -55,6 +55,7 @@ Il est impossible d'empêcher totalement l'usage d'une IA ou d'internet dans un 
 - en **révision personnelle**, aucune mesure anti-triche : tricher ne nuit qu'au tricheur ;
 - dans les **groupes**, les classements valorisent la **régularité** (streak, révisions faites) plus que le score brut ;
 - le **mode live** (phase 3), synchronisé et chronométré, est un contexte compétitif ; le **mode classé** (phase 3 ter, ADR 0025) en sera le second. Les deux n'utilisent que des formats corrigés par le serveur, avec un chrono mesuré par le serveur ;
+- le **défi du jour** (ADR 0067) garantit une seule tentative par compte, corrigée par le serveur, mais sans chrono : son score partagé vaut ce que vaut la parole du joueur, et ses chiffres du jour sont agrégés, sans classement ;
 - pas de surveillance intrusive (webcam, détection invasive).
 
 ### 2.5 Un catalogue multi-sujets
@@ -169,7 +170,7 @@ Si une règle devient gênante, on en discute et on consigne l'exception dans un
 - Les endpoints qui modifient la progression (enregistrer une réponse) sont **idempotents** (identifiant de requête côté client) pour supporter les retries sur mobile.
 
 ### 4.5 Sécurité
-- Toutes les routes sauf la santé, le contenu public (catalogue, Tour, plan du site : ADR 0065), l'essai sans compte (ADR 0050) et la visite de la page publique (ADR 0064) nécessitent un JWT valide.
+- Toutes les routes sauf la santé, le contenu public (catalogue, Tour, plan du site : ADR 0065), l'essai sans compte (ADR 0050) et la visite de la page publique (ADR 0064) nécessitent un JWT valide. La page du défi du jour s'ouvre sans compte, pour un lien partagé ; ses routes en demandent un (ADR 0067).
 - Autorisation vérifiée **côté serveur pour chaque ressource** (un utilisateur ne lit que sa progression, un membre ne voit que ses groupes).
 - Chacun peut télécharger ses données et supprimer son compte ; un module qui garde des données personnelles implémente `PersonalData` (ADR 0056).
 - Secrets uniquement en variables d'environnement, jamais dans le dépôt.
@@ -317,6 +318,7 @@ Les sujets s'ajoutent un par un, au rythme de la rédaction, indépendamment des
 - **Gamification v2** (phase 3 ter, ADR 0025) : carte des compétences par sujet, **maîtrise par notion** (mémoire FSRS et diversité des formats réussis), XP par sujet (plus pour les formats exigeants, jamais pour la vitesse), quêtes du jour et de la semaine qui font varier les formats, succès, gel de streak.
 - **Partage** : cartes de partage (chapitre maîtrisé, podium, promotion) et **profil public de compétences**, **privé par défaut** (RGPD, protection des données dès la conception), que chacun rend public ou privé à tout moment. Le profil distingue le **vérifié** (les réussites corrigées par le serveur : classé, live, défis, révisions à choix, exercices) du **déclaré** (la maîtrise des notions en révision personnelle, qui compte aussi d'anciennes auto-évaluations).
 - **Classé** : un **rang par sujet** (Bronze → Argent → Or → Platine → Diamant → Maître, en divisions), cote Glicko-2 cachée, matchs de placement, saisons aux récompenses cosmétiques ; duels asynchrones d'abord, classé en direct ensuite ; uniquement des formats corrigés par le serveur, questions adaptées au niveau (cote de difficulté des cartes).
+- **Défi du jour** (ADR 0067) : par sujet publié, cinq questions de difficulté croissante, les mêmes pour tous au même jour (celui de chacun, dans son fuseau) ; une tentative, avec un compte ; une fois fini, le score et les chiffres du jour (agrégés), un résultat à partager sans les réponses. Ni FSRS, ni XP, ni série : il mesure, il n'entraîne pas.
 
 ### 6.4 Groupes (phase 2)
 - Un créateur crée un groupe, génère un lien d'invitation (expirant), définit : sujets et thèmes inclus, types de cartes, objectif quotidien, visibilité du classement (nominatif, anonymisé, désactivé).
@@ -548,7 +550,7 @@ Le propriétaire a testé l'application en local avant de la déployer ; ses ret
       1. ✅ **Parcours mesuré** (44) : visite, essai, compte créé, première révision, par semaine, sur la page des admins (ADR 0064).
       2. ✅ **Référencement** (40) : balises de partage et image d'aperçu, `robots.txt`, plan du site produit par le backend, à l'origine publique `PUBLIC_ORIGIN` (ADR 0065).
       3. ✅ **Compte à rebours avant l'entretien** (25) : une date par sujet suivi, les notions essentielles à acquérir réparties par semaine (la dernière pour réviser), en avance ou en retard, sur le tableau de bord et au premier login (ADR 0066).
-      4. **Défi du jour** (26) : les mêmes cinq questions pour tous, une tentative, un résultat à partager.
+      4. ✅ **Défi du jour** (26) : par sujet publié, les mêmes cinq questions pour tous au même jour (celui de chacun), de la plus facile à la plus difficile, une tentative avec un compte, les chiffres du jour une fois fini, un résultat à partager sans les réponses ; sur la page Jouer et l'accueil (ADR 0067).
       5. **Test de niveau** (34) : à l'arrivée, pour sauter les bases.
    9. ✅ **Refonte « Rico »** (47 à 57) : la direction ludique retenue le 2026-11-10, en clair et en sombre, avec tout ce qui ne coûte que du temps. L'ADR 0058 la décide et révise l'ADR 0049 ; une PR par étape :
       1. ✅ **Identité** (47, 48) : couleurs, Nunito, boutons en relief, Rico, thèmes clair et sombre au choix dans le profil (ADR 0058).

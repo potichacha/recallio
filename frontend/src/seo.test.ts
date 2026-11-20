@@ -50,8 +50,11 @@ function samplePath(route: RouteObject): string {
   return `/${path}`
 }
 
-/** Les pages publiques qu'un moteur n'a pas à explorer : la connexion, l'essai et les profils publics. */
-const UNLISTED_PUBLIC_PAGES = ['/auth/', '/try/', '/u/']
+/**
+ * Les pages publiques qu'un moteur n'a pas à explorer : la connexion, l'essai, le défi du jour (interactif, il change
+ * chaque jour) et les profils publics.
+ */
+const UNLISTED_PUBLIC_PAGES = ['/auth/', '/try/', '/daily/', '/u/']
 
 describe('robots.txt (ADR 0065)', () => {
   it('speaks to every crawler, in a single group', () => {

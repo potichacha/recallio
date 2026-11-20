@@ -15,6 +15,7 @@ d'intégration, sans les remplacer : un parcours par fonctionnalité clé, pas u
 | Lire le Tour sans compte, exécuter une page et y reprendre, valider une notion                                                     | `tests/tour.spec.ts`                |
 | Passer un examen blanc, jouer un duel classé à deux et en voir le résultat                                                         | `tests/ranked.spec.ts`              |
 | Donner une date d'entretien à Go depuis le tableau de bord, voir le compte à rebours et les notions de la semaine, retirer la date | `tests/interview-countdown.spec.ts` |
+| Jouer le défi Go du jour jusqu'au bout, voir son score, les chiffres du jour et « Partager », le retrouver en rechargeant          | `tests/daily-challenge.spec.ts`     |
 | Aucune violation grave d'accessibilité (axe-core, WCAG 2.2 A et AA) sur les pages principales                                      | `tests/accessibility.spec.ts`       |
 
 ## Lancer en local

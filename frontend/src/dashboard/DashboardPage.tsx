@@ -11,6 +11,7 @@ import { useRecentActivity, useReviewStats, type ReviewStats } from '../api/stat
 import { useTourProgress } from '../api/tour'
 import { GoalRing } from '../components/GoalRing'
 import { freezeSummary } from '../components/streak'
+import { DailyChallengeShortcut } from '../daily/DailyChallengeLinks'
 import {
   DEFAULT_MINUTES,
   loadSessionSettings,
@@ -32,8 +33,8 @@ const CALENDAR_DAYS = 35
 
 /**
  * L'accueil d'un utilisateur connecté (ADR 0050, 0058) : le mot de Rico, puis une seule action, continuer à réviser là
- * où il s'était arrêté, avec l'anneau de l'objectif du jour ; ensuite son chemin dans le sujet, le Tour, les quêtes, et
- * sa progression plus bas. Qui apprend son sujet reprend d'abord le Tour (ADR 0052). Un nouveau venu ne voit aucun
+ * où il s'était arrêté, avec l'anneau de l'objectif du jour ; ensuite son chemin dans le sujet, son défi du jour (ADR
+ * 0067), le Tour, les quêtes, et sa progression plus bas. Qui apprend son sujet reprend d'abord le Tour (ADR 0052). Un nouveau venu ne voit aucun
  * bloc à zéro : ni série, ni XP, ni calendrier avant sa première carte.
  */
 export function DashboardPage() {
@@ -114,6 +115,8 @@ export function DashboardPage() {
       {currentStats && current && (
         <ChapterPath slug={current} title={titleOf(current)} themes={currentStats.themes} />
       )}
+
+      {current && <DailyChallengeShortcut subject={current} />}
 
       {!learning && tourShortcuts}
 

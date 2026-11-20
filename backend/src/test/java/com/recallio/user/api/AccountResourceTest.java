@@ -40,6 +40,7 @@ class AccountResourceTest {
             "tour_progress",
             "tour_last_page",
             "interview_plan",
+            "daily_challenge_answer",
             "points_ledger",
             "daily_activity",
             "quest_progress",
@@ -113,6 +114,7 @@ class AccountResourceTest {
                 .body("sections.review.review_log[0].rating", equalTo(3))
                 .body("sections.review.interview_plan[0].subject_slug", equalTo("java"))
                 .body("sections.review.interview_plan[0].notions_to_acquire", equalTo(4))
+                .body("sections.review.daily_challenge_answer[0].correct", equalTo(true))
                 .body("sections.gamification.points_ledger[0].amount", equalTo(10))
                 .body("sections.group.group_member", hasSize(2))
                 .body("sections.group.challenge", hasSize(1))
@@ -185,6 +187,7 @@ class AccountResourceTest {
         UUID openDuel = UUID.randomUUID();
         UUID game = UUID.randomUUID();
         UUID card = UUID.randomUUID();
+        UUID dailyChallenge = UUID.randomUUID();
         Map<String, Object> ids = Map.of(
                 "user", user,
                 "other", other,
@@ -194,7 +197,8 @@ class AccountResourceTest {
                 "finishedDuel", finishedDuel,
                 "openDuel", openDuel,
                 "game", game,
-                "card", card);
+                "card", card,
+                "dailyChallenge", dailyChallenge);
         List<String> statements = List.of(
                 """
                 insert into app_user (id, oidc_subject, display_name, timezone, created_at, updated_at)
@@ -227,6 +231,19 @@ class AccountResourceTest {
                 """
                 insert into interview_plan (user_id, subject_slug, interview_on, planned_on, notions_to_acquire)
                 values (:user, 'java', current_date + 21, current_date, 4)
+                """,
+                // Le défi du jour n'est à personne : seule la réponse de l'utilisatrice part avec son compte.
+                """
+                insert into daily_challenge (id, subject_slug, day, created_at)
+                values (:dailyChallenge, 'account-%s', current_date, now())
+                """.formatted(tag),
+                """
+                insert into daily_challenge_question (challenge_id, position, card_id)
+                values (:dailyChallenge, 0, :card)
+                """,
+                """
+                insert into daily_challenge_answer (challenge_id, user_id, position, correct, answered_at, request_id)
+                values (:dailyChallenge, :user, 0, true, now(), gen_random_uuid())
                 """,
                 """
                 insert into points_ledger (id, user_id, amount, reason, source_id, occurred_at)

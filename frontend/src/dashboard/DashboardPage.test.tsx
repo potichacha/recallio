@@ -94,8 +94,13 @@ const TOUR_PROGRESS = '/api/v1/me/tour/java'
 const TOUR_NEVER_OPENED = { [TOUR_PROGRESS]: { body: { validatedNotions: [], lastPage: null } } }
 /** Aucun entretien prévu : le compte à rebours a ses propres tests (InterviewCountdownPanel.test.tsx). */
 const NO_INTERVIEW = { '/api/v1/me/interviews': { body: [] } }
+/** Aucun défi du jour : la page du défi a ses propres tests (DailyChallengePage.test.tsx). */
+const NO_DAILY_CHALLENGE = { '/api/v1/me/daily-challenges': { body: [] } }
 
-function stubDashboard(reviewStats: ReviewStats = stats()) {
+function stubDashboard(
+  reviewStats: ReviewStats = stats(),
+  extra: Record<string, { body: unknown }> = {},
+) {
   return stubApi({
     ...SIGNED_IN_API,
     '/api/v1/subjects': { body: TEST_SUBJECTS },
@@ -104,6 +109,8 @@ function stubDashboard(reviewStats: ReviewStats = stats()) {
     '/api/v1/me/quests': { body: QUESTS },
     ...TOUR_NEVER_OPENED,
     ...NO_INTERVIEW,
+    ...NO_DAILY_CHALLENGE,
+    ...extra,
   })
 }
 
@@ -187,6 +194,7 @@ describe('DashboardPage', () => {
         body: { validatedNotions: [], lastPage: { notion: 'hello-world', page: 1 } },
       },
       ...NO_INTERVIEW,
+      ...NO_DAILY_CHALLENGE,
     })
     renderAt('/', signedIn())
 
@@ -205,6 +213,7 @@ describe('DashboardPage', () => {
       '/api/v1/me/quests': { body: QUESTS },
       ...TOUR_NEVER_OPENED,
       ...NO_INTERVIEW,
+      ...NO_DAILY_CHALLENGE,
     })
     renderAt('/', signedIn())
 
@@ -212,6 +221,37 @@ describe('DashboardPage', () => {
     const review = await screen.findByRole('link', { name: /^Continuer/ })
     // Le Tour vient avant la révision dans l'ordre du document.
     expect(tour.compareDocumentPosition(review) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('leads discreetly to the daily challenge of the subject it puts forward', async () => {
+    stubDashboard(stats(), {
+      '/api/v1/me/daily-challenges': {
+        body: [
+          {
+            subjectSlug: 'go',
+            subjectTitle: 'Go',
+            day: '2026-11-20',
+            state: 'NOT_STARTED',
+            questionCount: 5,
+          },
+          {
+            subjectSlug: 'java',
+            subjectTitle: 'Java',
+            day: '2026-11-20',
+            state: 'DONE',
+            score: 4,
+            questionCount: 5,
+          },
+        ],
+      },
+    })
+    renderAt('/', signedIn())
+
+    expect(
+      await screen.findByRole('link', { name: 'Défi du jour · Java Fait : 4/5' }),
+    ).toHaveAttribute('href', '/daily/java')
+    // Seul le sujet mis en avant : l'accueil garde une seule action.
+    expect(screen.queryByRole('link', { name: /Défi du jour · Go/ })).not.toBeInTheDocument()
   })
 
   it('shows the streak and its freezes, and the XP', async () => {
