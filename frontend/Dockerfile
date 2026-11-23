@@ -17,7 +17,11 @@ FROM nginx:1.31-alpine
 # Applique les correctifs de sécurité Alpine publiés après la construction de l'image de base.
 RUN apk upgrade --no-cache
 ENV BACKEND_URL=http://backend:8080
-# L'origine du fournisseur OIDC, seule origine tierce permise par la Content-Security-Policy (ADR 0054).
+# L'adresse du fournisseur OIDC (son royaume, chez Keycloak) : nginx la met dans index.html, où la PWA la lit à son
+# démarrage. Une seule image sert ainsi tous les environnements (ADR 0069).
+ENV OIDC_AUTHORITY=http://localhost:8180/realms/recallio
+# L'origine du fournisseur OIDC, seule origine tierce permise par la Content-Security-Policy (ADR 0054). Une variable à
+# part, à garder accordée à OIDC_AUTHORITY : nginx ne sait pas en déduire l'origine.
 ENV OIDC_ORIGIN=http://localhost:8180
 # L'origine publique du site, sans barre finale (https://recallio.fr, par exemple) : nginx la met dans les balises de
 # partage et dans robots.txt, dont les adresses doivent être absolues (ADR 0065). À donner aussi au backend.

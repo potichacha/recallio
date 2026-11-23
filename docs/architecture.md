@@ -17,7 +17,7 @@ flowchart LR
         sandbox["Bac à sable<br/>un conteneur jetable par exécution<br/>sans réseau, en lecture seule"]
     end
 
-    idp["Fournisseur OIDC<br/>Keycloak en local<br/>(production : à choisir)"]
+    idp["Fournisseur OIDC<br/>Keycloak<br/>(hébergé en production, ADR 0069)"]
 
     user -- HTTPS --> front
     user -- "connexion OIDC (code + PKCE)" --> idp
@@ -33,7 +33,7 @@ flowchart LR
 | Frontend | Interface de révision, installable sur mobile. Appelle l'API via un client **généré** depuis la spec OpenAPI. Son design system « Coach » (ADR 0049) ne passe que par des tokens, clairs et sombres. | React 19, Vite, TanStack Query, React Router, Tailwind, vite-plugin-pwa, CodeMirror 6 (exercices de code), Phosphor (icônes), Lexend et JetBrains Mono (servies par l'application) |
 | Backend | Règles métier, API REST versionnée, validation des JWT. | Quarkus REST, Hibernate ORM, Hibernate Validator, SmallRye Health et OpenAPI |
 | PostgreSQL | Données métier et progression. Le schéma est versionné par des migrations Flyway, jamais généré. | PostgreSQL 18 |
-| Fournisseur OIDC | Authentification. Le backend ne connaît que le standard OIDC, pas le fournisseur. | Keycloak (local et Dev Services) |
+| Fournisseur OIDC | Authentification. Le backend ne connaît que le standard OIDC, pas le fournisseur. | Keycloak (local, Dev Services, et hébergé en production : ADR 0069) |
 | Runner | Juge un exercice par ses tests (`/api/v1/runs`, ADR 0030) ou lance un programme du Tour et renvoie ses sorties (`/api/v1/programs`, ADR 0037). Seul à accéder au socket Docker ; joint par le seul backend. | Quarkus REST, ligne de commande `docker`, commons-compress |
 | Bac à sable | Un conteneur neuf par exécution : réseau coupé, système de fichiers en lecture seule, ressources plafonnées, utilisateur sans droits, délai. | Images `sandbox/java` (JDK 25, JUnit 6), `sandbox/go` (Go 1.27, ADR 0033), `sandbox/cpp` (GCC 14, C++23, doctest, ADR 0053) et `sandbox/python` (Python 3.14, pytest, ADR 0062) |
 
@@ -111,7 +111,7 @@ flowchart LR
 | `domain.TourQuestions` | Les questions qui valident une notion du Tour : ses cartes corrigées par le serveur, une par format d'abord, trois au plus, dans l'ordre du fichier. Le parseur en exige deux (ADR 0037). |
 | `application.SitemapService`, `api.SitemapResource` | Le plan du site (ADR 0065), `GET /api/v1/sitemap.xml` sans compte, que nginx sert sous `/sitemap.xml` : l'accueil, les pages Cours et Tour, le catalogue, puis la page, les leçons et le Tour de chaque sujet publié, en adresses absolues à l'origine `recallio.public-origin`. |
 | `api.ContentImportResource` | Import d'un document à la demande, rôle `admin`. |
-| `infrastructure.ContentStartupImport` | En dev et dans le compose : importe tous les documents du dossier, un sujet par transaction. |
+| `infrastructure.ContentStartupImport` | En dev, et dans l'image du backend, qui emporte `content/` (ADR 0069) : importe à chaque démarrage tous les documents de référence et tous les dossiers de sujet, un sujet par transaction. |
 | `CardDirectory` (package racine) | **API publique** pour les autres modules : cartes actives filtrées (sujets, thème, format) ou par thème, version courante, notions d'un sujet ou une seule, questions qui valident une notion du Tour. |
 | `SubjectDirectory` (package racine) | **API publique** : les sujets publiés, dans l'ordre du catalogue. |
 | `CardType`, `CardChoice` (package racine) | Formats de carte et choix d'un QCM, partagés avec les autres modules. |
@@ -326,6 +326,7 @@ flowchart LR
     b & f --> d["docker : images<br/>+ scan Trivy"]
     b & f --> e["e2e : pile compose<br/>+ parcours Playwright"]
     d & e -- "contrôles verts" --> main["merge sur main"]
+    main -- "toute la CI verte" --> publish["publish : 7 images<br/>sur GHCR (sha-…, main)"]
 ```
 
 - **Contrat d'API** : code-first (ADR 0003). Toute évolution de l'API apparaît dans le diff de
@@ -336,6 +337,9 @@ flowchart LR
   streak contre la pile compose complète, avec une base neuve (`e2e/`, `infra/compose.e2e.yaml`).
 - **Sécurité de la chaîne** : `main` est protégée (PR obligatoire, 3 contrôles requis), Dependabot
   suit les dépendances, les actions tierces sont fixées par SHA, et les images sont scannées.
+- **Livraison** (ADR 0069) : sur `main`, une fois tous les jobs verts, le job `publish` construit les sept images
+  (backend, front, runner, les quatre bacs à sable) et les publie sur GHCR, `ghcr.io/<propriétaire>/recallio-<image>`,
+  aux tags `sha-<commit>` (immuable, celui que le serveur épingle) et `main`.
 
 ## 4. Configuration par environnement
 
@@ -343,9 +347,57 @@ flowchart LR
 |---|---|---|
 | PostgreSQL | Dev Services (conteneur automatique) | `DB_URL`, `DB_USERNAME`, `DB_PASSWORD` |
 | OIDC | Dev Services Keycloak | `OIDC_AUTH_SERVER_URL`, `OIDC_CLIENT_ID` |
+| Fournisseur OIDC de la PWA (ADR 0069) | `VITE_OIDC_AUTHORITY`, ou le Keycloak local ; `OIDC_AUTHORITY` dans le compose | `OIDC_AUTHORITY` du front, que nginx met dans `index.html`, et son origine `OIDC_ORIGIN` (CSP, ADR 0054), accordées |
+| Contenu (ADR 0069) | importé à chaque démarrage depuis `../content` en dev | dans l'image du backend (`/content`), importé à chaque démarrage |
 | Rappels (Web Push, ADR 0047) | paire VAPID éphémère, tirée au démarrage ; aucun minuteur en test | `RECALLIO_PUSH_VAPID_PUBLIC_KEY`, `RECALLIO_PUSH_VAPID_PRIVATE_KEY`, `RECALLIO_PUSH_SUBJECT` |
 | Origine publique du site (plan du site, balises de partage, `robots.txt` ; ADR 0065) | celle de Vite en dev, `https://recallio.test/` en test ; `http://localhost:3000` dans le compose | `PUBLIC_ORIGIN`, la même au backend (obligatoire) et au front (nginx) |
 | `/q/*` (Dev UI, Swagger) | public | non exposé |
 | Santé | `/api/v1/health` (public) | `/api/v1/health` (public) |
 
 Les secrets passent uniquement par des variables d'environnement, jamais par le dépôt.
+
+## 5. Déploiement (ADR 0069)
+
+Deux VPS OVHcloud, en Docker Compose, reliés par WireGuard. Les serveurs ne construisent rien : ils tirent de GHCR les
+images publiées par la CI, au tag `sha-…` qu'ils épinglent.
+
+```mermaid
+flowchart LR
+    user([Navigateur ou PWA])
+    ghcr[("GHCR<br/>images publiées par la CI")]
+
+    subgraph app ["Serveur de l'application (VPS-2)"]
+        caddy["Caddy<br/>HTTPS"]
+        front["Front<br/>nginx"]
+        back["Backend<br/>contenu dans l'image"]
+        kc["Keycloak<br/>auth.&lt;domaine&gt;"]
+        db[("PostgreSQL")]
+    end
+
+    subgraph run ["Serveur du runner (VPS-1)"]
+        runner["Runner"]
+        sandbox["Bac à sable<br/>conteneurs jetables"]
+    end
+
+    user -- HTTPS --> caddy
+    caddy --> front
+    caddy --> kc
+    front -- "/api" --> back
+    back -- JDBC --> db
+    back -- "clés de signature (JWKS)" --> kc
+    back -. "WireGuard : jeton partagé" .-> runner
+    runner -- "docker run" --> sandbox
+    ghcr -. "docker compose pull" .-> app
+    ghcr -. "docker compose pull" .-> run
+```
+
+| Serveur | Ce qu'il porte | Qui lui parle |
+|---|---|---|
+| L'application (VPS-2 : 4 vCores, 8 Go) | Caddy (HTTPS), le front, le backend, Keycloak sous son propre sous-domaine, PostgreSQL | Les navigateurs, par Caddy : l'application d'un côté, Keycloak de l'autre, chacun à son origine |
+| Le runner (VPS-1 : 2 vCores, 4 Go) | Le runner et les images du bac à sable, rien d'autre : son accès au socket Docker vaut les droits root sur l'hôte (ADR 0030) | Le seul backend, par le tunnel WireGuard, avec le jeton partagé |
+
+- **Une seule image par composant, pour tous les environnements** : le backend emporte le contenu et l'importe à chaque
+  démarrage ; le front reçoit à son démarrage l'adresse du fournisseur OIDC (`OIDC_AUTHORITY`), son origine
+  (`OIDC_ORIGIN`) et l'origine publique du site (`PUBLIC_ORIGIN`) ; le runner, le nom des images du bac à sable.
+- **Déployer**, pour la bêta, se fait à la main : épingler un nouveau tag `sha-…`, tirer les images, relancer. Revenir
+  en arrière, c'est épingler le précédent.

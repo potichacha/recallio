@@ -2,6 +2,7 @@
 
 - Statut : accepté (provisoire)
 - Date : 2026-10-20
+- Révisé par : ADR 0069 (Recallio est gardé, sous réserve des marques déposées)
 
 ## Contexte
 

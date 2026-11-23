@@ -18,7 +18,8 @@ import java.util.stream.Stream;
 import org.jboss.logging.Logger;
 
 /**
- * Importe au démarrage, si {@code recallio.content.import-on-startup=true} (activé en dev et dans le compose local) :
+ * Importe au démarrage, si {@code recallio.content.import-on-startup=true} (activé en dev, et dans l'image du backend,
+ * qui emporte le contenu : ADR 0069) :
  *
  * <ul>
  *   <li>tous les documents de référence d'un dossier ({@code recallio.content.source-directory}), un sujet par fichier
@@ -27,8 +28,8 @@ import org.jboss.logging.Logger;
  *       a un {@code subject.yaml}.
  * </ul>
  *
- * <p>En production, l'import d'un document passe par l'endpoint d'administration ; celui des dossiers de sujet se
- * décidera avec le déploiement.
+ * <p>En production, chaque démarrage réimporte ainsi le contenu de l'image : le parseur et le contenu d'un même commit
+ * partent ensemble. L'endpoint d'administration importe en plus un document à la demande.
  */
 @ApplicationScoped
 public class ContentStartupImport {
