@@ -1,0 +1,63 @@
+# Caddy, la seule entrée du serveur de l'application (ADR 0071) : HTTPS, certificats Let's Encrypt obtenus et renouvelés
+# seuls, HTTP/2 et HTTP/3. Deux origines : l'application, et Keycloak sous auth.<domaine> (ADR 0069).
+# DOMAIN et ACME_EMAIL viennent du .env, par le compose ; Caddy les lit au démarrage ({$...}).
+#
+# Caddy remplace l'en-tête X-Forwarded-For envoyé par le client par l'adresse qu'il voit (aucun trusted_proxies) : nginx
+# et Keycloak, qui ne croient que l'adresse de Caddy, reçoivent ainsi la vraie adresse du visiteur, jamais une adresse
+# choisie par lui (ADR 0054).
+{
+	# Le contact de Let's Encrypt (expiration d'un certificat, incident).
+	email {$ACME_EMAIL}
+
+	# Aucun journal d'accès : celui de nginx suffit, sans adresse IP (ADR 0070). Caddy écrit quand même son démarrage, ses
+	# certificats (obtention, renouvellement) et ses erreurs, en JSON ; une erreur de relais recopierait la requête :
+	# l'adresse du client, ses en-têtes et l'adresse demandée en sont retirées.
+	log default {
+		output stdout
+		format filter {
+			wrap json
+			fields {
+				request>remote_ip delete
+				request>remote_port delete
+				request>client_ip delete
+				request>headers delete
+				request>uri delete
+			}
+		}
+	}
+}
+
+# HSTS : le navigateur ne passe plus que par HTTPS, pendant un an, sous-domaines compris. Sans preload, qu'on ne peut
+# pas défaire. Le > remplace la valeur que Keycloak envoie lui-même : un seul en-tête.
+(hsts) {
+	header >Strict-Transport-Security "max-age=31536000; includeSubDomains"
+}
+
+# L'application : nginx sert la PWA et relaie /api vers le backend.
+{$DOMAIN} {
+	import hsts
+	reverse_proxy frontend:80
+}
+
+www.{$DOMAIN} {
+	import hsts
+	redir https://{$DOMAIN}{uri} permanent
+}
+
+# Keycloak : seulement les chemins que sa documentation conseille d'exposer (« Configuring a reverse proxy »), et
+# seulement pour le royaume recallio : ses pages et ses points d'accès OIDC, et les fichiers des thèmes. Ni la console
+# d'administration (/admin/), ni le royaume master, ni /health, ni /metrics : on les joint par un tunnel SSH
+# (docs/deploiement.md). Tout le reste répond 404. Caddy nettoie le chemin avant de le comparer : un
+# /realms/recallio/../master/ ne passe pas.
+auth.{$DOMAIN} {
+	import hsts
+
+	@keycloak path /realms/recallio/* /resources/*
+	handle @keycloak {
+		reverse_proxy keycloak:8080
+	}
+
+	handle {
+		respond 404
+	}
+}

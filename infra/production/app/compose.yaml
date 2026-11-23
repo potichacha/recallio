@@ -1,0 +1,228 @@
+# Le serveur de l'application (ADR 0069, 0071) : Caddy, le front, le backend, Keycloak et PostgreSQL. Rien ne se
+# construit ici : le backend et le front sont les images publiées par la CI, au tag épinglé dans le .env ; les autres,
+# des images officielles. La procédure complète est dans docs/deploiement.md.
+#
+#   cd /opt/recallio/infra/production/app
+#   docker compose pull && docker compose up -d
+#
+# Toutes les variables viennent du fichier .env, copié de .env.example et jamais versionné. Celles marquées :? sont
+# obligatoires : sans elles, Compose refuse de démarrer, plutôt que de lancer un service mal configuré.
+
+name: recallio-app
+
+# L'adresse fixe de Caddy sur le réseau edge : le front (TRUSTED_PROXY) et Keycloak (KC_PROXY_TRUSTED_ADDRESSES) ne
+# croient l'en-tête X-Forwarded-For que d'elle (ADR 0054).
+x-caddy-address: &caddy-address 10.80.0.10
+
+# La rotation des logs de tous les services. Le pilote local compresse les fichiers tournés et n'est lu que par Docker
+# (docker compose logs) : 5 fichiers de 10 Mo au plus par conteneur, et jamais un disque plein de logs.
+x-logging: &logging
+  driver: local
+  options:
+    max-size: 10m
+    max-file: "5"
+
+services:
+  # La seule entrée : HTTPS, les certificats Let's Encrypt, HSTS, et le tri des chemins de Keycloak (Caddyfile).
+  caddy:
+    image: caddy:2.11
+    restart: unless-stopped
+    environment:
+      DOMAIN: ${DOMAIN:?le domaine du site, sans https://}
+      ACME_EMAIL: ${ACME_EMAIL:?l'adresse de contact de Let's Encrypt}
+    ports:
+      - "80:80"
+      - "443:443"
+      # HTTP/3.
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Les certificats et le compte ACME : les perdre ferait redemander les certificats, dans la limite de Let's
+      # Encrypt.
+      - caddy-data:/data
+      - caddy-config:/config
+    networks:
+      edge:
+        ipv4_address: *caddy-address
+    # Une simple connexion TCP, que Caddy ne journalise pas.
+    healthcheck:
+      test: ["CMD", "nc", "-z", "127.0.0.1", "443"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    depends_on:
+      frontend:
+        condition: service_healthy
+      keycloak:
+        condition: service_started
+    logging: *logging
+
+  # nginx : la PWA, et /api relayé vers le backend (ADR 0054, 0065, 0069, 0070).
+  frontend:
+    image: ghcr.io/potichacha/recallio-frontend:${RECALLIO_TAG:?le tag des images à déployer, sha-...}
+    restart: unless-stopped
+    environment:
+      PUBLIC_ORIGIN: https://${DOMAIN}
+      OIDC_AUTHORITY: https://auth.${DOMAIN}/realms/recallio
+      OIDC_ORIGIN: https://auth.${DOMAIN}
+      TRUSTED_PROXY: *caddy-address
+      SENTRY_DSN: ${SENTRY_DSN_FRONTEND:-}
+      SENTRY_ORIGIN: ${SENTRY_ORIGIN_FRONTEND:-}
+      SENTRY_RELEASE: ${RECALLIO_TAG}
+    networks:
+      - edge
+      - internal
+    # Une connexion TCP, qui ne laisse aucune ligne dans le journal d'accès, contrairement à une requête.
+    healthcheck:
+      test: ["CMD", "nc", "-z", "127.0.0.1", "80"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    depends_on:
+      backend:
+        condition: service_healthy
+        # nginx résout l'adresse du backend à son démarrage : quand Compose recrée le backend, il redémarre le front.
+        restart: true
+    logging: *logging
+
+  # Le contenu voyage dans l'image et s'importe à chaque démarrage (ADR 0069) : quelques secondes sans être prêt.
+  backend:
+    image: ghcr.io/potichacha/recallio-backend:${RECALLIO_TAG:?le tag des images à déployer, sha-...}
+    restart: unless-stopped
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/recallio
+      DB_USERNAME: recallio
+      DB_PASSWORD: ${RECALLIO_DB_PASSWORD:?le mot de passe du rôle recallio}
+      # Les clés de signature, en interne ; l'émetteur des jetons reste https://auth.<domaine> (backchannel dynamique).
+      OIDC_AUTH_SERVER_URL: http://keycloak:8080/realms/recallio
+      # Le runner, sur son propre serveur, par le tunnel WireGuard (étape 7.4), avec le jeton partagé (ADR 0030).
+      RECALLIO_RUNNER_URL: ${RECALLIO_RUNNER_URL:?l'adresse du runner par WireGuard}
+      RECALLIO_RUNNER_TOKEN: ${RECALLIO_RUNNER_TOKEN:?le jeton partagé avec le runner}
+      PUBLIC_ORIGIN: https://${DOMAIN}
+      # Les clés VAPID des rappels (ADR 0047) : tirées une fois pour toutes, sinon chaque démarrage invalide les
+      # abonnements.
+      RECALLIO_PUSH_VAPID_PUBLIC_KEY: ${RECALLIO_PUSH_VAPID_PUBLIC_KEY:?la clé publique VAPID}
+      RECALLIO_PUSH_VAPID_PRIVATE_KEY: ${RECALLIO_PUSH_VAPID_PRIVATE_KEY:?la clé privée VAPID}
+      RECALLIO_PUSH_SUBJECT: ${RECALLIO_PUSH_SUBJECT:?le contact des services de notification, mailto:...}
+      SENTRY_DSN: ${SENTRY_DSN_BACKEND:-}
+      SENTRY_RELEASE: ${RECALLIO_TAG}
+    # Sans limite, la JVM dimensionnerait son tas sur la mémoire de l'hôte : 80 % de 8 Go. Avec 1,5 Go, le tas plafonne
+    # à 1,2 Go et laisse 300 Mo au reste de la JVM, pour 440 à 515 Mo mesurés (ADR 0071).
+    mem_limit: 1536m
+    networks:
+      - internal
+    # Prêt quand la réponse est 200 : un 503 « DOWN » contient aussi des « UP », ceux des vérifications qui passent.
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8080 && printf 'GET /api/v1/health/ready HTTP/1.0\\r\\n\\r\\n' >&3 && head -n1 <&3 | grep -q ' 200 '"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 2m
+    depends_on:
+      postgres:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+    logging: *logging
+
+  # Keycloak en mode production (ADR 0071). Le royaume s'importe au premier démarrage seulement ; ensuite, il se modifie
+  # dans la console, jointe par un tunnel SSH sur le port 8280 (docs/deploiement.md).
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.7
+    restart: unless-stopped
+    command: ["start", "--import-realm"]
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:?le mot de passe du rôle keycloak}
+      # Le TLS s'arrête chez Caddy, qui annonce le schéma et l'adresse du client ; Keycloak ne croit que lui.
+      KC_HTTP_ENABLED: "true"
+      KC_PROXY_HEADERS: xforwarded
+      KC_PROXY_TRUSTED_ADDRESSES: *caddy-address
+      # L'émetteur des jetons ; le backend, qui l'appelle en interne, reçoit des adresses internes pour le reste.
+      KC_HOSTNAME: https://auth.${DOMAIN}
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
+      # La console d'administration, par le tunnel SSH seulement.
+      KC_HOSTNAME_ADMIN: http://localhost:8280
+      KC_HEALTH_ENABLED: "true"
+      KC_LOG_CONSOLE_OUTPUT: json
+      # Le compte d'administration temporaire, temp-admin, créé au tout premier démarrage seulement (base vide) ;
+      # ensuite, Keycloak ignore ce mot de passe, à vider dans le .env une fois un administrateur permanent créé. Le nom
+      # reste celui par défaut : Keycloak refuse de démarrer avec un nom sans mot de passe.
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_BOOTSTRAP_ADMIN_PASSWORD:-}
+      # Lues par l'import du royaume (${...} dans recallio-realm.json) : les adresses du client et le relais SMTP.
+      PUBLIC_ORIGIN: https://${DOMAIN}
+      SMTP_HOST: ${SMTP_HOST:?le serveur SMTP, smtp-relay.brevo.com}
+      SMTP_PORT: ${SMTP_PORT:?le port SMTP, 587}
+      SMTP_USER: ${SMTP_USER:?l'identifiant SMTP de Brevo}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:?la clé SMTP de Brevo}
+      SMTP_FROM: no-reply@${DOMAIN}
+      SMTP_REPLY_TO: ${SMTP_REPLY_TO:-}
+    volumes:
+      - ./keycloak/recallio-realm.json:/opt/keycloak/data/import/recallio-realm.json:ro
+    ports:
+      # La console d'administration, jointe par un tunnel SSH : sur la boucle locale de l'hôte seulement, jamais sur
+      # Internet (Docker contourne le pare-feu ufw pour les ports publiés).
+      - "127.0.0.1:8280:8080"
+    # La même raison que pour le backend : l'image donne 70 % de la limite au tas, et Keycloak compte 300 Mo de plus
+    # pour le reste. 1,5 Go couvre les 1 360 Mo de son guide de dimensionnement, pour 600 à 860 Mo mesurés.
+    mem_limit: 1536m
+    networks:
+      - edge
+      - internal
+    # Prêt quand la réponse est 200, après l'import du royaume : pendant son démarrage, Keycloak répond 503, dont le
+    # corps contient déjà des « UP ».
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/localhost/9000 && printf 'GET /health/ready HTTP/1.0\\r\\n\\r\\n' >&3 && head -n1 <&3 | grep -q ' 200 '"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 3m
+    depends_on:
+      postgres:
+        condition: service_healthy
+    logging: *logging
+
+  # Une instance, deux bases (recallio, keycloak), trois rôles : postgres/init-databases.sql.
+  postgres:
+    image: postgres:18
+    restart: unless-stopped
+    # Le journal du serveur recopierait les valeurs d'une erreur (« DETAIL: Key (handle)=(alice) already exists ») :
+    # terse n'en garde que le message, comme le pilote JDBC du backend (ADR 0070).
+    command: ["postgres", "-c", "log_error_verbosity=terse"]
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?le mot de passe du superutilisateur postgres}
+      # Lus par le script d'initialisation, à la première initialisation seulement.
+      RECALLIO_DB_PASSWORD: ${RECALLIO_DB_PASSWORD:?le mot de passe du rôle recallio}
+      KEYCLOAK_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:?le mot de passe du rôle keycloak}
+    volumes:
+      - postgres-data:/var/lib/postgresql
+      - ./postgres/init-databases.sql:/docker-entrypoint-initdb.d/init-databases.sql:ro
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    logging: *logging
+
+networks:
+  # Ce qui fait face à Caddy. Un sous-réseau fixe, hors des plages que Docker attribue lui-même, pour l'adresse de
+  # Caddy.
+  edge:
+    ipam:
+      config:
+        - subnet: 10.80.0.0/24
+  # Les services entre eux. PostgreSQL n'est que sur ce réseau. Ce n'est pas un réseau « internal: true » : le backend
+  # en sort pour Web Push, Sentry et le runner (WireGuard), Keycloak pour le relais SMTP.
+  internal: {}
+
+volumes:
+  postgres-data:
+  caddy-data:
+  caddy-config:

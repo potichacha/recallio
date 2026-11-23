@@ -28,6 +28,7 @@ jobs:
       frontend: ${{ steps.filter.outputs.frontend }}
       docker: ${{ steps.filter.outputs.docker }}
       e2e: ${{ steps.filter.outputs.e2e }}
+      production: ${{ steps.filter.outputs.production }}
       subjects: ${{ steps.filter.outputs.subjects }}
     steps:
       # Sur une PR, HEAD est le commit de fusion : son premier parent est la branche cible, d'où la profondeur de 2.
@@ -65,7 +66,9 @@ jobs:
           # Le client de l'API est généré depuis la spec du backend.
           decide frontend '^(frontend/|backend/src/main/openapi/)'
           decide docker '^(backend|frontend|runner)/'
-          decide e2e '^(backend|frontend|runner|sandbox|content|infra|e2e)/'
+          # La pile de l'e2e : le compose local et son royaume, pas la configuration de production.
+          decide e2e '^((backend|frontend|runner|sandbox|content|e2e)/|infra/(compose[^/]*\.yaml$|keycloak/))'
+          decide production '^infra/production/'
           # Les sujets que CodeOutputTest, ExercisesTest et TourTest rejouent (étape 8.10.2) : tous (vide) sur main ou
           # quand le code qui les vérifie change ; sinon ceux dont le dossier content/<sujet>/ est modifié, ou « none ».
           # Une PR de contenu Java ne recompile plus les cartes C++.
@@ -343,13 +346,42 @@ jobs:
             e2e/test-results/
           retention-days: 7
 
+  # La configuration du serveur de l'application (ADR 0071), sans rien démarrer : le compose de production avec les
+  # variables de .env.example (ses secrets vides remplis d'une valeur factice, puisque Compose refuse un secret vide), le
+  # Caddyfile formaté et validé par l'image de Caddy que le compose épingle, et le royaume Keycloak de production.
+  production:
+    name: production
+    needs: changes
+    if: needs.changes.outputs.production == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: infra/production/app
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Check the production compose file with the variables of .env.example
+        run: |
+          sed 's/=$/=ci-placeholder/' .env.example > "$RUNNER_TEMP/ci.env"
+          docker compose --env-file "$RUNNER_TEMP/ci.env" config --quiet
+
+      - name: Check and validate the Caddyfile with the Caddy image of the compose file
+        run: |
+          image=$(docker compose --env-file "$RUNNER_TEMP/ci.env" config --images | grep '^caddy:')
+          docker run --rm -e DOMAIN=recallio.example -e ACME_EMAIL=admin@recallio.example \
+            -v "$PWD/Caddyfile:/etc/caddy/Caddyfile:ro" "$image" \
+            sh -c 'caddy fmt --diff /etc/caddy/Caddyfile && caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile'
+
+      - name: Check that the production realm is valid JSON
+        run: jq empty keycloak/recallio-realm.json
+
   # Publie les images sur GHCR (ADR 0069), seulement sur un push sur main, et après tous les jobs de vérification : sur
   # main, ils tournent tous (voir le job changes), et une image publiée a donc passé toute la CI. Deux tags : sha-<12
   # premiers caractères du commit>, immuable, celui que le serveur épingle (revenir en arrière, c'est épingler le
   # précédent) ; et main, le dernier publié.
   publish:
     name: publish (${{ matrix.image }})
-    needs: [backend, content, runner, frontend, docker, e2e]
+    needs: [backend, content, runner, frontend, docker, e2e, production]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
