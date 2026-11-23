@@ -347,21 +347,24 @@ flowchart LR
 |---|---|---|
 | PostgreSQL | Dev Services (conteneur automatique) | `DB_URL`, `DB_USERNAME`, `DB_PASSWORD` |
 | OIDC | Dev Services Keycloak | `OIDC_AUTH_SERVER_URL`, `OIDC_CLIENT_ID` |
-| Fournisseur OIDC de la PWA (ADR 0069) | `VITE_OIDC_AUTHORITY`, ou le Keycloak local ; `OIDC_AUTHORITY` dans le compose | `OIDC_AUTHORITY` du front, que nginx met dans `index.html`, et son origine `OIDC_ORIGIN` (CSP, ADR 0054), accordées |
+| Fournisseur OIDC de la PWA (ADR 0069) | `VITE_OIDC_AUTHORITY`, ou le Keycloak local ; `OIDC_AUTHORITY` dans le compose | `OIDC_AUTHORITY` du front, que nginx met dans `index.html`, et son origine `OIDC_ORIGIN` (CSP, ADR 0054), que le compose de production déduit tous deux de `DOMAIN` (ADR 0071) |
+| Keycloak (ADR 0071) | `start-dev`, le royaume local et ses comptes de test (`infra/keycloak/`), par les Dev Services ou le compose | `start`, le royaume de production, sans utilisateur (`infra/production/app/keycloak/`), importé au premier démarrage ; console par un tunnel SSH |
+| HTTPS (ADR 0071) | aucun : `http://localhost` | Caddy : certificats Let's Encrypt, HSTS, et seuls les chemins du royaume `recallio` sous `auth.<domaine>` |
 | Contenu (ADR 0069) | importé à chaque démarrage depuis `../content` en dev | dans l'image du backend (`/content`), importé à chaque démarrage |
 | Rappels (Web Push, ADR 0047) | paire VAPID éphémère, tirée au démarrage ; aucun minuteur en test | `RECALLIO_PUSH_VAPID_PUBLIC_KEY`, `RECALLIO_PUSH_VAPID_PRIVATE_KEY`, `RECALLIO_PUSH_SUBJECT` |
-| Origine publique du site (plan du site, balises de partage, `robots.txt` ; ADR 0065) | celle de Vite en dev, `https://recallio.test/` en test ; `http://localhost:3000` dans le compose | `PUBLIC_ORIGIN`, la même au backend (obligatoire) et au front (nginx) |
+| Origine publique du site (plan du site, balises de partage, `robots.txt` ; ADR 0065) | celle de Vite en dev, `https://recallio.test/` en test ; `http://localhost:3000` dans le compose | `PUBLIC_ORIGIN`, la même au backend (obligatoire) et au front (nginx), `https://<DOMAIN>` dans le compose de production |
 | Logs (ADR 0070) | texte lisible en dev et en test ; JSON dans le compose, en profil `prod` | JSON sur la sortie standard, un champ `service` par ligne ; nginx sans adresse IP ni chaîne de requête |
-| Erreurs dans Sentry (ADR 0070) | éteint : aucun DSN en dev, en test, en CI ni dans le compose | `SENTRY_DSN` de chaque service (backend, runner, front), `SENTRY_ENVIRONMENT` (`production` par défaut), `SENTRY_RELEASE` (le tag de l'image) ; au front, l'origine du DSN dans `SENTRY_ORIGIN` (CSP) |
+| Erreurs dans Sentry (ADR 0070) | éteint : aucun DSN en dev, en test, en CI ni dans le compose | `SENTRY_DSN` de chaque service (backend, runner, front), `SENTRY_ENVIRONMENT` (`production` par défaut), `SENTRY_RELEASE` (le tag de l'image, mis par le compose de production) ; au front, l'origine du DSN dans `SENTRY_ORIGIN` (CSP) |
 | `/q/*` (Dev UI, Swagger) | public | non exposé |
 | Santé | `/api/v1/health` (public) | `/api/v1/health` (public) |
 
 Les secrets passent uniquement par des variables d'environnement, jamais par le dépôt.
 
-## 5. Déploiement (ADR 0069)
+## 5. Déploiement (ADR 0069, 0071)
 
 Deux VPS OVHcloud, en Docker Compose, reliés par WireGuard. Les serveurs ne construisent rien : ils tirent de GHCR les
-images publiées par la CI, au tag `sha-…` qu'ils épinglent.
+images publiées par la CI, au tag `sha-…` qu'ils épinglent. La procédure, du serveur nu à la mise à jour, est dans
+[docs/deploiement.md](deploiement.md).
 
 ```mermaid
 flowchart LR
@@ -403,6 +406,25 @@ flowchart LR
   (`OIDC_ORIGIN`) et l'origine publique du site (`PUBLIC_ORIGIN`) ; le runner, le nom des images du bac à sable.
 - **Déployer**, pour la bêta, se fait à la main : épingler un nouveau tag `sha-…`, tirer les images, relancer. Revenir
   en arrière, c'est épingler le précédent.
+- **Le serveur de l'application** (ADR 0071) se décrit dans `infra/production/app/` : son `compose.yaml`, son
+  `Caddyfile`, le royaume Keycloak de production et le script des bases ; un `.env`, copié de `.env.example` et jamais
+  versionné, porte le tag, le domaine et tous les secrets. Le compose en déduit les adresses publiques
+  (`https://<domaine>`, `https://auth.<domaine>`).
+  - **L'entrée** : seul Caddy publie des ports (80, 443 et 443/udp) ; il obtient les certificats, pose HSTS, et ne laisse
+    passer sous `auth.` que le royaume `recallio` et les fichiers des thèmes. Il remplace l'en-tête `X-Forwarded-For` du
+    client : nginx et Keycloak ne croient que son adresse fixe.
+  - **Deux réseaux** : `edge` (Caddy, front, Keycloak) et `internal` (front, backend, Keycloak, PostgreSQL), qui garde
+    une sortie pour Web Push, Sentry, le runner et le relais SMTP.
+  - **Keycloak** tourne en mode production, avec un royaume sans utilisateur, importé au premier démarrage : inscription
+    avec vérification de l'e-mail (Brevo), protection contre la force brute, « Se souvenir de moi », aucun listener
+    d'événements qui écrirait les échecs de connexion dans les logs. Sa console n'écoute que sur `127.0.0.1:8280`, jointe
+    par un tunnel SSH.
+  - **PostgreSQL** : une instance, deux bases (`recallio`, `keycloak`), chacune à son propre rôle, ni l'un ni l'autre
+    superutilisateur.
+  - **La mémoire** des deux JVM est plafonnée à 1,5 Go chacune ; les logs de Docker tournent (5 fichiers de 10 Mo par
+    conteneur).
+  - **La CI** vérifie cette configuration (job `production` : le compose, le Caddyfile, le royaume), et Dependabot suit
+    les images de Caddy, Keycloak et PostgreSQL.
 - **Les logs et les erreurs** (ADR 0070) :
   - chaque service écrit ses logs en JSON sur sa sortie standard, avec son nom (`service`) : le backend et le runner
     (`quarkus-logging-json`), nginx pour son journal d'accès, sans adresse IP, sans `User-Agent` ni `Referer`, sans

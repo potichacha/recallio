@@ -584,11 +584,11 @@ Une bêta d'abord, pour quelques testeurs ; l'ouverture à tous attend leurs ret
    - des logs JSON en production, nginx compris, sans adresse IP ni jeton ;
    - les erreurs du backend, du runner et du front dans Sentry, sans donnée personnelle, activé par la seule présence de son DSN ;
    - les correctifs de sécurité des images de base appliqués à chaque construction (ADR 0070).
-3. **Le serveur de l'application** :
-   - le compose de production ;
+3. ✅ **Le serveur de l'application** :
+   - le compose de production (`infra/production/app/`), vérifié en CI ;
    - Caddy : HTTPS et HSTS ;
-   - Keycloak en mode production sous `auth.`, avec un royaume sans comptes de test, les e-mails par Brevo et la console d'administration fermée à Internet ;
-   - la procédure, dans `docs/deploiement.md`.
+   - Keycloak en mode production sous `auth.`, avec un royaume sans comptes de test, les e-mails par Brevo et la console d'administration fermée à Internet, jointe par un tunnel SSH ;
+   - la procédure, dans `docs/deploiement.md` (ADR 0071).
 4. **Le serveur du runner** (33) : WireGuard, pare-feu, core dumps désactivés, les images du bac à sable, deux exécutions à la fois.
 5. **Les sauvegardes** (46) : chaque nuit, la base chiffrée hors du serveur ; un essai de restauration.
 6. **Les pages légales** : mentions légales et politique de confidentialité, liées depuis le pied de page et l'inscription.
