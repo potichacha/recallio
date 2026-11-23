@@ -7,9 +7,12 @@ import { createRoot } from 'react-dom/client'
 import { App } from './App'
 import { OidcSessionProvider } from './auth/OidcSessionProvider'
 import './index.css'
+import { startMonitoring } from './monitoring/monitoring'
 import { countVisit, listenForInstallPrompt } from './pwa/installPrompt'
 import { followSystemTheme } from './theme/theme'
 
+// Les erreurs dans Sentry (ADR 0070), si nginx a donné un DSN : sinon, rien n'est téléchargé ni envoyé.
+void startMonitoring()
 // Le navigateur n'annonce qu'une fois que l'application est installable : on garde l'annonce dès le démarrage.
 listenForInstallPrompt()
 countVisit()

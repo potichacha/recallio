@@ -1,15 +1,8 @@
 import { UserManager, WebStorageStateStore } from 'oidc-client-ts'
+import { metaContent } from '../servedConfig'
 import { OIDC_AUTHORITY_TAG, oidcAuthority } from './oidcAuthority'
 
 const origin = globalThis.location?.origin ?? 'http://localhost:5173'
-
-/** L'adresse que porte la balise d'index.html, telle que nginx l'a servie. */
-function servedAuthority(): string | undefined {
-  const tag = globalThis.document?.querySelector<HTMLMetaElement>(
-    `meta[name="${OIDC_AUTHORITY_TAG}"]`,
-  )
-  return tag?.content
-}
 
 /**
  * L'action par laquelle le fournisseur supprime l'identité de l'utilisateur, à sa demande (ADR 0056). C'est celle de
@@ -24,7 +17,7 @@ export const deleteIdentityAction: string =
  * en dev, VITE_OIDC_AUTHORITY, ou le Keycloak des Dev Services, sur le port 8180 comme celui du compose.
  */
 export const userManager = new UserManager({
-  authority: oidcAuthority(servedAuthority(), import.meta.env.VITE_OIDC_AUTHORITY),
+  authority: oidcAuthority(metaContent(OIDC_AUTHORITY_TAG), import.meta.env.VITE_OIDC_AUTHORITY),
   client_id: import.meta.env.VITE_OIDC_CLIENT_ID ?? 'recallio-frontend',
   redirect_uri: `${origin}/auth/callback`,
   post_logout_redirect_uri: origin,

@@ -37,6 +37,9 @@ export default defineConfig({
       workbox: {
         // Les polices sont hébergées avec l'application (ADR 0049) : elles servent aussi hors ligne.
         globPatterns: ['**/*.{js,css,html,svg,woff2}'],
+        // Sauf Sentry (src/monitoring/sentry.ts), que la PWA ne télécharge que si nginx lui donne un DSN (ADR 0070) :
+        // sans DSN, rien de Sentry n'est téléchargé, pas même pour le hors-ligne. Les source maps (.map) n'y sont pas.
+        globIgnores: ['**/node_modules/**/*', 'assets/sentry-*.js'],
         // Les appels API ne sont jamais servis depuis le cache du service worker, ni robots.txt et le plan du site
         // (ADR 0065) : le service worker servirait la PWA à leur place.
         navigateFallbackDenylist: [/^\/api\//, /^\/robots\.txt$/, /^\/sitemap\.xml$/],
@@ -45,6 +48,12 @@ export default defineConfig({
       },
     }),
   ],
+  build: {
+    // Les source maps, pour que Sentry lise les fichiers source d'une erreur (ADR 0070) : il les télécharge du site,
+    // à côté de chaque fichier. Le dépôt est public, les servir ne révèle rien ; le service worker ne les met pas en
+    // cache, et le budget de l'ouverture ne les compte pas.
+    sourcemap: true,
+  },
   server: {
     // En dev, le front appelle /api sur son propre origin : pas de CORS à configurer.
     // `ws` : le mode live passe par un WebSocket sous /api (ADR 0021). Le plan du site vient du backend, comme

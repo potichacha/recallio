@@ -1,4 +1,6 @@
+import { useEffect } from 'react'
 import { Link, useRouteError } from 'react-router'
+import { captureError } from '../monitoring/monitoring'
 import { Rico } from './Rico'
 import { button } from './ui/button'
 import { useNoIndex } from './useNoIndex'
@@ -9,8 +11,12 @@ import { useNoIndex } from './useNoIndex'
  */
 export function PageError() {
   const error = useRouteError()
-  // Pour qui ouvre la console ; rien n'est envoyé ailleurs.
-  console.error(error)
+  // Une fois par erreur, et non à chaque rendu : dans la console, pour qui l'ouvre, et dans Sentry s'il est allumé
+  // (ADR 0070).
+  useEffect(() => {
+    console.error(error)
+    captureError(error)
+  }, [error])
   return (
     <section role="alert" className="flex flex-col items-start gap-4">
       <h1 className="text-2xl font-bold">Quelque chose s’est mal passé</h1>
