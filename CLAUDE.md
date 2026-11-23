@@ -95,14 +95,14 @@ Recallio n'est pas une application « Java » : c'est un **catalogue de sujets d
 | Framework backend | **Quarkus** (dernière version stable 3.x) | Quarkus REST, Hibernate ORM (sans Panache active record, voir 4.3), Hibernate Validator, SmallRye Health, OpenAPI, Micrometer |
 | Build | **Maven** avec le wrapper `mvnw`, multi-modules si nécessaire | versions centralisées dans le pom parent |
 | Base de données | **PostgreSQL** | migrations **Flyway**, jamais `generation` automatique du schéma hors tests |
-| Authentification | **OIDC standard**, backend agnostique du fournisseur | Keycloak via Dev Services en local ; fournisseur managé en production (à choisir, voir section 10) ; le backend valide des JWT avec `quarkus-oidc` |
+| Authentification | **OIDC standard**, backend agnostique du fournisseur | Keycloak via Dev Services en local, Keycloak hébergé en production (ADR 0069) ; le backend valide des JWT avec `quarkus-oidc` |
 | Frontend | **React + TypeScript + Vite**, PWA | TanStack Query (appels API), React Router, Tailwind CSS, client API **généré** depuis l'OpenAPI, CodeMirror 6 (éditeur des exercices, chargé à la demande) ; design system « Rico » (ADR 0058, qui révise l'ADR 0049) : tokens Tailwind des thèmes clair et sombre, au choix dans le profil, Nunito et JetBrains Mono servies par l'application, icônes Phosphor, la mascotte Rico |
 | Tests backend | JUnit 6, AssertJ, Mockito, `@QuarkusTest`, REST Assured, **Testcontainers** (via Dev Services), **ArchUnit** | |
 | Tests frontend | Vitest, Testing Library ; Playwright pour quelques parcours de bout en bout, axe-core pour l'accessibilité (ADR 0050) | |
 | Qualité | Spotless (formatage), Error Prone + NullAway avec JSpecify (dès la phase 0, voir ADR 0004), ESLint + Prettier côté front | |
 | CI | **GitHub Actions** | build, tests, analyse, image Docker |
 | Conteneurs | Docker, `docker compose` pour le local | une image backend, une image frontend (fichiers statiques servis par un serveur web) |
-| Hébergement | PaaS ou VPS européen (Clever Cloud, Scaleway ou OVHcloud), PostgreSQL managé | décision à prendre en phase 1, consignée en ADR |
+| Hébergement | deux VPS OVHcloud en Docker Compose : l'application, et le runner seul (ADR 0069) | images publiées sur GHCR par la CI ; PostgreSQL sauvegardé hors du serveur |
 | Observabilité | logs JSON sur stdout, métriques Micrometer, Sentry pour les erreurs (plus tard OpenTelemetry) | |
 | Exécution du code | service **`runner`** (Quarkus) et images **`sandbox/java`** (avec Spring Boot et Quarkus, ADR 0060, 0061), **`sandbox/go`**, **`sandbox/cpp`**, **`sandbox/python`** : un conteneur jetable par exécution, pour juger un exercice par ses tests (ADR 0030, 0033, 0053, 0062) ou lancer un programme du Tour (ADR 0037) | seul composant à accéder à Docker ; joint par le seul backend |
 | Phase 2+ | **Valkey/Redis** (classements, temps réel), WebSockets Next (mode live) | ne pas l'introduire avant la phase concernée |
@@ -395,7 +395,7 @@ Chaque phase se termine par une démo fonctionnelle, une CI verte, la documentat
 4. ✅ Points, objectif quotidien et streak.
 5. ✅ Tableau de bord personnel (cartes dues, streak, progression par thème).
 6. ✅ Parcours de bout en bout (Playwright) et rétrospective.
-7. Déploiement sur l'hébergeur choisi, observabilité de base : **après l'étape 1 de la phase 1 bis** (voir ci-dessous).
+7. Déploiement sur l'hébergeur choisi, observabilité de base : **après l'étape 1 de la phase 1 bis** (voir ci-dessous), détaillé dans « Le déploiement », après la phase « Avant le déploiement ».
 - **Terminé quand** : quelques testeurs peuvent réviser chaque jour sur mobile ; on mesure combien reviennent après 7 jours.
 
 ### Phase 1 bis : catalogue multi-sujets ✅
@@ -571,7 +571,28 @@ Le propriétaire a testé l'application en local avant de la déployer ; ses ret
 
 **Ordre** : l'étape 8.10.1 d'abord, puisqu'elle raccourcit toutes les PR suivantes ; puis les étapes 8.1 à 8.7, puis la refonte (8.9), puis le contenu (7, 4.2, 4.3 et 6), puis l'étape 8.8. Les règles de l'étape 8.2 s'appliquent à tout contenu écrit ensuite. La refonte passe avant l'étape 8.8 : ses nouveaux écrans naissent ainsi dans le bon style.
 
-Le **déploiement** (phase 1, étape 7) vient après ces phases, avec les logs JSON, Sentry, HSTS, les sauvegardes de la base et les core dumps désactivés sur le serveur du runner (33, 46). Le reste de l'audit attend les retours de la bêta.
+Le **déploiement** (phase 1, étape 7) vient après ces phases, ci-dessous. Le reste de l'audit attend les retours de la bêta.
+
+### Le déploiement (phase 1, étape 7)
+Une bêta d'abord, pour quelques testeurs ; l'ouverture à tous attend leurs retours. Deux serveurs chez OVHcloud, en Docker Compose, reliés par WireGuard (ADR 0069) : l'application (Caddy, front, backend, Keycloak, PostgreSQL) et le runner seul. Claude prépare la configuration et la procédure ; le propriétaire achète le domaine, crée les serveurs et pose les secrets. Une PR par étape :
+
+1. **Des images prêtes à déployer** :
+   - la CI les publie sur GHCR une fois `main` verte, au numéro du commit ;
+   - le contenu voyage dans l'image du backend, importé au démarrage ;
+   - le front reçoit l'adresse du fournisseur OIDC à son démarrage : une seule image pour tous les environnements (ADR 0069).
+2. **Logs et erreurs** (33) : des logs JSON en production ; les erreurs du backend, du runner et du front dans Sentry, sans donnée personnelle.
+3. **Le serveur de l'application** :
+   - le compose de production ;
+   - Caddy : HTTPS et HSTS ;
+   - Keycloak en mode production sous `auth.`, avec un royaume sans comptes de test, les e-mails par Brevo et la console d'administration fermée à Internet ;
+   - la procédure, dans `docs/deploiement.md`.
+4. **Le serveur du runner** (33) : WireGuard, pare-feu, core dumps désactivés, les images du bac à sable, deux exécutions à la fois.
+5. **Les sauvegardes** (46) : chaque nuit, la base chiffrée hors du serveur ; un essai de restauration.
+6. **Les pages légales** : mentions légales et politique de confidentialité, liées depuis le pied de page et l'inscription.
+7. **La mise en service**, par le propriétaire, en suivant la procédure :
+   - le domaine, les serveurs et les secrets ;
+   - le premier démarrage, les vérifications, la surveillance de la disponibilité ;
+   - puis les premiers testeurs.
 
 ### Phase 4 : offre entreprise
 Multi-organisation (colonne `organization_id` + Row-Level Security PostgreSQL), SSO entreprise via le fournisseur OIDC, tableau de bord admin avec statistiques **agrégées**, questions privées par organisation, export, conformité RGPD (registre, suppression de compte, DPA).
@@ -588,9 +609,9 @@ Correction des réponses ouvertes par IA, paiement. L'exécution de code en bac 
 2. ~~NullAway/Error Prone activés dès le départ ou plus tard (phase 0).~~ **Tranché** : dès la phase 0 (ADR 0004).
 3. ~~Type des identifiants : UUID v7 ou séquences (phase 1, avant la première migration métier).~~ **Tranché** : UUID v7 (ADR 0008).
 4. ~~FSRS implémenté soi-même ou bibliothèque existante (phase 1).~~ **Tranché** : FSRS-6 implémenté dans le domaine (ADR 0011).
-5. Fournisseur OIDC de production : managé (Zitadel Cloud, Clerk, Auth0...) ou Keycloak hébergé (phase 1, avant le déploiement).
-6. Hébergeur (phase 1).
-7. Nom du projet. **Provisoire** : Recallio (ADR 0005), à confirmer avant le premier déploiement public. Il ne doit pas évoquer Java seul.
+5. ~~Fournisseur OIDC de production : managé (Zitadel Cloud, Clerk, Auth0...) ou Keycloak hébergé (phase 1, avant le déploiement).~~ **Tranché** : Keycloak hébergé sur le serveur de l'application (ADR 0069).
+6. ~~Hébergeur (phase 1).~~ **Tranché** : deux VPS OVHcloud, en Docker Compose (ADR 0069).
+7. ~~Nom du projet. **Provisoire** : Recallio (ADR 0005), à confirmer avant le premier déploiement public. Il ne doit pas évoquer Java seul.~~ **Tranché** : Recallio est gardé (ADR 0069), sous réserve des marques déposées (INPI, EUIPO), à vérifier avant d'acheter le domaine.
 8. ~~Format du manifeste des sujets (phase 1 bis, étape 1).~~ **Tranché** : pas de manifeste, un en-tête dans chaque document (ADR 0013).
 9. ~~Répartition du quota de nouvelles cartes entre sujets suivis : parts égales, ou pondération choisie par l'utilisateur (phase 1 bis, étape 3).~~ **Tranché** : parts égales, en alternant les sujets (ADR 0014) ; revu par l'ADR 0048 : un quota par sujet, et une session par sujet.
 10. ~~Bac à sable d'exécution du code des joueurs : service existant (Judge0, Piston) ou exécuteur maison à conteneurs jetables (phase 3 bis, étape 4).~~ **Tranché** : exécuteur maison à conteneurs jetables, un service `runner` séparé (ADR 0030).

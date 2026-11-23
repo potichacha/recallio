@@ -2,6 +2,7 @@
 
 - Statut : accepté
 - Date : 2026-10-29
+- Révisé par : ADR 0069 (en production aussi, l'import se fait au démarrage : le contenu voyage dans l'image du backend)
 
 ## Contexte
 

@@ -102,6 +102,10 @@ tests du runner (isolation du bac à sable, et chaque exercice de code joué : l
 contre la pile complète (voir [`e2e/README.md`](e2e/README.md)). Dependabot propose chaque semaine les
 mises à jour de dépendances.
 
+Une fois `main` verte, la CI publie les images (backend, front, runner et bacs à sable) sur GHCR,
+`ghcr.io/potichacha/recallio-<image>`, au tag `sha-<commit>` que le serveur épingle : voir
+l'[ADR 0069](docs/adr/0069-hebergement-et-livraison.md).
+
 ## Contribuer
 
 - Une branche courte par étape, créée depuis `main` à jour ; pull request obligatoire.
