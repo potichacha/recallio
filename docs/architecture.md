@@ -360,7 +360,7 @@ flowchart LR
 
 Les secrets passent uniquement par des variables d'environnement, jamais par le dépôt.
 
-## 5. Déploiement (ADR 0069, 0071)
+## 5. Déploiement (ADR 0069, 0071, 0072)
 
 Deux VPS OVHcloud, en Docker Compose, reliés par WireGuard. Les serveurs ne construisent rien : ils tirent de GHCR les
 images publiées par la CI, au tag `sha-…` qu'ils épinglent. La procédure, du serveur nu à la mise à jour, est dans
@@ -425,6 +425,22 @@ flowchart LR
     conteneur).
   - **La CI** vérifie cette configuration (job `production` : le compose, le Caddyfile, le royaume), et Dependabot suit
     les images de Caddy, Keycloak et PostgreSQL.
+- **Le serveur du runner** (ADR 0072) se décrit dans `infra/production/runner/` : son `compose.yaml` (le runner et les
+  quatre images du bac à sable, au tag de l'application), un `.env` (le tag, le jeton, le DSN) et le modèle de sa
+  configuration WireGuard ; l'autre bout du tunnel est dans `infra/production/app/wireguard/`.
+  - **Le tunnel** : WireGuard, le runner en `10.13.13.2` (il écoute sur `51820/udp`, ouvert à la seule adresse de
+    l'application), l'application en `10.13.13.1` (elle appelle, et n'ouvre aucun port). Une clé partagée s'ajoute aux
+    clés publiques. Le backend joint `http://10.13.13.2:8090` depuis son conteneur : Docker masque son adresse derrière
+    `10.13.13.1`, la seule que le runner accepte de ce pair.
+  - **Le seul port publié** est celui du runner, sur l'adresse du tunnel : jamais sur Internet, puisque Docker contourne
+    `ufw`. Docker démarre après WireGuard (un drop-in systemd), sans quoi la liaison échouerait au redémarrage du
+    serveur ; le jeton reste la barrière de chaque requête.
+  - **Deux exécutions à la fois** (2 vCores, `--cpus 1` chacune), la JVM du runner plafonnée à 512 Mo.
+  - **Aucun core dump** : `kernel.core_pattern=core`, apport masqué, et une limite de 0 pour tout conteneur
+    (`default-ulimits` de Docker) ; un programme qui plante ne laisse rien, ni sur l'hôte ni dans le conteneur.
+  - **gVisor** est prêt à essayer (`RECALLIO_SANDBOX_DOCKER_RUNTIME=runsc`), pas activé pour la bêta.
+  - **Une mise à jour** porte le même tag sur les deux serveurs, le runner d'abord. La CI vérifie ce compose et que les
+    modèles WireGuard ne contiennent aucune clé (job `production`).
 - **Les logs et les erreurs** (ADR 0070) :
   - chaque service écrit ses logs en JSON sur sa sortie standard, avec son nom (`service`) : le backend et le runner
     (`quarkus-logging-json`), nginx pour son journal d'accès, sans adresse IP, sans `User-Agent` ni `Referer`, sans

@@ -346,9 +346,10 @@ jobs:
             e2e/test-results/
           retention-days: 7
 
-  # La configuration du serveur de l'application (ADR 0071), sans rien démarrer : le compose de production avec les
-  # variables de .env.example (ses secrets vides remplis d'une valeur factice, puisque Compose refuse un secret vide), le
-  # Caddyfile formaté et validé par l'image de Caddy que le compose épingle, et le royaume Keycloak de production.
+  # La configuration des serveurs de l'application (ADR 0071) et du runner (ADR 0072), sans rien démarrer : chaque
+  # compose de production avec les variables de son .env.example (ses secrets vides remplis d'une valeur factice,
+  # puisque Compose refuse un secret vide), le Caddyfile formaté et validé par l'image de Caddy que le compose épingle,
+  # le royaume Keycloak de production, et les modèles WireGuard, qui ne doivent contenir aucune clé.
   production:
     name: production
     needs: changes
@@ -374,6 +375,26 @@ jobs:
 
       - name: Check that the production realm is valid JSON
         run: jq empty keycloak/recallio-realm.json
+
+      - name: Check the runner compose file with the variables of its .env.example
+        working-directory: infra/production/runner
+        run: |
+          sed 's/=$/=ci-placeholder/' .env.example > "$RUNNER_TEMP/runner-ci.env"
+          docker compose --env-file "$RUNNER_TEMP/runner-ci.env" config --quiet
+
+      # Une clé WireGuard fait 44 caractères base64 (32 octets) : aucune ne doit se trouver dans un modèle, et chaque
+      # ligne de clé n'y porte qu'un marqueur <...>, remplacé sur le serveur (docs/deploiement.md, section 11).
+      - name: Check that the WireGuard templates contain no key
+        working-directory: infra/production
+        run: |
+          templates=(app/wireguard/wg0.conf.example runner/wireguard/wg0.conf.example)
+          # Un modèle absent ferait passer les grep ci-dessous sans rien vérifier.
+          ls "${templates[@]}" > /dev/null
+          if grep -nE '[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=' "${templates[@]}" \
+            || grep -nE '^ *(PrivateKey|PublicKey|PresharedKey) *= *[^< ]' "${templates[@]}"; then
+            echo "::error::Un modèle WireGuard contient une clé : seuls des marqueurs <...> y sont permis."
+            exit 1
+          fi
 
   # Publie les images sur GHCR (ADR 0069), seulement sur un push sur main, et après tous les jobs de vérification : sur
   # main, ils tournent tous (voir le job changes), et une image publiée a donc passé toute la CI. Deux tags : sha-<12

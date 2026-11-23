@@ -1,0 +1,100 @@
+# Le serveur du runner (ADR 0069, 0072) : le runner et les images du bac à sable, rien d'autre, car l'accès au socket
+# Docker vaut les droits root sur l'hôte (ADR 0030). Rien ne se construit ici : ce sont les images publiées par la CI, au
+# tag épinglé dans le .env, le même que sur le serveur de l'application. Le backend joint le runner par le tunnel
+# WireGuard, avec le jeton partagé. La procédure complète est dans docs/deploiement.md, section 11.
+#
+#   cd /opt/recallio/infra/production/runner
+#   docker compose pull && docker compose up -d
+#
+# Toutes les variables viennent du fichier .env, copié de .env.example et jamais versionné. Celles marquées :? sont
+# obligatoires : sans elles, Compose refuse de démarrer, plutôt que de lancer un service mal configuré.
+
+name: recallio-runner
+
+# Les images du bac à sable, au tag du runner (ADR 0069) : écrites une fois, reprises par leur service et par la variable
+# qui les donne au runner. Il lance ainsi exactement les images que docker compose pull a tirées.
+x-sandbox-images:
+  java: &java-image ghcr.io/potichacha/recallio-sandbox-java:${RECALLIO_TAG:?le tag des images à déployer, sha-...}
+  go: &go-image ghcr.io/potichacha/recallio-sandbox-go:${RECALLIO_TAG:?le tag des images à déployer, sha-...}
+  cpp: &cpp-image ghcr.io/potichacha/recallio-sandbox-cpp:${RECALLIO_TAG:?le tag des images à déployer, sha-...}
+  python: &python-image ghcr.io/potichacha/recallio-sandbox-python:${RECALLIO_TAG:?le tag des images à déployer, sha-...}
+
+# La rotation des logs, la même que sur le serveur de l'application (ADR 0071) : le pilote local, 5 fichiers de 10 Mo au
+# plus par conteneur.
+x-logging: &logging
+  driver: local
+  options:
+    max-size: 10m
+    max-file: "5"
+
+# Un service par image du bac à sable, pour que docker compose pull la tire et que up -d l'ait avant le runner, comme le
+# compose local. Il ne lance que true, qui se termine aussitôt : ni réseau, ni redémarrage, ni le script du bac à sable.
+# Son conteneur arrêté garde l'image : docker image prune -a ne la supprime pas.
+x-sandbox: &sandbox
+  entrypoint: ["true"]
+  network_mode: none
+  restart: "no"
+  logging: *logging
+
+services:
+  sandbox-java:
+    <<: *sandbox
+    image: *java-image
+
+  sandbox-go:
+    <<: *sandbox
+    image: *go-image
+
+  sandbox-cpp:
+    <<: *sandbox
+    image: *cpp-image
+
+  sandbox-python:
+    <<: *sandbox
+    image: *python-image
+
+  # Exécute le code des joueurs dans des conteneurs jetables, lancés sur le Docker de l'hôte (ADR 0030, 0037).
+  runner:
+    image: ghcr.io/potichacha/recallio-runner:${RECALLIO_TAG:?le tag des images à déployer, sha-...}
+    restart: unless-stopped
+    environment:
+      RECALLIO_RUNNER_TOKEN: ${RECALLIO_RUNNER_TOKEN:?le jeton partagé avec le backend}
+      RECALLIO_SANDBOX_JAVA_IMAGE: *java-image
+      RECALLIO_SANDBOX_GO_IMAGE: *go-image
+      RECALLIO_SANDBOX_CPP_IMAGE: *cpp-image
+      RECALLIO_SANDBOX_PYTHON_IMAGE: *python-image
+      # Chaque exécution a un processeur (--cpus 1, ADR 0030), et le serveur en a deux : au-delà, le runner répond 503.
+      RECALLIO_SANDBOX_MAX_CONCURRENT_RUNS: "2"
+      # Vide, runc, le runtime par défaut ; runsc pour gVisor, une fois installé et essayé (docs/deploiement.md).
+      RECALLIO_SANDBOX_DOCKER_RUNTIME: ${RECALLIO_SANDBOX_DOCKER_RUNTIME:-}
+      SENTRY_DSN: ${SENTRY_DSN_RUNNER:-}
+      SENTRY_RELEASE: ${RECALLIO_TAG}
+    volumes:
+      # Un conteneur par exécution, sur le Docker de l'hôte : ce socket vaut les droits root sur l'hôte.
+      - /var/run/docker.sock:/var/run/docker.sock
+    ports:
+      # Sur l'adresse WireGuard du serveur seulement, jamais sur son adresse publique : Docker contourne le pare-feu ufw
+      # pour les ports qu'il publie, et c'est l'adresse de liaison qui protège (ADR 0072). Docker doit donc démarrer
+      # après l'interface wg0 (le drop-in systemd de docs/deploiement.md).
+      - "${WIREGUARD_ADDRESS:-10.13.13.2}:8090:8090"
+    # Sans limite, la JVM dimensionnerait son tas sur la mémoire de l'hôte : 80 % de 4 Go. La limite compte aussi les
+    # commandes docker que le runner lance, une par exécution : 190 à 214 Mo mesurés, deux exécutions comprises
+    # (ADR 0072).
+    mem_limit: 512m
+    # Prêt quand la réponse est 200, pas sur un « UP » qu'une réponse 503 contient aussi (ADR 0071).
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8090 && printf 'GET /q/health/ready HTTP/1.0\\r\\n\\r\\n' >&3 && head -n1 <&3 | grep -q ' 200 '"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 1m
+    depends_on:
+      sandbox-java:
+        condition: service_completed_successfully
+      sandbox-go:
+        condition: service_completed_successfully
+      sandbox-cpp:
+        condition: service_completed_successfully
+      sandbox-python:
+        condition: service_completed_successfully
+    logging: *logging
