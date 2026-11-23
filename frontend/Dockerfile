@@ -13,8 +13,9 @@ COPY frontend/ ./
 RUN npm run build
 
 # --- Exécution : nginx sert la PWA et relaie /api vers le backend --------
-FROM nginx:1.31-alpine
-# Applique les correctifs de sécurité Alpine publiés après la construction de l'image de base.
+FROM nginx:1.31-alpine AS runtime
+# Applique les correctifs de sécurité Alpine publiés après la construction de l'image de base. La CI ne met jamais
+# cette étape en cache (no-cache-filters: runtime, ADR 0070) : chaque image prend les derniers.
 RUN apk upgrade --no-cache
 ENV BACKEND_URL=http://backend:8080
 # L'adresse du fournisseur OIDC (son royaume, chez Keycloak) : nginx la met dans index.html, où la PWA la lit à son
@@ -28,6 +29,10 @@ ENV OIDC_ORIGIN=http://localhost:8180
 ENV PUBLIC_ORIGIN=http://localhost:3000
 # Les débits permis sans compte, par adresse IP (ADR 0054), et le proxy dont on croit l'en-tête X-Forwarded-For.
 ENV RATE_LIMIT_PUBLIC=20r/s RATE_LIMIT_TRIAL=2r/s RATE_LIMIT_INVITATIONS=1r/s TRUSTED_PROXY=127.0.0.1
+# Les erreurs de la PWA dans Sentry (ADR 0070) : nginx met le DSN, l'environnement et la version dans index.html, où la
+# PWA les lit à son démarrage. Sans DSN, elle ne charge rien et n'envoie rien. SENTRY_ORIGIN, l'origine du DSN, entre
+# dans la Content-Security-Policy : à accorder au DSN, comme OIDC_ORIGIN à OIDC_AUTHORITY.
+ENV SENTRY_DSN="" SENTRY_ENVIRONMENT=production SENTRY_RELEASE="" SENTRY_ORIGIN=""
 COPY frontend/nginx/security-headers.conf frontend/nginx/api-proxy.conf /etc/nginx/snippets/
 COPY frontend/nginx/default.conf.template /etc/nginx/templates/default.conf.template
 COPY --from=build /repo/frontend/dist /usr/share/nginx/html

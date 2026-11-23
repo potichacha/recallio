@@ -41,8 +41,8 @@ En local avec Docker (`infra/compose.yaml`), nginx relaie `/api` vers le backend
 l'API partagent la même origine, donc pas de CORS.
 
 nginx porte aussi la sécurité de l'entrée (ADR 0054) : les en-têtes de sécurité, dont une Content-Security-Policy qui
-n'admet que l'application et le fournisseur OIDC, et une limite de débit par adresse IP pour les requêtes sans jeton
-(essai, catalogue) et pour les invitations.
+n'admet que l'application, le fournisseur OIDC et Sentry (ADR 0070), et une limite de débit par adresse IP pour les
+requêtes sans jeton (essai, catalogue) et pour les invitations.
 
 Pour le référencement (ADR 0065), nginx met l'origine publique du site (`PUBLIC_ORIGIN`) dans les balises de partage
 d'`index.html` et dans `robots.txt`, là seulement où il sert les fichiers, et relaie `/sitemap.xml` vers le plan du
@@ -351,6 +351,8 @@ flowchart LR
 | Contenu (ADR 0069) | importé à chaque démarrage depuis `../content` en dev | dans l'image du backend (`/content`), importé à chaque démarrage |
 | Rappels (Web Push, ADR 0047) | paire VAPID éphémère, tirée au démarrage ; aucun minuteur en test | `RECALLIO_PUSH_VAPID_PUBLIC_KEY`, `RECALLIO_PUSH_VAPID_PRIVATE_KEY`, `RECALLIO_PUSH_SUBJECT` |
 | Origine publique du site (plan du site, balises de partage, `robots.txt` ; ADR 0065) | celle de Vite en dev, `https://recallio.test/` en test ; `http://localhost:3000` dans le compose | `PUBLIC_ORIGIN`, la même au backend (obligatoire) et au front (nginx) |
+| Logs (ADR 0070) | texte lisible en dev et en test ; JSON dans le compose, en profil `prod` | JSON sur la sortie standard, un champ `service` par ligne ; nginx sans adresse IP ni chaîne de requête |
+| Erreurs dans Sentry (ADR 0070) | éteint : aucun DSN en dev, en test, en CI ni dans le compose | `SENTRY_DSN` de chaque service (backend, runner, front), `SENTRY_ENVIRONMENT` (`production` par défaut), `SENTRY_RELEASE` (le tag de l'image) ; au front, l'origine du DSN dans `SENTRY_ORIGIN` (CSP) |
 | `/q/*` (Dev UI, Swagger) | public | non exposé |
 | Santé | `/api/v1/health` (public) | `/api/v1/health` (public) |
 
@@ -401,3 +403,13 @@ flowchart LR
   (`OIDC_ORIGIN`) et l'origine publique du site (`PUBLIC_ORIGIN`) ; le runner, le nom des images du bac à sable.
 - **Déployer**, pour la bêta, se fait à la main : épingler un nouveau tag `sha-…`, tirer les images, relancer. Revenir
   en arrière, c'est épingler le précédent.
+- **Les logs et les erreurs** (ADR 0070) :
+  - chaque service écrit ses logs en JSON sur sa sortie standard, avec son nom (`service`) : le backend et le runner
+    (`quarkus-logging-json`), nginx pour son journal d'accès, sans adresse IP, sans `User-Agent` ni `Referer`, sans
+    chaîne de requête, le jeton d'une invitation et l'adresse d'un profil public masqués ; le backend masque de même
+    chaque ligne qu'il écrit (`SensitivePathsLogFilter`) ;
+  - les erreurs du backend, du runner et de la PWA partent chez Sentry, hébergé en région UE, un projet par service,
+    allumé par la seule présence de son DSN (`SENTRY_DSN`) ; nettoyées avant l'envoi, sans utilisateur ni adresse IP ;
+  - la PWA ne télécharge Sentry qu'avec un DSN, et Sentry lit ses source maps sur le site.
+- **Les images** prennent à chaque construction les correctifs de sécurité publiés depuis leur image de base
+  (`microdnf upgrade`, `apk upgrade`) : la CI ne met jamais leur étape `runtime` en cache (ADR 0070).

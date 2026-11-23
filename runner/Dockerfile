@@ -16,8 +16,13 @@ COPY src/main/ src/main/
 RUN --mount=type=cache,target=/root/.m2 ./mvnw -B -q package -DskipTests
 
 # --- Exécution ----------------------------------------------------------
-FROM registry.access.redhat.com/ubi9/openjdk-25-runtime:1.24
+FROM registry.access.redhat.com/ubi9/openjdk-25-runtime:1.24 AS runtime
 ENV LANGUAGE='en_US:en'
+
+# Les correctifs de sécurité publiés après l'image de base (ADR 0070) : Red Hat corrige ses paquets avant de publier une
+# nouvelle image. La CI ne met jamais cette étape en cache (no-cache-filters: runtime) : chaque image prend les derniers.
+USER root
+RUN microdnf upgrade -y --nodocs --setopt=install_weak_deps=0 && microdnf clean all
 
 # La ligne de commande docker : le runner lance un conteneur de bac à sable par exécution (ADR 0030).
 COPY --from=docker:29-cli /usr/local/bin/docker /usr/local/bin/docker

@@ -16,11 +16,33 @@ limit_req_zone $anonymous_address zone=trial:10m rate=${RATE_LIMIT_TRIAL};
 # Un lien d'invitation se devine par essais : compté par adresse, avec ou sans jeton.
 limit_req_zone $binary_remote_addr zone=invitations:10m rate=${RATE_LIMIT_INVITATIONS};
 limit_req_status 429;
+# Un refus s'écrirait dans le journal d'erreurs avec l'adresse IP et la requête : il passe au niveau info, sous celui du
+# journal d'erreurs de l'image (notice). Les 429 restent dans le journal d'accès, sans adresse IP (ADR 0070).
+limit_req_log_level info;
+
+# Le journal d'accès (ADR 0070), en JSON, une ligne par requête : sans adresse IP, sans User-Agent ni Referer, sans
+# chaîne de requête, et le jeton d'une invitation et l'adresse d'un profil public masqués. Le chemin part de
+# $request_uri : $uri devient /index.html après try_files.
+map $request_uri $request_path {
+    "~^([^?]*)" $1;
+}
+map $request_path $logged_path {
+    "~^/join/[^/]+(.*)$"                      "/join/:token$1";
+    "~^(/api/v1/invitations/)[^/]+(.*)$"      "$1:token$2";
+    "~^/u/[^/]+(.*)$"                         "/u/:handle$1";
+    "~^(/api/v1/public-profiles/)[^/]+(.*)$"  "$1:handle$2";
+    default                                   $request_path;
+}
+log_format recallio_json escape=json
+    '{"time":"$time_iso8601","service":"frontend","method":"$request_method","path":"$logged_path",'
+    '"status":$status,"bytes":$body_bytes_sent,"duration":$request_time,'
+    '"upstream_duration":"$upstream_response_time"}';
 
 server {
     listen 80;
     server_name _;
     root /usr/share/nginx/html;
+    access_log /var/log/nginx/access.log recallio_json;
 
     # Derrière un proxy TLS, l'adresse du client est celle que le proxy annonce. Seul le proxy déclaré ici est cru :
     # sans cela, n'importe qui choisirait son adresse, et échapperait à la limite de débit.
@@ -28,10 +50,11 @@ server {
     real_ip_header X-Forwarded-For;
     real_ip_recursive on;
 
-    # Content-Security-Policy (ADR 0054) : tout vient de l'application, sauf le fournisseur OIDC. Les styles en ligne
-    # sont ceux de l'éditeur de code et des barres de progression ; les images data: et blob:, les cartes de partage ;
-    # les polices data:, les petits fichiers de police que Vite inscrit dans la feuille de style.
-    set $csp "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ${OIDC_ORIGIN}; frame-src ${OIDC_ORIGIN}; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'";
+    # Content-Security-Policy (ADR 0054) : tout vient de l'application, sauf le fournisseur OIDC et Sentry. Les styles en
+    # ligne sont ceux de l'éditeur de code et des barres de progression ; les images data: et blob:, les cartes de
+    # partage ; les polices data:, les petits fichiers de police que Vite inscrit dans la feuille de style. La PWA envoie
+    # ses erreurs à l'origine du DSN de Sentry, SENTRY_ORIGIN, vide sans Sentry (ADR 0070).
+    set $csp "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ${OIDC_ORIGIN} ${SENTRY_ORIGIN}; frame-src ${OIDC_ORIGIN}; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'";
 
     # Compression (ADR 0050) : le JavaScript et le CSS de la PWA pèsent trois à quatre fois moins une fois compressés,
     # ce qui compte sur un téléphone en 4G. Le niveau 6 est celui que mesure le budget de la CI (npm run size).
@@ -92,11 +115,15 @@ server {
     # Application monopage : toute autre route renvoie index.html. Les adresses des balises de partage d'index.html et
     # la ligne Sitemap de robots.txt doivent être absolues : nginx y met l'origine publique du site (ADR 0065). Il met
     # aussi l'adresse du fournisseur OIDC dans index.html, où la PWA la lit : une seule image pour tous les
-    # environnements (ADR 0069). Ici seulement, là où il sert les fichiers, jamais sur les réponses de l'API.
+    # environnements (ADR 0069) ; de même le DSN de Sentry, son environnement et sa version, vides sans Sentry
+    # (ADR 0070). Ici seulement, là où il sert les fichiers, jamais sur les réponses de l'API.
     location / {
         include /etc/nginx/snippets/security-headers.conf;
         sub_filter '__PUBLIC_ORIGIN__' '${PUBLIC_ORIGIN}';
         sub_filter '__OIDC_AUTHORITY__' '${OIDC_AUTHORITY}';
+        sub_filter '__SENTRY_DSN__' '${SENTRY_DSN}';
+        sub_filter '__SENTRY_ENVIRONMENT__' '${SENTRY_ENVIRONMENT}';
+        sub_filter '__SENTRY_RELEASE__' '${SENTRY_RELEASE}';
         sub_filter_once off;
         sub_filter_types text/plain;
         try_files $uri $uri/ /index.html;

@@ -103,7 +103,7 @@ Recallio n'est pas une application « Java » : c'est un **catalogue de sujets d
 | CI | **GitHub Actions** | build, tests, analyse, image Docker |
 | Conteneurs | Docker, `docker compose` pour le local | une image backend, une image frontend (fichiers statiques servis par un serveur web) |
 | Hébergement | deux VPS OVHcloud en Docker Compose : l'application, et le runner seul (ADR 0069) | images publiées sur GHCR par la CI ; PostgreSQL sauvegardé hors du serveur |
-| Observabilité | logs JSON sur stdout, métriques Micrometer, Sentry pour les erreurs (plus tard OpenTelemetry) | |
+| Observabilité | logs JSON sur stdout, métriques Micrometer, Sentry pour les erreurs (plus tard OpenTelemetry) | sans donnée personnelle (ADR 0070) |
 | Exécution du code | service **`runner`** (Quarkus) et images **`sandbox/java`** (avec Spring Boot et Quarkus, ADR 0060, 0061), **`sandbox/go`**, **`sandbox/cpp`**, **`sandbox/python`** : un conteneur jetable par exécution, pour juger un exercice par ses tests (ADR 0030, 0033, 0053, 0062) ou lancer un programme du Tour (ADR 0037) | seul composant à accéder à Docker ; joint par le seul backend |
 | Phase 2+ | **Valkey/Redis** (classements, temps réel), WebSockets Next (mode live) | ne pas l'introduire avant la phase concernée |
 
@@ -576,11 +576,14 @@ Le **déploiement** (phase 1, étape 7) vient après ces phases, ci-dessous. Le 
 ### Le déploiement (phase 1, étape 7)
 Une bêta d'abord, pour quelques testeurs ; l'ouverture à tous attend leurs retours. Deux serveurs chez OVHcloud, en Docker Compose, reliés par WireGuard (ADR 0069) : l'application (Caddy, front, backend, Keycloak, PostgreSQL) et le runner seul. Claude prépare la configuration et la procédure ; le propriétaire achète le domaine, crée les serveurs et pose les secrets. Une PR par étape :
 
-1. **Des images prêtes à déployer** :
+1. ✅ **Des images prêtes à déployer** :
    - la CI les publie sur GHCR une fois `main` verte, au numéro du commit ;
    - le contenu voyage dans l'image du backend, importé au démarrage ;
    - le front reçoit l'adresse du fournisseur OIDC à son démarrage : une seule image pour tous les environnements (ADR 0069).
-2. **Logs et erreurs** (33) : des logs JSON en production ; les erreurs du backend, du runner et du front dans Sentry, sans donnée personnelle.
+2. ✅ **Logs et erreurs** (33) :
+   - des logs JSON en production, nginx compris, sans adresse IP ni jeton ;
+   - les erreurs du backend, du runner et du front dans Sentry, sans donnée personnelle, activé par la seule présence de son DSN ;
+   - les correctifs de sécurité des images de base appliqués à chaque construction (ADR 0070).
 3. **Le serveur de l'application** :
    - le compose de production ;
    - Caddy : HTTPS et HSTS ;

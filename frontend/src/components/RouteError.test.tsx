@@ -2,11 +2,16 @@ import { focusManager } from '@tanstack/react-query'
 import { act, render, screen } from '@testing-library/react'
 import { createMemoryRouter, Outlet, RouterProvider } from 'react-router'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { captureError } from '../monitoring/monitoring'
 import { renderAt, sentRequests, stubApi, TEST_SUBJECTS } from '../test/render'
 import { PageError } from './RouteError'
 
+vi.mock('../monitoring/monitoring', () => ({ captureError: vi.fn() }))
+
+const PAGE_FAILURE = new Error('Une page qui casse')
+
 function BrokenPage(): never {
-  throw new Error('Une page qui casse')
+  throw PAGE_FAILURE
 }
 
 describe('the safety net of the pages (audit, item 8)', () => {
@@ -33,6 +38,20 @@ describe('the safety net of the pages (audit, item 8)', () => {
     expect(screen.getByRole('button', { name: 'Recharger' })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Revenir à l’accueil' })).toHaveAttribute('href', '/')
     expect(screen.getByRole('navigation', { name: 'Navigation principale' })).toBeInTheDocument()
+  })
+
+  it('reports the error of the page once, to Sentry when it is on (ADR 0070)', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    vi.mocked(captureError).mockClear()
+    const router = createMemoryRouter([
+      { ErrorBoundary: PageError, children: [{ index: true, Component: BrokenPage }] },
+    ])
+
+    render(<RouterProvider router={router} />)
+    await screen.findByRole('alert')
+
+    expect(captureError).toHaveBeenCalledTimes(1)
+    expect(captureError).toHaveBeenCalledWith(PAGE_FAILURE)
   })
 
   it('says that an unknown address leads nowhere', async () => {

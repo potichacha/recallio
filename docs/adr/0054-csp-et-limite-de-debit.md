@@ -4,6 +4,8 @@
 - Date : 2026-11-11
 - Prolonge : ADR 0050 (l'essai sans compte), CLAUDE.md section 4.5 (sécurité)
 - Origine : audit du 2026-11-10 (`docs/audit-2026-11.md`), éléments 14 et 15
+- Complété par : ADR 0070 (une seconde origine tierce, celle de Sentry, `SENTRY_ORIGIN` ; les refus de la limite de
+  débit hors du journal d'erreurs de nginx)
 
 ## Contexte
 

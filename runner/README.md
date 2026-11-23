@@ -64,6 +64,13 @@ programmes partagent les exécutions simultanées.
 | `RECALLIO_SANDBOX_PROGRAM_TIMEOUT` | `10s` | Le délai d'un programme une fois compilé, en secondes entières, plus court que le précédent |
 | `RECALLIO_SANDBOX_MAX_CONCURRENT_RUNS` | `4` | Les exécutions simultanées, soumissions et programmes confondus |
 | `RECALLIO_SANDBOX_DOCKER_RUNTIME` | runc | `runsc` pour gVisor, s'il est installé sur l'hôte |
+| `SENTRY_DSN` | vide | Le DSN du projet Sentry du runner : renseigné, il envoie ses erreurs à Sentry ; vide, rien (ADR 0070) |
+| `SENTRY_ENVIRONMENT` | `production` | L'environnement des erreurs dans Sentry |
+| `SENTRY_RELEASE` | vide | La version des erreurs dans Sentry : le tag de l'image |
+
+En production, les logs sont en JSON, une ligne par événement, avec `"service":"runner"`. La sortie d'erreur d'un
+programme qui échoue de façon inattendue y est écrite (en `WARN`), mais ne part jamais chez Sentry, qui ne reçoit que
+les `ERROR`.
 
 Le runner a besoin de la ligne de commande `docker` et du socket Docker, ce qui équivaut à des droits root sur l'hôte.
 C'est pour cela qu'il est séparé du backend, et que son hôte ne doit porter rien d'autre de sensible.

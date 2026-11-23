@@ -1,3 +1,5 @@
+import { servedValue } from '../servedConfig'
+
 /** Le Keycloak local, celui des Dev Services comme du compose. */
 export const LOCAL_OIDC_AUTHORITY = 'http://localhost:8180/realms/recallio'
 
@@ -17,6 +19,5 @@ export function oidcAuthority(
   servedByNginx: string | undefined,
   givenAtBuild: string | undefined,
 ): string {
-  if (servedByNginx && servedByNginx !== OIDC_AUTHORITY_MARKER) return servedByNginx
-  return givenAtBuild ?? LOCAL_OIDC_AUTHORITY
+  return servedValue(servedByNginx, OIDC_AUTHORITY_MARKER) ?? givenAtBuild ?? LOCAL_OIDC_AUTHORITY
 }
