@@ -74,3 +74,7 @@ les `ERROR`.
 
 Le runner a besoin de la ligne de commande `docker` et du socket Docker, ce qui équivaut à des droits root sur l'hôte.
 C'est pour cela qu'il est séparé du backend, et que son hôte ne doit porter rien d'autre de sensible.
+
+En production, il tourne seul sur son serveur, avec les images du bac à sable au même tag, et le backend le joint par un
+tunnel WireGuard, sur `10.13.13.2:8090` : [`infra/production/runner/`](../infra/production/runner/) et la section 11 de
+[`docs/deploiement.md`](../docs/deploiement.md) (ADR 0072).

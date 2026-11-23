@@ -7,7 +7,8 @@
 - Prolonge : ADR 0005 (le nom provisoire), ADR 0009 (l'import du contenu), ADR 0030 (le bac à sable), ADR 0054 (la
   Content-Security-Policy), ADR 0065 (le référencement)
 - Origine : le déploiement (phase 1, étape 7), son étape 1, « des images prêtes à déployer »
-- Complété par : ADR 0071 (le serveur de l'application : son compose, Caddy, Keycloak en production)
+- Complété par : ADR 0071 (le serveur de l'application : son compose, Caddy, Keycloak en production), ADR 0072 (le
+  serveur du runner : son compose, le tunnel WireGuard, le pare-feu, les core dumps)
 
 ## Contexte
 

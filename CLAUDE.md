@@ -589,7 +589,7 @@ Une bêta d'abord, pour quelques testeurs ; l'ouverture à tous attend leurs ret
    - Caddy : HTTPS et HSTS ;
    - Keycloak en mode production sous `auth.`, avec un royaume sans comptes de test, les e-mails par Brevo et la console d'administration fermée à Internet, jointe par un tunnel SSH ;
    - la procédure, dans `docs/deploiement.md` (ADR 0071).
-4. **Le serveur du runner** (33) : WireGuard, pare-feu, core dumps désactivés, les images du bac à sable, deux exécutions à la fois.
+4. ✅ **Le serveur du runner** (33) : WireGuard, pare-feu, core dumps désactivés, les images du bac à sable, deux exécutions à la fois (`infra/production/runner/`, ADR 0072) ; gVisor à essayer avant l'ouverture à tous.
 5. **Les sauvegardes** (46) : chaque nuit, la base chiffrée hors du serveur ; un essai de restauration.
 6. **Les pages légales** : mentions légales et politique de confidentialité, liées depuis le pied de page et l'inscription.
 7. **La mise en service**, par le propriétaire, en suivant la procédure :

@@ -2,20 +2,23 @@
 
 > Pour le propriétaire du projet, qui monte et fait vivre les serveurs de la bêta. Chaque étape donne les commandes à
 > copier et ce qu'on doit voir. Les décisions sont dans les ADR [0069](adr/0069-hebergement-et-livraison.md) (deux
-> serveurs, des images publiées par la CI), [0070](adr/0070-logs-et-erreurs.md) (logs et Sentry) et
-> [0071](adr/0071-le-serveur-de-l-application.md) (le serveur de l'application).
+> serveurs, des images publiées par la CI), [0070](adr/0070-logs-et-erreurs.md) (logs et Sentry),
+> [0071](adr/0071-le-serveur-de-l-application.md) (le serveur de l'application) et
+> [0072](adr/0072-le-serveur-du-runner.md) (le serveur du runner).
 >
-> État : le serveur de l'application (étape 7.3). Le serveur du runner (7.4), les sauvegardes (7.5) et la mise en
-> service (7.7) compléteront ce document, à leurs sections annoncées en fin de page.
+> État : le serveur de l'application (étape 7.3) et le serveur du runner (7.4, section 11). Les sauvegardes (7.5) et la
+> mise en service (7.7) compléteront ce document, à leurs sections annoncées en fin de page.
 
 Conventions :
 
 - `<domaine>` est le domaine du site (par exemple `recallio.fr`), `<ip>` l'adresse IPv4 du serveur de l'application,
-  `recallio` l'utilisateur que l'on crée sur le serveur (section 3) ;
+  `<ip-runner>` celle du serveur du runner (section 11), `recallio` l'utilisateur que l'on crée sur chaque serveur
+  (section 3) ;
 - une commande précédée de « Sur ton poste » se tape sur ta machine, dans Git Bash sous Windows (dans PowerShell,
   `curl` n'est pas le vrai curl, et `grep` manque), sauf mention de PowerShell ; les autres, sur le serveur, connecté
   en SSH ;
-- toutes les commandes `docker compose` se lancent depuis `/opt/recallio/infra/production/app`.
+- toutes les commandes `docker compose` se lancent depuis `/opt/recallio/infra/production/app`, sauf celles du serveur
+  du runner, depuis `/opt/recallio/infra/production/runner` (section 11).
 
 ## 1. Vue d'ensemble
 
@@ -29,14 +32,18 @@ flowchart LR
         kc["Keycloak<br/>127.0.0.1:8280"]
         db[("PostgreSQL<br/>bases recallio et keycloak")]
     end
-    runner["Runner<br/>(VPS-1, étape 7.4)"]
+    subgraph run ["Serveur du runner (VPS-1)"]
+        runner["Runner<br/>10.13.13.2:8090"]
+        sandbox["Bac à sable<br/>un conteneur par exécution"]
+    end
     user -- "https://&lt;domaine&gt;" --> caddy
     user -- "https://auth.&lt;domaine&gt;" --> caddy
     caddy --> front --> back
     caddy --> kc
     back --> db
     kc --> db
-    back -. WireGuard .-> runner
+    back -. "WireGuard (UDP 51820), jeton" .-> runner
+    runner --> sandbox
 ```
 
 | Service | Ce qu'il fait | Joignable depuis Internet |
@@ -46,12 +53,15 @@ flowchart LR
 | Backend | L'API ; importe le contenu à chaque démarrage | non : par le front |
 | Keycloak | Les comptes, la connexion, les e-mails (Brevo) ; sa console d'administration | ses pages de connexion, par Caddy ; sa console, par un tunnel SSH seulement |
 | PostgreSQL | Deux bases : `recallio` et `keycloak` | non |
+| Runner, sur son serveur | Exécute le code des joueurs (exercices, Tour) dans un conteneur jetable par exécution | non : le backend seul, par le tunnel WireGuard, avec le jeton |
 
-**Ce qui est secret** : tout est dans un seul fichier, `/opt/recallio/infra/production/app/.env`, lisible par toi seul
-(`chmod 600`), jamais versionné. Il porte les mots de passe de PostgreSQL, celui du compte Keycloak temporaire, la clé
-SMTP de Brevo, le jeton du runner et les clés VAPID. **Garde-en une copie hors du serveur** (un gestionnaire de mots de
-passe) : sans lui, une restauration ne peut pas se reconnecter à la base, et de nouvelles clés VAPID désabonnent tout le
-monde des rappels. Le reste du dossier vient du dépôt public et ne contient aucun secret.
+**Ce qui est secret** : sur le serveur de l'application, tout est dans un seul fichier,
+`/opt/recallio/infra/production/app/.env`, lisible par toi seul (`chmod 600`), jamais versionné. Il porte les mots de
+passe de PostgreSQL, celui du compte Keycloak temporaire, la clé SMTP de Brevo, le jeton du runner et les clés VAPID.
+**Garde-en une copie hors du serveur** (un gestionnaire de mots de passe) : sans lui, une restauration ne peut pas se
+reconnecter à la base, et de nouvelles clés VAPID désabonnent tout le monde des rappels. Le reste du dossier vient du
+dépôt public et ne contient aucun secret. Le serveur du runner a son propre `.env` (le même jeton), et chaque serveur
+ses clés WireGuard dans `/etc/wireguard/` ; la clé partagée du tunnel se garde avec le jeton (section 11).
 
 ## 2. Les prérequis
 
@@ -269,7 +279,7 @@ done
 sed -i "s/^KEYCLOAK_BOOTSTRAP_ADMIN_PASSWORD=$/KEYCLOAK_BOOTSTRAP_ADMIN_PASSWORD=$(openssl rand -hex 16)/" .env
 ```
 
-Le jeton du runner devra être le même dans le `.env` du serveur du runner (étape 7.4).
+Le jeton du runner devra être le même dans le `.env` du serveur du runner (section 11).
 
 ### Les clés VAPID, une fois pour toutes
 
@@ -299,8 +309,9 @@ nano .env
 - `SMTP_USER` et `SMTP_PASSWORD` : l'identifiant et la clé SMTP de Brevo (section 2) ; `SMTP_REPLY_TO`, si tu veux qu'on
   puisse répondre aux e-mails ;
 - `RECALLIO_PUSH_SUBJECT` : `mailto:` suivi de ton adresse ;
-- `RECALLIO_RUNNER_URL` : l'adresse WireGuard du runner (étape 7.4). D'ici là, la valeur d'exemple suffit : rendre un
-  exercice répond 503, le reste fonctionne ;
+- `RECALLIO_RUNNER_URL` : garde la valeur d'exemple, `http://10.13.13.2:8090`, l'adresse du runner dans le tunnel
+  WireGuard (section 11). Tant que le serveur du runner n'est pas monté, rendre un exercice répond 503 ; le reste
+  fonctionne ;
 - `SENTRY_DSN_BACKEND`, `SENTRY_DSN_FRONTEND`, `SENTRY_ORIGIN_FRONTEND` : facultatifs ;
 - `RECALLIO_TAG` : ci-dessous.
 
@@ -460,6 +471,9 @@ Attendu : `False` deux fois (après quelques secondes d'attente chacun).
 
 ### Une nouvelle version de Recallio
 
+Les deux serveurs portent le même tag. **Le serveur du runner d'abord** (section 11, « Mettre à jour ») : un nouveau
+backend ne parle ainsi jamais à un ancien runner. Puis, sur le serveur de l'application :
+
 ```shell
 cd /opt/recallio/infra/production/app
 git pull                                      # seulement si infra/production/app a changé
@@ -478,9 +492,9 @@ docker compose ps
   redémarre après lui.
 - Note le tag précédent (en commentaire dans le `.env`, par exemple) : c'est le chemin du retour.
 
-**Revenir en arrière**, c'est remettre le tag précédent, puis `docker compose pull` et `up -d`. Les migrations Flyway ne
-se défont pas : l'ancien code tourne sur le nouveau schéma, ce que la règle des migrations rétrocompatibles permet
-(CLAUDE.md, section 7).
+**Revenir en arrière**, c'est remettre le tag précédent, puis `docker compose pull` et `up -d` : ici d'abord, puis sur
+le serveur du runner, dans l'ordre inverse de la mise à jour. Les migrations Flyway ne se défont pas : l'ancien code
+tourne sur le nouveau schéma, ce que la règle des migrations rétrocompatibles permet (CLAUDE.md, section 7).
 
 ### Caddy, Keycloak et PostgreSQL
 
@@ -566,7 +580,480 @@ Dans psql, `\password recallio` (ou `\password keycloak`), puis `\q`. Reporte-le
 | Plus aucun administrateur Keycloak (OTP perdu) | | Le guide de Keycloak « Bootstrapping and recovering an admin account » (commande `bootstrap-admin`) |
 | Une erreur « Failed to create OidcProviderClientImpl » dans Sentry, après un redémarrage du serveur | Le backend a démarré avant Keycloak | Rien : il se connecte à la première requête |
 
-## 11. Le serveur du runner (étape 7.4, à venir)
+## 11. Le serveur du runner
+
+Ce serveur ne porte que le runner et les images du bac à sable : l'accès du runner au socket Docker vaut les droits root
+sur l'hôte (ADR 0030). Le backend le joint par un tunnel WireGuard, de `10.13.13.1` (l'application) à `10.13.13.2`
+(le runner), avec le jeton partagé. Les décisions sont dans l'ADR [0072](adr/0072-le-serveur-du-runner.md).
+
+Dans cette section, `<ip-runner>` est l'adresse IPv4 publique du serveur du runner, et `<ip>` reste celle du serveur de
+l'application. Chaque bloc dit sur quel serveur il se tape ; les commandes `docker compose` du runner se lancent depuis
+`/opt/recallio/infra/production/runner`.
+
+### Le serveur
+
+Un VPS-1 d'OVHcloud (2 vCores, 4 Go), en **Debian 13** ou **Ubuntu 24.04 LTS** (la même que l'application, pour n'avoir
+qu'une façon de faire), avec ta clé SSH publique ajoutée à la commande.
+
+### Préparer le serveur
+
+Sur le runner, suis la section 3, avec `<ip-runner>` à la place de `<ip>` : un utilisateur à toi et SSH par clé
+seulement, les mises à jour de sécurité automatiques, Docker Engine et le plugin Compose, l'heure en UTC. **Sauf le
+pare-feu**, qui diffère : ci-dessous, à la place de celui de la section 3. **Puis les core dumps**, une fois Docker
+installé.
+
+#### Le pare-feu
+
+Sur le runner, à la place de « Le pare-feu » de la section 3 :
+
+```shell
+sudo apt-get update && sudo apt-get install -y ufw
+sudo ufw default deny incoming
+sudo ufw default allow outgoing
+sudo ufw allow 22/tcp
+sudo ufw allow from <ip> to any port 51820 proto udp
+sudo ufw enable
+sudo ufw status verbose
+```
+
+Attendu : `Status: active`, `22/tcp ALLOW IN Anywhere` (en IPv4 et en IPv6) et `51820/udp ALLOW IN <ip>` : WireGuard,
+depuis le seul serveur de l'application. Ni 80, ni 443, ni 8090 : Docker publie le port du runner lui-même, sur
+l'adresse du tunnel seulement.
+
+Le serveur de l'application, lui, n'ouvre **aucun port de plus** : c'est lui qui appelle, et `ufw` laisse revenir les
+réponses d'une connexion qu'il a ouverte ; l'envoi d'un paquet toutes les 25 secondes (`PersistentKeepalive`) la garde
+ouverte.
+
+#### Les core dumps
+
+Une fois Docker installé. Un programme C++ qui plante dans le bac à sable ne doit rien laisser sur l'hôte (ADR 0053).
+Sur Ubuntu, apport (ou systemd-coredump, s'il est installé) reçoit l'image mémoire de tout programme qui plante,
+conteneurs compris, malgré leurs limites : le noyau la lui confie quand le motif `kernel.core_pattern` commence par `|`.
+Sur le runner :
+
+```shell
+printf 'kernel.core_pattern=core\nfs.suid_dumpable=0\n' | sudo tee /etc/sysctl.d/90-recallio-core-dumps.conf
+sudo systemctl disable --now apport.service && sudo systemctl mask apport.service    # sur Ubuntu seulement
+sudo sysctl --system > /dev/null
+sysctl kernel.core_pattern fs.suid_dumpable
+```
+
+Attendu : `kernel.core_pattern = core` et `fs.suid_dumpable = 0`. Sur Debian, apport n'existe pas : saute la deuxième
+ligne. Ne désinstalle pas apport sur Ubuntu : le méta-paquet `ubuntu-server` partirait avec lui.
+
+Puis une limite de 0 pour l'image mémoire de tout conteneur ; sans elle, le noyau l'écrirait dans le conteneur :
+
+```shell
+printf '{\n  "default-ulimits": {\n    "core": { "Name": "core", "Hard": 0, "Soft": 0 }\n  }\n}\n' | sudo tee /etc/docker/daemon.json
+sudo systemctl restart docker
+```
+
+Sur un Docker neuf, `/etc/docker/daemon.json` n'existe pas ; s'il existe déjà, ajoute-y la clé `default-ulimits` à la
+main plutôt que de l'écraser. La vérification vient après le premier démarrage (« Vérifier »).
+
+### Récupérer la configuration
+
+Le même dépôt, au même emplacement ; on ne se sert que de `infra/production/runner/`. Sur le runner :
+
+```shell
+sudo apt-get install -y git jq
+sudo install -d -o recallio -g recallio /opt/recallio
+git clone https://github.com/potichacha/recallio.git /opt/recallio
+cd /opt/recallio/infra/production/runner
+ls -A
+```
+
+Attendu : `.env.example  compose.yaml  wireguard`. Sur le serveur de l'application, `git pull` dans `/opt/recallio`,
+pour avoir `infra/production/app/wireguard/`.
+
+### WireGuard, sur les deux serveurs
+
+**Les clés.** Sur chacun des deux serveurs :
+
+```shell
+sudo apt-get install -y wireguard-tools iputils-ping
+sudo sh -c 'cd /etc/wireguard && umask 077 && wg genkey > private.key && wg pubkey < private.key > public.key'
+sudo cat /etc/wireguard/public.key
+```
+
+Attendu : 44 caractères qui finissent par `=`, la clé publique du serveur. Note les deux : elles ne sont pas secrètes.
+La clé privée, elle, ne quitte jamais son serveur.
+
+**La clé partagée**, tirée une fois, sur le runner :
+
+```shell
+sudo sh -c 'umask 077 && wg genpsk > /etc/wireguard/preshared.key'
+sudo cat /etc/wireguard/preshared.key
+```
+
+Copie-la, puis recopie-la sur le serveur de l'application (la commande attend que tu la colles, sans l'afficher) :
+
+```shell
+read -rsp 'Clé partagée : ' psk && echo
+printf '%s\n' "$psk" | sudo sh -c 'umask 077 && cat > /etc/wireguard/preshared.key' && unset psk
+sudo wc -c /etc/wireguard/preshared.key
+```
+
+Attendu : `45 /etc/wireguard/preshared.key`. Comme le jeton du runner, elle est secrète : garde-la dans ton gestionnaire
+de mots de passe, jamais dans un fichier de ton poste.
+
+**Le tunnel, côté runner.** Sur le runner, remplace `COLLE-ICI…` par la clé publique du serveur de l'application :
+
+```shell
+cd /opt/recallio/infra/production/runner
+sudo install -m 600 wireguard/wg0.conf.example /etc/wireguard/wg0.conf
+sudo sh -c 'sed -i "s|<RUNNER_PRIVATE_KEY>|$(cat /etc/wireguard/private.key)|; s|<PRESHARED_KEY>|$(cat /etc/wireguard/preshared.key)|" /etc/wireguard/wg0.conf'
+app_public_key=COLLE-ICI-LA-CLE-PUBLIQUE-DE-L-APPLICATION
+sudo sed -i "s|<APP_PUBLIC_KEY>|$app_public_key|" /etc/wireguard/wg0.conf
+sudo grep -c '<[A-Z_]*>' /etc/wireguard/wg0.conf
+sudo ls -l /etc/wireguard/wg0.conf
+```
+
+Attendu : `0` (plus aucun marqueur), et `-rw------- 1 root root`.
+
+**Le tunnel, côté application.** Sur le serveur de l'application, avec la clé publique du runner et `<ip-runner>` :
+
+```shell
+cd /opt/recallio/infra/production/app
+sudo install -m 600 wireguard/wg0.conf.example /etc/wireguard/wg0.conf
+sudo sh -c 'sed -i "s|<APP_PRIVATE_KEY>|$(cat /etc/wireguard/private.key)|; s|<PRESHARED_KEY>|$(cat /etc/wireguard/preshared.key)|" /etc/wireguard/wg0.conf'
+runner_public_key=COLLE-ICI-LA-CLE-PUBLIQUE-DU-RUNNER
+sudo sed -i "s|<RUNNER_PUBLIC_KEY>|$runner_public_key|; s|<RUNNER_PUBLIC_IP>|<ip-runner>|" /etc/wireguard/wg0.conf
+sudo grep -c '<[A-Z_]*>' /etc/wireguard/wg0.conf
+```
+
+Attendu : `0`.
+
+**Démarrer**, sur le runner d'abord, puis sur l'application :
+
+```shell
+sudo systemctl enable --now wg-quick@wg0
+```
+
+Puis, sur l'application :
+
+```shell
+ping -c 3 10.13.13.2
+sudo wg show
+```
+
+Attendu : trois réponses ; puis `latest handshake: … seconds ago`, `transfer: … received, … sent` et
+`persistent keepalive: every 25 seconds`. Sur le runner :
+
+```shell
+ping -c 3 10.13.13.1
+sudo wg show
+```
+
+Attendu : trois réponses, et pour le pair `endpoint: <ip>:<port>` et une poignée de main récente. Le tunnel redémarre
+seul avec chaque serveur (`enable`).
+
+### Docker après WireGuard
+
+Le runner publie son port sur `10.13.13.2`, qui n'existe qu'une fois `wg0` monté. Si Docker démarre avant, la liaison
+échoue, le runner reste arrêté, et **Docker ne réessaie jamais** (ADR 0072). Un « drop-in » systemd fait attendre
+Docker. Sur le runner :
+
+```shell
+sudo mkdir -p /etc/systemd/system/docker.service.d
+printf '[Unit]\nAfter=wg-quick@wg0.service\nWants=wg-quick@wg0.service\n' | sudo tee /etc/systemd/system/docker.service.d/10-after-wireguard.conf
+sudo systemctl daemon-reload
+systemctl show docker.service -p After -p Wants | grep -o 'wg-quick@wg0.service'
+```
+
+Attendu : `wg-quick@wg0.service` deux fois. Le redémarrage du serveur qui le prouve vient à la fin de « Vérifier ».
+
+### Configurer et démarrer
+
+Sur le runner :
+
+```shell
+cd /opt/recallio/infra/production/runner
+cp .env.example .env
+chmod 600 .env
+```
+
+**Le jeton**, le même que celui de l'application. Sur le serveur de l'application, affiche-le et copie-le :
+
+```shell
+grep '^RECALLIO_RUNNER_TOKEN=' /opt/recallio/infra/production/app/.env | cut -d= -f2
+```
+
+Puis, sur le runner, colle-le (il ne s'affiche pas) :
+
+```shell
+read -rsp 'Jeton du runner : ' token && echo
+sed -i "s/^RECALLIO_RUNNER_TOKEN=.*/RECALLIO_RUNNER_TOKEN=$token/" .env && unset token
+grep '^RECALLIO_RUNNER_TOKEN=' .env | awk -F= '{ print length($2) }'
+```
+
+Attendu : `64`. **Le reste**, avec `nano .env` :
+
+- `RECALLIO_TAG` : **le même tag que sur le serveur de l'application** (section 5) ;
+- `SENTRY_DSN_RUNNER` : le DSN du projet `recallio-runner`, facultatif (ADR 0070) ;
+- `WIREGUARD_ADDRESS` reste `10.13.13.2`, et `RECALLIO_SANDBOX_DOCKER_RUNTIME` reste vide (« Essayer gVisor »).
+
+```shell
+docker compose config --quiet && echo OK
+```
+
+Attendu : `OK`. **Le premier démarrage** :
+
+```shell
+docker compose pull
+docker compose up -d
+docker compose ps -a
+```
+
+Les images du bac à sable sont lourdes : environ **1 Go à télécharger** (le runner 190 Mo, Java 384 Mo, Go 331 Mo, C++
+133 Mo, Python 52 Mo) et **5 Go sur le disque**. Compte quelques minutes pour le `pull`, selon le débit du serveur ;
+ensuite, `up -d` prend une dizaine de secondes. Attendu : les quatre services `sandbox-*` en `Exited (0)` (ils ne font
+que s'assurer que leur image est là), et `runner` en `Up … (healthy)`, avec `10.13.13.2:8090->8090/tcp`.
+
+### Vérifier
+
+**La santé du runner, par le tunnel.** Sur le serveur de l'application :
+
+```shell
+curl -s http://10.13.13.2:8090/q/health/ready
+cd /opt/recallio/infra/production/app
+docker compose exec backend sh -c 'exec 3<>/dev/tcp/10.13.13.2/8090 && printf "GET /q/health/ready HTTP/1.0\r\n\r\n" >&3 && head -n1 <&3'
+```
+
+Attendu : `"status": "UP"`, puis `HTTP/1.0 200 OK` : le backend, depuis son conteneur, joint le runner par le tunnel.
+
+**Le parcours réel**, dans la PWA, connecté : rends un exercice de code (une carte d'exercice, *Rendre*) ; le résultat
+de chaque test s'affiche. Puis ouvre une page du Tour et *Exécute* son exemple ; sa sortie s'affiche. Aucun message
+« L'exécution du code est indisponible ».
+
+**Chaque langage, et ses durées.** Sur le runner, ces fonctions lancent un programme ou rendent la solution d'un
+exercice du dépôt, et affichent la durée de la requête :
+
+```shell
+cd /opt/recallio/infra/production/runner
+token=$(grep '^RECALLIO_RUNNER_TOKEN=' .env | cut -d= -f2)
+runner=http://10.13.13.2:8090
+program() {
+  local out; out=$(mktemp)
+  jq -n --arg l "$1" --arg p "$2" --arg c "$3" '{language: $l, files: [{path: $p, content: $c}]}' \
+    | curl -s -o "$out" -w "$1 : HTTP %{http_code}, %{time_total} s, " -H "Authorization: Bearer $token" \
+        -H 'Content-Type: application/json' --data-binary @- "$runner/api/v1/programs"
+  if [ -s "$out" ]; then jq -r '.status + " " + (.stdout | rtrimstr("\n"))' "$out"; else echo "-"; fi; rm -f "$out"
+}
+files() {
+  (cd "$1" && find . -type f | sed 's|^\./||' | sort | while read -r f; do
+    jq -n --arg p "$f" --rawfile c "$f" '{path: $p, content: $c}'
+  done) | jq -s .
+}
+exercise() {
+  local out; out=$(mktemp)
+  jq -n --arg l "$1" --argjson code "$(files "$2/solution")" --argjson tests "$(files "$2/tests")" \
+      '{language: $l, code: $code, tests: $tests}' \
+    | curl -s -o "$out" -w "${2##*/} : HTTP %{http_code}, %{time_total} s, " -H "Authorization: Bearer $token" \
+        -H 'Content-Type: application/json' --data-binary @- "$runner/api/v1/runs"
+  if [ -s "$out" ]; then jq -r .status "$out"; else echo "-"; fi; rm -f "$out"
+}
+```
+
+Puis :
+
+```shell
+program JAVA Main.java 'void main() { IO.println("Bonjour"); }'
+program GO main.go 'package main
+import "fmt"
+func main() { fmt.Println("Bonjour") }'
+program CPP main.cpp '#include <print>
+int main() { std::println("Bonjour"); }'
+program PYTHON main.py 'print("Bonjour")'
+cd /opt/recallio/content
+exercise JAVA java/exercices/bases/boucle-for/fizz-buzz
+exercise GO go/exercices/bases/boucle-for/etapes-collatz
+exercise CPP cpp/exercices/bases/boucle-for/somme-multiples
+exercise PYTHON python/exercices/bases/boucle-for-range/fizzbuzz
+exercise JAVA spring-boot/exercices/web/rest-controller/catalogue-livres
+exercise JAVA quarkus/exercices/rest/quarkus-rest/catalogue-produits
+```
+
+Attendu : `HTTP 200` partout, `COMPLETED Bonjour` pour chaque programme, `PASSED` pour chaque exercice. **Note les
+durées** : sur un poste de développement, Python et C++ prennent moins d'une seconde à 2 secondes, Go et Java 1 à 3,
+l'exercice Spring Boot 5 à 6, et l'exercice Quarkus 13 à 20, pour un délai de 30 (ADR 0072). Un exercice Quarkus
+au-delà de 25 secondes sur le serveur serait trop près du délai : à régler avant d'ouvrir la bêta.
+
+**Deux exécutions à la fois, pas trois** : lance trois fois l'exercice Quarkus ensemble.
+
+```shell
+for i in 1 2 3; do exercise JAVA quarkus/exercices/rest/quarkus-rest/catalogue-produits & sleep 0.3; done; wait
+```
+
+Attendu : un `HTTP 503` aussitôt (les deux places du runner étaient prises ; le backend le traduit en « réessaie dans un
+moment »), puis deux `HTTP 200` et `PASSED`.
+
+**Le port fermé depuis Internet.** Sur ton poste, dans PowerShell :
+
+```powershell
+Test-NetConnection <ip-runner> -Port 8090 | Select-Object TcpTestSucceeded
+```
+
+Attendu : `False` (après quelques secondes d'attente).
+
+**Les core dumps désactivés.** Sur le runner :
+
+```shell
+sysctl kernel.core_pattern fs.suid_dumpable
+cd /opt/recallio/infra/production/runner
+docker compose exec runner sh -c 'echo "limite : $(ulimit -c) / $(ulimit -Hc)"'
+```
+
+Attendu : `kernel.core_pattern = core`, `fs.suid_dumpable = 0`, puis `limite : 0 / 0` (la limite de `daemon.json`, que
+chaque conteneur reçoit). Puis un vrai programme C++ qui plante, dans le bac à sable, par le runner :
+
+```shell
+jq -n --arg c '#include <print>
+int main() { std::println("avant"); volatile int *p = nullptr; return *p; }' \
+    '{language: "CPP", files: [{path: "main.cpp", content: $c}]}' \
+  | curl -s -H "Authorization: Bearer $token" -H 'Content-Type: application/json' --data-binary @- \
+      "$runner/api/v1/programs"
+```
+
+Attendu : `{"status":"COMPLETED","exitCode":139,"stdout":"avant\n","stderr":"Segmentation fault\n",…}`. Et le même
+plantage dans l'image du bac à sable, avec ses options, tel qu'un terminal l'afficherait :
+
+```shell
+image=$(docker compose config --images | grep sandbox-cpp)
+docker run --rm --network none --read-only --tmpfs /tmp:rw,exec,size=96m --user 65534:65534 --entrypoint bash "$image" \
+  -c 'cd /tmp && echo "int main() { volatile int *p = nullptr; return *p; }" > crash.cpp && g++ -o crash crash.cpp && ./crash; ls /tmp'
+ls /var/crash 2>/dev/null; coredumpctl list 2>&1 | tail -1
+```
+
+Attendu : une ligne `… Segmentation fault ./crash`, **sans** `(core dumped)`, puis `crash  crash.cpp` (aucun fichier
+`core`) ; enfin, rien dans `/var/crash`, et `coredumpctl` absent (« command not found ») ou sans entrée (« No coredumps
+found »). Un `(core dumped)` voudrait dire qu'un réglage manque : `sysctl`, `daemon.json`, ou apport encore actif.
+
+**Après un redémarrage du serveur.** Sur le runner :
+
+```shell
+sudo reboot
+```
+
+Une minute après, reconnecte-toi :
+
+```shell
+cd /opt/recallio/infra/production/runner
+docker compose ps
+sysctl kernel.core_pattern
+sudo journalctl -b -u wg-quick@wg0 -u docker -o short-monotonic | grep -E 'Finished|Started'
+```
+
+Attendu : `runner` en `Up … (healthy)`, `kernel.core_pattern = core`, et la ligne `Finished … wg0` avant
+`Started docker.service` : Docker a attendu le tunnel. Depuis l'application,
+`curl -s http://10.13.13.2:8090/q/health/ready` répond de nouveau `UP` (le tunnel se rétablit en moins de 30 secondes).
+
+### Mettre à jour
+
+Les deux serveurs portent **le même tag**, et **le runner se met à jour d'abord** : un nouveau backend ne parle ainsi
+jamais à un ancien runner (ADR 0072). Sur le runner :
+
+```shell
+cd /opt/recallio/infra/production/runner
+git pull                                      # seulement si infra/production/runner a changé
+diff <(grep -oE '^[A-Z_]+=' .env.example) <(grep -oE '^[A-Z_]+=' .env)
+nano .env                                     # RECALLIO_TAG=sha-<nouveau commit>
+docker compose pull
+docker compose up -d
+docker compose ps -a
+```
+
+- Le `diff` ne doit rien afficher (une ligne `<` est une variable à ajouter au `.env`).
+- Compose recrée les services du bac à sable avec leur nouvelle image, puis le runner : pendant ses quelques secondes de
+  redémarrage, rendre un exercice répond « réessaie dans un moment ».
+- Attendu : les `sandbox-*` en `Exited (0)`, le `runner` en `Up … (healthy)`.
+
+Puis le serveur de l'application, au même tag (section 9). **Revenir en arrière** : l'application d'abord, au tag
+précédent, puis le runner.
+
+### Exploiter
+
+**Les logs** du runner sont en JSON (ADR 0070), sans le code des joueurs ; la sortie d'erreur d'un programme qui échoue
+de façon inattendue y est écrite en `WARN`.
+
+```shell
+docker compose logs --tail 100 runner
+docker compose logs --no-log-prefix runner | jq -R 'fromjson? | select(.level == "ERROR" or .level == "WARN") | .message'
+```
+
+**L'espace disque.** Chaque version apporte ses images du bac à sable (jusqu'à 5 Go, moins quand elles n'ont pas
+changé : les couches identiques ne se retéléchargent pas).
+
+```shell
+df -h /
+docker system df
+docker image prune -a
+```
+
+`docker image prune -a` supprime les images des versions précédentes et **garde celles de la version en place** : les
+conteneurs arrêtés des services `sandbox-*` les référencent. **N'utilise jamais `docker system prune` ni
+`docker container prune`** : ils suppriment ces conteneurs, et le `prune -a` suivant supprimerait les images du bac à
+sable. Le runner tirerait alors l'image à la première exécution, au-delà de son délai : l'exercice compterait comme
+raté. Si c'est arrivé : `docker compose pull && docker compose up -d`.
+
+**Dépannage** :
+
+| Symptôme | Cause probable | Que faire |
+|---|---|---|
+| `sudo wg show` : pas de `latest handshake` | Le pare-feu du runner, une clé ou l'adresse du runner | Sur le runner, `sudo ufw status` : `51820/udp` depuis `<ip>` ; des deux côtés, la clé publique du pair (`PublicKey`) doit être le `public key` affiché de l'autre côté ; sur l'application, `Endpoint` doit être `<ip-runner>:51820` ; puis `sudo systemctl restart wg-quick@wg0` |
+| Le runner reste `unhealthy` ou redémarre | Le jeton, ou le socket Docker | `docker compose logs runner` : « doit faire au moins 32 caractères », le jeton du `.env` est vide ou coupé (section « Configurer et démarrer ») |
+| La PWA dit « L'exécution du code est indisponible » (503) | Le tunnel, le runner, ou le jeton | Sur l'application, `docker compose logs backend \| grep -i runner` : « Le runner est injoignable », le tunnel ou le runner (`curl` de la santé, ci-dessus) ; « Le runner a répondu 401 », les deux jetons diffèrent ; « 503 », deux exécutions étaient en cours, c'est normal |
+| Après un redémarrage du serveur, le runner est `Exited` : « failed to bind host port 10.13.13.2:8090/tcp: cannot assign requested address » (`docker inspect -f '{{.State.Error}}' recallio-runner-runner-1`) | Docker a démarré avant `wg0` | Vérifie le drop-in (« Docker après WireGuard ») et que `wg-quick@wg0` démarre (`systemctl status wg-quick@wg0`), puis `docker compose up -d` |
+| Un exercice dépasse son délai juste après un nettoyage du disque | L'image du bac à sable a été supprimée (`docker system prune`) | `docker compose pull && docker compose up -d` |
+
+### Essayer gVisor
+
+Facultatif, et **pas activé pour la bêta** (ADR 0072) : gVisor (`runsc`) intercale un noyau en espace utilisateur entre
+le code des joueurs et celui de l'hôte, ce qui réduit fortement le risque d'évasion, mais ralentit la compilation et le
+démarrage des JVM. À essayer avant l'ouverture à tous : on l'active si l'exercice Quarkus reste sous les 20 secondes.
+
+**Mesurer d'abord sans lui** : les fonctions et les commandes de « Chaque langage, et ses durées », ci-dessus ; note les
+durées.
+
+**L'installer**, depuis le dépôt officiel (la page
+[gvisor.dev/docs/user_guide/install](https://gvisor.dev/docs/user_guide/install/) fait foi si elle a changé). Sur le
+runner :
+
+```shell
+sudo apt-get install -y ca-certificates curl gnupg
+curl -fsSL https://gvisor.dev/archive.key | sudo gpg --dearmor -o /usr/share/keyrings/gvisor-archive-keyring.gpg
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/gvisor-archive-keyring.gpg] https://storage.googleapis.com/gvisor/releases release main" \
+  | sudo tee /etc/apt/sources.list.d/gvisor.list > /dev/null
+sudo apt-get update && sudo apt-get install -y runsc
+docker info --format '{{json .Runtimes}}' | grep -o '"runsc"'
+sudo cat /etc/docker/daemon.json
+```
+
+Attendu : `"runsc"` (le paquet déclare le runtime à Docker), et `daemon.json` qui porte à la fois `default-ulimits` et
+`runtimes`. Si `"runsc"` manque : `sudo runsc install && sudo systemctl reload docker`. Puis :
+
+```shell
+cd /opt/recallio/infra/production/runner
+docker run --rm --runtime=runsc --entrypoint uname "$(docker compose config --images | grep sandbox-python)" -a
+```
+
+Attendu : une ligne `Linux …` dont la version n'est pas celle de l'hôte (`uname -r`) : c'est le noyau de gVisor qui
+répond.
+
+**L'activer pour le runner** : dans le `.env`, `RECALLIO_SANDBOX_DOCKER_RUNTIME=runsc`, puis :
+
+```shell
+docker compose up -d
+docker compose ps
+```
+
+Attendu : le runner recréé, `Up … (healthy)`. Relance les mêmes mesures, et compare : chaque programme et chaque
+exercice doit encore réussir, et l'exercice Quarkus rester sous les 20 secondes. Essaie aussi un exercice dans la PWA.
+
+**Revenir en arrière** : vide la variable (`RECALLIO_SANDBOX_DOCKER_RUNTIME=`) dans le `.env`, puis
+`docker compose up -d`. Le runtime reste installé sans servir. Pour le retirer aussi : `sudo apt-get purge -y runsc`,
+retire l'entrée `runsc` de `runtimes` dans `/etc/docker/daemon.json` (en gardant `default-ulimits`), puis
+`sudo systemctl restart docker`.
 
 ## 12. Les sauvegardes (étape 7.5, à venir)
 

@@ -4,6 +4,7 @@
 - Date : 2026-11-10
 - Prolonge : ADR 0028 (les « qu'affiche ce code ? » vérifiés), ADR 0029 (le format des exercices), ADR 0030 (le bac à
   sable), ADR 0033 (Go, et un runner multi-langage), ADR 0037 (les programmes du Tour)
+- Complété par : ADR 0072 (les core dumps désactivés sur le serveur du runner)
 
 ## Contexte
 
