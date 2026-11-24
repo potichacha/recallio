@@ -35,7 +35,7 @@ export function ActivityCalendar({ days }: { days: DayActivity[] }) {
 
   return (
     <section aria-labelledby="calendar-title" className="flex flex-col gap-2">
-      <h2 id="calendar-title" className="text-lg font-semibold">
+      <h2 id="calendar-title" className="text-lg font-black">
         Tes dernières semaines
       </h2>
       <div

@@ -133,7 +133,7 @@ function InterviewDateForm({
       className="flex flex-col gap-2 rounded-lg border border-line p-3"
     >
       <label className="flex flex-col gap-1">
-        <span className="text-sm font-medium">Date de ton entretien</span>
+        <span className="text-sm font-bold">Date de ton entretien</span>
         <input
           ref={input}
           type="date"
@@ -189,7 +189,7 @@ function CountdownView({
   return (
     <div className="flex flex-col gap-3 rounded-lg border border-line p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="flex items-center gap-2 font-semibold">
+        <p className="flex items-center gap-2 font-extrabold">
           <CalendarBlank weight="bold" aria-hidden className="text-brand" />
           {headline}
         </p>
@@ -205,7 +205,7 @@ function CountdownView({
             <p className="text-xs text-ink-muted">
               Ton parcours n’est pas « Préparer un entretien » : c’est lui qui te sert d’abord les
               notions essentielles.{' '}
-              <Link to="/profile/subjects" className="font-medium text-brand-strong underline">
+              <Link to="/profile/subjects" className="font-bold text-brand-strong underline">
                 Changer de parcours
               </Link>
             </p>
@@ -244,7 +244,7 @@ function StatusBadge({ status }: { status: Exclude<InterviewStatus, 'PASSED'> })
   const { label, icon: StatusIcon, style } = STATUSES[status]
   return (
     <span
-      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${style}`}
+      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-extrabold ${style}`}
     >
       <StatusIcon weight="bold" aria-hidden />
       {label}
@@ -267,7 +267,7 @@ function ThisWeek({ countdown }: { countdown: InterviewCountdown }) {
   return (
     <div className="flex flex-col gap-2">
       <div className="flex flex-col">
-        <p className="text-sm font-semibold">{heading}</p>
+        <p className="text-sm font-extrabold">{heading}</p>
         <p className="text-xs text-ink-muted">
           Semaine {week} sur {weeks} · du {shortDate(thisWeek.startsOn)} au{' '}
           {shortDate(thisWeek.endsOn)}
@@ -300,12 +300,12 @@ function NotionItem({ subject, notion }: { subject: string; notion: InterviewNot
     <li className="flex items-center justify-between gap-3 rounded-lg bg-surface-muted px-3 py-2">
       <Link
         to={`/subjects/${encodeURIComponent(subject)}/course/${encodeURIComponent(notion.slug)}`}
-        className="text-sm font-medium hover:text-brand hover:underline"
+        className="text-sm font-bold hover:text-brand hover:underline"
       >
         {notion.title}
       </Link>
       <span
-        className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${MASTERY_STYLES[notion.mastery]}`}
+        className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-bold ${MASTERY_STYLES[notion.mastery]}`}
       >
         {MASTERY_LABELS[notion.mastery]}
       </span>
@@ -316,7 +316,7 @@ function NotionItem({ subject, notion }: { subject: string; notion: InterviewNot
 function NextWeeks({ countdown }: { countdown: InterviewCountdown }) {
   return (
     <details>
-      <summary className="cursor-pointer text-sm font-medium text-brand-strong">
+      <summary className="cursor-pointer text-sm font-bold text-brand-strong">
         Les semaines suivantes
       </summary>
       <ul className="mt-2 flex flex-col gap-1 text-sm">

@@ -20,7 +20,7 @@ describe('a choice of a question (ADR 0058)', () => {
   it('is a large target with a visible border, before the answer', () => {
     const label = choice()
 
-    expect(label).toHaveClass('min-h-11', 'border-2', 'border-line-strong')
+    expect(label).toHaveClass('min-h-14', 'border-2', 'border-line-strong')
     expect(label).toHaveTextContent(/^Dans le tas$/)
     expect(label.querySelector('svg')).toBeNull()
     expect(screen.getByRole('radio')).toBeEnabled()

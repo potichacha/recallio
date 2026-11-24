@@ -3,7 +3,7 @@ import { useCatalogSubjects } from '../api/content'
 import { Celebration } from '../components/Celebration'
 import { ErrorState } from '../components/states/ErrorState'
 import { LoadingState } from '../components/states/LoadingState'
-import { Fire } from '@phosphor-icons/react'
+import { Fire, X } from '@phosphor-icons/react'
 import { mistakesPath } from '../practice/mistakesPath'
 import { useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState, type ReactNode } from 'react'
@@ -38,7 +38,8 @@ const cardsReviewed = (count: number) =>
  * Une session de révision : on parcourt la file carte par carte, et la série suivante est demandée dès que la
  * précédente est finie. Elle s'arrête quand sa durée est écoulée, toujours après la carte en cours (ADR 0048), quand il
  * ne reste rien à réviser, ou quand on la termine ; un bilan s'affiche alors. Pendant la session, la navigation se fait
- * discrète (ADR 0050).
+ * discrète (ADR 0050) : sur un téléphone, la carte occupe tout l'écran, sous la croix qui termine la session et la
+ * barre de l'objectif du jour, et son action se cale en bas (ADR 0058).
  *
  * @param subjectTitle le sujet révisé, pour dire qu'il est à jour ; aucun pour un groupe ou un thème
  * @param onMore cinq minutes de plus sur le même sujet ; aucun pour une session ouverte par un lien direct
@@ -123,16 +124,32 @@ export function ReviewSession({
   const xpGained =
     startXp !== undefined && progress.data ? progress.data.totalXp - startXp : undefined
 
+  const stop = !end && (
+    <button
+      type="button"
+      aria-label="Terminer la session"
+      title="Terminer la session"
+      onClick={() => setStopped('stopped')}
+      className="-ml-2 flex size-11 shrink-0 items-center justify-center rounded-full text-ink-muted hover:bg-surface-muted hover:text-ink"
+    >
+      <X weight="bold" aria-hidden className="size-6" />
+    </button>
+  )
+
   return (
-    <section className="flex flex-col gap-4">
-      <header className="flex flex-wrap items-baseline justify-between gap-2">
-        <h1 className="text-2xl font-bold">{title}</h1>
-        <p className="flex items-baseline gap-3 text-sm text-ink-muted">
+    <section
+      className={`flex flex-col gap-3 md:gap-4 ${end ? '' : 'min-h-[calc(100dvh-1rem)] md:min-h-0'}`}
+    >
+      {progress.data ? <DailyGoal progress={progress.data} leading={stop} /> : stop}
+      <header className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+        <h1 className={end ? 'text-2xl font-black' : 'text-sm font-extrabold text-ink-muted'}>
+          {title}
+        </h1>
+        <p className="flex items-baseline gap-3 text-sm font-bold text-ink-muted">
           {endsAt !== null && !end && <SessionClock endsAt={endsAt} />}
           <span>{cardsReviewed(tally.reviewed)}</span>
         </p>
       </header>
-      {progress.data && <DailyGoal progress={progress.data} />}
       {end ? (
         <SessionSummary
           end={end}
@@ -147,22 +164,17 @@ export function ReviewSession({
           onChangeSettings={onChangeSettings}
         />
       ) : card ? (
-        <>
-          {/* La carte suivante entre par la droite, comme une carte qu'on tire. */}
-          <div key={`${batch}:${card.cardId}`} className="motion-safe:animate-slide-in">
-            <ReviewCard card={card} onReviewed={reviewed} />
-          </div>
-          <div className="flex items-center justify-between gap-3">
-            <ReportButton key={`report-${card.cardId}`} target={{ cardId: card.cardId }} />
-            <button
-              type="button"
-              onClick={() => setStopped('stopped')}
-              className="text-sm text-ink-muted underline hover:text-ink"
-            >
-              Terminer la session
-            </button>
-          </div>
-        </>
+        // La carte suivante entre par la droite, comme une carte qu'on tire.
+        <div
+          key={`${batch}:${card.cardId}`}
+          className="flex flex-1 flex-col gap-3 motion-safe:animate-slide-in"
+        >
+          <ReviewCard
+            card={card}
+            onReviewed={reviewed}
+            report={<ReportButton target={{ cardId: card.cardId }} />}
+          />
+        </div>
       ) : (
         <LoadingState label="Chargement des cartes suivantes…" shape="card" />
       )}
@@ -181,7 +193,7 @@ function SessionClock({ endsAt }: { endsAt: number }) {
 
   if (remaining <= 0) {
     return (
-      <span role="timer" aria-label="Temps restant" className="font-medium text-warning">
+      <span role="timer" aria-label="Temps restant" className="font-extrabold text-warning">
         Temps écoulé : finis cette carte
       </span>
     )
@@ -244,12 +256,12 @@ function SessionSummary({
           <span className="flex size-16 items-center justify-center rounded-full bg-sun">
             <Fire weight="fill" aria-hidden className="size-9 text-on-sun" />
           </span>
-          <p className="text-xl font-bold">
+          <p className="text-xl font-black">
             {progress.streak} jour{progress.streak > 1 ? 's' : ''} de suite
           </p>
         </div>
       )}
-      <h2 className="text-lg font-semibold">{heading}</h2>
+      <h2 className="text-lg font-black">{heading}</h2>
       {worked && (
         <>
           <p className="text-ink-muted">
@@ -306,7 +318,7 @@ function SessionSummary({
       {subject && tally.recalled < tally.reviewed && (
         <Link
           to={mistakesPath(subject)}
-          className="self-start text-sm font-medium text-brand-strong hover:underline"
+          className="self-start text-sm font-extrabold text-brand-strong hover:underline"
         >
           Revoir mes erreurs de la semaine
         </Link>
@@ -334,7 +346,7 @@ function TourHint({ subject }: { subject: string }) {
       Tu révises ce que tu as validé dans le Tour.{' '}
       <Link
         to={`/subjects/${encodeURIComponent(subject)}/tour`}
-        className="font-medium text-brand-strong underline"
+        className="font-extrabold text-brand-strong underline"
       >
         Valide la notion suivante
       </Link>{' '}
@@ -346,8 +358,8 @@ function TourHint({ subject }: { subject: string }) {
 function Stat({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex flex-col gap-0.5 rounded-xl bg-surface-muted px-2 py-3">
-      <dt className="order-2 text-xs text-ink-muted">{label}</dt>
-      <dd className="order-1 text-lg font-bold">{value}</dd>
+      <dt className="order-2 text-xs font-bold text-ink-muted">{label}</dt>
+      <dd className="order-1 text-lg font-black">{value}</dd>
     </div>
   )
 }

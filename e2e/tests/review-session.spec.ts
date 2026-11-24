@@ -76,7 +76,7 @@ test.describe('Session de révision', () => {
     await page.keyboard.press('Space')
     await tabUntilFocused(page, card.getByRole('button', { name: 'Valider' }))
     await page.keyboard.press('Enter')
-    await expect(card.getByRole('status')).toHaveText(/Bonne réponse|Pas tout à fait/)
+    await expect(card.getByRole('status')).toHaveText(/Bien joué|Pas tout à fait/)
 
     // Le focus est passé sur « Carte suivante » : Entrée ouvre la carte d'après, sans chercher le bouton.
     await expect(card.getByRole('button', { name: 'Carte suivante' })).toBeFocused()

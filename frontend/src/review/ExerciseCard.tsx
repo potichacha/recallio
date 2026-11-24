@@ -9,6 +9,7 @@ import {
 } from '../api/review'
 import { Markdown } from '../components/Markdown'
 import { SourceFiles } from '../components/SourceFiles'
+import { CARD_FRAME } from './cardFrame'
 import { CardHeader } from './CardHeader'
 import { ExerciseEditor } from './ExerciseEditor'
 import { ExerciseRunResult } from './ExerciseRunResult'
@@ -48,7 +49,7 @@ export function ExerciseCard({
   const error = run.error ?? record.error
 
   return (
-    <article className="flex flex-col gap-4 rounded-xl border border-line bg-surface p-5 shadow-sm">
+    <article className={CARD_FRAME}>
       <CardHeader card={card} />
       <Markdown>{card.prompt}</Markdown>
 
@@ -85,7 +86,7 @@ export function ExerciseCard({
 
       {correction && (
         <div className="flex flex-col gap-3 border-t border-line pt-4">
-          <p role="status" className="font-medium">
+          <p role="status" className="text-lg font-black">
             {result?.rating === 'GOOD'
               ? 'Exercice réussi !'
               : 'Pas encore : compare avec la solution.'}

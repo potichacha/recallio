@@ -1,25 +1,31 @@
-import { useState, type FormEvent } from 'react'
+import { useState, type FormEvent, type ReactNode } from 'react'
 import { ApiError } from '../api/errors'
 import { useRecordReview, type QueuedCard, type ReviewResult } from '../api/review'
-import { AnswerVerdict } from '../components/AnswerVerdict'
 import { BlankVerdict } from '../components/BlankVerdict'
 import { LessonLink } from '../components/LessonLink'
 import { Markdown } from '../components/Markdown'
 import { useFocusOnAppear } from '../components/useFocusOnAppear'
 import { numberBlanks } from './blanks'
+import { CARD_ACTION, CARD_FRAME } from './cardFrame'
 import { CardHeader } from './CardHeader'
 import { button } from '../components/ui/button'
+import { VerdictPanel } from './VerdictPanel'
 
 /**
  * Un code à trous : on remplit chaque trou, on valide, et le serveur corrige trou par trou (ADR 0027). Comme pour un
- * QCM, la note n'est pas choisie ; la correction reste affichée jusqu'à ce qu'on passe à la suite.
+ * QCM, la note n'est pas choisie ; la correction reste affichée, dans le panneau du verdict, jusqu'à ce qu'on passe à
+ * la suite.
+ *
+ * @param report « Signaler une erreur », sous « Valider » puis dans le panneau du verdict
  */
 export function FillInCard({
   card,
   onReviewed,
+  report,
 }: {
   card: QueuedCard
   onReviewed: (result: ReviewResult) => void
+  report?: ReactNode
 }) {
   const [shownAt] = useState(() => Date.now())
   const [requestId] = useState(() => crypto.randomUUID())
@@ -28,6 +34,7 @@ export function FillInCard({
   const result = record.data
   const nextCard = useFocusOnAppear<HTMLButtonElement>(result?.correction != null)
   const blanks = result?.correction?.blanks
+  const correct = result?.rating === 'GOOD'
 
   const fill = (index: number, value: string) =>
     setFilled((current) => current.map((previous, other) => (other === index ? value : previous)))
@@ -43,13 +50,13 @@ export function FillInCard({
   }
 
   return (
-    <article className="flex flex-col gap-4 rounded-xl border border-line bg-surface p-5 shadow-sm">
+    <article className={CARD_FRAME}>
       <CardHeader card={card} />
       <Markdown>{numberBlanks(card.prompt)}</Markdown>
-      <form onSubmit={submit} className="flex flex-col gap-3">
+      <form onSubmit={submit} className="flex flex-1 flex-col gap-3">
         {filled.map((value, index) => (
           <label key={index} className="flex flex-col gap-1">
-            <span className="text-sm font-medium">Trou {index + 1}</span>
+            <span className="text-sm font-extrabold">Trou {index + 1}</span>
             <input
               value={value}
               onChange={(event) => fill(index, event.target.value)}
@@ -68,7 +75,7 @@ export function FillInCard({
           <button
             type="submit"
             disabled={filled.some((value) => value.trim() === '') || record.isPending}
-            className={`self-start ${button()}`}
+            className={`mt-auto ${CARD_ACTION} ${button({ size: 'lg' })}`}
           >
             Valider
           </button>
@@ -76,38 +83,38 @@ export function FillInCard({
       </form>
 
       {record.isError && (
-        <div role="alert" className="flex items-center gap-3 text-sm text-danger">
+        <div role="alert" className="flex items-center gap-3 text-sm font-bold text-danger">
           <span>
             {record.error instanceof ApiError
               ? record.error.message
               : "La réponse n'a pas pu être enregistrée."}
           </span>
-          <button type="button" onClick={() => submit()} className="font-medium underline">
+          <button type="button" onClick={() => submit()} className="font-extrabold underline">
             Réessayer
           </button>
         </div>
       )}
 
+      {!result && report && <div className="flex justify-center pb-3 md:pb-0">{report}</div>}
+
       {result?.correction && (
-        <div className="flex flex-col gap-3 border-t border-line pt-4">
-          <AnswerVerdict correct={result.rating === 'GOOD'}>
-            {result.rating === 'GOOD'
-              ? 'Tous les trous sont justes !'
-              : 'Pas tout à fait : la réponse attendue est indiquée sous chaque trou faux.'}
-          </AnswerVerdict>
+        <VerdictPanel
+          correct={correct}
+          title={correct ? 'Tous les trous sont justes !' : 'Pas tout à fait'}
+          detail={correct ? undefined : 'La réponse attendue est indiquée sous chaque trou faux.'}
+          nextRef={nextCard}
+          onNext={() => onReviewed(result)}
+          links={
+            <>
+              {report}
+              {!correct && card.notionSlug && (
+                <LessonLink subject={card.subjectSlug} notion={card.notionSlug} />
+              )}
+            </>
+          }
+        >
           <Markdown>{result.correction.explanation}</Markdown>
-          {result.rating !== 'GOOD' && card.notionSlug && (
-            <LessonLink subject={card.subjectSlug} notion={card.notionSlug} />
-          )}
-          <button
-            ref={nextCard}
-            type="button"
-            onClick={() => onReviewed(result)}
-            className={`self-start ${button()}`}
-          >
-            Carte suivante
-          </button>
-        </div>
+        </VerdictPanel>
       )}
     </article>
   )

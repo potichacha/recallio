@@ -594,7 +594,7 @@ Une bêta d'abord, pour quelques testeurs ; l'ouverture à tous attend leurs ret
 6. ✅ **Les pages légales** : mentions légales et politique de confidentialité, publiques, liées depuis le pied de page, la page publique, l'essai, le premier login et le profil ; l'éditeur et son contact arrivent au démarrage du front (`LEGAL_PUBLISHER`, `LEGAL_CONTACT_EMAIL`), hors du dépôt (ADR 0074). Le lien depuis la page d'inscription de Keycloak vient avec son thème.
 
    Puis, avant la mise en service (décidé le 2026-11-24), une PR chacune :
-   - **Fidélité aux maquettes « Rico »** : l'accueil, la carte de révision et la page publique rapprochés des maquettes ;
+   - ✅ **Fidélité aux maquettes « Rico »** : l'accueil, la carte de révision et la page publique rapprochés des maquettes (graisses, pastilles, chemin, verdict en panneau bas, bloc d'accroche ; note du 2026-11-24 dans l'ADR 0058) ;
    - **Le thème de la page de connexion** de Keycloak ;
    - **La page « Bêta » des admins** : des graphes agrégés sur les données déjà en base (activité, cohortes, sujets, cartes ratées, Tour, fonctionnalités), sans outil tiers ; le backend, puis l'écran.
 7. **La mise en service**, par le propriétaire, en suivant la procédure :

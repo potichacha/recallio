@@ -11,9 +11,9 @@ export function LessonLink({ subject, notion }: { subject: string; notion: strin
       to={`/subjects/${encodeURIComponent(subject)}/course/${encodeURIComponent(notion)}`}
       target="_blank"
       rel="noopener"
-      className="inline-flex items-center gap-1 self-start text-sm font-medium text-brand-strong hover:underline"
+      className="inline-flex min-h-11 items-center gap-1.5 self-start text-[0.9375rem] font-extrabold text-brand-strong underline"
     >
-      <BookOpenText weight="bold" aria-hidden className="size-4" />
+      <BookOpenText weight="bold" aria-hidden className="size-5" />
       Revoir la leçon
       <span className="sr-only"> (nouvel onglet)</span>
     </Link>

@@ -47,7 +47,7 @@ export function SubjectProgressList({
 
   return (
     <section aria-labelledby="subjects-progress-title" className="flex flex-col gap-3">
-      <h2 id="subjects-progress-title" className="text-lg font-semibold">
+      <h2 id="subjects-progress-title" className="text-lg font-black">
         Progression par sujet
       </h2>
       {interviews.isError && (
@@ -90,14 +90,17 @@ function SubjectRow({
   )
 
   return (
-    <li className="flex flex-col gap-3 rounded-xl bg-surface p-4 shadow-sm">
+    <li className="flex flex-col gap-3 rounded-2xl bg-surface p-4">
       <div className="flex items-center justify-between gap-3">
         <span className="flex items-center gap-2">
-          <Link to={`/subjects/${subject.slug}`} className="text-lg font-semibold hover:text-brand">
+          <Link
+            to={`/subjects/${subject.slug}`}
+            className="text-lg font-extrabold hover:text-brand"
+          >
             {subject.title}
           </Link>
           {level && (
-            <span className="rounded-full bg-warning-soft px-2 py-0.5 text-xs font-medium text-warning">
+            <span className="rounded-full bg-warning-soft px-2 py-0.5 text-xs font-bold text-warning">
               Niveau {level.level}
             </span>
           )}
@@ -116,7 +119,7 @@ function SubjectRow({
             {masterySummary(subject.notions)} ·{' '}
             <Link
               to={`/subjects/${subject.slug}/course`}
-              className="font-medium text-brand-strong hover:underline"
+              className="font-bold text-brand-strong hover:underline"
             >
               Carte des compétences
             </Link>
@@ -132,7 +135,7 @@ function SubjectRow({
       )}
       {interview}
       <details open={expanded} className="group">
-        <summary className="cursor-pointer text-sm font-medium text-brand-strong">
+        <summary className="cursor-pointer text-sm font-bold text-brand-strong">
           {plural(subject.themes.length, 'thème')}
           {started.length > 0 && ` · ${plural(started.length, 'commencé')}`}
         </summary>
@@ -150,7 +153,7 @@ function ThemeRow({ theme }: { theme: ThemeStats }) {
   return (
     <li className="flex flex-col gap-2 rounded-lg border border-line p-3">
       <div className="flex items-center justify-between gap-3">
-        <Link to={`/themes/${theme.slug}`} className="font-medium hover:text-brand">
+        <Link to={`/themes/${theme.slug}`} className="font-bold hover:text-brand">
           {theme.title}
         </Link>
         <DueLink counts={theme.counts} to={`/review?theme=${encodeURIComponent(theme.slug)}`} />
@@ -165,7 +168,7 @@ function DueLink({ counts, to }: { counts: CardCounts; to: string }) {
   return (
     <Link
       to={to}
-      className="shrink-0 rounded-lg bg-brand-soft px-2.5 py-1 text-sm font-medium text-brand-strong hover:bg-brand-soft"
+      className="shrink-0 rounded-lg bg-brand-soft px-2.5 py-1 text-sm font-bold text-brand-strong hover:bg-brand-soft"
     >
       {counts.dueNow} à revoir
     </Link>

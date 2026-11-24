@@ -21,7 +21,7 @@ export function ReportButton({ target }: { target: ReportTarget }) {
 
   if (report.isSuccess) {
     return (
-      <p role="status" className="text-xs text-ink-muted">
+      <p role="status" className="flex min-h-11 items-center text-sm font-bold text-ink-muted">
         Merci : le signalement est envoyé, il sera relu.
       </p>
     )
@@ -31,7 +31,7 @@ export function ReportButton({ target }: { target: ReportTarget }) {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="self-start text-xs text-ink-muted underline hover:text-ink-soft"
+        className="inline-flex min-h-11 items-center self-start text-[0.9375rem] font-extrabold text-brand-strong underline"
       >
         Signaler une erreur
       </button>
@@ -47,10 +47,10 @@ export function ReportButton({ target }: { target: ReportTarget }) {
     <form
       onSubmit={submit}
       aria-label="Signaler une erreur"
-      className="flex flex-col gap-3 rounded-lg border border-line bg-surface p-4 text-sm"
+      className="flex w-full flex-col gap-3 rounded-xl border border-line bg-surface p-4 text-sm"
     >
       <fieldset className="flex flex-col gap-1">
-        <legend className="mb-1 font-medium">Qu’est-ce qui ne va pas ?</legend>
+        <legend className="mb-1 font-extrabold">Qu’est-ce qui ne va pas ?</legend>
         {REPORT_REASONS.map((option) => (
           <label key={option.reason} className="flex items-center gap-2">
             <input
@@ -65,7 +65,7 @@ export function ReportButton({ target }: { target: ReportTarget }) {
         ))}
       </fieldset>
       <label className="flex flex-col gap-1">
-        <span className="font-medium">Précisions (facultatif)</span>
+        <span className="font-extrabold">Précisions (facultatif)</span>
         <textarea
           value={comment}
           onChange={(event) => setComment(event.target.value)}
@@ -81,7 +81,7 @@ export function ReportButton({ target }: { target: ReportTarget }) {
         <button
           type="button"
           onClick={() => setOpen(false)}
-          className="rounded-lg px-3 py-1.5 font-medium text-ink-muted hover:bg-surface-muted"
+          className="rounded-lg px-3 py-1.5 font-extrabold text-ink-muted hover:bg-surface-muted"
         >
           Annuler
         </button>

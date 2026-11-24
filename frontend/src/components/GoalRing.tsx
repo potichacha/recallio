@@ -1,4 +1,4 @@
-const RADIUS = 32
+const RADIUS = 30
 const CIRCUMFERENCE = 2 * Math.PI * RADIUS
 
 /**
@@ -8,47 +8,47 @@ const CIRCUMFERENCE = 2 * Math.PI * RADIUS
 export function GoalRing({
   done,
   goal,
-  onBrand = false,
+  onHero = false,
 }: {
   done: number
   goal: number
-  /** Posé sur la couleur de la marque (la carte « Aujourd'hui ») : l'anneau prend la couleur de son texte. */
-  onBrand?: boolean
+  /** Posé sur la carte « Aujourd'hui » : l'anneau se remplit en jaune, sur la piste de la carte. */
+  onHero?: boolean
 }) {
   const reached = Math.min(done, goal)
   const ratio = goal > 0 ? reached / goal : 0
   return (
     <svg
-      viewBox="0 0 80 80"
+      viewBox="0 0 76 76"
       role="img"
       aria-label={`Objectif du jour : ${reached} cartes sur ${goal}`}
-      className="size-20 shrink-0"
+      className="size-19 shrink-0"
     >
       <circle
-        cx="40"
-        cy="40"
+        cx="38"
+        cy="38"
         r={RADIUS}
         fill="none"
         strokeWidth="10"
-        className={onBrand ? 'stroke-brand-press' : 'stroke-surface-sunken'}
+        className={onHero ? 'stroke-hero-track' : 'stroke-surface-sunken'}
       />
       <circle
-        cx="40"
-        cy="40"
+        cx="38"
+        cy="38"
         r={RADIUS}
         fill="none"
         strokeWidth="10"
         strokeLinecap="round"
         strokeDasharray={CIRCUMFERENCE}
         strokeDashoffset={CIRCUMFERENCE * (1 - ratio)}
-        transform="rotate(-90 40 40)"
-        className={`${onBrand ? 'stroke-on-brand' : 'stroke-brand'} transition-[stroke-dashoffset] duration-500 motion-reduce:transition-none`}
+        transform="rotate(-90 38 38)"
+        className={`${onHero ? 'stroke-sun' : 'stroke-brand'} transition-[stroke-dashoffset] duration-500 motion-reduce:transition-none`}
       />
       <text
-        x="40"
-        y="46"
+        x="38"
+        y="44"
         textAnchor="middle"
-        className={`${onBrand ? 'fill-on-brand' : 'fill-ink'} text-[17px] font-bold`}
+        className={`${onHero ? 'fill-on-hero' : 'fill-ink'} text-lg font-black`}
         aria-hidden="true"
       >
         {reached}/{goal}

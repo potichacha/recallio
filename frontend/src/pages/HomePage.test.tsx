@@ -10,7 +10,7 @@ describe('HomePage', () => {
     stubApi(SUBJECTS)
     renderAt('/')
 
-    await screen.findByRole('region', { name: 'Essaie sans compte' })
+    await screen.findByRole('region', { name: 'Essaie tout de suite' })
     expect(screen.queryByText(/API/)).not.toBeInTheDocument()
   })
 
@@ -18,7 +18,7 @@ describe('HomePage', () => {
     stubApi(SUBJECTS)
     renderAt('/')
 
-    const trial = await screen.findByRole('region', { name: 'Essaie sans compte' })
+    const trial = await screen.findByRole('region', { name: 'Essaie tout de suite' })
     // La place de l'essai est tenue pendant le chargement du catalogue : ses boutons arrivent avec lui.
     expect(await screen.findByRole('link', { name: 'Essayer Java' })).toHaveAttribute(
       'href',

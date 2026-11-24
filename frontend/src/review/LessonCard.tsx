@@ -11,10 +11,10 @@ export function LessonCard({ card, onRead }: { card: QueuedCard; onRead: () => v
   return (
     <article
       aria-label={`Leçon : ${card.notionTitle ?? card.themeTitle}`}
-      className="flex flex-col gap-4 rounded-xl border border-brand-line bg-brand-soft/40 p-5 shadow-sm"
+      className="flex flex-col gap-4 rounded-2xl border border-brand-line bg-brand-soft/40 p-5"
     >
       <CardHeader card={card} />
-      <h2 className="text-lg font-semibold">Leçon : {card.notionTitle}</h2>
+      <h2 className="text-lg font-black">Leçon : {card.notionTitle}</h2>
       <Markdown>{card.lesson ?? ''}</Markdown>
       <button type="button" onClick={onRead} className={`self-start ${button()}`}>
         Passer à la carte
