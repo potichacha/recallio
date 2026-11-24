@@ -8,7 +8,8 @@
   Content-Security-Policy), ADR 0065 (le référencement)
 - Origine : le déploiement (phase 1, étape 7), son étape 1, « des images prêtes à déployer »
 - Complété par : ADR 0071 (le serveur de l'application : son compose, Caddy, Keycloak en production), ADR 0072 (le
-  serveur du runner : son compose, le tunnel WireGuard, le pare-feu, les core dumps)
+  serveur du runner : son compose, le tunnel WireGuard, le pare-feu, les core dumps), ADR 0073 (les sauvegardes des
+  bases, hors d'OVHcloud)
 
 ## Contexte
 

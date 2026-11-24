@@ -3,11 +3,12 @@
 > Pour le propriétaire du projet, qui monte et fait vivre les serveurs de la bêta. Chaque étape donne les commandes à
 > copier et ce qu'on doit voir. Les décisions sont dans les ADR [0069](adr/0069-hebergement-et-livraison.md) (deux
 > serveurs, des images publiées par la CI), [0070](adr/0070-logs-et-erreurs.md) (logs et Sentry),
-> [0071](adr/0071-le-serveur-de-l-application.md) (le serveur de l'application) et
-> [0072](adr/0072-le-serveur-du-runner.md) (le serveur du runner).
+> [0071](adr/0071-le-serveur-de-l-application.md) (le serveur de l'application),
+> [0072](adr/0072-le-serveur-du-runner.md) (le serveur du runner) et [0073](adr/0073-les-sauvegardes.md) (les
+> sauvegardes).
 >
-> État : le serveur de l'application (étape 7.3) et le serveur du runner (7.4, section 11). Les sauvegardes (7.5) et la
-> mise en service (7.7) compléteront ce document, à leurs sections annoncées en fin de page.
+> État : le serveur de l'application (étape 7.3), le serveur du runner (7.4, section 11) et les sauvegardes (7.5,
+> section 12). La mise en service (7.7) complétera ce document, à sa section annoncée en fin de page.
 
 Conventions :
 
@@ -36,6 +37,7 @@ flowchart LR
         runner["Runner<br/>10.13.13.2:8090"]
         sandbox["Bac à sable<br/>un conteneur par exécution"]
     end
+    store[("Stockage objet<br/>hors d'OVHcloud")]
     user -- "https://&lt;domaine&gt;" --> caddy
     user -- "https://auth.&lt;domaine&gt;" --> caddy
     caddy --> front --> back
@@ -44,6 +46,7 @@ flowchart LR
     kc --> db
     back -. "WireGuard (UDP 51820), jeton" .-> runner
     runner --> sandbox
+    db -. "chaque nuit : les deux bases, chiffrées" .-> store
 ```
 
 | Service | Ce qu'il fait | Joignable depuis Internet |
@@ -54,6 +57,7 @@ flowchart LR
 | Keycloak | Les comptes, la connexion, les e-mails (Brevo) ; sa console d'administration | ses pages de connexion, par Caddy ; sa console, par un tunnel SSH seulement |
 | PostgreSQL | Deux bases : `recallio` et `keycloak` | non |
 | Runner, sur son serveur | Exécute le code des joueurs (exercices, Tour) dans un conteneur jetable par exécution | non : le backend seul, par le tunnel WireGuard, avec le jeton |
+| La sauvegarde, sur le serveur de l'application | Un script lancé chaque nuit par systemd : les deux bases, chiffrées, envoyées dans un stockage objet hors d'OVHcloud (section 12) | non : elle n'écoute rien, elle envoie |
 
 **Ce qui est secret** : sur le serveur de l'application, tout est dans un seul fichier,
 `/opt/recallio/infra/production/app/.env`, lisible par toi seul (`chmod 600`), jamais versionné. Il porte les mots de
@@ -61,7 +65,10 @@ passe de PostgreSQL, celui du compte Keycloak temporaire, la clé SMTP de Brevo,
 **Garde-en une copie hors du serveur** (un gestionnaire de mots de passe) : sans lui, une restauration ne peut pas se
 reconnecter à la base, et de nouvelles clés VAPID désabonnent tout le monde des rappels. Le reste du dossier vient du
 dépôt public et ne contient aucun secret. Le serveur du runner a son propre `.env` (le même jeton), et chaque serveur
-ses clés WireGuard dans `/etc/wireguard/` ; la clé partagée du tunnel se garde avec le jeton (section 11).
+ses clés WireGuard dans `/etc/wireguard/` ; la clé partagée du tunnel se garde avec le jeton (section 11). La sauvegarde
+a sa configuration dans `/etc/recallio-backup/`, lisible par root seul : la clé du stockage, qui ne peut ni lire ni
+supprimer. **La clé privée qui déchiffre les sauvegardes n'est sur aucun serveur** : elle reste chez toi, dans ton
+gestionnaire de mots de passe (section 12).
 
 ## 2. Les prérequis
 
@@ -115,6 +122,14 @@ Keycloak envoie la vérification de l'adresse et le « mot de passe oublié » p
 
 Si tu veux les erreurs dans Sentry (ADR 0070) : un compte en région UE, deux projets pour ce serveur
 (`recallio-backend`, `recallio-frontend`) et leurs DSN, réglés comme le dit l'ADR 0070. Sans DSN, rien n'est envoyé.
+
+### Backblaze B2, pour les sauvegardes
+
+Les sauvegardes partent chaque nuit dans un stockage objet, chez un autre hébergeur qu'OVHcloud : un incident chez
+OVHcloud ne doit pas emporter le serveur et ses sauvegardes (ADR 0073). Crée un compte Backblaze B2 en choisissant la
+région **EU Central** à l'inscription : elle ne se change plus ensuite. Les 10 premiers gigaoctets sont gratuits ; une
+sauvegarde pèse quelques mégaoctets. Active la double authentification du compte. Le bucket et sa clé se créent à la
+section 12.
 
 ### Le serveur
 
@@ -253,7 +268,7 @@ cd /opt/recallio/infra/production/app
 ls -A
 ```
 
-Attendu : `.env.example  Caddyfile  compose.yaml  keycloak  postgres`.
+Attendu : `.env.example  Caddyfile  backup  compose.yaml  keycloak  postgres  wireguard`.
 
 ## 5. Configurer
 
@@ -504,12 +519,14 @@ Leurs images sont épinglées à une version mineure (`caddy:2.11`, `keycloak:26
   la mise à jour de Docker (section 3) ;
 - **une nouvelle version mineure** arrive par une pull request de Dependabot (`caddy:2.12`, `keycloak:26.8`…) : après le
   merge, `git pull`, `docker compose pull`, `up -d`. Pour **Keycloak**, lis d'abord ses notes de mise à jour
-  (*Upgrading Guide*) : il migre sa base au démarrage, sans retour possible autrement que par une sauvegarde
-  (section 12) ; et reporte la version dans le compose local (`infra/compose.yaml`) ;
+  (*Upgrading Guide*) : il migre sa base au démarrage, sans retour possible autrement que par une sauvegarde. Lance-en
+  donc une juste avant (`sudo systemctl start recallio-backup.service`, section 12) ; et reporte la version dans le
+  compose local (`infra/compose.yaml`) ;
 - **une version majeure de PostgreSQL** (18 vers 19) demande une vraie migration : la nouvelle version ne lit pas les
-  fichiers de l'ancienne. Dependabot ne la propose pas. Le principe : une sauvegarde complète (`pg_dumpall`), puis la
-  nouvelle image sur un volume neuf, puis la restauration, en gardant l'ancien volume jusqu'à ce que tout soit vérifié.
-  La procédure exacte s'écrira et se répétera sur une copie avant le jour venu, avec celle des sauvegardes (section 12).
+  fichiers de l'ancienne. Dependabot ne la propose pas. Le principe est celui du « serveur perdu » de la section 12 :
+  une sauvegarde, puis la nouvelle image sur un volume neuf, puis la restauration, en gardant l'ancien volume jusqu'à
+  ce que tout soit vérifié. À répéter d'abord sur ton poste, par l'essai de restauration, avec l'image de la nouvelle
+  version.
 
 ## 10. Exploiter
 
@@ -1055,6 +1072,418 @@ exercice doit encore réussir, et l'exercice Quarkus rester sous les 20 secondes
 retire l'entrée `runsc` de `runtimes` dans `/etc/docker/daemon.json` (en gardant `default-ulimits`), puis
 `sudo systemctl restart docker`.
 
-## 12. Les sauvegardes (étape 7.5, à venir)
+## 12. Les sauvegardes
+
+Chaque nuit, vers 02:15 UTC, le serveur de l'application sauvegarde ses deux bases (`recallio` et `keycloak`), les
+chiffre, et les envoie dans un bucket Backblaze B2, hors d'OVHcloud. Chaque sauvegarde y reste 30 jours. Les décisions
+sont dans l'ADR [0073](adr/0073-les-sauvegardes.md).
+
+| Question | Réponse |
+|---|---|
+| Qu'est-ce qui est sauvegardé ? | Les deux bases, en entier : les comptes et la progression (`recallio`), les identités, les mots de passe hachés et les réglages du royaume (`keycloak`) |
+| Qu'est-ce qui ne l'est pas ? | Le `.env`, les clés WireGuard et la clé privée des sauvegardes : ils sont dans ton gestionnaire de mots de passe (sections 1 et 11). Les certificats de Caddy : il les redemande. Le contenu : il est dans l'image du backend |
+| Et le serveur du runner ? | Rien à sauvegarder : il ne garde aucune donnée. Il se remonte en suivant la section 11 |
+| Qui peut lire une sauvegarde ? | Toi seul, avec la clé privée d'age, qui n'est sur aucun serveur. Ni Backblaze, ni quelqu'un qui aurait pris le serveur |
+| Qui peut en supprimer une ? | Personne avant 30 jours : le bucket les verrouille (Object Lock). La clé du serveur ne peut qu'écrire et lister |
+
+Trois endroits, dans cette section : **la console de Backblaze**, dans ton navigateur ; **ton poste**, dans Git Bash sauf
+mention de PowerShell ; **le serveur de l'application**. Chaque bloc dit où il se tape.
+
+### Le bucket
+
+Dans la console de Backblaze (*B2 Cloud Storage*, *Buckets*, *Create a Bucket*) ; ses libellés font foi s'ils ont
+changé :
+
+1. **Le nom** : unique chez Backblaze, par exemple `recallio-backups-` suivi de quelques caractères au hasard. Note-le :
+   c'est `<bucket>` dans la suite.
+2. **Files in Bucket are** : *Private*.
+3. **Default Encryption** : *Disable*. Les sauvegardes arrivent déjà chiffrées, avec une clé que Backblaze n'a pas.
+4. **Object Lock** : *Enable*. C'est lui qui empêche de supprimer une sauvegarde, et il ne s'active bien qu'à la
+   création.
+
+Puis, sur la ligne du bucket :
+
+5. **Object Lock**, la règle par défaut (*Default Retention Policy*) : mode *Governance*, **30 jours**. Chaque fichier
+   déposé est alors verrouillé 30 jours : pendant ce temps, ni la clé du serveur ni une règle du bucket ne peuvent le
+   supprimer ; toi seul le peux, depuis ton compte.
+6. **Lifecycle Settings**, *Use custom lifecycle rules*, une règle :
+
+   | Champ | Nom dans l'API | Valeur |
+   |---|---|---|
+   | Le préfixe des fichiers | `fileNamePrefix` | vide (tout le bucket) |
+   | Les jours avant de masquer | `daysFromUploadingToHiding` | `30` |
+   | Les jours avant de supprimer | `daysFromHidingToDeleting` | `1` |
+
+   Une sauvegarde est ainsi masquée 30 jours après son envoi, puis supprimée le lendemain. Backblaze applique ces
+   règles une fois par jour : compte **32 jours au plus** entre l'envoi et la suppression.
+7. Note l'**Endpoint** affiché sur la ligne du bucket, `s3.eu-central-003.backblazeb2.com` par exemple : sa partie du
+   milieu est la région, `<région>` dans la suite.
+
+### La clé du serveur
+
+Le serveur reçoit une clé qui ne peut **que lister et écrire** dans ce bucket : ni lire, ni supprimer. La console ne
+propose que trois profils tout faits, sans cette combinaison : la clé se crée avec l'outil en ligne de commande de
+Backblaze.
+
+1. Dans la console, *Application Keys* : génère la clé maîtresse (*Generate New Master Application Key*) et garde la
+   page ouverte. Elle peut tout : elle ne va jamais sur le serveur.
+2. Sur ton poste, télécharge `b2-windows.exe` depuis les
+   [versions de l'outil](https://github.com/Backblaze/B2_Command_Line_Tool/releases/latest), puis, dans PowerShell, dans
+   le dossier du téléchargement :
+
+   ```powershell
+   .\b2-windows.exe account authorize
+   .\b2-windows.exe key create --bucket <bucket> recallio-backup-server listBuckets,listAllBucketNames,listFiles,writeFiles
+   .\b2-windows.exe account clear
+   ```
+
+   La première commande demande le `keyID` et la clé maîtresse. La deuxième affiche deux valeurs, **une seule fois** :
+   le `keyID` de la nouvelle clé, puis son `applicationKey`. Garde-les dans ton gestionnaire de mots de passe. La
+   troisième efface la clé maîtresse du poste.
+3. Dans la console, *Application Keys* : la clé `recallio-backup-server` doit afficher le bucket `<bucket>` et les
+   quatre droits `listBuckets, listAllBucketNames, listFiles, writeFiles`. **Ni `readFiles`, ni `deleteFiles`, ni
+   `bypassGovernance`** : sinon, supprime-la et recommence.
+
+Avec `writeFiles`, la clé peut encore masquer un fichier ou déposer un fichier du même nom : c'est pourquoi le bucket
+verrouille chaque fichier 30 jours (ADR 0073).
+
+### La paire de clés qui chiffre
+
+Les sauvegardes sont chiffrées avec [age](https://age-encryption.org) : le serveur n'a que la **clé publique**, qui
+chiffre ; la **clé privée**, qui déchiffre, naît sur ton poste et n'en sort que vers ton gestionnaire de mots de passe.
+
+Sur ton poste, dans PowerShell, une fois :
+
+```powershell
+winget install --id FiloSottile.age -e
+```
+
+Sans `winget`, l'archive Windows des [versions d'age](https://github.com/FiloSottile/age/releases/latest) contient
+`age.exe` et `age-keygen.exe`. Puis, dans un **nouveau** Git Bash :
+
+```shell
+age-keygen -o cle-sauvegardes-recallio.txt
+cat cle-sauvegardes-recallio.txt
+```
+
+Attendu : `Public key: age1…`, puis les trois lignes du fichier : une date, la clé publique en commentaire, et la clé
+privée, `AGE-SECRET-KEY-1…`.
+
+1. **Copie les trois lignes dans ton gestionnaire de mots de passe**, et une seconde copie ailleurs (imprimée, dans un
+   lieu sûr). **Sans cette clé, aucune sauvegarde ne se lit, et personne ne peut la retrouver.**
+2. Note la clé publique (`age1…`, 62 caractères) : elle n'est pas secrète.
+3. Supprime le fichier : `rm cle-sauvegardes-recallio.txt`. Tu le recréeras depuis le gestionnaire pour restaurer.
+
+### Installer les outils sur le serveur
+
+Sur le serveur de l'application :
+
+```shell
+sudo apt-get update && sudo apt-get install -y age rclone curl
+age --version && rclone version | head -1
+cd /opt/recallio && git pull
+ls infra/production/app/backup
+```
+
+Attendu : age 1.1 ou plus, rclone 1.60 ou plus (les paquets de Debian 13 et d'Ubuntu 24.04 suffisent), puis
+`backup.env.example  backup.sh  rclone.conf.example  recallio-backup.service  recallio-backup.timer`.
+
+### Configurer
+
+La configuration vit hors du dépôt, dans `/etc/recallio-backup/`, lisible par root seul. Sur le serveur :
+
+```shell
+cd /opt/recallio/infra/production/app
+sudo install -d -m 700 /etc/recallio-backup
+sudo install -m 600 backup/backup.env.example /etc/recallio-backup/backup.env
+sudo install -m 600 backup/rclone.conf.example /etc/recallio-backup/rclone.conf
+```
+
+**La clé publique et le bucket**, en remplaçant les deux `COLLE-ICI…` :
+
+```shell
+age_public_key=COLLE-ICI-LA-CLE-PUBLIQUE-AGE
+bucket=COLLE-ICI-LE-NOM-DU-BUCKET
+sudo sed -i "s|^BACKUP_AGE_RECIPIENT=.*|BACKUP_AGE_RECIPIENT=$age_public_key|; s|<BUCKET>|$bucket|" /etc/recallio-backup/backup.env
+```
+
+**La clé du serveur**, en remplaçant le `keyID` et la région ; l'`applicationKey` se colle sans s'afficher :
+
+```shell
+key_id=COLLE-ICI-LE-KEYID
+region=eu-central-003
+read -rsp 'applicationKey : ' key && echo
+sudo sed -i "s|<B2_KEY_ID>|$key_id|; s|<B2_APPLICATION_KEY>|$key|; s|<B2_REGION>|$region|g" /etc/recallio-backup/rclone.conf && unset key
+sudo grep -c '<[A-Z0-9_]*>' /etc/recallio-backup/backup.env /etc/recallio-backup/rclone.conf
+sudo ls -l /etc/recallio-backup
+```
+
+Attendu : `0` pour chaque fichier (plus aucun marqueur), et deux fichiers `-rw------- 1 root root`. Puis vérifie que la
+clé entre dans le bucket :
+
+```shell
+sudo sh -c '. /etc/recallio-backup/backup.env && rclone --config /etc/recallio-backup/rclone.conf ls "$BACKUP_DESTINATION"' && echo OK
+```
+
+Attendu : `OK`, sans rien d'autre (le dossier est encore vide). Une erreur `403` ou `SignatureDoesNotMatch` : le
+`keyID`, l'`applicationKey` ou la région (« Dépannage »).
+
+### La première sauvegarde, à la main
+
+Sur le serveur :
+
+```shell
+cd /opt/recallio/infra/production/app
+sudo install -m 644 backup/recallio-backup.service backup/recallio-backup.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl start recallio-backup.service && echo OK
+journalctl -u recallio-backup.service -o cat --since -5min | grep '^sauvegarde'
+```
+
+La commande `start` attend la fin de la sauvegarde (quelques secondes). Attendu : `OK`, puis :
+
+```text
+sauvegarde : début, vers recallio-backup:<bucket>/postgres
+sauvegarde : base recallio sauvegardée et chiffrée (8456591 octets)
+sauvegarde : base keycloak sauvegardée et chiffrée (254320 octets)
+sauvegarde : recallio-2026-11-24T0858Z.dump.age envoyé et retrouvé dans la destination (8456591 octets)
+sauvegarde : keycloak-2026-11-24T0858Z.dump.age envoyé et retrouvé dans la destination (254320 octets)
+sauvegarde : terminé : 2 bases sauvegardées
+```
+
+Une base neuve pèse environ 8 Mo, presque tout en contenu ; le nom de chaque fichier porte l'heure UTC du lancement.
+Vérifie ensuite :
+
+- dans la console de Backblaze, *Browse Files*, `<bucket>`, `postgres` : les deux fichiers, et, dans le détail de
+  chacun, un verrou (*Object Lock*) jusqu'à dans 30 jours ;
+- sur le serveur, que la clé ne peut pas relire ce qu'elle a déposé, et que rien n'est resté sur le disque :
+
+  ```shell
+  sudo sh -c '. /etc/recallio-backup/backup.env && rclone --config /etc/recallio-backup/rclone.conf cat "$BACKUP_DESTINATION/$(rclone --config /etc/recallio-backup/rclone.conf lsf "$BACKUP_DESTINATION" | tail -1)"' | head -c 21
+  sudo ls -A /var/lib/recallio-backup
+  ```
+
+  Attendu : rien, ou une erreur `403`, puis rien : la clé ne lit pas, et le dossier de travail est vide. Si la
+  première commande affiche `age-encryption.org/v1`, la clé a le droit `readFiles` : refais-la.
+
+**Joue maintenant l'« Essai de restauration »**, plus bas : une sauvegarde qu'on n'a jamais restaurée n'en est pas
+encore une.
+
+### Chaque nuit
+
+Sur le serveur :
+
+```shell
+sudo systemctl enable --now recallio-backup.timer
+systemctl list-timers recallio-backup.timer
+```
+
+Attendu : une ligne dont `NEXT` est la nuit prochaine, entre 02:15 et 02:30 UTC, et `ACTIVATES` vaut
+`recallio-backup.service`. Si le serveur était éteint à cette heure, la sauvegarde part à son démarrage.
+
+### Savoir qu'une sauvegarde a manqué
+
+Une sauvegarde qui s'arrête en silence ne se remarque que le jour où l'on en a besoin. Deux moyens.
+
+**Un battement de cœur, facultatif et conseillé.** Un service comme [Healthchecks.io](https://healthchecks.io) (offre
+gratuite) attend un appel par jour et t'écrit quand il ne vient pas. Crée un compte, puis une vérification : une
+période d'**un jour**, un délai de grâce de **2 heures**. Copie son adresse d'appel (`https://hc-ping.com/…`), puis, sur
+le serveur :
+
+```shell
+read -rsp 'Adresse du battement : ' url && echo
+sudo sed -i "s|^BACKUP_HEARTBEAT_URL=.*|BACKUP_HEARTBEAT_URL=$url|" /etc/recallio-backup/backup.env && unset url
+sudo systemctl start recallio-backup.service
+journalctl -u recallio-backup.service -o cat --since -5min | grep '^sauvegarde' | tail -2
+```
+
+Attendu : `sauvegarde : battement de cœur envoyé`, puis `terminé`, et la vérification passe au vert chez Healthchecks.
+Le script n'appelle cette adresse qu'après avoir retrouvé les deux fichiers dans le bucket, et n'y envoie aucune
+donnée. Une sauvegarde qui échoue n'appelle rien : c'est le silence qui alerte.
+
+**À la main**, à tout moment, sur le serveur :
+
+```shell
+systemctl list-timers recallio-backup.timer
+systemctl is-failed recallio-backup.service
+journalctl -u recallio-backup.service --since -2d -o cat | grep '^sauvegarde'
+sudo sh -c '. /etc/recallio-backup/backup.env && rclone --config /etc/recallio-backup/rclone.conf ls "$BACKUP_DESTINATION"' | sort -t- -k2 | tail -4
+```
+
+Attendu : `LAST` date de la nuit dernière ; `inactive` (un `failed` veut dire que la dernière sauvegarde a échoué : lis
+le journal) ; les lignes de la dernière sauvegarde, jusqu'à `terminé` ; et les fichiers des deux dernières nuits, avec
+leur taille.
+
+### Restaurer
+
+Restaurer **remplace** les deux bases par celles de la sauvegarde : tout ce qui a été fait depuis est perdu. Les deux
+fichiers d'une même sauvegarde portent la même heure ; restaure toujours les deux ensemble.
+
+**1. Télécharger**, sur ton poste : dans la console de Backblaze, *Browse Files*, `<bucket>`, `postgres`, télécharge
+`recallio-<date>.dump.age` et `keycloak-<date>.dump.age` de la sauvegarde choisie, dans un dossier vide.
+
+**2. Déchiffrer**, sur ton poste, dans ce dossier. Recrée d'abord le fichier de la clé depuis ton gestionnaire de mots
+de passe (`notepad cle-sauvegardes-recallio.txt`, colle les trois lignes, enregistre) :
+
+```shell
+age --decrypt --identity cle-sauvegardes-recallio.txt --output recallio.dump recallio-<date>.dump.age
+age --decrypt --identity cle-sauvegardes-recallio.txt --output keycloak.dump keycloak-<date>.dump.age
+ls -l recallio.dump keycloak.dump
+```
+
+Attendu : aucun message, et deux fichiers de quelques mégaoctets. age refuse un fichier abîmé ou tronqué : si une
+commande échoue, n'utilise pas son résultat, et prends la sauvegarde précédente.
+
+**3. Arrêter ce qui écrit dans les bases**, sur le serveur. Le site répond 502 jusqu'à l'étape 5 :
+
+```shell
+cd /opt/recallio/infra/production/app
+docker compose stop frontend backend keycloak
+```
+
+**4. Restaurer chaque base**, depuis ton poste : le dump traverse SSH et entre dans `pg_restore`, dans le conteneur,
+sans se poser sur le disque du serveur.
+
+```shell
+ssh recallio@<ip> 'cd /opt/recallio/infra/production/app && docker compose exec -T postgres pg_restore --username postgres --dbname postgres --clean --if-exists --create --exit-on-error' < recallio.dump
+ssh recallio@<ip> 'cd /opt/recallio/infra/production/app && docker compose exec -T postgres pg_restore --username postgres --dbname postgres --clean --if-exists --create --exit-on-error' < keycloak.dump
+```
+
+Attendu : aucun message, pour chacune. `pg_restore` supprime la base, la recrée avec son propriétaire et ses droits,
+puis la remplit. S'il répond `database "recallio" is being accessed by other users`, l'étape 3 a été oubliée : il n'a
+rien touché.
+
+**5. Redémarrer et vérifier**, sur le serveur :
+
+```shell
+docker compose up -d
+docker compose ps
+docker compose exec -T postgres psql -U postgres -d recallio -Atc "SELECT 'comptes', count(*) FROM app_user UNION ALL SELECT 'révisions', count(*) FROM review_log"
+docker compose exec -T postgres psql -U postgres -d recallio -Atc "SELECT 'dernière révision : ' || max(reviewed_at) FROM review_log"
+```
+
+Attendu : les cinq services `Up … (healthy)` après une minute ; un nombre de comptes plausible ; une dernière révision
+juste avant l'heure de la sauvegarde. Puis connecte-toi dans la PWA avec ton compte : ta progression est là.
+
+**6. Effacer les copies en clair**, sur ton poste :
+
+```shell
+rm recallio.dump keycloak.dump cle-sauvegardes-recallio.txt
+```
+
+**7. Rejouer les suppressions de compte.** Un compte supprimé après l'heure de la sauvegarde est revenu avec elle : voir
+« Les comptes supprimés », plus bas.
+
+**Quelle version pour quelle sauvegarde.** Restaure avec le tag qui tournait le jour de la sauvegarde, ou un plus
+récent, jamais un plus ancien :
+
+- une sauvegarde **plus ancienne que l'image** : rien à faire. Au démarrage, le backend applique les migrations Flyway
+  qui manquent, et Keycloak migre sa base ;
+- une sauvegarde **plus récente que l'image** (tu es revenu à un ancien tag depuis) : remets d'abord le tag d'alors
+  (section 9). Keycloak ne sait pas revenir en arrière, et le backend ne le peut qu'à une version près.
+
+#### Le serveur est perdu
+
+Sur un serveur neuf :
+
+1. les sections 2 (le DNS, vers la nouvelle adresse), 3 et 4 ;
+2. la section 5, **avec le `.env` gardé dans ton gestionnaire de mots de passe**, et non un `.env` neuf : les mots de
+   passe des bases et les clés VAPID doivent être ceux d'avant ;
+3. la base seule, que son script d'initialisation crée vide, avec ses deux rôles :
+
+   ```shell
+   cd /opt/recallio/infra/production/app
+   docker compose pull
+   docker compose up -d postgres
+   docker compose ps postgres
+   ```
+
+   Attendu : `Up … (healthy)` ;
+4. les étapes 1, 2 et 4 de « Restaurer », avec la dernière sauvegarde ;
+5. le reste : `docker compose up -d`, puis les étapes 5 à 7 de « Restaurer », et la section 8. La section 7 est
+   inutile : l'administrateur de Keycloak, le royaume et ses réglages sont dans la base restaurée ;
+6. le tunnel WireGuard, avec de nouvelles clés (section 11), et les sauvegardes de ce nouveau serveur (cette section,
+   avec le même bucket, la même clé publique, et une nouvelle clé de serveur à la place de l'ancienne, à supprimer dans
+   la console).
+
+### Essai de restauration
+
+À jouer **à la mise en service**, puis **une fois par trimestre** (note la date) : il prouve que la sauvegarde de la
+nuit se déchiffre, se restaure, et que tu as toujours la clé. Tout se passe sur ton poste, avec Docker Desktop, dans un
+PostgreSQL jetable : rien ne touche le serveur.
+
+1. Télécharge et déchiffre la dernière sauvegarde : les étapes 1 et 2 de « Restaurer ».
+2. Restaure-la dans un conteneur à part :
+
+   ```shell
+   docker run -d --name recallio-restore-check -e POSTGRES_PASSWORD=essai postgres:18
+   until docker exec recallio-restore-check pg_isready -h 127.0.0.1 -q; do sleep 1; done
+   docker exec recallio-restore-check psql -U postgres -c 'CREATE ROLE recallio' -c 'CREATE ROLE keycloak'
+   docker exec -i recallio-restore-check pg_restore --username postgres --dbname postgres --create --exit-on-error < recallio.dump
+   docker exec -i recallio-restore-check pg_restore --username postgres --dbname postgres --create --exit-on-error < keycloak.dump
+   ```
+
+   Attendu : `CREATE ROLE` deux fois, puis aucun message. Le conteneur ne publie aucun port.
+3. Compte ce qu'elle contient :
+
+   ```shell
+   docker exec recallio-restore-check psql -U postgres -d recallio -Atc "SELECT 'comptes', count(*) FROM app_user UNION ALL SELECT 'révisions', count(*) FROM review_log UNION ALL SELECT 'cartes', count(*) FROM card UNION ALL SELECT 'migrations', count(*) FROM flyway_schema_history"
+   docker exec recallio-restore-check psql -U postgres -d recallio -Atc "SELECT 'dernière révision : ' || max(reviewed_at) FROM review_log"
+   docker exec recallio-restore-check psql -U postgres -d keycloak -Atc "SELECT r.name, count(u.id) FROM realm r LEFT JOIN user_entity u ON u.realm_id = r.id GROUP BY r.name ORDER BY r.name"
+   ```
+
+   Attendu : les comptes, les révisions, les cartes et les migrations de la base ; une dernière révision de la veille au
+   soir ; puis les utilisateurs de Keycloak par royaume (`master`, tes administrateurs ; `recallio`, les inscrits).
+   Compare avec le serveur, où les mêmes requêtes se lancent par
+   `docker compose exec -T postgres psql -U postgres -d recallio -Atc "…"` : les nombres du serveur sont égaux, ou un
+   peu plus grands (la journée en cours).
+4. Efface tout :
+
+   ```shell
+   docker rm -f -v recallio-restore-check
+   rm recallio.dump keycloak.dump cle-sauvegardes-recallio.txt
+   ```
+
+### Les comptes supprimés
+
+Une sauvegarde contient les comptes du jour où elle a été faite. Deux conséquences (ADR 0056, 0073) :
+
+- **un compte supprimé reste dans les sauvegardes** jusqu'à leur suppression, 32 jours au plus. Personne ne les lit
+  entre-temps : elles sont chiffrées, et ne servent qu'à une restauration ;
+- **une restauration fait revenir** les comptes supprimés depuis l'heure de la sauvegarde. Il faut les supprimer de
+  nouveau.
+
+Après une restauration :
+
+1. compte les suppressions faites dans l'application depuis l'heure de la sauvegarde, si le serveur a gardé ses logs
+   (le backend les note sans dire de qui) :
+
+   ```shell
+   docker compose logs --no-log-prefix --since 2026-11-24T02:15:00Z backend | grep -c 'Un compte a été supprimé'
+   ```
+
+   Avec l'heure UTC de la sauvegarde, celle du nom de ses fichiers. `0` : il n'y a rien à rejouer ;
+2. sinon, ou si les logs sont perdus avec le serveur : écris aux inscrits que le service a été restauré à son état du
+   `<date>`, et que celui qui a supprimé son compte depuis doit le supprimer de nouveau (profil, « Mes données ») ou te
+   l'écrire ;
+3. traite de nouveau les demandes de suppression reçues par e-mail depuis cette date. Garde donc la date de chaque
+   demande reçue par e-mail pendant 32 jours, le temps que la dernière sauvegarde qui contient le compte disparaisse.
+
+### Dépannage
+
+| Symptôme | Cause probable | Que faire |
+|---|---|---|
+| `systemctl start` échoue aussitôt : « Failed to load environment files » | `/etc/recallio-backup/backup.env` manque | « Configurer » |
+| Le journal dit « la clé publique age du destinataire (age1...) manque » ou « malformed recipient » | `BACKUP_AGE_RECIPIENT` est vide ou mal collée | `sudo nano /etc/recallio-backup/backup.env` : la ligne `age1…` entière, 62 caractères |
+| `service "postgres" is not running`, puis « ÉCHEC » | PostgreSQL est arrêté | `docker compose ps`, puis `docker compose up -d` |
+| « required variable … is missing a value » | Le `.env` du compose est incomplet | Section 5 |
+| `SignatureDoesNotMatch`, `InvalidAccessKeyId` ou `403` à l'envoi | Le `keyID`, l'`applicationKey`, la région, ou une clé supprimée | `sudo nano /etc/recallio-backup/rclone.conf` ; la clé existe-t-elle encore dans la console ? |
+| `403` juste après « sauvegardée et chiffrée », alors que la clé et la région sont bonnes | La clé n'a pas `writeFiles` ou `listFiles`, ou n'est pas celle de ce bucket | Regarde ses droits dans la console ; refais-la avec ses quatre droits |
+| « ATTENTION : le battement de cœur n'a pas pu être envoyé » | L'adresse du battement, ou le service de surveillance | La sauvegarde est faite. Vérifie `BACKUP_HEARTBEAT_URL` |
+| Healthchecks alerte, et `systemctl is-failed` répond `inactive` | Le serveur était éteint, ou le timer n'est pas activé | `systemctl list-timers recallio-backup.timer`, puis « Chaque nuit » |
+| `pg_restore` : `role "recallio" does not exist` | La base n'a pas été initialisée par son script (un volume créé sans lui) | Sur un serveur neuf seulement : `docker compose down -v`, puis `docker compose up -d postgres`, et restaure de nouveau |
+| `age: error: no identity matched any of the recipients` | Ce n'est pas la clé privée de la clé publique du serveur | Compare la clé publique du fichier de la clé avec `BACKUP_AGE_RECIPIENT` |
+| La clé privée est perdue | | Les sauvegardes existantes sont illisibles. Génère une nouvelle paire tout de suite (« La paire de clés qui chiffre »), remplace `BACKUP_AGE_RECIPIENT`, et lance une sauvegarde |
+| La clé du serveur a fui, ou le serveur a été pris | | Dans la console de Backblaze, supprime la clé et crée-en une autre (« La clé du serveur ») : les sauvegardes déjà faites sont verrouillées et illisibles sans la clé privée |
 
 ## 13. La mise en service (étape 7.7, à venir)

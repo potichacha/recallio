@@ -349,7 +349,8 @@ jobs:
   # La configuration des serveurs de l'application (ADR 0071) et du runner (ADR 0072), sans rien démarrer : chaque
   # compose de production avec les variables de son .env.example (ses secrets vides remplis d'une valeur factice,
   # puisque Compose refuse un secret vide), le Caddyfile formaté et validé par l'image de Caddy que le compose épingle,
-  # le royaume Keycloak de production, et les modèles WireGuard, qui ne doivent contenir aucune clé.
+  # le royaume Keycloak de production, les modèles WireGuard, qui ne doivent contenir aucune clé, et la sauvegarde
+  # (ADR 0073) : son script, ses unités systemd et ses modèles, sans clé non plus.
   production:
     name: production
     needs: changes
@@ -393,6 +394,35 @@ jobs:
           if grep -nE '[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=' "${templates[@]}" \
             || grep -nE '^ *(PrivateKey|PublicKey|PresharedKey) *= *[^< ]' "${templates[@]}"; then
             echo "::error::Un modèle WireGuard contient une clé : seuls des marqueurs <...> y sont permis."
+            exit 1
+          fi
+
+      - name: Check the backup script with shellcheck
+        run: shellcheck backup/backup.sh
+
+      # Sans rien installer : systemd lit les deux unités et signale une directive inconnue, une valeur invalide ou un
+      # calendrier mal écrit. Une directive inconnue n'est qu'un avertissement pour lui : toute ligne écrite est donc un
+      # échec. --recursive-errors=no : seulement nos unités, pas celles de la machine de la CI dont elles dépendent.
+      - name: Verify the systemd units of the backup
+        run: |
+          if ! output=$(systemd-analyze verify --recursive-errors=no \
+              backup/recallio-backup.service backup/recallio-backup.timer 2>&1) || [ -n "$output" ]; then
+            echo "$output"
+            echo "::error::Une unité systemd de la sauvegarde est invalide."
+            exit 1
+          fi
+
+      # Ni clé privée ni clé publique d'age (un modèle copié tel quel chiffrerait pour la clé d'un autre), ni adresse de
+      # battement de cœur, ni identifiant du stockage : seulement des valeurs vides et des marqueurs <...>.
+      - name: Check that the backup templates contain no key
+        run: |
+          templates=(backup/backup.env.example backup/rclone.conf.example)
+          # Un modèle absent ferait passer les grep ci-dessous sans rien vérifier.
+          ls "${templates[@]}" > /dev/null
+          if grep -nE 'AGE-SECRET-KEY-1[0-9A-Z]{58}|age1[0-9a-z]{58}' "${templates[@]}" \
+            || grep -nE '^(BACKUP_AGE_RECIPIENT|BACKUP_HEARTBEAT_URL)=.' backup/backup.env.example \
+            || grep -nE '^ *(access_key_id|secret_access_key) *= *[^< ]' backup/rclone.conf.example; then
+            echo "::error::Un modèle de la sauvegarde contient une clé : seuls des valeurs vides et des marqueurs <...> y sont permis."
             exit 1
           fi
 
