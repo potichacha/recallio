@@ -6,7 +6,7 @@ test.describe('Essai sans compte', () => {
   }) => {
     await page.goto('/')
     await page
-      .getByRole('region', { name: 'Essaie sans compte' })
+      .getByRole('region', { name: 'Essaie tout de suite' })
       .getByRole('link', { name: 'Essayer Go' })
       .click()
     await expect(page.getByRole('heading', { name: 'Essai : Go' })).toBeVisible()

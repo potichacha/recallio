@@ -103,7 +103,7 @@ describe('LandingPage (ADR 0058)', () => {
     })
     renderAt('/')
 
-    const trial = within(await screen.findByRole('region', { name: 'Essaie sans compte' }))
+    const trial = within(await screen.findByRole('region', { name: 'Essaie tout de suite' }))
     await userEvent.click(await trial.findByRole('radio', { name: /Faux/ }))
     await userEvent.click(trial.getByRole('button', { name: 'Vérifier' }))
 
@@ -122,7 +122,7 @@ describe('LandingPage (ADR 0058)', () => {
     stubApi(API)
     renderAt('/')
 
-    const trial = within(await screen.findByRole('region', { name: 'Essaie sans compte' }))
+    const trial = within(await screen.findByRole('region', { name: 'Essaie tout de suite' }))
     expect(await trial.findByRole('link', { name: 'Essayer Java' })).toHaveAttribute(
       'href',
       '/try/java',
@@ -141,7 +141,7 @@ describe('LandingPage (ADR 0058)', () => {
     })
     renderAt('/')
 
-    const trial = within(await screen.findByRole('region', { name: 'Essaie sans compte' }))
+    const trial = within(await screen.findByRole('region', { name: 'Essaie tout de suite' }))
     expect(await trial.findByRole('link', { name: 'Essayer Java' })).toBeInTheDocument()
     expect(trial.queryByRole('button', { name: 'Vérifier' })).not.toBeInTheDocument()
   })

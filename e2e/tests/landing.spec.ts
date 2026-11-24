@@ -12,7 +12,7 @@ test.describe('Page publique (ADR 0058)', () => {
     ).toBeVisible()
 
     // La première question de l'essai est posée dans la page : on y répond sans rien remplir d'autre.
-    const question = page.getByRole('region', { name: 'Essaie sans compte' }).locator('form')
+    const question = page.getByRole('region', { name: 'Essaie tout de suite' }).locator('form')
     const choice = question.getByRole('radio').or(question.getByRole('checkbox')).first()
     await expect(choice.or(question.getByRole('textbox').first())).toBeVisible()
     if (await choice.isVisible()) {

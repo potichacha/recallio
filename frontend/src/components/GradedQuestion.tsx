@@ -24,13 +24,14 @@ export function GradedQuestion({
   const choices = useShuffledChoices(question.cardId, question.choices)
   return (
     <fieldset className="flex flex-col gap-2">
-      <legend className="text-sm font-medium text-ink-muted">{label}</legend>
+      <legend className="mb-1 text-sm font-bold text-ink-muted">{label}</legend>
       {question.type === 'FILL_IN' ? (
         <>
           <Markdown>{numberBlanks(question.prompt)}</Markdown>
           {draft.blanks.map((value, index) => (
             <label key={index} className="flex flex-col gap-1">
-              <span className="text-sm font-medium">Trou {index + 1}</span>
+              <span className="text-sm font-extrabold">Trou {index + 1}</span>
+
               <input
                 value={value}
                 onChange={(event) =>
@@ -58,7 +59,7 @@ export function GradedQuestion({
         </>
       ) : (
         <>
-          <Markdown>{question.prompt}</Markdown>
+          <Markdown tone="prompt">{question.prompt}</Markdown>
           {choices.map(({ index, text }) => (
             <ChoiceOption
               key={index}

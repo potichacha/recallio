@@ -38,6 +38,13 @@ const PAIRS: [string, string, number][] = [
   ['on-brand', 'brand', TEXT],
   ['on-brand', 'brand-strong', TEXT],
   ['on-sun', 'sun', TEXT],
+  // La carte « Aujourd'hui » de l'accueil : son texte, son texte discret, et le focus posé dessus.
+  ['on-hero', 'hero', TEXT],
+  ['on-hero-muted', 'hero', TEXT],
+  ['on-hero', 'hero', GRAPHIC],
+  // Rico : ses yeux blancs sur son corps, ses pupilles dans ses yeux.
+  ['white', 'rico', GRAPHIC],
+  ['rico-ink', 'white', GRAPHIC],
   ['on-success', 'success', TEXT],
   ['on-success', 'success-strong', TEXT],
   ...STATES.flatMap((state) =>
@@ -49,6 +56,20 @@ const PAIRS: [string, string, number][] = [
   ),
   ['success-strong', 'success-soft', TEXT],
   ['danger-strong', 'danger-soft', TEXT],
+  // Le panneau du verdict : ses liens, et le texte de son explication.
+  ...['success-soft', 'danger-soft'].flatMap((background): [string, string, number][] => [
+    ['brand-strong', background, TEXT],
+    ['ink-soft', background, TEXT],
+    ['ink-muted', background, TEXT],
+  ]),
+  // Le verdict d'une question corrigée dans une page, sur le fond de la page ou d'une carte.
+  ...BACKGROUNDS.flatMap((background): [string, string, number][] => [
+    ['success-strong', background, TEXT],
+    ['danger-strong', background, TEXT],
+  ]),
+  // L'étoile de la quête du jour, et le cadenas d'un domaine à venir.
+  ['warning', 'sun-soft', GRAPHIC],
+  ['ink-muted', 'surface-sunken', GRAPHIC],
   ['danger-strong', 'surface', TEXT],
   ...['danger-soft', 'success-soft', 'sun-soft', 'brand-soft', 'warning-soft', 'info-soft'].map(
     (background): [string, string, number] => ['ink', background, TEXT],
@@ -69,6 +90,7 @@ const PAIRS: [string, string, number][] = [
   ['on-brand', 'brand', GRAPHIC],
   ['flame', 'surface', GRAPHIC],
   ['flame', 'canvas', GRAPHIC],
+  ['flame', 'surface-muted', GRAPHIC],
   ...TIERS.flatMap((tier) =>
     ['surface', 'canvas'].map((background): [string, string, number] => [
       tier,

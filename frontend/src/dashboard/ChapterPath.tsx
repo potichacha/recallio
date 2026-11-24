@@ -1,13 +1,14 @@
-import { Check } from '@phosphor-icons/react'
+import { Check, LockSimple } from '@phosphor-icons/react'
 import { Link } from 'react-router'
 import type { ReviewStats } from '../api/stats'
 
 type Theme = ReviewStats['subjects'][number]['themes'][number]
 
-/** Les étapes affichées : celle où l'on en est, celle d'avant, et les suivantes. Le cours les montre toutes. */
-const SHOWN = 5
+/** Les étapes affichées : le domaine où l'on en est, celui d'avant et celui d'après. Le cours les montre tous. */
+const SHOWN = 3
 
-type Step = { theme: Theme; state: 'done' | 'current' | 'upcoming'; percent: number }
+type State = 'done' | 'current' | 'upcoming'
+type Step = { theme: Theme; state: State; percent: number }
 
 /** L'état de chaque domaine : fini quand toutes ses cartes ont été vues, en cours pour le premier qui ne l'est pas. */
 function steps(themes: Theme[]): Step[] {
@@ -20,12 +21,22 @@ function steps(themes: Theme[]): Step[] {
   }))
 }
 
-const LABELS = { done: 'terminé', upcoming: 'à venir' } as const
+/** Ce qu'un lecteur d'écran entend après le nom du domaine : l'état ne repose pas sur la couleur de la pastille. */
+function spoken({ state, percent }: Step): string {
+  if (state === 'done') return 'terminé'
+  return state === 'current' ? `en cours, ${percent} % des cartes vues` : 'à venir'
+}
+
+const DOT: Record<State, string> = {
+  done: 'bg-success text-on-success',
+  current: 'border-4 border-sun bg-brand text-on-brand',
+  upcoming: 'bg-surface-sunken text-ink-muted',
+}
 
 /**
- * Le chemin d'un sujet (ADR 0058) : ses domaines, l'un après l'autre, pour voir d'où l'on vient et ce qui attend. Un
- * domaine fini porte une coche, celui où l'on en est son pourcentage de cartes vues ; l'état est aussi écrit, pour ne
- * pas reposer sur la seule couleur.
+ * Le chemin d'un sujet (ADR 0058) : trois pastilles reliées par un trait, pour voir d'où l'on vient et ce qui attend. Un
+ * domaine fini porte une coche, celui où l'on en est son pourcentage de cartes vues, le suivant un cadenas. Tout le
+ * chemin est un lien vers le cours du sujet, sa carte des compétences ; son texte dit l'état de chaque domaine.
  */
 export function ChapterPath({
   slug,
@@ -46,47 +57,43 @@ export function ChapterPath({
   const shown = all.slice(start, start + SHOWN)
 
   return (
-    <section aria-labelledby="path-title" className="flex flex-col gap-3">
-      <h2 id="path-title" className="text-xl font-semibold">
+    <section aria-labelledby="path-title" className="flex flex-col gap-2.5">
+      <h2 id="path-title" className="text-lg font-black">
         Ton chemin en {title}
       </h2>
-      <ol className="flex flex-col">
-        {shown.map(({ theme, state, percent }, index) => (
-          <li key={theme.slug} className="flex items-stretch gap-3">
-            <span className="flex flex-col items-center">
-              <span
-                aria-hidden="true"
-                className={`flex size-11 shrink-0 items-center justify-center rounded-full text-sm font-extrabold ${
-                  state === 'done'
-                    ? 'bg-success text-on-success'
-                    : state === 'current'
-                      ? 'bg-brand text-on-brand shadow-press'
-                      : 'border-2 border-line-strong bg-surface text-ink-muted'
-                }`}
-              >
-                {state === 'done' ? <Check weight="bold" className="size-5" /> : start + index + 1}
-              </span>
-              {/* Le trait qui relie une étape à la suivante. */}
-              {index < shown.length - 1 && (
-                <span aria-hidden="true" className="min-h-4 w-0.5 grow bg-line-strong" />
-              )}
-            </span>
-            <span className="flex flex-col pt-1 pb-4">
-              <span className={state === 'current' ? 'font-extrabold' : 'font-semibold'}>
-                {theme.title}
-              </span>
-              <span className="text-sm text-ink-muted">
-                {state === 'current' ? `en cours · ${percent} % des cartes vues` : LABELS[state]}
-              </span>
-            </span>
-          </li>
-        ))}
-      </ol>
       <Link
         to={`/subjects/${encodeURIComponent(slug)}/course`}
-        className="self-start text-sm font-medium text-brand-strong hover:underline"
+        className="flex items-start rounded-2xl bg-surface p-4 hover:bg-brand-soft"
       >
-        Voir tout le cours de {title}
+        {shown.map((step, index) => (
+          <span
+            key={step.theme.slug}
+            className="relative flex flex-1 flex-col items-center gap-1.5"
+          >
+            {/* Le trait qui relie une étape à la précédente : vert une fois le chemin parcouru. */}
+            {index > 0 && (
+              <span
+                aria-hidden="true"
+                className={`absolute top-[21px] right-1/2 -left-1/2 mx-8 h-1.5 rounded-full ${shown[index - 1].state === 'done' ? 'bg-success' : 'bg-surface-sunken'}`}
+              />
+            )}
+            <span
+              aria-hidden="true"
+              className={`flex size-12 items-center justify-center rounded-full text-sm font-black ${DOT[step.state]}`}
+            >
+              {step.state === 'done' && <Check weight="bold" className="size-6" />}
+              {step.state === 'current' && `${step.percent}%`}
+              {step.state === 'upcoming' && <LockSimple weight="fill" className="size-5" />}
+            </span>
+            <span
+              className={`line-clamp-2 px-1 text-center text-xs font-extrabold ${step.state === 'upcoming' ? 'text-ink-muted' : ''}`}
+            >
+              {step.theme.title}
+              <span className="sr-only"> : {spoken(step)}. </span>
+            </span>
+          </span>
+        ))}
+        <span className="sr-only">Voir tout le cours de {title}</span>
       </Link>
     </section>
   )

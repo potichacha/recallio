@@ -95,3 +95,23 @@ vérifiées, puis le protocole des tests avec cinq utilisateurs.
   seront encore si la marque change (`e2e/scripts/generate-pwa-icons.mjs`).
 - Ce qui demande un budget reste hors de la feuille de route : un illustrateur pour Rico, un motion designer, une
   vidéo, des applications natives.
+
+## Note du 2026-11-24 : l'accueil, la carte et la page publique rapprochés des maquettes
+
+Le propriétaire a comparé l'application aux maquettes avant la mise en service et l'a trouvée en dessous. Trois écrans
+ont été repris, sans rien changer à ce qu'ils font. Ce qui s'écarte du texte ci-dessus, ou le précise :
+
+- **Les graisses** : le texte courant passe de 400 à 500, les libellés à 700 et 800, les titres et les boutons à 900,
+  comme sur les maquettes. Nunito est une police variable : aucune graisse n'est téléchargée en plus.
+- **Des tokens en plus**, dans les deux thèmes : la carte « Aujourd'hui » (`hero`, violette en clair, un panneau sombre
+  en sombre), Rico (`rico`, `rico-ink` : il garde ses yeux blancs en sombre), le bord en relief du bouton jaune et du
+  bouton vert (`sun-press`, `success-press`). Le test des contrastes couvre leurs paires.
+- **La carte de révision occupe tout l'écran d'un téléphone** : l'en-tête de l'application s'efface pendant une
+  session, la croix termine la session, la barre est celle de l'objectif du jour, et le verdict se lit dans un panneau
+  collé en bas. Sur un écran large, la carte reste une carte.
+- **Le chemin** de l'accueil montre trois domaines, en pastilles ; **la quête du jour** mise en avant est la première
+  qui reste à faire, les autres sont plus bas.
+- **Là où une maquette contredit une règle, la règle gagne** : une coche blanche se pose sur le vert foncé, pas sur le
+  vert vif de la maquette ; l'étoile de la quête prend la couleur d'avertissement, le jaune de la maquette n'ayant pas 3
+  de contraste sur son fond ; le verdict garde son icône ; « Valider » reste l'envoi d'une réponse, y compris sur la
+  page publique.

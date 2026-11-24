@@ -9,6 +9,7 @@ import { useProgress } from '../api/progress'
 import { useSession } from '../auth/session'
 import { DEFAULT_LAYOUT_MODE, LayoutModeContext, type LayoutMode } from './layoutMode'
 import { ProgressBadge } from './ProgressBadge'
+import { Rico } from './Rico'
 import { button } from './ui/button'
 
 /** Une page d'un sujet, sous l'une des destinations : `/subjects/java/course/...` est dans le Cours. */
@@ -54,6 +55,20 @@ const DESTINATIONS: {
   },
 ]
 
+/** Le nom de l'application, qui ramène à l'accueil ; pour un visiteur, Rico l'accompagne, comme sur la page publique. */
+function Brand() {
+  const session = useSession()
+  return (
+    <NavLink
+      to="/"
+      className="flex items-center gap-2 text-lg font-black text-brand min-[360px]:text-[1.375rem] md:text-xl"
+    >
+      {session.status === 'anonymous' && <Rico size={30} decorative />}
+      Recallio
+    </NavLink>
+  )
+}
+
 function SessionControls() {
   const session = useSession()
   const location = useLocation()
@@ -69,7 +84,7 @@ function SessionControls() {
       <button
         type="button"
         onClick={() => session.login(location.pathname + location.search)}
-        className={button({ size: 'sm' })}
+        className={button({ variant: 'quiet', size: 'md' })}
       >
         Se connecter
       </button>
@@ -77,13 +92,13 @@ function SessionControls() {
   }
   const name = profile.data?.displayName ?? session.userName ?? 'Mon profil'
   return (
-    <div className="flex items-center gap-3">
+    <div className="flex items-center gap-1.5 min-[360px]:gap-2 md:gap-3">
       {progress.data && <ProgressBadge progress={progress.data} />}
       <NavLink
         to="/profile"
         aria-label={name}
         className={({ isActive }) =>
-          `flex min-h-11 items-center gap-2 rounded-full pr-1 text-sm font-medium ${isActive ? 'text-brand' : 'text-ink-soft hover:text-brand'}`
+          `flex min-h-11 items-center gap-2 rounded-full text-sm font-extrabold md:pr-1 ${isActive ? 'text-brand' : 'text-ink-soft hover:text-brand'}`
         }
       >
         <span className="flex size-9 items-center justify-center rounded-full bg-brand-soft text-brand">
@@ -102,7 +117,7 @@ function Destination({ to, label, icon: Icon, matches }: (typeof DESTINATIONS)[n
     <Link
       to={to}
       aria-current={isActive ? 'page' : undefined}
-      className={`flex min-h-14 flex-col items-center justify-center gap-0.5 text-xs font-medium md:min-h-11 md:flex-row md:gap-2 md:rounded-lg md:px-3 md:text-sm ${isActive ? 'text-brand md:bg-brand-soft' : 'text-ink-muted hover:text-brand'}`}
+      className={`flex min-h-14 flex-col items-center justify-center gap-0.5 text-xs font-extrabold md:min-h-11 md:flex-row md:gap-2 md:rounded-lg md:px-3 md:text-sm ${isActive ? 'text-brand md:bg-brand-soft' : 'text-ink-muted hover:text-brand'}`}
     >
       <Icon weight={isActive ? 'fill' : 'bold'} aria-hidden className="size-6 md:size-5" />
       {label}
@@ -119,7 +134,11 @@ export function Layout() {
   usePageTitle(main)
   return (
     <LayoutModeContext.Provider value={setMode}>
-      <div className="min-h-dvh bg-canvas text-ink">
+      {/*
+        Pendant une session (mode concentration), sur un téléphone, la carte occupe tout l'écran, sur le fond d'une
+        carte : l'en-tête et la navigation s'effacent.
+      */}
+      <div className={`min-h-dvh text-ink ${mode.focus ? 'bg-surface md:bg-canvas' : 'bg-canvas'}`}>
         {/* Le premier arrêt du clavier (WCAG 2.4.1) : sauter la navigation, répétée sur chaque page. */}
         <a
           href="#contenu"
@@ -128,14 +147,14 @@ export function Layout() {
           Aller au contenu
         </a>
         <OfflineBanner />
-        <header className="sticky top-0 z-20 border-b border-line bg-surface">
-          <div className="mx-auto flex max-w-6xl items-center gap-4 px-4 py-2">
-            <NavLink to="/" className="text-xl font-bold text-brand">
-              Recallio
-            </NavLink>
+        <header
+          className={`sticky top-0 z-20 bg-canvas md:border-b md:border-line md:bg-surface ${mode.focus ? 'hidden md:block' : ''}`}
+        >
+          <div className="mx-auto flex max-w-6xl items-center gap-2 px-4 py-2 md:gap-4">
+            <Brand />
             <nav
               aria-label="Navigation principale"
-              className={`fixed inset-x-0 bottom-0 z-20 grid-cols-5 border-t border-line bg-surface pb-[env(safe-area-inset-bottom)] md:static md:flex md:gap-1 md:border-0 md:bg-transparent md:pb-0 ${mode.focus ? 'hidden md:flex' : 'grid'}`}
+              className={`fixed inset-x-0 bottom-0 z-20 grid-cols-5 border-t-2 border-line bg-surface pb-[env(safe-area-inset-bottom)] md:static md:flex md:gap-1 md:border-0 md:bg-transparent md:pb-0 ${mode.focus ? 'hidden md:flex' : 'grid'}`}
             >
               {DESTINATIONS.map((destination) => (
                 <Destination key={destination.to} {...destination} />
@@ -157,8 +176,12 @@ export function Layout() {
           ref={main}
           id="contenu"
           tabIndex={-1}
-          className={`mx-auto px-4 pt-6 focus-visible:outline-none ${mode.wide ? 'max-w-6xl' : 'max-w-3xl'} ${mode.focus ? 'pb-10' : 'pb-8'}`}
+          className={`mx-auto px-4 focus-visible:outline-none md:pt-6 ${mode.wide ? 'max-w-6xl' : 'max-w-3xl'} ${mode.focus ? 'overflow-x-clip pt-4 pb-0 md:pb-10' : 'pt-2 pb-8'}`}
         >
+          {/*
+            Pendant une session, la carte suivante entre par la droite : `overflow-x-clip` l'empêche d'élargir la page,
+            qui défilerait de côté sur un téléphone.
+          */}
           {/* La page qui s'ouvre glisse en apparaissant. Elle n'est pas remontée : seule l'animation rejoue. */}
           <div ref={page}>
             <Outlet />

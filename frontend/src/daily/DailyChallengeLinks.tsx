@@ -81,12 +81,12 @@ export function DailyChallengeShortcut({ subject }: { subject: string }) {
   return (
     <Link
       to={dailyChallengePath(subject)}
-      className="flex items-center gap-3 rounded-xl bg-surface p-4 shadow-sm hover:bg-brand-soft"
+      className="flex items-center gap-3 rounded-2xl bg-surface px-4 py-3.5 hover:bg-brand-soft"
     >
       <Lightning weight="duotone" aria-hidden className="size-7 shrink-0 text-brand" />
       <span className="flex flex-col">
-        <span className="font-semibold">Défi du jour · {summary.subjectTitle}</span>{' '}
-        <span className="text-sm text-ink-muted">{stateLabel(summary)}</span>
+        <span className="font-extrabold">Défi du jour · {summary.subjectTitle}</span>{' '}
+        <span className="text-sm font-bold text-ink-muted">{stateLabel(summary)}</span>
       </span>
     </Link>
   )

@@ -642,7 +642,7 @@ describe('ReviewPage', () => {
     await userEvent.click(await screen.findByRole('radio', { name: /Les deux/ }))
     await userEvent.click(screen.getByRole('button', { name: 'Valider' }))
 
-    expect(await screen.findByRole('status')).toHaveTextContent('Bonne réponse')
+    expect(await screen.findByRole('status')).toHaveTextContent('Bien joué !')
     expect(screen.getByText(/Compilé en bytecode/)).toBeInTheDocument()
     const post = sentRequests(fetchMock).find((request) => request.method === 'POST')
     const body = await post?.json()
@@ -674,7 +674,7 @@ describe('ReviewPage', () => {
     await userEvent.click(screen.getByRole('radio', { name: /equals/ }))
     await userEvent.click(screen.getByRole('button', { name: 'Valider' }))
 
-    expect(await screen.findByRole('status')).toHaveTextContent('Bonne réponse')
+    expect(await screen.findByRole('status')).toHaveTextContent('Bien joué !')
     const post = sentRequests(fetchMock).find((request) => request.method === 'POST')
     const body = await post?.json()
     expect(body.selectedChoices).toEqual([0])
@@ -876,7 +876,7 @@ describe('ReviewPage', () => {
 
     const goal = await screen.findByRole('progressbar', { name: 'Objectif du jour' })
     expect(goal).toHaveAttribute('value', '4')
-    expect(screen.getByText('4 / 10')).toBeInTheDocument()
+    expect(screen.getByText('4/10')).toBeInTheDocument()
 
     responses['/api/v1/me/progress'] = {
       body: { ...TEST_PROGRESS, cardsToday: 10, goalReachedToday: true, streak: 4 },

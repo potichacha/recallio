@@ -19,9 +19,9 @@ export function ReadinessGauge({
   return (
     <div className="flex flex-col gap-1">
       <div className="flex items-baseline justify-between gap-3 text-sm">
-        <span className="font-medium">Prêt pour l’entretien</span>
+        <span className="font-bold">Prêt pour l’entretien</span>
         <span
-          className={`inline-flex items-center gap-1 ${ready ? 'font-semibold text-success' : 'text-ink-muted'}`}
+          className={`inline-flex items-center gap-1 ${ready ? 'font-extrabold text-success' : 'text-ink-muted'}`}
         >
           {ready && <Check weight="bold" aria-hidden />}
           {percent} %
@@ -39,7 +39,7 @@ export function ReadinessGauge({
         {ready ? ' : c’est bon, tu as passé les 80 %.' : ' : prêt à partir de 80 %.'}{' '}
         <Link
           to={`/subjects/${encodeURIComponent(subject)}/exam`}
-          className="font-medium text-brand-strong hover:underline"
+          className="font-bold text-brand-strong hover:underline"
         >
           Passer un examen blanc
         </Link>

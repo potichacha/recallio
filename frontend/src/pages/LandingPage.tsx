@@ -18,14 +18,14 @@ import { useSession } from '../auth/session'
 import { CARD_TYPE_LABELS } from '../components/cardTypeLabels'
 import { GradedQuestion } from '../components/GradedQuestion'
 import { emptyDraft, isDraftComplete, toGradedAnswer } from '../components/gradedAnswers'
-import { Rico } from '../components/Rico'
+import { RicoWithCard } from '../components/Rico'
 import { LegalLinks } from '../legal/LegalText'
 import { button } from '../components/ui/button'
 import { answerFeedback } from '../review/feedback'
 import { SubjectGallery } from '../subjects/SubjectGallery'
 import type { TrialStart } from './trialStart'
 
-const CARD = 'rounded-2xl border border-line bg-surface p-5 shadow-sm'
+const CARD = 'rounded-2xl bg-surface p-4 sm:p-5'
 
 /** La hauteur tenue par la question et par les chiffres avant qu'ils n'arrivent (stabilité de la page, ADR 0058). */
 const QUESTION_HEIGHT = 'min-h-80'
@@ -85,54 +85,71 @@ export function LandingPage() {
   const trials = published.filter((subject) => subject.hasTour)
 
   return (
-    <div className="flex flex-col gap-10 py-4">
-      <header className="flex flex-col gap-4">
-        <h1 className="text-4xl leading-tight font-bold">
-          Prêt pour ton entretien technique, dix minutes par jour.
-        </h1>
-        <div className="flex items-center gap-3">
-          <Rico decorative />
-          <p className={`${CARD} flex-1 py-3 text-ink-soft`}>
-            Je te pose les bonnes questions au bon moment, et je te les repose avant que tu les
+    <div className="flex flex-col gap-10 pb-4">
+      <div className="flex flex-col gap-5">
+        {/* L'accroche : un panneau arrondi, d'où Rico dépasse avec une carte. */}
+        <header className="flex flex-col items-center gap-3 rounded-3xl bg-brand-soft px-5 pt-6 text-center">
+          <h1 className="text-[2rem] leading-[1.12] font-black sm:text-4xl">
+            Prêt pour ton entretien technique, dix minutes par jour.
+          </h1>
+          <p className="max-w-md leading-normal font-bold text-ink-muted">
+            Rico te pose les bonnes questions au bon moment, et te les repose avant que tu les
             oublies.
           </p>
-        </div>
-      </header>
+          <RicoWithCard />
+        </header>
 
-      {/* La place de l'essai et des chiffres est tenue pendant que le catalogue charge : la page ne saute pas. */}
-      {(subjects.isPending || trials.length > 0) && (
-        <section aria-labelledby="trial-title" className="flex flex-col gap-3">
-          <h2 id="trial-title" className="text-xl font-semibold">
-            Essaie sans compte
-          </h2>
-          {trials.length > 0 ? <FirstQuestion subject={trials[0]} /> : <QuestionPlaceholder />}
-          <div className="flex min-h-9 flex-wrap items-center gap-3">
-            <span className="text-sm text-ink-muted">Cinq questions, rien à remplir :</span>
-            {trials.map((subject) => (
-              <Link
-                key={subject.slug}
-                to={`/try/${subject.slug}`}
-                className={button({ variant: 'secondary', size: 'sm' })}
-              >
-                Essayer {subject.title}
-              </Link>
-            ))}
-          </div>
-        </section>
-      )}
+        {/* La place de l'essai et des chiffres est tenue pendant que le catalogue charge : la page ne saute pas. */}
+        {(subjects.isPending || trials.length > 0) && (
+          <section aria-labelledby="trial-title" className="flex flex-col gap-3">
+            <h2
+              id="trial-title"
+              className="px-1 text-sm font-extrabold tracking-wider text-ink-muted uppercase"
+            >
+              Essaie tout de suite
+            </h2>
+            {trials.length > 0 ? <FirstQuestion subject={trials[0]} /> : <QuestionPlaceholder />}
+            {/* La place du bouton est tenue pendant que le catalogue charge. */}
+            <div className="flex min-h-15 flex-col sm:items-start">
+              {trials.length > 0 && (
+                <Link
+                  to={`/try/${trials[0].slug}`}
+                  className={`${button({ size: 'lg' })} sm:min-w-80`}
+                >
+                  Commencer sans compte
+                </Link>
+              )}
+            </div>
+            <div className="flex min-h-9 flex-wrap items-center gap-3">
+              <span className="text-sm font-bold text-ink-muted">
+                Cinq questions, rien à remplir :
+              </span>
+              {trials.map((subject) => (
+                <Link
+                  key={subject.slug}
+                  to={`/try/${subject.slug}`}
+                  className={button({ variant: 'secondary', size: 'sm' })}
+                >
+                  Essayer {subject.title}
+                </Link>
+              ))}
+            </div>
+          </section>
+        )}
 
-      {subjects.isPending ? (
-        <div className={FIGURES_HEIGHT} />
-      ) : (
-        published.length > 0 && <Figures subjects={published} />
-      )}
+        {subjects.isPending ? (
+          <div className={FIGURES_HEIGHT} />
+        ) : (
+          published.length > 0 && <Figures subjects={published} />
+        )}
+      </div>
 
       <Features id="audiences-title" title="Pour qui" items={AUDIENCES} />
       <Features id="steps-title" title="Comment ça marche" items={STEPS} ordered />
 
       {subjects.data && subjects.data.length > 0 && (
         <section aria-labelledby="subjects-title" className="flex flex-col gap-4">
-          <h2 id="subjects-title" className="text-xl font-semibold">
+          <h2 id="subjects-title" className="text-xl font-black">
             Ce qu’on y apprend
           </h2>
           <SubjectGallery
@@ -145,7 +162,7 @@ export function LandingPage() {
       )}
 
       <section aria-labelledby="start-title" className={`${CARD} flex flex-col items-start gap-3`}>
-        <h2 id="start-title" className="text-xl font-semibold">
+        <h2 id="start-title" className="text-xl font-black">
           On commence ?
         </h2>
         <p className="text-ink-muted">
@@ -263,14 +280,14 @@ function Figures({ subjects }: { subjects: Subject[] }) {
   return (
     <ul
       aria-label="Le catalogue en chiffres"
-      className={`grid ${FIGURES_HEIGHT} grid-cols-3 gap-3 text-center`}
+      className={`grid ${FIGURES_HEIGHT} grid-cols-3 gap-2 text-center`}
     >
       {figures.map(({ label, value }) => (
-        <li key={label} className={`${CARD} flex flex-col p-3`}>
-          <strong className="text-2xl font-extrabold text-brand-strong">
+        <li key={label} className="flex flex-col">
+          <strong className="text-[1.375rem] font-black text-brand-strong">
             {value.toLocaleString('fr-FR')}
           </strong>
-          <span className="text-sm text-ink-muted">{label}</span>
+          <span className="text-[0.8125rem] font-bold text-ink-muted">{label}</span>
         </li>
       ))}
     </ul>
@@ -291,7 +308,7 @@ function Features({
   const List = ordered ? 'ol' : 'ul'
   return (
     <section aria-labelledby={id} className="flex flex-col gap-4">
-      <h2 id={id} className="text-xl font-semibold">
+      <h2 id={id} className="text-xl font-black">
         {title}
       </h2>
       <List className="grid gap-3 sm:grid-cols-3">
@@ -299,7 +316,7 @@ function Features({
           <li key={itemTitle} className={`${CARD} flex flex-col gap-2`}>
             <span className="flex items-center gap-2">
               <ItemIcon weight="bold" aria-hidden className="size-6 shrink-0 text-brand" />
-              <h3 className="font-bold">
+              <h3 className="font-extrabold">
                 {ordered && `${index + 1}. `}
                 {itemTitle}
               </h3>

@@ -120,7 +120,7 @@ describe('DashboardPage', () => {
     renderAt('/', signedIn())
 
     expect(await screen.findByRole('heading', { name: 'Salut Alice !' })).toBeInTheDocument()
-    expect(screen.queryByRole('region', { name: 'Essaie sans compte' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: 'Essaie tout de suite' })).not.toBeInTheDocument()
   })
 
   it('shows the goal of the day as a ring, and what is left to keep the streak', async () => {
@@ -138,8 +138,8 @@ describe('DashboardPage', () => {
     renderAt('/', signedIn())
 
     const next = await screen.findByRole('region', { name: 'Java' })
-    expect(next).toHaveTextContent('5 à revoir · 8 nouvelles')
-    expect(within(next).getByRole('link', { name: 'Continuer 10 min' })).toHaveAttribute(
+    expect(next).toHaveTextContent('5 cartes à revoir · 8 nouvelles')
+    expect(within(next).getByRole('link', { name: 'Continuer · 10 min' })).toHaveAttribute(
       'href',
       '/review?subject=java&minutes=10',
     )
@@ -157,7 +157,7 @@ describe('DashboardPage', () => {
     stubDashboard()
     renderAt('/', signedIn())
 
-    expect(await screen.findByRole('link', { name: 'Continuer 5 min' })).toHaveAttribute(
+    expect(await screen.findByRole('link', { name: 'Continuer · 5 min' })).toHaveAttribute(
       'href',
       '/review?subject=java&minutes=5',
     )
@@ -268,16 +268,22 @@ describe('DashboardPage', () => {
     stubDashboard()
     renderAt('/', signedIn())
 
-    const section = await screen.findByRole('region', { name: 'Quêtes' })
+    // La première quête du jour qui reste à faire est mise en avant, sur le premier écran (ADR 0058).
+    const featured = within(await screen.findByRole('region', { name: 'Quête du jour' }))
+    expect(featured.getByText('Quête du jour : réviser 3 cartes de code')).toBeInTheDocument()
+    expect(featured.getByText('+25 XP')).toBeInTheDocument()
+    expect(
+      featured.getByRole('progressbar', { name: 'Réviser 3 cartes de code : 1 / 3' }),
+    ).toBeInTheDocument()
+
+    // Les autres sont plus bas, sans la répéter.
+    const section = screen.getByRole('region', { name: 'Quêtes' })
     const today = within(section).getByRole('list', { name: 'Aujourd’hui' })
     const quests = within(today).getAllByRole('listitem')
-    expect(quests).toHaveLength(3)
+    expect(quests).toHaveLength(2)
     expect(quests[0]).toHaveTextContent('Réviser 15 cartes')
     expect(quests[0]).toHaveTextContent('+20 XP')
-    expect(
-      within(today).getByRole('progressbar', { name: 'Réviser 3 cartes de code : 1 / 3' }),
-    ).toBeInTheDocument()
-    expect(quests[2]).toHaveTextContent('Valider une notion du Tour')
+    expect(quests[1]).toHaveTextContent('Valider une notion du Tour')
     const week = within(section).getByRole('list', { name: 'Cette semaine, jusqu’à dimanche' })
     expect(
       within(week).getByRole('progressbar', { name: 'Réviser 5 jours dans la semaine : 4 / 5' }),
@@ -321,15 +327,47 @@ describe('DashboardPage', () => {
     stubDashboard(stats({ subjects: [java] }))
     renderAt('/', signedIn())
 
+    // Trois pastilles, et un seul lien vers le cours : son nom dit l'état de chaque domaine, pas sa couleur.
     const path = within(await screen.findByRole('region', { name: 'Ton chemin en Java' }))
-    expect(path.getAllByRole('listitem').map((step) => step.textContent)).toEqual([
-      'Basesterminé',
-      '2Objeten cours · 62 % des cartes vues',
-      '3Collectionsà venir',
-    ])
-    expect(path.getByRole('link', { name: 'Voir tout le cours de Java' })).toHaveAttribute(
-      'href',
-      '/subjects/java/course',
+    const link = path.getByRole('link')
+    expect(link).toHaveAttribute('href', '/subjects/java/course')
+    expect(link).toHaveTextContent(
+      'Bases : terminé. 62%Objet : en cours, 62 % des cartes vues. Collections : à venir. Voir tout le cours de Java',
+    )
+    // La pastille du domaine en cours porte son pourcentage ; un domaine sans carte n'est pas une étape.
+    expect(path.getByText('62%')).toBeInTheDocument()
+    expect(path.queryByText('Sans carte')).not.toBeInTheDocument()
+  })
+
+  it('shows the three domains around the current one: the one before, the current one, the next one', async () => {
+    const themes = ['Bases', 'Objet', 'Exceptions', 'Collections', 'Concurrence'].map(
+      (title, index) => ({
+        slug: title.toLowerCase(),
+        title,
+        counts: counts({ total: 10, seen: index < 2 ? 10 : index === 2 ? 4 : 0 }),
+      }),
+    )
+    stubDashboard(stats({ subjects: [{ ...stats().subjects[0], themes }] }))
+    renderAt('/', signedIn())
+
+    const path = within(await screen.findByRole('region', { name: 'Ton chemin en Java' }))
+    expect(path.getByRole('link')).toHaveTextContent(
+      'Objet : terminé. 40%Exceptions : en cours, 40 % des cartes vues. Collections : à venir. Voir tout le cours de Java',
+    )
+  })
+
+  it('shows the last three domains once every domain is done', async () => {
+    const themes = ['Bases', 'Objet', 'Exceptions', 'Collections'].map((title) => ({
+      slug: title.toLowerCase(),
+      title,
+      counts: counts({ total: 10, seen: 10 }),
+    }))
+    stubDashboard(stats({ subjects: [{ ...stats().subjects[0], themes }] }))
+    renderAt('/', signedIn())
+
+    const path = within(await screen.findByRole('region', { name: 'Ton chemin en Java' }))
+    expect(path.getByRole('link')).toHaveTextContent(
+      'Objet : terminé. Exceptions : terminé. Collections : terminé. Voir tout le cours de Java',
     )
   })
 
