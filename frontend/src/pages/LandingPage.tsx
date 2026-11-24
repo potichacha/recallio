@@ -19,6 +19,7 @@ import { CARD_TYPE_LABELS } from '../components/cardTypeLabels'
 import { GradedQuestion } from '../components/GradedQuestion'
 import { emptyDraft, isDraftComplete, toGradedAnswer } from '../components/gradedAnswers'
 import { Rico } from '../components/Rico'
+import { LegalLinks } from '../legal/LegalText'
 import { button } from '../components/ui/button'
 import { answerFeedback } from '../review/feedback'
 import { SubjectGallery } from '../subjects/SubjectGallery'
@@ -158,6 +159,7 @@ export function LandingPage() {
             Voir ce qu’on peut apprendre
           </Link>
         </div>
+        <LegalLinks lead="Ce que Recallio garde sur toi, et qui l’édite :" />
       </section>
     </div>
   )

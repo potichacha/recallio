@@ -15,6 +15,8 @@ const VISITOR_PAGES = [
   '/subjects/go/tour',
   '/subjects/go/tour/hello-world',
   '/try/go',
+  '/mentions-legales',
+  '/confidentialite',
   '/une-adresse-qui-n-existe-pas',
 ]
 

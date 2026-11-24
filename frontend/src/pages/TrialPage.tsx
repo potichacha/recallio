@@ -11,6 +11,7 @@ import { GradedQuestion } from '../components/GradedQuestion'
 import { emptyDraft, isDraftComplete, toGradedAnswer } from '../components/gradedAnswers'
 import { button } from '../components/ui/button'
 import { useFocusOnAppear } from '../components/useFocusOnAppear'
+import { LegalLinks } from '../legal/LegalText'
 import { answerFeedback } from '../review/feedback'
 import { trialStart } from './trialStart'
 
@@ -162,6 +163,7 @@ function TrialSummary({ right, total }: { right: number; total: number }) {
           Essayer un autre sujet
         </Link>
       </div>
+      <LegalLinks lead="Avant de créer ton compte, ce que Recallio garde sur toi, et qui l’édite :" />
     </section>
   )
 }

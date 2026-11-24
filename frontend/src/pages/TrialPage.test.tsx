@@ -75,6 +75,14 @@ describe('TrialPage', () => {
 
     const summary = screen.getByRole('region', { name: 'Bilan de l’essai' })
     expect(summary).toHaveTextContent('1 / 2')
+    // Avant de créer son compte : où lire ce que Recallio garde, et qui l'édite (ADR 0074).
+    expect(
+      within(summary).getByRole('link', { name: 'politique de confidentialité' }),
+    ).toHaveAttribute('href', '/confidentialite')
+    expect(within(summary).getByRole('link', { name: 'mentions légales' })).toHaveAttribute(
+      'href',
+      '/mentions-legales',
+    )
     await userEvent.click(within(summary).getByRole('button', { name: 'Créer mon compte' }))
     expect(session.login).toHaveBeenCalledWith('/welcome')
     const [first] = sentRequests(fetchMock).filter((request) => request.method === 'POST')

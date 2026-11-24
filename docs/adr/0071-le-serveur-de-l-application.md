@@ -313,7 +313,8 @@ du client.
   changement voulu pour la production se fait dans la console, et se reporte dans le fichier pour un serveur neuf.
 - ➖ **Le mot de passe SMTP est dans la base de Keycloak** : une sauvegarde de la base le contient (étape 7.5).
 - ➖ **Keycloak garde l'adresse IP du dernier échec de connexion** d'un compte, pour sa protection contre la force brute
-  (dans sa base, pas dans ses logs) : à dire dans la politique de confidentialité (étape 7.6).
+  (dans son cache, pas dans ses logs), et celle de chaque session de connexion, le temps de la session : dit dans la
+  politique de confidentialité (ADR 0074).
 - ➖ Quand tout redémarre ensemble (un redémarrage de l'hôte, ou `docker compose restart`), Docker n'attend pas
   Keycloak : le backend écrit une erreur (« Failed to create OidcProviderClientImpl »), envoyée à Sentry, puis se
   connecte à la première requête. Vérifié : l'application fonctionne ensuite normalement.

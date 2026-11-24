@@ -8,6 +8,7 @@ import { useChooseTrack, useFollowSubjects, useProfile } from '../api/profile'
 import { Chip, Choices } from '../components/ChoiceChips'
 import { interviewDateBounds } from '../components/interviewDate'
 import { button } from '../components/ui/button'
+import { LegalLinks } from '../legal/LegalText'
 import { SubjectLogo } from '../subjects/SubjectLogo'
 import { useIsAdmin } from '../subjects/useIsAdmin'
 
@@ -50,6 +51,7 @@ export function WelcomePage() {
       <p className="text-ink-muted">
         Dis-nous ton but : Recallio te propose par où commencer. Tu pourras tout changer ensuite.
       </p>
+      <LegalLinks lead="Ce que Recallio garde sur toi, et qui l’édite :" />
       {(profile.isPending || subjects.isPending) && <LoadingState shape="tiles" />}
       {(profile.isError || subjects.isError) && (
         <ErrorState

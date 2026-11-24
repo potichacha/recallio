@@ -22,8 +22,9 @@ import java.util.List;
 @Transactional(Transactional.TxType.SUPPORTS)
 public class SitemapService {
 
-    /** L'accueil, les pages Cours et Tour, et le catalogue. */
-    static final List<String> FIXED_PATHS = List.of("/", "/learn", "/tours", "/subjects");
+    /** L'accueil, les pages Cours et Tour, le catalogue, puis les deux pages légales (ADR 0074). */
+    static final List<String> FIXED_PATHS =
+            List.of("/", "/learn", "/tours", "/subjects", "/mentions-legales", "/confidentialite");
 
     private final ContentCatalog catalog;
 

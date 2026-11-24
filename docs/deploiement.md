@@ -4,11 +4,12 @@
 > copier et ce qu'on doit voir. Les décisions sont dans les ADR [0069](adr/0069-hebergement-et-livraison.md) (deux
 > serveurs, des images publiées par la CI), [0070](adr/0070-logs-et-erreurs.md) (logs et Sentry),
 > [0071](adr/0071-le-serveur-de-l-application.md) (le serveur de l'application),
-> [0072](adr/0072-le-serveur-du-runner.md) (le serveur du runner) et [0073](adr/0073-les-sauvegardes.md) (les
-> sauvegardes).
+> [0072](adr/0072-le-serveur-du-runner.md) (le serveur du runner), [0073](adr/0073-les-sauvegardes.md) (les
+> sauvegardes) et [0074](adr/0074-les-pages-legales.md) (les pages légales).
 >
-> État : le serveur de l'application (étape 7.3), le serveur du runner (7.4, section 11) et les sauvegardes (7.5,
-> section 12). La mise en service (7.7) complétera ce document, à sa section annoncée en fin de page.
+> État : le serveur de l'application (étape 7.3), le serveur du runner (7.4, section 11), les sauvegardes (7.5,
+> section 12) et les pages légales (7.6 : leur configuration en section 5, leur relecture en section 13). La mise en
+> service (7.7) complétera ce document, à sa section annoncée en fin de page.
 
 Conventions :
 
@@ -324,6 +325,13 @@ nano .env
 - `SMTP_USER` et `SMTP_PASSWORD` : l'identifiant et la clé SMTP de Brevo (section 2) ; `SMTP_REPLY_TO`, si tu veux qu'on
   puisse répondre aux e-mails ;
 - `RECALLIO_PUSH_SUBJECT` : `mailto:` suivi de ton adresse ;
+- `LEGAL_CONTACT_EMAIL` : l'adresse de contact des pages légales (ADR 0074), obligatoire. Elle est publiée sur le site
+  et lisible dans le code de chaque page : prends une adresse dédiée, que tu lis vraiment (`contact@<domaine>`), pas ton
+  adresse personnelle. C'est là qu'arrivent les demandes sur les données, auxquelles tu dois répondre sous un mois ;
+- `LEGAL_PUBLISHER` : ton nom, si tu veux qu'il figure dans les mentions légales, entre guillemets s'il contient un
+  espace (`LEGAL_PUBLISHER="Prénom Nom"`). Vide, les pages disent que le site est édité par un particulier, à titre non
+  professionnel, connu de l'hébergeur : la loi le permet à un éditeur non professionnel, à condition que ton compte
+  OVHcloud porte bien ton identité ;
 - `RECALLIO_RUNNER_URL` : garde la valeur d'exemple, `http://10.13.13.2:8090`, l'adresse du runner dans le tunnel
   WireGuard (section 11). Tant que le serveur du runner n'est pas monté, rendre un exercice répond 503 ; le reste
   fonctionne ;
@@ -468,6 +476,11 @@ Attendu, dans l'ordre :
 Puis, dans un navigateur :
 
 - `https://<domaine>` : la page d'accueil ; l'essai sans compte fonctionne ;
+- `https://<domaine>/mentions-legales` et `https://<domaine>/confidentialite`, sans te connecter (les deux liens du
+  pied de page) : elles affichent ton adresse de contact, en lien, et l'éditeur attendu (ton nom, ou « édité par un
+  particulier » si `LEGAL_PUBLISHER` est vide). Si l'adresse manque ou reste l'ancienne : `docker compose up -d` après
+  avoir corrigé le `.env`, puis efface les données du site dans ton navigateur : l'application y garde sa page
+  d'entrée jusqu'à la version suivante (ADR 0074) ;
 - **une inscription complète**, avec une autre adresse que la tienne : la page de Keycloak est en français, l'e-mail
   de vérification arrive de « Recallio <no-reply@<domaine>> », son lien fait choisir le mot de passe (10 caractères au
   moins) puis ramène connecté dans la PWA ;
@@ -1487,3 +1500,32 @@ Après une restauration :
 | La clé du serveur a fui, ou le serveur a été pris | | Dans la console de Backblaze, supprime la clé et crée-en une autre (« La clé du serveur ») : les sauvegardes déjà faites sont verrouillées et illisibles sans la clé privée |
 
 ## 13. La mise en service (étape 7.7, à venir)
+
+### À relire avant la mise en service : les pages légales
+
+Les deux pages disent ce que le code fait (ADR 0074, qui donne la preuve de chaque affirmation). Elles ne sont pas
+validées en droit : relis-les toi-même avant d'ouvrir la bêta, et fais-les relire par un professionnel avant
+l'ouverture à tous. Ce que toi seul peux vérifier :
+
+- **Ton statut** : les mentions légales disent que tu édites le site à titre non professionnel. Sans `LEGAL_PUBLISHER`,
+  elles disent aussi que tu as communiqué ton identité à l'hébergeur : ton compte OVHcloud doit être à ton nom, avec
+  ton adresse et ton téléphone à jour.
+- **L'adresse de contact** : elle reçoit vraiment les messages, tu la lis, et tu réponds sous un mois à une demande sur
+  des données. Garde la date de chaque demande de suppression 32 jours (section 12, « Les comptes supprimés »).
+- **L'hébergeur** : OVH SAS, 2 rue Kellermann, 59100 Roubaix. Compare avec les mentions légales de ton contrat
+  OVHcloud. La politique ne dit pas dans quel pays sont les serveurs : choisis un centre de données de l'Union
+  européenne.
+- **Les prestataires** de la politique sont ceux que tu as vraiment ouverts : Backblaze en région UE (section 12),
+  Brevo, et Sentry en région UE s'il est activé. Un prestataire de plus (un service de surveillance qui recevrait
+  autre chose qu'un battement de cœur, un outil de mesure) s'ajoute à la page **avant** d'être branché.
+- **Sentry**, s'il est activé : « Prevent Storing of IP Addresses » est coché dans chaque projet (ADR 0070). La
+  politique dit que Recallio lui demande de ne pas garder l'adresse IP.
+- **Keycloak** : les durées de session du royaume sont celles de la politique (30 minutes et 10 heures ; 30 et 90 jours
+  avec « Se souvenir de moi »), et l'inscription demande bien un nom d'utilisateur, une adresse e-mail, un prénom et un
+  nom. Si tu changes l'un de ces réglages dans la console, change la page.
+- **Les sauvegardes** : la règle de cycle de vie du bucket supprime bien un fichier 31 à 32 jours après son envoi
+  (section 12). La politique annonce 30 jours, 32 au plus.
+- **La propriété intellectuelle** : les mentions légales constatent que le dépôt n'a pas de licence. Si tu en ajoutes
+  une, corrige la phrase.
+- **L'âge** : la politique dit que Recallio ne s'adresse pas aux moins de 15 ans, sans le vérifier.
+- **La date** en tête de chaque page (`UPDATED_ON`, dans `frontend/src/legal/`) est celle de ta dernière relecture.

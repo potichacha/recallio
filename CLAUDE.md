@@ -172,7 +172,7 @@ Si une règle devient gênante, on en discute et on consigne l'exception dans un
 ### 4.5 Sécurité
 - Toutes les routes sauf la santé, le contenu public (catalogue, Tour, plan du site : ADR 0065), l'essai sans compte (ADR 0050) et la visite de la page publique (ADR 0064) nécessitent un JWT valide. La page du défi du jour s'ouvre sans compte, pour un lien partagé ; ses routes en demandent un (ADR 0067).
 - Autorisation vérifiée **côté serveur pour chaque ressource** (un utilisateur ne lit que sa progression, un membre ne voit que ses groupes).
-- Chacun peut télécharger ses données et supprimer son compte ; un module qui garde des données personnelles implémente `PersonalData` (ADR 0056).
+- Chacun peut télécharger ses données et supprimer son compte ; un module qui garde des données personnelles implémente `PersonalData` (ADR 0056). La politique de confidentialité dit ce que le code garde : une donnée, un stockage ou un prestataire de plus s'y reporte (ADR 0074).
 - Secrets uniquement en variables d'environnement, jamais dans le dépôt.
 - Dépendances surveillées (Renovate ou Dependabot), scan des images en CI.
 - En-têtes de sécurité et CORS configurés explicitement ; Content-Security-Policy et limite de débit des requêtes sans compte dans nginx (ADR 0054).
@@ -591,7 +591,7 @@ Une bêta d'abord, pour quelques testeurs ; l'ouverture à tous attend leurs ret
    - la procédure, dans `docs/deploiement.md` (ADR 0071).
 4. ✅ **Le serveur du runner** (33) : WireGuard, pare-feu, core dumps désactivés, les images du bac à sable, deux exécutions à la fois (`infra/production/runner/`, ADR 0072) ; gVisor à essayer avant l'ouverture à tous.
 5. ✅ **Les sauvegardes** (46) : chaque nuit, les deux bases chiffrées pour une clé absente du serveur, puis envoyées dans un stockage qui les verrouille 30 jours ; un battement de cœur ; la restauration et son essai (`infra/production/app/backup/`, ADR 0073).
-6. **Les pages légales** : mentions légales et politique de confidentialité, liées depuis le pied de page et l'inscription.
+6. ✅ **Les pages légales** : mentions légales et politique de confidentialité, publiques, liées depuis le pied de page, la page publique, l'essai, le premier login et le profil ; l'éditeur et son contact arrivent au démarrage du front (`LEGAL_PUBLISHER`, `LEGAL_CONTACT_EMAIL`), hors du dépôt (ADR 0074). Le lien depuis la page d'inscription de Keycloak vient avec son thème.
 
    Puis, avant la mise en service (décidé le 2026-11-24), une PR chacune :
    - **Fidélité aux maquettes « Rico »** : l'accueil, la carte de révision et la page publique rapprochés des maquettes ;

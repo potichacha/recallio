@@ -26,6 +26,9 @@ test.describe('Référencement (ADR 0065)', () => {
     const sitemap = await response.text()
     expect(sitemap).toContain('http://www.sitemaps.org/schemas/sitemap/0.9')
     expect(sitemap).toContain(`<loc>${PUBLIC_ORIGIN}/subjects/go/tour/hello-world</loc>`)
+    // Les deux pages légales (ADR 0074).
+    expect(sitemap).toContain(`<loc>${PUBLIC_ORIGIN}/mentions-legales</loc>`)
+    expect(sitemap).toContain(`<loc>${PUBLIC_ORIGIN}/confidentialite</loc>`)
   })
 
   test('gives the pages their share tags, with an absolute image', async ({ request }) => {
