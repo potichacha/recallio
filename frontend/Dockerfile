@@ -33,6 +33,11 @@ ENV RATE_LIMIT_PUBLIC=20r/s RATE_LIMIT_TRIAL=2r/s RATE_LIMIT_INVITATIONS=1r/s TR
 # PWA les lit à son démarrage. Sans DSN, elle ne charge rien et n'envoie rien. SENTRY_ORIGIN, l'origine du DSN, entre
 # dans la Content-Security-Policy : à accorder au DSN, comme OIDC_ORIGIN à OIDC_AUTHORITY.
 ENV SENTRY_DSN="" SENTRY_ENVIRONMENT=production SENTRY_RELEASE="" SENTRY_ORIGIN=""
+# L'éditeur du site et son adresse de contact, pour les pages légales (ADR 0074) : le dépôt est public, ils n'y sont pas
+# écrits. LEGAL_PUBLISHER vide : l'éditeur, un particulier, n'est connu que de l'hébergeur. Le script les échappe avant
+# que nginx ne les mette dans index.html ; l'image de nginx le source (*.envsh) juste avant de remplir son gabarit.
+ENV LEGAL_PUBLISHER="" LEGAL_CONTACT_EMAIL=""
+COPY --chmod=755 frontend/nginx/18-escape-legal-values.envsh /docker-entrypoint.d/
 COPY frontend/nginx/security-headers.conf frontend/nginx/api-proxy.conf /etc/nginx/snippets/
 COPY frontend/nginx/default.conf.template /etc/nginx/templates/default.conf.template
 COPY --from=build /repo/frontend/dist /usr/share/nginx/html

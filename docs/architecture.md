@@ -353,6 +353,7 @@ flowchart LR
 | Contenu (ADR 0069) | importé à chaque démarrage depuis `../content` en dev | dans l'image du backend (`/content`), importé à chaque démarrage |
 | Rappels (Web Push, ADR 0047) | paire VAPID éphémère, tirée au démarrage ; aucun minuteur en test | `RECALLIO_PUSH_VAPID_PUBLIC_KEY`, `RECALLIO_PUSH_VAPID_PRIVATE_KEY`, `RECALLIO_PUSH_SUBJECT` |
 | Origine publique du site (plan du site, balises de partage, `robots.txt` ; ADR 0065) | celle de Vite en dev, `https://recallio.test/` en test ; `http://localhost:3000` dans le compose | `PUBLIC_ORIGIN`, la même au backend (obligatoire) et au front (nginx), `https://<DOMAIN>` dans le compose de production |
+| Pages légales (ADR 0074) | sans nginx (`npm run dev`), ni éditeur ni contact ; des valeurs d'exemple dans le compose | `LEGAL_CONTACT_EMAIL` (obligatoire) et `LEGAL_PUBLISHER` (facultatif) du front, que nginx échappe et met dans `index.html` : le dépôt, public, ne porte aucune coordonnée de l'éditeur |
 | Logs (ADR 0070) | texte lisible en dev et en test ; JSON dans le compose, en profil `prod` | JSON sur la sortie standard, un champ `service` par ligne ; nginx sans adresse IP ni chaîne de requête |
 | Erreurs dans Sentry (ADR 0070) | éteint : aucun DSN en dev, en test, en CI ni dans le compose | `SENTRY_DSN` de chaque service (backend, runner, front), `SENTRY_ENVIRONMENT` (`production` par défaut), `SENTRY_RELEASE` (le tag de l'image, mis par le compose de production) ; au front, l'origine du DSN dans `SENTRY_ORIGIN` (CSP) |
 | `/q/*` (Dev UI, Swagger) | public | non exposé |
@@ -406,7 +407,8 @@ flowchart LR
 
 - **Une seule image par composant, pour tous les environnements** : le backend emporte le contenu et l'importe à chaque
   démarrage ; le front reçoit à son démarrage l'adresse du fournisseur OIDC (`OIDC_AUTHORITY`), son origine
-  (`OIDC_ORIGIN`) et l'origine publique du site (`PUBLIC_ORIGIN`) ; le runner, le nom des images du bac à sable.
+  (`OIDC_ORIGIN`), l'origine publique du site (`PUBLIC_ORIGIN`) et les coordonnées de l'éditeur, pour les pages légales
+  (`LEGAL_PUBLISHER`, `LEGAL_CONTACT_EMAIL`, ADR 0074) ; le runner, le nom des images du bac à sable.
 - **Déployer**, pour la bêta, se fait à la main : épingler un nouveau tag `sha-…`, tirer les images, relancer. Revenir
   en arrière, c'est épingler le précédent.
 - **Le serveur de l'application** (ADR 0071) se décrit dans `infra/production/app/` : son `compose.yaml`, son

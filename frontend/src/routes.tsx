@@ -92,8 +92,8 @@ export const pages: RouteObject[] = [
   // Sans compte : le catalogue, le Tour (seul « Exécuter » demande de se connecter, ADR 0037), un profil public
   // (ADR 0043), l'essai (ADR 0050) et le défi du jour, qu'un lien partagé ouvre chez un visiteur (jouer demande un
   // compte, ADR 0067). Le plan du site du backend (SitemapService, ADR 0065) recopie les adresses de
-  // l'accueil, des pages Cours et Tour, du catalogue, d'un sujet, de ses leçons et de son Tour : les changer ici, c'est
-  // les changer là-bas.
+  // l'accueil, des pages Cours et Tour, du catalogue, des pages légales, d'un sujet, de ses leçons et de son Tour : les
+  // changer ici, c'est les changer là-bas.
   { path: 'learn', ...page(() => import('./subjects/CoursesPage'), 'CoursesPage') },
   { path: 'tours', ...page(() => import('./subjects/ToursPage'), 'ToursPage') },
   { path: 'play', ...page(() => import('./play/PlayPage'), 'PlayPage') },
@@ -121,6 +121,15 @@ export const pages: RouteObject[] = [
     ...page(() => import('./pages/PublicProfilePage'), 'PublicProfilePage'),
   },
   { path: 'try/:slug', ...page(() => import('./pages/TrialPage'), 'TrialPage') },
+  // Les deux pages légales (ADR 0074), en français comme leur texte ; le plan du site les recopie aussi.
+  {
+    path: 'mentions-legales',
+    ...page(() => import('./legal/LegalNoticePage'), 'LegalNoticePage'),
+  },
+  {
+    path: 'confidentialite',
+    ...page(() => import('./legal/PrivacyPolicyPage'), 'PrivacyPolicyPage'),
+  },
   {
     path: 'daily/:subject',
     ...page(() => import('./daily/DailyChallengePage'), 'DailyChallengePage'),

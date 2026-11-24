@@ -157,13 +157,33 @@ export function Layout() {
           ref={main}
           id="contenu"
           tabIndex={-1}
-          className={`mx-auto px-4 pt-6 focus-visible:outline-none ${mode.wide ? 'max-w-6xl' : 'max-w-3xl'} ${mode.focus ? 'pb-10' : 'pb-28 md:pb-10'}`}
+          className={`mx-auto px-4 pt-6 focus-visible:outline-none ${mode.wide ? 'max-w-6xl' : 'max-w-3xl'} ${mode.focus ? 'pb-10' : 'pb-8'}`}
         >
           {/* La page qui s'ouvre glisse en apparaissant. Elle n'est pas remontée : seule l'animation rejoue. */}
           <div ref={page}>
             <Outlet />
           </div>
         </main>
+        {/*
+          Le pied de page (ADR 0074) : les deux pages légales, sur toutes les pages. Pas en mode concentration (une
+          session, un duel, un examen), où rien ne doit distraire. Sur un téléphone, sa marge du bas le tient au-dessus
+          de la barre de navigation.
+        */}
+        {!mode.focus && (
+          <footer className={`mx-auto px-4 pb-28 md:pb-8 ${mode.wide ? 'max-w-6xl' : 'max-w-3xl'}`}>
+            <nav
+              aria-label="Informations légales"
+              className="flex flex-wrap gap-x-5 gap-y-1 border-t border-line pt-4 text-sm text-ink-muted"
+            >
+              <Link to="/mentions-legales" className="py-1 hover:text-brand hover:underline">
+                Mentions légales
+              </Link>
+              <Link to="/confidentialite" className="py-1 hover:text-brand hover:underline">
+                Confidentialité
+              </Link>
+            </nav>
+          </footer>
+        )}
       </div>
     </LayoutModeContext.Provider>
   )

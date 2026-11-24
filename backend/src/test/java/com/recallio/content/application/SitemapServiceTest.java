@@ -16,7 +16,8 @@ import org.junit.jupiter.api.Test;
 /** Le plan du site (ADR 0065) : les pages publiques des sujets publiés, dans l'ordre du catalogue. */
 class SitemapServiceTest {
 
-    private static final List<String> FIXED = List.of("/", "/learn", "/tours", "/subjects");
+    private static final List<String> FIXED =
+            List.of("/", "/learn", "/tours", "/subjects", "/mentions-legales", "/confidentialite");
 
     private final FakeCatalog catalog = new FakeCatalog();
     private final SitemapService sitemap = new SitemapService(catalog);
@@ -36,6 +37,8 @@ class SitemapServiceTest {
                         "/learn",
                         "/tours",
                         "/subjects",
+                        "/mentions-legales",
+                        "/confidentialite",
                         "/subjects/go",
                         "/subjects/go/course/hello-world",
                         "/subjects/go/course/boucle-for",

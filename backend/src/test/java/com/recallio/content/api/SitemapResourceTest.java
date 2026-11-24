@@ -133,6 +133,8 @@ class SitemapResourceTest {
                         ORIGIN + "/learn",
                         ORIGIN + "/tours",
                         ORIGIN + "/subjects",
+                        ORIGIN + "/mentions-legales",
+                        ORIGIN + "/confidentialite",
                         ORIGIN + "/subjects/fortran",
                         ORIGIN + "/subjects/fortran/course/bonjour",
                         ORIGIN + "/subjects/fortran/course/fonctions",

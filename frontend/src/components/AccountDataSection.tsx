@@ -1,7 +1,9 @@
 import { useId, useState, type FormEvent } from 'react'
+import { Link } from 'react-router'
 import { useAccountExport, useDeleteAccount } from '../api/account'
 import type { Profile } from '../api/profile'
 import { useSession } from '../auth/session'
+import { TEXT_LINK } from '../legal/textLink'
 import { button } from './ui/button'
 
 /**
@@ -31,7 +33,12 @@ export function AccountDataSection({ profile }: { profile: Profile }) {
       </h2>
       <p className="text-sm text-ink-muted">
         Tu peux récupérer tout ce que Recallio garde sur toi : ton profil, ta progression, ton
-        historique de révision, tes groupes et tes duels, dans un fichier JSON.
+        historique de révision, tes groupes et tes duels, dans un fichier JSON. Le détail de ce qui
+        est gardé, pourquoi et combien de temps est dans la{' '}
+        <Link to="/confidentialite" className={TEXT_LINK}>
+          politique de confidentialité
+        </Link>
+        .
       </p>
       <button
         type="button"
