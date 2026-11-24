@@ -498,11 +498,11 @@ tourne sur le nouveau schéma, ce que la règle des migrations rétrocompatibles
 
 ### Caddy, Keycloak et PostgreSQL
 
-Leurs images sont épinglées à une version mineure (`caddy:2.11`, `keycloak:26.7`, `postgres:18`) :
+Leurs images sont épinglées à une version mineure (`caddy:2.11`, `keycloak:26.8`, `postgres:18`) :
 
 - **les correctifs** de ces versions arrivent avec `docker compose pull` puis `up -d`. Fais-le une fois par mois, avec
   la mise à jour de Docker (section 3) ;
-- **une nouvelle version mineure** arrive par une pull request de Dependabot (`caddy:2.12`, `keycloak:26.8`…) : après le
+- **une nouvelle version mineure** arrive par une pull request de Dependabot (`caddy:2.12`, `keycloak:26.9`…) : après le
   merge, `git pull`, `docker compose pull`, `up -d`. Pour **Keycloak**, lis d'abord ses notes de mise à jour
   (*Upgrading Guide*) : il migre sa base au démarrage, sans retour possible autrement que par une sauvegarde
   (section 12) ; et reporte la version dans le compose local (`infra/compose.yaml`) ;
