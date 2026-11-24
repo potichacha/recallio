@@ -20,6 +20,9 @@ export async function seriousViolations(page: Page): Promise<string[]> {
           animation.effect?.getComputedTiming().iterations === Infinity,
       ),
   )
+  // axe mesure une cible là où la page est défilée : un lien à moitié glissé sous l'en-tête collant lui paraît trop
+  // petit (« target-size »). En haut de page, rien n'est sous l'en-tête, et le résultat ne dépend plus du défilement.
+  await page.evaluate(() => window.scrollTo(0, 0))
   const { violations } = await new AxeBuilder({ page }).withTags(WCAG).analyze()
   return violations
     .filter(({ impact }) => impact === 'serious' || impact === 'critical')
