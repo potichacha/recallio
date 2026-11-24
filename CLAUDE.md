@@ -590,8 +590,13 @@ Une bêta d'abord, pour quelques testeurs ; l'ouverture à tous attend leurs ret
    - Keycloak en mode production sous `auth.`, avec un royaume sans comptes de test, les e-mails par Brevo et la console d'administration fermée à Internet, jointe par un tunnel SSH ;
    - la procédure, dans `docs/deploiement.md` (ADR 0071).
 4. ✅ **Le serveur du runner** (33) : WireGuard, pare-feu, core dumps désactivés, les images du bac à sable, deux exécutions à la fois (`infra/production/runner/`, ADR 0072) ; gVisor à essayer avant l'ouverture à tous.
-5. **Les sauvegardes** (46) : chaque nuit, la base chiffrée hors du serveur ; un essai de restauration.
+5. ✅ **Les sauvegardes** (46) : chaque nuit, les deux bases chiffrées pour une clé absente du serveur, puis envoyées dans un stockage qui les verrouille 30 jours ; un battement de cœur ; la restauration et son essai (`infra/production/app/backup/`, ADR 0073).
 6. **Les pages légales** : mentions légales et politique de confidentialité, liées depuis le pied de page et l'inscription.
+
+   Puis, avant la mise en service (décidé le 2026-11-24), une PR chacune :
+   - **Fidélité aux maquettes « Rico »** : l'accueil, la carte de révision et la page publique rapprochés des maquettes ;
+   - **Le thème de la page de connexion** de Keycloak ;
+   - **La page « Bêta » des admins** : des graphes agrégés sur les données déjà en base (activité, cohortes, sujets, cartes ratées, Tour, fonctionnalités), sans outil tiers ; le backend, puis l'écran.
 7. **La mise en service**, par le propriétaire, en suivant la procédure :
    - le domaine, les serveurs et les secrets ;
    - le premier démarrage, les vérifications, la surveillance de la disponibilité ;

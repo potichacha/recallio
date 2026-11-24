@@ -360,7 +360,7 @@ flowchart LR
 
 Les secrets passent uniquement par des variables d'environnement, jamais par le dépôt.
 
-## 5. Déploiement (ADR 0069, 0071, 0072)
+## 5. Déploiement (ADR 0069, 0071, 0072, 0073)
 
 Deux VPS OVHcloud, en Docker Compose, reliés par WireGuard. Les serveurs ne construisent rien : ils tirent de GHCR les
 images publiées par la CI, au tag `sha-…` qu'ils épinglent. La procédure, du serveur nu à la mise à jour, est dans
@@ -384,6 +384,8 @@ flowchart LR
         sandbox["Bac à sable<br/>conteneurs jetables"]
     end
 
+    store[("Stockage objet<br/>hors d'OVHcloud")]
+
     user -- HTTPS --> caddy
     caddy --> front
     caddy --> kc
@@ -394,6 +396,7 @@ flowchart LR
     runner -- "docker run" --> sandbox
     ghcr -. "docker compose pull" .-> app
     ghcr -. "docker compose pull" .-> run
+    db -. "chaque nuit : dumps chiffrés (age)" .-> store
 ```
 
 | Serveur | Ce qu'il porte | Qui lui parle |
@@ -441,6 +444,20 @@ flowchart LR
   - **gVisor** est prêt à essayer (`RECALLIO_SANDBOX_DOCKER_RUNTIME=runsc`), pas activé pour la bêta.
   - **Une mise à jour** porte le même tag sur les deux serveurs, le runner d'abord. La CI vérifie ce compose et que les
     modèles WireGuard ne contiennent aucune clé (job `production`).
+- **Les sauvegardes** (ADR 0073) se décrivent dans `infra/production/app/backup/` : un script, lancé chaque nuit sur
+  l'hôte par un timer systemd, et les modèles de sa configuration, qui vit dans `/etc/recallio-backup/`.
+  - **Ce qui part** : les deux bases, chacune par `pg_dump`, chiffrée avec age avant de toucher le disque, puis envoyée
+    par rclone dans un stockage objet compatible S3, hors d'OVHcloud (Backblaze B2, région UE). Rien n'est à
+    sauvegarder sur le serveur du runner.
+  - **Ce qu'un serveur pris ne peut pas faire** : lire une sauvegarde (il n'a que la clé publique ; la clé privée reste
+    chez le propriétaire, et la clé du stockage ne télécharge pas), ni en supprimer une (le bucket verrouille chaque
+    fichier 30 jours, puis le supprime lui-même).
+  - **Savoir qu'une sauvegarde a manqué** : un battement de cœur, appelé après chaque sauvegarde vérifiée ; un service
+    de surveillance alerte quand il ne vient pas.
+  - **Restaurer** : le propriétaire déchiffre sur son poste, et le dump entre dans `pg_restore` par SSH ; la base est
+    supprimée et recréée. Un essai de restauration se joue à la mise en service, puis chaque trimestre.
+  - **La CI** vérifie le script (`shellcheck`), les unités systemd, et que les modèles ne contiennent aucune clé (job
+    `production`).
 - **Les logs et les erreurs** (ADR 0070) :
   - chaque service écrit ses logs en JSON sur sa sortie standard, avec son nom (`service`) : le backend et le runner
     (`quarkus-logging-json`), nginx pour son journal d'accès, sans adresse IP, sans `User-Agent` ni `Referer`, sans

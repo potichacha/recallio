@@ -4,6 +4,8 @@
 - Date : 2026-11-11
 - Prolonge : ADR 0001 (monolithe modulaire), ADR 0043 (profil public), CLAUDE.md section 4.5 (sécurité)
 - Origine : audit du 2026-11-10 (`docs/audit-2026-11.md`), élément 17
+- Complété par : ADR 0073 (la durée de conservation des sauvegardes, et les suppressions à rejouer après une
+  restauration)
 
 ## Contexte
 

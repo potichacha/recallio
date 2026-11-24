@@ -7,7 +7,8 @@
   ADR 0047 (les clés VAPID), ADR 0010 (le client OIDC de la PWA)
 - Origine : le déploiement (phase 1, étape 7), son étape 3, « le serveur de l'application » ; audit du 2026-11-10
   (`docs/audit-2026-11.md`), élément 33 (HSTS)
-- Complété par : ADR 0072 (le tunnel WireGuard, côté application, et le runner mis à jour avant l'application)
+- Complété par : ADR 0072 (le tunnel WireGuard, côté application, et le runner mis à jour avant l'application),
+  ADR 0073 (les sauvegardes des deux bases, et leur restauration)
 
 ## Contexte
 
