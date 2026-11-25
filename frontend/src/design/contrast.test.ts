@@ -86,6 +86,8 @@ const PAIRS: [string, string, number][] = [
     'surface',
     GRAPHIC,
   ]),
+  // Une barre d'un graphe de la page Bêta, sur sa piste (ADR 0076) ; sur une carte, c'est la paire au-dessus.
+  ['brand', 'surface-sunken', GRAPHIC],
   // Le focus posé sur un fond à la couleur de la marque.
   ['on-brand', 'brand', GRAPHIC],
   ['flame', 'surface', GRAPHIC],

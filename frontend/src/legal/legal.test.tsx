@@ -161,6 +161,21 @@ describe('the privacy policy (ADR 0074)', () => {
     expect(document.title).toBe('Politique de confidentialité · Recallio')
   })
 
+  // La page Bêta des admins (ADR 0076) : des chiffres d'ensemble tirés de l'activité des comptes, dits ici.
+  it('says that the publisher draws overall figures from the activity, never a record per person', async () => {
+    stubApi({})
+    renderAt('/confidentialite')
+
+    const progress = await screen.findByRole('rowheader', { name: 'Ta progression' })
+    expect(progress.closest('tr')).toHaveTextContent(
+      /L’éditeur en tire aussi des chiffres d’ensemble .*, sans fiche par personne, pour améliorer le contenu\./,
+    )
+    const basis = screen.getByText('L’intérêt légitime de l’éditeur').closest('li')
+    expect(basis).toHaveTextContent(
+      /les chiffres d’ensemble tirés de l’activité des comptes \(combien révisent, quelles cartes sont le plus ratées\), sans fiche par personne\./,
+    )
+  })
+
   it('names the publisher as the one responsible when a name is given', async () => {
     serve(LEGAL_PUBLISHER_TAG, 'Alice Martin')
     serve(LEGAL_CONTACT_EMAIL_TAG, CONTACT)

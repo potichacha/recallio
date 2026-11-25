@@ -184,3 +184,6 @@ Les réponses sont déjà en base : chaque révision, chaque notion validée, ch
   légale « intérêt légitime » ne cite que les comptes de visites et d'essais. Aucune phrase n'interdit cet usage, et
   aucune donnée n'est ajoutée, mais une ligne de plus la rendrait exacte : à décider par le propriétaire avant la mise
   en service.
+  - **Note du 2026-11-25** : c'est fait, avec l'écran (`/admin/beta`). La politique le dit à deux endroits : la ligne
+    « Ta progression » du tableau, et l'intérêt légitime parmi les bases légales (« les chiffres d'ensemble tirés de
+    l'activité des comptes [...], sans fiche par personne »). Sa date passe au 25 novembre 2026.

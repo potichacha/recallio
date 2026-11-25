@@ -227,6 +227,9 @@ export function ProfilePage() {
               <Link to="/admin/retention" className="font-medium text-brand-strong hover:underline">
                 Rétention et parcours
               </Link>
+              <Link to="/admin/beta" className="font-medium text-brand-strong hover:underline">
+                Bêta
+              </Link>
             </p>
           )}
           <ProfileForm profile={profile.data} />

@@ -4,7 +4,7 @@ import { ContactEmail, LegalList, LegalPage, LegalSection, LegalTable } from './
 import { TEXT_LINK } from './textLink'
 
 /** À changer à chaque modification du texte : c'est la version que le lecteur a lue. */
-const UPDATED_ON = '24 novembre 2026'
+const UPDATED_ON = '25 novembre 2026'
 
 const WHILE_ACCOUNT = 'Tant que ton compte existe'
 const DATA_HEAD = ['Quoi', 'Pourquoi', 'Combien de temps']
@@ -104,7 +104,7 @@ export function PrivacyPolicyPage() {
             ],
             [
               'Ta progression',
-              'Pour te reposer chaque carte au bon moment et te montrer où tu en es : l’état de ta mémoire pour chaque carte, l’historique de tes réponses (la carte, le résultat, la date, le temps mis), tes examens blancs, ton avancement dans le Tour, tes tests de niveau, les dates de tes entretiens, tes réponses aux défis du jour.',
+              'Pour te reposer chaque carte au bon moment et te montrer où tu en es : l’état de ta mémoire pour chaque carte, l’historique de tes réponses (la carte, le résultat, la date, le temps mis), tes examens blancs, ton avancement dans le Tour, tes tests de niveau, les dates de tes entretiens, tes réponses aux défis du jour. L’éditeur en tire aussi des chiffres d’ensemble (combien de comptes révisent, quelles cartes sont le plus ratées), sans fiche par personne, pour améliorer le contenu.',
               WHILE_ACCOUNT,
             ],
             [
@@ -186,7 +186,8 @@ export function PrivacyPolicyPage() {
             <strong className="text-ink">L’intérêt légitime de l’éditeur</strong> à protéger et à
             améliorer le service : la limite de requêtes, le blocage des essais de mots de passe,
             les journaux, les sauvegardes, les comptes de visites et d’essais sans identifiant, les
-            signalements d’erreurs.
+            signalements d’erreurs, et les chiffres d’ensemble tirés de l’activité des comptes
+            (combien révisent, quelles cartes sont le plus ratées), sans fiche par personne.
           </li>
           <li>
             <strong className="text-ink">Ton consentement</strong> : les rappels par notification.
