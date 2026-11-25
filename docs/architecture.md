@@ -215,6 +215,7 @@ flowchart LR
 | `domain.RetentionReport`, `application.RetentionService`, `api.AdminRetentionResource` | La rétention (ADR 0050), `GET /api/v1/admin/retention`, rôle admin : la part des joueurs revenus réviser 1, 7 et 30 jours après leur premier jour actif, calculée sur `daily_activity`. |
 | `application.FunnelRecorder`, `api.FunnelVisitsResource` | Le parcours mesuré (ADR 0064) : la visite (`POST /api/v1/funnel/visits`, sans compte), l'essai (`review.TrialStarted`), le compte (`user.AccountCreated`) et la première révision (`CardReviewed`, après `ActivityRecorder`), dans la table `funnel_event`, sans identifiant d'utilisateur. |
 | `domain.funnel.FunnelReport`, `application.FunnelService`, `api.AdminFunnelResource` | `GET /api/v1/admin/funnel`, rôle admin : chaque étape des huit dernières semaines ISO (en UTC), et le taux de passage de l'une à la suivante. |
+| `domain.beta.BetaReport`, `application.BetaReportService`, `api.AdminBetaResource` | La page « Bêta » des admins (ADR 0076), `GET /api/v1/admin/beta`, rôle admin : sur trente jours, l'activité par jour, les sujets, les cartes les plus ratées et les plus signalées, le Tour et l'usage de chaque fonctionnalité. Le service ne lit aucune table : il rassemble les réponses des `UsageStatistics` de chaque module (`platform`), et nomme le contenu par `content.CardDirectory` et `content.SubjectDirectory`. |
 
 Le tableau de bord de la PWA (accueil, une fois connecté) assemble des lectures indépendantes :
 `/api/v1/subjects` (content, pour les titres et les Tours), `/api/v1/me/review-stats`, `/api/v1/me/interviews` et
@@ -313,6 +314,14 @@ Les dépendances entre modules vont dans un seul sens : `gamification` → `revi
 
 Le module transverse `platform` fournit les identifiants (`IdGenerator`, UUID v7), l'horloge (`Clock`),
 la pagination (`Page`) et la traduction des erreurs en Problem Details (RFC 9457).
+
+Il porte aussi deux ports que chaque module implémente dans son `infrastructure`, pour répondre de ses propres tables
+sans qu'un autre module les lise :
+
+| Port | Qui l'appelle | Pour quoi |
+|---|---|---|
+| `platform.domain.PersonalData` | `user.application.AccountService` | Exporter et effacer les données d'un compte (ADR 0056). |
+| `platform.domain.UsageStatistics` | `gamification.application.BetaReportService` | Compter l'usage, en agrégé, pour la page « Bêta » des admins (ADR 0076) : des comptes par fonctionnalité, par jour, par sujet et par carte. Une question sans objet pour un module garde sa réponse vide. |
 
 ## 3. Flux de développement et de livraison
 
