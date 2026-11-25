@@ -123,10 +123,8 @@ describe('RetentionPage', () => {
     const fetchMock = stubApi({
       ...ADMIN_API,
       '/api/v1/admin/retention': { body: RETENTION },
-      '/api/v1/admin/funnel': {
-        status: 500,
-        body: { status: 500, title: 'Internal Server Error' },
-      },
+      // Une erreur du client : le hook ne la réessaie pas de lui-même, seul le bouton relance l'appel.
+      '/api/v1/admin/funnel': { status: 400, body: { status: 400, title: 'Bad Request' } },
     })
     renderAt('/admin/retention', signedIn())
 
