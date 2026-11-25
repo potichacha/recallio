@@ -35,6 +35,9 @@ export function useContentReports(status: ReportStatus, page: number) {
       if (data === undefined) throw ApiError.from(response, error)
       return data
     },
+    // Un refus (403) ne changera pas en réessayant : sans cela, qui n'est pas admin attend plusieurs secondes.
+    retry: (failureCount, error) =>
+      failureCount < 3 && !(error instanceof ApiError && error.status < 500),
   })
 }
 
