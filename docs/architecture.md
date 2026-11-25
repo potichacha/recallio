@@ -423,7 +423,8 @@ flowchart LR
   - **Keycloak** tourne en mode production, avec un royaume sans utilisateur, importé au premier démarrage : inscription
     avec vérification de l'e-mail (Brevo), protection contre la force brute, « Se souvenir de moi », aucun listener
     d'événements qui écrirait les échecs de connexion dans les logs. Sa console n'écoute que sur `127.0.0.1:8280`, jointe
-    par un tunnel SSH.
+    par un tunnel SSH. Ses pages de connexion portent le thème `recallio` (ADR 0075) : un dossier de fichiers statiques,
+    `infra/keycloak/themes/recallio`, monté en lecture seule, le même en local et dans l'e2e.
   - **PostgreSQL** : une instance, deux bases (`recallio`, `keycloak`), chacune à son propre rôle, ni l'un ni l'autre
     superutilisateur.
   - **La mémoire** des deux JVM est plafonnée à 1,5 Go chacune ; les logs de Docker tournent (5 fichiers de 10 Mo par
