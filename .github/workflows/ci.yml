@@ -58,8 +58,9 @@ jobs:
             echo "$1=$run" >> "$GITHUB_OUTPUT"
             echo "- \`$1\` : $run" >> "$GITHUB_STEP_SUMMARY"
           }
-          # Les tests du backend parsent content/ ; ceux du runner jouent ses exercices dans les images de sandbox/.
-          decide backend '^(backend|content)/'
+          # Les tests du backend parsent content/ et importent le royaume local dans le Keycloak des Dev Services ; ceux
+          # du runner jouent ses exercices dans les images de sandbox/.
+          decide backend '^((backend|content)/|infra/keycloak/recallio-realm\.json$)'
           # CodeLanguagesTest compare les langages des blocs de code du contenu à ceux que le front colore.
           decide content '^(backend/|content/|frontend/src/components/highlightLanguages\.ts$)'
           decide runner '^(runner|sandbox|content)/'
@@ -68,7 +69,8 @@ jobs:
           decide docker '^(backend|frontend|runner)/'
           # La pile de l'e2e : le compose local et son royaume, pas la configuration de production.
           decide e2e '^((backend|frontend|runner|sandbox|content|e2e)/|infra/(compose[^/]*\.yaml$|keycloak/))'
-          decide production '^infra/production/'
+          # Le thème de connexion vit à côté du royaume local, et le compose de production le monte (ADR 0075).
+          decide production '^infra/(production/|keycloak/themes/)'
           # Les sujets que CodeOutputTest, ExercisesTest et TourTest rejouent (étape 8.10.2) : tous (vide) sur main ou
           # quand le code qui les vérifie change ; sinon ceux dont le dossier content/<sujet>/ est modifié, ou « none ».
           # Une PR de contenu Java ne recompile plus les cartes C++.
@@ -349,7 +351,8 @@ jobs:
   # La configuration des serveurs de l'application (ADR 0071) et du runner (ADR 0072), sans rien démarrer : chaque
   # compose de production avec les variables de son .env.example (ses secrets vides remplis d'une valeur factice,
   # puisque Compose refuse un secret vide), le Caddyfile formaté et validé par l'image de Caddy que le compose épingle,
-  # le royaume Keycloak de production, les modèles WireGuard, qui ne doivent contenir aucune clé, et la sauvegarde
+  # le royaume Keycloak de production et son thème de connexion (ADR 0075), les modèles WireGuard, qui ne doivent
+  # contenir aucune clé, et la sauvegarde
   # (ADR 0073) : son script, ses unités systemd et ses modèles, sans clé non plus.
   production:
     name: production
@@ -376,6 +379,22 @@ jobs:
 
       - name: Check that the production realm is valid JSON
         run: jq empty keycloak/recallio-realm.json
+
+      # Le thème de connexion (ADR 0075) vit dans infra/keycloak/themes/, que le compose monte dans Keycloak. Un thème
+      # introuvable ne ferait pas échouer Keycloak : il servirait son thème par défaut, en silence. D'où ce contrôle :
+      # le thème que nomme le royaume existe, le compose le monte en lecture seule là où Keycloak le cherche, et lui
+      # donne l'origine publique de ses liens vers les pages légales. Le royaume local nomme le même thème.
+      - name: Check that the login theme named by the realm exists and is mounted by the compose file
+        run: |
+          theme=$(jq -er '.loginTheme' keycloak/recallio-realm.json)
+          source=$(realpath "../../keycloak/themes/$theme")
+          test -f "$source/login/theme.properties"
+          test "$(jq -er '.loginTheme' ../../keycloak/recallio-realm.json)" = "$theme"
+          docker compose --env-file "$RUNNER_TEMP/ci.env" config --format json > "$RUNNER_TEMP/compose.json"
+          jq -e --arg source "$source" --arg target "/opt/keycloak/themes/$theme" \
+            '.services.keycloak.volumes | any(.source == $source and .target == $target and .read_only == true)' \
+            "$RUNNER_TEMP/compose.json"
+          jq -e '.services.keycloak.environment.PUBLIC_ORIGIN | startswith("https://")' "$RUNNER_TEMP/compose.json"
 
       - name: Check the runner compose file with the variables of its .env.example
         working-directory: infra/production/runner

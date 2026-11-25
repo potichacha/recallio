@@ -32,7 +32,7 @@ Application web (PWA) de révision des entretiens techniques par répétition es
 | [`runner/`](runner/) | Service Quarkus qui exécute le code des exercices dans des conteneurs jetables (ADR 0030) |
 | [`sandbox/java/`](sandbox/java/), [`sandbox/go/`](sandbox/go/), [`sandbox/cpp/`](sandbox/cpp/), [`sandbox/python/`](sandbox/python/) | Images du bac à sable, une par langage (JDK 25, JUnit, Spring Boot et Quarkus ; Go 1.27 ; GCC 14 et doctest ; Python 3.14 et pytest), lancées par le runner |
 | [`content/`](content/) | Contenu : documents Markdown (`source/`) et dossiers de sujet (`java/` : référentiel, notions, exercices) |
-| [`infra/`](infra/) | `compose.yaml` et royaume Keycloak pour lancer l'ensemble avec Docker ; `production/app/`, la configuration du serveur de production ([docs/deploiement.md](docs/deploiement.md)) |
+| [`infra/`](infra/) | `compose.yaml`, royaume Keycloak et thème de ses pages de connexion (`keycloak/themes/`, ADR 0075) pour lancer l'ensemble avec Docker ; `production/app/`, la configuration du serveur de production ([docs/deploiement.md](docs/deploiement.md)) |
 | [`e2e/`](e2e/) | Parcours de bout en bout (Playwright) contre la pile Docker |
 | [`docs/`](docs/) | Architecture, ADR, rétrospectives |
 

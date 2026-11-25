@@ -19,6 +19,7 @@ d'intégration, sans les remplacer : un parcours par fonctionnalité clé, pas u
 | Passer le test de niveau de Go jusqu'au bout, voir les domaines sautés, puis annuler le test                                       | `tests/level-check.spec.ts`         |
 | Aucune violation grave d'accessibilité (axe-core, WCAG 2.2 A et AA) sur les pages principales                                      | `tests/accessibility.spec.ts`       |
 | Lire les mentions légales et la politique de confidentialité sans compte, avec l'éditeur et le contact donnés au conteneur         | `tests/legal.spec.ts`               |
+| Voir la page de connexion de Keycloak au thème de Recallio, en français, et aller de l'inscription aux deux pages légales          | `tests/keycloak-theme.spec.ts`      |
 
 ## Lancer en local
 

@@ -5,7 +5,8 @@
 > serveurs, des images publiées par la CI), [0070](adr/0070-logs-et-erreurs.md) (logs et Sentry),
 > [0071](adr/0071-le-serveur-de-l-application.md) (le serveur de l'application),
 > [0072](adr/0072-le-serveur-du-runner.md) (le serveur du runner), [0073](adr/0073-les-sauvegardes.md) (les
-> sauvegardes) et [0074](adr/0074-les-pages-legales.md) (les pages légales).
+> sauvegardes), [0074](adr/0074-les-pages-legales.md) (les pages légales) et
+> [0075](adr/0075-le-theme-de-connexion.md) (le thème des pages de connexion).
 >
 > État : le serveur de l'application (étape 7.3), le serveur du runner (7.4, section 11), les sauvegardes (7.5,
 > section 12) et les pages légales (7.6 : leur configuration en section 5, leur relecture en section 13). La mise en
@@ -269,7 +270,9 @@ cd /opt/recallio/infra/production/app
 ls -A
 ```
 
-Attendu : `.env.example  Caddyfile  backup  compose.yaml  keycloak  postgres  wireguard`.
+Attendu : `.env.example  Caddyfile  backup  compose.yaml  keycloak  postgres  wireguard`. Le thème des pages de
+connexion est ailleurs dans le dépôt, dans `/opt/recallio/infra/keycloak/themes/recallio` : le compose le monte de là
+(section 7, « Le thème des pages de connexion »).
 
 ## 5. Configurer
 
@@ -436,7 +439,7 @@ La commande ne rend pas la main tant que le tunnel est ouvert (`Ctrl+C` le ferme
 
 ### Ton compte dans Recallio, avec le rôle `admin`
 
-1. Sur `https://<domaine>`, *Se connecter*, puis *Enregistrement* : inscris-toi comme n'importe qui, suis le lien de
+1. Sur `https://<domaine>`, *Se connecter*, puis *Créer un compte* : inscris-toi comme n'importe qui, suis le lien de
    l'e-mail, choisis ton mot de passe. Tu reviens connecté dans la PWA.
 2. Dans la console, royaume `recallio`, *Users*, ton compte, *Role mapping*, *Assign role*, *Filter by realm roles*,
    `admin`, *Assign*.
@@ -448,6 +451,26 @@ La commande ne rend pas la main tant que le tunnel est ouvert (`Ctrl+C` le ferme
 Dans la console, royaume `recallio`, *Realm settings*, onglet *Email*, *Test connection* : Keycloak envoie un e-mail de
 test à l'adresse de ton administrateur `master`. Attendu : un message de réussite, et l'e-mail reçu (regarde aussi les
 indésirables). Les réglages SMTP du `.env` n'ont servi qu'à l'import : désormais, ils se changent sur cet onglet.
+
+### Le thème des pages de connexion
+
+Se connecter, s'inscrire, retrouver son mot de passe : ces pages sont servies par Keycloak, avec le thème `recallio`
+(ADR 0075). Le thème est un dossier du dépôt, `/opt/recallio/infra/keycloak/themes/recallio`, que le compose monte en
+lecture seule dans Keycloak ; aucune image n'est à construire.
+
+- **Au premier démarrage**, rien à faire : le royaume importé nomme déjà ce thème (`loginTheme`).
+- **Un royaume déjà importé ne relit pas son fichier** : si le royaume existait avant le thème, ou si la page de
+  connexion a l'allure grise de Keycloak, choisis-le à la main. Dans la console, royaume `recallio`, *Realm settings*,
+  onglet *Themes*, *Login theme* : `recallio`, *Save*. L'effet est immédiat.
+- **Après une mise à jour du thème** (un `git pull` qui change `infra/keycloak/themes/`) : `docker compose restart
+  keycloak`. En production, Keycloak garde les thèmes en cache jusqu'à son redémarrage ; compte une trentaine de
+  secondes sans connexion possible, les sessions sont gardées.
+- **Les liens vers les pages légales** (au pied de chaque page, et dans une phrase sur la page d'inscription) pointent
+  vers `https://<domaine>` : le thème lit `PUBLIC_ORIGIN`, que le compose déduit de `DOMAIN`, à chaque démarrage de
+  Keycloak.
+- **Si le dossier manque** (un dépôt incomplet, un chemin changé), Keycloak ne s'arrête pas : il sert son thème par
+  défaut. Pour le voir : `docker compose exec keycloak ls /opt/keycloak/themes/recallio/login`.
+- Les e-mails de Keycloak et sa console de compte gardent leur allure par défaut (ADR 0075).
 
 ## 8. Vérifier
 
@@ -481,6 +504,9 @@ Puis, dans un navigateur :
   particulier » si `LEGAL_PUBLISHER` est vide). Si l'adresse manque ou reste l'ancienne : `docker compose up -d` après
   avoir corrigé le `.env`, puis efface les données du site dans ton navigateur : l'application y garde sa page
   d'entrée jusqu'à la version suivante (ADR 0074) ;
+- **la page de connexion** (*Se connecter*) : Rico et « Recallio » au-dessus du formulaire, le violet et la police de
+  l'application, et au pied de la carte « Mentions légales » et « Confidentialité », qui ouvrent les deux pages de
+  `https://<domaine>`. Si elle est grise et carrée : section 7, « Le thème des pages de connexion » ;
 - **une inscription complète**, avec une autre adresse que la tienne : la page de Keycloak est en français, l'e-mail
   de vérification arrive de « Recallio <no-reply@<domaine>> », son lien fait choisir le mot de passe (10 caractères au
   moins) puis ramène connecté dans la PWA ;
@@ -504,7 +530,7 @@ backend ne parle ainsi jamais à un ancien runner. Puis, sur le serveur de l'app
 
 ```shell
 cd /opt/recallio/infra/production/app
-git pull                                      # seulement si infra/production/app a changé
+git pull                                      # seulement si infra/ a changé
 diff <(grep -oE '^[A-Z_]+=' .env.example) <(grep -oE '^[A-Z_]+=' .env)
 nano .env                                     # RECALLIO_TAG=sha-<nouveau commit>
 docker compose pull
@@ -518,6 +544,8 @@ docker compose ps
 - **L'indisponibilité attendue** : l'API répond 502 d'environ **20 secondes**, le temps que le nouveau backend démarre,
   importe le contenu (quelques secondes quand il n'a pas changé, ADR 0069) et soit déclaré prêt, puis que le front
   redémarre après lui.
+- Si le `git pull` a changé `infra/keycloak/themes/` (le thème des pages de connexion) : `docker compose restart
+  keycloak`, qui ne relit ses thèmes qu'à son démarrage (section 7).
 - Note le tag précédent (en commentaire dans le `.env`, par exemple) : c'est le chemin du retour.
 
 **Revenir en arrière**, c'est remettre le tag précédent, puis `docker compose pull` et `up -d` : ici d'abord, puis sur
@@ -605,7 +633,8 @@ Dans psql, `\password recallio` (ou `\password keycloak`), puis `\q`. Reporte-le
 | Le backend reste `unhealthy` | La base ou Keycloak | `docker compose logs backend` : « password authentication failed », le mot de passe du `.env` n'est plus celui de la base (section 10, « Changer un mot de passe ») ; une erreur OIDC, Keycloak n'est pas prêt (`docker compose ps`) |
 | `https://<domaine>/api/…` répond 502 | Le backend démarre, ou le front ne l'a pas retrouvé après sa recréation | Attendre 30 secondes ; sinon `docker compose restart frontend` |
 | L'e-mail de vérification n'arrive pas | Brevo, le domaine ou les indésirables | Les indésirables ; *Transactional*, *Logs* dans Brevo ; *Test connection* dans la console (section 7) ; un changement du `.env` sur SMTP n'a pas d'effet après le premier démarrage : il se fait dans la console |
-| La connexion échoue : « Invalid parameter: redirect_uri » | Le domaine a changé après l'import du royaume | Dans la console, royaume `recallio`, *Clients*, `recallio-frontend` : corriger les adresses |
+| La page de connexion a l'allure par défaut de Keycloak (grise, carrée) | Le royaume ne nomme pas le thème, ou son dossier n'est pas monté | Section 7, « Le thème des pages de connexion » |
+| La connexion échoue : « Un paramètre n'est pas valide : redirect_uri » | Le domaine a changé après l'import du royaume | Dans la console, royaume `recallio`, *Clients*, `recallio-frontend` : corriger les adresses |
 | La console, par le tunnel, reste blanche ou redirige vers `https://auth.<domaine>/realms/master/…` | L'adresse du royaume `master` n'est pas réglée | La commande `kcadm.sh` de la section 7 |
 | Plus aucun administrateur Keycloak (OTP perdu) | | Le guide de Keycloak « Bootstrapping and recovering an admin account » (commande `bootstrap-admin`) |
 | Une erreur « Failed to create OidcProviderClientImpl » dans Sentry, après un redémarrage du serveur | Le backend a démarré avant Keycloak | Rien : il se connecte à la première requête |

@@ -24,15 +24,17 @@ test.describe('Mes données (ADR 0056)', () => {
     // Le compte applicatif est effacé ; Keycloak fait confirmer la suppression de l'identité elle-même.
     // Selon l'ancienneté de la connexion, il redemande d'abord le mot de passe.
     const password = page.locator('#password')
-    const confirmDeletion = page.getByRole('button', { name: 'Confirm deletion' })
+    const confirmDeletion = page
+      .locator('#kc-deleteaccount-form')
+      .getByRole('button', { name: 'Supprimer mon compte' })
     await expect(password.or(confirmDeletion)).toBeVisible()
     if (await password.isVisible()) {
       await password.fill(USERS.dave.password)
       await page.locator('#kc-login').click()
     }
     await confirmDeletion.click()
-    await expect(page.getByText('User deleted successfully')).toBeVisible()
-    await page.getByRole('link', { name: /Back to Application/ }).click()
+    await expect(page.getByText('Ton compte est supprimé.')).toBeVisible()
+    await page.getByRole('link', { name: 'Revenir à Recallio' }).click()
     await expect(page.getByRole('button', { name: 'Se connecter' }).first()).toBeVisible()
 
     // L'identité n'existe plus : la connexion est refusée.
@@ -40,6 +42,6 @@ test.describe('Mes données (ADR 0056)', () => {
     await page.locator('#username').fill(USERS.dave.username)
     await page.locator('#password').fill(USERS.dave.password)
     await page.locator('#kc-login').click()
-    await expect(page.getByText('Invalid username or password.')).toBeVisible()
+    await expect(page.getByText('Nom d’utilisateur ou mot de passe incorrect.')).toBeVisible()
   })
 })
