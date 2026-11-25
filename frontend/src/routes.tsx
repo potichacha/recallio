@@ -84,6 +84,7 @@ export const accountPages: RouteObject[] = [
     path: 'admin/retention',
     ...page(() => import('./admin/RetentionPage'), 'RetentionPage'),
   },
+  { path: 'admin/beta', ...page(() => import('./admin/BetaPage'), 'BetaPage') },
 ]
 
 /** Les pages, dans le layout. seo.test.ts vérifie aussi ce que robots.txt laisse aux moteurs des pages publiques. */

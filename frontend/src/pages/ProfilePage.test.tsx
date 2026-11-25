@@ -205,7 +205,7 @@ describe('ProfilePage', () => {
     expect(session.logout).toHaveBeenCalled()
   })
 
-  it('leads an admin to the reports to handle and to the retention', async () => {
+  it('leads an admin to the reports to handle, to the retention and to the beta page', async () => {
     stubApi({ ...SIGNED_IN_API, ...SUBJECTS, '/api/v1/me': { body: PROFILE } })
     renderAt('/profile', SIGNED_IN)
 
@@ -217,6 +217,7 @@ describe('ProfilePage', () => {
       'href',
       '/admin/reports',
     )
+    expect(screen.getByRole('link', { name: 'Bêta' })).toHaveAttribute('href', '/admin/beta')
   })
 
   it('lets the user choose the light or the dark theme, kept on this device (ADR 0058)', async () => {
