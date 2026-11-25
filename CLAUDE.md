@@ -597,7 +597,7 @@ Une bêta d'abord, pour quelques testeurs ; l'ouverture à tous attend leurs ret
    - ✅ **Fidélité aux maquettes « Rico »** : l'accueil, la carte de révision et la page publique rapprochés des maquettes (graisses, pastilles, chemin, verdict en panneau bas, bloc d'accroche ; note du 2026-11-24 dans l'ADR 0058) ;
    - ✅ **Le thème de la page de connexion** de Keycloak : un thème `recallio` monté dans le conteneur (feuille de style, messages au tutoiement, un seul gabarit : le pied de page), avec les liens vers les pages légales (`infra/keycloak/themes/`, ADR 0075) ;
    - ✅ **La page « Bêta » des admins** (ADR 0076) : sur trente jours, en agrégé et sans outil tiers, l'activité par jour, les sujets, les cartes les plus ratées et signalées, le Tour et l'usage de chaque fonctionnalité ; `GET /api/v1/admin/beta`, où chaque module répond de ses chiffres par le port `UsageStatistics`, et l'écran `/admin/beta`, aux graphes dessinés en SVG.
-7. **La mise en service**, par le propriétaire, en suivant la procédure :
+7. **La mise en service**, par le propriétaire, en suivant la liste ordonnée de `docs/deploiement.md` (section 13) :
    - le domaine, les serveurs et les secrets ;
    - le premier démarrage, les vérifications, la surveillance de la disponibilité ;
    - puis les premiers testeurs.

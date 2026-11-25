@@ -10,7 +10,8 @@
 >
 > État : le serveur de l'application (étape 7.3), le serveur du runner (7.4, section 11), les sauvegardes (7.5,
 > section 12) et les pages légales (7.6 : leur configuration en section 5, leur relecture en section 13). La mise en
-> service (7.7) complétera ce document, à sa section annoncée en fin de page.
+> service (7.7) se suit à la section 13 : l'ordre des étapes, la surveillance de la disponibilité, les premiers
+> testeurs.
 
 Conventions :
 
@@ -1528,7 +1529,121 @@ Après une restauration :
 | La clé privée est perdue | | Les sauvegardes existantes sont illisibles. Génère une nouvelle paire tout de suite (« La paire de clés qui chiffre »), remplace `BACKUP_AGE_RECIPIENT`, et lance une sauvegarde |
 | La clé du serveur a fui, ou le serveur a été pris | | Dans la console de Backblaze, supprime la clé et crée-en une autre (« La clé du serveur ») : les sauvegardes déjà faites sont verrouillées et illisibles sans la clé privée |
 
-## 13. La mise en service (étape 7.7, à venir)
+## 13. La mise en service (étape 7.7)
+
+Les sections 2 à 12 disent **comment** faire chaque chose ; celle-ci dit **dans quel ordre**, ce qui se prépare à
+l'avance, et ce qui doit être vrai avant d'inviter quelqu'un. Coche au fur et à mesure.
+
+### L'ordre
+
+Ce qui attend quelqu'un d'autre que toi se lance en premier : la propagation du DNS (jusqu'à quelques heures) et
+l'authentification du domaine par Brevo (jusqu'à 48 heures).
+
+**Jour 1 : ce qui a un délai**
+
+- [ ] Vérifier que « Recallio » n'est pas une marque déposée dans ta classe (INPI, EUIPO), puis acheter le domaine
+      (section 2).
+- [ ] Commander les deux serveurs chez OVHcloud, dans un centre de données de l'Union européenne, avec ta clé SSH : le
+      VPS-2 de l'application (section 2) et le VPS-1 du runner (section 11). Ton compte OVHcloud est à ton nom, avec
+      ton adresse et ton téléphone à jour.
+- [ ] Créer les trois enregistrements `A`, sans `AAAA` (section 2).
+- [ ] Ouvrir le compte Brevo et lancer l'authentification du domaine (section 2).
+- [ ] Ouvrir le compte Backblaze B2 en région **EU Central** (section 2), et Sentry en région UE si tu le veux.
+- [ ] Ouvrir un gestionnaire de mots de passe si tu n'en as pas : il recevra le `.env`, la clé partagée de WireGuard
+      et la clé privée des sauvegardes.
+
+**Jour 2 : le serveur de l'application**
+
+- [ ] Préparer le serveur : utilisateur, SSH par clé, pare-feu, mises à jour, Docker, UTC (section 3).
+- [ ] Récupérer la configuration et remplir le `.env`, dont `LEGAL_CONTACT_EMAIL` et le tag à déployer (sections 4
+      et 5). Le tag est le numéro du dernier commit de `main` dont la CI est verte.
+- [ ] Copier le `.env` dans le gestionnaire de mots de passe.
+- [ ] Premier démarrage : les cinq services `healthy` (section 6).
+- [ ] Keycloak : l'administrateur permanent avec OTP, ton compte avec le rôle `admin`, l'e-mail de test (section 7).
+      L'e-mail attend que Brevo ait authentifié le domaine.
+- [ ] Toutes les vérifications de la section 8, dont une inscription complète avec une autre adresse que la tienne.
+
+**Jour 3 : le runner et les sauvegardes**
+
+- [ ] Le serveur du runner : pare-feu, core dumps, WireGuard sur les deux serveurs, Docker **après** WireGuard, la
+      configuration et le démarrage (section 11).
+- [ ] Ses vérifications (section 11, « Vérifier »), puis dans l'application : exécuter une page du Tour de Go et de
+      Java, et rendre un exercice de code.
+- [ ] Les sauvegardes : le bucket, la clé du serveur, la paire de clés qui chiffre, la première sauvegarde à la main,
+      le timer de chaque nuit, le battement de cœur (section 12).
+- [ ] La clé privée des sauvegardes est dans le gestionnaire de mots de passe, et **sur aucun serveur**.
+- [ ] **L'essai de restauration**, le lendemain de la première sauvegarde de nuit (section 12). Note sa date : le
+      prochain est dans trois mois.
+
+**Avant le premier testeur**
+
+- [ ] Relire les deux pages légales, avec la liste en fin de section.
+- [ ] Brancher la surveillance de la disponibilité (ci-dessous).
+- [ ] Faire toi-même, sur ton téléphone, le parcours d'un nouveau venu : l'essai sans compte, l'inscription, le premier
+      login, une session de révision, une page du Tour, l'installation de la PWA, un rappel accepté.
+- [ ] Ouvrir `/admin/beta`, `/admin/retention` et `/admin/reports` avec ton compte : les trois s'affichent.
+
+### Surveiller la disponibilité
+
+La sauvegarde a son battement de cœur (section 12) ; le site, lui, se surveille de l'extérieur. Un service de
+surveillance (UptimeRobot ou un équivalent, l'offre gratuite suffit) interroge une adresse toutes les cinq minutes et
+t'écrit quand elle ne répond plus. Il ne reçoit aucune donnée d'un utilisateur : seulement l'adresse à interroger, et
+la tienne pour l'alerte. Tant qu'il ne fait que cela, il n'a pas à figurer dans la politique de confidentialité.
+
+Deux vérifications suffisent :
+
+| Adresse | Ce qu'elle prouve | Attendu |
+|---|---|---|
+| `https://<domaine>/api/v1/health` | Caddy, le front, le backend et sa base répondent | code 200, et le texte `UP` |
+| `https://auth.<domaine>/realms/recallio/.well-known/openid-configuration` | Keycloak répond : on peut se connecter | code 200 |
+
+- Règle l'alerte après **deux échecs de suite** : une mise à jour rend l'API indisponible une vingtaine de secondes
+  (section 9), et ce n'est pas une panne.
+- Si le service sait prévenir d'un certificat qui expire, active-le : c'est le premier signe d'un Caddy qui n'arrive
+  plus à le renouveler.
+- **Le runner n'est pas vu par ces vérifications** : il n'est pas joignable depuis Internet. S'il tombe, le reste du
+  site marche, et seuls les exercices et « Exécuter » échouent. Sa santé se lit par le tunnel (section 11,
+  « Vérifier ») ; pendant la bêta, exécute une page du Tour de temps en temps, et regarde Sentry s'il est activé.
+
+Quand une alerte arrive : `docker compose ps` sur le serveur de l'application, puis les logs du service qui n'est pas
+`healthy` (section 10).
+
+### Les premiers testeurs
+
+- **Qui** : quelques personnes que tu connais, cinq à dix pour commencer. L'inscription est ouverte à qui a l'adresse :
+  il n'y a pas de liste d'invités. Le site est public et les moteurs de recherche peuvent le trouver (ADR 0065) ; ne
+  le partage simplement pas ailleurs tant que la bêta n'est pas ouverte à tous.
+- **Quoi leur dire** : c'est une bêta, le contenu a été rédigé avec une IA et contient des erreurs, et le bouton
+  « Signaler » de chaque carte et de chaque page du Tour est fait pour cela. Donne-leur ton adresse de contact.
+- **Ce qu'ils peuvent utiliser** : Java et Go sont publiés. Les autres sujets apparaissent grisés, « work in
+  progress », jusqu'à leur relecture et leur publication (une pull request de contenu chacune).
+- **Les séances de test** : le protocole, les neuf tâches et le questionnaire sont dans
+  [`tests-utilisateurs.md`](tests-utilisateurs.md).
+
+Ce que tu regardes, et quand :
+
+| Quand | Où | Quoi |
+|---|---|---|
+| Chaque jour | Ta boîte aux lettres | Les alertes de disponibilité et de sauvegarde |
+| Chaque jour | `/admin/reports` | Les signalements : chacun est une erreur de contenu à corriger par une pull request |
+| Chaque semaine | `/admin/beta` | Qui révise, les cartes les plus ratées (souvent une question mal posée), où l'on en est dans le Tour, les fonctionnalités que personne n'ouvre (ADR 0076) |
+| Chaque semaine | `/admin/retention` | Qui revient après 1, 7 et 30 jours, et où l'on perd les visiteurs |
+| Chaque semaine | Sentry, s'il est activé | Les erreurs nouvelles |
+| Chaque semaine | Le serveur | L'espace disque (section 10) |
+
+La phase 1 se termine quand quelques testeurs révisent chaque jour sur mobile et que tu sais combien reviennent après
+sept jours : c'est ce que dit `/admin/retention`.
+
+### Avant l'ouverture à tous
+
+Rien de ceci ne bloque la bêta ; tout attend ses retours :
+
+- faire relire les pages légales par un professionnel (ci-dessous) ;
+- essayer gVisor sur le serveur du runner (section 11, « Essayer gVisor ») ;
+- durcir DMARC (`p=quarantine`) une fois que les e-mails passent (section 2) ;
+- relire et publier les sujets en brouillon ;
+- décider si l'inscription reste ouverte sans limite, au vu de la charge du runner (deux exécutions à la fois, ADR
+  0072).
 
 ### À relire avant la mise en service : les pages légales
 
