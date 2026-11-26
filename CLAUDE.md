@@ -571,7 +571,7 @@ Le propriétaire a testé l'application en local avant de la déployer ; ses ret
 
 **Ordre** : l'étape 8.10.1 d'abord, puisqu'elle raccourcit toutes les PR suivantes ; puis les étapes 8.1 à 8.7, puis la refonte (8.9), puis le contenu (7, 4.2, 4.3 et 6), puis l'étape 8.8. Les règles de l'étape 8.2 s'appliquent à tout contenu écrit ensuite. La refonte passe avant l'étape 8.8 : ses nouveaux écrans naissent ainsi dans le bon style.
 
-Le **déploiement** (phase 1, étape 7) vient après ces phases, ci-dessous. Le reste de l'audit attend les retours de la bêta.
+Le **déploiement** (phase 1, étape 7) vient après ces phases, ci-dessous ; sa mise en service attend la refonte « trois portes » (ADR 0077). Le reste de l'audit attend les retours de la bêta.
 
 ### Le déploiement (phase 1, étape 7)
 Une bêta d'abord, pour quelques testeurs ; l'ouverture à tous attend leurs retours. Deux serveurs chez OVHcloud, en Docker Compose, reliés par WireGuard (ADR 0069) : l'application (Caddy, front, backend, Keycloak, PostgreSQL) et le runner seul. Claude prépare la configuration et la procédure ; le propriétaire achète le domaine, crée les serveurs et pose les secrets. Une PR par étape :
@@ -597,10 +597,28 @@ Une bêta d'abord, pour quelques testeurs ; l'ouverture à tous attend leurs ret
    - ✅ **Fidélité aux maquettes « Rico »** : l'accueil, la carte de révision et la page publique rapprochés des maquettes (graisses, pastilles, chemin, verdict en panneau bas, bloc d'accroche ; note du 2026-11-24 dans l'ADR 0058) ;
    - ✅ **Le thème de la page de connexion** de Keycloak : un thème `recallio` monté dans le conteneur (feuille de style, messages au tutoiement, un seul gabarit : le pied de page), avec les liens vers les pages légales (`infra/keycloak/themes/`, ADR 0075) ;
    - ✅ **La page « Bêta » des admins** (ADR 0076) : sur trente jours, en agrégé et sans outil tiers, l'activité par jour, les sujets, les cartes les plus ratées et signalées, le Tour et l'usage de chaque fonctionnalité ; `GET /api/v1/admin/beta`, où chaque module répond de ses chiffres par le port `UsageStatistics`, et l'écran `/admin/beta`, aux graphes dessinés en SVG.
-7. **La mise en service**, par le propriétaire, en suivant la liste ordonnée de `docs/deploiement.md` (section 13) :
+7. **La mise en service**, par le propriétaire, en suivant la liste ordonnée de `docs/deploiement.md` (section 13), **après la refonte « trois portes »** ci-dessous (décidé le 2026-11-26) :
    - le domaine, les serveurs et les secrets ;
    - le premier démarrage, les vérifications, la surveillance de la disponibilité ;
    - puis les premiers testeurs.
+
+### La refonte « trois portes » (ADR 0077)
+Le produit se raconte en trois portes : **Apprendre** (un chemin de leçons courtes), **S'entraîner** (des questions en boucle, tous sujets mélangés), **Jouer** (les mêmes questions pour tous, un chrono, un classement à partager). Les maquettes sont dans `docs/maquettes/trois-portes/` et font référence ; là où l'une contredit une règle du design system, la règle gagne. Ni vies, ni correction par IA, ni paiement. La répétition espacée ne change pas : ni une leçon, ni la révision intensive, ni une partie n'écrivent dans FSRS. Une PR par étape :
+
+1. **Rico et les recettes** : Rico redessiné, en seize poses ; les tokens des portes (le bleu de « S'entraîner », les tuiles d'une question en direct) ; les recettes des maquettes (carte en relief, bandeau de porte, progression en segments, navigation flottante).
+2. **La navigation et l'accueil** : Accueil, Apprendre, S'entraîner, Jouer, le profil sous l'avatar ; l'accueil à une carte dominante, avec les révisions du jour ; le menu latéral sur ordinateur. Chaque écran existant est rangé sous sa porte.
+3. **Le chemin** : les unités (les chapitres du référentiel) et leurs leçons (les notions), terminées, en cours, à débloquer ; l'écran des révisions du jour.
+4. **La leçon** : les pages de la notion (le texte, le programme à exécuter, le « À toi »), puis ses questions ; le verdict en panneau, juste ou faux ; la fin de leçon. Sur ordinateur, deux colonnes.
+5. **La révision et l'exercice** dans le nouveau style : la carte, ses verdicts, l'exercice de code et ses tests.
+6. **La révision intensive** : plusieurs sujets, sans fin, corrigée par le serveur, « formuler d'abord », un bilan par notion ; rien dans FSRS (son ADR prolonge l'ADR 0038).
+7. **Les parties à code** : hors d'un groupe, sur un ou plusieurs sujets, rejointes par un code à six chiffres ; les réglages, l'écran de l'hôte, le résultat après chaque réponse, le classement et son image (son ADR révise les ADR 0021 à 0024).
+8. **Jouer sans compte** : un invité, pour une seule partie (son ADR, et la section 4.5).
+9. **« Plus » et les codes** : un droit attaché au compte, ouvert par des codes d'accès qu'un admin crée par lots ; il lève la limite quotidienne de la révision intensive (son ADR, et la politique de confidentialité).
+10. **Les amis** : les invitations, la série à deux, la quête à deux, la ligue de la semaine, classée sur la régularité (son ADR, `PersonalData`, la politique de confidentialité).
+11. **Le premier contact** : la page publique, le choix du but, le test de niveau.
+12. **La finition** : chaque écran en sombre et sur ordinateur, les états vides et d'erreur avec Rico, l'accessibilité et la vitesse contrôlées en CI.
+13. **Les parcours de bout en bout**, la documentation (`docs/architecture.md`, les sections 2 et 6 de ce fichier) et la rétrospective.
+- **Terminé quand** : un nouveau venu choisit son but, suit une leçon, fait ses révisions du jour, s'entraîne en boucle sur deux sujets, et joue une partie avec un ami qui l'a rejointe par un code.
 
 ### Phase 4 : offre entreprise
 Multi-organisation (colonne `organization_id` + Row-Level Security PostgreSQL), SSO entreprise via le fournisseur OIDC, tableau de bord admin avec statistiques **agrégées**, questions privées par organisation, export, conformité RGPD (registre, suppression de compte, DPA).
