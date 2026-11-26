@@ -12,6 +12,7 @@ export const USAGE_FEATURE_LABELS: Record<UsageFeature, string> = {
   GROUP_CHALLENGE: 'Défi de groupe',
   QUEST: 'Quête terminée',
   LEVEL_CHECK: 'Test de niveau',
+  INTENSIVE_DRILL: 'Révision intensive',
   INTERVIEW_COUNTDOWN: 'Compte à rebours avant l’entretien',
   REMINDERS: 'Rappels',
   PUBLIC_PROFILE: 'Profil public',

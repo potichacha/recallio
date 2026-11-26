@@ -257,7 +257,7 @@ describe('BetaPage', () => {
     const items = within(list)
       .getAllByRole('listitem')
       .map((item) => item.textContent)
-    expect(items).toHaveLength(14)
+    expect(items).toHaveLength(15)
     expect(items[0]).toBe('Révision3 comptes · 75 %')
     expect(items).toContain('Rappels · à ce jour1 compte · 25 %')
     expect(items).toContain('Examen blanc0 compte · 0 %')

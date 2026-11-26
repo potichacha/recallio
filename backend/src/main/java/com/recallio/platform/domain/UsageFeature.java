@@ -29,6 +29,8 @@ public enum UsageFeature {
     QUEST(true),
     /** Un test de niveau dont au moins un domaine est réussi. */
     LEVEL_CHECK(true),
+    /** Une réponse corrigée en révision intensive (ADR 0078). */
+    INTENSIVE_DRILL(true),
     /** Une date d'entretien fixée pour un sujet. */
     INTERVIEW_COUNTDOWN(false),
     /** Les rappels acceptés sur au moins un appareil. */

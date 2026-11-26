@@ -141,7 +141,7 @@ se reporte dans la page, avec la date.
 | Les sessions : l'adresse IP de la connexion, 30 minutes et 10 heures, ou 30 et 90 jours | Le code de Keycloak (`PersistentUserSessionAdapter`, qui garde `ipAddress`) ; le royaume (`ssoSession…RememberMe`), ADR 0071 |
 | L'adresse IP du dernier échec de connexion | Le code de Keycloak (`LoginFailureEntity.lastIPFailure`), ADR 0071 |
 | Le profil : nom affiché, fuseau, sujets suivis, parcours | `V3__app_user.sql`, `V7`, `V18` ; `TokenIdentity` ; `UserPersonalData` |
-| La progression | `ReviewPersonalData` : `review_state`, `review_log`, `mock_exam`, `tour_progress`, `tour_last_page`, `known_notion`, `interview_plan`, `daily_challenge_answer` |
+| La progression | `ReviewPersonalData` : `review_state`, `review_log`, `mock_exam`, `tour_progress`, `tour_last_page`, `known_notion`, `interview_plan`, `daily_challenge_answer`, `drill_activity` (le compteur du jour de la révision intensive, ADR 0078) |
 | L'XP, l'activité, les quêtes, les succès | `GamificationPersonalData` |
 | Les groupes, le classé | `GroupPersonalData`, `LivePersonalData`, `RankedPersonalData` |
 | Le profil public, et ce qu'il ne montre jamais | `V25__public_profile.sql`, ADR 0043 |

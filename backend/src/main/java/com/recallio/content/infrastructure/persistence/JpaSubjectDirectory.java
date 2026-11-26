@@ -1,6 +1,7 @@
 package com.recallio.content.infrastructure.persistence;
 
 import com.recallio.content.SubjectDirectory;
+import com.recallio.content.SubjectScope;
 import com.recallio.content.domain.Subject;
 import com.recallio.content.domain.catalog.SubjectNotFoundException;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -47,6 +48,22 @@ public class JpaSubjectDirectory implements SubjectDirectory {
     @Override
     public void requirePublished(String slug) {
         if (!publishedSubjectSlugs().contains(slug)) {
+            throw new SubjectNotFoundException(slug);
+        }
+    }
+
+    @Override
+    public void requireVisible(String slug, SubjectScope scope) {
+        if (scope == SubjectScope.PUBLISHED) {
+            requirePublished(slug);
+            return;
+        }
+        boolean exists = !entityManager
+                .createQuery("select s.slug from SubjectEntity s where s.slug = :slug", String.class)
+                .setParameter("slug", slug)
+                .getResultList()
+                .isEmpty();
+        if (!exists) {
             throw new SubjectNotFoundException(slug);
         }
     }

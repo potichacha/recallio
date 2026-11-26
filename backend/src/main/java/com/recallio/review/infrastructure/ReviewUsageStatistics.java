@@ -11,6 +11,7 @@ import com.recallio.review.domain.Rating;
 import jakarta.enterprise.context.ApplicationScoped;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.HashMap;
@@ -21,8 +22,8 @@ import java.util.UUID;
 
 /**
  * L'usage vu par le module review (ADR 0076) : le journal de révision, le Tour, les examens blancs, les défis du jour,
- * le test de niveau et le compte à rebours. Le journal ne connaît que l'identifiant des cartes : leur sujet et leur
- * format viennent de la façade du module content, jamais de ses tables.
+ * le test de niveau, le compte à rebours et la révision intensive (ADR 0078). Le journal ne connaît que l'identifiant
+ * des cartes : leur sujet et leur format viennent de la façade du module content, jamais de ses tables.
  */
 @ApplicationScoped
 public class ReviewUsageStatistics implements UsageStatistics {
@@ -65,9 +66,23 @@ public class ReviewUsageStatistics implements UsageStatistics {
                 select distinct user_id from known_notion
                 where known_at >= :from and known_at < :to
                 """, from, to));
+        users.put(UsageFeature.INTENSIVE_DRILL, drillers(from, to));
         // Une date d'entretien se change et se retire : la ligne dit l'état du jour, pas son histoire.
         users.put(UsageFeature.INTERVIEW_COUNTDOWN, sql.users("select distinct user_id from interview_plan"));
         return users;
+    }
+
+    /**
+     * {@code drill_activity} porte le jour de chacun dans son fuseau, pas un instant : la période y devient des jours du
+     * calendrier UTC, comme pour l'activité de chaque jour.
+     */
+    private Set<UUID> drillers(Instant from, Instant to) {
+        return sql.users(sql.query("""
+                        select distinct user_id from drill_activity
+                        where local_date >= :first and local_date < :end
+                        """)
+                .setParameter("first", LocalDate.ofInstant(from, ZoneOffset.UTC))
+                .setParameter("end", LocalDate.ofInstant(to, ZoneOffset.UTC)));
     }
 
     /**

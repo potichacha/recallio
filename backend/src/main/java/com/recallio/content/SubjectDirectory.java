@@ -16,6 +16,12 @@ public interface SubjectDirectory {
     void requirePublished(String slug);
 
     /**
+     * @throws com.recallio.platform.domain.ResourceNotFoundException si aucun sujet ne porte ce slug, ou si c'est un
+     *     brouillon que {@code scope} n'admet pas : son existence ne fuite pas
+     */
+    void requireVisible(String slug, SubjectScope scope);
+
+    /**
      * Les slugs des thèmes d'un sujet publié, dans l'ordre du programme.
      *
      * @throws com.recallio.platform.domain.ResourceNotFoundException si aucun sujet publié ne porte ce slug

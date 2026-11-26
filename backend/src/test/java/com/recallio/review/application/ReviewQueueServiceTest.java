@@ -8,6 +8,7 @@ import com.recallio.content.CardDirectory.CardFilter.Grading;
 import com.recallio.content.CardType;
 import com.recallio.content.NotionInfo;
 import com.recallio.content.SubjectDirectory;
+import com.recallio.content.SubjectScope;
 import com.recallio.group.GroupReviewScopes.GroupReviewScope;
 import com.recallio.review.application.ReviewQueueService.QueueFilter;
 import com.recallio.review.domain.LearningState;
@@ -159,6 +160,9 @@ class ReviewQueueServiceTest {
                     public void requirePublished(String slug) {}
 
                     @Override
+                    public void requireVisible(String slug, SubjectScope scope) {}
+
+                    @Override
                     public List<String> themeSlugs(String subjectSlug) {
                         return List.of("java-theme");
                     }
@@ -217,6 +221,16 @@ class ReviewQueueServiceTest {
         @Override
         public List<NotionInfo> notions(Collection<String> subjectSlugs) {
             return List.of();
+        }
+
+        @Override
+        public List<CardSnapshot> currentVersions(Collection<UUID> cardIds, SubjectScope scope) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public List<LeveledCard> choiceCards(Collection<String> subjectSlugs, SubjectScope scope) {
+            throw new UnsupportedOperationException();
         }
 
         @Override
