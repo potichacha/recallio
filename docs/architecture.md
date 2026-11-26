@@ -167,7 +167,7 @@ flowchart LR
 | `application.ExerciseRunService`, `application.PlaygroundRunService` | Exécuter un exercice contre ses tests (ADR 0030), ou un programme du Tour (`POST /api/v1/playground-runs`, ADR 0037). Rien n'est enregistré. |
 | `application.RunLock` | Une exécution à la fois par utilisateur, exercices et programmes confondus : 429 sinon. |
 | `infrastructure.runner.HttpCodeRunner`, `HttpProgramRunner` | Les deux modes du runner, derrière les ports `CodeRunner` et `ProgramRunner` ; une panne du runner répond 503. |
-| `application.DrillService`, `api.DrillResource`, `domain.drill.DrillDraw`, `domain.drill.DrillLevel` | La révision intensive (ADR 0078) : `GET /api/v1/me/drill/questions`, des cartes à choix de 1 à 5 sujets, selon le poste visé, dans l'ordre que fixe la graine du client, sans état ; `POST …/checks`, la correction ; `GET …/usage`, le compteur du jour (`drill_activity`), seule chose enregistrée. |
+| `application.DrillService`, `api.DrillResource`, `domain.drill.DrillDraw`, `domain.drill.DrillLevel` | La révision intensive (ADR 0078) : `GET /api/v1/me/drill/questions`, des cartes à choix de 1 à 5 sujets, selon le poste visé, dans l'ordre que fixe la graine du client, sans état ; `POST …/checks`, la correction ; `GET …/usage`, le compteur du jour (`drill_activity`), seule chose enregistrée. Sans Plus (`entitlement.PlusAccess`), 20 réponses corrigées par jour, puis un 403 ; la correction est idempotente par `requestId` (`domain.drill.DrillCheckId`, ADR 0079). |
 | `application.PracticeService`, `api.PracticeResource`, `domain.practice.PracticeOrder` | S'entraîner sur une notion (ADR 0038) : `GET /api/v1/me/practice/{s}/{notion}`, toutes ses cartes, formats alternés, exercices à la fin ; `POST …/checks`, la correction d'un vrai ou faux, d'un QCM ou d'un code à trous. Rien n'est enregistré. |
 | `application.TourTaskService` | Juger un « À toi » (`POST /api/v1/me/tour/{s}/{notion}/tasks`) : le programme passe par le runner, une exécution à la fois par utilisateur, et sa sortie est comparée à celle attendue comme le fait la CI (fins de ligne, blancs finaux). Rien n'est enregistré. |
 | `application.AnswerCorrection` | La correction sans enregistrement, partagée par le Tour et l'entraînement. |
@@ -306,12 +306,24 @@ flowchart LR
 | `infrastructure.ReminderTimer` | Un minuteur Vert.x toutes les 10 minutes, désactivé en test. |
 | `api.PushSubscriptionsResource`, `api.PushPublicKeyResource` | `PUT` et `DELETE /api/v1/me/push-subscription`, `GET /api/v1/push/public-key`. |
 
+### Module `entitlement` (en place, refonte « trois portes »)
+
+| Élément | Rôle |
+|---|---|
+| `PlusAccess` (package racine) | **API publique** : « ce compte a-t-il Plus maintenant ? », d'après l'horloge. Lu par `review` pour la limite de la révision intensive. |
+| `domain.PlusEntitlement` | Le droit « Plus » d'un compte : une date de fin. Un code le prolonge depuis max(maintenant, sa fin) (ADR 0079). |
+| `domain.AccessCode`, `AccessCodeBatch`, `RedeemableCode` | Un code : 25 caractères tirés parmi 32 (125 bits), en cinq groupes ; la base n'en garde que l'empreinte SHA-256 et les quatre derniers caractères. Un lot porte ce que ses codes donnent, leur nombre d'utilisations, leur expiration, sa révocation. |
+| `domain.CodeAttempts` | Dix essais ratés par heure et par compte, puis un 429, même avec un code valide. |
+| `application.PlusService`, `AccessCodeBatchService` | Lire le droit, vérifier un code, l'utiliser (le code puis le droit sont verrouillés : jamais plus d'utilisations que prévu) ; pour un admin, créer un lot (ses codes ne sont rendus qu'une fois), les lister, en révoquer un. |
+| `api.PlusResource`, `api.AdminAccessCodeBatchesResource` | `GET /api/v1/me/plus`, `POST …/access-code-checks`, `POST …/redemptions` ; `POST` et `GET /api/v1/admin/access-code-batches`, `GET …/{id}`, `PUT …/{id}/revocation` (rôle admin). |
+
 Les dépendances entre modules vont dans un seul sens : `gamification` → `review` (événement) → `content`, `user` ;
 `gamification` → `user` (événement `AccountCreated`) ;
 `review` → `group` → `content`, `user` ;
 `gamification` → `group` (classement des groupes), `ranked` (le rang du profil public) ; `live` → `group`, `user` ;
 `feedback` → `content`, `user` ; `ranked` → `content`, `user`, `review` (événement) ;
-`notification` → `user`, `gamification`.
+`notification` → `user`, `gamification` ;
+`entitlement` → `user` ; `review` → `entitlement`.
 
 Le module transverse `platform` fournit les identifiants (`IdGenerator`, UUID v7), l'horloge (`Clock`),
 la pagination (`Page`) et la traduction des erreurs en Problem Details (RFC 9457).

@@ -5,14 +5,15 @@ import com.recallio.content.CardDirectory.CardSnapshot;
 import com.recallio.content.CardType;
 import com.recallio.content.SubjectScope;
 import com.recallio.platform.api.ProblemDetail;
-import com.recallio.review.api.PracticeResource.PracticeAnswerDto;
 import com.recallio.review.api.ReviewDtos.BlankCorrectionDto;
 import com.recallio.review.api.ReviewDtos.ExerciseToSolveDto;
 import com.recallio.review.application.AnswerCorrection;
 import com.recallio.review.application.DrillService;
 import com.recallio.review.application.DrillService.DrillCheck;
 import com.recallio.review.application.DrillService.DrillPage;
+import com.recallio.review.application.GradedAnswer;
 import com.recallio.review.domain.drill.DrillLevel;
+import com.recallio.review.domain.drill.DrillQuota;
 import com.recallio.review.domain.drill.DrillUsage;
 import com.recallio.user.CurrentUser;
 import io.quarkus.security.Authenticated;
@@ -35,6 +36,7 @@ import java.time.LocalDate;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 import org.eclipse.microprofile.openapi.annotations.Operation;
 import org.eclipse.microprofile.openapi.annotations.media.Content;
@@ -48,7 +50,8 @@ import org.jspecify.annotations.Nullable;
 /**
  * La révision intensive (ADR 0078) : des questions de plusieurs sujets, sans fin, corrigées par le serveur. Les questions
  * et leur correction ont la forme de celles de l'entraînement (ADR 0038), avec le sujet et la notion de chaque carte,
- * pour le bilan que l'écran calcule. Rien n'est enregistré, sauf le compteur du jour.
+ * pour le bilan que l'écran calcule. Rien n'est enregistré, sauf le compteur du jour, qui porte la limite quotidienne
+ * d'un compte sans Plus (ADR 0079).
  */
 @Path("/api/v1/me/drill")
 @Authenticated
@@ -134,8 +137,16 @@ public class DrillResource {
     @Consumes(MediaType.APPLICATION_JSON)
     @Operation(
             operationId = "checkDrillAnswer",
-            summary = "Corrige une réponse de la révision intensive, et la compte dans l'usage du jour")
+            summary = "Corrige une réponse de la révision intensive, et la compte dans l'usage du jour (idempotent"
+                    + " grâce à requestId)")
     @APIResponse(responseCode = "200", description = "La correction, avec le sujet et la notion de la carte")
+    @APIResponse(
+            responseCode = "403",
+            description = "Sans Plus, la limite quotidienne est atteinte (review.drill-daily-limit-reached)",
+            content =
+                    @Content(
+                            mediaType = ProblemDetail.MEDIA_TYPE,
+                            schema = @Schema(implementation = ProblemDetail.class)))
     @APIResponse(
             responseCode = "404",
             description = "La carte n'est pas une question de la révision intensive : inconnue, retirée, sans choix, ou"
@@ -151,18 +162,19 @@ public class DrillResource {
                     @Content(
                             mediaType = ProblemDetail.MEDIA_TYPE,
                             schema = @Schema(implementation = ProblemDetail.class)))
-    public DrillCorrectionDto checkDrillAnswer(@Valid @NotNull PracticeAnswerDto answer) {
-        return DrillCorrectionDto.from(drill.check(currentUser.get(), answer.toAnswer(), scope()));
+    public DrillCorrectionDto checkDrillAnswer(@Valid @NotNull DrillAnswerDto answer) {
+        return DrillCorrectionDto.from(drill.check(currentUser.get(), answer.requestId(), answer.toAnswer(), scope()));
     }
 
     @GET
     @Path("/usage")
     @Operation(
             operationId = "getDrillUsage",
-            summary = "Les réponses de la révision intensive corrigées aujourd'hui, au jour de l'utilisateur")
+            summary = "Les réponses de la révision intensive corrigées aujourd'hui, au jour de l'utilisateur, et ce"
+                    + " qu'il lui reste sans Plus")
     @APIResponse(responseCode = "200", description = "L'usage du jour ; à zéro sans réponse")
     public DrillUsageDto getDrillUsage() {
-        return DrillUsageDto.from(drill.usage(currentUser.get()));
+        return DrillUsageDto.from(drill.quota(currentUser.get()));
     }
 
     /** Un admin s'entraîne aussi sur les brouillons, pour les relire en conditions réelles. */
@@ -233,6 +245,31 @@ public class DrillResource {
         }
     }
 
+    /** Une réponse de l'entraînement ({@code PracticeAnswer}), avec l'identifiant qui la rend idempotente. */
+    @Schema(name = "DrillAnswer")
+    public record DrillAnswerDto(
+            @Schema(
+                    description =
+                            "Identifiant généré par le client pour cette réponse, réutilisé tel quel si la requête"
+                                    + " est renvoyée : elle n'est alors pas comptée deux fois")
+            @NotNull
+            UUID requestId,
+
+            @NotNull UUID cardId,
+
+            @Schema(description = "Les positions cochées, à partir de 0", nullable = true) @Nullable
+            List<@NotNull Integer> selectedChoices,
+
+            @Schema(description = "Refusé : la révision intensive ne pose pas de code à trous", nullable = true)
+            @Nullable
+            List<@NotNull String> filledBlanks) {
+
+        GradedAnswer toAnswer() {
+            List<Integer> selected = selectedChoices;
+            return new GradedAnswer(cardId, selected == null ? null : Set.copyOf(selected), filledBlanks);
+        }
+    }
+
     /** Une correction de l'entraînement ({@code PracticeCorrection}), avec de quoi tenir le bilan et l'usage du jour. */
     @Schema(name = "DrillCorrection")
     public record DrillCorrectionDto(
@@ -257,7 +294,14 @@ public class DrillResource {
             String notionTitle,
 
             @Schema(description = "Les réponses corrigées aujourd'hui, celle-ci comprise")
-            int answersToday) {
+            int answersToday,
+
+            @Schema(
+                    description = "Les réponses qu'il reste aujourd'hui sans Plus ; absent avec Plus, qui n'a pas de"
+                            + " limite",
+                    nullable = true)
+            @Nullable
+            Integer remainingToday) {
 
         static DrillCorrectionDto from(DrillCheck check) {
             AnswerCorrection correction = check.correction();
@@ -272,7 +316,8 @@ public class DrillResource {
                     card.subjectTitle(),
                     Objects.requireNonNull(card.notionSlug()),
                     Objects.requireNonNull(card.notionTitle()),
-                    check.usage().answers());
+                    check.quota().usage().answers(),
+                    check.quota().remaining());
         }
     }
 
@@ -285,10 +330,21 @@ public class DrillResource {
             int answers,
 
             @Schema(description = "Celles qui étaient justes")
-            int correct) {
+            int correct,
 
-        static DrillUsageDto from(DrillUsage usage) {
-            return new DrillUsageDto(usage.day(), usage.answers(), usage.correct());
+            @Schema(
+                    description = "Le nombre de réponses par jour sans Plus ; absent avec Plus, qui n'a pas de limite",
+                    nullable = true)
+            @Nullable
+            Integer dailyLimit,
+
+            @Schema(description = "Les réponses qu'il reste aujourd'hui ; absent avec Plus", nullable = true) @Nullable
+            Integer remaining) {
+
+        static DrillUsageDto from(DrillQuota quota) {
+            DrillUsage usage = quota.usage();
+            return new DrillUsageDto(
+                    usage.day(), usage.answers(), usage.correct(), quota.dailyLimit(), quota.remaining());
         }
     }
 }

@@ -17,4 +17,11 @@ public interface ReviewConfig {
     /** Probabilité de se souvenir visée par FSRS au moment de chaque révision. */
     @WithDefault("0.9")
     double desiredRetention();
+
+    /**
+     * Nombre de réponses qu'un compte sans Plus fait corriger par jour (dans son fuseau) en révision intensive
+     * (ADR 0079).
+     */
+    @WithDefault("20")
+    int drillFreeAnswersPerDay();
 }

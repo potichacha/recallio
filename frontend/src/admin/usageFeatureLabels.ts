@@ -13,8 +13,10 @@ export const USAGE_FEATURE_LABELS: Record<UsageFeature, string> = {
   QUEST: 'Quête terminée',
   LEVEL_CHECK: 'Test de niveau',
   INTENSIVE_DRILL: 'Révision intensive',
+  ACCESS_CODE: 'Code d’accès utilisé',
   INTERVIEW_COUNTDOWN: 'Compte à rebours avant l’entretien',
   REMINDERS: 'Rappels',
   PUBLIC_PROFILE: 'Profil public',
   GROUP: 'Membre d’un groupe',
+  PLUS: 'Recallio Plus',
 }

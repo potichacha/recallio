@@ -130,6 +130,7 @@ Modules prévus (créés au fur et à mesure des phases, pas tous dès le dépar
 | `feedback` | signalements d'erreurs dans le contenu (ADR 0042) | 3 ter |
 | `ranked` | classé : cotes Glicko-2 des joueurs et des cartes, rangs, duels, saisons (ADR 0046) | 3 ter |
 | `notification` | rappels par notification Web Push, sur acceptation (ADR 0047) | 3 ter |
+| `entitlement` | le droit « Plus » et les codes d'accès qui l'ouvrent (ADR 0079) | refonte « trois portes » |
 | `organization` | multi-entreprise, administration, statistiques agrégées | 4 |
 
 ### 4.2 Organisation du code : par fonctionnalité, puis par couche
@@ -613,7 +614,7 @@ Le produit se raconte en trois portes : **Apprendre** (un chemin de leçons cour
 6. **La révision intensive** : plusieurs sujets, sans fin, corrigée par le serveur, « formuler d'abord », un bilan par notion ; rien dans FSRS (ADR 0078, qui prolonge l'ADR 0038). ✅ Le serveur : `GET /api/v1/me/drill/questions` (un tirage par graine, sans état), `POST /api/v1/me/drill/checks`, `GET /api/v1/me/drill/usage`, et un compteur par jour (`drill_activity`). L'écran reste à faire.
 7. **Les parties à code** : hors d'un groupe, sur un ou plusieurs sujets, rejointes par un code à six chiffres ; les réglages, l'écran de l'hôte, le résultat après chaque réponse, le classement et son image (son ADR révise les ADR 0021 à 0024).
 8. **Jouer sans compte** : un invité, pour une seule partie (son ADR, et la section 4.5).
-9. **« Plus » et les codes** : un droit attaché au compte, ouvert par des codes d'accès qu'un admin crée par lots ; il lève la limite quotidienne de la révision intensive (son ADR, et la politique de confidentialité).
+9. **« Plus » et les codes** : un droit attaché au compte, ouvert par des codes d'accès qu'un admin crée par lots ; il lève la limite quotidienne de la révision intensive (ADR 0079). ✅ Le serveur : le module `entitlement`, des codes de 25 caractères dont seule l'empreinte est gardée, un code donnant des jours de Plus (`POST /api/v1/me/plus/redemptions`), les lots des admins (`/api/v1/admin/access-code-batches`), et 20 réponses corrigées par jour en révision intensive sans Plus. Les écrans restent à faire.
 10. **Les amis** : les invitations, la série à deux, la quête à deux, la ligue de la semaine, classée sur la régularité (son ADR, `PersonalData`, la politique de confidentialité).
 11. **Le premier contact** : la page publique, le choix du but, le test de niveau.
 12. **La finition** : chaque écran en sombre et sur ordinateur, les états vides et d'erreur avec Rico, l'accessibilité et la vitesse contrôlées en CI.

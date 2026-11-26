@@ -104,7 +104,12 @@ export function PrivacyPolicyPage() {
             ],
             [
               'Ta progression',
-              'Pour te reposer chaque carte au bon moment et te montrer où tu en es : l’état de ta mémoire pour chaque carte, l’historique de tes réponses (la carte, le résultat, la date, le temps mis), tes examens blancs, ton avancement dans le Tour, tes tests de niveau, les dates de tes entretiens, tes réponses aux défis du jour. En révision intensive, tes réponses sont corrigées sans être enregistrées : seul un compteur est gardé, le nombre de réponses de chaque jour et combien étaient justes. L’éditeur en tire aussi des chiffres d’ensemble (combien de comptes révisent, quelles cartes sont le plus ratées), sans fiche par personne, pour améliorer le contenu.',
+              'Pour te reposer chaque carte au bon moment et te montrer où tu en es : l’état de ta mémoire pour chaque carte, l’historique de tes réponses (la carte, le résultat, la date, le temps mis), tes examens blancs, ton avancement dans le Tour, tes tests de niveau, les dates de tes entretiens, tes réponses aux défis du jour. En révision intensive, tes réponses sont corrigées sans être enregistrées : seul un compteur est gardé, le nombre de réponses de chaque jour et combien étaient justes. S’y ajoute une empreinte de tes dernières réponses du jour, pour ne pas en compter une deux fois : ni la carte ni ta réponse ne s’y lisent. L’éditeur en tire aussi des chiffres d’ensemble (combien de comptes révisent, quelles cartes sont le plus ratées), sans fiche par personne, pour améliorer le contenu.',
+              WHILE_ACCOUNT,
+            ],
+            [
+              'Recallio Plus',
+              'Pour savoir si tu as Plus : la date de fin de ton droit, quel code d’accès tu as utilisé et quand, et le nombre de codes que tu as essayés sans succès, avec l’heure du premier, pour bloquer les essais à la chaîne. Le code lui-même n’est pas gardé : seulement une empreinte, et ses quatre derniers caractères.',
               WHILE_ACCOUNT,
             ],
             [
@@ -180,7 +185,8 @@ export function PrivacyPolicyPage() {
         <LegalList>
           <li>
             <strong className="text-ink">Le service que tu demandes</strong> : ton compte, ta
-            progression, l’XP, les groupes, le classé, et le profil public si tu l’actives.
+            progression, l’XP, les groupes, le classé, Recallio Plus, et le profil public si tu
+            l’actives.
           </li>
           <li>
             <strong className="text-ink">L’intérêt légitime de l’éditeur</strong> à protéger et à
@@ -280,12 +286,12 @@ export function PrivacyPolicyPage() {
           </li>
           <li>
             <strong className="text-ink">Supprimer ton compte</strong> : « Supprimer mon compte »,
-            au même endroit. Ta progression, ton XP, ta série, ton rang, ton profil public et tes
-            rappels sont effacés tout de suite. Ce qui a été joué à plusieurs (duels, défis de
-            groupe, parties en direct) reste, sous le nom « Compte supprimé », ainsi que tes
-            signalements : plus rien n’y mène à toi. Recallio t’envoie ensuite chez Keycloak, qui te
-            fait confirmer la suppression de ton identité ; si tu y renonces, elle reste, et il faut
-            la supprimer depuis ta page de compte ou nous écrire.
+            au même endroit. Ta progression, ton XP, ta série, ton rang, ton profil public, tes
+            rappels et ton droit Recallio Plus sont effacés tout de suite. Ce qui a été joué à
+            plusieurs (duels, défis de groupe, parties en direct) reste, sous le nom « Compte
+            supprimé », ainsi que tes signalements : plus rien n’y mène à toi. Recallio t’envoie
+            ensuite chez Keycloak, qui te fait confirmer la suppression de ton identité ; si tu y
+            renonces, elle reste, et il faut la supprimer depuis ta page de compte ou nous écrire.
           </li>
           <li>
             <strong className="text-ink">T’opposer à un traitement, ou le faire limiter</strong> :
