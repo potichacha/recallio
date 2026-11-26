@@ -1,61 +1,86 @@
-import { Check, Star } from '@phosphor-icons/react'
+import { Check } from '@phosphor-icons/react'
+import { Link } from 'react-router'
 import type { QuestBoard, QuestProgress } from '../api/quests'
 import { QUEST_LABELS } from '../components/questLabels'
+import { card } from '../components/ui/card'
+import { SegmentedProgress } from '../components/ui/SegmentedProgress'
+import { heading } from '../components/ui/typography'
 
 // Une date sans heure : lue en UTC pour ne pas glisser d'un jour selon le fuseau du navigateur.
 const WEEKDAY = new Intl.DateTimeFormat('fr-FR', { weekday: 'long', timeZone: 'UTC' })
 
-const lowerFirst = (text: string) => text.charAt(0).toLowerCase() + text.slice(1)
+/** Au-delà, une quête (« Réviser 15 cartes ») se lit mieux sur une barre continue que sur des segments. */
+const MAX_SEGMENTS = 10
 
 /**
- * La quête du jour, sur le premier écran de l'accueil (ADR 0058) : une seule, celle qui reste à faire, avec sa barre et
- * l'XP qu'elle rapporte. Les autres sont plus bas, dans `QuestsPanel`.
+ * Les quêtes sur l'accueil (ADR 0077), en une carte compacte : la première quête du jour qui reste à faire, avec sa
+ * progression et l'XP qu'elle rapporte. Toutes les quêtes, du jour et de la semaine, sont sur « Ta progression ».
  */
-export function QuestOfTheDay({ quest }: { quest: QuestProgress }) {
-  const label = QUEST_LABELS[quest.quest].title(quest.target)
+export function QuestCard({ board, className = '' }: { board: QuestBoard; className?: string }) {
+  const quest = board.daily.find((candidate) => !candidate.completed)
+  const label = quest ? QUEST_LABELS[quest.quest].title(quest.target) : undefined
   return (
     <section
-      aria-label="Quête du jour"
-      className="flex items-center gap-3 rounded-2xl bg-surface px-4 py-3.5"
+      aria-labelledby="quest-title"
+      className={`flex flex-col gap-2.5 md:rounded-3xl ${card()} ${className}`}
     >
-      <span
-        aria-hidden="true"
-        className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-sun-soft text-warning"
-      >
-        <Star weight="fill" className="size-6" />
-      </span>
-      <div className="flex flex-1 flex-col gap-1.5">
-        <p className="text-[0.9375rem] leading-snug font-extrabold">
-          Quête du jour : {lowerFirst(label)}
-        </p>
-        <progress
-          value={quest.progress}
-          max={quest.target}
-          aria-label={`${label} : ${quest.progress} / ${quest.target}`}
-          className="h-3 w-full overflow-hidden rounded-full border-2 border-line-strong bg-brand-soft [&::-moz
--progress-bar]:rounded-full [&::-moz-progress-bar]:bg-brand [&::-webkit-progress-bar]:bg-brand-soft [&::-webkit-progress-value]:rounded-full [&::-webkit-progress-value]:bg-brand"
-        />
+      <div className="flex items-baseline justify-between gap-3">
+        <h2 id="quest-title" className={heading({ size: 'md' })}>
+          Quête du jour
+        </h2>
+        {quest && <p className="shrink-0 text-sm font-black text-brand-strong">+{quest.xp} XP</p>}
       </div>
-      <p className="shrink-0 text-sm font-black text-brand-strong">+{quest.xp} XP</p>
+      {quest && label ? (
+        <>
+          <p className="text-[0.9375rem] leading-snug font-bold text-ink-soft">{label}</p>
+          <div className="flex items-center gap-2.5">
+            {quest.target <= MAX_SEGMENTS ? (
+              <SegmentedProgress
+                total={quest.target}
+                filled={quest.progress}
+                label={`${label} : ${quest.progress} / ${quest.target}`}
+              />
+            ) : (
+              <progress
+                value={quest.progress}
+                max={quest.target}
+                aria-label={`${label} : ${quest.progress} / ${quest.target}`}
+                className="h-3 w-full overflow-hidden rounded-full [&::-moz-progress-bar]:rounded-full [&::-moz-progress-bar]:bg-brand [&::-webkit-progress-bar]:bg-surface-sunken [&::-webkit-progress-value]:rounded-full [&::-webkit-progress-value]:bg-brand"
+              />
+            )}
+            <span aria-hidden="true" className="shrink-0 text-[0.9375rem] font-black">
+              {quest.progress} / {quest.target}
+            </span>
+          </div>
+        </>
+      ) : (
+        <p className="text-[0.9375rem] leading-snug font-bold text-ink-soft">
+          Tes quêtes du jour sont bouclées. À demain pour les suivantes !
+        </p>
+      )}
+      <Link
+        to="/progress"
+        className="self-start py-1 text-sm font-black text-brand-strong underline"
+      >
+        Toutes tes quêtes
+      </Link>
     </section>
   )
 }
 
 /**
  * Les quêtes du jour et de la semaine (ADR 0040) : elles font varier les formats et récompensent le Tour, jamais la
- * vitesse. Chacune rapporte son XP une fois terminée. La quête déjà mise en avant en tête de l'accueil (`featured`)
- * n'est pas répétée ici.
+ * vitesse. Chacune rapporte son XP une fois terminée.
  */
-export function QuestsPanel({ board, featured }: { board: QuestBoard; featured?: QuestProgress }) {
+export function QuestsPanel({ board }: { board: QuestBoard }) {
   const lastDay = new Date(`${board.weeklyEndsOn}T00:00:00Z`)
   lastDay.setUTCDate(lastDay.getUTCDate() - 1)
-  const daily = board.daily.filter((quest) => quest.quest !== featured?.quest)
   return (
     <section aria-labelledby="quests-title" className="flex flex-col gap-3">
       <h2 id="quests-title" className="text-lg font-black">
         Quêtes
       </h2>
-      {daily.length > 0 && <QuestList title="Aujourd’hui" quests={daily} />}
+      {board.daily.length > 0 && <QuestList title="Aujourd’hui" quests={board.daily} />}
       <QuestList
         title={`Cette semaine, jusqu’à ${WEEKDAY.format(lastDay)}`}
         quests={board.weekly}

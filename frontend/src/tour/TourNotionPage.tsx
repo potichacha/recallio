@@ -96,11 +96,11 @@ export function TourNotionPage() {
       </header>
       {/* L'ordre du document est celui d'un téléphone, du clavier et d'un lecteur d'écran : le cours, le programme
           qu'il annonce, puis les questions. Sur un écran large, le programme occupe la colonne de droite. */}
-      <div className="grid gap-6 lg:grid-cols-2 lg:items-start">
+      <div className="grid gap-6 xl:grid-cols-2 xl:items-start">
         <div className="min-w-0">
           <Markdown>{page.text}</Markdown>
         </div>
-        <div className="flex min-w-0 flex-col gap-5 lg:sticky lg:top-20 lg:col-start-2 lg:row-span-2 lg:row-start-1">
+        <div className="flex min-w-0 flex-col gap-5 xl:sticky xl:top-6 xl:col-start-2 xl:row-span-2 xl:row-start-1">
           {/* Une page neuve, un programme neuf : la clé recrée l'éditeur et oublie la sortie de la page précédente. */}
           <Playground key={`${notion}/${pageNumber}`} files={page.example} />
           {page.task && (
@@ -113,7 +113,7 @@ export function TourNotionPage() {
             />
           )}
         </div>
-        <div className="flex min-w-0 flex-col gap-5 lg:col-start-1">
+        <div className="flex min-w-0 flex-col gap-5 xl:col-start-1">
           {session.status === 'authenticated' && lastPage && (
             <TestYourself key={notion} subject={slug} notion={notion} />
           )}

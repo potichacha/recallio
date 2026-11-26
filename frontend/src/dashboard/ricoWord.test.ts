@@ -27,17 +27,15 @@ const said = (overrides: Partial<Parameters<typeof ricoWord>[0]> = {}) =>
 describe('what Rico says on the home (ADR 0058)', () => {
   it('welcomes a newcomer without a word about a streak at zero', () => {
     expect(said({ newcomer: true, progress: progress({ streak: 0, cardsToday: 0 }) })).toEqual({
-      greeting: 'Bienvenue Alice !',
+      greeting: 'Bienvenue Alice',
       message: 'Ta première session dure dix minutes. On y va ?',
-      pose: 'neutral',
     })
   })
 
   it('tells how many cards are left to make the streak grow', () => {
     expect(said()).toEqual({
-      greeting: 'Salut Alice !',
+      greeting: 'Salut Alice',
       message: 'Encore 6 cartes et ta série passe à 4 jours.',
-      pose: 'cheering',
     })
     expect(said({ progress: progress({ cardsToday: 9 }) }).message).toBe(
       'Encore 1 carte et ta série passe à 4 jours.',
@@ -54,20 +52,18 @@ describe('what Rico says on the home (ADR 0058)', () => {
     expect(
       said({ progress: progress({ cardsToday: 10, goalReachedToday: true, streak: 4 }) }),
     ).toEqual({
-      greeting: 'Salut Alice !',
+      greeting: 'Salut Alice',
       message: 'Objectif atteint : 4 jours de suite. À demain !',
-      pose: 'neutral',
     })
   })
 
   it('says when the subject is up to date, rather than asking for cards that do not exist', () => {
     expect(said({ nothingToReview: true })).toMatchObject({
       message: 'Tout est à jour ici pour le moment. Ouvre un autre sujet, ou reviens plus tard.',
-      pose: 'thinking',
     })
   })
 
   it('greets without a name when it does not know it', () => {
-    expect(said({ firstName: undefined }).greeting).toBe('Salut !')
+    expect(said({ firstName: undefined }).greeting).toBe('Salut')
   })
 })

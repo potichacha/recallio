@@ -43,6 +43,13 @@ function page<Name extends string, M extends Record<Name, ComponentType>>(
 
 /** Les pages des comptes : robots.txt les écarte des moteurs de recherche (ADR 0065), ce que vérifie seo.test.ts. */
 export const accountPages: RouteObject[] = [
+  // « Ta progression » (ADR 0077) : ce que l'accueil ne montre plus, atteint par la série et l'XP de l'en-tête.
+  { path: 'progress', ...page(() => import('./dashboard/ProgressPage'), 'ProgressPage') },
+  // La porte « S'entraîner » (ADR 0077) : l'examen blanc et le carnet d'erreurs de chaque sujet suivi.
+  {
+    path: 'practice',
+    ...page(() => import('./practice/PracticeDoorPage'), 'PracticeDoorPage'),
+  },
   {
     path: 'subjects/:slug/course',
     ...page(() => import('./pages/LearningPathPage'), 'LearningPathPage'),
@@ -93,9 +100,9 @@ export const pages: RouteObject[] = [
   // Sans compte : le catalogue, le Tour (seul « Exécuter » demande de se connecter, ADR 0037), un profil public
   // (ADR 0043), l'essai (ADR 0050) et le défi du jour, qu'un lien partagé ouvre chez un visiteur (jouer demande un
   // compte, ADR 0067). Le plan du site du backend (SitemapService, ADR 0065) recopie les adresses de
-  // l'accueil, des pages Cours et Tour, du catalogue, des pages légales, d'un sujet, de ses leçons et de son Tour : les
-  // changer ici, c'est les changer là-bas.
-  { path: 'learn', ...page(() => import('./subjects/CoursesPage'), 'CoursesPage') },
+  // l'accueil, des pages Apprendre et Tour, du catalogue, des pages légales, d'un sujet, de ses leçons et de son Tour :
+  // les changer ici, c'est les changer là-bas. Les portes de l'ADR 0077 gardent donc les adresses de l'ADR 0052.
+  { path: 'learn', ...page(() => import('./subjects/LearnPage'), 'LearnPage') },
   { path: 'tours', ...page(() => import('./subjects/ToursPage'), 'ToursPage') },
   { path: 'play', ...page(() => import('./play/PlayPage'), 'PlayPage') },
   { path: 'subjects', ...page(() => import('./pages/SubjectsPage'), 'SubjectsPage') },

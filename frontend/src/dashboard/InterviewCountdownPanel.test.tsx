@@ -78,9 +78,7 @@ function stubDashboard(
     '/api/v1/me/review-stats': { body: STATS },
     '/api/v1/me/progress/activity': { body: [] },
     '/api/v1/me/quests': { body: QUESTS },
-    '/api/v1/me/tour/java': { body: { validatedNotions: [], lastPage: null } },
     '/api/v1/me/interviews': { body: interviews },
-    '/api/v1/me/daily-challenges': { body: [] },
     ...extra,
   })
 }
@@ -94,7 +92,7 @@ describe('InterviewCountdownPanel', () => {
     const fetchMock = stubDashboard([], {
       'PUT /api/v1/me/interviews/java': { body: countdown({ date }) },
     })
-    renderAt('/', signedIn())
+    renderAt('/progress', signedIn())
 
     const panel = within(await interviewOfJava())
     await userEvent.click(panel.getByRole('button', { name: 'Tu as un entretien ? Donne sa date' }))
@@ -116,7 +114,7 @@ describe('InterviewCountdownPanel', () => {
     const fetchMock = stubDashboard([], {
       'PUT /api/v1/me/interviews/java': { body: countdown({ date }) },
     })
-    renderAt('/', signedIn())
+    renderAt('/progress', signedIn())
 
     const panel = within(await interviewOfJava())
     panel.getByRole('button', { name: 'Tu as un entretien ? Donne sa date' }).focus()
@@ -142,7 +140,7 @@ describe('InterviewCountdownPanel', () => {
         },
       },
     })
-    renderAt('/', signedIn())
+    renderAt('/progress', signedIn())
 
     const panel = within(await interviewOfJava())
     await userEvent.click(panel.getByRole('button', { name: 'Tu as un entretien ? Donne sa date' }))
@@ -156,7 +154,7 @@ describe('InterviewCountdownPanel', () => {
 
   it('shows the countdown, the status, and the notions of the week with their lesson', async () => {
     stubDashboard([countdown()])
-    renderAt('/', signedIn())
+    renderAt('/progress', signedIn())
 
     const panel = within(await interviewOfJava())
     expect(panel.getByText('Entretien dans 23 jours')).toBeInTheDocument()
@@ -179,7 +177,7 @@ describe('InterviewCountdownPanel', () => {
 
   it('folds the next weeks, the last one kept for reviewing', async () => {
     stubDashboard([countdown()])
-    renderAt('/', signedIn())
+    renderAt('/progress', signedIn())
 
     const panel = within(await interviewOfJava())
     const summary = panel.getByText('Les semaines suivantes')
@@ -204,7 +202,7 @@ describe('InterviewCountdownPanel', () => {
     'says the status %s with an icon and a word, never the colour alone',
     async (status, label) => {
       stubDashboard([countdown({ status })])
-      renderAt('/', signedIn())
+      renderAt('/progress', signedIn())
 
       const panel = within(await interviewOfJava())
       const badge = panel.getByText(label, { exact: true })
@@ -214,14 +212,14 @@ describe('InterviewCountdownPanel', () => {
 
   it('says when the interview is today', async () => {
     stubDashboard([countdown({ daysLeft: 0 })])
-    renderAt('/', signedIn())
+    renderAt('/progress', signedIn())
 
     expect(within(await interviewOfJava()).getByText('C’est aujourd’hui')).toBeInTheDocument()
   })
 
   it('offers only to remove the date of an interview that is passed', async () => {
     stubDashboard([countdown({ status: 'PASSED', daysLeft: 0 })])
-    renderAt('/', signedIn())
+    renderAt('/progress', signedIn())
 
     const panel = within(await interviewOfJava())
     expect(panel.getByText('Ton entretien est passé')).toBeInTheDocument()
@@ -239,7 +237,7 @@ describe('InterviewCountdownPanel', () => {
       thisWeek: { ...countdown().thisWeek, quota: 2 },
     })
     stubDashboard([reviewWeek])
-    renderAt('/', signedIn())
+    renderAt('/progress', signedIn())
 
     const panel = within(await interviewOfJava())
     expect(panel.getByText('Dernière semaine : révise, sans nouvelle notion')).toBeInTheDocument()
@@ -255,7 +253,7 @@ describe('InterviewCountdownPanel', () => {
     const fetchMock = stubDashboard([countdown({ date: dayFromToday(20) })], {
       'PUT /api/v1/me/interviews/java': { body: countdown({ date: later }) },
     })
-    renderAt('/', signedIn())
+    renderAt('/progress', signedIn())
 
     const panel = within(await interviewOfJava())
     await userEvent.click(panel.getByRole('button', { name: 'Changer la date' }))
@@ -276,7 +274,7 @@ describe('InterviewCountdownPanel', () => {
     const fetchMock = stubDashboard([countdown()], {
       'DELETE /api/v1/me/interviews/java': { status: 204, body: null },
     })
-    renderAt('/', signedIn())
+    renderAt('/progress', signedIn())
 
     const panel = within(await interviewOfJava())
     await userEvent.click(panel.getByRole('button', { name: 'Retirer la date' }))
@@ -290,7 +288,7 @@ describe('InterviewCountdownPanel', () => {
     stubDashboard([countdown()], {
       '/api/v1/me': { body: { ...TEST_PROFILE, tracks: { java: 'LEARN' } } },
     })
-    renderAt('/', signedIn())
+    renderAt('/progress', signedIn())
 
     const panel = within(await interviewOfJava())
     expect(
@@ -310,7 +308,7 @@ describe('InterviewCountdownPanel', () => {
     const fetchMock = stubDashboard([], {
       '/api/v1/me/review-stats': { body: { ...STATS, subjects: [markdown] } },
     })
-    renderAt('/', signedIn())
+    renderAt('/progress', signedIn())
 
     expect(await screen.findByRole('region', { name: 'Progression par sujet' })).toBeInTheDocument()
     expect(screen.queryByRole('group', { name: 'Entretien Java' })).not.toBeInTheDocument()

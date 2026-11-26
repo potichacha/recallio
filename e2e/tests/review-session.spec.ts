@@ -43,10 +43,20 @@ test.describe('Session de révision', () => {
       /2 cartes révisées, dont \d réussies?\./,
     )
 
-    await page.getByRole('link', { name: 'Recallio' }).click()
+    // L'accueil reprend la leçon du sujet qu'on vient de réviser (ADR 0077).
+    await page
+      .getByRole('navigation', { name: 'Navigation principale' })
+      .getByRole('link', { name: 'Accueil' })
+      .click()
+    await expect(page.getByText('Apprendre · Go')).toBeVisible()
+    await expect(page.getByRole('link', { name: /^(Continuer|Commencer)$/ })).toBeVisible()
+
+    // L'XP de l'en-tête mène à « Ta progression », qui garde la progression par sujet.
+    await expect(page.getByRole('link', { name: /Série : \d+ jours?/ })).toBeVisible()
+    await page.getByRole('link', { name: /^\d[\d\s]* XP$/ }).click()
+    await expect(page.getByRole('heading', { name: 'Ta progression' })).toBeVisible()
     const subjects = page.getByRole('region', { name: 'Progression par sujet' })
     await expect(subjects.getByRole('listitem').first()).toContainText(/\d+ \/ \d+ vues/)
-    await expect(page.getByLabel(/Série : \d+ jours?/)).toBeVisible()
   })
 
   test('reviews a single theme from its page, answering by choosing (ADR 0051)', async ({

@@ -27,6 +27,13 @@ const CATALOGUE = {
   },
 }
 
+/** Cinq cartes à revoir : seul ce que la porte « Apprendre » en lit. */
+const DUE_TODAY = {
+  overall: { total: 30, seen: 12, mastered: 4, dueNow: 5, dueToday: 7 },
+  newToday: 8,
+  subjects: [],
+}
+
 const LESSON = {
   slug: 'fonctions',
   title: 'Les fonctions',
@@ -59,21 +66,78 @@ describe('the pages that open on the subjects (ADR 0052)', () => {
     expect(screen.getByRole('status')).toHaveTextContent('Spring Boot : work in progress')
   })
 
-  it('opens the course of a subject, with a way to browse all its cards', async () => {
+  it('opens the door « Apprendre » on the subjects, each leading to its Tour, its course and its cards', async () => {
+    stubApi(CATALOGUE)
+    renderAt('/learn')
+
+    expect(
+      await screen.findByRole('heading', { level: 1, name: 'Tes sujets, pas à pas' }),
+    ).toBeInTheDocument()
+    const languages = await screen.findByRole('region', { name: 'Langages' })
+    expect(within(languages).getByRole('link', { name: 'Le Tour de Java' })).toHaveAttribute(
+      'href',
+      '/subjects/java/tour',
+    )
+    expect(within(languages).getByRole('link', { name: 'Le cours de Java' })).toHaveAttribute(
+      'href',
+      '/subjects/java/course',
+    )
+    expect(within(languages).getByRole('link', { name: 'Les cartes de Java' })).toHaveAttribute(
+      'href',
+      '/subjects/java',
+    )
+    // Un sujet sans Tour n'en promet pas.
+    const frameworks = screen.getByRole('region', { name: 'Frameworks' })
+    expect(
+      within(frameworks).getByRole('link', { name: 'Le cours de Spring Boot' }),
+    ).toBeInTheDocument()
+    expect(
+      within(frameworks).queryByRole('link', { name: 'Le Tour de Spring Boot' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('announces a subject in preparation, without opening it', async () => {
     stubApi(CATALOGUE)
     renderAt('/learn')
 
     const languages = await screen.findByRole('region', { name: 'Langages' })
-    expect(within(languages).getByRole('link', { name: 'Java' })).toHaveAttribute(
-      'href',
-      '/subjects/java/course',
-    )
-    expect(within(languages).getByRole('button', { name: /Rust/ })).toHaveTextContent(
-      'En préparation',
-    )
+    const rust = within(languages).getByRole('button', { name: /Rust/ })
+    expect(rust).toHaveTextContent('En préparation')
+    await userEvent.click(rust)
+    expect(rust).toHaveTextContent('Work in progress')
+    expect(screen.getByRole('status')).toHaveTextContent('Rust : work in progress')
+    expect(within(languages).queryByRole('link', { name: /Rust/ })).not.toBeInTheDocument()
+  })
+
+  it('keeps the pages of the Tours and of all the cards one click away', async () => {
+    stubApi(CATALOGUE)
+    renderAt('/learn')
+
+    const more = await screen.findByRole('navigation', { name: 'Aussi dans Apprendre' })
     expect(
-      screen.getByRole('link', { name: 'Parcourir toutes les cartes, thème par thème' }),
+      within(more).getByRole('link', { name: 'Tous les Tours, langage par langage' }),
+    ).toHaveAttribute('href', '/tours')
+    expect(
+      within(more).getByRole('link', { name: 'Parcourir toutes les cartes, thème par thème' }),
     ).toHaveAttribute('href', '/subjects')
+  })
+
+  it('leads a visitor to the reviews of the day, which ask to sign in', async () => {
+    stubApi(CATALOGUE)
+    renderAt('/learn')
+
+    const reviews = await screen.findByRole('link', { name: /^Révisions du jour/ })
+    expect(reviews).toHaveAttribute('href', '/review')
+    expect(reviews).toHaveTextContent('Les cartes à revoir aujourd’hui, pour ne rien oublier')
+  })
+
+  it('tells a signed-in user how many cards are due today', async () => {
+    stubApi({ ...CATALOGUE, ...SIGNED_IN_API, '/api/v1/me/review-stats': { body: DUE_TODAY } })
+    renderAt('/learn', fakeSession({ status: 'authenticated', userName: 'Alice' }))
+
+    expect(
+      await screen.findByRole('link', { name: 'Révisions du jour 5 cartes à revoir' }),
+    ).toHaveAttribute('href', '/review')
   })
 
   it('lets an admin open a draft subject, to proofread it', async () => {
@@ -81,14 +145,14 @@ describe('the pages that open on the subjects (ADR 0052)', () => {
       ...CATALOGUE,
       ...SIGNED_IN_API,
       '/api/v1/me': { body: { ...TEST_PROFILE, roles: ['admin'] } },
+      '/api/v1/me/review-stats': { body: DUE_TODAY },
     })
     renderAt('/learn', fakeSession({ status: 'authenticated', userName: 'Alice' }))
 
     const languages = await screen.findByRole('region', { name: 'Langages' })
-    expect(await within(languages).findByRole('link', { name: 'Rust' })).toHaveAttribute(
-      'href',
-      '/subjects/rust/course',
-    )
+    expect(
+      await within(languages).findByRole('link', { name: 'Le cours de Rust' }),
+    ).toHaveAttribute('href', '/subjects/rust/course')
   })
 
   it('reads the lesson of a notion, then leads to practice, the Tour and the next notions', async () => {
@@ -135,6 +199,9 @@ describe('the pages that open on the subjects (ADR 0052)', () => {
   it('gathers the ranked mode and the groups under « Jouer »', async () => {
     renderAt('/play')
 
+    expect(
+      await screen.findByRole('heading', { level: 1, name: 'Mesure-toi aux autres' }),
+    ).toBeInTheDocument()
     expect(await screen.findByRole('link', { name: /Classé/ })).toHaveAttribute('href', '/ranked')
     expect(screen.getByRole('link', { name: /Groupes/ })).toHaveAttribute('href', '/groups')
   })

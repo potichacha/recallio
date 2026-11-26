@@ -1,4 +1,4 @@
-import { CheckCircle, HourglassMedium, Lightning, PlayCircle } from '@phosphor-icons/react'
+import { CheckCircle, HourglassMedium, PlayCircle } from '@phosphor-icons/react'
 import { Link } from 'react-router'
 import { useDailyChallenges, type DailyChallengeSummary } from '../api/dailyChallenges'
 import { useSession } from '../auth/session'
@@ -6,6 +6,7 @@ import { EmptyState } from '../components/states/EmptyState'
 import { ErrorState } from '../components/states/ErrorState'
 import { LoadingState } from '../components/states/LoadingState'
 import { button } from '../components/ui/button'
+import { heading } from '../components/ui/typography'
 import { dailyChallengePath } from './dailyChallengeShare'
 
 /**
@@ -20,7 +21,7 @@ export function DailyChallengeSection() {
   return (
     <section aria-labelledby="daily-challenges-title" className="flex flex-col gap-3">
       <header className="flex flex-col gap-1">
-        <h2 id="daily-challenges-title" className="text-xl font-semibold">
+        <h2 id="daily-challenges-title" className={heading({ size: 'md' })}>
           Défi du jour
         </h2>
         <p className="text-ink-muted">
@@ -67,28 +68,6 @@ export function DailyChallengeSection() {
         </ul>
       )}
     </section>
-  )
-}
-
-/**
- * L'entrée discrète du défi du jour sur l'accueil, pour le sujet qu'il met en avant : à jouer, en cours ou fait. Rien
- * tant que la liste charge, ou si le sujet n'a pas de défi : l'accueil garde une seule action (ADR 0058).
- */
-export function DailyChallengeShortcut({ subject }: { subject: string }) {
-  const challenges = useDailyChallenges()
-  const summary = challenges.data?.find((candidate) => candidate.subjectSlug === subject)
-  if (!summary) return null
-  return (
-    <Link
-      to={dailyChallengePath(subject)}
-      className="flex items-center gap-3 rounded-2xl bg-surface px-4 py-3.5 hover:bg-brand-soft"
-    >
-      <Lightning weight="duotone" aria-hidden className="size-7 shrink-0 text-brand" />
-      <span className="flex flex-col">
-        <span className="font-extrabold">Défi du jour · {summary.subjectTitle}</span>{' '}
-        <span className="text-sm font-bold text-ink-muted">{stateLabel(summary)}</span>
-      </span>
-    </Link>
   )
 }
 
