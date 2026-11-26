@@ -11,10 +11,11 @@ d'intégration, sans les remplacer : un parcours par fonctionnalité clé, pas u
 | Dire son but au premier login, choisir son sujet, puis le réviser pour la durée choisie                                            | `tests/onboarding.spec.ts`          |
 | Réviser un sujet choisi par son logo, pour une durée choisie (aussi sur mobile), réviser un thème en choisissant ses réponses      | `tests/review-session.spec.ts`      |
 | Atteindre l'objectif du jour et démarrer son streak                                                                                | `tests/streak.spec.ts`              |
-| Ouvrir le cours de Java depuis la page Cours, voir la maîtrise de ses notions, lire une leçon                                      | `tests/learning-path.spec.ts`       |
+| Passer par les quatre onglets (Accueil, Apprendre, S'entraîner, Jouer), ouvrir son profil par l'avatar, aussi sur mobile           | `tests/navigation.spec.ts`          |
+| Ouvrir le cours de Java depuis la porte « Apprendre », voir la maîtrise de ses notions, lire une leçon                             | `tests/learning-path.spec.ts`       |
 | Lire le Tour sans compte, exécuter une page et y reprendre, valider une notion                                                     | `tests/tour.spec.ts`                |
 | Passer un examen blanc, jouer un duel classé à deux et en voir le résultat                                                         | `tests/ranked.spec.ts`              |
-| Donner une date d'entretien à Go depuis le tableau de bord, voir le compte à rebours et les notions de la semaine, retirer la date | `tests/interview-countdown.spec.ts` |
+| Donner une date d'entretien à Go depuis « Ta progression », voir le compte à rebours et les notions de la semaine, retirer la date | `tests/interview-countdown.spec.ts` |
 | Jouer le défi Go du jour jusqu'au bout, voir son score, les chiffres du jour et « Partager », le retrouver en rechargeant          | `tests/daily-challenge.spec.ts`     |
 | Passer le test de niveau de Go jusqu'au bout, voir les domaines sautés, puis annuler le test                                       | `tests/level-check.spec.ts`         |
 | Aucune violation grave d'accessibilité (axe-core, WCAG 2.2 A et AA) sur les pages principales                                      | `tests/accessibility.spec.ts`       |

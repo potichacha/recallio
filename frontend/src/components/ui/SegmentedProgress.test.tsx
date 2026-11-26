@@ -32,4 +32,12 @@ describe('the segmented progress (ADR 0077)', () => {
     expect(filledSegments()).toHaveLength(5)
     expect(filledSegments().filter(Boolean)).toHaveLength(expected)
   })
+
+  it('takes the colours of the dominant card of the home', () => {
+    render(<SegmentedProgress total={2} filled={1} label="Leçons faites : 1 sur 2" tone="hero" />)
+
+    const [filled, empty] = Array.from(screen.getByRole('img').children)
+    expect(filled).toHaveClass('bg-sun')
+    expect(empty).toHaveClass('bg-hero-track')
+  })
 })

@@ -12,10 +12,11 @@ export type DayActivity = components['schemas']['DayActivity']
 
 export const ACTIVITY_DAYS = 7
 
-/** Cartes dues et progression par sujet, puis par thème, sur les sujets suivis. */
-export function useReviewStats() {
+/** Cartes dues et progression par sujet, puis par thème, sur les sujets suivis ; pour un utilisateur connecté. */
+export function useReviewStats(enabled = true) {
   return useQuery({
     queryKey: ['review-stats'],
+    enabled,
     queryFn: async () => {
       const { data, error, response } = await api.GET('/api/v1/me/review-stats')
       if (data === undefined) throw ApiError.from(response, error)

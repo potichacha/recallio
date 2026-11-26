@@ -1,7 +1,8 @@
 import { screen, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import type { QuestBoard } from '../api/quests'
-import type { DayActivity, ReviewStats } from '../api/stats'
+import type { ReviewStats } from '../api/stats'
+import type { TourOutline } from '../api/tour'
 import {
   fakeSession,
   renderAt,
@@ -22,59 +23,38 @@ const counts = (overrides: Partial<ReviewStats['overall']> = {}) => ({
   ...overrides,
 })
 
-const notions = (overrides: Partial<ReviewStats['subjects'][number]['notions']> = {}) => ({
-  total: 0,
-  discovered: 0,
-  acquired: 0,
-  mastered: 0,
-  expert: 0,
-  ...overrides,
-})
+const NO_NOTIONS = { total: 0, discovered: 0, acquired: 0, mastered: 0, expert: 0 }
+const NO_READINESS = { essentials: 0, acquired: 0, mastered: 0, percent: 0, ready: false }
 
-const readiness = (overrides: Partial<ReviewStats['subjects'][number]['readiness']> = {}) => ({
-  essentials: 0,
-  acquired: 0,
-  mastered: 0,
-  percent: 0,
-  ready: false,
-  ...overrides,
-})
-
-function stats(overrides: Partial<ReviewStats> = {}): ReviewStats {
+function subjectStats(
+  slug: string,
+  title: string,
+  overrides: Partial<ReviewStats['subjects'][number]> = {},
+): ReviewStats['subjects'][number] {
   return {
-    overall: counts({ total: 30, seen: 12, mastered: 4, dueNow: 5, dueToday: 7 }),
+    slug,
+    title,
+    counts: counts({ total: 30, seen: 12, mastered: 4, dueNow: 5 }),
     newToday: 8,
-    subjects: [
-      {
-        slug: 'java',
-        title: 'Java',
-        counts: counts({ total: 30, seen: 12, mastered: 4, dueNow: 5 }),
-        newToday: 8,
-        notions: notions({ total: 12, discovered: 5, acquired: 3, mastered: 1 }),
-        readiness: readiness({ essentials: 6, acquired: 3, mastered: 1, percent: 33 }),
-        themes: [
-          { slug: 'collections', title: 'Collections', counts: counts({ total: 10, seen: 0 }) },
-          {
-            slug: 'java-fondamentaux',
-            title: 'Java : fondamentaux',
-            counts: counts({ total: 20, seen: 12, mastered: 4, dueNow: 5 }),
-          },
-        ],
-      },
+    notions: NO_NOTIONS,
+    readiness: NO_READINESS,
+    themes: [
+      { slug: `${slug}-bases`, title: 'Les bases', counts: counts({ total: 10, seen: 10 }) },
+      { slug: `${slug}-objet`, title: 'L’objet', counts: counts({ total: 12, seen: 2 }) },
+      { slug: `${slug}-flux`, title: 'Les flux', counts: counts({ total: 8, seen: 0 }) },
     ],
     ...overrides,
   }
 }
 
-const WEEK: DayActivity[] = [
-  { day: '2026-10-23', cardsReviewed: 10, goalReached: true, frozen: false },
-  { day: '2026-10-24', cardsReviewed: 3, goalReached: false, frozen: true },
-  { day: '2026-10-25', cardsReviewed: 10, goalReached: true, frozen: false },
-  { day: '2026-10-26', cardsReviewed: 12, goalReached: true, frozen: false },
-  { day: '2026-10-27', cardsReviewed: 10, goalReached: true, frozen: false },
-  { day: '2026-10-28', cardsReviewed: 11, goalReached: true, frozen: false },
-  { day: '2026-10-29', cardsReviewed: 4, goalReached: false, frozen: false },
-]
+function stats(overrides: Partial<ReviewStats> = {}): ReviewStats {
+  return {
+    overall: counts({ total: 30, seen: 12, mastered: 4, dueNow: 5, dueToday: 7 }),
+    newToday: 8,
+    subjects: [subjectStats('java', 'Java')],
+    ...overrides,
+  }
+}
 
 const QUESTS: QuestBoard = {
   daily: [
@@ -83,412 +63,281 @@ const QUESTS: QuestBoard = {
     { quest: 'DAILY_TOUR_NOTION', target: 1, progress: 0, xp: 20, completed: false },
   ],
   dailyEndsOn: '2026-10-30',
-  weekly: [
-    { quest: 'WEEKLY_DAYS', target: 5, progress: 4, xp: 60, completed: false },
-    { quest: 'WEEKLY_FORMATS', target: 5, progress: 2, xp: 50, completed: false },
-  ],
+  weekly: [{ quest: 'WEEKLY_DAYS', target: 5, progress: 4, xp: 60, completed: false }],
   weeklyEndsOn: '2026-11-02',
 }
 
-const TOUR_PROGRESS = '/api/v1/me/tour/java'
-const TOUR_NEVER_OPENED = { [TOUR_PROGRESS]: { body: { validatedNotions: [], lastPage: null } } }
-/** Aucun entretien prévu : le compte à rebours a ses propres tests (InterviewCountdownPanel.test.tsx). */
-const NO_INTERVIEW = { '/api/v1/me/interviews': { body: [] } }
-/** Aucun défi du jour : la page du défi a ses propres tests (DailyChallengePage.test.tsx). */
-const NO_DAILY_CHALLENGE = { '/api/v1/me/daily-challenges': { body: [] } }
+const entry = (slug: string, title: string, pageCount = 1) => ({ slug, title, pageCount })
 
-function stubDashboard(
+/** Le Tour de Java des tests : un premier chapitre d'une notion, puis « Les collections » et ses cinq notions. */
+const TOUR: TourOutline = {
+  subjectSlug: 'java',
+  subjectTitle: 'Java',
+  domains: [
+    {
+      id: 'bases',
+      title: 'Les bases',
+      chapters: [
+        {
+          id: 'premiers-pas',
+          title: 'Premiers pas',
+          notions: [entry('bienvenue', 'Bienvenue')],
+          exercises: [],
+        },
+        {
+          id: 'collections',
+          title: 'Les collections',
+          notions: [
+            entry('list', 'List et ArrayList'),
+            entry('parcourir', 'Parcourir une liste'),
+            entry('set', 'Set et HashSet', 2),
+            entry('map', 'Map et HashMap'),
+            entry('deque', 'Deque'),
+          ],
+          exercises: [],
+        },
+      ],
+    },
+  ],
+}
+
+const TOUR_OUTLINE = '/api/v1/subjects/java/tour'
+const TOUR_PROGRESS = '/api/v1/me/tour/java'
+/** Trois notions validées, et la deuxième page de « Set et HashSet » ouverte en dernier. */
+const IN_THE_COLLECTIONS = {
+  validatedNotions: ['bienvenue', 'list', 'parcourir'],
+  knownNotions: [],
+  lastPage: { notion: 'set', page: 2 },
+}
+const NEVER_OPENED = { validatedNotions: [], knownNotions: [], lastPage: null }
+
+function stubHome(
   reviewStats: ReviewStats = stats(),
-  extra: Record<string, { body: unknown }> = {},
+  extra: Record<string, { status?: number; body: unknown }> = {},
 ) {
   return stubApi({
     ...SIGNED_IN_API,
     '/api/v1/subjects': { body: TEST_SUBJECTS },
     '/api/v1/me/review-stats': { body: reviewStats },
-    '/api/v1/me/progress/activity': { body: WEEK },
     '/api/v1/me/quests': { body: QUESTS },
-    ...TOUR_NEVER_OPENED,
-    ...NO_INTERVIEW,
-    ...NO_DAILY_CHALLENGE,
+    [TOUR_OUTLINE]: { body: TOUR },
+    [TOUR_PROGRESS]: { body: IN_THE_COLLECTIONS },
     ...extra,
   })
 }
 
-describe('DashboardPage', () => {
+describe('the home of a signed-in user (ADR 0077)', () => {
   it('replaces the landing page once signed in', async () => {
-    stubDashboard()
+    stubHome()
     renderAt('/', signedIn())
 
-    expect(await screen.findByRole('heading', { name: 'Salut Alice !' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { level: 1, name: 'Salut Alice' })).toBeVisible()
     expect(screen.queryByRole('region', { name: 'Essaie tout de suite' })).not.toBeInTheDocument()
   })
 
-  it('shows the goal of the day as a ring, and what is left to keep the streak', async () => {
-    stubDashboard()
+  it('says a word about the day: what is left to keep the streak', async () => {
+    stubHome()
     renderAt('/', signedIn())
 
     expect(
-      await screen.findByRole('img', { name: 'Objectif du jour : 4 cartes sur 10' }),
+      await screen.findByText('Encore 6 cartes et ta série passe à 4 jours.'),
     ).toBeInTheDocument()
-    expect(screen.getByText('Encore 6 cartes et ta série passe à 4 jours.')).toBeInTheDocument()
   })
 
-  it('continues the review in a single action, with the default settings', async () => {
-    stubDashboard()
+  it('leads to the reviews of the day, with the cards due in every followed subject', async () => {
+    stubHome()
     renderAt('/', signedIn())
 
-    const next = await screen.findByRole('region', { name: 'Java' })
-    expect(next).toHaveTextContent('5 cartes à revoir · 8 nouvelles')
-    expect(within(next).getByRole('link', { name: 'Continuer · 10 min' })).toHaveAttribute(
+    const reviews = await screen.findByRole('link', { name: /5 cartes à revoir/ })
+    expect(reviews).toHaveAttribute('href', '/review')
+    expect(reviews).toHaveTextContent('Révisions du jour')
+  })
+
+  it('writes a single due card in the singular', async () => {
+    stubHome(stats({ overall: counts({ total: 30, seen: 12, dueNow: 1 }) }))
+    renderAt('/', signedIn())
+
+    expect(await screen.findByRole('link', { name: /1 carte à revoir/ })).toBeInTheDocument()
+  })
+
+  it('shows no card for the reviews of the day when nothing is due', async () => {
+    stubHome(stats({ overall: counts({ total: 30, seen: 12, dueNow: 0 }) }))
+    renderAt('/', signedIn())
+
+    await screen.findByRole('region', { name: 'Les collections' })
+    expect(screen.queryByRole('link', { name: /à revoir/ })).not.toBeInTheDocument()
+    expect(screen.queryByText('Révisions du jour')).not.toBeInTheDocument()
+  })
+
+  it('continues the lesson of the current subject where « Reprendre le Tour » leads', async () => {
+    stubHome()
+    renderAt('/', signedIn())
+
+    // Le chapitre de la dernière page ouverte, et ses notions validées dans le Tour.
+    const learn = await screen.findByRole('region', { name: 'Les collections' })
+    expect(learn).toHaveTextContent('Apprendre · Java')
+    expect(within(learn).getByRole('img', { name: 'Leçons faites : 2 sur 5' })).toBeInTheDocument()
+    expect(learn).toHaveTextContent('2 sur 5')
+    expect(learn).toHaveTextContent('Prochaine leçon : Set et HashSet.')
+    expect(within(learn).getByRole('link', { name: 'Continuer' })).toHaveAttribute(
       'href',
-      '/review?subject=java&minutes=10',
-    )
-    expect(
-      within(next).getByRole('link', { name: 'Changer de sujet ou de durée' }),
-    ).toHaveAttribute('href', '/review')
-  })
-
-  it('continues with the length of the last session on this device', async () => {
-    // Un mode de questions rangé par une version précédente (ADR 0048) est ignoré : le serveur corrige tout (ADR 0063).
-    localStorage.setItem(
-      'recallio.review-session',
-      JSON.stringify({ subject: 'java', minutes: 5, mode: 'graded' }),
-    )
-    stubDashboard()
-    renderAt('/', signedIn())
-
-    expect(await screen.findByRole('link', { name: 'Continuer · 5 min' })).toHaveAttribute(
-      'href',
-      '/review?subject=java&minutes=5',
+      '/subjects/java/tour/set?page=2',
     )
   })
 
-  it('says when everything is up to date for today', async () => {
-    const java = { ...stats().subjects[0], counts: counts({ total: 30, seen: 30 }), newToday: 0 }
-    stubDashboard(stats({ subjects: [java] }))
-    renderAt('/', signedIn())
-
-    expect(await screen.findByText('Tout est à jour en Java pour aujourd’hui.')).toBeInTheDocument()
-    expect(screen.queryByRole('link', { name: /^Continuer/ })).not.toBeInTheDocument()
-  })
-
-  it('offers to start the Tour of the followed subjects, never opened yet', async () => {
-    stubDashboard()
-    renderAt('/', signedIn())
-
-    expect(
-      await screen.findByRole('link', { name: 'Le Tour de Java Commencer le Tour' }),
-    ).toHaveAttribute('href', '/subjects/java/tour')
-    // Go a un Tour, mais n'est pas suivi.
-    expect(screen.queryByRole('link', { name: /Le Tour de Go/ })).not.toBeInTheDocument()
-  })
-
-  it('offers to resume a Tour already opened', async () => {
-    stubApi({
-      ...SIGNED_IN_API,
-      '/api/v1/subjects': { body: TEST_SUBJECTS },
-      '/api/v1/me/review-stats': { body: stats() },
-      '/api/v1/me/progress/activity': { body: WEEK },
-      '/api/v1/me/quests': { body: QUESTS },
+  it('counts a notion known at the level check as a lesson done (ADR 0068)', async () => {
+    stubHome(stats(), {
       [TOUR_PROGRESS]: {
-        body: { validatedNotions: [], lastPage: { notion: 'hello-world', page: 1 } },
-      },
-      ...NO_INTERVIEW,
-      ...NO_DAILY_CHALLENGE,
-    })
-    renderAt('/', signedIn())
-
-    expect(
-      await screen.findByRole('link', { name: 'Le Tour de Java Reprendre là où tu t’es arrêté' }),
-    ).toHaveAttribute('href', '/subjects/java/tour')
-  })
-
-  it('puts the Tour before the review for who learns the subject (ADR 0052)', async () => {
-    stubApi({
-      ...SIGNED_IN_API,
-      '/api/v1/me': { body: { ...TEST_PROFILE, tracks: { java: 'LEARN' } } },
-      '/api/v1/subjects': { body: TEST_SUBJECTS },
-      '/api/v1/me/review-stats': { body: stats() },
-      '/api/v1/me/progress/activity': { body: WEEK },
-      '/api/v1/me/quests': { body: QUESTS },
-      ...TOUR_NEVER_OPENED,
-      ...NO_INTERVIEW,
-      ...NO_DAILY_CHALLENGE,
-    })
-    renderAt('/', signedIn())
-
-    const tour = await screen.findByRole('link', { name: /^Le Tour de Java/ })
-    const review = await screen.findByRole('link', { name: /^Continuer/ })
-    // Le Tour vient avant la révision dans l'ordre du document.
-    expect(tour.compareDocumentPosition(review) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-  })
-
-  it('leads discreetly to the daily challenge of the subject it puts forward', async () => {
-    stubDashboard(stats(), {
-      '/api/v1/me/daily-challenges': {
-        body: [
-          {
-            subjectSlug: 'go',
-            subjectTitle: 'Go',
-            day: '2026-11-20',
-            state: 'NOT_STARTED',
-            questionCount: 5,
-          },
-          {
-            subjectSlug: 'java',
-            subjectTitle: 'Java',
-            day: '2026-11-20',
-            state: 'DONE',
-            score: 4,
-            questionCount: 5,
-          },
-        ],
-      },
-    })
-    renderAt('/', signedIn())
-
-    expect(
-      await screen.findByRole('link', { name: 'Défi du jour · Java Fait : 4/5' }),
-    ).toHaveAttribute('href', '/daily/java')
-    // Seul le sujet mis en avant : l'accueil garde une seule action.
-    expect(screen.queryByRole('link', { name: /Défi du jour · Go/ })).not.toBeInTheDocument()
-  })
-
-  it('shows the streak and its freezes, and the XP', async () => {
-    stubDashboard()
-    renderAt('/', signedIn())
-
-    const streak = await screen.findByText('Série')
-    expect(streak.nextElementSibling).toHaveTextContent('3 jours')
-    expect(streak.parentElement).toHaveTextContent('1 gel · prochain dans 4 jours')
-    expect(screen.getByText('XP').nextElementSibling).toHaveTextContent('120')
-  })
-
-  it('shows the quests of the day and of the week, with their XP', async () => {
-    stubDashboard()
-    renderAt('/', signedIn())
-
-    // La première quête du jour qui reste à faire est mise en avant, sur le premier écran (ADR 0058).
-    const featured = within(await screen.findByRole('region', { name: 'Quête du jour' }))
-    expect(featured.getByText('Quête du jour : réviser 3 cartes de code')).toBeInTheDocument()
-    expect(featured.getByText('+25 XP')).toBeInTheDocument()
-    expect(
-      featured.getByRole('progressbar', { name: 'Réviser 3 cartes de code : 1 / 3' }),
-    ).toBeInTheDocument()
-
-    // Les autres sont plus bas, sans la répéter.
-    const section = screen.getByRole('region', { name: 'Quêtes' })
-    const today = within(section).getByRole('list', { name: 'Aujourd’hui' })
-    const quests = within(today).getAllByRole('listitem')
-    expect(quests).toHaveLength(2)
-    expect(quests[0]).toHaveTextContent('Réviser 15 cartes')
-    expect(quests[0]).toHaveTextContent('+20 XP')
-    expect(quests[1]).toHaveTextContent('Valider une notion du Tour')
-    const week = within(section).getByRole('list', { name: 'Cette semaine, jusqu’à dimanche' })
-    expect(
-      within(week).getByRole('progressbar', { name: 'Réviser 5 jours dans la semaine : 4 / 5' }),
-    ).toBeInTheDocument()
-  })
-
-  it('shows the last seven days, with the missed days covered by a freeze', async () => {
-    stubDashboard()
-    renderAt('/', signedIn())
-
-    expect(
-      await screen.findByLabelText('dimanche 25 octobre 2026 : objectif atteint'),
-    ).toBeInTheDocument()
-    expect(screen.getByLabelText('jeudi 29 octobre 2026 : 4 carte(s)')).toBeInTheDocument()
-    // Le jour couvert par un gel montre un flocon, et rien à lire : son nom accessible dit déjà tout.
-    const frozen = screen.getByLabelText('samedi 24 octobre 2026 : jour manqué couvert par un gel')
-    expect(frozen.querySelector('svg')).not.toBeNull()
-  })
-
-  it('lays the weeks out from Monday to Sunday, each day under its weekday', async () => {
-    stubDashboard()
-    renderAt('/', signedIn())
-
-    const calendar = within(await screen.findByRole('region', { name: 'Tes dernières semaines' }))
-    // Le 23 octobre 2026 est un vendredi : quatre cases vides le précèdent, du lundi au jeudi.
-    const cells = calendar.getAllByRole('list')[0].children
-    expect(cells).toHaveLength(4 + 7)
-    expect(cells[4]).toHaveAccessibleName('vendredi 23 octobre 2026 : objectif atteint')
-  })
-
-  it('draws the path of the current subject: what is done, where the user stands, what comes next', async () => {
-    const java = {
-      ...stats().subjects[0],
-      themes: [
-        { slug: 'bases', title: 'Bases', counts: counts({ total: 10, seen: 10 }) },
-        { slug: 'objet', title: 'Objet', counts: counts({ total: 8, seen: 5 }) },
-        { slug: 'collections', title: 'Collections', counts: counts({ total: 10, seen: 0 }) },
-        { slug: 'vide', title: 'Sans carte', counts: counts({ total: 0 }) },
-      ],
-    }
-    stubDashboard(stats({ subjects: [java] }))
-    renderAt('/', signedIn())
-
-    // Trois pastilles, et un seul lien vers le cours : son nom dit l'état de chaque domaine, pas sa couleur.
-    const path = within(await screen.findByRole('region', { name: 'Ton chemin en Java' }))
-    const link = path.getByRole('link')
-    expect(link).toHaveAttribute('href', '/subjects/java/course')
-    expect(link).toHaveTextContent(
-      'Bases : terminé. 62%Objet : en cours, 62 % des cartes vues. Collections : à venir. Voir tout le cours de Java',
-    )
-    // La pastille du domaine en cours porte son pourcentage ; un domaine sans carte n'est pas une étape.
-    expect(path.getByText('62%')).toBeInTheDocument()
-    expect(path.queryByText('Sans carte')).not.toBeInTheDocument()
-  })
-
-  it('shows the three domains around the current one: the one before, the current one, the next one', async () => {
-    const themes = ['Bases', 'Objet', 'Exceptions', 'Collections', 'Concurrence'].map(
-      (title, index) => ({
-        slug: title.toLowerCase(),
-        title,
-        counts: counts({ total: 10, seen: index < 2 ? 10 : index === 2 ? 4 : 0 }),
-      }),
-    )
-    stubDashboard(stats({ subjects: [{ ...stats().subjects[0], themes }] }))
-    renderAt('/', signedIn())
-
-    const path = within(await screen.findByRole('region', { name: 'Ton chemin en Java' }))
-    expect(path.getByRole('link')).toHaveTextContent(
-      'Objet : terminé. 40%Exceptions : en cours, 40 % des cartes vues. Collections : à venir. Voir tout le cours de Java',
-    )
-  })
-
-  it('shows the last three domains once every domain is done', async () => {
-    const themes = ['Bases', 'Objet', 'Exceptions', 'Collections'].map((title) => ({
-      slug: title.toLowerCase(),
-      title,
-      counts: counts({ total: 10, seen: 10 }),
-    }))
-    stubDashboard(stats({ subjects: [{ ...stats().subjects[0], themes }] }))
-    renderAt('/', signedIn())
-
-    const path = within(await screen.findByRole('region', { name: 'Ton chemin en Java' }))
-    expect(path.getByRole('link')).toHaveTextContent(
-      'Objet : terminé. Exceptions : terminé. Collections : terminé. Voir tout le cours de Java',
-    )
-  })
-
-  it('shows a newcomer no block at zero: no streak, no XP, no calendar before the first card', async () => {
-    const java = { ...stats().subjects[0], counts: counts({ total: 30, seen: 0 }), newToday: 8 }
-    stubDashboard(stats({ overall: counts({ total: 30, seen: 0 }), subjects: [java] }))
-    renderAt('/', signedIn())
-
-    expect(await screen.findByRole('heading', { name: 'Bienvenue Alice !' })).toBeInTheDocument()
-    expect(screen.getByText('Ta première session dure dix minutes. On y va ?')).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: /^Continuer/ })).toBeInTheDocument()
-    expect(screen.queryByRole('region', { name: 'Ta progression' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('region', { name: 'Tes dernières semaines' })).not.toBeInTheDocument()
-    expect(screen.queryByText('Série')).not.toBeInTheDocument()
-  })
-
-  it('shows the progress of each followed subject, with a shortcut to review its due cards', async () => {
-    const go = {
-      slug: 'go',
-      title: 'Go',
-      counts: counts({ total: 40, seen: 2 }),
-      newToday: 20,
-      notions: notions(),
-      readiness: readiness(),
-      themes: [
-        {
-          slug: 'go-fondamentaux',
-          title: 'GO : FONDAMENTAUX',
-          counts: counts({ total: 40, seen: 2 }),
+        body: {
+          validatedNotions: ['list'],
+          knownNotions: ['bienvenue', 'parcourir'],
+          lastPage: null,
         },
-      ],
-    }
-    stubDashboard(stats({ subjects: [...stats().subjects, go] }))
+      },
+    })
     renderAt('/', signedIn())
 
-    const section = await screen.findByRole('region', { name: 'Progression par sujet' })
-    const java = within(section).getByRole('link', { name: 'Java' }).closest('li') as HTMLElement
-    expect(java).toHaveTextContent('12 / 30 vues · 4 maîtrisées')
-    expect(within(java).getAllByRole('link', { name: '5 à revoir' })[0]).toHaveAttribute(
+    // « Commencer le Tour » saute les bases connues : la première notion à découvrir est « Set et HashSet ».
+    const learn = await screen.findByRole('region', { name: 'Les collections' })
+    expect(within(learn).getByRole('img', { name: 'Leçons faites : 2 sur 5' })).toBeInTheDocument()
+    expect(within(learn).getByRole('link', { name: 'Continuer' })).toHaveAttribute(
       'href',
-      '/review?subject=java',
+      '/subjects/java/tour/set',
     )
-    const goRow = within(section).getByRole('link', { name: 'Go' }).closest('li') as HTMLElement
-    expect(goRow).toHaveTextContent('2 / 40 vues · 0 maîtrisée')
-    expect(within(goRow).queryByRole('link', { name: /à revoir/ })).not.toBeInTheDocument()
-    // Plusieurs sujets : les thèmes sont repliés.
-    expect(within(goRow).getByRole('list', { name: 'Thèmes Go', hidden: true })).not.toBeVisible()
   })
 
-  it('lists the started themes of a subject first, with a shortcut to review their due cards', async () => {
-    stubDashboard()
+  it('starts the Tour of a subject never opened, from its first lesson', async () => {
+    stubHome(stats(), { [TOUR_PROGRESS]: { body: NEVER_OPENED } })
     renderAt('/', signedIn())
 
-    const list = await screen.findByRole('list', { name: 'Thèmes Java' })
-    const themes = within(list).getAllByRole('listitem')
-    expect(themes[0]).toHaveTextContent('Java : fondamentaux')
-    expect(themes[0]).toHaveTextContent('12 / 20 vues · 4 maîtrisées')
-    expect(within(themes[0]).getByRole('link', { name: '5 à revoir' })).toHaveAttribute(
+    const learn = await screen.findByRole('region', { name: 'Premiers pas' })
+    expect(within(learn).getByRole('img', { name: 'Leçons faites : 0 sur 1' })).toBeInTheDocument()
+    expect(within(learn).getByRole('link', { name: 'Commencer' })).toHaveAttribute(
       'href',
-      '/review?theme=java-fondamentaux',
+      '/subjects/java/tour/bienvenue',
     )
-    expect(themes[1]).toHaveTextContent('Collections')
   })
 
-  it('shows the level of each followed subject and the XP towards the next one', async () => {
-    stubDashboard()
+  it('leads to the course of a subject without a Tour, counting its chapters', async () => {
+    stubHome(stats(), {
+      '/api/v1/subjects': { body: [{ ...TEST_SUBJECTS[0], hasTour: false }] },
+    })
     renderAt('/', signedIn())
 
-    const section = await screen.findByRole('region', { name: 'Progression par sujet' })
-    const java = within(section).getByRole('link', { name: 'Java' }).closest('li') as HTMLElement
-    expect(await within(java).findByText('Niveau 3')).toBeInTheDocument()
+    // Le premier chapitre dont toutes les cartes n'ont pas été vues ; un chapitre est fait quand elles l'ont toutes été.
+    const learn = await screen.findByRole('region', { name: 'L’objet' })
     expect(
-      within(java).getByRole('progressbar', { name: 'Java : 40 / 300 XP vers le niveau 4' }),
+      within(learn).getByRole('img', { name: 'Chapitres terminés : 1 sur 3' }),
     ).toBeInTheDocument()
-    expect(java).toHaveTextContent('40 / 300 XP')
-  })
-
-  it('tells how ready a subject is for an interview, from its essential notions', async () => {
-    const ready = readiness({ essentials: 6, acquired: 6, mastered: 4, percent: 83, ready: true })
-    const go = { ...stats().subjects[0], slug: 'go', title: 'Go', readiness: ready }
-    stubDashboard(stats({ subjects: [...stats().subjects, go] }))
-    renderAt('/', signedIn())
-
-    const section = await screen.findByRole('region', { name: 'Progression par sujet' })
-    const java = within(section).getByRole('link', { name: 'Java' }).closest('li') as HTMLElement
-    expect(
-      within(java).getByRole('progressbar', { name: 'Java : prêt pour l’entretien à 33 %' }),
-    ).toBeInTheDocument()
-    expect(java).toHaveTextContent(
-      '3 / 6 notions essentielles acquises, dont 1 maîtrisée : prêt à partir de 80 %.',
-    )
-    const goRow = within(section).getByRole('link', { name: 'Go' }).closest('li') as HTMLElement
-    expect(goRow).toHaveTextContent('83 %')
-    expect(goRow).toHaveTextContent('dont 4 maîtrisées : c’est bon, tu as passé les 80 %.')
-  })
-
-  it('sums up the mastery of the notions of a subject, with a link to its skill map', async () => {
-    stubDashboard()
-    renderAt('/', signedIn())
-
-    const section = await screen.findByRole('region', { name: 'Progression par sujet' })
-    const java = within(section).getByRole('link', { name: 'Java' }).closest('li') as HTMLElement
-    expect(within(java).getByRole('img', { name: /^Notions Java/ })).toHaveAccessibleName(
-      'Notions Java : 3 / 12 notions acquises · 1 maîtrisée · 0 experte',
-    )
-    expect(within(java).getByRole('link', { name: 'Carte des compétences' })).toHaveAttribute(
+    expect(within(learn).getByRole('link', { name: 'Continuer' })).toHaveAttribute(
       'href',
       '/subjects/java/course',
     )
   })
 
-  it('shows no skill map for a subject without referential', async () => {
-    stubDashboard(
-      stats({ subjects: [{ ...stats().subjects[0], notions: notions(), readiness: readiness() }] }),
-    )
+  it('falls back on the course when the Tour does not load', async () => {
+    stubHome(stats(), { [TOUR_OUTLINE]: { status: 500, body: { status: 500 } } })
     renderAt('/', signedIn())
 
-    const section = await screen.findByRole('region', { name: 'Progression par sujet' })
-    const java = within(section).getByRole('link', { name: 'Java' }).closest('li') as HTMLElement
-    expect(
-      within(java).queryByRole('link', { name: 'Carte des compétences' }),
-    ).not.toBeInTheDocument()
+    const learn = await screen.findByRole('region', { name: 'L’objet' })
+    expect(within(learn).getByRole('link', { name: 'Continuer' })).toHaveAttribute(
+      'href',
+      '/subjects/java/course',
+    )
+  })
+
+  it('puts forward the subject of the last session on this device', async () => {
+    localStorage.setItem('recallio.review-session', JSON.stringify({ subject: 'go', minutes: 5 }))
+    stubHome(stats({ subjects: [subjectStats('java', 'Java'), subjectStats('go', 'Go')] }), {
+      '/api/v1/me': { body: { ...TEST_PROFILE, followedSubjects: ['java', 'go'] } },
+      '/api/v1/subjects/go/tour': { body: { ...TOUR, subjectSlug: 'go', subjectTitle: 'Go' } },
+      '/api/v1/me/tour/go': { body: NEVER_OPENED },
+    })
+    renderAt('/', signedIn())
+
+    const learn = await screen.findByRole('region', { name: 'Premiers pas' })
+    expect(learn).toHaveTextContent('Apprendre · Go')
+    expect(within(learn).getByRole('link', { name: 'Commencer' })).toHaveAttribute(
+      'href',
+      '/subjects/go/tour/bienvenue',
+    )
+  })
+
+  it('opens the two other doors from their tile', async () => {
+    stubHome()
+    renderAt('/', signedIn())
+
+    // Dans la page : la navigation porte aussi ces deux noms.
+    const main = within(screen.getByRole('main'))
+    const practice = await main.findByRole('link', { name: /^S’entraîner/ })
+    expect(practice).toHaveAttribute('href', '/practice')
+    // La révision intensive n'existe pas encore : la tuile ne l'annonce pas.
+    expect(practice).toHaveTextContent('Un examen blanc, et tes erreurs à refaire')
+    expect(main.getByRole('link', { name: /^Jouer/ })).toHaveAttribute('href', '/play')
+  })
+
+  it('keeps the quest of the day in a compact card, the other quests one click away', async () => {
+    stubHome()
+    renderAt('/', signedIn())
+
+    // La première quête du jour qui reste à faire.
+    const quest = within(await screen.findByRole('region', { name: 'Quête du jour' }))
+    expect(quest.getByText('Réviser 3 cartes de code')).toBeInTheDocument()
+    expect(quest.getByText('+25 XP')).toBeInTheDocument()
+    expect(quest.getByRole('img', { name: 'Réviser 3 cartes de code : 1 / 3' })).toBeInTheDocument()
+    expect(quest.getByRole('link', { name: 'Toutes tes quêtes' })).toHaveAttribute(
+      'href',
+      '/progress',
+    )
+    expect(screen.queryByRole('region', { name: 'Quêtes' })).not.toBeInTheDocument()
+  })
+
+  it('says so when every quest of the day is done', async () => {
+    const done = QUESTS.daily.map((quest) => ({ ...quest, completed: true }))
+    stubHome(stats(), { '/api/v1/me/quests': { body: { ...QUESTS, daily: done } } })
+    renderAt('/', signedIn())
+
+    const quest = await screen.findByRole('region', { name: 'Quête du jour' })
+    expect(quest).toHaveTextContent('Tes quêtes du jour sont bouclées.')
+  })
+
+  it('leaves the goal ring, the calendar and the progress by subject to « Ta progression »', async () => {
+    stubHome()
+    renderAt('/', signedIn())
+
+    await screen.findByRole('region', { name: 'Les collections' })
+    expect(screen.queryByRole('img', { name: /^Objectif du jour/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: 'Tes dernières semaines' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: 'Progression par sujet' })).not.toBeInTheDocument()
+    // La série et l'XP de l'en-tête y mènent.
+    expect(screen.getByRole('link', { name: 'Série : 3 jours' })).toHaveAttribute(
+      'href',
+      '/progress',
+    )
+    expect(screen.getByRole('link', { name: '120 XP' })).toHaveAttribute('href', '/progress')
+  })
+
+  it('shows a newcomer no block at zero: no due card, no progress before the first card', async () => {
+    const java = subjectStats('java', 'Java', { counts: counts({ total: 30, seen: 0 }) })
+    stubHome(stats({ overall: counts({ total: 30, seen: 0 }), subjects: [java] }), {
+      [TOUR_PROGRESS]: { body: NEVER_OPENED },
+    })
+    renderAt('/', signedIn())
+
+    expect(await screen.findByRole('heading', { name: 'Bienvenue Alice' })).toBeInTheDocument()
+    expect(screen.getByText('Ta première session dure dix minutes. On y va ?')).toBeInTheDocument()
+    const learn = await screen.findByRole('region', { name: 'Premiers pas' })
+    expect(within(learn).getByRole('link', { name: 'Commencer' })).toBeInTheDocument()
+    expect(within(learn).queryByRole('img')).not.toBeInTheDocument()
+    expect(learn).not.toHaveTextContent('0 sur')
+    expect(screen.queryByRole('link', { name: /à revoir/ })).not.toBeInTheDocument()
+  })
+
+  it('offers to retry when the statistics do not load', async () => {
+    stubHome(stats(), { '/api/v1/me/review-stats': { status: 500, body: { status: 500 } } })
+    renderAt('/', signedIn())
+
+    expect(await screen.findByText('Impossible de charger tes statistiques.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Réessayer' })).toBeInTheDocument()
   })
 })

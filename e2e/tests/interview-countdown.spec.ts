@@ -20,12 +20,12 @@ test.describe('Compte à rebours avant un entretien (ADR 0066)', () => {
   }) => {
     await signIn(page, USERS.bob, '/profile')
     await followSubjects(page, ['Go'])
-    // Le tableau de bord ne montre la progression par sujet qu'après une première carte (ADR 0058).
+    // « Ta progression » ne montre la progression par sujet qu'après une première carte (ADR 0058, 0077).
     await page.goto('/review?subject=go')
     await page.getByRole('button', { name: 'Commencer' }).click()
     await answerCard(page)
 
-    await page.goto('/')
+    await page.goto('/progress')
     const interview = page.getByRole('group', { name: 'Entretien Go' })
     const give = interview.getByRole('button', { name: 'Tu as un entretien ? Donne sa date' })
     const remove = interview.getByRole('button', { name: 'Retirer la date' })

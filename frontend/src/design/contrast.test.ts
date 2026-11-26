@@ -51,6 +51,13 @@ const PAIRS: [string, string, number][] = [
   ['brand-soft', 'brand', TEXT],
   ['on-info', 'info', TEXT],
   ['info-soft', 'info', TEXT],
+  // L'accueil (ADR 0077) : les segments remplis de la carte dominante, le texte des deux tuiles, et leurs écussons.
+  ['sun', 'hero', GRAPHIC],
+  ['ink-soft', 'info-soft', TEXT],
+  ['ink-soft', 'sun-soft', TEXT],
+  ['on-badge-practice', 'info', GRAPHIC],
+  ['on-badge-play', 'badge-play', GRAPHIC],
+  // L'onglet courant de la navigation, et l'initiale de l'avatar : la paire brand-strong et brand-soft, plus haut.
   // Une pastille cochée de la porte « Jouer » : le fond de l'encre, le texte d'une carte.
   ['surface', 'ink', TEXT],
   // Les tuiles d'une question en direct : leur encre, et la lettre à leur couleur sur une pastille de cette encre.

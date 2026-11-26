@@ -23,6 +23,9 @@ const VISITOR_PAGES = [
 /** Les pages d'un utilisateur connecté qui suit Java. */
 const MEMBER_PAGES = [
   '/',
+  '/progress',
+  '/learn',
+  '/practice',
   '/profile',
   '/profile/subjects',
   '/profile/settings',
@@ -122,9 +125,10 @@ test.describe('Accessibilité', () => {
   // Un titre par page (WCAG 2.4.2) : l'onglet dit où l'on est, et un lecteur d'écran l'annonce.
   test('names the tab after the page', async ({ page }) => {
     await page.goto('/learn')
-    await expect(page).toHaveTitle('Cours · Recallio')
+    await expect(page).toHaveTitle('Tes sujets, pas à pas · Recallio')
 
-    await page.getByRole('link', { name: 'Tour', exact: true }).click()
+    // La page des Tours n'a plus son onglet (ADR 0077) : on l'atteint depuis la porte « Apprendre ».
+    await page.getByRole('link', { name: 'Tous les Tours, langage par langage' }).click()
     await expect(page).toHaveTitle('Le Tour · Recallio')
   })
 })

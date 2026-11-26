@@ -22,7 +22,9 @@ test.describe('Streak', () => {
     await expect(reached).toHaveText('Objectif atteint ! Ta série passe à 1 jour.')
     await expect(page.getByLabel('Série : 1 jour')).toBeVisible()
 
-    await page.getByRole('link', { name: 'Recallio' }).click()
+    // La série de l'en-tête mène à « Ta progression » (ADR 0077) : la série, ses gels et le calendrier y sont.
+    await page.getByRole('link', { name: 'Série : 1 jour' }).click()
+    await expect(page.getByRole('heading', { name: 'Ta progression' })).toBeVisible()
     await expect(page.getByText('Série', { exact: true }).locator('..')).toContainText('1 jour')
     // Les derniers jours : seul aujourd'hui a l'objectif atteint.
     await expect(page.getByLabel(/ : objectif atteint$/)).toHaveCount(1)

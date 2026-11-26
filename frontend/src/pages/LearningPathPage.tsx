@@ -53,7 +53,7 @@ export function LearningPathPage() {
   return (
     <section className="flex flex-col gap-4">
       <Link to="/learn" className="text-sm text-brand hover:underline">
-        ← Cours
+        ← Apprendre
       </Link>
       <h1 className="text-2xl font-bold">Le cours de {subject.data?.title}</h1>
       {path.isPending && <LoadingState label="Chargement du parcours…" />}

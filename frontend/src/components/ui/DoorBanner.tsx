@@ -11,7 +11,9 @@ const DOORS: Record<Door, { banner: string; eyebrow: string }> = {
 
 /**
  * Le bandeau en tête d'une porte (ADR 0077) : un fond à sa couleur, aux coins bas arrondis, avec un surtitre, le titre
- * de l'écran et une illustration qui dépasse en haut à droite.
+ * de l'écran et une illustration qui dépasse en haut à droite. Sur un téléphone, il va d'un bord à l'autre de l'écran,
+ * sous l'en-tête : ses marges négatives reprennent celles de la page (`Layout`). Sur un ordinateur, c'est un bloc de la
+ * colonne, aux quatre coins arrondis.
  *
  * @param illustration un dessin décoratif, caché aux lecteurs d'écran ; le texte passe devant
  * @param children ce qui suit le titre : une phrase, un lien
@@ -31,14 +33,16 @@ export function DoorBanner({
 }) {
   const colors = DOORS[door]
   return (
-    <header className={`relative overflow-hidden rounded-b-3xl px-5 pt-6 pb-5.5 ${colors.banner}`}>
+    <header
+      className={`relative -mx-4 -mt-2 overflow-hidden rounded-b-3xl px-5 pt-6 pb-5.5 md:mx-0 md:mt-0 md:rounded-3xl md:px-7 ${colors.banner}`}
+    >
       {illustration && (
         <div aria-hidden="true" className="absolute -top-5 -right-6">
           {illustration}
         </div>
       )}
       <p className={`relative ${eyebrowRecipe()} ${colors.eyebrow}`}>{eyebrow}</p>
-      <h1 className={`relative mt-1.5 max-w-60 ${heading()}`}>{title}</h1>
+      <h1 className={`relative mt-1.5 max-w-60 md:max-w-md ${heading()}`}>{title}</h1>
       {children && <div className="relative mt-2">{children}</div>}
     </header>
   )
