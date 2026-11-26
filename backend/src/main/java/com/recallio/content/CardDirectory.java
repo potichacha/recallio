@@ -13,7 +13,7 @@ import org.jspecify.annotations.Nullable;
 /**
  * API publique du module content pour les autres modules (ADR 0001) : ils référencent des cartes par leur identifiant
  * stable, sans connaître les tables ni les classes internes du module. Seules les cartes actives des sujets publiés
- * sont visibles.
+ * sont visibles, sauf par les méthodes qui prennent un {@link SubjectScope}.
  */
 public interface CardDirectory {
 
@@ -26,6 +26,20 @@ public interface CardDirectory {
 
     /** La version courante des cartes actives demandées, dans l'ordre de {@code cardIds}. */
     List<CardSnapshot> currentVersions(Collection<UUID> cardIds);
+
+    /**
+     * La version courante des cartes actives demandées, dans l'ordre de {@code cardIds} : celles des sujets publiés, et
+     * celles des brouillons si {@code scope} les admet.
+     */
+    List<CardSnapshot> currentVersions(Collection<UUID> cardIds, SubjectScope scope);
+
+    /**
+     * Les cartes actives de ces sujets qui se corrigent sur leurs choix (ADR 0051), hors exercices de code, avec le
+     * niveau et la priorité de leur notion : de quoi tirer des questions de plusieurs sujets selon un niveau visé (ADR
+     * 0078). Dans l'ordre du programme (sujet, thème, position). Une carte sans notion (un document Markdown) n'y figure
+     * pas ; un sujet inconnu, ou un brouillon que {@code scope} n'admet pas, ne donne aucune carte.
+     */
+    List<LeveledCard> choiceCards(Collection<String> subjectSlugs, SubjectScope scope);
 
     /** La notion de chaque carte demandée qui en a une (ADR 0026) ; les cartes d'un document Markdown n'en ont pas. */
     Map<UUID, UUID> notionsOf(Collection<UUID> cardIds);
@@ -130,6 +144,14 @@ public interface CardDirectory {
      */
     record ActiveCard(
             UUID cardId, String subjectSlug, @Nullable UUID notionId, CardType type) {}
+
+    /**
+     * Une carte à choix, sa notion, et ce que le référentiel dit de cette notion (ADR 0025).
+     *
+     * @param level le public visé par la notion
+     * @param priority 1 essentiel, 2 courant, 3 avancé, 4 rare
+     */
+    record LeveledCard(UUID cardId, String subjectSlug, UUID notionId, NotionInfo.Level level, int priority) {}
 
     record ThemeCards(String subjectSlug, String subjectTitle, String slug, String title, List<UUID> cardIds) {
 

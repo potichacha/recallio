@@ -176,6 +176,17 @@ describe('the privacy policy (ADR 0074)', () => {
     )
   })
 
+  // La révision intensive (ADR 0078) ne garde qu'un compteur par jour : ni la carte, ni la réponse.
+  it('says that the intensive drill keeps a daily counter and not the answers', async () => {
+    stubApi({})
+    renderAt('/confidentialite')
+
+    const progress = await screen.findByRole('rowheader', { name: 'Ta progression' })
+    expect(progress.closest('tr')).toHaveTextContent(
+      /En révision intensive, tes réponses sont corrigées sans être enregistrées : seul un compteur est gardé, le nombre de réponses de chaque jour et combien étaient justes\./,
+    )
+  })
+
   it('names the publisher as the one responsible when a name is given', async () => {
     serve(LEGAL_PUBLISHER_TAG, 'Alice Martin')
     serve(LEGAL_CONTACT_EMAIL_TAG, CONTACT)

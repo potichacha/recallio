@@ -7,7 +7,9 @@ import com.recallio.content.CardDirectory.CardFilter.Grading;
 import com.recallio.content.CardType;
 import com.recallio.content.ExerciseFiles;
 import com.recallio.content.NotionInfo;
+import com.recallio.content.SubjectScope;
 import com.recallio.content.domain.CardIdentity;
+import com.recallio.content.domain.NotionLevel;
 import com.recallio.content.domain.Subject;
 import com.recallio.content.domain.TourQuestions;
 import com.recallio.content.domain.catalog.ThemeNotFoundException;
@@ -28,7 +30,10 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.jspecify.annotations.Nullable;
 
-/** Toutes les requêtes ne voient que les sujets publiés : un brouillon n'est jamais proposé en révision. */
+/**
+ * Les requêtes ne voient que les sujets publiés : un brouillon n'est jamais proposé en révision. Seules celles qui
+ * prennent un {@link SubjectScope} peuvent en montrer, à un admin.
+ */
 @ApplicationScoped
 @Transactional(Transactional.TxType.SUPPORTS)
 public class JpaCardDirectory implements CardDirectory {
@@ -241,6 +246,11 @@ public class JpaCardDirectory implements CardDirectory {
 
     @Override
     public List<CardSnapshot> currentVersions(Collection<UUID> cardIds) {
+        return currentVersions(cardIds, SubjectScope.PUBLISHED);
+    }
+
+    @Override
+    public List<CardSnapshot> currentVersions(Collection<UUID> cardIds, SubjectScope scope) {
         if (cardIds.isEmpty()) {
             return List.of();
         }
@@ -253,9 +263,9 @@ public class JpaCardDirectory implements CardDirectory {
                         left join NotionEntity n on n.id = c.notionId
                         join ThemeEntity t on t.id = c.themeId
                         join SubjectEntity s on s.id = t.subjectId
-                        where c.id in :ids and c.retiredAt is null and %s
-                        """.formatted(PUBLISHED), Object[].class)
-                .setParameter("published", Subject.Status.PUBLISHED)
+                        where c.id in :ids and c.retiredAt is null and s.status in :statuses
+                        """, Object[].class)
+                .setParameter("statuses", statuses(scope))
                 .setParameter("ids", cardIds)
                 .getResultStream()
                 .map(row -> new CardSnapshot(
@@ -279,6 +289,42 @@ public class JpaCardDirectory implements CardDirectory {
                 .distinct()
                 .flatMap(id -> Stream.ofNullable(found.get(id)))
                 .toList();
+    }
+
+    @Override
+    public List<LeveledCard> choiceCards(Collection<String> subjectSlugs, SubjectScope scope) {
+        if (subjectSlugs.isEmpty()) {
+            return List.of();
+        }
+        return entityManager
+                .createQuery("""
+                        select c.id, s.slug, n.id, n.level, n.priority from CardEntity c
+                        join NotionEntity n on n.id = c.notionId
+                        join ThemeEntity t on t.id = c.themeId
+                        join SubjectEntity s on s.id = t.subjectId
+                        where c.retiredAt is null and n.retiredAt is null and s.slug in :subjects
+                          and s.status in :statuses and c.type <> :exercise and %s
+                        order by s.position, t.position, c.position
+                        """.formatted(HAS_CHOICES), Object[].class)
+                .setParameter("subjects", subjectSlugs)
+                .setParameter("statuses", statuses(scope))
+                .setParameter("exercise", CardType.CODING_EXERCISE)
+                .getResultStream()
+                .map(row -> new LeveledCard(
+                        (UUID) row[0],
+                        (String) row[1],
+                        (UUID) row[2],
+                        NotionInfo.Level.valueOf(((NotionLevel) row[3]).name()),
+                        ((Number) row[4]).intValue()))
+                .toList();
+    }
+
+    /** Les statuts des sujets que {@code scope} laisse voir. */
+    private static Set<Subject.Status> statuses(SubjectScope scope) {
+        return switch (scope) {
+            case PUBLISHED -> Set.of(Subject.Status.PUBLISHED);
+            case WITH_DRAFTS -> Set.of(Subject.Status.PUBLISHED, Subject.Status.DRAFT);
+        };
     }
 
     /** Les questions se choisissent sur la version courante des cartes : c'est elle qui a, ou non, des choix. */

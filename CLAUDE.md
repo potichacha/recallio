@@ -610,7 +610,7 @@ Le produit se raconte en trois portes : **Apprendre** (un chemin de leçons cour
 3. **Le chemin** : les unités (les chapitres du référentiel) et leurs leçons (les notions), terminées, en cours, à débloquer ; l'écran des révisions du jour.
 4. **La leçon** : les pages de la notion (le texte, le programme à exécuter, le « À toi »), puis ses questions ; le verdict en panneau, juste ou faux ; la fin de leçon. Sur ordinateur, deux colonnes.
 5. **La révision et l'exercice** dans le nouveau style : la carte, ses verdicts, l'exercice de code et ses tests.
-6. **La révision intensive** : plusieurs sujets, sans fin, corrigée par le serveur, « formuler d'abord », un bilan par notion ; rien dans FSRS (son ADR prolonge l'ADR 0038).
+6. **La révision intensive** : plusieurs sujets, sans fin, corrigée par le serveur, « formuler d'abord », un bilan par notion ; rien dans FSRS (ADR 0078, qui prolonge l'ADR 0038). ✅ Le serveur : `GET /api/v1/me/drill/questions` (un tirage par graine, sans état), `POST /api/v1/me/drill/checks`, `GET /api/v1/me/drill/usage`, et un compteur par jour (`drill_activity`). L'écran reste à faire.
 7. **Les parties à code** : hors d'un groupe, sur un ou plusieurs sujets, rejointes par un code à six chiffres ; les réglages, l'écran de l'hôte, le résultat après chaque réponse, le classement et son image (son ADR révise les ADR 0021 à 0024).
 8. **Jouer sans compte** : un invité, pour une seule partie (son ADR, et la section 4.5).
 9. **« Plus » et les codes** : un droit attaché au compte, ouvert par des codes d'accès qu'un admin crée par lots ; il lève la limite quotidienne de la révision intensive (son ADR, et la politique de confidentialité).

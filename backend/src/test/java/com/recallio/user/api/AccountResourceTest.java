@@ -42,6 +42,7 @@ class AccountResourceTest {
             "known_notion",
             "interview_plan",
             "daily_challenge_answer",
+            "drill_activity",
             "points_ledger",
             "daily_activity",
             "quest_progress",
@@ -117,6 +118,7 @@ class AccountResourceTest {
                 .body("sections.review.interview_plan[0].subject_slug", equalTo("java"))
                 .body("sections.review.interview_plan[0].notions_to_acquire", equalTo(4))
                 .body("sections.review.daily_challenge_answer[0].correct", equalTo(true))
+                .body("sections.review.drill_activity[0].answers", equalTo(7))
                 .body("sections.gamification.points_ledger[0].amount", equalTo(10))
                 .body("sections.group.group_member", hasSize(2))
                 .body("sections.group.challenge", hasSize(1))
@@ -250,6 +252,10 @@ class AccountResourceTest {
                 """
                 insert into daily_challenge_answer (challenge_id, user_id, position, correct, answered_at, request_id)
                 values (:dailyChallenge, :user, 0, true, now(), gen_random_uuid())
+                """,
+                """
+                insert into drill_activity (user_id, local_date, answers, correct)
+                values (:user, current_date, 7, 5)
                 """,
                 """
                 insert into points_ledger (id, user_id, amount, reason, source_id, occurred_at)

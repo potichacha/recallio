@@ -439,6 +439,10 @@ class AdminBetaResourceTest {
                 .setParameter("at", at)
                 .executeUpdate();
         sql("""
+                insert into drill_activity (user_id, local_date, answers, correct)
+                values (:userId, :day, 3, 2)
+                """).setParameter("userId", userId).setParameter("day", today).executeUpdate();
+        sql("""
                 insert into known_notion (user_id, notion_id, subject_slug, known_at)
                 values (:userId, :notionId, :subject, :at)
                 """)
