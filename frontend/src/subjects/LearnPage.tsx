@@ -87,7 +87,15 @@ export function LearnPage() {
         </p>
       </DoorBanner>
       <ReviewsOfTheDay />
-      {subjects.isPending && <LoadingState label="Chargement des sujets…" shape="tiles" />}
+      {/*
+        La silhouette réserve la hauteur de l'écran : les liens du bas et le pied de page restent sous le pli tant que
+        les sujets chargent, au lieu de sauter quand la liste arrive (la stabilité est mesurée par `speed.spec.ts`).
+      */}
+      {subjects.isPending && (
+        <div className="min-h-dvh">
+          <LoadingState label="Chargement des sujets…" shape="tiles" />
+        </div>
+      )}
       {subjects.isError && (
         <ErrorState
           message="Impossible de charger les sujets."
