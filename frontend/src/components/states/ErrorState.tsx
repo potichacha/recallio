@@ -12,7 +12,7 @@ export function ErrorState({ message, onRetry }: { message: string; onRetry?: ()
       role="alert"
       className="flex items-center gap-3 rounded-2xl border border-danger-line bg-danger-soft p-4"
     >
-      <Rico mood="thinking" size={48} decorative />
+      <Rico pose="thinking" size={64} decorative />
       <div className="flex flex-1 flex-col items-start gap-2">
         <p className="font-semibold">{message}</p>
         {onRetry && (

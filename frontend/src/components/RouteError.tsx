@@ -50,7 +50,7 @@ export function NotFoundPage() {
   useNoIndex()
   return (
     <section className="flex flex-col items-start gap-4">
-      <Rico mood="thinking" decorative />
+      <Rico pose="thinking" decorative />
       <h1 className="text-2xl font-bold">Page introuvable</h1>
       <p className="text-ink-muted">Cette adresse ne mène nulle part.</p>
       <Link to="/" className={button()}>

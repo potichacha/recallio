@@ -61,13 +61,13 @@ describe('Rico reacts (ADR 0058)', () => {
   it.each([
     ['cheering', 'motion-safe:animate-hop'],
     ['thinking', 'motion-safe:animate-tilt'],
-  ] as const)('moves when %s, only for who accepts motion', (mood, motion) => {
-    render(<Rico mood={mood} />)
+  ] as const)('moves when %s, only for who accepts motion', (pose, motion) => {
+    render(<Rico pose={pose} />)
 
     expect(screen.getByRole('img')).toHaveClass(motion)
   })
 
-  it('blinks, and stays still otherwise, when happy', () => {
+  it('blinks, and stays still otherwise, in its neutral pose', () => {
     render(<Rico />)
 
     const rico = screen.getByRole('img', { name: 'Rico est content' })

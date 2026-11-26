@@ -113,7 +113,7 @@ function Challenge({ subject }: { subject: string }) {
       <EmptyState
         title="Pas de défi du jour pour ce sujet"
         text={challenge.error.message}
-        mood="thinking"
+        pose="thinking"
       >
         <Link to="/play" className={button({ variant: 'secondary', size: 'sm' })}>
           Voir les autres défis

@@ -115,3 +115,12 @@ ont été repris, sans rien changer à ce qu'ils font. Ce qui s'écarte du texte
   vert vif de la maquette ; l'étoile de la quête prend la couleur d'avertissement, le jaune de la maquette n'ayant pas 3
   de contraste sur son fond ; le verdict garde son icône ; « Valider » reste l'envoi d'une réponse, y compris sur la
   page publique.
+
+## Note du 2026-11-26 : Rico redessiné, en seize poses
+
+La refonte « trois portes » (ADR 0077) redessine Rico d'après la planche `docs/maquettes/trois-portes/RicoPoses.dc.html` :
+une ombre, un ventre plus sombre, un reflet, des bras, des pieds et des joues, en seize poses et une pose neutre
+(`pose`, qui remplace `mood`). Ses aplats ont leurs tokens dans les deux thèmes (`rico-shade`, `rico-limb`, `rico-ear`,
+`rico-shine`), et le corps n'est dessiné qu'une fois (`Rico.tsx`, `ricoPoses.tsx`, `ricoParts.tsx`). Le mouvement
+reste celui décrit plus haut : il cligne des yeux, sautille ou penche la tête une fois, et ne flotte pas en boucle
+comme sur la planche.

@@ -63,7 +63,7 @@ function Brand() {
       to="/"
       className="flex items-center gap-2 text-lg font-black text-brand min-[360px]:text-[1.375rem] md:text-xl"
     >
-      {session.status === 'anonymous' && <Rico size={30} decorative />}
+      {session.status === 'anonymous' && <Rico size={40} decorative />}
       Recallio
     </NavLink>
   )

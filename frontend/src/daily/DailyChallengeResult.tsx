@@ -22,7 +22,7 @@ export function DailyChallengeResult({ challenge }: { challenge: DailyChallenge 
     <section aria-labelledby="daily-result-title" className="flex flex-col gap-5">
       <div className="relative flex items-center gap-4">
         {perfect && <Celebration />}
-        <Rico mood={perfect ? 'cheering' : 'happy'} decorative />
+        <Rico pose={perfect ? 'cheering' : 'neutral'} decorative />
         <div className="flex flex-1 flex-col gap-1 rounded-2xl bg-brand p-5 text-on-brand shadow-press">
           <h2 id="daily-result-title" className="text-sm font-bold uppercase">
             {perfect ? 'Sans faute !' : 'Défi terminé'}
