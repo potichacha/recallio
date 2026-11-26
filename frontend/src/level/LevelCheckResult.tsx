@@ -38,7 +38,7 @@ export function LevelCheckResult({
     <section aria-labelledby="level-check-result" className="flex flex-col gap-5">
       <div className="relative flex items-center gap-4">
         {passedNow && <Celebration />}
-        <Rico mood={passedNow ? 'cheering' : 'happy'} decorative />
+        <Rico pose={passedNow ? 'cheering' : 'neutral'} decorative />
         <div className="flex flex-1 flex-col gap-1 rounded-2xl bg-brand p-5 text-on-brand shadow-press">
           <h2 id="level-check-result" className="text-sm font-bold uppercase">
             Test terminé

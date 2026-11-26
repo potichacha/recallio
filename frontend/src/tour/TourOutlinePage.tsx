@@ -117,7 +117,7 @@ export function TourOutlinePage() {
           <EmptyState
             title="Ce sujet n’a pas encore de Tour."
             text="Son cours et ses cartes sont déjà là."
-            mood="thinking"
+            pose="thinking"
           />
         )}
       </div>

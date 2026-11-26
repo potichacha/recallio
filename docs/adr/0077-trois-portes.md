@@ -125,8 +125,8 @@ fera mieux les mains.
 - **Trois modules arrivent** : les parties à code (dans `live`, ou à côté, à décider dans son ADR), les amis, et le
   droit « Plus » avec ses codes. Chacun a son ADR et ses migrations.
 - **La politique de confidentialité change** deux fois : pour les amis, et pour les codes.
-- **Le budget de 200 Ko** de JavaScript à l'ouverture (étape 8.3) tient toujours : les seize poses de Rico ne sont pas
-  toutes chargées à l'ouverture.
+- **Le budget de 200 Ko** de JavaScript à l'ouverture (étape 8.3) tient toujours : les seize poses de Rico, toutes
+  chargées à l'ouverture, pèsent 2,2 Ko (152,2 Ko mesurés à l'étape 1).
 - **Rien n'est mesuré** : on ne sait pas si trois portes valent mieux que cinq onglets. La page « Bêta » le dira, sur la
   nouvelle forme.
 - **Ce qui reste hors de la refonte** : le paiement, la correction par IA, les vies.

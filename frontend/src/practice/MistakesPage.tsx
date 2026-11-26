@@ -40,7 +40,7 @@ export function MistakesPage() {
         <EmptyState
           title="Aucune erreur à revoir cette semaine."
           text="Une carte ratée en révision arrive ici, et en sort quand tu la réussis."
-          mood="cheering"
+          pose="cheering"
         />
       )}
       <PracticeDeck

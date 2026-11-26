@@ -23,7 +23,7 @@ export function AnswerVerdict({
 }) {
   return (
     <div className="flex items-center gap-3">
-      <Rico mood={correct ? 'applauding' : 'thinking'} size={56} decorative />
+      <Rico pose={correct ? 'applauding' : 'thinking'} size={76} decorative />
       <div className={`flex flex-col ${correct ? 'text-success-strong' : 'text-danger-strong'}`}>
         <p
           role={announce ? 'status' : undefined}

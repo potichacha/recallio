@@ -1,9 +1,9 @@
 import type { Progress } from '../api/progress'
-import type { RicoMood } from '../components/Rico'
+import type { RicoPose } from '../components/Rico'
 
 const plural = (count: number, word: string) => `${count} ${word}${count > 1 ? 's' : ''}`
 
-export type RicoWord = { greeting: string; message: string; mood: RicoMood }
+export type RicoWord = { greeting: string; message: string; pose: RicoPose }
 
 /**
  * Ce que Rico dit en tête de l'accueil (ADR 0058) : un salut, puis une phrase choisie d'après la journée. Une fonction
@@ -28,7 +28,7 @@ export function ricoWord({
     return {
       greeting: `Bienvenue${name} !`,
       message: 'Ta première session dure dix minutes. On y va ?',
-      mood: 'happy',
+      pose: 'neutral',
     }
   }
   const greeting = `Salut${name} !`
@@ -37,14 +37,14 @@ export function ricoWord({
     return {
       greeting,
       message: `Objectif atteint : ${plural(streak, 'jour')} de suite. À demain !`,
-      mood: 'happy',
+      pose: 'neutral',
     }
   }
   if (nothingToReview) {
     return {
       greeting,
       message: 'Tout est à jour ici pour le moment. Ouvre un autre sujet, ou reviens plus tard.',
-      mood: 'thinking',
+      pose: 'thinking',
     }
   }
   const left = plural(Math.max(1, dailyGoal - cardsToday), 'carte')
@@ -54,6 +54,6 @@ export function ricoWord({
       streak > 0
         ? `Encore ${left} et ta série passe à ${plural(streak + 1, 'jour')}.`
         : `Encore ${left} pour lancer ta série.`,
-    mood: 'cheering',
+    pose: 'cheering',
   }
 }

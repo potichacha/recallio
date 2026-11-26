@@ -90,7 +90,7 @@ export function DashboardPage() {
   return (
     <section className="flex flex-col gap-4">
       <header className="flex items-center gap-3.5">
-        <Rico mood={word?.mood} decorative />
+        <Rico pose={word?.pose} decorative />
         <div className="flex flex-1 flex-col rounded-2xl bg-surface px-3.5 py-3">
           <h1 className="text-lg font-black">
             {word?.greeting ?? (firstName ? `Salut ${firstName} !` : 'Salut !')}

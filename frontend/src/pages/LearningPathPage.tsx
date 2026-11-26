@@ -67,7 +67,7 @@ export function LearningPathPage() {
         <EmptyState
           title="Ce sujet n’a pas encore de référentiel de notions."
           text="Ses cartes se révisent dans l’ordre de son document."
-          mood="thinking"
+          pose="thinking"
         />
       )}
       {path.isSuccess && domains.length > 0 && (

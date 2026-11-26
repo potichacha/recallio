@@ -50,7 +50,7 @@ export function PracticePage() {
         </p>
       </header>
       {cards.length === 0 && (
-        <EmptyState title="Cette notion n’a pas encore de cartes." mood="thinking" />
+        <EmptyState title="Cette notion n’a pas encore de cartes." pose="thinking" />
       )}
       <PracticeDeck
         subject={slug}

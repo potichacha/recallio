@@ -29,7 +29,7 @@ describe('what Rico says on the home (ADR 0058)', () => {
     expect(said({ newcomer: true, progress: progress({ streak: 0, cardsToday: 0 }) })).toEqual({
       greeting: 'Bienvenue Alice !',
       message: 'Ta première session dure dix minutes. On y va ?',
-      mood: 'happy',
+      pose: 'neutral',
     })
   })
 
@@ -37,7 +37,7 @@ describe('what Rico says on the home (ADR 0058)', () => {
     expect(said()).toEqual({
       greeting: 'Salut Alice !',
       message: 'Encore 6 cartes et ta série passe à 4 jours.',
-      mood: 'cheering',
+      pose: 'cheering',
     })
     expect(said({ progress: progress({ cardsToday: 9 }) }).message).toBe(
       'Encore 1 carte et ta série passe à 4 jours.',
@@ -56,14 +56,14 @@ describe('what Rico says on the home (ADR 0058)', () => {
     ).toEqual({
       greeting: 'Salut Alice !',
       message: 'Objectif atteint : 4 jours de suite. À demain !',
-      mood: 'happy',
+      pose: 'neutral',
     })
   })
 
   it('says when the subject is up to date, rather than asking for cards that do not exist', () => {
     expect(said({ nothingToReview: true })).toMatchObject({
       message: 'Tout est à jour ici pour le moment. Ouvre un autre sujet, ou reviens plus tard.',
-      mood: 'thinking',
+      pose: 'thinking',
     })
   })
 

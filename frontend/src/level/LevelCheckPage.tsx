@@ -57,7 +57,7 @@ function Body({
       <EmptyState
         title="Pas de test de niveau pour ce sujet"
         text={check.error.message}
-        mood="thinking"
+        pose="thinking"
       >
         <Link to="/tours" className={button({ variant: 'secondary', size: 'sm' })}>
           Voir les Tours

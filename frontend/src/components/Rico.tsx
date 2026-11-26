@@ -1,116 +1,106 @@
-/** Les humeurs de Rico : ce que dit son visage, et son nom pour un lecteur d'écran. */
-const MOODS = {
-  happy: { label: 'Rico est content', mouth: 'M27 50c5 5 13 5 18 0' },
-  cheering: { label: 'Rico t’encourage', mouth: 'M27 48c3 9 15 9 18 0z' },
-  applauding: { label: 'Rico applaudit', mouth: 'M26 48c5 7 15 7 20 0z' },
-  thinking: { label: 'Rico réfléchit', mouth: 'M29 52h14' },
-} as const
+import { EARS, HOLDING_A_CARD, POSES, STANDARD_FRAME, type PoseSpec } from './ricoPoses'
 
-export type RicoMood = keyof typeof MOODS
+export type RicoPose = keyof typeof POSES
 
-/** Le geste de chaque humeur : il sautille quand il encourage ou applaudit, penche la tête quand il réfléchit. */
-const MOTION: Record<RicoMood, string> = {
-  happy: '',
-  cheering: 'motion-safe:animate-hop',
-  applauding: 'motion-safe:animate-hop',
-  thinking: 'motion-safe:animate-tilt',
+/** Le corps debout, et le corps couché de qui dort : plus large, plus bas, sans pieds. */
+const STANDING = {
+  shadow: 32,
+  earsDrop: 0,
+  torso: { x: 18, y: 22, width: 84, height: 82, rx: 28 },
+  belly: 'M18 76Q60 92 102 76A28 28 0 0 1 74 104H46A28 28 0 0 1 18 76z',
+  shine: 'M30 42a18 18 0 0 1 14-11',
 }
-
-/** Une bouche ouverte, pleine, pour encourager et applaudir ; un trait sinon. */
-const OPEN_MOUTH: Record<RicoMood, boolean> = {
-  happy: false,
-  cheering: true,
-  applauding: true,
-  thinking: false,
+const LYING = {
+  shadow: 36,
+  earsDrop: 6,
+  torso: { x: 14, y: 32, width: 92, height: 78, rx: 30 },
+  belly: 'M14 82Q60 98 106 82A28 28 0 0 1 78 110H42A28 28 0 0 1 14 82z',
+  shine: 'M28 52a18 18 0 0 1 14-11',
 }
 
 /**
- * Rico, la mascotte (ADR 0058) : une carte violette aux oreilles pointues, qui salue, encourage, applaudit ou
- * réfléchit. Il est dessiné avec les tokens, donc dans les deux thèmes. Il bouge un peu, et cligne des yeux ; pas pour
- * qui a demandé moins d'animations. C'est un dessin de principe : un illustrateur fera mieux, et le remplacer ne touche
- * que ce fichier.
- *
- * `decorative` le cache aux lecteurs d'écran quand le texte voisin dit déjà tout.
+ * Le dessin commun à toutes les poses, dans l'ordre de la planche : l'ombre, les pieds, ce que la pose glisse derrière
+ * le corps, les oreilles, le corps, son ventre plus sombre et son reflet, puis le visage et ce que la pose tient
+ * devant. L'échelle ne dépend pas de la pose : `size` est la largeur du cadre ordinaire, et un cadre plus grand (une
+ * coupe brandie, un bras tendu) agrandit l'image sans rapetisser Rico.
  */
-export function Rico({
-  mood = 'happy',
-  size = 72,
-  decorative = false,
+function Drawing({
+  spec,
+  size,
+  decorative,
 }: {
-  mood?: RicoMood
-  size?: number
-  decorative?: boolean
+  spec: PoseSpec
+  size: number
+  decorative: boolean
 }) {
-  const { label, mouth } = MOODS[mood]
-  const pupilY = mood === 'thinking' ? 31.5 : 35.5
+  const [x, y, width, height] = spec.frame ?? STANDARD_FRAME
+  const scale = size / STANDARD_FRAME[2]
+  const body = spec.lying ? LYING : STANDING
+  const [ears, innerEars] = EARS[spec.ears ?? 'up']
   return (
     <svg
       role={decorative ? undefined : 'img'}
-      aria-label={decorative ? undefined : label}
+      aria-label={decorative ? undefined : spec.label}
       aria-hidden={decorative || undefined}
-      width={size}
-      height={size}
-      viewBox="0 0 72 72"
-      className={`shrink-0 origin-bottom ${MOTION[mood]}`}
+      width={Math.round(width * scale)}
+      height={Math.round(height * scale)}
+      viewBox={`${x} ${y} ${width} ${height}`}
+      className={`shrink-0 origin-bottom ${spec.motion ?? ''}`}
     >
-      <rect x="6" y="10" width="60" height="58" rx="20" className="fill-rico" />
-      <path d="M18 10l6-9 7 9M41 10l7-9 6 9" className="fill-rico" />
-      {mood === 'applauding' ? (
-        // Les yeux plissés de qui applaudit.
-        <path
-          d="M19 35c3-5 10-5 13 0M40 35c3-5 10-5 13 0"
-          strokeWidth="3.5"
-          strokeLinecap="round"
-          className="fill-none stroke-white"
-        />
-      ) : (
-        // Les yeux clignent de temps en temps ; les pupilles regardent en haut quand il réfléchit.
-        <g className="origin-center [transform-box:fill-box] motion-safe:animate-blink">
-          <circle cx="26" cy="34" r="8" className="fill-white" />
-          <circle cx="46" cy="34" r="8" className="fill-white" />
-          <circle cx="27.5" cy={pupilY} r="3.6" className="fill-rico-ink" />
-          <circle cx="47.5" cy={pupilY} r="3.6" className="fill-rico-ink" />
-        </g>
+      <ellipse cx="60" cy="113" rx={body.shadow} ry="5" opacity="0.12" className="fill-rico-ink" />
+      {!spec.lying && (
+        <>
+          <rect x="37" y="98" width="18" height="13" rx="6.5" className="fill-rico-limb" />
+          <rect x="65" y="98" width="18" height="13" rx="6.5" className="fill-rico-limb" />
+        </>
       )}
+      {spec.back}
+      <g transform={body.earsDrop ? `translate(0 ${body.earsDrop})` : undefined}>
+        <path d={ears} className="fill-rico" />
+        <path d={innerEars} className="fill-rico-ear" />
+      </g>
+      <rect {...body.torso} className="fill-rico" />
+      <path d={body.belly} className="fill-rico-shade" />
       <path
-        d={mouth}
-        strokeWidth="3.5"
+        d={body.shine}
+        strokeWidth="5"
         strokeLinecap="round"
-        strokeLinejoin="round"
-        className={OPEN_MOUTH[mood] ? 'fill-white stroke-white' : 'fill-none stroke-white'}
+        className="fill-none stroke-rico-shine"
       />
+      {spec.front}
     </svg>
   )
 }
 
 /**
- * Rico qui tient une carte, sur la page publique : le dessin de l'accroche. Décoratif, le titre voisin dit tout. Il ne
- * bouge pas : aucune action ne l'a provoqué.
+ * Rico, la mascotte (ADR 0058, redessiné par l'ADR 0077) : une carte violette aux oreilles pointues, avec du volume,
+ * des bras et des pieds, en seize poses et une pose neutre. Il est dessiné avec les tokens, donc dans les deux thèmes.
+ * Il cligne des yeux, sautille quand il encourage, applaudit ou brandit la coupe, penche la tête quand il réfléchit ;
+ * pas pour qui a demandé moins d'animations. C'est un dessin de principe : un illustrateur fera mieux les mains, et le
+ * remplacer ne touche que ce fichier, `ricoPoses.tsx` et `ricoParts.tsx`.
+ *
+ * `size` est sa largeur dans le cadre ordinaire, en pixels. `decorative` le cache aux lecteurs d'écran quand le texte
+ * voisin dit déjà tout.
+ */
+export function Rico({
+  pose = 'neutral',
+  size = 96,
+  decorative = false,
+}: {
+  pose?: RicoPose
+  size?: number
+  decorative?: boolean
+}) {
+  return <Drawing spec={POSES[pose]} size={size} decorative={decorative} />
+}
+
+/** La largeur du cadre ordinaire qui donne 190 px au dessin de l'accroche, plus large que lui. */
+const HERO_SIZE = 165
+
+/**
+ * Rico qui tend une carte, sur la page publique : le dessin de l'accroche. Décoratif, le titre voisin dit tout. Il ne
+ * sautille pas : aucune action ne l'a provoqué.
  */
 export function RicoWithCard() {
-  return (
-    <svg aria-hidden="true" width="190" height="150" viewBox="0 0 190 150" className="shrink-0">
-      <g transform="rotate(12 146 71)">
-        <rect x="118" y="34" width="56" height="74" rx="10" className="fill-sun" />
-        <path
-          d="M134 62h26M134 74h18"
-          strokeWidth="4"
-          strokeLinecap="round"
-          className="stroke-on-sun"
-        />
-      </g>
-      <rect x="22" y="30" width="112" height="120" rx="34" className="fill-rico" />
-      <path d="M50 30l10-18 12 18M88 30l12-18 10 18" className="fill-rico" />
-      <circle cx="60" cy="78" r="15" className="fill-white" />
-      <circle cx="98" cy="78" r="15" className="fill-white" />
-      <circle cx="63" cy="81" r="7" className="fill-rico-ink" />
-      <circle cx="101" cy="81" r="7" className="fill-rico-ink" />
-      <path
-        d="M64 108c9 8 21 8 30 0"
-        strokeWidth="5"
-        strokeLinecap="round"
-        className="fill-none stroke-white"
-      />
-    </svg>
-  )
+  return <Drawing spec={HOLDING_A_CARD} size={HERO_SIZE} decorative />
 }

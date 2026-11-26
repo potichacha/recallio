@@ -45,6 +45,20 @@ const PAIRS: [string, string, number][] = [
   // Rico : ses yeux blancs sur son corps, ses pupilles dans ses yeux.
   ['white', 'rico', GRAPHIC],
   ['rico-ink', 'white', GRAPHIC],
+  // Sa bouche passe sur son ventre, plus sombre (ADR 0077).
+  ['white', 'rico-shade', GRAPHIC],
+  // Le bandeau de chaque porte (ADR 0077) : son titre et son surtitre. Celui de « Jouer » est la paire on-sun et sun.
+  ['brand-soft', 'brand', TEXT],
+  ['on-info', 'info', TEXT],
+  ['info-soft', 'info', TEXT],
+  // Une pastille cochée de la porte « Jouer » : le fond de l'encre, le texte d'une carte.
+  ['surface', 'ink', TEXT],
+  // Les tuiles d'une question en direct : leur encre, et la lettre à leur couleur sur une pastille de cette encre.
+  ...['a', 'b', 'c', 'd'].map((tile): [string, string, number] => [
+    'on-live',
+    `live-${tile}`,
+    TEXT,
+  ]),
   ['on-success', 'success', TEXT],
   ['on-success', 'success-strong', TEXT],
   ...STATES.flatMap((state) =>
