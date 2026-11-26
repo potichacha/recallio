@@ -187,6 +187,12 @@ class ReviewQueueServiceTest {
         public double desiredRetention() {
             return FsrsParameters.DEFAULT.desiredRetention();
         }
+
+        /** La file de révision ne connaît pas la révision intensive. */
+        @Override
+        public int drillFreeAnswersPerDay() {
+            throw new UnsupportedOperationException();
+        }
     }
 
     /**

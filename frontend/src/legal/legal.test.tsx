@@ -185,6 +185,24 @@ describe('the privacy policy (ADR 0074)', () => {
     expect(progress.closest('tr')).toHaveTextContent(
       /En révision intensive, tes réponses sont corrigées sans être enregistrées : seul un compteur est gardé, le nombre de réponses de chaque jour et combien étaient justes\./,
     )
+    // L'idempotence de la correction (ADR 0079) : une empreinte, où ni la carte ni la réponse ne se lisent.
+    expect(progress.closest('tr')).toHaveTextContent(
+      /une empreinte de tes dernières réponses du jour, pour ne pas en compter une deux fois : ni la carte ni ta réponse ne s’y lisent\./,
+    )
+  })
+
+  // Le droit « Plus » et les codes d'accès (ADR 0079) : le droit, le code utilisé, jamais le code lui-même.
+  it('says what Recallio Plus keeps: the right, the code used and when, never the code itself', async () => {
+    stubApi({})
+    renderAt('/confidentialite')
+
+    const plus = await screen.findByRole('rowheader', { name: 'Recallio Plus' })
+    expect(plus.closest('tr')).toHaveTextContent(
+      /la date de fin de ton droit, quel code d’accès tu as utilisé et quand, et le nombre de codes que tu as essayés sans succès, avec l’heure du premier/,
+    )
+    expect(plus.closest('tr')).toHaveTextContent(
+      /Le code lui-même n’est pas gardé : seulement une empreinte, et ses quatre derniers caractères\./,
+    )
   })
 
   it('names the publisher as the one responsible when a name is given', async () => {

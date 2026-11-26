@@ -31,6 +31,8 @@ public enum UsageFeature {
     LEVEL_CHECK(true),
     /** Une réponse corrigée en révision intensive (ADR 0078). */
     INTENSIVE_DRILL(true),
+    /** Un code d'accès utilisé (ADR 0079). */
+    ACCESS_CODE(true),
     /** Une date d'entretien fixée pour un sujet. */
     INTERVIEW_COUNTDOWN(false),
     /** Les rappels acceptés sur au moins un appareil. */
@@ -38,7 +40,9 @@ public enum UsageFeature {
     /** Un profil rendu public. */
     PUBLIC_PROFILE(false),
     /** L'appartenance à au moins un groupe. */
-    GROUP(false);
+    GROUP(false),
+    /** Le droit « Plus » en cours (ADR 0079). */
+    PLUS(false);
 
     private final boolean dated;
 

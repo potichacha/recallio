@@ -17,6 +17,7 @@ import com.recallio.content.CardType;
 import com.recallio.content.SubjectScope;
 import com.recallio.content.application.ContentImportService;
 import com.recallio.content.domain.source.SubjectFolder;
+import com.recallio.entitlement.application.AccessCodeBatchService;
 import io.quarkus.narayana.jta.QuarkusTransaction;
 import io.quarkus.test.junit.QuarkusTest;
 import io.quarkus.test.security.TestSecurity;
@@ -28,9 +29,12 @@ import io.restassured.response.ValidatableResponse;
 import io.restassured.specification.RequestSpecification;
 import jakarta.inject.Inject;
 import jakarta.persistence.EntityManager;
+import java.time.Clock;
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -42,6 +46,7 @@ import org.junit.jupiter.api.Test;
 /**
  * La révision intensive (ADR 0078). Eiffel et Oberon sont publiés, Rexx est un brouillon. Chaque carte à choix se répond
  * « Oui » (le premier choix). Les profils des tests sont en UTC sauf mention, et l'horloge des tests est à midi du jour.
+ * Sans Plus, un compte fait corriger quatre réponses par jour en test (ADR 0079).
  */
 @QuarkusTest
 class DrillTest {
@@ -51,6 +56,11 @@ class DrillTest {
     private static final String USAGE = "/api/v1/me/drill/usage";
 
     private static final String SEED = "7";
+
+    /** {@code recallio.review.drill-free-answers-per-day}, dans le profil de test. */
+    private static final int FREE_ANSWERS = 4;
+
+    private static final String LIMIT_REACHED = "review.drill-daily-limit-reached";
 
     /** Une notion d'un sujet de test : son niveau, sa priorité, et le nombre de ses cartes à choix. */
     private record Notion(String id, String level, int priority, int cards) {}
@@ -87,6 +97,12 @@ class DrillTest {
 
     @Inject
     EntityManager entityManager;
+
+    @Inject
+    AccessCodeBatchService accessCodes;
+
+    @Inject
+    Clock clock;
 
     @BeforeEach
     void importSubjects() {
@@ -220,7 +236,9 @@ class DrillTest {
                 .statusCode(200)
                 .body("day", equalTo(LocalDate.now(ZoneOffset.UTC).toString()))
                 .body("answers", is(0))
-                .body("correct", is(0));
+                .body("correct", is(0))
+                .body("dailyLimit", is(FREE_ANSWERS))
+                .body("remaining", is(FREE_ANSWERS));
 
         check(choice(first, 0))
                 .statusCode(200)
@@ -233,14 +251,21 @@ class DrillTest {
                 .body("subjectTitle", equalTo("Eiffel"))
                 .body("notionSlug", equalTo(page.getString("questions[0].notionSlug")))
                 .body("notionTitle", equalTo(page.getString("questions[0].notionTitle")))
-                .body("answersToday", is(1));
+                .body("answersToday", is(1))
+                .body("remainingToday", is(FREE_ANSWERS - 1));
         check(choice(second, 1))
                 .statusCode(200)
                 .body("correct", is(false))
                 .body("correctChoices", contains(0))
-                .body("answersToday", is(2));
+                .body("answersToday", is(2))
+                .body("remainingToday", is(FREE_ANSWERS - 2));
 
-        given().get(USAGE).then().statusCode(200).body("answers", is(2)).body("correct", is(1));
+        given().get(USAGE)
+                .then()
+                .statusCode(200)
+                .body("answers", is(2))
+                .body("correct", is(1))
+                .body("remaining", is(FREE_ANSWERS - 2));
 
         // Ni le journal, ni FSRS, ni l'XP, ni la série : seul le compteur du jour a bougé.
         for (String table : List.of("review_log", "review_state", "points_ledger", "daily_activity")) {
@@ -269,6 +294,14 @@ class DrillTest {
                 .statusCode(422)
                 .body("code", equalTo("review.answer-mismatch"));
         check(Map.of("selectedChoices", List.of(0))).statusCode(400).body("code", equalTo("validation.failed"));
+        // Sans identifiant de requête, la correction ne serait pas idempotente : il est obligatoire.
+        given().contentType(ContentType.JSON)
+                .body(choice(question, 0))
+                .post(CHECKS)
+                .then()
+                .statusCode(400)
+                .body("code", equalTo("validation.failed"))
+                .body("invalidParams.name", contains("requestId"));
 
         given().get(USAGE).then().statusCode(200).body("answers", is(0));
     }
@@ -311,6 +344,121 @@ class DrillTest {
         assertThat(count("drill_activity", alice)).isZero();
     }
 
+    @Test
+    @TestSecurity(user = "alice")
+    @OidcSecurity(claims = @Claim(key = "sub", value = "drill-limit"))
+    void shouldRefuseTheAnswerBeyondTheDailyLimitWithoutPlus() {
+        String question = questions("JUNIOR", 0, "eiffel").extract().path("questions[0].cardId");
+
+        for (int answer = 1; answer <= FREE_ANSWERS; answer++) {
+            check(choice(question, 0))
+                    .statusCode(200)
+                    .body("answersToday", is(answer))
+                    .body("remainingToday", is(FREE_ANSWERS - answer));
+        }
+
+        // La réponse de trop n'est ni corrigée ni comptée.
+        String refusal = check(choice(question, 0))
+                .statusCode(403)
+                .contentType("application/problem+json")
+                .body("code", equalTo(LIMIT_REACHED))
+                .extract()
+                .asString();
+        assertThat(refusal).contains("Plus").doesNotContain("correctChoices", "Parce que.");
+        given().get(USAGE)
+                .then()
+                .statusCode(200)
+                .body("answers", is(FREE_ANSWERS))
+                .body("dailyLimit", is(FREE_ANSWERS))
+                .body("remaining", is(0));
+        // Le tirage reste ouvert : une question sans sa correction ne donne rien.
+        questions("JUNIOR", 0, "eiffel").statusCode(200).body("total", is(3));
+    }
+
+    /** Sur mobile, une requête renvoyée après une coupure ne compte pas deux fois (CLAUDE.md, section 4.4). */
+    @Test
+    @TestSecurity(user = "alice")
+    @OidcSecurity(claims = @Claim(key = "sub", value = "drill-replay"))
+    void shouldNotCountAnAnswerSentAgainWithTheSameRequestId() {
+        String question = questions("JUNIOR", 0, "eiffel").extract().path("questions[0].cardId");
+        Map<String, Object> answer = withRequestId(choice(question, 1));
+
+        String first = check(answer)
+                .statusCode(200)
+                .body("answersToday", is(1))
+                .extract()
+                .asString();
+        String replayed = check(answer)
+                .statusCode(200)
+                .body("answersToday", is(1))
+                .extract()
+                .asString();
+
+        assertThat(replayed).isEqualTo(first);
+        given().get(USAGE).then().statusCode(200).body("answers", is(1)).body("correct", is(0));
+
+        // Le même identifiant pour une autre réponse n'évite pas le compteur : c'est une autre réponse.
+        Map<String, Object> otherChoice = new HashMap<>(answer);
+        otherChoice.put("selectedChoices", List.of(0));
+        check(otherChoice).statusCode(200).body("correct", is(true)).body("answersToday", is(2));
+
+        // À la limite, la dernière réponse rejouée est toujours rendue, et la suivante refusée.
+        check(choice(question, 0)).statusCode(200).body("answersToday", is(3));
+        Map<String, Object> last = withRequestId(choice(question, 0));
+        check(last).statusCode(200).body("answersToday", is(FREE_ANSWERS)).body("remainingToday", is(0));
+        check(last).statusCode(200).body("answersToday", is(FREE_ANSWERS)).body("correct", is(true));
+        check(choice(question, 0)).statusCode(403).body("code", equalTo(LIMIT_REACHED));
+        given().get(USAGE)
+                .then()
+                .statusCode(200)
+                .body("answers", is(FREE_ANSWERS))
+                .body("correct", is(3));
+    }
+
+    @Test
+    @TestSecurity(user = "alice")
+    @OidcSecurity(claims = @Claim(key = "sub", value = "drill-plus"))
+    void shouldLiftTheLimitWithPlusAndRestoreItWhenPlusEnds() {
+        UUID alice = profileId();
+        String question = questions("JUNIOR", 0, "eiffel").extract().path("questions[0].cardId");
+        String code =
+                accessCodes.create("Révision intensive", 1, 30, 1, null).codes().getFirst();
+        given().contentType(ContentType.JSON)
+                .body(Map.of("code", code))
+                .post("/api/v1/me/plus/redemptions")
+                .then()
+                .statusCode(201);
+
+        // Avec Plus, ni limite ni reste.
+        given().get(USAGE)
+                .then()
+                .statusCode(200)
+                .body("dailyLimit", nullValue())
+                .body("remaining", nullValue());
+        for (int answer = 1; answer <= FREE_ANSWERS + 2; answer++) {
+            check(choice(question, 0))
+                    .statusCode(200)
+                    .body("answersToday", is(answer))
+                    .body("remainingToday", nullValue());
+        }
+
+        // Le droit prend fin, d'après l'horloge : la limite revient, et les réponses du jour comptent.
+        QuarkusTransaction.requiringNew()
+                .run(() -> entityManager
+                        .createNativeQuery("update plus_entitlement set ends_at = :at where user_id = :id")
+                        .setParameter("at", clock.instant().minus(Duration.ofMinutes(1)))
+                        .setParameter("id", alice)
+                        .executeUpdate());
+
+        check(choice(question, 0)).statusCode(403).body("code", equalTo(LIMIT_REACHED));
+        given().get(USAGE)
+                .then()
+                .statusCode(200)
+                .body("answers", is(FREE_ANSWERS + 2))
+                .body("dailyLimit", is(FREE_ANSWERS))
+                .body("remaining", is(0));
+    }
+
     private static ValidatableResponse questions(String level, long offset, String... subjects) {
         RequestSpecification request =
                 given().queryParam("level", level).queryParam("seed", SEED).queryParam("offset", offset);
@@ -347,8 +495,18 @@ class DrillTest {
         return Map.of("cardId", cardId, "selectedChoices", List.of(index));
     }
 
+    /** Corrige une réponse ; sans identifiant de requête, elle en reçoit un neuf, comme le ferait le client. */
     private static ValidatableResponse check(Map<String, Object> answer) {
-        return given().contentType(ContentType.JSON).body(answer).post(CHECKS).then();
+        return given().contentType(ContentType.JSON)
+                .body(withRequestId(answer))
+                .post(CHECKS)
+                .then();
+    }
+
+    private static Map<String, Object> withRequestId(Map<String, Object> answer) {
+        Map<String, Object> request = new HashMap<>(answer);
+        request.putIfAbsent("requestId", UUID.randomUUID().toString());
+        return request;
     }
 
     private static UUID profileId() {

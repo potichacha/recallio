@@ -35,7 +35,7 @@ const feature = (name: string, accounts: number, percent: number | null, dated =
 })
 
 const FEATURE_NAMES = Object.keys(USAGE_FEATURE_LABELS)
-const UNDATED = ['INTERVIEW_COUNTDOWN', 'REMINDERS', 'PUBLIC_PROFILE', 'GROUP']
+const UNDATED = ['INTERVIEW_COUNTDOWN', 'REMINDERS', 'PUBLIC_PROFILE', 'GROUP', 'PLUS']
 
 const CARD = {
   cardId: 'c1',
@@ -257,11 +257,11 @@ describe('BetaPage', () => {
     const items = within(list)
       .getAllByRole('listitem')
       .map((item) => item.textContent)
-    expect(items).toHaveLength(15)
+    expect(items).toHaveLength(17)
     expect(items[0]).toBe('Révision3 comptes · 75 %')
     expect(items).toContain('Rappels · à ce jour1 compte · 25 %')
     expect(items).toContain('Examen blanc0 compte · 0 %')
-    expect(items.filter((item) => item?.includes('à ce jour'))).toHaveLength(4)
+    expect(items.filter((item) => item?.includes('à ce jour'))).toHaveLength(5)
     expect(items.join(' ')).not.toMatch(/undefined|[A-Z]{2,}_/)
     expect(screen.getByText(/La part des 4 comptes actifs/)).toBeInTheDocument()
   })

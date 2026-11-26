@@ -54,7 +54,10 @@ class AccountResourceTest {
             "ranked_queue",
             "group_member",
             "followed_subject",
-            "public_profile");
+            "public_profile",
+            "plus_entitlement",
+            "access_code_redemption",
+            "access_code_attempt");
 
     /** Celles où elles restent, parce que d'autres les partagent : l'identifiant ne mène plus à personne. */
     private static final Set<String> KEPT =
@@ -102,6 +105,7 @@ class AccountResourceTest {
                 .body(
                         "sections.keySet()",
                         containsInAnyOrder(
+                                "entitlement",
                                 "feedback",
                                 "gamification",
                                 "group",
@@ -119,6 +123,10 @@ class AccountResourceTest {
                 .body("sections.review.interview_plan[0].notions_to_acquire", equalTo(4))
                 .body("sections.review.daily_challenge_answer[0].correct", equalTo(true))
                 .body("sections.review.drill_activity[0].answers", equalTo(7))
+                .body("sections.entitlement.plus_entitlement", hasSize(1))
+                .body("sections.entitlement.access_code_redemption[0].plus_days", equalTo(30))
+                .body("sections.entitlement.access_code_redemption[0].code_suffix", equalTo("3VYE"))
+                .body("sections.entitlement.access_code_attempt[0].failures", equalTo(2))
                 .body("sections.gamification.points_ledger[0].amount", equalTo(10))
                 .body("sections.group.group_member", hasSize(2))
                 .body("sections.group.challenge", hasSize(1))
@@ -164,6 +172,9 @@ class AccountResourceTest {
                 .isZero();
         assertThat(text("select role from group_member where user_id = :id", seeded.otherUser()))
                 .isEqualTo("OWNER");
+        // Le code qu'elle a utilisé garde son compteur : il ne se rouvre pas (ADR 0079).
+        assertThat(count("select redemptions from access_code where code_hash = 'hash-of-delete' and id <> :id", alice))
+                .isOne();
         // Les données de l'autre utilisateur ne bougent pas.
         assertThat(count("select count(*) from review_state where user_id = :id", seeded.otherUser()))
                 .isOne();
@@ -256,6 +267,24 @@ class AccountResourceTest {
                 """
                 insert into drill_activity (user_id, local_date, answers, correct)
                 values (:user, current_date, 7, 5)
+                """,
+                "insert into plus_entitlement (user_id, ends_at, updated_at) values (:user, now() + interval '30 days', now())",
+                """
+                insert into access_code_batch (id, label, plus_days, max_redemptions_per_code, created_at)
+                values (gen_random_uuid(), 'account-%s', 30, 1, now())
+                """.formatted(tag),
+                """
+                insert into access_code (id, batch_id, code_hash, suffix, redemptions)
+                select gen_random_uuid(), id, 'hash-of-%s', '3VYE', 1 from access_code_batch
+                where label = 'account-%s'
+                """.formatted(tag, tag),
+                """
+                insert into access_code_redemption (code_id, user_id, redeemed_at, plus_days)
+                select id, :user, now(), 30 from access_code where code_hash = 'hash-of-%s'
+                """.formatted(tag),
+                """
+                insert into access_code_attempt (user_id, window_started_at, failures)
+                values (:user, now(), 2)
                 """,
                 """
                 insert into points_ledger (id, user_id, amount, reason, source_id, occurred_at)

@@ -465,6 +465,38 @@ class AdminBetaResourceTest {
                 .setParameter("handle", "beta-" + userId.toString().substring(0, 8))
                 .setParameter("at", at)
                 .executeUpdate();
+        plus(userId, at);
+    }
+
+    /** Le droit « Plus » en cours, ouvert par un code d'accès (ADR 0079). */
+    private void plus(UUID userId, Instant at) {
+        UUID batchId = UUID.randomUUID();
+        UUID codeId = UUID.randomUUID();
+        sql("insert into plus_entitlement (user_id, ends_at, updated_at) values (:userId, :endsAt, :at)")
+                .setParameter("userId", userId)
+                .setParameter("endsAt", at.plus(Duration.ofDays(30)))
+                .setParameter("at", at)
+                .executeUpdate();
+        sql("""
+                insert into access_code_batch (id, label, plus_days, max_redemptions_per_code, created_at)
+                values (:id, 'Bêta', 30, 1, :at)
+                """).setParameter("id", batchId).setParameter("at", at).executeUpdate();
+        sql("""
+                insert into access_code (id, batch_id, code_hash, suffix, redemptions)
+                values (:id, :batchId, :hash, 'BETA', 1)
+                """)
+                .setParameter("id", codeId)
+                .setParameter("batchId", batchId)
+                .setParameter("hash", "beta-" + codeId)
+                .executeUpdate();
+        sql("""
+                insert into access_code_redemption (code_id, user_id, redeemed_at, plus_days)
+                values (:id, :userId, :at, 30)
+                """)
+                .setParameter("id", codeId)
+                .setParameter("userId", userId)
+                .setParameter("at", at)
+                .executeUpdate();
     }
 
     private void groupChallenge(UUID userId, UUID groupId, UUID cardId, Instant at) {
